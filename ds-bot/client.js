@@ -396,6 +396,7 @@ var ZH = {
   "Message actions": "消息操作",
   Download: "下载",
   "Thought it through": "思考过程",
+  Think: "思考",
   "Earlier messages": "更早的消息",
   "Loading earlier messages…": "正在加载更早的消息…",
   "Couldn’t load earlier messages · Retry": "更早的消息没加载出来 · 重试",
@@ -2373,10 +2374,15 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 @media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
 `;
 var CONVERSATION_CSS = `
-.bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:min(560px,78%)}
-.bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
-.bt-think summary::-webkit-details-marker{display:none}
-.bt-think-text{white-space:pre-wrap;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2)}
+.bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;width:100%;min-width:0;max-width:min(560px,78%)}
+.bt-think-copy{flex:1;min-width:0}
+.bt-think-sep{flex:none;width:2px;height:2px;margin:0 8px;border-radius:1px;background:currentColor}
+.bt-think-preview{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--dsh-content-font-size-secondary,13px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px))}
+.bt-think-preview[data-streaming]{mask-image:linear-gradient(to right,black calc(100% - 48px),transparent);text-overflow:clip}
+.bt-think:not([data-preview]) :is(.bt-think-sep,.bt-think-preview){display:none}
+.bt-think[data-expanded] [data-disclosure-row]{position:sticky;top:0;z-index:1;background:var(--bt-main)}
+.bt-think-text{min-width:0;padding:4px 0 4px calc(22px + var(--dsh-content-font-delta,0px))}
+.bt-think-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .bt-event{display:flex;justify-content:center;align-items:center;gap:2px;min-height:24px;margin:2px 0;font-size:12px;line-height:16px;color:var(--bt-ink-2);flex-wrap:wrap}
 .bt-event>span{padding:0 2px}
 .bt-event button{border:0;background:none;color:inherit;font:inherit;display:inline-flex;align-items:center;gap:4px;cursor:pointer;height:24px;padding:4px 6px 4px 4px;border-radius:999px;box-sizing:border-box;transition:background-color .12s ease}
@@ -3513,6 +3519,17 @@ var SECRET_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-secret-glide{transition:none}.bt-secret-check,.bt-secret-done,.bt-secret-ok,.bt-secret-edit{animation:none}}
 `;
 
+// src/client/turn-reasoning.js
+function turnReasoning(steps, current) {
+  const members = steps.length ? steps : [current];
+  if (members[0].step !== current.step) return { text: "", running: false };
+  const last = members.at(-1);
+  return {
+    text: members.map((step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => block.text).join("\n")).filter((text) => text.trim() !== "").join("\n\n"),
+    running: last.status === "running" && last.blocks.at(-1)?.kind === "reasoning"
+  };
+}
+
 // src/client/cells.js
 var import_react6 = require("react");
 var import_react_dom = require("react-dom");
@@ -3638,30 +3655,59 @@ function MessageTools({ text, name, sessionId, react, actions }) {
     ), document.body) : null
   );
 }
-function ThinkingRow({ text, running }) {
-  if (running || !text) return null;
+function reasoningPreview(text, running) {
+  const paragraphs = text.replace(/\r\n/g, "\n").split(/\n(?:[\t ]*\n)+/);
+  let preview = paragraphs[0].split("\n")[0];
+  if (running) {
+    paragraphs.forEach((paragraph) => {
+      const line = paragraph.split("\n")[0].trim();
+      if (line) preview = line;
+    });
+  }
+  return preview.replaceAll("**", "");
+}
+function ThinkingRow({ text, running, useDisclosure }) {
+  const { expanded, toggle } = useDisclosure();
+  const preview = reasoningPreview(text, running);
   return (0, import_react6.createElement)(
-    "details",
-    { className: "bt-think" },
-    (0, import_react6.createElement)("summary", null, t("Thought it through")),
-    (0, import_react6.createElement)("div", { className: "bt-think-text" }, text)
+    "div",
+    { className: "bt-think", "data-state": running ? "running" : "ok", "data-expanded": expanded || void 0, "data-preview": !expanded && preview !== "" || void 0, "aria-busy": running || void 0 },
+    running ? (0, import_react6.createElement)("span", { className: "bt-think-status" }, t("Thinking…")) : null,
+    (0, import_react6.createElement)(import_dsh_client_ui_primitives.DisclosureRow, {
+      icon: (0, import_react6.createElement)(import_dsh_client_ui_primitives.IconThinkOutlineRegular, { size: 14 }),
+      title: running ? t("Thinking…") : t("Think"),
+      running,
+      open: expanded,
+      expandable: true,
+      expandOnRowClick: true,
+      onToggle: toggle,
+      contentClassName: "bt-think-copy",
+      collapsedContent: (0, import_react6.createElement)(
+        import_react6.Fragment,
+        null,
+        (0, import_react6.createElement)("span", { className: "bt-think-sep", "data-shimmer-decoration": "", "aria-hidden": true }),
+        (0, import_react6.createElement)("span", { className: "bt-think-preview", "data-streaming": running || void 0 }, (0, import_react6.createElement)(import_dsh_client_ui_primitives.TextShimmer, null, preview))
+      )
+    }, expanded ? (0, import_react6.createElement)("div", { className: "bt-think-text" }, (0, import_react6.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text, streaming: running, labels: mdLabels(), variant: "compact" })) : null)
   );
 }
-function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, actions }) {
+function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, useDisclosure, useTurnSteps, actions }) {
   const roster = useRoster((value) => value);
   const data = node.data;
+  const steps = useTurnSteps(String(data.turn));
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn);
   const texts = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text);
   const running = data.status === "running";
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null);
+  const combined = turnReasoning(steps, data);
+  const reasoning = groupPart === "response" ? "" : combined.text;
+  const thinkingLive = groupPart !== "response" && combined.running;
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}:${groupPart ?? "all"}`, !hidden && (running && texts.length > 0 || thinkingLive) ? { text: true } : null);
   if (hidden) return null;
-  const reasoning = groupPart === "response" ? "" : data.blocks.filter((block) => block.kind === "reasoning").map((block) => block.text).join("\n").trim();
-  const thinkingLive = running && texts.length === 0 && data.blocks.some((block) => block.kind === "reasoning");
-  if (texts.length === 0 && !reasoning) return null;
+  if (texts.length === 0 && !reasoning.trim() && !thinkingLive) return null;
   return (0, import_react6.createElement)(
     import_react6.Fragment,
     null,
-    reasoning ? (0, import_react6.createElement)(ThinkingRow, { text: reasoning, running: thinkingLive }) : null,
+    reasoning.trim() || thinkingLive ? (0, import_react6.createElement)(ThinkingRow, { text: reasoning, running: thinkingLive, useDisclosure }) : null,
     texts.length ? (0, import_react6.createElement)(Bubbles, { texts, roster, selfId: roster.byId[sessionId]?.id ?? sessionId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi }) : null
   );
 }
@@ -11362,7 +11408,7 @@ function writeMode(mode, storage = globalThis.localStorage) {
 }
 
 // src/client/index.js
-var inject = ["sessions", "uiWorkspace", "slots", "theme", "layout", "configForms"];
+var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout", "configForms"];
 function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
   const roster = createSource(EMPTY_ROSTER);
@@ -12037,6 +12083,13 @@ function apply(ctx) {
   const browserPages = browsers?.pages ?? createSource({});
   const browserTabs = browsers?.tabs ?? createSource({});
   const face = () => ({ actions, hooks: { roster, ui, activity, memoryNews, registry, turnClock, live, browserPages, browserTabs, surface, update } });
+  const assistantFace = (sessionId) => {
+    const binding = ctx.sessions.binding(sessionId);
+    const chat = ctx.uiConversation.binding(binding).target("chat");
+    return { ...face(), keyedHooks: {
+      turnSteps: (turn) => chat.getSnapshot().nodes.turnDataSource(Number(turn), "assistant-step")
+    } };
+  };
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({ name, ...options }, component));
   const installShell = () => [
     installCompiledStyles(SHELL_CSS, "shell"),
@@ -12071,7 +12124,7 @@ function apply(ctx) {
     // the mode is held at `verbose` while this group is mounted.
     holdFlatTranscript(ctx.configForms.get("ui-chat")),
     shadow("conversation.session.header", { priority: -10, inject: face }, HeaderPill),
-    shadow("conversation.chat.node", { key: "assistant-step", priority: -10, locale: "chat", inject: face }, AssistantCell),
+    shadow("conversation.chat.node", { key: "assistant-step", priority: -10, locale: "chat", inject: assistantFace }, AssistantCell),
     shadow("conversation.chat.node", { key: "turn-trigger", priority: -10, locale: "chat", inject: face }, TriggerCell),
     shadow("conversation.chat.node", { key: "tool-call", priority: -10, locale: "chat", inject: face }, ToolCell),
     shadow("conversation.chat.node", { key: "turn-process", priority: -10, locale: "chat", inject: face }, TurnProcessCell),

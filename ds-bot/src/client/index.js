@@ -27,7 +27,7 @@ import { installLocale, language } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 
-export const inject = ['sessions', 'uiWorkspace', 'slots', 'theme', 'layout', 'configForms']
+export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout', 'configForms']
 
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
@@ -636,6 +636,13 @@ export function apply(ctx) {
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const face = () => ({ actions, hooks: { roster, ui, activity, memoryNews, registry, turnClock, live, browserPages, browserTabs, surface, update } })
+  const assistantFace = (sessionId) => {
+    const binding = ctx.sessions.binding(sessionId)
+    const chat = ctx.uiConversation.binding(binding).target('chat')
+    return { ...face(), keyedHooks: {
+      turnSteps: turn => chat.getSnapshot().nodes.turnDataSource(Number(turn), 'assistant-step'),
+    } }
+  }
 
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({ name, ...options }, component))
 
@@ -675,7 +682,7 @@ export function apply(ctx) {
     // the mode is held at `verbose` while this group is mounted.
     holdFlatTranscript(ctx.configForms.get('ui-chat')),
     shadow('conversation.session.header', { priority: -10, inject: face }, HeaderPill),
-    shadow('conversation.chat.node', { key: 'assistant-step', priority: -10, locale: 'chat', inject: face }, AssistantCell),
+    shadow('conversation.chat.node', { key: 'assistant-step', priority: -10, locale: 'chat', inject: assistantFace }, AssistantCell),
     shadow('conversation.chat.node', { key: 'turn-trigger', priority: -10, locale: 'chat', inject: face }, TriggerCell),
     shadow('conversation.chat.node', { key: 'tool-call', priority: -10, locale: 'chat', inject: face }, ToolCell),
     shadow('conversation.chat.node', { key: 'turn-process', priority: -10, locale: 'chat', inject: face }, TurnProcessCell),

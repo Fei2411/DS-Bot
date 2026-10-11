@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DisclosureRow, IconThinkOutlineRegular, MarkdownText, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, commRunOf, toolName, toolArgs, reminderPrompts } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
@@ -9,6 +9,7 @@ import { AnsweredCell, SettledQuestion, PendingQuestion } from './questions.js'
 import { SecretToolCell } from './secret-card.js'
 import { dateLocale, t } from './i18n.js'
 import { failureLabel } from './diagnostics.js'
+import { turnReasoning } from './turn-reasoning.js'
 
 // -------------------------------------------------------------------------
 // Chat cells
@@ -99,28 +100,49 @@ function MessageTools({ text, name, sessionId, react, actions }) {
       item(t('Copy'), CopyIcon, copy), item(t('Download'), DownloadIcon, download)), document.body) : null)
 }
 
-// Live reasoning shows only as the activity row's phrase.
-function ThinkingRow({ text, running }) {
-  if (running || !text) return null
-  return h('details', { className: 'bt-think' },
-    h('summary', null, t('Thought it through')),
-    h('div', { className: 'bt-think-text' }, text))
+function reasoningPreview(text, running) {
+  const paragraphs = text.replace(/\r\n/g, '\n').split(/\n(?:[\t ]*\n)+/)
+  let preview = paragraphs[0].split('\n')[0]
+  if (running) {
+    paragraphs.forEach((paragraph) => {
+      const line = paragraph.split('\n')[0].trim()
+      if (line) preview = line
+    })
+  }
+  return preview.replaceAll('**', '')
 }
 
-export function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, actions }) {
+function ThinkingRow({ text, running, useDisclosure }) {
+  const { expanded, toggle } = useDisclosure()
+  const preview = reasoningPreview(text, running)
+  return h('div', { className: 'bt-think', 'data-state': running ? 'running' : 'ok', 'data-expanded': expanded || undefined, 'data-preview': !expanded && preview !== '' || undefined, 'aria-busy': running || undefined },
+    running ? h('span', { className: 'bt-think-status' }, t('Thinking…')) : null,
+    h(DisclosureRow, {
+      icon: h(IconThinkOutlineRegular, { size: 14 }), title: running ? t('Thinking…') : t('Think'), running,
+      open: expanded, expandable: true, expandOnRowClick: true, onToggle: toggle,
+      contentClassName: 'bt-think-copy',
+      collapsedContent: h(Fragment, null,
+        h('span', { className: 'bt-think-sep', 'data-shimmer-decoration': '', 'aria-hidden': true }),
+        h('span', { className: 'bt-think-preview', 'data-streaming': running || undefined }, h(TextShimmer, null, preview))),
+    }, expanded ? h('div', { className: 'bt-think-text' }, h(MarkdownText, { text, streaming: running, labels: mdLabels(), variant: 'compact' })) : null))
+}
+
+export function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, useDisclosure, useTurnSteps, actions }) {
   const roster = useRoster(value => value)
   const data = node.data
+  const steps = useTurnSteps(String(data.turn))
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
   const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
   const running = data.status === 'running'
-  // A streaming reply stands in for the activity row.
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
+  const combined = turnReasoning(steps, data)
+  const reasoning = groupPart === 'response' ? '' : combined.text
+  const thinkingLive = groupPart !== 'response' && combined.running
+  // A live reasoning row or reply stands in for the activity row.
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}:${groupPart ?? 'all'}`, !hidden && (running && texts.length > 0 || thinkingLive) ? { text: true } : null)
   if (hidden) return null
-  const reasoning = groupPart === 'response' ? '' : data.blocks.filter(block => block.kind === 'reasoning').map(block => block.text).join('\n').trim()
-  const thinkingLive = running && texts.length === 0 && data.blocks.some(block => block.kind === 'reasoning')
-  if (texts.length === 0 && !reasoning) return null
+  if (texts.length === 0 && !reasoning.trim() && !thinkingLive) return null
   return h(Fragment, null,
-    reasoning ? h(ThinkingRow, { text: reasoning, running: thinkingLive }) : null,
+    reasoning.trim() || thinkingLive ? h(ThinkingRow, { text: reasoning, running: thinkingLive, useDisclosure }) : null,
     texts.length ? h(Bubbles, { texts, roster, selfId: roster.byId[sessionId]?.id ?? sessionId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi }) : null)
 }
 

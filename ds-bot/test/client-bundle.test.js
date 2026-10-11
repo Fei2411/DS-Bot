@@ -35,5 +35,5 @@ test('client.js registers a factory that exports apply and inject', () => {
   assert.equal(Object.prototype.toString.call(exports), '[object Module]')
   assert.deepEqual(Object.keys(exports), ['apply', 'inject'])
   assert.equal(typeof exports.apply, 'function')
-  assert.deepEqual(Array.from(exports.inject), ['sessions', 'uiWorkspace', 'slots', 'theme', 'layout', 'configForms'])
+  assert.deepEqual(Array.from(exports.inject), ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout', 'configForms'])
 })
