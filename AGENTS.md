@@ -33,6 +33,30 @@ CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && nod
 dev/bench.sh smoke 3096 8796 stop
 ```
 
+### Real-model preview instances
+
+To test against a real model next to the mock, start `pnpm dsh --profile web` with one extra patch file declaring an `llm-pi-ai` provider, e.g.:
+
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      mimo:
+        api: openai-completions
+        baseURL: <endpoint>/v1
+        apiKeyEnv: MIMO_API_KEY   # key lives in the process env / ~/.dsh/.env, never in the file
+        compat: { supportsDeveloperRole: false, maxTokensField: max_tokens }
+        models:
+          - { id: mimo-v2.6-flash, contextWindow: 128000, maxTokens: 8192, input: [text, image] }
+```
+
+Notes that cost real debugging time:
+
+- Image capability is `input: [text, image]` on llm-pi-ai models. `inputModalities` is the llm-deepseek field name; using it silently drops image support and the composer refuses attachments ("The current model does not support images").
+- Each web start mints a new `?token=` URL (see the `dsh web:` line in the log); old links die on restart.
+- The mock only answers its command language; it cannot describe image content, so a correct image answer proves the real provider path.
+- macOS has no `setsid`: `dev/bench.sh` does not run there; start `mock-llm.mjs`, `llm-tap.mjs` and `pnpm dsh` as separate processes.
+
 A change is done when `npm test` and the `--check` pass. Run the smoke test as well for changes to `index.js` or `src/host/`. Use a free port for each bench, and stop every bench and process that you started.
 
 ## Layout
