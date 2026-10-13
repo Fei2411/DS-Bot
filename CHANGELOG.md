@@ -4,6 +4,10 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Fixed
+
+- With the `ptc` agent preset, a group chat did not pass messages on to its members, so nobody answered. Group chats now work with every agent preset.
+
 ## [0.1.5] - 2026-10-13
 
 ### Added

@@ -31,6 +31,8 @@ const ROOM_EXTRA_TURNS = 4
 const ROOM_ADMIN_EXTRA_TURNS = 4
 const ROOM_TURNS_EACH = 2
 const ROOM_ADMIN_TURNS_EACH = 4
+// DSH's default ceiling for a run_code program; a longer request is clamped to it.
+const ROOM_RELAY_PROGRAM_MS = 600_000
 
 // Logs written before rooms were versioned get sequence numbers in place.
 const ensureRoomLog = (room) => {
@@ -649,6 +651,80 @@ export function install(rt) {
       .catch(error => rt.warn('ds-bot: group report to %s failed: %s', post.name, error))
   }
 
+  // The relay step below is synthesized, so a group chat's own Session presents its
+  // tools natively whatever the model's presentation is: under PTC a direct
+  // group_relay call is refused, and a run_code program would cap a whole round at
+  // the program's time limit. A Session whose agent is still being put together
+  // stays on the retry list until the declaration lands or the group is gone.
+  const presented = new WeakSet()
+  const PRESENT_RETRY_MS = 5_000
+  const pendingPresent = new Set()
+  let presentTimer
+  const stopPresentRetry = () => {
+    if (presentTimer !== undefined) clearInterval(presentTimer)
+    presentTimer = undefined
+  }
+  ctx.effect(() => stopPresentRetry, 'ds-bot: group tool presentation retry')
+  const schedulePresent = (agent) => {
+    pendingPresent.add(agent)
+    if (presentTimer === undefined) {
+      presentTimer = setInterval(() => {
+        for (const waiting of pendingPresent) presentNatively(waiting)
+        if (pendingPresent.size === 0) stopPresentRetry()
+      }, PRESENT_RETRY_MS)
+      presentTimer.unref?.()
+    }
+  }
+  function presentNatively(agent) {
+    // A DSH without per-scope presentation has no PTC to step out of.
+    if (agent === undefined || presented.has(agent) || typeof ctx.tools.presentAs !== 'function') return
+    if (rt.roomOf(agent.session?.id) === undefined) {
+      pendingPresent.delete(agent)
+      return
+    }
+    if (typeof agent.ctx?.tools?.presentAs !== 'function') {
+      schedulePresent(agent)
+      return
+    }
+    // One declaration per scope: a second one throws, so a failure is not retried.
+    presented.add(agent)
+    pendingPresent.delete(agent)
+    try {
+      agent.ctx.tools.presentAs('native')
+    } catch (error) {
+      rt.warn('ds-bot: group chat %s keeps its tool presentation: %s', agent.session?.id, error)
+    }
+  }
+  // Creation waits for this listener, so a group saved earlier is native before its first step.
+  ctx.on('agent/created', async ({ agent }) => {
+    try {
+      await rt.load()
+      presentNatively(agent)
+    } catch (error) {
+      rt.warn('ds-bot: group tool presentation on agent/created failed: %s', error)
+    }
+  })
+  // A new group's Session resolves its agent before the group is recorded.
+  rt.presentRoomNatively = async (roomId) => {
+    try {
+      presentNatively(await rt.resolveAgent(roomId))
+    } catch (error) {
+      rt.warn('ds-bot: group tool presentation for %s failed: %s', roomId, error)
+    }
+  }
+
+  // Under PTC only run_code is callable directly. The relay goes through a program
+  // only when the native declaration did not land: the program's time limit then
+  // bounds the round.
+  const relayCall = (tools = []) => {
+    const names = new Set(tools.map(tool => tool.name))
+    if (!names.has('run_code') || names.has('group_relay')) return { name: 'group_relay', args: '{}' }
+    return {
+      name: 'run_code',
+      args: JSON.stringify({ description: 'Relay the group chat to its Bots', code: 'return await tools.group_relay({})', timeoutMs: ROOM_RELAY_PROGRAM_MS }),
+    }
+  }
+
   // A group chat's own Session never consults the model: models drift from "only call
   // group_relay" (they message one member directly when the user names it), so the
   // relay step is synthesized here. Auxiliary calls such as titles, and DS Bot's own
@@ -673,9 +749,10 @@ export function install(rt) {
         return
       }
       const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
+      const { name, args } = relayCall(options.tools)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 0, id, name: 'group_relay', argumentsDelta: '{}' }
-      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'group_relay', arguments: '{}' } }
+      yield { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
     })()
   })

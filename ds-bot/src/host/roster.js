@@ -295,6 +295,7 @@ export function install(rt) {
         createdBy: createdBy ?? null,
       }
       await rt.save()
+      await rt.presentRoomNatively(id)
       return state.rooms[id]
     } catch (error) {
       // The group's Session was already made: archive it instead of leaving an orphan.
