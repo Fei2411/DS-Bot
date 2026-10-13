@@ -2124,7 +2124,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
 @media (prefers-reduced-motion:reduce){.bt-create-card,.bt-create-pop{animation:none}}
-.bt-send{height:40px;min-width:40px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);font-size:14px;padding:0 14px;cursor:pointer}
+.bt-send{height:40px;min-width:40px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);font-size:14px;padding:0 14px;cursor:pointer;flex:none;white-space:nowrap}
 .bt-send:disabled{opacity:.35;cursor:default}
 .bt-error{padding:0 14px 10px;color:#e02135;font-size:12px}
 
@@ -2146,7 +2146,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 @keyframes bt-foot-in{from{opacity:0;transform:translateY(6px)}}
 @keyframes bt-foot-out{to{opacity:0;transform:translateY(6px)}}
 @media (prefers-reduced-motion:reduce){.bt-exchange,.bt-exchange .bt-dialog-foot{animation-duration:.01s}}
-.bt-soft{height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;cursor:pointer}
+.bt-soft{height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;cursor:pointer;flex:none;white-space:nowrap}
 .bt-soft:hover{background:var(--bt-active)}
 .bt-time{display:block;text-align:center;font-size:12px;line-height:16px;color:var(--bt-ink-2);padding:6px 0}
 
@@ -2493,7 +2493,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-row:hover{background:var(--bt-hover)}
 .bt-mem-row>svg{flex:none;color:var(--bt-ink-2)}
 .bt-mem-row-copy{flex:1;text-align:left}
-.bt-mem-row-go{display:inline-flex;align-items:center;gap:2px;color:var(--bt-ink-3);font-size:12px}
+.bt-mem-row-go{display:inline-flex;align-items:center;gap:2px;color:var(--bt-ink-3);font-size:12px;flex:none;white-space:nowrap}
 .bt-mem-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 .bt-mem-scrim{animation:bt-fade .2s ease-out}
 .bt-mem{position:relative;width:min(680px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
@@ -10406,7 +10406,7 @@ var FEEDBACK_CSS = `
 .bt-fb-what .bt-input-area{min-height:80px}
 .bt-fb-preview{cursor:default;padding:0}
 .bt-fb-preview pre{margin:0;width:100%;max-height:240px;overflow:auto;padding:10px 12px;box-sizing:border-box;font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink-2);white-space:pre-wrap;word-break:break-word;outline:none}
-.bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease}
+.bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease;flex:none;white-space:nowrap}
 .bt-fb-primary:hover{filter:brightness(1.08)}
 .bt-fb-primary:active{filter:brightness(.94)}
 .bt-fb-note{margin:-8px 4px 0}
