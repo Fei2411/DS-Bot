@@ -62,6 +62,10 @@ DS Bot has group chats. A group chat is a great way to get several bots to work 
 
 ![Group chat: the admin, Chief, hands the work to Writer and Coder](docs/images/group.png)
 
+### Capabilities
+
+Settings → **Capabilities** is a shared library of MCP servers, skills and packs. Add a capability to a Bot in its settings; it is available from that Bot's next message in its own chat and group chats. A local MCP command that a Bot adds needs your approval before it can run. While other Bots use a capability, only you or a Main Bot can change or delete it.
+
 ### Usage
 
 In **Settings** → **Usage**, you can see token usage by time, by bot and by model.

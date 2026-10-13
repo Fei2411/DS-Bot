@@ -11,8 +11,8 @@ import { currentColor, normalize, unquote } from './text.js'
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, agents:Record<string,any>, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -97,13 +97,25 @@ export function install(rt) {
   // Fill `state` from the saved file and bring an older team up to date. Returns the
   // groups whose Session titles still need the new name.
   const adopt = (parsed) => {
+    const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
-    let migrated = false
+    let migrated = !hadCapabilities
+    if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
+      state.capabilities = { items: {} }
+      migrated = true
+    } else if (state.capabilities.items === null || typeof state.capabilities.items !== 'object' || Array.isArray(state.capabilities.items)) {
+      state.capabilities.items = {}
+      migrated = true
+    }
     for (const bot of Object.values(state.bots)) {
+      if (!Array.isArray(bot.capabilities)) {
+        bot.capabilities = []
+        migrated = true
+      }
       if (bot.color !== currentColor(bot.color)) {
         bot.color = currentColor(bot.color)
         migrated = true
@@ -248,6 +260,7 @@ export function install(rt) {
         ensureLock()
         await rename(temp, statePath)
         seen = stamp()
+        rt.capabilitiesStateSaved?.()
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // A fake team of two Bots in one group; member answers are played back through the
@@ -71,7 +71,7 @@ function start() {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -101,7 +101,7 @@ function start() {
     ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent, ctx, home }
+  return { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent, ctx, home, rt }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -114,6 +114,34 @@ const waitFor = async (check) => {
   return undefined
 }
 const turnFor = (sent, ...earlier) => waitFor(() => sent.find(entry => !earlier.includes(entry) && entry.message.source.role === 'room'))
+
+test('a new group Session waits for capabilities before its first member prompt', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+
+  let release
+  let markStarted
+  const gate = new Promise(resolve => { release = resolve })
+  const started = new Promise(resolve => { markStarted = resolve })
+  rt.ensureCapabilities = async sessionId => {
+    markStarted(sessionId)
+    await gate
+  }
+  const running = relay(room.id, 'first-turn')
+  const sessionId = await started
+  assert.equal(sent.length, 0)
+  release()
+
+  const first = await turnFor(sent)
+  assert.equal(first.sessionId, sessionId)
+  await answer(first.sessionId, first.message.source.exchangeId, 'Chief ready.', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Writer ready.', 2)
+  await running
+})
 
 async function team(call, sent) {
   const chief = (await call('state', {})).value.mainBotId

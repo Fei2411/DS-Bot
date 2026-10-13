@@ -51,6 +51,7 @@ export function install(rt) {
     agents: Object.values(state.agents),
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
+    capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
     colors: [...COLORS, ...EXTRA_COLORS],
     models: rt.cachedCatalog(),
@@ -76,6 +77,7 @@ export function install(rt) {
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     connectors: rt.connectorsView(),
+    capabilityStatuses: rt.capabilityStatusesView(),
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
@@ -226,6 +228,12 @@ export function install(rt) {
         case 'connector-retry':
           await rt.load()
           return ok(await rt.connectorEndpoint(endpoint, body))
+        case 'capability-save':
+        case 'capability-delete':
+        case 'capability-approve':
+        case 'bot-capability':
+          await rt.load()
+          return ok(await rt.capabilityEndpoint(endpoint, body))
         case 'schedules':
         case 'schedule-create':
         case 'schedule-delete':
@@ -248,6 +256,7 @@ export function install(rt) {
           // Claim the question before queueing so a second answer is refused.
           delete state.questions[sessionId]
           try {
+            await rt.ensureCapabilities(sessionId)
             const agent = await rt.resolveAgent(sessionId)
             agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
             await ctx.sessions.flush(agent.session)
@@ -265,6 +274,7 @@ export function install(rt) {
           // A Bot id or an earlier part of its own chat means the current part.
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
+          await rt.ensureCapabilities(sessionId)
           await ctx.sessionController.prompt({
             requestId: randomUUID(),
             sessionId,

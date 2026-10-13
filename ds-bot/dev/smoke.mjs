@@ -292,6 +292,43 @@ await step('delete the copy', async () => {
   return copy.id
 }, id => expect(state().bots[id] === undefined, 'copy still there'))
 
+// The mock answers 查能力 with the mcp__ tools and catalog skills it sees in the request.
+const echoName = 'smoke-echo'
+const skillName = 'smoke-guide'
+const skillDescription = 'Smoke test skill'
+const echoServer = join(ROOT, 'ds-bot', 'dev', 'mcp-echo-server.mjs')
+const sees = `工具 mcp__${echoName}__echo；技能 ${skillName}（${skillDescription}）`
+const seesNothing = '工具 无；技能 无'
+const reportOf = (calls, bot) => calls.flatMap(call => call.out ?? []).find(block => block.type === 'text' && block.text.startsWith(`${bot} 能力：`))?.text
+const attach = (bot, name, attached) => api('bot-capability', { botId: bot.id, name, attached })
+await api('capability-save', { name: echoName, kind: 'mcp', description: 'Smoke test echo server', transport: 'stdio', command: process.execPath, args: [echoServer], env: {} })
+await api('capability-save', { name: skillName, kind: 'skill', description: skillDescription, content: 'Use this skill when asked about capability smoke checks.' })
+await attach(chief(), echoName, true)
+await attach(chief(), skillName, true)
+
+await step('Chief sees its attached MCP and skill', () => send(chief().id, '查能力 smoke'), (_value, calls) => {
+  const report = reportOf(calls, 'Chief')
+  return expect(report?.endsWith(sees), `Chief reported ${report}`)
+})
+
+const capabilityRoom = await api('create-room', { name: 'Capability smoke', members: [chief().id, botNamed('Coder').id], admin: chief().id })
+await step('Chief first group turn sees its attached MCP and skill', () => send(capabilityRoom.id, '查能力 smoke'), (_value, calls) => {
+  const report = reportOf(calls, 'Chief')
+  return expect(report?.endsWith(sees), `Chief reported ${report} in the group`)
+})
+
+await step('Coder does not inherit Chief capabilities', () => send(botNamed('Coder').id, '查能力 smoke'), (_value, calls) => {
+  const report = reportOf(calls, 'Coder')
+  return expect(report?.endsWith(seesNothing), `Coder reported ${report}`)
+})
+
+await attach(chief(), echoName, false)
+await attach(chief(), skillName, false)
+await step('detached capabilities disappear from Chief', () => send(chief().id, '查能力 smoke'), (_value, calls) => {
+  const report = reportOf(calls, 'Chief')
+  return expect(report?.endsWith(seesNothing), `Chief reported ${report}`)
+})
+
 if (outFile) writeFileSync(outFile, `${JSON.stringify(transcript, null, 2)}\n`)
 console.log(failures.length === 0 ? `\nsmoke: all ${transcript.length} steps passed` : `\nsmoke: ${failures.length} failed\n${failures.join('\n')}`)
 process.exit(failures.length === 0 ? 0 : 1)

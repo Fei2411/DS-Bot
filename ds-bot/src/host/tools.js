@@ -421,5 +421,103 @@ export function install(rt) {
     },
   }))
 
+  ctx.tools.register(defineTool({
+    name: 'list_capabilities',
+    description: 'List shared MCP servers, skills, and packs, plus the capabilities attached to you.',
+    parameters: {},
+    output,
+    async execute(_args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      const bot = rt.botOf(self)
+      if (!bot) return 'Only Bots on the team can use list_capabilities.'
+      const items = Object.values(state.capabilities?.items ?? {})
+      if (items.length === 0) return 'No shared capabilities are saved yet.'
+      const statuses = rt.capabilityStatusesView()[bot.id] ?? {}
+      const lines = items.map(item => {
+        const extra = item.kind === 'pack' ? `; includes ${(item.items ?? []).join(', ') || 'nothing'}`
+          : item.kind === 'mcp' && item.transport === 'stdio' ? `; ${item.approved ? 'allowed' : 'needs user approval'}` : ''
+        const itemStatus = statuses[item.name]
+        const state = itemStatus ? ` (${itemStatus.state}${itemStatus.error ? `: ${itemStatus.error}` : ''})` : ''
+        const status = bot.capabilities?.includes(item.name) ? `; attached to you${state}` : ''
+        return `- ${item.name} (${item.kind})${item.description ? ` — ${item.description}` : ''}${extra}${status}`
+      })
+      return ['Shared capabilities:', ...lines].join('\n')
+    },
+  }))
+  ctx.tools.register(defineTool({
+    name: 'save_capability',
+    description: 'Create or update a shared MCP server, skill, or pack. Changes apply from your next message.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Lowercase letters, digits, and single hyphens, up to 32 characters; "github" is reserved' },
+      kind: { type: 'string', required: true, enum: ['mcp', 'skill', 'pack'] },
+      description: { type: 'string', description: 'What this capability provides' },
+      transport: { type: 'string', enum: ['stdio', 'streamable-http'], description: 'How to reach an MCP server: a local command or an HTTP URL' },
+      command: { type: 'string', description: 'Program that starts a local MCP server' },
+      args: { type: 'array', items: { type: 'string' }, description: 'Arguments for command' },
+      env: { type: 'object', additionalProperties: true, description: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value' },
+      url: { type: 'string', description: 'MCP server URL' },
+      headers: { type: 'object', additionalProperties: true, description: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value' },
+      content: { type: 'string', description: 'Skill instructions' },
+      items: { type: 'array', items: { type: 'string' }, description: 'MCP server and skill names in the pack' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      if (!rt.botOf(self)) return 'Only Bots on the team can use save_capability.'
+      try {
+        const item = await rt.capabilitySave(args, { botId: self })
+        const approval = item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
+          ? ' The user must allow this MCP server in DS Bot settings before it can work.'
+          : ''
+        return `Saved ${item.name}. Bots with it attached use the change from their next message.${approval}`
+      } catch (error) { return error.message }
+    },
+  }))
+  ctx.tools.register(defineTool({
+    name: 'delete_capability',
+    description: 'Remove a shared capability and detach it from every Bot and pack.',
+    parameters: { name: { type: 'string', required: true } },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      if (!rt.botOf(self)) return 'Only Bots on the team can use delete_capability.'
+      try {
+        await rt.capabilityDelete(args.name, { botId: self })
+        return `Deleted ${args.name}; it was removed from every Bot and pack. The change applies from their next message.`
+      } catch (error) { return error.message }
+    },
+  }))
+  for (const [name, endpoint, verb] of [['attach_capability', 'attach', 'Attached'], ['detach_capability', 'detach', 'Detached']]) {
+    ctx.tools.register(defineTool({
+      name,
+      description: `${verb} a shared capability to yourself, or to another Bot if you are a Main Bot.`,
+      parameters: {
+        name: { type: 'string', required: true, description: 'Capability name from list_capabilities' },
+        bot: { type: 'string', description: 'Optional Bot name; only a Main Bot may change another Bot' },
+      },
+      output,
+      async execute(args, exec) {
+        await rt.load()
+        const self = rt.selfOf(exec.agent?.id)
+        if (!rt.botOf(self)) return `Only Bots on the team can use ${name}.`
+        try {
+          const result = await rt.changeCapabilityAttachment(endpoint, args, self)
+          const attached = state.capabilities.items[args.name]
+          const members = attached?.kind === 'pack'
+            ? (attached.items ?? []).map(child => state.capabilities.items[child]).filter(Boolean)
+            : attached ? [attached] : []
+          const approvals = members
+            .filter(item => item.kind === 'mcp' && item.transport === 'stdio' && item.approved !== true)
+            .map(item => ` The user must allow ${item.name} in DS Bot settings before it can work.`)
+            .join('')
+          return `${verb} ${args.name} ${args.bot ? `to ${result.bot}` : 'to yourself'}. Changes apply from ${result.bot}'s next message.${endpoint === 'attach' ? approvals : ''}`
+        } catch (error) { return error.message }
+      },
+    }))
+  }
+
   Object.assign(rt, { pickRoom })
 }

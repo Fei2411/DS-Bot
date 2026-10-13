@@ -137,10 +137,11 @@ export function apply(ctx) {
     if (nextWork !== workKey) { workKey = nextWork; work.set(value.work ?? { bots: {}, approvals: [] }) }
     noteMemoryNews(value.memoryNews ?? {})
     const current = roster.getSnapshot()
-    // Connector states change without a new revision, so they come with every answer.
-    if (value.connectors !== undefined && current.ready && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) {
-      roster.set({ ...current, connectors: value.connectors })
-    }
+    // Connector and capability states change without a new revision.
+    const live = {}
+    if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
+    if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
+    if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
@@ -553,6 +554,10 @@ export function apply(ctx) {
     connectorConnect: (id, token) => after(call('connector-connect', { id, token })),
     connectorDisconnect: id => after(call('connector-disconnect', { id })),
     connectorRetry: id => after(call('connector-retry', { id })),
+    saveCapability: capability => after(call('capability-save', capability)),
+    deleteCapability: name => after(call('capability-delete', { name })),
+    approveCapability: name => after(call('capability-approve', { name })),
+    setBotCapability: (botId, name, attached) => after(call('bot-capability', { botId, name, attached })),
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),

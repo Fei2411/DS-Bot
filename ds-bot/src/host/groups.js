@@ -109,7 +109,10 @@ export function install(rt) {
   async function groupSessionFor(room, member) {
     room.sessions ??= {}
     const known = room.sessions[member.id]
-    if (known !== undefined) return { id: known, brief: undefined }
+    if (known !== undefined) {
+      await rt.ensureCapabilities(known)
+      return { id: known, brief: undefined }
+    }
     const id = await rt.createSession(`${member.name} · ${room.name}`)
     room.sessions[member.id] = id
     rt.groupOwners.set(id, { botId: member.id, roomId: room.id })
@@ -122,6 +125,7 @@ export function install(rt) {
     await rt.applyPermission(member, id)
       .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', member.name, room.name, error))
     await rt.save()
+    await rt.ensureCapabilities(id)
     return { id, brief: await rt.ownChatBrief(member) }
   }
 

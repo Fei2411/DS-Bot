@@ -6,6 +6,7 @@ import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { BotSchedules } from './schedules.js'
+import { BotCapabilitiesCard } from './capability-settings.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide } from './motion.js'
 import { t } from './i18n.js'
@@ -225,6 +226,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
+    h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
     h(Card, { title: t('Main Bot') },

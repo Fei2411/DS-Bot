@@ -78,6 +78,7 @@ export function install(rt) {
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
+        capabilities: [],
       }
       if (main) state.mainBotIds.push(id)
       const creator = rt.botOf(createdBy)

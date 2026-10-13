@@ -45,7 +45,10 @@ function start(team, { config = {} } = {}) {
       resolveAgent: async (sessionId) => {
         const agent = {
           session: { id: sessionId },
-          ctx: { tools: { restrict: (filter) => { restricted.push({ sessionId, filter }); return () => {} } } },
+          ctx: {
+            tools: { restrict: (filter) => { restricted.push({ sessionId, filter }); return () => {} } },
+            effect: execute => execute(),
+          },
           followup() {},
         }
         return { agent }
@@ -241,7 +244,15 @@ test('team tools are restricted on DSH Agent Sessions but not on Bot Sessions', 
   t.after(stop)
   await call('state', {})
   // A Bot resolving its agent triggers agent/created but owns no team tools mask.
-  createdAgents({ agent: { session: { id: 'm1' }, ctx: { tools: { restrict: filter => { restricted.push({ sessionId: 'm1', filter }) } } } } })
+  createdAgents({
+    agent: {
+      session: { id: 'm1' },
+      ctx: {
+        tools: { restrict: filter => { restricted.push({ sessionId: 'm1', filter }) } },
+        effect: execute => execute(),
+      },
+    },
+  })
   await flush()
   assert.equal(restricted.length, 0)
   // Creating the agent records the session, then restrict fires on its own agent.
@@ -250,7 +261,13 @@ test('team tools are restricted on DSH Agent Sessions but not on Bot Sessions', 
   assert.equal(restricted[0].sessionId, agent.sessions[0])
   assert.deepEqual([...restricted[0].filter.deny].sort(), [...TEAM_TOOLS].sort())
   // A later agent/created for that session does not restrict a second time.
-  const listener = { session: { id: agent.sessions[0] }, ctx: { tools: { restrict: filter => { restricted.push({ sessionId: agent.sessions[0], filter }) } } } }
+  const listener = {
+    session: { id: agent.sessions[0] },
+    ctx: {
+      tools: { restrict: filter => { restricted.push({ sessionId: agent.sessions[0], filter }) } },
+      effect: execute => execute(),
+    },
+  }
   createdAgents({ agent: listener })
   await flush()
   // The listener path resolves through rt.load() + the session index; because the

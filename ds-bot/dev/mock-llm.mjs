@@ -23,6 +23,7 @@
 //   报错 (fake rejected key, 401; also as the text of 转告, so the receiving Bot fails)
 //   卡片 K (K×1000 characters, then a question card) · 笔记模式 截断一次|缺节一次|总截断|总缺节|失败|正常
 //   记住[@话题] 事实 · 团队记住 事实 (remember) · 忘掉 事实 (forget) · 回忆 [词] (recall)
+//   查能力 [词] (names the mcp__ tools and catalog skills that contain 词; also in a group)
 // Memory panel: a summary restating the entries; asks 记住|remember X, 团队记住 X,
 //   删掉|remove N, 改|edit N: X change entries, anything else gets the entry count.
 // Commands in a group:
@@ -321,6 +322,7 @@ function decide(body) {
       return [text(earlier.includes(ask[1]) ? `上下文里有「${ask[1]}」。` : `上下文里没有「${ask[1]}」。`)]
     }
     // Group Sessions: the frozen brief is in the Session's first message, the lookup a tool.
+    if ((ask = /查能力\s*(\S*)/.exec(userLine))) return [text(capabilityReport(me, tools, messages, ask[1]))]
     if ((ask = /查私聊\s*(\S*)/.exec(userLine))) return [tool('read_own_chat', ask[1] ? { query: ask[1] } : {})]
     if (/私聊聊了啥/.test(userLine)) {
       const all = messages.map(m => textOf(m.content)).join('\n')
@@ -377,6 +379,7 @@ function decide(body) {
   if ((order = /^查记录\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { query: order[1].trim() })]
   if ((order = /^查锚点\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { around: order[1].trim() })]
   if ((order = /^查第\s*(\d+)\s*段/.exec(userText))) return [tool('read_own_chat', { part: Number(order[1]) })]
+  if ((order = /^查能力\s*(\S*)/.exec(userText))) return [text(capabilityReport(me, tools, messages, order[1]))]
   if ((order = /^上下文里有\s*(\S+)/.exec(userText))) {
     const all = messages.slice(0, -1).map(m => textOf(m.content)).join('\n')
     return [text(all.includes(order[1]) ? `上下文里有「${order[1]}」。` : `上下文里没有「${order[1]}」。`)]
@@ -473,6 +476,16 @@ function memoryReview(request) {
     changes.push({ op: 'add', text: asked[1] === '以后' ? `用户希望以后${asked[2]}` : `From now on, the user wants: ${asked[2]}` })
   }
   return { changes }
+}
+
+// The MCP tools in this request and the entries of the latest skill catalog, both limited
+// to names that contain `filter`.
+function capabilityReport(me, tools, messages, filter) {
+  const catalogs = messages.flatMap(m => textBlocks(m.content)).flatMap(value => [...value.matchAll(/<available_skills>([\s\S]*?)<\/available_skills>/g)])
+  const skills = (catalogs.at(-1)?.[1] ?? '').split('\n').map(line => /^- `([^`]+)`: (.*)$/.exec(line))
+    .filter(entry => entry && entry[1].includes(filter)).map(entry => `${entry[1]}（${entry[2]}）`)
+  const mcp = [...tools].filter(name => name.startsWith('mcp__') && name.includes(filter)).sort()
+  return `${me} 能力：工具 ${mcp.join(', ') || '无'}；技能 ${skills.join(', ') || '无'}`
 }
 
 function secretNote(note, tools) {

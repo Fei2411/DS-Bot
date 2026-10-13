@@ -2,7 +2,7 @@ import { createElement as h, useCallback, useEffect, useRef, useState } from 're
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { allThemes } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ConnectorIcon, InfoIcon, PlusIcon, SlidersIcon, SETTINGS_ICONS } from './icons.js'
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ConnectorIcon, InfoIcon, PlugIcon, PlusIcon, SlidersIcon, SETTINGS_ICONS } from './icons.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { openHarnessSettings } from './sidebar.js'
 import { useEscape } from './overlay-hooks.js'
@@ -13,6 +13,7 @@ import { CreateBot } from './create-bot.js'
 import { KeyIcon, SecretsPage } from './secret-card.js'
 import { UsagePage } from './usage-page.js'
 import { ConnectorsPage } from './connectors.js'
+import { CapabilitiesPage } from './capability-settings.js'
 import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
 import { AboutPage } from './about.js'
@@ -22,8 +23,8 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
 // Settings dialog: a 198px page list beside the page. Bots and group chats each list
 // their members, and one opens on its own settings form. Usage widens the dialog.
-const SETTINGS_PAGES = [['general', 'General'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
-const PAGE_ICONS = { ...SETTINGS_ICONS, connectors: ConnectorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const SETTINGS_PAGES = [['general', 'General'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['capabilities', 'Capabilities'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const PAGE_ICONS = { ...SETTINGS_ICONS, connectors: ConnectorIcon, capabilities: PlugIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 function SetSection({ title, children }) {
   return h('section', { className: 'bt-set-section' }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
@@ -202,6 +203,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
           shown === 'groups' && !room ? h(GroupsPage, { roster, actions, run }) : null,
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
+          shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
           shown === 'secrets' ? h(SecretsPage, { roster, actions, run, Section: SetSection }) : null,
           shown === 'feedback' ? h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow }) : null,

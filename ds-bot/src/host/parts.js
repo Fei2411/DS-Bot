@@ -641,6 +641,7 @@ export function install(rt) {
   async function forward(owner, messages) {
     const target = currentOf(owner)
     if (target === undefined || messages.length === 0) return
+    await rt.ensureCapabilities(target)
     const agent = await rt.resolveAgent(target)
     for (const message of messages) {
       const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
@@ -770,6 +771,7 @@ export function install(rt) {
     const resume = job.resume || job.overflow
     const text = handoffPackage({ room, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare })
     freshParts.set(freshId, estimateTokens(text))
+    await rt.ensureCapabilities(freshId)
     const fresh = await rt.resolveAgent(freshId)
     fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
     await ctx.sessions.flush(fresh.session)

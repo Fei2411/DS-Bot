@@ -54,7 +54,9 @@ export function install(rt) {
       state.exchanges.push({ id: exchangeId, from: fromId, to: toId, text, role, time: Date.now(), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) })
       void rt.save().catch(() => {})
     }
-    const agent = await resolveAgent(sessionId ?? rt.chatOf(toId))
+    const targetSessionId = sessionId ?? rt.chatOf(toId)
+    await rt.ensureCapabilities(targetSessionId)
+    const agent = await resolveAgent(targetSessionId)
     // A steered message cuts into a running turn at its next step; a follow-up
     // queues for the next turn (see turns.js for how each is routed).
     const message = createUserMessage({

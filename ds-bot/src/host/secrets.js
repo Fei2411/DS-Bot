@@ -526,5 +526,13 @@ export function install(rt) {
     return () => { if (usedTimer !== null) clearTimeout(usedTimer) }
   }, 'ds-bot: load secrets')
 
-  Object.assign(rt, { secretsView, secretValue: name => secrets.get(name)?.value, secretEndpoint, forgetBotSecrets, loadSecrets, redactSecrets: text => redact(text) })
+  Object.assign(rt, {
+    secretsView,
+    secretValue: name => secrets.get(name)?.value,
+    canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
+    secretEndpoint,
+    forgetBotSecrets,
+    loadSecrets,
+    redactSecrets: text => redact(text),
+  })
 }
