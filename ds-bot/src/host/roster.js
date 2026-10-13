@@ -2,7 +2,7 @@
 // the first Main Bot of a new team.
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
+import { COMPUTER_MODES, MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -95,12 +95,21 @@ export function install(rt) {
               : 'The user just created you. Greet the user in one short message, then use ask_user to ask what you should focus on (3-4 short options, with allowCustom).'
       const text = !main && language ? `${kickoff}\nWrite in ${language}.` : kickoff
       const bot = state.bots[id]
+      // agent/created fired before this Bot was indexed (save reindexes), so its
+      // computer-use mode applies here. A failure must not undo the saved Bot.
+      const applyComputerUse = async () => {
+        if (!rt.computerAvailable()) return
+        await rt.resolveAgent(id).then(rt.applyComputerUse)
+          .catch(error => rt.warn('ds-bot: computer-use mode for %s not applied: %s', cleanName, error))
+      }
       if (modelRef === undefined) {
         bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
         await rt.save()
+        await applyComputerUse()
         return bot
       }
       await rt.save()
+      await applyComputerUse()
       // The greeting runs on the Bot's own model, once its provider is registered.
       void rt.waitForModel(bot)
         .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
@@ -152,6 +161,7 @@ export function install(rt) {
   async function updateBot(id, patch) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (patch.computerUse !== undefined && !COMPUTER_MODES.includes(patch.computerUse)) throw new Error(`Unknown computer use mode ${patch.computerUse}`)
     if (patch.name !== undefined) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
@@ -165,6 +175,11 @@ export function install(rt) {
       await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
     }
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
+    if (patch.computerUse !== undefined) {
+      if (patch.computerUse === 'off') delete bot.computerUse
+      else bot.computerUse = patch.computerUse
+      rt.refreshComputerUse()
+    }
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
     let modelChanged = false
     if (patch.color !== undefined) {

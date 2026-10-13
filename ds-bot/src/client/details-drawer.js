@@ -61,6 +61,28 @@ function PermissionRow({ bot, roster, actions, run }) {
       }, PERMISSION_LABELS[option.value] ? t(PERMISSION_LABELS[option.value]) : option.name))))
 }
 
+const COMPUTER_LABELS = [['off', 'Off'], ['view', 'Look only'], ['act', 'Act with approval']]
+
+// What the Bot may do with DSH's computer use, when DSH has a provider for it.
+function ComputerUseRow({ bot, roster, actions, run }) {
+  const [pending, setPending] = useState(null)
+  const saved = bot.computerUse ?? 'off'
+  useEffect(() => { if (pending === saved) setPending(null) }, [pending, saved])
+  if (roster.computer !== true) return null
+  const current = pending ?? saved
+  const pick = (value) => {
+    if (value === current) return
+    setPending(value)
+    void run(actions.updateBot(bot.id, { computerUse: value })).then(ok => { if (!ok) setPending(null) })
+  }
+  return h('div', { className: 'bt-drawer-permission' },
+    h('div', { className: 'bt-section-title' }, t('Computer use')),
+    h(Segmented, { label: t('Computer use'), value: current },
+      COMPUTER_LABELS.map(([value, label]) => h('button', {
+        key: value, type: 'button', 'aria-pressed': value === current, onClick: () => pick(value),
+      }, t(label)))))
+}
+
 function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) {
   const state = useBrowserTabs(map => map[bot.id] ?? EMPTY_TABS)
   const pages = useBrowserPages(map => map)
@@ -233,6 +255,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h(ModelMenu, { bot, roster, actions, run, wide: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name }))),
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
+        h(ComputerUseRow, { key: 'computer', bot, roster, actions, run }),
         bot.instructions
           ? h(About, { key: 'about', text: bot.instructions })
           : h('button', { key: 'about', type: 'button', className: 'bt-more', onClick: () => setView('settings') }, t('Add instructions in Bot settings')),

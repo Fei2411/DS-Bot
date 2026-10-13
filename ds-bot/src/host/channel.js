@@ -61,6 +61,8 @@ export function install(rt) {
     prefs: state.prefs,
     // Whether a Desktop window should serve Bot browser reads (see browser.js).
     browser: rt.browserEnabled,
+    // Whether a computer-use provider is mounted, so the Bot details offer the mode.
+    computer: rt.computerAvailable(),
     // False when config.memory turns memory off: no Memory row or panel.
     memory: rt.memoryEnabled !== false,
     // Set while another dsh host holds the team (store.js): why this one cannot change it.

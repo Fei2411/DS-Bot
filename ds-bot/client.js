@@ -43,6 +43,10 @@ module.exports = __toCommonJS(index_exports);
 var NAMESPACE = "ds-bot";
 var ZH = {
   // Shared
+  "Computer use": "操作电脑",
+  Off: "关闭",
+  "Look only": "只看",
+  "Act with approval": "操作需批准",
   "Main Bot": "主 Bot",
   Working: "工作中",
   "Waiting for your answer": "等你回答",
@@ -10923,6 +10927,38 @@ function PermissionRow({ bot, roster, actions, run }) {
     )
   );
 }
+var COMPUTER_LABELS = [["off", "Off"], ["view", "Look only"], ["act", "Act with approval"]];
+function ComputerUseRow({ bot, roster, actions, run }) {
+  const [pending, setPending] = (0, import_react30.useState)(null);
+  const saved = bot.computerUse ?? "off";
+  (0, import_react30.useEffect)(() => {
+    if (pending === saved) setPending(null);
+  }, [pending, saved]);
+  if (roster.computer !== true) return null;
+  const current = pending ?? saved;
+  const pick2 = (value) => {
+    if (value === current) return;
+    setPending(value);
+    void run(actions.updateBot(bot.id, { computerUse: value })).then((ok) => {
+      if (!ok) setPending(null);
+    });
+  };
+  return (0, import_react30.createElement)(
+    "div",
+    { className: "bt-drawer-permission" },
+    (0, import_react30.createElement)("div", { className: "bt-section-title" }, t("Computer use")),
+    (0, import_react30.createElement)(
+      Segmented,
+      { label: t("Computer use"), value: current },
+      COMPUTER_LABELS.map(([value, label]) => (0, import_react30.createElement)("button", {
+        key: value,
+        type: "button",
+        "aria-pressed": value === current,
+        onClick: () => pick2(value)
+      }, t(label)))
+    )
+  );
+}
 function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) {
   const state = useBrowserTabs((map) => map[bot.id] ?? EMPTY_TABS);
   const pages = useBrowserPages((map) => map);
@@ -11164,6 +11200,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           modelOf(bot, roster) ? null : (0, import_react30.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
         (0, import_react30.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run }),
+        (0, import_react30.createElement)(ComputerUseRow, { key: "computer", bot, roster, actions, run }),
         bot.instructions ? (0, import_react30.createElement)(About, { key: "about", text: bot.instructions }) : (0, import_react30.createElement)("button", { key: "about", type: "button", className: "bt-more", onClick: () => setView("settings") }, t("Add instructions in Bot settings")),
         roster.memory === false ? null : (0, import_react30.createElement)(MemoryRow, { key: "memory", bot, actions }),
         usage ? (0, import_react30.createElement)(

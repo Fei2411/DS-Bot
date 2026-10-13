@@ -6,6 +6,10 @@ export const NAMESPACE = 'ds-bot'
 
 const ZH = {
   // Shared
+  'Computer use': '操作电脑',
+  Off: '关闭',
+  'Look only': '只看',
+  'Act with approval': '操作需批准',
   'Main Bot': '主 Bot',
   Working: '工作中',
   'Waiting for your answer': '等你回答',

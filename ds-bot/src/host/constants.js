@@ -65,3 +65,15 @@ export const OWN_CHAT_SEARCH = 20
 export const HISTORY_PAGE = 200
 export const HISTORY_PAGES_MAX = 50
 export const HISTORY_TIMEOUT_MS = 20_000
+
+// Computer use for a Bot: `off` hides DSH's computer-use tools, `view` keeps only the
+// tools that look, `act` adds the rest and asks the user before each such call.
+export const COMPUTER_MODES = ['off', 'view', 'act']
+// Cua Driver tools (without the provider prefix) that only read desktop state. Any
+// other tool counts as an action.
+export const COMPUTER_VIEW_TOOLS = [
+  'list_apps', 'list_windows', 'get_window_state', 'get_accessibility_tree', 'verify_state', 'parse_visual_regions',
+  'get_desktop_state', 'get_screen_size', 'get_cursor_position', 'zoom', 'debug_window_info', 'get_browser_state',
+  'get_session', 'list_sessions', 'get_session_state', 'get_agent_cursor_state', 'get_recording_state',
+  'get_config', 'check_permissions', 'health_report',
+]
