@@ -10693,7 +10693,9 @@ function ComputerUseRow({ bot, roster, actions, run }) {
   const pick2 = (value) => {
     if (value === current) return;
     setPending(value);
-    void run(actions.updateBot(bot.id, { computerUse: value })).catch(() => setPending(null));
+    void run(actions.updateBot(bot.id, { computerUse: value })).then((ok) => {
+      if (!ok) setPending(null);
+    });
   };
   return (0, import_react29.createElement)(
     "div",

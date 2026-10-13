@@ -4,8 +4,10 @@
 // it; other Sessions are left alone.
 import { COMPUTER_MODES, COMPUTER_VIEW_TOOLS } from './constants.js'
 
-// Tool names of the native provider and of the MCP provider.
-const PREFIX = /^(?:cua_driver_native__|mcp__cua-driver-mcp__)(.+)$/
+// Tool name prefixes by provider name. DSH's registry names the provider but not its
+// tools, so another provider's tools cannot be gated and Bots get no mode for it.
+const PREFIXES = { 'cua-driver-native': 'cua_driver_native__', 'cua-driver-mcp': 'mcp__cua-driver-mcp__' }
+const PREFIX = new RegExp(`^(?:${Object.values(PREFIXES).join('|')})(.+)$`)
 const VIEW = new Set(COMPUTER_VIEW_TOOLS)
 // Subagents of subagents, as far up as a Bot is looked for.
 const LINEAGE_MAX = 8
@@ -16,7 +18,17 @@ export function install(rt) {
   const { ctx } = rt
 
   rt.computerModeOf = bot => (COMPUTER_MODES.includes(bot?.computerUse) ? bot.computerUse : 'off')
-  rt.computerAvailable = () => ctx.get?.('computerUse')?.providerName !== undefined
+  let warned
+  rt.computerAvailable = () => {
+    const provider = ctx.get?.('computerUse')?.providerName
+    if (provider === undefined) return false
+    if (Object.hasOwn(PREFIXES, provider)) return true
+    if (warned !== provider) {
+      warned = provider
+      rt.warn('ds-bot: computer-use provider %s is not supported; Bots get no computer-use mode', provider)
+    }
+    return false
+  }
 
   // The Bot an agent works for: the Bot of its Session, or of the Session that
   // started it as a subagent.

@@ -6,7 +6,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Added
 
-- Computer use for each Bot, when DSH has a computer-use provider: **Off** (the default), **Look only** or **Act with approval**, in the Bot's details panel. With **Act with approval** the Bot asks you before each action in its own chat; in its group chats and its subagents it can only look.
+- Computer use for each Bot, when DSH runs Cua Driver for computer use: **Off** (the default), **Look only** or **Act with approval**, in the Bot's details panel. With **Act with approval** the Bot asks you before each action in its own chat; in its group chats and its subagents it can only look.
 
 ## [0.1.3] - 2026-10-12
 

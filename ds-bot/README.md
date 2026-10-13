@@ -24,7 +24,7 @@ Tested with dsh `0.2.1-alpha.1` (Web and Desktop) on Linux.
 - **Memory**: each Bot keeps notes across all its conversations, and the team shares one more. See [Memory](#memory).
 - **Web search**: see [Web search](#web-search).
 - **Bot browser (dsh Desktop only)**: see [Bot browser](#bot-browser).
-- **Computer use**: when dsh has a computer-use provider, each Bot's details panel sets what the Bot may do with it: **Off** (the default), **Look only** or **Act with approval**. With **Act with approval** the Bot asks you before each action in its own chat; in its group chats and its subagents it can only look.
+- **Computer use**: when dsh runs Cua Driver for computer use, each Bot's details panel sets what the Bot may do with it: **Off** (the default), **Look only** or **Act with approval**. With **Act with approval** the Bot asks you before each action in its own chat; in its group chats and its subagents it can only look.
 - **Images**: for a model that cannot read images, a vision model first turns the image into text.
 - **Secrets**: a Bot asks for an API key or token with a card in its own chat and never sees the value. See [Secrets](#secrets).
 - **Usage**: Settings → Usage shows token usage by time (24 hours to 12 months, or days picked on a calendar), by Bot and by model, with a page for each Bot and each model. Calls that a Session logs are read from the logs, so older chats count too. Calls that leave no log (checkpoints, handoff notes, the steward, image readings, dsh titles and compaction) are counted while they stream, from the time the plugin runs. Tokens only, no cost.

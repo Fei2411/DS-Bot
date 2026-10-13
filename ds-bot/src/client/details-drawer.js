@@ -73,7 +73,7 @@ function ComputerUseRow({ bot, roster, actions, run }) {
   const pick = (value) => {
     if (value === current) return
     setPending(value)
-    void run(actions.updateBot(bot.id, { computerUse: value })).catch(() => setPending(null))
+    void run(actions.updateBot(bot.id, { computerUse: value })).then(ok => { if (!ok) setPending(null) })
   }
   return h('div', { className: 'bt-drawer-permission' },
     h('div', { className: 'bt-section-title' }, t('Computer use')),

@@ -162,6 +162,16 @@ test('without a provider the view offers no mode', async (t) => {
   assert.equal((await call('state', {})).value.computer, false)
 })
 
+test('a provider whose tools DS Bot cannot tell apart gets no mode', async (t) => {
+  const { ctx, call, stop } = start({ provider: 'other-driver' })
+  t.after(stop)
+  const warnings = []
+  ctx.logger.warn = (...args) => warnings.push(args.join(' '))
+  assert.equal((await call('state', {})).value.computer, false)
+  await call('state', {})
+  assert.equal(warnings.filter(line => line.includes('provider other-driver is not supported')).length, 1)
+})
+
 test('each step hides the tools the mode does not allow, and a change undoes it', async (t) => {
   const { call, step, stop } = start()
   t.after(stop)
