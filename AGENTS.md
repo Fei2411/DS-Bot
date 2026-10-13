@@ -22,25 +22,27 @@ DS Bot (`ds-bot/`) is a plugin for DeepSeek Harness (DSH). It turns DSH Desktop 
 
 ## Commands
 
-Run in `ds-bot/`. The tests need a DeepSeek Harness checkout at `../deepseek-harness` (or `DSH_HARNESS`), at the DSH version in the README.
+Run in `ds-bot/`. The unit tests and the linter load the `@deepseek-ai/*` packages from `dev/harness/`, which `npm run harness` installs from npm at the DSH version in `dev/harness/package.json`. `DSH_HARNESS` points them at another install or at a DeepSeek Harness checkout instead. The test bench needs a checkout at `../deepseek-harness` (or `DSH_HARNESS`), at the DSH version in the README.
 
 ```sh
 npm ci                                 # build tool only (esbuild)
+npm run harness                        # once: the DSH packages for the tests and the linter
 npm run build                          # src/client → client.js
 npm test                               # unit tests; also fail if client.js is stale
 node scripts/build-client.mjs --check  # client.js matches src/client
+npm run lint                           # oxlint
 CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && node dev/smoke.mjs smoke 3096   # smoke test
 dev/bench.sh smoke 3096 8796 stop
 ```
 
-A change is done when `npm test` and the `--check` pass. Run the smoke test as well for changes to `index.js` or `src/host/`. Use a free port for each bench, and stop every bench and process that you started.
+A change is done when `npm test`, the `--check` and `npm run lint` pass; CI runs them on every pull request. Run the smoke test as well for changes to `index.js` or `src/host/`. Use a free port for each bench, and stop every bench and process that you started.
 
 ## Layout
 
 - `ds-bot/index.js` and `ds-bot/src/host/`: the server side (roster and store, tools, turns and delivery, groups, conversation parts and the search index, images, the browser bridge, the `api/bot` channel).
 - `ds-bot/src/client/`: the browser side (sidebar, chat, panels, themes, characters, the Bot browser panel).
 - `ds-bot/web-search.js`: the `auto` web-search provider, independent of the Bot team code.
-- `ds-bot/test/`: unit tests and fixtures. `ds-bot/dev/`: mock model, test bench, smoke test, character generator, Desktop scripts for Linux.
+- `ds-bot/test/`: unit tests and fixtures. `ds-bot/dev/`: the DSH packages for the tests (`harness/`), mock model, test bench, smoke test, character generator, Desktop scripts for Linux.
 
 ## Style
 

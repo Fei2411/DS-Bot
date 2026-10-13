@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -47,7 +49,7 @@ function host(home, extra = {}) {
 
 test('warnings are kept, cleaned, written to the log, and read back after a restart', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-diag-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
   const error = Object.assign(new Error(`cannot open ${homedir()}/x with sk-abcdefghij`), { code: 'EACCES' })
   const quiet = t.mock.method(console, 'error', () => {})
   const rt = host(home)
@@ -80,6 +82,55 @@ test('warnings are kept, cleaned, written to the log, and read back after a rest
   assert.deepEqual(await again.diagnostics.entries(), [])
   assert.deepEqual(await host(home).diagnostics.entries(), [])
   quiet.mock.restore()
+})
+
+test('warnings send only cleaned text to the logger and stderr', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-diag-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const values = ['synthetic-api-key-123456', 'synthetic-bearer-token-12345', 'synthetic-query-token-12345']
+  const error = new Error(`api_key=${values[0]} Bearer ${values[1]} https://example.invalid/?token=${values[2]}`)
+  error.stack = `${error.name}: ${error.message}\n    at fake (https://example.invalid/?token=${values[2]}:1:1)`
+  const warnings = []
+  const stderr = []
+  const quiet = t.mock.method(console, 'error', (...args) => stderr.push(args.join(' ')))
+  const rt = host(home, { config: { diagnosticsFile: false } })
+  rt.ctx.logger.warn = (...args) => warnings.push(args)
+  rt.warn('ds-bot: warning: %s', error)
+  quiet.mock.restore()
+
+  assert.equal(warnings[0][0], '%s')
+  assert.match(warnings[0][1], /\[hidden\]/)
+  assert.match(stderr[0], /\[hidden\]/)
+  assert.match(stderr[0], /at fake/)
+  for (const value of values) {
+    assert.equal(warnings.flat().join('\n').includes(value), false)
+    assert.equal(stderr.join('\n').includes(value), false)
+  }
+})
+
+test('diagnostics append fallback redacts an error message', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-diag-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const value = 'synthetic-api-key-append-123456'
+  const stderr = []
+  const quiet = t.mock.method(console, 'error', (...args) => stderr.push(args.join(' ')))
+  const rt = host(home)
+  const originalAppend = fsp.appendFile
+  fsp.appendFile = async (path, ...args) => {
+    if (path === join(home, 'logs', 'diagnostics.jsonl')) throw new Error(`synthetic append failure api_key=${value}`)
+    return originalAppend(path, ...args)
+  }
+  syncBuiltinESMExports()
+  try {
+    rt.noteFailure({ text: 'synthetic entry' })
+    await rt.diagnostics.clear()
+  } finally {
+    fsp.appendFile = originalAppend
+    syncBuiltinESMExports()
+    quiet.mock.restore()
+  }
+  assert.equal(stderr.join('\n').includes(value), false)
+  assert.match(stderr.join('\n'), /api_key=\[hidden\]/)
 })
 
 test('reportMarkdown says when nothing went wrong', () => {
@@ -163,9 +214,9 @@ test('a failed group turn fails its waiter; a stopped one counts as no answer', 
   assert.equal(value, null)
 })
 
-test('issueUrl fills the issue form, and falls back to the clipboard when too long', async () => {
+test('issueUrl fills the issue form, keeps the versions when the errors are too long, and falls back to the clipboard', async () => {
   const { issueUrl } = await import('../src/client/diagnostics.js')
-  const base = 'https://github.com/FeiZhuLulu/DeepSeek-Bot/issues/new'
+  const base = 'https://github.com/Fei2411/DeepSeek-Bot/issues/new'
   const short = issueUrl(base, { what: 'Writer failed\nin the group', diagnostics: '| DS Bot | 0.1.0 |' })
   assert.equal(short.inline, true)
   const params = new URL(short.url).searchParams
@@ -178,6 +229,14 @@ test('issueUrl fills the issue form, and falls back to the clipboard when too lo
   assert.ok(long.url.length < 7000)
   assert.match(new URL(long.url).searchParams.get('diagnostics'), /clipboard/)
   assert.equal(new URL(long.url).searchParams.has('title'), false)
+  const table = '| | |\n|---|---|\n| DS Bot | 0.1.2 |\n| DSH | 0.2.0 |'
+  const errors = issueUrl(base, { what: 'Writer failed', diagnostics: `${table}\n\nRecent host errors:\n${'错误'.repeat(2000)}` })
+  assert.equal(errors.inline, false)
+  assert.ok(errors.url.length < 7000)
+  const kept = new URL(errors.url).searchParams.get('diagnostics')
+  assert.ok(kept.startsWith(`${table}\n\n`))
+  assert.match(kept, /clipboard: paste them below this line/)
+  assert.doesNotMatch(kept, /错误/)
 })
 
 test('a browser error is noted once, repeats are counted, and clear empties the list', async () => {

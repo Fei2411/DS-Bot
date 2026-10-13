@@ -1,48 +1,51 @@
-name: Bug report
-description: Something in DS Bot does not work. Settings → Feedback → Report on GitHub fills most of this in.
+name: Bug report / 报告 bug
+description: Something in DS Bot does not work as it should. / DS Bot 有功能不正常。
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for the report. Before you submit, check that the text below has no API keys, tokens or personal data.
-        For a security problem, do not open a public issue: use **Report a vulnerability** on the **Security** tab.
+        **Please add a screenshot.** A screenshot of the whole window tells us more than a paragraph. A report with only one sentence cannot be fixed and may be closed.
+        **请附截图。** 一张整窗截图比一段文字有用得多。只有一句话的报告修不了，可能会被直接关闭。
+
+        Fastest: in DS Bot, **Settings → Feedback → Report on GitHub** fills in the diagnostics.
+        最快：在 DS Bot 里点 **设置 → 反馈 → 在 GitHub 上报告**，诊断信息会自动填好。
+
+        Security problems: **Security** tab → **Report a vulnerability**. Questions and ideas: [Discussions](https://github.com/Fei2411/DeepSeek-Bot/discussions).
+        安全问题请在 **Security** 页私下报告；提问和建议请发到 [Discussions](https://github.com/Fei2411/DeepSeek-Bot/discussions)。
   - type: textarea
     id: what
     attributes:
-      label: What happened?
-      description: What you did, what you expected, and what happened instead. Copy the exact error text.
+      label: What happened? / 发生了什么？
+      description: What you did, what you expected, and what happened instead. Copy the exact error text. / 你做了什么、期望什么、实际发生了什么。报错请复制原文。
     validations:
       required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshot (strongly recommended) / 截图（强烈建议）
+      description: Paste it here (Ctrl+V or ⌘V) or drag it in. A screen recording works too. / 直接粘贴（Ctrl+V 或 ⌘V）或拖进来，录屏也可以。
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
+      label: Steps to reproduce / 复现步骤
       placeholder: |
-        1. Open the group chat "…"
-        2. Send "…"
-        3. Writer shows "could not answer"
+        1. Open the group chat "…" / 打开群聊「…」
+        2. Send "…" / 发送「…」
+        3. Writer shows "could not answer" / Writer 显示 "could not answer"
+    validations:
+      required: true
   - type: textarea
     id: diagnostics
     attributes:
-      label: Diagnostics
-      description: In DS Bot, open Settings → Feedback and select Copy. It lists the versions, the system, the models and the latest errors, with keys and your home folder hidden.
+      label: Diagnostics / 诊断信息
+      description: In DS Bot, Settings → Feedback → Copy, then paste here. / 在 DS Bot 里点 设置 → 反馈 → 复制，粘贴到这里。
     validations:
       required: true
-  - type: dropdown
-    id: install
-    attributes:
-      label: How did you install DS Bot?
-      options:
-        - npm
-        - Release file
-        - Git address
-        - Command line (dsh plugin)
-        - Other
   - type: checkboxes
     id: clean
     attributes:
-      label: Privacy
+      label: Privacy / 隐私
       options:
-        - label: I checked that this report has no API keys, tokens or personal data.
+        - label: This report has no API keys, tokens or personal data. / 报告里没有 API key、token 或个人信息。
           required: true

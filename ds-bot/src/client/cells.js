@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { inkText } from './inks.js'
-import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, commRunOf, toolName, toolArgs, reminderPrompts } from './text.js'
+import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { AnsweredCell, SettledQuestion, PendingQuestion } from './questions.js'
@@ -106,10 +106,11 @@ function ThinkingRow({ text }) {
     h('div', { className: 'bt-think-text' }, text))
 }
 
-export function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, useTurnSteps, actions }) {
+export function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, useTurnSteps, useTurnContext, actions }) {
   const roster = useRoster(value => value)
   const data = node.data
   const steps = useTurnSteps(String(data.turn))
+  const contexts = useTurnContext(String(data.turn))
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
   const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
   const running = data.status === 'running'
@@ -117,13 +118,34 @@ export function AssistantCell({ node, groupPart, sessionId, useRoster, useUi, us
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
   if (hidden) return null
   const reasoning = groupPart === 'response' ? '' : turnReasoning(steps, data)
-  if (texts.length === 0 && !reasoning) return null
+  // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
+  // DSH 0.2; the step that answers it shows the event line where it was read,
+  // once, in the step's first cell.
+  const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : []
+  if (texts.length === 0 && !reasoning && relays.length === 0) return null
+  const selfId = roster.byId[sessionId]?.id ?? sessionId
   return h(Fragment, null,
+    relays.map(relay => {
+      const source = relay.source
+      const sender = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
+      return h(EventLine, {
+        key: relay.seq,
+        prefix: source.role === 'stopped' ? t('Stopped by') : source.role === 'reply' ? t('Reply from') : t('Message from'),
+        bots: [sender],
+        onOpen: () => { if (sender.id) actions.openExchange(selfId, sender.id) },
+        whole: true,
+      })
+    }),
     reasoning ? h(ThinkingRow, { text: reasoning }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId: roster.byId[sessionId]?.id ?? sessionId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi }) : null)
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi }) : null)
 }
 
-function EventLine({ prefix, bots, joiner = t('and'), onOpen }) {
+function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
+  if (whole && bots.length === 1) {
+    return h('div', { className: 'bt-event' },
+      h('button', { type: 'button', className: 'bt-event-whole', title: bots[0].name, onClick: () => onOpen?.(bots[0]) },
+        h('span', null, prefix), h(BotMark, { bot: bots[0], size: 16 }), h('span', { className: 'bt-event-name' }, bots[0].name)))
+  }
   const parts = []
   parts.push(h('span', { key: 'p' }, prefix))
   bots.forEach((bot, index) => {
@@ -247,7 +269,8 @@ function EarlierParts({ sessionId, roster, actions }) {
         case 'event': {
           if (row.role === 'report') return h(GroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
           const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
-          return h(EventLine, { key, prefix: row.role === 'reply' ? t('Reply from') : t('Message from'), bots: [other], onOpen: () => { if (selfId && other.id) actions.openExchange(selfId, other.id) } })
+          const prefix = { stopped: t('Stopped by'), reply: t('Reply from') }[row.role] ?? t('Message from')
+          return h(EventLine, { key, prefix, bots: [other], onOpen: () => { if (selfId && other.id) actions.openExchange(selfId, other.id) }, whole: true })
         }
         default: return null
       }
@@ -262,7 +285,10 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
   // Team state (exchanges) is keyed by the Bot id; Session state by the part shown.
   const selfId = roster.byId[sessionId]?.id ?? sessionId
   // A resumed handoff keeps the relayed message's source, but it opens a part, not a run.
-  const relayed = source.kind === 'bot' && source.handoff !== true && (source.role === 'request' || source.role === 'reply') && typeof source.senderSessionId === 'string'
+  // A deferred request was already shown where the Bot read it mid-turn; the turn
+  // that answers it adds no second line.
+  const deferred = source.kind === 'bot' && source.deferred === true
+  const relayed = source.kind === 'bot' && source.handoff !== true && !deferred && (source.role === 'request' || source.role === 'reply' || source.role === 'stopped') && typeof source.senderSessionId === 'string'
   const turn = node.location?.turn?.turn ?? data.turn
   // Noted before paint so a folded line never flashes in before its run's first line.
   useLayoutEffect(() => {
@@ -297,8 +323,10 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
       if (source.role === 'kickoff' || source.role === 'room') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.
-      if (source.role === 'secret') return null
+      if (source.role === 'secret' || deferred) return null
       if (source.role === 'post') {
+        // A member's late failure shows as an event of the round it opens.
+        if (source.failed !== undefined) return null
         const room = roster.roomsById[sessionId]
         const poster = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
         return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi })
@@ -321,9 +349,10 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         if (!bots.some(bot => bot.id === peer.id)) bots.push(peer)
       }
       return h(EventLine, {
-        prefix: count > 1 ? t('{count} messages with', { count }) : t('Message from'),
+        prefix: source.role === 'stopped' ? t('Stopped by') : count > 1 ? t('{count} messages with', { count }) : t('Message from'),
         bots,
         onOpen: bot => actions.openExchange(selfId, bot.id),
+        whole: true,
       })
     }
     if (source.kind === 'schedule') {
@@ -452,6 +481,10 @@ function toolActivity(name, arg, findBot, self) {
       const target = findBot(arg('to'))
       return { label: target ? t('Asking {name}', { name: target.name }) : t('Asking another Bot'), state: 'sending' }
     }
+    case 'stop_bot': {
+      const target = findBot(arg('bot'))
+      return { label: target ? t('Stopping {name}', { name: target.name }) : t('Stopping another Bot'), state: 'sending' }
+    }
     case 'create_bot': return { label: t('Creating {name}', { name: arg('name') ?? t('a Bot') }), state: 'sending' }
     case 'update_bot': {
       const target = findBot(arg('name')) ?? findBot(arg('bot')) ?? (arg('bot') ? undefined : self)
@@ -470,6 +503,12 @@ function toolActivity(name, arg, findBot, self) {
   }
 }
 
+// What a Bot busy elsewhere is doing, from its current tool alone.
+export function workPhrase(tool) {
+  if (!tool) return t('Thinking about it')
+  return toolActivity(tool, () => undefined, () => undefined)?.label ?? t('On it')
+}
+
 // Transcript rows report what is in flight to the one activity row at the tail.
 function useLiveNote(actions, sessionId, id, entry) {
   const key = entry ? JSON.stringify(entry) : ''
@@ -480,7 +519,7 @@ function useLiveNote(actions, sessionId, id, entry) {
   }, [sessionId, id, key])
 }
 
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = useState({ replies: [], speaking: null })
   useEffect(() => {
     if (done) return undefined
@@ -504,11 +543,16 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   // Members speak one at a time, so only the current speaker is typing.
   const pending = done || !live.speaking ? [] : [live.speaking]
+  const speakerTool = useWork?.(work => work.bots?.[live.speaking]?.tool) ?? undefined
   if (replies.length === 0 && pending.length === 0) return null
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
     replies.map((reply, index) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
+      if (reply.kind === 'user') {
+        return h('div', { key: `user-${index}`, className: 'bt-urow' }, h('div', { className: 'bt-ububble' },
+          h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })))
+      }
       if (reply.kind === 'failed') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event bt-event-error', role: 'status', title: [reply.code, reply.status, reply.text].filter(Boolean).join(' · ') },
           t('{name} could not answer: {reason}', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
@@ -517,18 +561,26 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' },
           reply.text ? t('{name} looked up its own chat for “{text}”', { name: bot.name, text: reply.text }) : t('{name} looked up its own chat', { name: bot.name }))
       }
+      if (reply.kind === 'missed') {
+        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("{name} didn't answer in time", { name: bot.name }))
+      }
+      if (reply.kind === 'approval') {
+        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' },
+          h('button', { type: 'button', className: 'bt-event-whole', onClick: () => actions.showDetails(sessionId) },
+            h(BotMark, { bot, size: 16 }), h('span', { className: 'bt-event-name' }, t('{name} paused for your approval', { name: bot.name }))))
+      }
       return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi })
     }),
     pending.map((id) => {
       const bot = roster.byId[id]
       if (!bot) return null
       return h('div', { key: `pending-${id}`, className: 'bt-activity' },
-        h(BotMark, { bot: bot, size: 22, state: 'thinking' }),
-        h(Shimmer, null, t('{name} is typing…', { name: bot.name })))
+        h(BotMark, { bot: bot, size: 22, state: speakerTool ? toolState(speakerTool) : 'thinking' }),
+        h(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t('{name} is typing…', { name: bot.name })))
     }))
 }
 
-export function ToolCell({ node, sessionId, useRoster, useUi, actions }) {
+export function ToolCell({ node, sessionId, useRoster, useUi, useWork, actions }) {
   const roster = useRoster(value => value)
   const root = node.data.root
   const done = root.kind === 'tool-result'
@@ -544,7 +596,12 @@ export function ToolCell({ node, sessionId, useRoster, useUi, actions }) {
     case 'message_bot': {
       const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
       if (done && root.isError) return h('div', { className: 'bt-event' }, t("Couldn't message {name}", { name: target.name }))
-      return h(EventLine, { prefix: t('Messaged'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id) })
+      return h(EventLine, { prefix: t('Messaged'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
+    }
+    case 'stop_bot': {
+      const target = findBot(arg('bot')) ?? { name: arg('bot') ?? '…', color: 'gray' }
+      if (done && root.isError) return h('div', { className: 'bt-event' }, t("Couldn't stop {name}", { name: target.name }))
+      return h(EventLine, { prefix: t('Stopped'), bots: [target], onOpen: bot => bot.id && actions.openExchange(roster.byId[sessionId]?.id ?? sessionId, bot.id), whole: true })
     }
     case 'create_bot': {
       const created = findBot(arg('name'))
@@ -556,7 +613,7 @@ export function ToolCell({ node, sessionId, useRoster, useUi, actions }) {
       return done && target ? h(EventLine, { prefix: t('Updated'), bots: [target], onOpen: bot => actions.openSession(bot.id) }) : null
     }
     case 'group_relay':
-      return h(GroupReplies, { sessionId, callId: root.callId, done, content: root.content, roster, actions, useUi })
+      return h(GroupReplies, { sessionId, callId: root.callId, done, content: root.content, roster, actions, useUi, useWork })
     case 'create_group':
     case 'update_group':
     case 'delete_group':

@@ -1,6 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ClockIcon, MicIcon, PaperclipIcon, PlusIcon, WaveIcon } from './icons.js'
+import { ChatsIcon, ClockIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
+import { BotMark } from './mark.js'
 import { useLinger } from './motion.js'
 import { t } from './i18n.js'
 
@@ -88,11 +89,24 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
     dictation.note ? h('span', { className: 'bt-mic-note', role: 'status' }, dictation.note) : null)
 }
 
-// The composer's "+" in a Bot's chat or a group chat: add files, or set a scheduled
-// task for this chat. It stands in for the shell's command menu, whose plan,
-// permission, model and compact rows reach past what DS Bot keeps for its Bots; "/"
-// still opens that menu. Files go through the shell's own file input beside it.
-export function ComposerPlus({ sessionId, useRoster, actions }) {
+// Character marks for the "@" menu rows. Each Bot keeps one component, so the menu
+// does not remount its mark on every keystroke.
+export function menuIcons(roster) {
+  const marks = new Map()
+  return (row) => {
+    if (!row.bot) return PeopleIcon
+    const id = row.bot.id
+    if (!marks.has(id)) marks.set(id, ({ size = 14 }) => h(BotMark, { bot: roster.getSnapshot().byId[id] ?? row.bot, size }))
+    return marks.get(id)
+  }
+}
+
+// The composer's "+" in a Bot's chat or a group chat: add files, reference another
+// chat, or set a scheduled task for this chat. It stands in for the shell's command
+// menu, whose plan, permission, model and compact rows reach past what DS Bot keeps
+// for its Bots; "/" still opens that menu. Files go through the shell's own file
+// input beside it.
+export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
   const roster = useRoster(value => value)
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
@@ -121,6 +135,13 @@ export function ComposerPlus({ sessionId, useRoster, actions }) {
     setOpen(null)
     actions.openSettings('schedules', target)
   }
+  // The chats open in the shell's "@" menu at the caret, so the pick lands where the
+  // user was typing.
+  const reference = () => {
+    setOpen(null)
+    actions.referenceChat(sessionId, inputActions?.captureInsertion?.())
+  }
+  const canReference = typeof inputActions?.captureInsertion === 'function' && actions.canReferenceChat()
   return h(Fragment, null,
     h('button', {
       ref: button, type: 'button', className: 'bt-plus', 'aria-label': t('Add'), title: t('Add'),
@@ -131,5 +152,6 @@ export function ComposerPlus({ sessionId, useRoster, actions }) {
       style: { left: shown.left, bottom: shown.bottom }, 'data-leaving': leaving || undefined,
     },
     h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))),
+    canReference ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: reference }, h(ChatsIcon), h('span', { className: 'bt-menu-label' }, t('Reference a chat'))) : null,
     h('button', { type: 'button', role: 'menuitem', onClick: schedule }, h(ClockIcon), h('span', { className: 'bt-menu-label' }, t('Scheduled task')))), document.body) : null)
 }

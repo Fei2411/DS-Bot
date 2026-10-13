@@ -1,20 +1,26 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { format } from 'node:util'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
-function start(team, { models = [], reasoning = {} } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext()
   const workspaces = new Map()
   const sent = []
   const selected = []
+  const archived = []
+  const warnings = []
   let sessions = 0
+  ctx.logger.warn = (...args) => warnings.push(format(...args))
   Object.assign(ctx, {
     llm: {
       listProviders: () => (models.length > 0 ? [{ id: 'deepseek', name: 'DeepSeek' }] : []),
@@ -29,7 +35,10 @@ function start(team, { models = [], reasoning = {} } = {}) {
         workspaces.set(workspace.id, workspace)
         return workspace
       },
-      archiveSession: async () => {},
+      archiveSession: async (sessionId, options) => {
+        if (archiveError !== undefined) throw archiveError
+        archived.push([sessionId, options])
+      },
     },
     sessionController: {
       create: async () => ({ sessionId: `s${++sessions}` }),
@@ -52,12 +61,21 @@ function start(team, { models = [], reasoning = {} } = {}) {
   }
   const stop = () => {
     ctx.dispose()
-    rmSync(home, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, selected, ctx }
+  return { call, stop, home, sent, selected, ctx, archived, warnings }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
+// A greeting goes out after the team is saved, which can take longer than one settle() on a
+// busy machine.
+const until = async (check) => {
+  const end = Date.now() + 2000
+  while (!check()) {
+    if (Date.now() > end) throw new Error('until: the condition did not hold within 2 s')
+    await settle()
+  }
+}
 
 test('the first Main Bot waits for the user to pick a model, then greets', async (t) => {
   const { call, stop, sent, selected } = start(undefined, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
@@ -95,9 +113,20 @@ test('other Bots start on the default model and greet at once', async (t) => {
   t.after(stop)
   await call('state', {})
   const writer = (await call('create-bot', { name: 'Writer' })).value
+  await until(() => sent.length > 0)
   await settle()
   assert.equal(writer.model, 'deepseek/deepseek-v4-flash')
   assert.deepEqual(sent.map(entry => entry.sessionId), [writer.id])
+})
+
+test('a new name must be one "@" can call; a name saved before the rule still saves', async (t) => {
+  const { call, stop } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await call('state', {})
+  for (const name of ['a@b', 'All', '所有人']) assert.equal((await call('create-bot', { name })).ok, false, name)
+  const writer = (await call('create-bot', { name: 'Writer 2' })).value
+  assert.equal((await call('update-bot', { id: writer.id, name: 'Writer@home' })).ok, false)
+  assert.equal((await call('update-bot', { id: writer.id, name: '新 Writer' })).ok, true)
 })
 
 test('a group the user makes without a first message opens with its admin asking what it is for', async (t) => {
@@ -105,7 +134,7 @@ test('a group the user makes without a first message opens with its admin asking
   t.after(stop)
   const chief = (await call('state', {})).value.mainBotId
   const writer = (await call('create-bot', { name: 'Writer' })).value
-  await settle()
+  await until(() => sent.some(entry => entry.sessionId === writer.id))
   sent.length = 0
   await call('create-room', { members: [chief, writer.id], admin: writer.id })
   assert.equal(sent.length, 0)
@@ -266,6 +295,60 @@ test('set-main keeps one Main Bot and replaces only a Main Bot', async (t) => {
   assert.deepEqual((await call('state', {})).value.mainBotIds, [chief])
 })
 
+test('deleting a Bot or group chat stops its Session, so its tasks are removed', async (t) => {
+  const { call, stop, archived } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const room = (await call('create-room', { members: [chief, writer.id], admin: writer.id })).value
+  archived.length = 0
+  assert.equal((await call('delete-bot', { id: writer.id })).ok, true)
+  assert.equal((await call('delete-room', { id: room.id })).ok, true)
+  // `stopActivity` lets DSH's session-stop hook drop the Session's armed
+  // scheduled tasks; without it the archive is refused and they keep
+  // delivering into the deleted Session.
+  assert.deepEqual(archived, [
+    [writer.id, { stopActivity: true }],
+    [room.id, { stopActivity: true }],
+  ])
+})
+
+const TEAM_WITH_PART = {
+  version: 1,
+  mainBotIds: ['m1'],
+  revision: 2,
+  bots: {
+    m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 },
+    w1: { id: 'w1', sessionId: 'w2', name: 'Writer', role: '', instructions: '', createdAt: 2, segments: [{ sessionId: 'w1', endedAt: 3 }] },
+  },
+  rooms: {},
+  exchanges: [],
+  exchangeTurns: {},
+  questions: {},
+}
+
+test("deleting a Bot also stops its past parts' Sessions, where tasks can stay armed", async (t) => {
+  const { call, stop, archived } = start(TEAM_WITH_PART, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  archived.length = 0
+  assert.equal((await call('delete-bot', { id: 'w1' })).ok, true)
+  // A part switch can leave armed tasks on the old Session (w1); archiving only
+  // the current one (w2) would orphan them exactly like a skipped archive.
+  assert.deepEqual(archived, [
+    ['w1', { stopActivity: true }],
+    ['w2', { stopActivity: true }],
+  ])
+})
+
+test('an archive failure on delete is warned instead of passing silently', async (t) => {
+  const { call, stop, warnings } = start(undefined, { models: ['deepseek-v4-flash'], archiveError: new Error('archive refused') })
+  t.after(stop)
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  assert.equal((await call('delete-bot', { id: writer.id })).ok, true)
+  await settle()
+  assert.equal(warnings.filter(text => text.includes('not archived')).length, 1)
+})
+
 test('a hidden Bot made Main Bot shows again, and a replaced Chief drops its held greeting', async (t) => {
   const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'] })
   t.after(stop)
@@ -280,4 +363,114 @@ test('a hidden Bot made Main Bot shows again, and a replaced Chief drops its hel
   await call('update-bot', { id: chief, model: 'deepseek/deepseek-v4-flash' })
   await settle()
   assert.equal(sent.length, greeted)
+})
+
+const takeover = (home, team) => {
+  writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: process.ppid, host: hostname(), token: 'new-owner' }))
+  if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+}
+
+test('a host that loses its lock to another dsh refuses changes instead of making a phantom Bot', async (t) => {
+  const { call, stop, home, ctx } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' } } })
+  t.after(stop)
+  assert.equal((await call('state', {})).value.readOnly, null)
+  let created = 0
+  const create = ctx.sessionController.create
+  ctx.sessionController.create = async (...args) => { created += 1; return create(...args) }
+  // Another live dsh takes the lock and writes its own team.
+  takeover(home, { version: 1, revision: 9, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' }, other: { id: 'other', name: 'FromB' } } })
+  const answer = await call('create-bot', { name: 'Phantom' })
+  assert.equal(answer.ok, false)
+  assert.equal(answer.error.code, 'bot/read-only')
+  assert.equal(created, 0)
+  // The file keeps the new owner's team, and this host now follows it.
+  const team = (await call('state', {})).value
+  assert.match(team.readOnly, /another dsh/)
+  assert.ok(team.bots.some(bot => bot.name === 'FromB'))
+  assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
+})
+
+test('a delete whose save fails still stops the Sessions, and the next save writes it', async (t) => {
+  const { call, stop, home, archived } = start(TEAM_WITH_PART, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await call('state', {})
+  archived.length = 0
+  const blocker = join(home, `state.json.${process.pid}.tmp`)
+  mkdirSync(blocker)
+  const answer = await call('delete-bot', { id: 'w1' })
+  assert.equal(answer.ok, false)
+  // The Bot is gone from the team, so nothing could stop its tasks later.
+  assert.deepEqual(archived, [
+    ['w1', { stopActivity: true }],
+    ['w2', { stopActivity: true }],
+  ])
+  rmSync(blocker, { recursive: true })
+  await call('set-prefs', { theme: 'dark' })
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.equal(saved.bots.w1, undefined)
+})
+
+test('a rolled-back Bot does not come back with a save queued before the rollback', async (t) => {
+  const { call, stop, home } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' } } })
+  t.after(async () => {
+    fsp.rename = rename
+    syncBuiltinESMExports()
+    stop()
+  })
+  // The first Bot also saves the team's workspace; later ones save only themselves.
+  await call('create-bot', { name: 'Warm' })
+  const statePath = join(home, 'state.json')
+  const rename = fsp.rename
+  let entered
+  let release
+  const first = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  let failed = false
+  fsp.rename = async (from, to) => {
+    if (to === statePath && !failed) {
+      failed = true
+      entered()
+      await gate
+      throw Object.assign(new Error('rename failed'), { code: 'EIO' })
+    }
+    return rename(from, to)
+  }
+  syncBuiltinESMExports()
+  const phantom = call('create-bot', { name: 'Phantom' })
+  await first
+  // A second Bot's save queues a snapshot that still holds Phantom.
+  const kept = call('create-bot', { name: 'Kept' })
+  await settle()
+  release()
+  assert.equal((await phantom).ok, false)
+  assert.equal((await kept).ok, true)
+  await settle()
+  const names = Object.values(JSON.parse(readFileSync(statePath, 'utf8')).bots).map(bot => bot.name)
+  assert.deepEqual(names.sort(), ['Chief', 'Kept', 'Warm'])
+})
+
+test('a write that fails at save time archives the Session it made', async (t) => {
+  const { call, stop, home, ctx } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' } } })
+  t.after(stop)
+  await call('state', {})
+  const created = []
+  const create = ctx.sessionController.create
+  ctx.sessionController.create = async (...args) => {
+    const made = await create(...args)
+    created.push(made.sessionId)
+    // The disk write fails after this request's refresh, before its save.
+    mkdirSync(join(home, `state.json.${process.pid}.tmp`))
+    return made
+  }
+  const archived = []
+  const archive = ctx.workspaceRegistry.archiveSession
+  ctx.workspaceRegistry.archiveSession = async (id) => { archived.push(id); return archive(id) }
+  const answer = await call('create-bot', { name: 'Phantom' })
+  assert.equal(answer.ok, false)
+  assert.equal(answer.error.code, 'bot/internal')
+  assert.deepEqual(archived, created)
+  const team = (await call('state', {})).value
+  assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.equal(Object.values(saved.bots).some(bot => bot.name === 'Phantom'), false)
 })

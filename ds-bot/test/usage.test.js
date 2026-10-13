@@ -109,7 +109,7 @@ function start(home, { listedExtra, logsExtra, subagentsExtra } = {}) {
   const meter = ctx.listeners.get('llm/stream').at(-1)
   const stop = () => {
     ctx.dispose()
-    rmSync(home, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   return { call, ctx, home, meter, pages, stop, warnings }
 }
@@ -158,7 +158,7 @@ test('the usage view counts every Session under its owner, by hour in the asked 
 test('a call made in a group chat stays group use after the room is gone', async (t) => {
   const first = start()
   const { home } = first
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
   const before = (await first.call('usage', { timeZone: 'Asia/Shanghai' })).value
   assert.equal(totals(before)['Chief/group'], 330)
   first.ctx.dispose()
@@ -176,7 +176,7 @@ test('a call made in a group chat stays group use after the room is gone', async
 test('a plain chat journals its owner before the first scan, so a deleted Bot keeps its name', async (t) => {
   const first = start()
   const { home } = first
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
   // Writer talks once, Usage is never opened: the meter lets the request
   // through, but the Session's owner lands in the ledger on its own.
   const passed = (async function* () { yield { type: 'text', text: 'hi' } })()
@@ -220,7 +220,10 @@ test('a subagent Session is read through its parent, even a parent that is gone;
   assert.equal(totals(view)['other/chat'], 44 + 9)
   // No parent on record: it cannot be addressed, so it is not asked for.
   assert.ok(!pages.includes('s-lost'))
-  const unread = () => warnings.filter(([template]) => template.includes('usage could not read')).map(([, sessionId]) => sessionId)
+  const unread = () => warnings
+    .map(([template, ...args]) => template === '%s' ? args[0] : template)
+    .filter(line => line.includes('usage could not read'))
+    .map(line => line.match(/usage could not read (\S+):/)?.[1])
   assert.deepEqual(unread(), ['s-broken'])
 
   t.mock.timers.tick(60_000)

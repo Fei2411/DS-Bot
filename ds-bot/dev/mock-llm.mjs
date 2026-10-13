@@ -11,11 +11,12 @@
 // Environment: MOCK_PORT, MOCK_LOG, MOCK_DELAY_MS, MOCK_JITTER_MS (random extra latency),
 // MOCK_LOG_CHARS (prompt length kept per log entry), MOCK_SUMMARY_DELAY_MS (handoff notes
 // and backend compaction only), MOCK_NATIVE_SEARCH=off (ignore web_search_* tools and
-// answer like an endpoint without search).
+// answer like an endpoint without search), MOCK_REJECT_IMAGES=1 (reject requests with images).
 //
 // Commands to a Bot:
 //   建群 名: A, B · 群发[回报] 名: 消息 · 改群 名 公告|管理员|模式|加|踢: 值 · 删群 名
 //   看群 名 (read_group_chat) · 转告 名: 消息 (message_bot) · 搜索：查询1 | 查询2 (web_search)
+//   插话 名: 消息 (message_bot when "now") · 排队 名: 消息 (message_bot when "queue") · 叫停 名: 原因 (stop_bot)
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
 //   查记录 词 [词…] · 查锚点 part N #序号 · 查第 N 段 (read_own_chat)
 //   上下文里有 词 (searches the context except the last message) · 撑爆 (fake overflow, 400)
@@ -27,6 +28,7 @@
 // Commands in a group:
 //   把X拉进群 · 把X踢出群 · 群名改成X · 讨论 (admin @all) · 私聊聊了啥 (repeats the briefing)
 //   查私聊 关键词 (read_own_chat) · 长文 N · 上下文里有 词 · 撑爆 · 报错 [名] (that member's call, or every member's, fails with 401)
+//   提权 (members other than the admin run a shell command that asks for full access)
 // A handoff turn answers "第 N 段接着做完了". Handoff notes and backend compaction each
 // return a full eight-section note marked "handoff 提示词" or "backend 提示词" (a Bot's
 // Session should only see the former; retries add "重试", merges add "合并了上一份笔记").
@@ -55,6 +57,7 @@ const SUMMARY_DELAY = Number(process.env.MOCK_SUMMARY_DELAY_MS ?? DELAY)
 // How much of each call's last message the log keeps; raise it to read whole prompts.
 const LOG_CHARS = Number(process.env.MOCK_LOG_CHARS ?? 160)
 const WATCH = process.env.MOCK_WATCH ?? ''
+const REJECT_IMAGES = process.env.MOCK_REJECT_IMAGES === '1'
 // MOCK_LOG_TOOLS=1 records the request's tool names, to compare two Sessions' tool views.
 const LOG_TOOLS = process.env.MOCK_LOG_TOOLS === '1'
 let seq = 0
@@ -74,6 +77,7 @@ const tool = (name, input) => ({
     : input,
 })
 const think = value => ({ type: 'thinking', thinking: value })
+const ESCALATION = '提权测试：用户在群里要求'
 // Deterministic filler that grows a conversation by about `chars` characters.
 const filler = (chars, tag) => Array.from({ length: Math.ceil(chars / 20) }, (_, index) => `${tag}第${index + 1}段：这是一段用来撑长上下文的测试文字。`).join('').slice(0, chars)
 const isResults = message => Array.isArray(message?.content) && message.content.some(block => block.type === 'tool_result')
@@ -92,7 +96,14 @@ function isSummary(body) {
 function decide(body) {
   const system = systemText(body.system) + '\n' + (body.messages ?? []).filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n')
   const tools = new Set((body.tools ?? []).map(entry => entry.name))
-  const messages = (body.messages ?? []).filter(m => m.role !== 'system')
+  // Clock snapshots are context, not a new scripted user command.
+  const messages = (body.messages ?? []).filter(m => m.role !== 'system').map(message => {
+    if (message.role !== 'user') return message
+    const isClock = value => value.startsWith('Current time: ') || value.startsWith('Time sampled while preparing turn ')
+    const content = typeof message.content === 'string' ? (isClock(message.content) ? '' : message.content)
+      : message.content.filter(block => block.type !== 'text' || !isClock(block.text))
+    return { ...message, content }
+  }).filter(message => message.role !== 'user' || message.content.length > 0)
   const last = messages.at(-1)
   const blocks = Array.isArray(last?.content) ? last.content : []
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
@@ -157,9 +168,11 @@ function decide(body) {
     const call = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
     const used = call?.content.find(b => b.type === 'tool_use' && b.id === result.tool_use_id) ?? call?.content.find(b => b.type === 'tool_use')
     // "长任务 N [K]": N steps in one turn, each adding about K thousand characters (default 4).
-    const openerAt = messages.findLastIndex(m => m.role === 'user' && !isResults(m) && /^长任务\s*\d+/.test(textOf(m.content)))
+    const openerAt = messages.findLastIndex(m => m.role === 'user' && !isResults(m) && /^长任务\s*\d+/.test(textOf(m.content).trimStart()))
     if (openerAt !== -1 && used?.name === 'list_bots') {
-      const [, steps, size = 4] = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(textOf(messages[openerAt].content)).map(Number)
+      const task = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(textOf(messages[openerAt].content).trimStart())
+      const steps = Number(task[1])
+      const size = Number(task[2] ?? 4)
       const done = messages.slice(openerAt + 1).filter(isResults).length
       if (done < steps) return [text(filler(size * 1000, `步骤${done + 1}`)), tool('list_bots', {})]
       return [text(`长任务做完了，一共 ${done} 步。`)]
@@ -181,6 +194,7 @@ function decide(body) {
     if ((used?.name === 'bash' || used?.name === 'pwsh') && /DSH_SECRET_/.test(used.input?.command ?? '')) {
       return [text(`终端输出里我看到的是：${resultText.replace(/\s+/g, ' ').trim().slice(0, 200)}`)]
     }
+    if (used?.input?.justification === ESCALATION) return [text(result.is_error ? `没跑成：${resultText.slice(0, 80)}` : '命令跑完了，文件已经写好。')]
     switch (used?.name) {
       case 'group_relay': return [text('')]
       case 'create_bot': {
@@ -230,6 +244,20 @@ function decide(body) {
   const userText = textOf(last?.content).trim()
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
+  // "长任务" keeps stepping when a Bot message splices into its turn (a relayed
+  // note); only a fresh opener or "[Stopped by" ends it. A spliced "[Message
+  // from X]" is taken into account there; it is answered in a turn of its own.
+  const longOpener = messages.findLastIndex(m => m.role === 'user' && !isResults(m) && /^长任务\s*\d+/.test(textOf(m.content).trimStart()))
+  if (longOpener !== -1 && /^\[(?:Message|Reply) from /.test(userText)) {
+    const task = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(textOf(messages[longOpener].content).trimStart())
+    const steps = Number(task[1])
+    const size = Number(task[2] ?? 4)
+    const done = messages.slice(longOpener + 1).filter(isResults).length
+    if (done < steps) {
+      const joined = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText)?.[1]
+      return [text(`${joined ? `（已按 ${joined} 的话调整）\n` : ''}${filler(size * 1000, `步骤${done}`)}`), tool('list_bots', {})]
+    }
+  }
   // "报错": the provider rejects the key, in the user's chat or in a message from a Bot.
   if (/^报错$/.test(userText) || /^(?:\[Message from [^\]]*\]\n报错\n?)+$/.test(userText)) return 'auth'
   const lastCall = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
@@ -299,6 +327,10 @@ function decide(body) {
       const brief = /Your own chat with the user so far[^\n]*\n([\s\S]*?)\nThis brief does not change/.exec(all)?.[1] ?? ''
       return [text(brief ? `简报最后一句：${brief.split('\n').at(-1)}` : '没有简报。')]
     }
+    const shell = ['pwsh', 'bash'].find(name => tools.has(name))
+    if (/提权/.test(userLine) && !leads && shell) {
+      return [text('这一步要写工作区外的文件，我申请一次提权。'), tool(shell, { command: 'echo ok', description: '在工作区外写一个测试文件', justification: ESCALATION, sandbox_permissions: 'danger-full-access' })]
+    }
     // Ping-pong: whoever is mentioned mentions back, to exercise the per-member cap.
     if (/来回/.test(userLine)) return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]
     if (mentioner) return [text('进度正常，今天能交。')]
@@ -327,6 +359,9 @@ function decide(body) {
   }
   if ((order = /^删群\s*(\S+)$/.exec(userText))) return [tool('delete_group', { group: order[1] })]
   if ((order = /^转告\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2] })]
+  if ((order = /^插话\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'now' })]
+  if ((order = /^排队\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'queue' })]
+  if ((order = /^叫停\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('stop_bot', { bot: order[1], reason: order[2] })]
   if ((order = /^看群\s*(.+)$/.exec(userText))) return [tool('read_group_chat', { group: order[1].trim() })]
   // Memory: 记住[@话题] 事实 · 团队记住 事实 · 忘掉 事实 · 回忆 [词]
   if ((order = /^(团队)?记住(?:@(\S+))?\s*[:：]?\s*(.+)$/.exec(userText)) && tools.has('remember')) {
@@ -351,7 +386,7 @@ function decide(body) {
     const asked = userText.split('\n').slice(1).join(' ').trim().replace(/[。.!！?？]+$/u, '')
     return [text(`${match[1]} 转来一句话：「${asked}」。我先说打算：把手头已有的材料理一遍，列出还缺什么，再和你确认先后顺序；你确认之前我不会动手。`)]
   }
-  if ((match = /^\[Message from ([^\]]+)\]/.exec(userText))) {
+  if ((match = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText))) {
     return [text(`给 ${match[1]} 的回复：\n- 先做：把现有材料理一遍\n- 需要用户提供：目标和截止时间（尚未聊过）\n- 节奏：确认后每天同步一次`)]
   }
   if ((match = /^\[Reply from ([^\]]+)\]\n.* could not answer your message: its model call failed \(([^)]+)\)/.exec(userText))) {
@@ -477,7 +512,7 @@ function searchApi(req, res) {
   req.on('data', chunk => { raw += chunk })
   req.on('end', () => {
     const body = JSON.parse(raw || '{}')
-    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id: ++seq, searchApi: { path: req.url, body, auth: req.headers.authorization ? 'bearer' : '' } }) + '\n')
+    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id: ++seq, images: 0, searchApi: { path: req.url, body, auth: req.headers.authorization ? 'bearer' : '' } }) + '\n')
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ results: [{ title: `Search API result: ${body.query}`, url: `https://example.com/search-api/${encodeURIComponent(body.query ?? '')}`, content: `Page text about ${body.query}.` }] }))
   })
@@ -494,23 +529,31 @@ const server = createServer((req, res) => {
   req.on('data', chunk => { raw += chunk })
   req.on('end', () => {
     const body = JSON.parse(raw)
+    const images = (body.messages ?? []).reduce((count, message) => count
+      + (Array.isArray(message.content) ? message.content.filter(block => block?.type === 'image').length : 0), 0)
+    const id = ++seq
+    if (REJECT_IMAGES && images > 0) {
+      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, images, rejectedImages: true, messages: body.messages?.length ?? 0, last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS) }) + '\n')
+      res.writeHead(400, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'mock: request with images rejected' } }))
+      return
+    }
     const search = asksNativeSearch(body)
     const out = search ? nativeSearch(body) : decide(body)
-    const id = ++seq
     if (out === 'overflow') {
-      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, overflow: true, messages: body.messages?.length ?? 0, last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS) }) + '\n')
+      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, images, overflow: true, messages: body.messages?.length ?? 0, last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS) }) + '\n')
       res.writeHead(400, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'prompt is too long: maximum context length exceeded' } }))
       return
     }
     if (out === 'auth') {
-      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, auth: true, messages: body.messages?.length ?? 0 }) + '\n')
+      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, images, auth: true, messages: body.messages?.length ?? 0 }) + '\n')
       res.writeHead(401, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'mock: invalid x-api-key sk-mock1234567890' } }))
       return
     }
     if (out === 'fail') {
-      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, fail: true, messages: body.messages?.length ?? 0 }) + '\n')
+      appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, images, fail: true, messages: body.messages?.length ?? 0 }) + '\n')
       res.writeHead(400, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'mock: this note request fails on purpose' } }))
       return
@@ -523,7 +566,7 @@ const server = createServer((req, res) => {
     // Hashes of the system prompt and tools show whether two Sessions share a cacheable prefix.
     const digest = value => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex').slice(0, 12)
     const watch = WATCH ? { watchHit: JSON.stringify([body.system, body.tools, body.messages]).includes(WATCH) } : {}
-    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, tokens, ...watch, ...LOG_TOOLS ? { toolNames: (body.tools ?? []).map(entry => entry.name ?? entry.type) } : {}, ...search ? { nativeSearch: { model: body.model, tools: body.tools, auth: [req.headers['x-api-key'] ? 'x-api-key' : '', req.headers.authorization ? 'bearer' : ''].filter(Boolean) } } : {}, system: digest(body.system), tools: digest(body.tools), messages: body.messages?.length ?? 0, first: textOf(body.messages?.[0]?.content).slice(0, 60), last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS), out: out.map(block => (block.type === 'text' && block.text.length > 200 ? { ...block, text: `${block.text.slice(0, 200)}…(${block.text.length})` } : block)) }) + '\n')
+    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, tokens, images, ...watch, ...LOG_TOOLS ? { toolNames: (body.tools ?? []).map(entry => entry.name ?? entry.type) } : {}, ...search ? { nativeSearch: { model: body.model, tools: body.tools, auth: [req.headers['x-api-key'] ? 'x-api-key' : '', req.headers.authorization ? 'bearer' : ''].filter(Boolean) } } : {}, system: digest(body.system), tools: digest(body.tools), messages: body.messages?.length ?? 0, first: textOf(body.messages?.[0]?.content).slice(0, 60), last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS), out: out.map(block => (block.type === 'text' && block.text.length > 200 ? { ...block, text: `${block.text.slice(0, 200)}…(${block.text.length})` } : block)) }) + '\n')
     if (search) {
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -571,4 +614,4 @@ const server = createServer((req, res) => {
   })
 })
 
-server.listen(PORT, '127.0.0.1', () => console.log(`ds-bot mock on http://127.0.0.1:${PORT}/v1`))
+server.listen(PORT, '127.0.0.1', () => console.log(`ds-bot mock on http://127.0.0.1:${server.address().port}/v1`))

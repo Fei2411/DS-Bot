@@ -4,7 +4,7 @@ Thank you for helping. This file explains how to set up the plugin, how to test 
 
 ## Pull requests
 
-Thank you for your interest in improving DS Bot. The project is still changing quickly, so we are not accepting pull requests for now. If you find a problem or have an idea, please open an issue (see [Report a problem](#report-a-problem)). We hope to open pull requests again when the project is stable. Thank you for your understanding.
+Thank you for your interest in improving DS Bot. The project is still changing quickly, so we are not accepting pull requests for now. If you find a problem, please open an issue (see [Report a problem](#report-a-problem)). For a question, idea or feature request, use [Discussions](https://github.com/Fei2411/DeepSeek-Bot/discussions). We hope to open pull requests again when the project is stable. Thank you for your understanding.
 
 ## The rules that matter most
 
@@ -18,25 +18,31 @@ Thank you for your interest in improving DS Bot. The project is still changing q
 
 You need:
 
-- Node.js `22.19` or later (or `24` and later), and pnpm `11`.
+- Node.js `22.19` or later (or `24` and later).
 - Git.
-- A checkout of DeepSeek Harness at the DSH version that the plugin is tested with. The unit tests and the test bench load the `@deepseek-ai/*` packages from it.
+- For the test bench only: pnpm `11` and a checkout of DeepSeek Harness at the DSH version that the plugin is tested with.
 
 ```sh
-git clone https://github.com/FeiZhuLulu/DeepSeek-Bot.git ds-bot-repo
-cd ds-bot-repo
+git clone https://github.com/Fei2411/DeepSeek-Bot.git ds-bot-repo
+cd ds-bot-repo/ds-bot
 
-# DeepSeek Harness, next to the plugin folder (this folder is ignored by Git).
+# The plugin's own build tool (esbuild only).
+npm ci
+
+# The DSH packages that the unit tests and the linter load, from npm, into dev/harness/.
+npm run harness
+```
+
+For the test bench, add the DeepSeek Harness checkout next to the plugin folder (this folder is ignored by Git):
+
+```sh
+cd ..
 git clone https://github.com/deepseek-ai/deepseek-harness.git
 git -C deepseek-harness checkout dsh-v0.2.1-alpha.1
 (cd deepseek-harness && pnpm install)
-
-# The plugin's own build tool (esbuild only).
-cd ds-bot
-npm ci
 ```
 
-If your DeepSeek Harness checkout is somewhere else, set `DSH_HARNESS` to its path for the tests and the test bench.
+If your DeepSeek Harness checkout is somewhere else, set `DSH_HARNESS` to its path. `DSH_HARNESS` also takes the place of `dev/harness/` for the unit tests and the linter.
 
 The `@deepseek-ai/*` packages are peer dependencies: in a real install, the DSH profile supplies them. `ds-bot/.npmrc` keeps npm from installing them into the plugin folder.
 
@@ -50,7 +56,7 @@ The `@deepseek-ai/*` packages are peer dependencies: in a real install, the DSH 
 | `ds-bot/web-search.js` | The `auto` web-search provider. It does not depend on the Bot team code |
 | `ds-bot/cordis.patch.yml` | The profile patch that the plugin brings |
 | `ds-bot/test/` | Unit tests and fixtures |
-| `ds-bot/dev/` | The mock model, the test bench, the smoke test, the character generator, the Desktop scripts for Linux, and two tools for real models: the steward evaluation and a logging pass-through |
+| `ds-bot/dev/` | The DSH packages for the unit tests (`harness/`), the mock model, the test bench, the smoke test, the character generator, the Desktop scripts for Linux, and two tools for real models: the steward evaluation and a logging pass-through |
 
 ## Test a change
 
@@ -60,7 +66,10 @@ Run these in `ds-bot/`:
 npm run build                          # src/client → client.js
 npm test                               # unit tests; they also fail if client.js is stale
 node scripts/build-client.mjs --check  # client.js matches src/client
+npm run lint                           # oxlint
 ```
+
+CI runs the same three checks on every pull request, on Linux and Windows.
 
 For a change to the server side (`index.js`, `src/host/`), also run the smoke test. It starts the mock model and a DSH Web with the plugin linked from your checkout, and walks through the main flows (Bots, group chats, conversation parts, condensing, settings). `CONTEXT_WINDOW` and `CHECK_RATIO` give the mock models a small window, so a few long replies reach the check line:
 
@@ -98,10 +107,14 @@ If you open an issue by hand, include:
 - The DSH version (DSH Desktop or `@deepseek-ai/dsh`), your operating system, and whether you use DSH Desktop or DSH Web.
 - How you installed DS Bot (npm, release file, Git address or command line) and its version.
 - What you did, what you expected and what happened, with the exact error text.
+- A screenshot of the whole window, with the chat and the error.
+- The steps that make it happen again.
 
 DS Bot removes API keys, tokens, saved secrets and your home folder from its diagnostics. Read the text before you post it, and remove personal data from screenshots.
 
 For a security problem, do not open a public issue. Use **Report a vulnerability** on the repository's **Security** tab.
+
+Issues are for bug reports. Questions, ideas and feature requests belong in [Discussions](https://github.com/Fei2411/DeepSeek-Bot/discussions).
 
 ## License
 

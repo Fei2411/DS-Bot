@@ -11,7 +11,7 @@ export { colorOf, lookOf } from './characters.js'
 // motion. Uploaded images only bob or hop, since they have no parts to move.
 const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'alert', 'done']
 export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) ? activity : 'working') : alert ? 'alert' : 'idle')
-export const toolState = name => (/^(message_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
+export const toolState = name => (/^(message_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
 // Eyes follow the pointer on large marks.

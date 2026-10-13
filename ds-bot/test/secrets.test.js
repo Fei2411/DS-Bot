@@ -120,7 +120,7 @@ function start() {
     return result.value
   }
   const env = (agentId, command = '') => contributors.filter(entry => entry.live).at(-1)?.resolve({ agent: { id: agentId, session: { header: { id: agentId } } }, arguments: { command } }) ?? {}
-  const stop = () => { ctx.dispose(); rmSync(home, { recursive: true, force: true }) }
+  const stop = () => { ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
   return { ctx, home, call, tool, view, env, listeners, delivered, streamed, contributors, stop }
 }
 
@@ -149,7 +149,8 @@ test('a card saves a key the Bot never sees, and the shell gets it', async (t) =
   assert.match((await bench.call('secret-set', { requestId: request.id, value })).error.message, /already answered/)
 
   const file = join(bench.home, 'secrets.json')
-  assert.equal(statSync(file).mode & 0o777, 0o600)
+  // Windows has no POSIX mode bits: a writable file always stats as 0o666 there.
+  if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600)
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).secrets[0].value, value)
   assert.deepEqual(readdirSync(bench.home).filter(name => name.endsWith('.tmp')), [])
   team = await bench.view()

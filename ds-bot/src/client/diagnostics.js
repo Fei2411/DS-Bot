@@ -70,11 +70,16 @@ export function failureLabel(code, message) {
 const URL_LIMIT = 7000
 export const WHAT_MAX = 2000
 const PASTE_NOTE = 'DS Bot copied the diagnostics to the clipboard. Paste them here.'
+const REST_NOTE = 'The recent errors do not fit in the link. DS Bot copied the diagnostics to the clipboard: paste them below this line.'
 
 export function issueUrl(base, { what = '', diagnostics }) {
   const text = what.trim().slice(0, WHAT_MAX)
   const title = text.split('\n')[0].slice(0, 80)
   const build = body => `${base}?${new URLSearchParams({ template: 'bug.yml', ...(title ? { title } : {}), ...(text ? { what: text } : {}), diagnostics: body })}`
   const full = build(diagnostics)
-  return full.length <= URL_LIMIT ? { url: full, inline: true } : { url: build(PASTE_NOTE), inline: false }
+  if (full.length <= URL_LIMIT) return { url: full, inline: true }
+  // The versions table leads the report and stays short; only the errors make it
+  // long, and a report that lost the versions is hard to act on.
+  const facts = build(`${diagnostics.split('\n\n')[0]}\n\n${REST_NOTE}`)
+  return { url: facts.length <= URL_LIMIT ? facts : build(PASTE_NOTE), inline: false }
 }

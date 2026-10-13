@@ -12,7 +12,7 @@ import { t } from './i18n.js'
 
 const PHRASE_HOLD_MS = 800
 const drawPhrase = pool => t(pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))])
-function elapsedLabel(ms) {
+export function elapsedLabel(ms) {
   const minutes = Math.floor(ms / 60000)
   if (minutes < 60) return `${Math.max(1, minutes)}m`
   const hours = Math.floor(minutes / 60)
@@ -81,10 +81,14 @@ function useRowEntrances(replacing) {
   }, [])
 }
 
-export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, actions }) {
+export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, actions }) {
   const roster = useRoster(value => value)
   const running = useSessionStatus(map => map.get(sessionId)?.running === true)
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
+  // A queued message waits for the next turn, so only a transcript or steering
+  // send counts as fresh input.
+  const pendingInput = useSession(snapshot => Math.max(0, ...(snapshot?.pendingSubmissions ?? [])
+    .filter(sub => sub.placement !== 'queued').map(sub => sub.time)))
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])
@@ -94,9 +98,16 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   const relaying = tools.some(entry => entry.relay)
   const visible = running && !streaming && !relaying && (bot !== undefined || room !== undefined)
   const tool = tools.at(-1)
+  const inputRef = useRef(0)
+  // A steer keeps the run going, so nothing else resets the row: fresh input is
+  // the newest activity, and the phrase and the clock restart from the send.
+  const inputAt = Math.max(inputRef.current, pendingInput)
+  inputRef.current = inputAt
   const want = !visible ? null
-    : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
-      : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
+    : inputAt > (tool?.at ?? 0)
+      ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
+      : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
+        : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
   const [shown, setShown] = useState(null)
   const wantKey = want?.key ?? null
   const markState = useRef('thinking')

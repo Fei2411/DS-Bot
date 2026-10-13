@@ -16,7 +16,7 @@ const LOG_MAX_BYTES = 1 << 20
 const STACK_LINES = 8
 const TEXT_MAX = 2000
 export const REPORT_ENTRIES = 20
-export const ISSUES_URL = 'https://github.com/FeiZhuLulu/DeepSeek-Bot/issues/new'
+export const ISSUES_URL = 'https://github.com/Fei2411/DeepSeek-Bot/issues/new'
 
 const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -144,7 +144,7 @@ export function install(rt) {
     }).catch((error) => {
       if (fileFailed) return
       fileFailed = true
-      console.error('[ds-bot] diagnostics log not written:', error?.code ?? error?.message ?? error)
+      console.error('[ds-bot] diagnostics log not written:', error?.code ?? clean(error?.message ?? String(error)))
     })
   }
 
@@ -164,13 +164,15 @@ export function install(rt) {
   }
 
   const warn = (template, ...args) => {
-    ctx.logger.warn(template, ...args)
-    console.error(`[ds-bot] ${template}`, ...args.map(arg => arg?.stack ?? arg))
     const error = args.find(arg => arg instanceof Error)
+    const line = clean(format(template, ...args.map(arg => (arg instanceof Error ? errorText(arg) : arg))))
+    const frames = typeof error?.stack === 'string' ? error.stack.split('\n').filter(item => /^\s+at /.test(item)).slice(0, STACK_LINES).map(item => item.trim()) : []
+    ctx.logger.warn('%s', line)
+    console.error(`[ds-bot] ${line}${frames.length > 0 ? `\n${clean(frames.join('\n'))}` : ''}`)
     note({
       level: 'warn',
       source: 'host',
-      text: format(template, ...args.map(arg => (arg instanceof Error ? errorText(arg) : arg))).replace(/^ds-bot: /, ''),
+      text: line.replace(/^ds-bot: /, ''),
       code: typeof error?.code === 'string' ? error.code : undefined,
       stack: error?.stack,
     })

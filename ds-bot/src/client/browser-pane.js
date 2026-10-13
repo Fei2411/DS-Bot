@@ -282,7 +282,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages }) 
  * `{ id, view: 'details'|'browser', renaming, tab }`; `id` is the Session id the
  * panel follows. Without the Desktop bridge the browser view never shows.
  */
-export function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatus, useActivity, useBrowserTabs, useBrowserPages }) {
+export function BotPanel({ pane, leaving, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }) {
   const bot = roster.byId[pane.id]
   const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow)
   const view = pane.view === 'browser' && canBrowse ? 'browser' : 'details'
@@ -486,7 +486,7 @@ export function BotPanel({ pane, leaving, roster, actions, useSessions, useSessi
       : h('div', { key: `details:${pane.id}:${pane.renaming ? 'rename' : ''}:${pane.tab ?? ''}`, className: 'bt-panel-view' },
           h(DetailsDrawer, {
             sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip,
-            roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useBrowserTabs, useBrowserPages,
+            roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages,
           })))
 }
 

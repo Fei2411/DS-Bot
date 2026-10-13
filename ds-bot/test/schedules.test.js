@@ -57,7 +57,7 @@ function setup(services = {}) {
 
 test('without the schedule service the page says so and creating is refused', async (t) => {
   const { ctx, home, call } = setup()
-  t.after(() => { ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  t.after(() => { ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   assert.deepEqual((await call('schedules', {})).value, { available: false, tasks: [] })
   const refused = await call('schedule-create', { target: 'm1', title: 'Briefing', prompt: 'Sum up', when: { kind: 'daily', time: '09:00', timeZone: 'Asia/Shanghai' } })
   assert.equal(refused.ok, false)
@@ -67,7 +67,7 @@ test('without the schedule service the page says so and creating is refused', as
 test('tasks are created on the Bot’s current part, listed by Bot, and deleted', async (t) => {
   const schedule = scheduleService()
   const { ctx, home, call } = setup({ schedule })
-  t.after(() => { ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  t.after(() => { ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const daily = await call('schedule-create', { target: 'w1', title: ' Briefing ', prompt: 'Sum up the day', when: { kind: 'daily', time: '09:00', timeZone: 'Asia/Shanghai' } })
   assert.equal(daily.ok, true, JSON.stringify(daily))
   const [created] = [...schedule.tasks.values()]
@@ -106,7 +106,7 @@ test('tasks are created on the Bot’s current part, listed by Bot, and deleted'
 test('a group chat task lives on the group Session and lists under the group', async (t) => {
   const schedule = scheduleService()
   const { ctx, home, call } = setup({ schedule })
-  t.after(() => { ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  t.after(() => { ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const made = await call('schedule-create', { target: 'g1', title: 'Standup', prompt: 'Where are we?', when: { kind: 'daily', time: '10:00', timeZone: 'UTC' } })
   assert.equal(made.ok, true, JSON.stringify(made))
   assert.equal([...schedule.tasks.values()][0].sessionId, 'g1')

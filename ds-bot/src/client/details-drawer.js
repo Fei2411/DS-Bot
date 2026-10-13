@@ -11,6 +11,7 @@ import { ModelMenu, modelOf } from './model-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { Segmented, useGlide, useMorph } from './motion.js'
+import { MemberWork, useMemberWork } from './member-status.js'
 import { t } from './i18n.js'
 
 function transcriptOf(list, id, name, hiddenTurns = []) {
@@ -133,19 +134,25 @@ function About({ text, title = 'About' }) {
 
 // A group's overview: what members read, who is in it, and who answers. Changes are
 // made in its settings.
-function GroupOverview({ room, roster, actions, usage, openSettings }) {
+function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) {
   const members = room.members.map(id => roster.byId[id]).filter(Boolean)
+  const { entries, now } = useMemberWork(room, useWork)
   return [
     room.notice
       ? h(About, { key: 'notice', title: 'Notice', text: room.notice })
       : h('button', { key: 'notice', type: 'button', className: 'bt-more', onClick: openSettings }, t('Add a notice in group settings')),
     h('div', { key: 'members' },
       h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),
-      h('div', { className: 'bt-members', role: 'list' }, members.map(member => h('div', { key: member.id, className: 'bt-member', role: 'listitem' },
-        h('button', { type: 'button', className: 'bt-member-name', title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
-          h(BotAvatar, { bot: member, size: 26, main: isMainOf(roster, member.id), admin: room.admin === member.id, live: false }),
-          h('span', null, member.name)),
-        room.admin === member.id ? h('span', { className: 'bt-chip bt-chip-admin' }, t('Admin')) : null)))),
+      h('div', { className: 'bt-members', role: 'list' }, members.map((member) => {
+        const entry = entries.find(item => item.id === member.id)
+        return h('div', { key: member.id, role: 'listitem' },
+          h('div', { className: 'bt-member' },
+            h('button', { type: 'button', className: 'bt-member-name', title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
+              h(BotAvatar, { bot: member, size: 26, main: isMainOf(roster, member.id), admin: room.admin === member.id, live: false }),
+              h('span', null, member.name)),
+            room.admin === member.id ? h('span', { className: 'bt-chip bt-chip-admin' }, t('Admin')) : null),
+          entry ? h(MemberWork, { entry, bot: member, room, roster, actions, now }) : null)
+      }))),
     h('div', { key: 'mode' }, h('div', { className: 'bt-section-title' }, t('Who answers')),
       h('div', { className: 'bt-kv' }, h('span', null, t(ROOM_MODES.find(([id]) => id === shownMode(room, roster))?.[1] ?? 'Everyone')))),
     usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
@@ -153,7 +160,7 @@ function GroupOverview({ room, roster, actions, usage, openSettings }) {
   ]
 }
 
-export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useBrowserTabs, useBrowserPages }) {
+export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }) {
   const owner = roster.byId[sessionId]
   const part = owner ? currentPart(owner) : sessionId
   const isMainBot = isMainOf(roster, owner?.id)
@@ -241,7 +248,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
       tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))),
     h('div', { key: `body:${tab}`, className: 'bt-drawer-body', 'data-move': move },
       errorLine,
-      room && tab === 'details' ? h(GroupOverview, { room, roster, actions, usage, openSettings: () => setView('settings') }) : null,
+      room && tab === 'details' ? h(GroupOverview, { room, roster, actions, usage, useWork, openSettings: () => setView('settings') }) : null,
       bot && tab === 'details' ? [
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),

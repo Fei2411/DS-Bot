@@ -8,6 +8,25 @@ import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { OCR_CACHE_MAX, OCR_PROMPT, OCR_RETRY_MS, OCR_TIMEOUT_MS } from './constants.js'
 import { splitRef } from './text.js'
 
+export function offloadTargets(session, beforeSeq) {
+  const targets = []
+  for (const seq of session.surface.nodes) {
+    if (seq >= beforeSeq) continue
+    const event = session.eventAt(seq)
+    if (event?.type !== 'user/message' && event?.type !== 'tool/result') continue
+    const message = session.deriveEventMessage(event)
+    const imageIndexes = []
+    let imageIndex = 0
+    for (const block of message?.content ?? []) {
+      if (block?.type !== 'image') continue
+      if (block.offloaded !== true) imageIndexes.push(imageIndex)
+      imageIndex += 1
+    }
+    if (imageIndexes.length > 0) targets.push({ seq, imageIndexes })
+  }
+  return targets
+}
+
 export function install(rt) {
   const { ctx, config, home } = rt
 
@@ -168,6 +187,24 @@ export function install(rt) {
       // carries no image, so this listener lets it through.
       yield* ctx.llm.stream({ ...options, messages: await withImagesAsText(options.messages, options.sessionId) })
     })()
+  })
+
+  ctx.on('agent/status', ({ agent, status }) => {
+    if (status !== 'idle' || !agent?.session || !rt.isBotSession(agent.id) || rt.readOnly() !== undefined) return
+    const beforeSeq = agent.session.seq
+    setImmediate(() => {
+      void (async () => {
+        try {
+          if (!ctx.sessions.messageProjections.some(projection => projection.type === 'image/offload')) return
+          const targets = offloadTargets(agent.session, beforeSeq)
+          if (targets.length === 0) return
+          agent.session.append('image/offload', { targets })
+          await ctx.sessions.flush(agent.session)
+        } catch (error) {
+          rt.warn('ds-bot: old images for %s not offloaded: %s', agent.id, error)
+        }
+      })()
+    })
   })
 
   Object.assign(rt, { imagesForGroup })

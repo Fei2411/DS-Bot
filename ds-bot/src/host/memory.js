@@ -44,6 +44,9 @@ const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
 const SUMMARY_MAX_TOKENS = 2_048
+// A reply cut off at the limit is tried once more with room for reasoning plus
+// the answer; a model that thinks can spend the smaller budget thinking alone.
+const SUMMARY_RETRY_MAX_TOKENS = 8_192
 const SUMMARY_TEXT_MAX = 8_000
 const ASK_TEXT_MAX = 2_000
 const ASK_CHANGES_MAX = 20
@@ -905,24 +908,32 @@ export function install(rt) {
   // the tag the meter would file them under "other".
   async function oneShot(route, system, text, tag) {
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
-    const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
-    const assembler = new BlockAssembler()
+    const efforts = info?.reasoning?.efforts ?? []
+    // Thinking counts against the same output budget as the answer, so ask for
+    // the least the model offers: 'off' when it has one, else its lowest level.
+    const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
     const messages = [{ role: 'user', content: [{ type: 'text', text }] }]
     if (tag !== undefined) rt.tagUsage?.(messages, tag)
-    for await (const chunk of ctx.llm.stream({
-      provider: route.provider,
-      model: route.model,
-      ...(off ? { reasoningEffort: 'off' } : {}),
-      system,
-      messages,
-      maxTokens: SUMMARY_MAX_TOKENS,
-      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-    })) assembler.push(chunk)
-    const finish = assembler.finish
-    if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
-    const reply = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
-    if (reply === '') throw new Error('The model wrote nothing')
-    return reply
+    for (const maxTokens of [SUMMARY_MAX_TOKENS, SUMMARY_RETRY_MAX_TOKENS]) {
+      const assembler = new BlockAssembler()
+      for await (const chunk of ctx.llm.stream({
+        provider: route.provider,
+        model: route.model,
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
+        system,
+        messages,
+        maxTokens,
+        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      })) assembler.push(chunk)
+      const finish = assembler.finish
+      if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+      const reply = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+      if (finish.kind !== 'max-tokens' && reply !== '') return reply
+      // A reply cut off at the limit — all of it thinking, or a half-written
+      // answer — is dropped, never used; the retry gives it room once.
+      if (finish.kind !== 'max-tokens' && maxTokens === SUMMARY_MAX_TOKENS) throw new Error('The model wrote nothing')
+    }
+    throw new Error(`The model's reasoning used up the output budget (${SUMMARY_MAX_TOKENS} and ${SUMMARY_RETRY_MAX_TOKENS} tokens); no complete answer was written`)
   }
 
   /** @type {Map<string, {hash:string, text:string, at:number}>} */

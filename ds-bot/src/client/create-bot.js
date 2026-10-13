@@ -6,7 +6,8 @@ import { ChevronLeftIcon, CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { createPayload, freshBotName, startModel } from './bot-draft.js'
 import { ModelMenu } from './model-menu.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
+import { nameProblem } from '../shared/mentions.js'
 
 const pick = list => list[Math.floor(Math.random() * list.length)]
 const randomLook = (avoid = {}) => {
@@ -33,8 +34,9 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const fallbackName = freshBotName(roster, t('New Bot'))
   const finalName = name.trim() || fallbackName
   const clash = roster.bots.some(bot => bot.name.toLowerCase() === finalName.toLowerCase())
+  const problem = nameProblem(finalName)
   const create = async () => {
-    if (busy || clash) return
+    if (busy || clash || problem) return
     setError('')
     setBusy(true)
     try {
@@ -76,7 +78,8 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         onChange: event => setName(event.target.value),
         onKeyDown: (event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void create() } },
       }),
-      clash ? h('span', { className: 'bt-note bt-danger' }, t('A Bot named {name} already exists', { name: finalName })) : null),
+      problem ? h('span', { className: 'bt-note bt-danger' }, hostText(problem))
+        : clash ? h('span', { className: 'bt-note bt-danger' }, t('A Bot named {name} already exists', { name: finalName })) : null),
     h('div', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Model')),
       h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: model || undefined, effort }, roster, actions, wide: true, onPick: ref => { setModel(ref); setEffort(undefined) }, onPickEffort: setEffort }),
@@ -86,7 +89,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),
-      h('button', { type: 'button', className: 'bt-send bt-create-go', disabled: busy || clash, onClick: () => void create() }, busy ? t('Creating…') : t('Create'))))
+      h('button', { type: 'button', className: 'bt-send bt-create-go', disabled: busy || clash || Boolean(problem), onClick: () => void create() }, busy ? t('Creating…') : t('Create'))))
   if (inline) return h('div', { ref: frame, className: 'bt-create-inline', role: 'group', 'aria-label': t('Create Bot') }, card)
   return h('div', { className: 'bt-create', role: 'dialog', 'aria-label': t('Create Bot') },
     h('div', { className: 'bt-create-head' },

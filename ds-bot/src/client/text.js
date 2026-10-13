@@ -1,28 +1,23 @@
 // -------------------------------------------------------------------------
 // Text helpers
 import { dateLocale, t } from './i18n.js'
+import { mentionSpans } from '../shared/mentions.js'
 
 export const MENTION_ORIGIN = 'https://bots.local/'
 
-const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-// Only "@Name" is a mention, the same rule the group host reads (mentionsIn): a bare
-// name is ordinary text, so a Bot called "测试" leaves the word "测试" alone.
+// The Bots a text calls, by the rule the group host reads (shared/mentions.js). The
+// speaker's own name takes part so that it is never read as a shorter name inside it
+// ("@新 Bot" in "@新 Bot 2"); it then stays plain text.
 export function linkMentions(text, bots, selfId) {
-  if (!text || bots.length === 0 || text.includes('```') || !text.includes('@')) return text
-  // The speaker's own name takes part so that, longest first, it is never read as a
-  // shorter name inside it ("@新 Bot" in "@新 Bot 2"); it then stays plain text.
-  const names = bots.filter(bot => bot.name).sort((a, b) => b.name.length - a.name.length)
-  if (!names.some(bot => bot.id !== selfId)) return text
-  const byName = new Map(names.map(bot => [bot.name.toLowerCase(), bot]))
-  // A letter, digit, "_" or "." before "@" is an address ("a@b"); a letter, digit, "_"
-  // or "-" after the name means a longer word ("@Mi" in "@MiniMax").
-  const pattern = new RegExp(`(\\[[^\\]]*\\]\\([^)]*\\)|\`[^\`]*\`)|(?<![A-Za-z0-9_.])@(${names.map(bot => escapeRegExp(bot.name)).join('|')})(?![A-Za-z0-9_-])`, 'gi')
-  return text.replace(pattern, (match, skip, name) => {
-    if (skip) return skip
-    const bot = byName.get(name.toLowerCase())
-    return bot && bot.id !== selfId ? `[${name}](${MENTION_ORIGIN}${bot.id})` : match
-  })
+  if (!text || !text.includes('@')) return text
+  let out = ''
+  let cursor = 0
+  for (const span of mentionSpans(text, bots)) {
+    if (!span.bot || span.bot.id === selfId) continue
+    out += `${text.slice(cursor, span.start)}[${text.slice(span.start + 1, span.end).replace(/[[\]\\]/g, '\\$&')}](${MENTION_ORIGIN}${span.bot.id})`
+    cursor = span.end
+  }
+  return cursor === 0 ? text : out + text.slice(cursor)
 }
 
 export function mentionTarget(event) {
@@ -123,6 +118,50 @@ export function toolArgs(root) {
     text: (key) => { const value = object()?.[key]; return typeof value === 'string' ? value : undefined },
     value: key => object()?.[key],
   }
+}
+
+// A relay context is a Bot-to-Bot request, reply or stop notice injected into the
+// model's history. ds-bot's own package sources (kickoff, room, secret, handoff
+// parts) are not events in the chat, nor is a deferred request handed back after
+// its line was already shown.
+const RELAY_ROLES = new Set(['request', 'reply', 'stopped'])
+export const isRelayContext = (data) => {
+  const source = data?.source
+  if (source === null || typeof source !== 'object' || source.kind !== 'bot' || source.handoff === true || source.deferred === true) return false
+  return RELAY_ROLES.has(source.role) && typeof source.senderSessionId === 'string'
+}
+
+// 'context' chat nodes never reach the flow on DSH 0.2, so a relay spliced into
+// a running turn would be invisible; the step that answers it renders the line.
+// A relay attaches to the next step that renders a cell: tool-only steps mount
+// nothing (ui-chat gives them no visible node), so `prev` is the previous step
+// with visible content, not the previous step in the list.
+// `contexts` and `steps` are the turn's turnDataSource lists (anchor order) and
+// `step` is the rendering step's own data. A step is found by its number: the
+// cell's node data and the source's entries can be different snapshot objects.
+const stepShows = (step) => (step?.blocks ?? []).some(block => {
+  // ui-chat's mount rule for a step node: non-empty reasoning, or reply content
+  // (`hasAssistantReplyContent`); a tool call alone keeps the node hidden.
+  if (block === undefined || block.kind === 'tool-call') return false
+  return block.kind === 'text' || block.kind === 'reasoning' ? String(block.text ?? '').trim() !== '' : true
+})
+const stepHasReasoning = (step) => (step?.blocks ?? []).some(block => block?.kind === 'reasoning' && String(block.text ?? '').trim() !== '')
+// The step's own cells: a reasoning step emits a 'reasoning' part and a step
+// with reply content a 'response' part, or both. The line belongs in the first
+// of them — before the thinking row, else before the reply.
+export const relayPart = (data, groupPart) => groupPart === undefined || (stepHasReasoning(data) ? groupPart === 'reasoning' : groupPart === 'response')
+export function relaysBefore(contexts, steps, step) {
+  const index = steps.findIndex(entry => entry?.step === step?.step)
+  if (index === -1) return []
+  let prev = -Infinity
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (stepShows(steps[cursor])) { prev = steps[cursor].time; break }
+  }
+  // The lower bound is inclusive: a relay steered right after the previous
+  // step's assistant/message can share its millisecond, and it still belongs to
+  // this step — its own model call follows the previous one. The upper bound
+  // stays strict: a step's time is its settled message or first visible token.
+  return (contexts ?? []).filter(data => isRelayContext(data) && typeof data.time === 'number' && data.time >= prev && data.time < step.time)
 }
 
 // Back-to-back Bot-to-Bot messages fold into one "N messages with" line. A

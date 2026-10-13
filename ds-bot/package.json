@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -11,13 +11,13 @@
     "multi-agent",
     "agents"
   ],
-  "homepage": "https://github.com/FeiZhuLulu/DeepSeek-Bot#readme",
+  "homepage": "https://github.com/Fei2411/DeepSeek-Bot#readme",
   "bugs": {
-    "url": "https://github.com/FeiZhuLulu/DeepSeek-Bot/issues"
+    "url": "https://github.com/Fei2411/DeepSeek-Bot/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FeiZhuLulu/DeepSeek-Bot.git",
+    "url": "git+https://github.com/Fei2411/DeepSeek-Bot.git",
     "directory": "ds-bot"
   },
   "license": "Apache-2.0",
@@ -32,6 +32,7 @@
   "files": [
     "index.js",
     "src/host/",
+    "src/shared/",
     "client.js",
     "web-search.js",
     "cordis.patch.yml",
@@ -42,6 +43,7 @@
     "build": "node scripts/build-client.mjs",
     "test": "node --import ./test/harness-resolve.mjs --test \"test/*.test.js\"",
     "lint": "node scripts/lint.mjs",
+    "harness": "npm install --prefix dev/harness --legacy-peer-deps=false --no-package-lock --no-fund --no-audit",
     "check": "sh dev/check.sh"
   },
   "peerDependencies": {

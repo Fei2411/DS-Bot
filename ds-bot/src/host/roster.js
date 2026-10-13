@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { COMPUTER_MODES, MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, unquote } from './text.js'
+import { nameProblem } from '../shared/mentions.js'
 
 export function install(rt) {
   const { ctx, config, home, defaults, state } = rt
@@ -56,57 +57,75 @@ export function install(rt) {
   // greeting waits until a model is chosen. So does a Bot made when no model is served.
   async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, copyOf, pickModel = false }) {
     const cleanName = String(botName ?? '').trim().slice(0, 40)
-    if (cleanName === '') throw new Error('A Bot needs a name')
+    const problem = nameProblem(cleanName)
+    if (problem !== undefined) throw new Error(problem)
     if (rt.findBot(cleanName)) throw new Error(`A Bot named ${cleanName} already exists`)
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
     const effortId = modelRef !== undefined && effort !== undefined ? await rt.resolveEffort(modelRef, effort) : undefined
     const id = await createSession(cleanName)
-    state.bots[id] = {
-      id,
-      name: cleanName,
-      role: String(role).trim().slice(0, 24),
-      // A color is only stored when the user picks one; otherwise the id picks it.
-      ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
-      ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
-      ...(modelRef ? { model: modelRef } : {}),
-      ...(effortId ? { effort: effortId } : {}),
-      instructions: String(instructions).trim(),
-      createdAt: Date.now(),
-      createdBy: createdBy ?? null,
-    }
-    if (main) state.mainBotIds.push(id)
-    const creator = rt.botOf(createdBy)
-    const original = rt.botOf(copyOf)
-    const language = rt.uiLanguage?.()
-    const kickoff = main
-      ? `You were just set up as the user's Main Bot. Greet the user in one or two short messages: say you will run their Bot team and that they can come to you for anything that needs a decision. Then use ask_user to ask what they want the team to help with first (3-4 short options). Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
-      : original
-        ? `The user just made you as a copy of ${original.name}: same job, fresh memory. Greet the user in one short message, then use ask_user to ask what this copy should focus on (3-4 short options).`
-        : creator
-          ? `${creator.name} just created you for the user.${brief ? ` Why you exist: ${brief}` : ''}\nGreet the user in one short message, then use ask_user to ask where to start (3-4 short options relevant to your role, with allowCustom). Keep it brief.`
-          : brief
-            ? `The user just created you and sent this first message:\n\n${brief}\n\nIntroduce yourself in one short line, then help with it.`
-            : 'The user just created you. Greet the user in one short message, then use ask_user to ask what you should focus on (3-4 short options, with allowCustom).'
-    const text = !main && language ? `${kickoff}\nWrite in ${language}.` : kickoff
-    const bot = state.bots[id]
-    // agent/created fired before this Bot was indexed (save reindexes), so its
-    // computer-use mode applies here.
-    const applyComputerUse = async () => { if (rt.computerAvailable()) rt.applyComputerUse(await rt.resolveAgent(id)) }
-    if (modelRef === undefined) {
-      bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
+    try {
+      state.bots[id] = {
+        id,
+        name: cleanName,
+        role: String(role).trim().slice(0, 24),
+        // A color is only stored when the user picks one; otherwise the id picks it.
+        ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
+        ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
+        ...(modelRef ? { model: modelRef } : {}),
+        ...(effortId ? { effort: effortId } : {}),
+        instructions: String(instructions).trim(),
+        createdAt: Date.now(),
+        createdBy: createdBy ?? null,
+      }
+      if (main) state.mainBotIds.push(id)
+      const creator = rt.botOf(createdBy)
+      const original = rt.botOf(copyOf)
+      const language = rt.uiLanguage?.()
+      const kickoff = main
+        ? `You were just set up as the user's Main Bot. Greet the user in one or two short messages: say you will run their Bot team and that they can come to you for anything that needs a decision. Then use ask_user to ask what they want the team to help with first (3-4 short options). Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
+        : original
+          ? `The user just made you as a copy of ${original.name}: same job, fresh memory. Greet the user in one short message, then use ask_user to ask what this copy should focus on (3-4 short options).`
+          : creator
+            ? `${creator.name} just created you for the user.${brief ? ` Why you exist: ${brief}` : ''}\nGreet the user in one short message, then use ask_user to ask where to start (3-4 short options relevant to your role, with allowCustom). Keep it brief.`
+            : brief
+              ? `The user just created you and sent this first message:\n\n${brief}\n\nIntroduce yourself in one short line, then help with it.`
+              : 'The user just created you. Greet the user in one short message, then use ask_user to ask what you should focus on (3-4 short options, with allowCustom).'
+      const text = !main && language ? `${kickoff}\nWrite in ${language}.` : kickoff
+      const bot = state.bots[id]
+      // agent/created fired before this Bot was indexed (save reindexes), so its
+      // computer-use mode applies here. A failure must not undo the saved Bot.
+      const applyComputerUse = async () => {
+        if (!rt.computerAvailable()) return
+        await rt.resolveAgent(id).then(rt.applyComputerUse)
+          .catch(error => rt.warn('ds-bot: computer-use mode for %s not applied: %s', cleanName, error))
+      }
+      if (modelRef === undefined) {
+        bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
+        await rt.save()
+        await applyComputerUse()
+        return bot
+      }
       await rt.save()
       await applyComputerUse()
+      // The greeting runs on the Bot's own model, once its provider is registered.
+      void rt.waitForModel(bot)
+        .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
+        .then(() => sendKickoff(bot, { text, from: createdBy }))
       return bot
+    } catch (error) {
+      // The Bot's Session was already made: archive it instead of leaving an orphan.
+      delete state.bots[id]
+      state.mainBotIds = state.mainBotIds.filter(other => other !== id)
+      rt.chatOwners.delete(id)
+      // A save that another change queued meanwhile still carries this Bot; a later
+      // one writes the team without it.
+      void rt.save().catch(() => {})
+      await ctx.workspaceRegistry.archiveSession(id)
+        .catch(archiveError => rt.warn('ds-bot: archiving the Session for %s failed: %s', cleanName, archiveError))
+      throw error
     }
-    await rt.save()
-    await applyComputerUse()
-    // The greeting runs on the Bot's own model, once its provider is registered.
-    void rt.waitForModel(bot)
-      .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
-      .then(() => sendKickoff(bot, { text, from: createdBy }))
-    return bot
   }
 
   function sendKickoff(bot, { text, from }) {
@@ -119,7 +138,7 @@ export function install(rt) {
     const bot = rt.botOf(botId)
     if (bot?.kickoff === undefined) return
     delete bot.kickoff
-    void rt.save()
+    void rt.save().catch(() => {})
   }
 
   async function duplicateBot(id) {
@@ -146,6 +165,9 @@ export function install(rt) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
       if (next === '' || (clash && clash.id !== id)) throw new Error(`Name ${next} is not available`)
+      // A name saved before the rule stays usable until it changes.
+      const problem = next === bot.name ? undefined : nameProblem(next)
+      if (problem !== undefined) throw new Error(problem)
       bot.name = next
       const agent = await rt.resolveAgent(rt.chatOf(id))
       await ctx.sessionTitle.rename(agent.session, next)
@@ -253,19 +275,28 @@ export function install(rt) {
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     const title = custom || autoRoomName(members)
     const id = await createSession(title)
-    state.rooms[id] = {
-      id,
-      name: title,
-      ...(custom ? { named: true } : {}),
-      members,
-      admin: adminId,
-      mode: mode ?? 'admin',
-      notice: cleanNotice(notice),
-      createdAt: Date.now(),
-      createdBy: createdBy ?? null,
+    try {
+      state.rooms[id] = {
+        id,
+        name: title,
+        ...(custom ? { named: true } : {}),
+        members,
+        admin: adminId,
+        mode: mode ?? 'admin',
+        notice: cleanNotice(notice),
+        createdAt: Date.now(),
+        createdBy: createdBy ?? null,
+      }
+      await rt.save()
+      return state.rooms[id]
+    } catch (error) {
+      // The group's Session was already made: archive it instead of leaving an orphan.
+      delete state.rooms[id]
+      void rt.save().catch(() => {})
+      await ctx.workspaceRegistry.archiveSession(id)
+        .catch(archiveError => rt.warn('ds-bot: archiving the Session for %s failed: %s', title, archiveError))
+      throw error
     }
-    await rt.save()
-    return state.rooms[id]
   }
 
   // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
@@ -339,8 +370,12 @@ export function install(rt) {
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
     delete state.rooms[id]
     rt.roomInbox.delete(id)
-    await rt.save()
-    await ctx.workspaceRegistry.archiveSession(id).catch(() => {})
+    const failed = await saveForDelete()
+    // Armed scheduled tasks refuse a plain archive and would keep delivering into
+    // the deleted group; the session-stop that stopActivity runs removes them.
+    await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+      .catch(error => rt.warn('ds-bot: group chat %s not archived: %s', room.name, error))
+    if (failed !== undefined) throw failed
   }
 
   // The first Main Bot is the sidebar tile. `replace` gives a Main Bot's place to
@@ -375,13 +410,14 @@ export function install(rt) {
   }
 
   async function deleteBot(id) {
-    if (rt.botOf(id) === undefined) throw new Error('Unknown Bot')
+    const bot = rt.botOf(id)
+    if (bot === undefined) throw new Error('Unknown Bot')
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
     // Before the Bot and its group Sessions leave the state, which the archive reads.
     const archived = rt.archiveBotMemory(id)
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
-    const parts = new Set([id, current, ...(rt.botOf(id).segments ?? []).map(segment => segment.sessionId)])
+    const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]
@@ -398,8 +434,29 @@ export function install(rt) {
     await followMemberNames(touched)
     await rt.forgetBotSecrets(id)
     await archived
-    await rt.save()
-    await ctx.workspaceRegistry.archiveSession(current).catch(() => {})
+    const failed = await saveForDelete()
+    // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
+    // Past parts are archived too: a part move can leave tasks on the old Session,
+    // which otherwise stays armed and invisible. Already-archived ids are a no-op.
+    for (const part of parts) {
+      await ctx.workspaceRegistry.archiveSession(part, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: Bot %s not archived: %s', bot.name, error))
+    }
+    if (failed !== undefined) throw failed
+  }
+
+  // A deletion whose save fails stays in memory, and the next save writes it, so its
+  // Sessions are stopped anyway: left armed, their scheduled tasks would keep running
+  // with nothing in the team to show or delete them. Only a host that lost the team
+  // to another dsh keeps them, since the other host's copy still has them.
+  async function saveForDelete() {
+    try {
+      await rt.save()
+      return undefined
+    } catch (error) {
+      if (error?.code === 'ELOCKLOST' || rt.readOnly() !== undefined) throw error
+      return error
+    }
   }
 
   async function bootstrap() {

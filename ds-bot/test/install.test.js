@@ -23,7 +23,7 @@ function start(state, { config = {}, services } = {}) {
   }
   const stop = () => {
     ctx.dispose()
-    rmSync(home, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   return { ctx, call, stop }
 }
@@ -44,8 +44,10 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on agent/pre-step',
     'effect ds-bot: identity section',
     'prompt bot-identity 640',
+    'on agent/pre-step (prepend)',
     'tool list_bots',
     'tool message_bot',
+    'tool stop_bot',
     'tool create_bot',
     'tool update_bot',
     'tool list_models',
@@ -59,6 +61,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool read_own_chat',
     'tool read_group_chat',
     'on llm/stream',
+    'on approval/request (prepend)',
     'effect ds-bot: memory section',
     'prompt bot-memory 645',
     'tool remember',
@@ -70,9 +73,11 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on agent/created',
     'on agent/pre-step (prepend)',
     'on agent/request-error (prepend)',
+    'on agent/request-error (prepend)',
     'on agent/status',
     'on llm/stream',
     'on llm/stream',
+    'on agent/status',
     'tool request_secret',
     'tool list_secrets',
     'on tools/execute',

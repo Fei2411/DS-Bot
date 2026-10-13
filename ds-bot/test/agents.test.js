@@ -69,7 +69,7 @@ function start(team, { config = {} } = {}) {
   const createdAgents = payload => (ctx.listeners.get('agent/created') ?? []).map(listener => listener(payload))
   const stop = () => {
     ctx.dispose()
-    rmSync(home, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   return { call, stop, home, created, archived, failArchive, restricted, renamed, createdAgents, ctx }
 }

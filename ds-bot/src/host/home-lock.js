@@ -3,10 +3,10 @@
 // other's changes. The first host to load takes `state.lock`; a second one only reads.
 //
 // The lock is a small JSON file (pid, host, a random token) whose mtime the holder bumps
-// on a timer. It counts as gone when its process has exited (same host) or when it has
-// not been bumped for `staleMs`, which also covers a reused pid after a crash. On another
-// host only the age can tell, so a lock on shared storage waits out `staleMs`. The token,
-// not the pid, decides ownership: a holder that finds another token has lost the lock.
+// on a timer. On the same host, its process decides whether it is live; `staleMs` only
+// covers other hosts and unreadable files. A reused pid after a crash keeps the second
+// host read-only until that process ends. The token, not the pid, decides ownership: a
+// holder that finds another token has lost the lock.
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -38,11 +38,9 @@ export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostn
   }
   const live = (holder) => {
     if (holder === undefined) return false
-    if (age() >= staleMs) return false
-    if (holder === null) return true
-    if (holder.host !== host) return true
-    // A lock this same process left (a plugin reload whose dispose never ran) is no rival.
-    return holder.pid !== pid && isAlive(holder.pid)
+    if (holder === null) return age() < staleMs
+    if (holder.host === host) return holder.pid !== pid && isAlive(holder.pid)
+    return age() < staleMs
   }
   const owns = () => read()?.token === token
 
@@ -75,7 +73,15 @@ export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostn
       }
       const holder = read()
       if (live(holder)) return holder ?? {}
-      try { unlinkSync(path) } catch {}
+      const current = read()
+      const unchanged = holder === null
+        ? current === null
+        : holder?.token !== undefined
+          ? current?.token === holder.token
+          : JSON.stringify(current) === JSON.stringify(holder)
+      if (unchanged) {
+        try { unlinkSync(path) } catch {}
+      }
     }
     return read() ?? {}
   }

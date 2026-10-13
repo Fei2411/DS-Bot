@@ -120,7 +120,7 @@ const ownChat = [
 // The model answers each call with the next of `replies`. `history` holds the events
 // of a Session, oldest first; each own chat has one user message, at seq 10, unless
 // it says otherwise.
-function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {} } = {}) {
+function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] } } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const ctx = fakeContext()
   const requests = []
@@ -128,13 +128,14 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     llm: {
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
       listModels: async () => [{ id: 'v4' }],
-      resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] } }),
+      resolveModelInfo: async () => ({ reasoning }),
       async* stream(request) {
         requests.push(request)
         const reply = await replies.shift()
         if (reply instanceof Error) throw reply
-        yield { type: 'text-delta', index: 0, text: reply ?? '' }
-        yield { type: 'finish', reason: { kind: 'stop' } }
+        const out = typeof reply === 'object' && reply !== null ? reply : { text: reply ?? '' }
+        yield { type: 'text-delta', index: 0, text: out.text ?? '' }
+        yield { type: 'finish', reason: { kind: out.finish ?? 'stop' } }
       },
     },
     sessionController: {
@@ -165,7 +166,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
   const journal = () => read('journal.jsonl').trim().split('\n').map(line => JSON.parse(line))
   const stop = ({ keep = false } = {}) => {
     ctx.dispose()
-    if (!keep) rmSync(home, { recursive: true, force: true })
+    if (!keep) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   return { ctx, home, call, tool, section, read, journal, requests, stop }
 }
@@ -351,6 +352,58 @@ test('the memory panel shows every entry and a summary the Bot\'s model writes o
   await settle()
   assert.equal((await call('memory-view', { botId: 'b2' })).value.summary.text, '## Overview\nYou like tea and live in Hangzhou.')
   assert.equal((await call('memory-view', { botId: 'nope' })).error.message, 'Unknown Bot')
+})
+
+test('a summary cut off at the output limit is written once more with a bigger budget, never kept half', async (t) => {
+  const replies = [
+    { text: '## Overview\nYou like', finish: 'max-tokens' },
+    '## Overview\nYou like tea.',
+  ]
+  const { tool, call, requests, stop } = start({ replies })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await settle()
+  const done = (await call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([done.summary?.text, done.fresh, done.error], ['## Overview\nYou like tea.', true, null])
+  assert.deepEqual(requests.map(request => request.maxTokens), [2048, 8192])
+})
+
+test('a summary cut off at both budgets keeps the old one and says the reasoning used the budget', async (t) => {
+  const replies = [
+    '## Overview\nYou like tea.',
+    { text: '', finish: 'max-tokens' },
+    { text: '## Overview\nhalf', finish: 'max-tokens' },
+  ]
+  const { tool, call, requests, stop } = start({ replies })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await settle()
+  // A new entry asks for a fresh summary; both its tries are cut off.
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await settle()
+  const failed = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(failed.summary.text, '## Overview\nYou like tea.')
+  assert.match(failed.error, /reasoning.*output budget|output budget.*reasoning/i)
+  assert.deepEqual(requests.map(request => request.maxTokens), [2048, 2048, 8192])
+})
+
+test('the panel call asks for the model\'s lowest thinking level when it has no "off"', async (t) => {
+  const first = start({ replies: ['## ok'], reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } })
+  t.after(() => first.stop())
+  await first.tool('remember', { text: 'Likes tea' }, 'b2')
+  await first.call('memory-view', { botId: 'b2', summarize: true })
+  await settle()
+  assert.equal(first.requests[0].reasoningEffort, 'low')
+
+  const second = start({ replies: ['## ok'], reasoning: {} })
+  t.after(() => second.stop())
+  await second.tool('remember', { text: 'Likes tea' }, 'b2')
+  await second.call('memory-view', { botId: 'b2', summarize: true })
+  await settle()
+  assert.equal(second.requests[0].reasoningEffort, undefined)
 })
 
 test('"ask or update" answers from the entries and changes them through the same rules', async (t) => {
@@ -878,7 +931,7 @@ test('a turn whose Session moves to a fresh part before its review is still revi
 test('config.memoryReview false leaves memory to the Bots\' own remember calls', async (t) => {
   const { ctx, call, section, requests, stop } = start({ config: { memoryReview: false, memoryReviewDelayMs: 0 } })
   t.after(() => stop())
-  assert.equal(ctx.calls.filter(entry => entry === 'on agent/status').length, 1)
+  assert.equal(ctx.calls.filter(entry => entry === 'on agent/status').length, 2)
   await call('state', {})
   assert.match(section('b2'), /Call it in that same turn, before you reply/)
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })

@@ -8,3 +8,4 @@ node_modules/
 .dsh-test*/
 .dsh-home/
 /shots/
+.playwright-mcp/

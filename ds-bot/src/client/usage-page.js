@@ -325,6 +325,7 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
 
 // Each day of the last year, shaded by its tokens.
 function Heat({ view, keep, paint, index }) {
+  const [hover, setHover] = useState(null)
   const today = hourMs(`${view.now.slice(0, 10)} 00`)
   const first = mondayOf(today) - (HEAT_WEEKS - 1) * 7 * DAY_MS
   const from = dayKey(first)
@@ -348,17 +349,30 @@ function Heat({ view, keep, paint, index }) {
       const level = value > 0 ? Math.max(1, Math.ceil(4 * Math.sqrt(value / most))) : 0
       cells.push(h('span', {
         key: ms, className: 'bt-us-cell', style: { '--w': week },
+        'data-on': hover?.ms === ms ? '' : undefined,
         'data-future': ms > today ? '' : undefined, 'data-today': ms === today ? '' : undefined,
-        title: ms > today ? undefined : `${dates({ month: 'long', day: 'numeric', weekday: 'short' }).format(ms)} · ${t('{count} tokens', { count: full(value) })}`,
+        onMouseEnter: ms > today ? undefined : () => setHover({ ms, week, day }),
       }, level > 0 ? h('i', { style: { background: soften(paint, levels[level - 1]) } }) : null))
     }
   }
+  const tipSide = hover ? {
+    ...(hover.week >= HEAT_WEEKS / 2
+      ? { right: `calc(${((HEAT_WEEKS - hover.week) / HEAT_WEEKS) * 100}% + 8px)` }
+      : { left: `calc(${((hover.week + 1) / HEAT_WEEKS) * 100}% + 8px)` }),
+    ...(hover.day < 4
+      ? { top: `calc(${(hover.day / 7) * 100}% - 2px)` }
+      : { top: 'auto', bottom: `calc(${((6 - hover.day) / 7) * 100}% - 2px)` }),
+  } : null
   const active = [...daily.values()].filter(value => value > 0).length
   const summary = active === 1 ? t('Active on 1 day in the last year') : t('Active on {count} days in the last year', { count: active })
   return h('section', { className: 'bt-us-card bt-us-heat', style: { '--i': index } },
     h('div', { className: 'bt-us-card-head' }, h('h3', null, t('Activity')), h('span', { className: 'bt-us-head-note' }, summary)),
     h('div', { className: 'bt-us-heat-months', 'aria-hidden': true }, months),
-    h('div', { className: 'bt-us-heat-grid', role: 'img', 'aria-label': summary }, cells),
+    h('div', { className: 'bt-us-heat-plot', onMouseLeave: () => setHover(null) },
+      h('div', { className: 'bt-us-heat-grid', role: 'img', 'aria-label': summary }, cells),
+      hover ? h('div', { className: 'bt-us-tip bt-us-heat-tip', style: tipSide },
+        h('div', { className: 'bt-us-tip-title' }, dates({ month: 'long', day: 'numeric', weekday: 'short' }).format(hover.ms)),
+        h('div', { className: 'bt-us-tip-total' }, t('{count} tokens', { count: full(daily.get(dayKey(hover.ms)) ?? 0) }))) : null),
     h('div', { className: 'bt-us-heat-scale', 'aria-hidden': true }, t('Light'),
       levels.map(level => h('span', { key: level, className: 'bt-us-cell' }, h('i', { style: { background: soften(paint, level) } }))),
       t('Heavy')))
@@ -367,9 +381,12 @@ function Heat({ view, keep, paint, index }) {
 function Skeleton() {
   return h('div', { className: 'bt-us', 'aria-busy': true },
     h('div', { className: 'bt-us-skel', style: { height: 32, width: 320, borderRadius: 999 } }),
-    h('div', { className: 'bt-us-skel', style: { height: 94 } }),
-    h('div', { className: 'bt-us-skel', style: { height: 318 } }),
-    h('div', { className: 'bt-us-pair' }, h('div', { className: 'bt-us-skel', style: { height: 200 } }), h('div', { className: 'bt-us-skel', style: { height: 200 } })))
+    h('div', { className: 'bt-us-sheet bt-us-skel-sheet' },
+      h('div', { className: 'bt-us-skel', style: { height: 94 } }),
+      h('div', { className: 'bt-us-skel', style: { height: 318 } }),
+      h('div', { className: 'bt-us-pair' },
+        h('div', { className: 'bt-us-skel', style: { height: 200 } }),
+        h('div', { className: 'bt-us-skel', style: { height: 200 } }))))
 }
 
 const focusOf = id => (typeof id !== 'string' ? null
@@ -538,17 +555,18 @@ export function UsagePage({ roster, actions, focusId }) {
     const owners = ranked(part.owners)
     body = [
       h(Profile, { key: 'profile', face, range, share: all.total.total > 0 ? whole / all.total.total : 0 }),
-      h(Stats, { key: 'stats', range, total: part.total, previous: part.previous }),
-      h(Chart, { key: 'chart', range, columns, series, tipSeries, onPick: pick }),
-      h('div', { key: 'pair', className: 'bt-us-pair' },
-        ownerAt >= 0
-          ? h(ListCard, { title: t('Models'), count: usedModels.length, index: 2 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing)
-          : h(ListCard, { title: t('Who used it'), count: owners.length, index: 2 }, owners.length > 0 ? owners.map((entry, index) => ownerRow(entry, index)) : nothing),
-        h(ListCard, { title: t('What for'), index: 3 },
-          kinds.length > 0
-            ? kinds.map(([at, sum], index) => h(Row, { key: at, name: kindLabel(view.kinds[at], ownerAt >= 0 && isBot(ownerAt)), sum, whole, index, fill: soften(face.paint, 0.8) }))
-            : nothing)),
-      h(Heat, { key: 'heat', view, keep, paint: face.paint, index: 4 }),
+      h('div', { key: 'sheet', className: 'bt-us-sheet' },
+        h(Stats, { key: 'stats', range, total: part.total, previous: part.previous }),
+        h(Chart, { key: 'chart', range, columns, series, tipSeries, onPick: pick }),
+        h('div', { key: 'pair', className: 'bt-us-pair' },
+          ownerAt >= 0
+            ? h(ListCard, { title: t('Models'), count: usedModels.length, index: 2 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing)
+            : h(ListCard, { title: t('Who used it'), count: owners.length, index: 2 }, owners.length > 0 ? owners.map((entry, index) => ownerRow(entry, index)) : nothing),
+          h(ListCard, { title: t('What for'), index: 3 },
+            kinds.length > 0
+              ? kinds.map(([at, sum], index) => h(Row, { key: at, name: kindLabel(view.kinds[at], ownerAt >= 0 && isBot(ownerAt)), sum, whole, index, fill: soften(face.paint, 0.8) }))
+              : nothing)),
+        h(Heat, { key: 'heat', view, keep, paint: face.paint, index: 4 })),
     ]
   } else {
     const owners = ranked(all.owners)
@@ -556,16 +574,17 @@ export function UsagePage({ roster, actions, focusId }) {
     const rest = owners.filter(([at]) => !isBot(at))
     const usedModels = ranked(all.models)
     body = [
-      h(Stats, { key: 'stats', range, total: all.total, previous: all.previous }),
-      h(Chart, { key: 'chart', range, columns, series, tipSeries, by, onBy: setBy, onPick: pick }),
-      h('div', { key: 'pair', className: 'bt-us-pair' },
-        h(ListCard, { title: t('Bots'), count: bots.length, index: 2 },
-          owners.length > 0 ? null : nothing,
-          bots.map((entry, index) => ownerRow(entry, index)),
-          bots.length > 0 && rest.length > 0 ? h('div', { className: 'bt-us-split', role: 'separator' }) : null,
-          rest.map((entry, index) => ownerRow(entry, bots.length + index))),
-        h(ListCard, { title: t('Models'), count: usedModels.length, index: 3 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing)),
-      h(Heat, { key: 'heat', view, keep, paint: 'var(--bt-accent)', index: 4 }),
+      h('div', { key: 'sheet', className: 'bt-us-sheet' },
+        h(Stats, { key: 'stats', range, total: all.total, previous: all.previous }),
+        h(Chart, { key: 'chart', range, columns, series, tipSeries, by, onBy: setBy, onPick: pick }),
+        h('div', { key: 'pair', className: 'bt-us-pair' },
+          h(ListCard, { title: t('Bots'), count: bots.length, index: 2 },
+            owners.length > 0 ? null : nothing,
+            bots.map((entry, index) => ownerRow(entry, index)),
+            bots.length > 0 && rest.length > 0 ? h('div', { className: 'bt-us-split', role: 'separator' }) : null,
+            rest.map((entry, index) => ownerRow(entry, bots.length + index))),
+          h(ListCard, { title: t('Models'), count: usedModels.length, index: 3 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing)),
+        h(Heat, { key: 'heat', view, keep, paint: 'var(--bt-accent)', index: 4 })),
     ]
   }
 
@@ -622,6 +641,10 @@ export const USAGE_CSS = `
 .bt-us-tabs>.bt-thumb{top:3px;bottom:3px;border-radius:999px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 .5px var(--bt-line-2)}
 .bt-us-note{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
+.bt-us-sheet{display:flex;flex-direction:column;gap:4px}
+.bt-us-sheet>.bt-us-stats,.bt-us-sheet>.bt-us-card,.bt-us-sheet>.bt-us-pair>.bt-us-card{border-radius:0}
+.bt-us-sheet>:first-child{border-radius:16px 16px 0 0}
+.bt-us-sheet>:last-child{border-radius:0 0 16px 16px}
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
@@ -661,7 +684,7 @@ export const USAGE_CSS = `
 button.bt-us-key{cursor:pointer;transition:background-color .12s ease,color .12s ease}
 button.bt-us-key:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%}
-.bt-us-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.bt-us-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:4px}
 .bt-us-rows{display:flex;flex-direction:column;margin:0 -8px}
 .bt-us-row{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:8px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;text-align:left;animation:bt-us-in .4s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 35ms + 90ms)}
 button.bt-us-row{cursor:pointer;transition:background-color .12s ease}
@@ -695,7 +718,10 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-heat-months,.bt-us-heat-grid{display:grid;grid-template-columns:repeat(${HEAT_WEEKS},1fr);gap:3px}
 .bt-us-heat-months{height:14px;font-size:10px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-heat-months span{white-space:nowrap}
+.bt-us-heat-plot{position:relative}
 .bt-us-heat-grid{grid-template-rows:repeat(7,auto);grid-auto-flow:column}
+.bt-us-heat-grid .bt-us-cell[data-on]{outline:1.5px solid var(--bt-ink-2);outline-offset:1px}
+.bt-us-heat-tip{min-width:0;white-space:nowrap}
 .bt-us-cell{position:relative;aspect-ratio:1;border-radius:3px;background:var(--bt-hover);overflow:hidden}
 .bt-us-heat-grid .bt-us-cell{animation:bt-us-cell .5s var(--bt-us-ease) backwards;animation-delay:calc(var(--w,0) * 7ms + 120ms)}
 .bt-us-cell>i{position:absolute;inset:0}
@@ -704,6 +730,10 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-heat-scale{display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-heat-scale .bt-us-cell{width:10px}
 .bt-us-skel{border-radius:16px;background:linear-gradient(90deg,var(--bt-hover) 0%,var(--bt-active) 50%,var(--bt-hover) 100%);background-size:200% 100%;animation:bt-us-shine 1.4s ease-in-out infinite}
+.bt-us-skel-sheet>.bt-us-skel:first-child{border-radius:16px 16px 0 0}
+.bt-us-skel-sheet>.bt-us-skel:not(:first-child){border-radius:0}
+.bt-us-skel-sheet>.bt-us-pair>.bt-us-skel:first-child{border-radius:0 0 0 16px}
+.bt-us-skel-sheet>.bt-us-pair>.bt-us-skel:last-child{border-radius:0 0 16px 0}
 .bt-us-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:72px 16px;text-align:center;font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-us-empty b{margin-top:6px;font-size:15px;font-weight:600;color:var(--bt-ink)}
 @keyframes bt-us-in{from{opacity:0;transform:translateY(6px)}}

@@ -161,8 +161,12 @@ export function install(rt) {
     const release = await fetchJson(`https://api.github.com/repos/${source.owner}/${source.repo}/releases/latest`, { 'user-agent': `${PKG.name}/${PKG.version}` })
     const version = cleanVersion(release?.tag_name)
     if (!version) return null
+    // The API answers through redirects, so the release's html_url names the
+    // repository's current address; the install moves to it.
+    const current = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/releases\//.exec(release.html_url ?? '')
+    const [owner, repo] = current ? [current[1], current[2]] : [source.owner, source.repo]
     const fragment = [release.tag_name, ...source.rest].join('&')
-    return { version, spec: `github:${source.owner}/${source.repo}#${fragment}` }
+    return { version, spec: `github:${owner}/${repo}#${fragment}` }
   }
 
   async function runCheck() {

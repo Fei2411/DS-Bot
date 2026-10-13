@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -9,7 +11,7 @@ import { fakeContext } from './fake-ctx.js'
 
 const tempHome = (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-lock-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
   return home
 }
 
@@ -28,7 +30,7 @@ test('the first host takes the lock and a second live host only reads', (t) => {
   assert.equal(second.owns(), true)
 })
 
-test('a lock whose process has exited, or that nobody keeps fresh, is taken over', (t) => {
+test('a lock whose same-host process has exited is taken over', (t) => {
   const path = join(tempHome(t), 'state.lock')
   writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'gone' }))
   const dead = homeLock(path, { pid: 202, isAlive: () => false })
@@ -36,19 +38,54 @@ test('a lock whose process has exited, or that nobody keeps fresh, is taken over
   assert.equal(dead.claim(), undefined)
   assert.equal(dead.owns(), true)
   dead.release()
+})
 
-  // A live pid (maybe reused) on a lock not bumped for staleMs, and a lock from another host.
+test('an old same-host lock stays live while its process is alive', (t) => {
+  const path = join(tempHome(t), 'state.lock')
   writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'old' }))
   const old = new Date(Date.now() - 120_000)
   utimesSync(path, old, old)
   const late = homeLock(path, { pid: 202, isAlive: () => true })
   t.after(() => late.release())
-  assert.equal(late.claim(), undefined)
-  late.release()
+  assert.equal(late.claim().token, 'old')
+  assert.equal(late.owns(), false)
+})
 
+test('an old lock from another host is taken over', (t) => {
+  const path = join(tempHome(t), 'state.lock')
   writeFileSync(path, JSON.stringify({ pid: 101, host: 'elsewhere', token: 'far' }))
+  const old = new Date(Date.now() - 120_000)
+  utimesSync(path, old, old)
   const near = homeLock(path, { pid: 202, isAlive: () => false })
-  assert.equal(near.claim().host, 'elsewhere')
+  t.after(() => near.release())
+  assert.equal(near.claim(), undefined)
+  assert.equal(near.owns(), true)
+})
+
+test('a stale-lock recheck does not delete a new owner token', (t) => {
+  const path = join(tempHome(t), 'state.lock')
+  writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'stale' }))
+  const old = new Date(Date.now() - 120_000)
+  utimesSync(path, old, old)
+  const originalRead = fs.readFileSync
+  let reads = 0
+  fs.readFileSync = (file, ...args) => {
+    const contents = originalRead(file, ...args)
+    if (file === path && ++reads === 3) {
+      writeFileSync(path, JSON.stringify({ pid: 303, host: hostname(), token: 'new-owner' }))
+      return originalRead(file, ...args)
+    }
+    return contents
+  }
+  syncBuiltinESMExports()
+  const late = homeLock(path, { pid: 202, isAlive: pid => pid === 303 })
+  t.after(() => {
+    late.release()
+    fs.readFileSync = originalRead
+    syncBuiltinESMExports()
+  })
+  assert.equal(late.claim().token, 'new-owner')
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).token, 'new-owner')
 })
 
 test('a holder that finds another token in the file knows it lost the lock', (t) => {

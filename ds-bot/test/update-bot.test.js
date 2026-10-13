@@ -51,7 +51,7 @@ function start() {
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const stop = () => {
     ctx.dispose()
-    rmSync(home, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   return { ctx, tool, state, stop }
 }

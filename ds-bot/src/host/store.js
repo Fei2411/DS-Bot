@@ -2,7 +2,7 @@
 // host on the same data from writing it, and the indexes that map a Session to the Bot
 // or group chat it belongs to.
 import { mkdirSync, statSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES } from './constants.js'
 import { homeLock } from './home-lock.js'
@@ -22,7 +22,9 @@ export function install(rt) {
   // undefined while this host may write.
   let holder
   let lockBroken = false
+  let stuck
   let warnedReadOnly = false
+  let stopped = false
   // mtime and size of the state.json this host last read or wrote.
   let seen = ''
   const stamp = () => {
@@ -40,27 +42,56 @@ export function install(rt) {
       mkdirSync(home, { recursive: true })
       holder = lock.claim()
     } catch (error) {
-      // An unusable lock (a read-only or odd file system) must not stop the team.
+      // An unusable lock (a read-only or odd file system) must not stop the team; a
+      // save that then cannot write still rejects.
       lockBroken = true
       holder = undefined
       warn('ds-bot: cannot lock %s, so another dsh on the same data could undo changes: %s', home, error)
     }
   }
   const readOnly = () => {
+    if (stuck !== undefined) return `The Bot team file ${statePath} could not be read (${stuck}). DS Bot does not change it; fix or move the file and reload.`
     if (holder === undefined) return undefined
     const where = holder.pid ? `pid ${holder.pid}${holder.host ? ` on ${holder.host}` : ''}` : 'unknown process'
     return `The Bot team in ${home} is open in another dsh (Web or Desktop, ${where}). This window shows the team but cannot change it; close the other one and reload.`
   }
 
   const readFileState = async () => {
+    let contents
     try {
-      seen = stamp()
-      const parsed = JSON.parse(await readFile(statePath, 'utf8'))
-      return parsed?.version === 1 ? parsed : undefined
+      contents = await readFile(statePath, 'utf8')
     } catch (error) {
-      if (error?.code !== 'ENOENT') warn('ds-bot: unreadable state %s: %s', statePath, error)
+      seen = stamp()
+      if (error?.code === 'ENOENT') {
+        stuck = undefined
+        return undefined
+      }
+      stuck = error?.code ?? error?.message ?? String(error)
+      warn('ds-bot: unreadable state %s: %s', statePath, error)
       return undefined
     }
+    seen = stamp()
+    let parsed
+    try {
+      parsed = JSON.parse(contents)
+    } catch (error) {
+      const backup = `${statePath}.broken-${Date.now()}`
+      try {
+        await copyFile(statePath, backup)
+        stuck = undefined
+        warn('ds-bot: unreadable state %s: %s; backed up as %s', statePath, error, backup)
+      } catch (copyError) {
+        stuck = copyError?.code ?? copyError?.message ?? error?.message ?? String(error)
+        warn('ds-bot: unreadable state %s: %s; backup failed: %s', statePath, error, copyError)
+      }
+      return undefined
+    }
+    if (parsed?.version === 1) {
+      stuck = undefined
+      return parsed
+    }
+    stuck = 'saved by a newer DS Bot; update DS Bot'
+    return undefined
   }
 
   // Fill `state` from the saved file and bring an older team up to date. Returns the
@@ -129,7 +160,15 @@ export function install(rt) {
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
     const { migrated, stale } = adopt(await readFileState())
     if (holder !== undefined) return
-    if (migrated) await save()
+    if (migrated && stuck === undefined) {
+      // A failed write must not poison `loaded`: the migrated state stays in
+      // memory and the next save() writes it.
+      try {
+        await save()
+      } catch (error) {
+        warn('ds-bot: saving the migrated Bot team failed: %s', error)
+      }
+    }
     // Not awaited: renaming a session must not hold up the first roster read.
     for (const room of stale) void rt.retitleRoom(room)
   })()
@@ -137,18 +176,42 @@ export function install(rt) {
   // A reading host follows the file and takes over once the other host has gone.
   const refresh = async () => {
     await load()
-    if (holder === undefined) return
-    claimLock()
-    if (holder === undefined) {
-      warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
-      warnedReadOnly = false
-      adopt(await readFileState())
-      return
+    const hadHolder = holder !== undefined
+    if (hadHolder) {
+      claimLock()
+      if (holder === undefined) {
+        warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
+        warnedReadOnly = false
+        adopt(await readFileState())
+        return
+      }
+    } else if (!lockBroken && !lock.owns()) {
+      // A cached "writer" is stale once the lock file no longer names this host:
+      // another dsh may have taken it over, or the file may just be gone. Re-claim
+      // and re-check instead of trusting the flag.
+      claimLock()
+      if (lockBroken) return
+      if (holder === undefined) {
+        // The lock was free: still the writer, but the file may carry changes
+        // written while no host held it.
+        warnedReadOnly = false
+        adopt(await readFileState())
+        return
+      }
+      warn('ds-bot: %s', readOnly())
     }
-    if (stamp() !== seen) adopt(await readFileState())
+    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(await readFileState())
   }
 
+  const warnReadOnly = () => {
+    if (!warnedReadOnly) {
+      warnedReadOnly = true
+      warn('ds-bot: not saving the Bot team: %s', readOnly())
+    }
+    return false
+  }
   const writable = () => {
+    if (stuck !== undefined) return warnReadOnly()
     if (lockBroken) return true
     if (holder === undefined && lock.owns()) return true
     // Lost the lock: retake it when nobody else holds it (its file was deleted), else
@@ -157,31 +220,50 @@ export function install(rt) {
       claimLock()
       if (holder === undefined) return true
     }
-    if (!warnedReadOnly) {
-      warnedReadOnly = true
-      warn('ds-bot: not saving the Bot team: %s', readOnly())
-    }
-    return false
+    return warnReadOnly()
   }
 
   const save = () => {
+    if (stopped) return writing
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return writing
     state.revision += 1
     state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
     const snapshot = JSON.stringify(state, null, 2)
-    writing = writing.then(async () => {
-      await mkdir(home, { recursive: true })
+    const run = writing.then(async () => {
       const temp = `${statePath}.${process.pid}.tmp`
-      await writeFile(temp, snapshot, 'utf8')
-      await rename(temp, statePath)
-      seen = stamp()
-    }).catch(error => { warn('ds-bot: state write failed: %s', error) })
-    return writing
+      try {
+        await mkdir(home, { recursive: true })
+        const ensureLock = () => {
+          if (lockBroken) return
+          if (!lock.owns()) {
+            const error = new Error('ds-bot lost the state lock to another dsh')
+            error.code = 'ELOCKLOST'
+            throw error
+          }
+        }
+        ensureLock()
+        await writeFile(temp, snapshot, 'utf8')
+        ensureLock()
+        await rename(temp, statePath)
+        seen = stamp()
+      } catch (error) {
+        await unlink(temp).catch(() => {})
+        throw error
+      }
+    })
+    writing = run.catch(() => {})
+    return run.catch(error => {
+      warn('ds-bot: state write failed: %s', error)
+      throw error
+    })
   }
 
-  ctx.effect(() => () => lock.release(), 'ds-bot: state lock')
+  ctx.effect(() => () => {
+    stopped = true
+    return writing.finally(() => lock.release())
+  }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : state.bots[id])
   const roomOf = id => (id === undefined ? undefined : state.rooms[id])
@@ -233,7 +315,10 @@ export function install(rt) {
     delete room.sessions[botId]
     if (room.segments !== undefined) delete room.segments[botId]
     groupOwners.delete(sessionId)
-    void ctx.workspaceRegistry.archiveSession(sessionId).catch(() => {})
+    rt.cancelApprovals?.(sessionId)
+    // A plain archive refuses a running Session, which would go on working for a group
+    // that no longer has it.
+    void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
   }
   const findBot = (ref) => {
     if (ref === undefined) return undefined
