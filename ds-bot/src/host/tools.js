@@ -2,12 +2,16 @@
 // question card. Group rounds and reading chats are in groups.js.
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { COLORS, EXTRA_COLORS, MAX_HOPS, MAX_UNREAD_REQUESTS, ROOM_BOT_ROUNDS, ROOM_MODES, SOURCE_KIND } from './constants.js'
+import { COLORS, EXTRA_COLORS, MAX_HOPS, MAX_UNATTENDED_MESSAGES, MAX_UNREAD_REQUESTS, ROOM_BOT_ROUNDS, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { unquote } from './text.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
+// DS Bot carries no goal across conversation parts, so Bot Sessions do not run DSH goals.
+const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
+const HIDDEN_TOOLS = [BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS]
+const GOAL_REFUSAL = 'DS Bot does not run goals. Ask the Bot in a message instead.'
 const MODE_PARAM = {
   type: 'string',
   enum: ROOM_MODES,
@@ -82,6 +86,19 @@ export function install(rt) {
   // A tool that throws shows as failed in the chat, instead of as sent or stopped.
   const refuse = (message) => { throw new Error(message) }
 
+  // A message a Bot sends is one hop past the turn that sends it, while a reply keeps
+  // the hop of the request it answers (turns.js): any chain, forwarded or back and
+  // forth, reaches MAX_HOPS.
+  const nextHop = (exec) => {
+    const turn = rt.live.get(exec.agent?.id)
+    return 1 + Math.max(turn?.info?.hop ?? 0, ...(turn?.joined ?? []).map(joined => joined.info?.hop ?? 0))
+  }
+  const CHAIN_TOO_LONG = 'This chain of Bot messages is already long. Stop here and report to the user instead.'
+  const checkUnattended = () => {
+    if (rt.unattended.sent < MAX_UNATTENDED_MESSAGES) return
+    refuse(`Not sent: the team has sent ${MAX_UNATTENDED_MESSAGES} Bot messages since the user last wrote. Stop messaging other Bots and tell the user what is still open.`)
+  }
+
   ctx.tools.register(defineTool({
     name: 'message_bot',
     description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead.',
@@ -107,9 +124,9 @@ export function install(rt) {
       const target = rt.findBot(args.to)
       if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot message yourself.'
-      const turn = rt.live.get(exec.agent?.id)
-      const hop = Math.max(turn?.info?.hop ?? 0, ...(turn?.joined ?? []).map(joined => joined.info?.hop ?? 0))
-      if (hop >= MAX_HOPS) return 'This chain of Bot messages is already long. Stop here and report to the user instead.'
+      const hop = nextHop(exec)
+      if (hop > MAX_HOPS) return CHAIN_TOO_LONG
+      checkUnattended()
       const chat = rt.chatOf(target.id)
       const unread = unreadRequests(await rt.resolveAgent(chat))
       if (unread >= MAX_UNREAD_REQUESTS) {
@@ -119,6 +136,7 @@ export function install(rt) {
       const working = rt.live.get(chat)?.turn !== undefined
       const steer = args.when !== 'queue' && !toUser
       await rt.deliver({ fromId: sender.id, toId: target.id, text: args.message, role: 'request', hop, steer, ...(toUser ? { audience: 'user' } : callerRoom(exec)) })
+      rt.unattended.sent += 1
       const sent = toUser
         ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
         : working && steer
@@ -392,18 +410,21 @@ export function install(rt) {
       if (!rt.isMain(self) && !rt.isAdminOf(room, self)) return `Only a Main Bot or the admin of "${room.name}" can post there. Use message_bot to reach its members.`
       const info = rt.live.get(exec.agent?.id)?.info
       if (info?.role === 'room' && info.roomId === room.id) return `You are speaking in "${room.name}" right now. Write your message as your reply instead.`
-      if ((info?.hop ?? 0) >= MAX_HOPS) return 'This chain of Bot messages is already long. Stop here and report to the user instead.'
+      const hop = nextHop(exec)
+      if (hop > MAX_HOPS) return CHAIN_TOO_LONG
       const text = String(args.message ?? '').trim()
       if (text === '') return 'Write a message to post.'
       if ((room.botRounds ?? 0) >= ROOM_BOT_ROUNDS) return `Bots already started ${ROOM_BOT_ROUNDS} rounds in "${room.name}" since the user last spoke there. Wait for the user.`
+      checkUnattended()
       room.botRounds = (room.botRounds ?? 0) + 1
       await rt.save()
       const reportBack = args.report_back === true
       try {
-        await rt.postToRoom(room, sender, text, { hop: info?.hop ?? 0, ...(reportBack ? { reportBack: true } : {}) })
+        await rt.postToRoom(room, sender, text, { hop, ...(reportBack ? { reportBack: true } : {}) })
       } catch (failure) {
         return `Could not post in "${room.name}": ${failure.message}`
       }
+      rt.unattended.sent += 1
       return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their replies also come back to you as a new message when the round ends' : ', and nothing comes back to you'}.`
     },
   }))
@@ -467,23 +488,26 @@ export function install(rt) {
 
   // dsh's own question tool holds the turn open until the user answers, and every
   // message from another Bot or a group round queues behind it. Bot Sessions ask
-  // through ask_user instead, so the tool is taken out of their tool list.
-  const hiddenQuestion = new WeakSet()
-  const hideBlockingQuestion = (agent) => {
-    if (agent === undefined || hiddenQuestion.has(agent) || !rt.isBotSession(agent.session?.id)) return
+  // through ask_user instead, so the tool is taken out of their tool list, as are the
+  // goal tools.
+  const hiddenTools = new WeakSet()
+  const hideBotUnusedTools = (agent) => {
+    if (agent === undefined || hiddenTools.has(agent) || !rt.isBotSession(agent.session?.id)) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {
       // restrict() throws on a name this profile does not serve.
-      if (!ctx.tools.schemas(agent).some(schema => schema.name === BLOCKING_QUESTION_TOOL)) return
-      agent.ctx.tools.restrict({ deny: [BLOCKING_QUESTION_TOOL] })
-      hiddenQuestion.add(agent)
+      const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+      const deny = HIDDEN_TOOLS.filter(name => served.has(name))
+      if (deny.length === 0) return
+      agent.ctx.tools.restrict({ deny })
+      hiddenTools.add(agent)
     } catch (error) {
-      rt.warn('ds-bot: %s stays in the tool list of %s: %s', BLOCKING_QUESTION_TOOL, agent.session?.id, error)
+      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), agent.session?.id, error)
     }
   }
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
-  // list is only trimmed once ds-bot resolves that Agent again; the guard refuses
-  // the tool in any Bot Session meanwhile.
+  // list is only trimmed once ds-bot resolves that Agent again; meanwhile the guard
+  // refuses the question tool in any Bot Session, and a goal made there is blocked.
   ctx.tools.guard(exec => (exec.name === BLOCKING_QUESTION_TOOL && rt.isBotSession(exec.agent?.id)
     ? `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
     : undefined))
@@ -491,10 +515,40 @@ export function install(rt) {
   ctx.on('agent/created', async ({ agent }) => {
     try {
       await rt.load()
-      hideBlockingQuestion(agent)
+      hideBotUnusedTools(agent)
     } catch (error) {
-      rt.warn('ds-bot: hiding %s on agent/created failed: %s', BLOCKING_QUESTION_TOOL, error)
+      rt.warn('ds-bot: hiding %s on agent/created failed: %s', HIDDEN_TOOLS.join(', '), error)
     }
+  })
+
+  // The /goal command stays open in every Session, so a goal started in a Bot chat or a
+  // group is blocked at once; DSH's round driver then starts no round for it.
+  let goals = null
+  const attachGoals = (sub) => {
+    const own = sub.goals
+    goals = own
+    sub.effect(() => () => { if (goals === own) goals = null }, 'ds-bot: goal service')
+  }
+  if (typeof ctx.inject === 'function') ctx.inject(['goals'], attachGoals)
+  else if (ctx.get?.('goals') !== undefined) attachGoals({ goals: ctx.get('goals'), effect: (execute, label) => ctx.effect(execute, label) })
+  const blockGoal = async (sessionId) => {
+    const service = goals
+    if (service === null) return
+    try {
+      const agent = await rt.resolveAgent(sessionId)
+      const goal = service.get(agent)
+      if (goal?.phase !== 'active') return
+      service.block(agent, { id: goal.id, revision: goal.revision }, { code: 'not-supported', message: GOAL_REFUSAL })
+    } catch (error) {
+      rt.warn('ds-bot: blocking the goal in %s failed: %s', sessionId, error)
+    }
+  }
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'goal/change' || event.data?.goal?.phase !== 'active') return
+    const id = session?.id
+    if (!rt.isBotSession(id) && rt.roomOf(id) === undefined) return
+    // block() appends to the same log, so it waits until every listener has seen this change.
+    setTimeout(() => void blockGoal(id), 0)
   })
 
   ctx.tools.register(defineTool({
@@ -532,7 +586,7 @@ export function install(rt) {
       command: { type: 'string', description: 'Program that starts a local MCP server' },
       args: { type: 'array', items: { type: 'string' }, description: 'Arguments for command' },
       env: { type: 'object', additionalProperties: true, description: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value' },
-      url: { type: 'string', description: 'MCP server URL' },
+      url: { type: 'string', description: 'MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys' },
       headers: { type: 'object', additionalProperties: true, description: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value' },
       content: { type: 'string', description: 'Skill instructions' },
       items: { type: 'array', items: { type: 'string' }, description: 'MCP server and skill names in the pack' },
@@ -595,5 +649,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBlockingQuestion })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools })
 }

@@ -193,7 +193,7 @@ test('a failed reply to message_bot tells the sender instead of leaving it waiti
   assert.equal(delivered[0].toId, 'a')
   assert.equal(delivered[0].role, 'reply')
   assert.equal(delivered[0].replyTo, 'x1')
-  assert.equal(delivered[0].hop, 2)
+  assert.equal(delivered[0].hop, 1)
   assert.match(delivered[0].text, /^Writer could not answer your message: its model call failed \(SERVER 503: upstream busy\)/)
   assert.deepEqual(noted.map(entry => [entry.source, entry.code, entry.bot, entry.where]), [['turn', 'SERVER', 'Writer', 'own chat']])
 })
