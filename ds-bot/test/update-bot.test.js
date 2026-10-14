@@ -59,13 +59,20 @@ function start() {
 test('a Bot changes itself by leaving out bot, or by naming itself', async (t) => {
   const { tool, state, stop } = start()
   t.after(stop)
-  assert.equal(await tool('update_bot', { name: 'King', instructions: 'Lead the team' }, 'b2'), 'Updated King.')
-  const king = state().bots.b2
-  assert.equal(king.name, 'King')
-  assert.equal(king.instructions, 'Lead the team')
-  // Its current name resolves to it again.
-  assert.equal(await tool('update_bot', { bot: 'King', role: '掌门' }, 'b2'), 'Updated King.')
+  assert.equal(await tool('update_bot', { instructions: 'Lead the team' }, 'b2'), 'Updated Writer.')
+  assert.equal(state().bots.b2.instructions, 'Lead the team')
+  assert.equal(await tool('update_bot', { bot: 'Writer', role: '掌门', name: 'Writer' }, 'b2'), 'Updated Writer.')
   assert.equal(state().bots.b2.role, '掌门')
+})
+
+test('only a Main Bot renames a Bot, so a Bot cannot pass itself off as another', async (t) => {
+  const { tool, state, stop } = start()
+  t.after(stop)
+  assert.match(await tool('update_bot', { name: 'Editor', instructions: 'Edit' }, 'b2'), /^Only a Main Bot can rename a Bot/)
+  assert.equal(state().bots.b2.name, 'Writer')
+  assert.equal(state().bots.b2.instructions, '')
+  assert.equal(await tool('update_bot', { bot: 'Writer', name: 'King' }, 'm1'), 'Updated King.')
+  assert.equal(await tool('update_bot', { name: 'Boss' }, 'm1'), 'Updated Boss.')
 })
 
 test('a Bot cannot change another Bot; a Main Bot can', async (t) => {
