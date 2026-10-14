@@ -16,7 +16,7 @@
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
 
@@ -140,7 +140,6 @@ export function install(rt) {
   // A failed connection says nothing about the conversation, so it never moves a part on.
   const STUCK_CODES = ['INVALID_REQUEST', 'IMAGE_OFFLOAD_REQUIRED']
   const ORIGINAL_COMPACT = Symbol.for('ds-bot/compaction')
-  const HANDOFF_ACK = 'Noted. I have my handoff note and carry on from here.'
   const STEWARD_MAX_TOKENS = 4_096
   const STEWARD_TIMEOUT_MS = 120_000
   const STEWARD_LINES = 40
@@ -336,7 +335,7 @@ export function install(rt) {
     '',
     ...NOTE_SECTIONS.flatMap(([name, what]) => [`## ${name}`, `- [${what}]`, '']),
     'Rules:',
-    '- Do not make anything up. Leave a detail out rather than guess it. Keep identifiers, quotes, and numbers exact, and write every file path in full, as it first appeared: never shorten it.',
+    '- Do not make anything up. Leave a detail out rather than guess it. Keep identifiers, quotes, and numbers exact. Everything the work produced — every finding, figure, file, and result — is listed on its own line with its full path or identifier exactly as it first appeared: never a basename, an ellipsis, a shared "all under X" prefix, or a count in place of the items. A name or figure that must stay in another language is copied verbatim inside `backticks`.',
     '- When a newer message contradicts an older one, the newer one wins; drop what is stale.',
     '- Your latest messages travel to the fresh conversation word for word, and in your own chat so does every message the user and other Bots sent you (long ones cut). Do not copy them whole; record what they mean and what they rely on. Still put in the facts, quotes, and error messages from them that the work needs: the move after this one leaves them behind.',
     '- If the conversation starts with a "[Handoff · part N]" message, it holds your previous note, and a "[Checkpoint N]" summary holds a condensed stretch of this part. Merge them: keep what is still true, drop what is stale, and add what is new. Nothing in them survives unless this note keeps it.',
@@ -673,7 +672,7 @@ export function install(rt) {
   function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, hard = overflow || folder } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard }
+    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => rt.warn('ds-bot: %s did not move on to a fresh part: %s', rt.botOf(job.botId)?.name ?? agent.id, error))

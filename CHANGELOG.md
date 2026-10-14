@@ -8,8 +8,14 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - **Group permissions**: a group chat can run all its members with one permission preset (Read only, Workspace or Full access) in place of each member's own. Turn on **Same for every member** under Permissions in the group's settings; the group's details show the preset while it is on. Members' conversations in the group change at once, and a member's later conversations there start on it. Turned off, each member works with its own preset again.
 
+### Changed
+
+- A Bot at work in a group chat no longer stays silent until it is done: it says what it will do, keeps the group posted as it goes, and ends with the result.
+- The work status in the group, the sidebar and a Bot's own chat says what the Bot is doing, instead of only "On it", also while it moves to a fresh conversation.
+
 ### Fixed
 
+- In a group chat, what a Bot did after one of its background jobs finished, or after it moved to a fresh conversation, never reached the group. It now does.
 - Bots could keep messaging each other for a long time without you, for example by forwarding a request from Bot to Bot or through group posts. Every forwarded message and group post now counts toward the limit on how long a chain of Bot messages can get, and after 40 Bot messages since you last wrote, answered a question card or a scheduled task ran, `message_bot` and `post_to_group` fail and tell the Bot to report to you. Bots are also told not to send thanks or acknowledgements, and not to answer a reply. ([#129](https://github.com/Fei2411/DeepSeek-Bot/issues/129))
 - An HTTP MCP capability with `$DSH_SECRET_<NAME>` in its URL sent the reference itself to the server and showed ready until the first tool call failed. The URL now gets the secret's value, URL-encoded, and a capability whose Bot may not use the secret shows an error. ([#125](https://github.com/Fei2411/DeepSeek-Bot/issues/125))
 - Group chats now relay messages to their Bots with the `ptc` agent preset, DSH Desktop's default. New Bot chats, group chats and conversation parts use the `standard` preset. A group chat made under `ptc` still relays, but each of its rounds is limited by DSH's time limit for a program run, about 10 minutes. ([#37](https://github.com/Fei2411/DeepSeek-Bot/issues/37))

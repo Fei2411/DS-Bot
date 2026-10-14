@@ -44,7 +44,7 @@ export function botGroupWork(botId, work, roster) {
   return Object.entries(work.rooms ?? {}).flatMap(([roomId, entries]) => {
     const entry = entries.find(item => item.botId === botId)
     const room = roster.roomsById[roomId]
-    return entry && room ? [{ room, tool: entry.tool, since: entry.since }] : []
+    return entry && room ? [{ room, doing: entry, since: entry.since }] : []
   })
 }
 
@@ -57,7 +57,7 @@ export function summaryText(busy) {
       : asks.length === 2 ? t('{first} and {second} are waiting for your approval', { first: names[0], second: names[1] })
         : t('{first}, {second} and {count} more are waiting for your approval', { first: names[0], second: names[1], count: asks.length - 2, total: asks.length })
   const first = workers[0]
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing.tool)}…${workers.length > 1 ? ` +${workers.length - 1}` : ''}` : ''
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${workers.length > 1 ? ` +${workers.length - 1}` : ''}` : ''
   return { waiting, doing }
 }
 
@@ -67,11 +67,11 @@ function Face({ entry, size }) {
 }
 
 // One piece of work: the Bot's mark and what it is doing, like the activity row.
-function WorkRow({ bot, tool, label, at, now, onOpen }) {
-  const text = `${label} · ${workPhrase(tool)}…`
+function WorkRow({ bot, doing, label, at, now, onOpen }) {
+  const text = `${label} · ${workPhrase(doing)}…`
   const elapsed = typeof at === 'number' && now - at >= 60000 ? elapsedLabel(now - at) : ''
-  return h('button', { type: 'button', className: 'bt-mw-row', 'aria-label': [text, elapsed].filter(Boolean).join(' · '), onClick: onOpen },
-    h(BotMark, { bot, size: 22, state: toolState(tool ?? ''), live: true }),
+  return h('button', { type: 'button', className: 'bt-mw-row', 'aria-label': [text, elapsed].filter(Boolean).join(' · '), title: text, onClick: onOpen },
+    h(BotMark, { bot, size: 22, state: doing?.switching ? 'thinking' : toolState(doing?.tool ?? ''), live: true }),
     h('span', { className: 'bt-mw-row-text' }, h(Shimmer, null, text)),
     elapsed ? h('span', { className: 'bt-mw-row-time' }, `· ${elapsed}`) : null)
 }
@@ -106,11 +106,11 @@ export function MemberDock({ sessionId, useRoster, useWork, actions }) {
     const { rows, rest } = splitBusy(busy)
     const open = () => actions.showDetails(sessionId)
     return h('div', { ref, className: 'bt-mw-dock-stack' },
-      rows.map(entry => h(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
+      rows.map(entry => h(WorkRow, { key: entry.id, bot: entry.bot, doing: entry.doing, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
       rest.length > 0 ? h(SummaryLine, { busy: rest, onOpen: open }) : null)
   }
   return h('div', { ref, className: 'bt-mw-dock-stack' }, groups.slice(0, ROWS_MAX).map(item => h(WorkRow, {
-    key: item.room.id, bot, tool: item.tool, label: t('in {name}', { name: item.room.name }), at: item.since, now, onOpen: () => actions.openSession(item.room.id),
+    key: item.room.id, bot, doing: item.doing, label: t('in {name}', { name: item.room.name }), at: item.since, now, onOpen: () => actions.openSession(item.room.id),
   })))
 }
 
@@ -190,7 +190,7 @@ export function MemberWork({ entry, bot, room, roster, actions, now }) {
   }
   return h('div', { className: 'bt-mw-member' },
     h('div', { className: 'bt-mw-state bt-mw-work' },
-      h('span', null, h(Shimmer, null, `${workPhrase(entry.doing.tool)}…`), where ? ` ${where}` : '', since(now, entry.doing.since)),
+      h('span', null, h(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : '', since(now, entry.doing.since)),
       entry.here ? h('button', { type: 'button', className: 'bt-mw-stop', disabled: stopping, onClick: stop }, t('Stop')) : null))
 }
 

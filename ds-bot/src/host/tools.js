@@ -194,7 +194,7 @@ export function install(rt) {
       role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
-      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the DSH default model.' },
+      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
       work_dir: WORK_DIR_PARAM,
     },
     output,
@@ -205,7 +205,12 @@ export function install(rt) {
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
-        const bot = await rt.createBot({ ...args, workDir, createdBy: rt.selfOf(exec.agent.id) })
+        // Without a named model the new Bot takes its creator's: the DSH default may be
+        // a provider that has no key, and then the new Bot fails on its first reply.
+        const creator = callerBot(exec)
+        const served = creator?.model && (await rt.catalog()).some(entry => entry.ref === creator.model)
+        const model = args.model || (served ? creator.model : undefined)
+        const bot = await rt.createBot({ ...args, model, workDir, createdBy: creator?.id })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`

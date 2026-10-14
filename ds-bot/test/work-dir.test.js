@@ -29,7 +29,7 @@ const TEAM = {
 // DSH_HOME, the team's data inside it, and a project folder beside it. Every Session
 // starts in the team workspace unless it is made with a cwd. `services` are what
 // ctx.get finds, such as the sandbox policy and approvals.
-async function start({ services = {}, workspaces = [] } = {}) {
+async function start({ services = {}, workspaces = [], llm, team: saved = TEAM } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
   const dsh = join(root, 'dsh')
@@ -37,7 +37,7 @@ async function start({ services = {}, workspaces = [] } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(saved))
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
@@ -66,7 +66,7 @@ async function start({ services = {}, workspaces = [] } = {}) {
   }
   const registry = new Map([['w1', { id: 'w1', path: team, title: 'DS Bot' }], ...workspaces.map(workspace => [workspace.id, workspace])])
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: llm ?? { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
       get: id => registry.get(id),
       list: () => [...registry.values()],
@@ -423,3 +423,23 @@ test('the folder menu browses through the DSH folder picker', async (t) => {
 function rootless() {
   return join(tmpdir(), `ds-bot-work-dir-none-${process.pid}`)
 }
+
+test('a Bot the Main Bot creates runs on its creator\'s model unless one is named', async (t) => {
+  // The DSH default is a provider without a key; the Main Bot runs on one that works.
+  const providers = { deepseek: ['v4'], official: ['pro'] }
+  const env = await start({
+    services: { agentDefaultModel: { currentSelection: () => ({ provider: 'official', model: 'pro' }) } },
+    team: { ...TEAM, bots: { ...TEAM.bots, a: { ...TEAM.bots.a, model: 'deepseek/v4' } } },
+    llm: {
+      listProviders: () => Object.keys(providers).map(id => ({ id, name: id })),
+      listModels: async id => providers[id].map(model => ({ id: model })),
+      resolveModelInfo: async () => ({}),
+    },
+  })
+  t.after(env.stop)
+  const made = name => Object.values(env.state().bots).find(bot => bot.name === name)
+  assert.equal(await env.tool('create_bot', { name: 'Editor', role: 'Edit', instructions: 'Edit' }, 'a'), 'Created Editor. It is greeting the user now.')
+  assert.equal(made('Editor').model, 'deepseek/v4')
+  assert.equal(await env.tool('create_bot', { name: 'Tester', role: 'Test', instructions: 'Test', model: 'official/pro' }, 'a'), 'Created Tester. It is greeting the user now.')
+  assert.equal(made('Tester').model, 'official/pro')
+})

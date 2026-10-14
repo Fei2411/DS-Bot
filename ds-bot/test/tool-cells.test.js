@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, TriggerCell, callTree } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, callTree, stackReplies } from './src/client/cells.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -44,7 +44,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, QuestionDock, SecretDock, countCards } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -86,6 +86,14 @@ const call = (name, callId, { args = {}, content = '', subCalls = [], running = 
   ? { phase: 'start', name, callId, argsRaw: JSON.stringify(args), subCalls, turn: 0 }
   : { kind: 'tool-result', name, callId, call: { name, argsRaw: JSON.stringify(args) }, content: text$(content), isError, subCalls })
 const program = (subCalls, over = {}) => call('run_code', 'program', { subCalls, ...over })
+
+test('a member\'s messages in a row stack under its name, and an event line starts a new block', () => {
+  const replies = [
+    { botId: 'writer', text: 'a' }, { botId: 'writer', text: 'b' }, { kind: 'working', botId: 'writer' },
+    { botId: 'writer', text: 'c' }, { botId: 'chief', text: 'd' }, { botId: 'writer', text: 'e' },
+  ]
+  assert.deepEqual(JSON.parse(JSON.stringify(stackReplies(replies).map(item => [item.index, item.texts]))), [[0, ['a', 'b']], [2, []], [3, ['c']], [4, ['d']], [5, ['e']]])
+})
 
 const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1 } = {}) => ({
   node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId,

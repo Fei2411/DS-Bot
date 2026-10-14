@@ -34,6 +34,7 @@
 //   提权 (members other than the admin run a shell command that asks for full access)
 //   写成文字 (members write their tool call as text instead of making it; also in a Bot's own chat)
 //   派活 N (the admin hands the first other member N seconds of work; the admin answers its result)
+//   分步 N (like 派活, but the member says a line at each of its three steps, N seconds apart)
 // A handoff turn answers "第 N 段接着做完了". Handoff notes and backend compaction each
 // return a full eight-section note marked "handoff 提示词" or "backend 提示词" (a Bot's
 // Session should only see the former; retries add "重试", merges add "合并了上一份笔记").
@@ -84,6 +85,8 @@ const tool = (name, input) => ({
 const think = value => ({ type: 'thinking', thinking: value })
 const ESCALATION = '提权测试：用户在群里要求'
 const HANDED_WORK = '群里派的活'
+const STEPPED_WORK = '群里分步的活'
+const STEP_LINES = ['目录看完了，一共 12 个文件，开始整理。', '整理好一半了，剩下的是索引。']
 const WRITTEN_CALL = '我先看一下目录。\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem\n</parameter>\n</function>\n</tool_call>'
 // Deterministic filler that grows a conversation by about `chars` characters.
 const filler = (chars, tag) => Array.from({ length: Math.ceil(chars / 20) }, (_, index) => `${tag}第${index + 1}段：这是一段用来撑长上下文的测试文字。`).join('').slice(0, chars)
@@ -206,6 +209,12 @@ function decide(body) {
     if (used?.input?.justification === ESCALATION) return [text(result.is_error ? `没跑成：${resultText.slice(0, 80)}` : '命令跑完了，文件已经写好。')]
     const job = new RegExp(`^${HANDED_WORK}-(\\d+)-`).exec(used?.input?.pattern ?? '')
     if (job) return Object.assign([text(`干完了，用了 ${job[1]} 秒。`)], { delay: Number(job[1]) * 1000 })
+    const stepped = new RegExp(`^${STEPPED_WORK}-(\\d+)-(\\d+)-`).exec(used?.input?.pattern ?? '')
+    if (stepped) {
+      const [at, wait] = [Number(stepped[1]), Number(stepped[2]) * 1000]
+      if (at > STEP_LINES.length) return Object.assign([text('分步干完了：目录、正文、索引都整理好了。')], { delay: wait })
+      return Object.assign([text(STEP_LINES[at - 1]), tool(used.name, { pattern: `${STEPPED_WORK}-${at + 1}-${stepped[2]}-*` })], { delay: wait })
+    }
     switch (used?.name) {
       case 'group_relay': return [text('')]
       case 'create_bot': {
@@ -350,6 +359,10 @@ function decide(body) {
     const lookup = ['glob', 'grep', 'read'].find(name => tools.has(name))
     if ((ask = /派活\s*(\d+)/.exec(userLine)) && leads && peer) return [text(`@${peer} 干活 ${ask[1]}`)]
     if (handed?.[1] === me && mentioner && lookup) return [tool(lookup, { pattern: `${HANDED_WORK}-${handed[2]}-*` })]
+    const steps = /^\S+: @(\S+) 分步干活 (\d+)/m.exec(block)
+    if ((ask = /分步\s*(\d+)/.exec(userLine)) && leads && peer) return [text(`@${peer} 分步干活 ${ask[1]}`)]
+    if (steps?.[1] === me && mentioner && lookup) return [text('收到，我先看看目录。'), tool(lookup, { pattern: `${STEPPED_WORK}-1-${steps[2]}-*` })]
+    if (/分步干完了/.test(block) && leads) return [text('收到，辛苦了。')]
     if (/^\S+: 干完了/.test(userLine) && leads) return [text('收到，辛苦了。')]
     // Ping-pong: whoever is mentioned mentions back, to exercise the per-member cap.
     if (/来回/.test(userLine)) return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]

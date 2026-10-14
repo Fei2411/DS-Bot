@@ -418,6 +418,7 @@ const ZH = {
   'Moving ahead': '推进中',
   'Taking care of it': '处理中',
   'Making headway': '有进展了',
+  'Moving to a fresh conversation': '整理记忆，换到新对话',
   'Searching online': '上网搜索',
   'Reading a page': '阅读网页',
   'Running shell commands': '运行命令',

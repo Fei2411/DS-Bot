@@ -474,6 +474,7 @@ var ZH = {
   "Moving ahead": "推进中",
   "Taking care of it": "处理中",
   "Making headway": "有进展了",
+  "Moving to a fresh conversation": "整理记忆，换到新对话",
   "Searching online": "上网搜索",
   "Reading a page": "阅读网页",
   "Running shell commands": "运行命令",
@@ -2127,7 +2128,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
 .bt-create-go{height:36px;padding:0 20px}
 @media (prefers-reduced-motion:reduce){.bt-create-card,.bt-create-pop{animation:none}}
-.bt-send{height:40px;min-width:40px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);font-size:14px;padding:0 14px;cursor:pointer}
+.bt-send{height:40px;min-width:40px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);font-size:14px;padding:0 14px;cursor:pointer;flex:none;white-space:nowrap}
 .bt-send:disabled{opacity:.35;cursor:default}
 .bt-error{padding:0 14px 10px;color:#e02135;font-size:12px}
 
@@ -2149,7 +2150,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 @keyframes bt-foot-in{from{opacity:0;transform:translateY(6px)}}
 @keyframes bt-foot-out{to{opacity:0;transform:translateY(6px)}}
 @media (prefers-reduced-motion:reduce){.bt-exchange,.bt-exchange .bt-dialog-foot{animation-duration:.01s}}
-.bt-soft{height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;cursor:pointer}
+.bt-soft{height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;cursor:pointer;flex:none;white-space:nowrap}
 .bt-soft:hover{background:var(--bt-active)}
 .bt-time{display:block;text-align:center;font-size:12px;line-height:16px;color:var(--bt-ink-2);padding:6px 0}
 
@@ -2499,7 +2500,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-row:hover{background:var(--bt-hover)}
 .bt-mem-row>svg{flex:none;color:var(--bt-ink-2)}
 .bt-mem-row-copy{flex:1;text-align:left}
-.bt-mem-row-go{display:inline-flex;align-items:center;gap:2px;color:var(--bt-ink-3);font-size:12px}
+.bt-mem-row-go{display:inline-flex;align-items:center;gap:2px;color:var(--bt-ink-3);font-size:12px;flex:none;white-space:nowrap}
 .bt-mem-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 .bt-mem-scrim{animation:bt-fade .2s ease-out}
 .bt-mem{position:relative;width:min(680px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
@@ -3979,7 +3980,7 @@ function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
   });
   return (0, import_react6.createElement)("div", { className: "bt-event" }, parts);
 }
-function GroupMessage({ bot, text, room: room2, roster, actions, msgKey, useUi }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi }) {
   const lead = (0, import_react6.createElement)(
     "button",
     { type: "button", className: "bt-lead", "aria-label": t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
@@ -3994,8 +3995,17 @@ function GroupMessage({ bot, text, room: room2, roster, actions, msgKey, useUi }
       bot.name,
       room2?.admin === bot.id ? (0, import_react6.createElement)("span", { className: "bt-group-role" }, t("Admin")) : null
     ),
-    (0, import_react6.createElement)(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead })
+    (0, import_react6.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead })
   );
+}
+function stackReplies(replies) {
+  const items = [];
+  replies.forEach((reply, index) => {
+    const last = items.at(-1);
+    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) last.texts.push(reply.text);
+    else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [] });
+  });
+  return items;
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
   return (0, import_react6.createElement)(
@@ -4326,9 +4336,14 @@ function toolActivity(name, arg, findBot, self) {
       return { label: phrase ? t(phrase) : null, state: toolState(name) };
   }
 }
-function workPhrase(tool) {
+function workPhrase(doing) {
+  const { tool, said, note, target, switching } = typeof doing === "string" ? { tool: doing } : doing ?? {};
+  if (switching) return t("Moving to a fresh conversation");
+  const own = (said || note)?.replace(/[\s.。…]+$/u, "");
+  if (own) return own;
   if (!tool) return t("Thinking about it");
-  return toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
+  const label = toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
+  return target ? `${label} · ${target}` : label;
 }
 function useLiveNote(actions, sessionId, id, entry) {
   const key = entry ? JSON.stringify(entry) : "";
@@ -4372,12 +4387,13 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   const pending = done || !live.speaking ? [] : [live.speaking];
   const speakerTool = useWork?.((work) => work.bots?.[live.speaking]?.tool) ?? void 0;
+  const speakerDoing = useWork?.((work) => work.bots?.[live.speaking]?.tool ? workPhrase(work.bots[live.speaking]) : void 0) ?? void 0;
   if (replies.length === 0 && pending.length === 0) return null;
   const room2 = roster.roomsById[sessionId];
   return (0, import_react6.createElement)(
     "div",
     { className: "bt-group-replies" },
-    replies.map((reply, index) => {
+    stackReplies(replies).map(({ reply, index, texts: texts2 }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
         return (0, import_react6.createElement)("div", { key: `user-${index}`, className: "bt-urow" }, (0, import_react6.createElement)(
@@ -4424,7 +4440,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (reply.kind === "stopped") {
         return (0, import_react6.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
       }
-      return (0, import_react6.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi });
+      return (0, import_react6.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi });
     }),
     pending.map((id) => {
       const bot = roster.byId[id];
@@ -4433,7 +4449,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         "div",
         { key: `pending-${id}`, className: "bt-activity" },
         (0, import_react6.createElement)(BotMark, { bot, size: 22, state: speakerTool ? toolState(speakerTool) : "thinking" }),
-        (0, import_react6.createElement)(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t("{name} is typing…", { name: bot.name }))
+        (0, import_react6.createElement)(Shimmer, null, speakerDoing ? `${bot.name} · ${speakerDoing}…` : t("{name} is typing…", { name: bot.name }))
       );
     })
   );
@@ -4750,12 +4766,10 @@ function useMarkedUnread(id, active, marked, actions) {
 }
 var PinMark = () => (0, import_react8.createElement)("span", { className: "bt-pin", "aria-hidden": true }, (0, import_react8.createElement)(PinMarkIcon));
 var useApproval = (useWork, match) => useWork ? useWork((work) => (work.approvals ?? []).some(match)) : false;
-var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => pick2(work.rooms ?? {}).join(",")) : "";
-var workKeys = (text) => text === "" ? [] : text.split(",").map((key) => {
-  const [id, tool] = key.split("|");
-  return { id, tool: tool || void 0 };
-});
-var workLine = (lead, tool, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(tool)}…${more > 0 ? ` +${more}` : ""}`);
+var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => JSON.stringify(pick2(work.rooms ?? {}))) : "[]";
+var workKeys = (text) => JSON.parse(text);
+var doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching });
+var workLine = (lead, doing, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ""}`);
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id;
   const part = currentPart(bot);
@@ -4769,10 +4783,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const approval = useApproval(useWork, (entry) => entry.botId === id);
   const alert = roster.questions?.[part] !== void 0 || approval;
   const doing = useActivity((map) => map[id]);
-  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => `${roomId}|${entry.tool ?? ""}`))));
+  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
-  const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0].tool, groups.length - 1) : null;
+  const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   if (bot.hidden && !active && !main) return null;
   const onContextMenu = (event) => {
     event.preventDefault();
@@ -4829,9 +4843,9 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
   const unread = useSessionStatus((map) => map.get(id)?.completionUnread === true) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const approval = useApproval(useWork, (entry) => entry.roomId === id);
-  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => `${entry.botId}|${entry.tool ?? ""}`)));
+  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
   const first = roster.byId[members[0]?.id];
-  const workingLine = first ? workLine(first.name, members[0].tool, members.length - 1) : null;
+  const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
   if (room2.hidden && !active) return null;
   const pinned = room2.pinned === true;
   const label = [room2.name, pinned ? t("Pinned") : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
@@ -10468,7 +10482,7 @@ var FEEDBACK_CSS = `
 .bt-fb-what .bt-input-area{min-height:80px}
 .bt-fb-preview{cursor:default;padding:0}
 .bt-fb-preview pre{margin:0;width:100%;max-height:240px;overflow:auto;padding:10px 12px;box-sizing:border-box;font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink-2);white-space:pre-wrap;word-break:break-word;outline:none}
-.bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease}
+.bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease;flex:none;white-space:nowrap}
 .bt-fb-primary:hover{filter:brightness(1.08)}
 .bt-fb-primary:active{filter:brightness(.94)}
 .bt-fb-note{margin:-8px 4px 0}
@@ -11126,7 +11140,7 @@ function botGroupWork(botId, work, roster) {
   return Object.entries(work.rooms ?? {}).flatMap(([roomId, entries2]) => {
     const entry = entries2.find((item) => item.botId === botId);
     const room2 = roster.roomsById[roomId];
-    return entry && room2 ? [{ room: room2, tool: entry.tool, since: entry.since }] : [];
+    return entry && room2 ? [{ room: room2, doing: entry, since: entry.since }] : [];
   });
 }
 function summaryText(busy) {
@@ -11135,7 +11149,7 @@ function summaryText(busy) {
   const names = asks.slice(0, 2).map((entry) => entry.bot.name);
   const waiting = asks.length === 0 ? "" : asks.length === 1 ? t("{name} is waiting for your approval", { name: names[0] }) : asks.length === 2 ? t("{first} and {second} are waiting for your approval", { first: names[0], second: names[1] }) : t("{first}, {second} and {count} more are waiting for your approval", { first: names[0], second: names[1], count: asks.length - 2, total: asks.length });
   const first = workers[0];
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing.tool)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
   return { waiting, doing };
 }
 function Face({ entry, size }) {
@@ -11145,13 +11159,13 @@ function Face({ entry, size }) {
     (0, import_react31.createElement)(BotMark, { bot: entry.bot, size, state: entry.state === "ask" ? "alert" : toolState(entry.doing?.tool ?? "") })
   );
 }
-function WorkRow({ bot, tool, label, at, now, onOpen }) {
-  const text = `${label} · ${workPhrase(tool)}…`;
+function WorkRow({ bot, doing, label, at, now, onOpen }) {
+  const text = `${label} · ${workPhrase(doing)}…`;
   const elapsed = typeof at === "number" && now - at >= 6e4 ? elapsedLabel(now - at) : "";
   return (0, import_react31.createElement)(
     "button",
-    { type: "button", className: "bt-mw-row", "aria-label": [text, elapsed].filter(Boolean).join(" · "), onClick: onOpen },
-    (0, import_react31.createElement)(BotMark, { bot, size: 22, state: toolState(tool ?? ""), live: true }),
+    { type: "button", className: "bt-mw-row", "aria-label": [text, elapsed].filter(Boolean).join(" · "), title: text, onClick: onOpen },
+    (0, import_react31.createElement)(BotMark, { bot, size: 22, state: doing?.switching ? "thinking" : toolState(doing?.tool ?? ""), live: true }),
     (0, import_react31.createElement)("span", { className: "bt-mw-row-text" }, (0, import_react31.createElement)(Shimmer, null, text)),
     elapsed ? (0, import_react31.createElement)("span", { className: "bt-mw-row-time" }, `· ${elapsed}`) : null
   );
@@ -11190,14 +11204,14 @@ function MemberDock({ sessionId, useRoster, useWork, actions }) {
     return (0, import_react31.createElement)(
       "div",
       { ref, className: "bt-mw-dock-stack" },
-      rows.map((entry) => (0, import_react31.createElement)(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
+      rows.map((entry) => (0, import_react31.createElement)(WorkRow, { key: entry.id, bot: entry.bot, doing: entry.doing, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
       rest.length > 0 ? (0, import_react31.createElement)(SummaryLine, { busy: rest, onOpen: open }) : null
     );
   }
   return (0, import_react31.createElement)("div", { ref, className: "bt-mw-dock-stack" }, groups.slice(0, ROWS_MAX).map((item) => (0, import_react31.createElement)(WorkRow, {
     key: item.room.id,
     bot,
-    tool: item.tool,
+    doing: item.doing,
     label: t("in {name}", { name: item.room.name }),
     at: item.since,
     now,
@@ -11278,7 +11292,7 @@ function MemberWork({ entry, bot, room: room2, roster, actions, now }) {
     (0, import_react31.createElement)(
       "div",
       { className: "bt-mw-state bt-mw-work" },
-      (0, import_react31.createElement)("span", null, (0, import_react31.createElement)(Shimmer, null, `${workPhrase(entry.doing.tool)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
+      (0, import_react31.createElement)("span", null, (0, import_react31.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
       entry.here ? (0, import_react31.createElement)("button", { type: "button", className: "bt-mw-stop", disabled: stopping, onClick: stop }, t("Stop")) : null
     )
   );
