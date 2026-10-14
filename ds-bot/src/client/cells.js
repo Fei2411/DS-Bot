@@ -524,10 +524,16 @@ function toolActivity(name, arg, findBot, self) {
   }
 }
 
-// What a Bot busy elsewhere is doing, from its current tool alone.
-export function workPhrase(tool) {
+// What a Bot busy elsewhere is doing: its running call's own description, else the kind
+// of tool and what it works on. `doing` is a work entry, or just a tool name.
+export function workPhrase(doing) {
+  const { tool, note, target, switching } = typeof doing === 'string' ? { tool: doing } : doing ?? {}
+  if (switching) return t('Moving to a fresh conversation')
+  const own = note?.replace(/[\s.。…]+$/u, '')
+  if (own) return own
   if (!tool) return t('Thinking about it')
-  return toolActivity(tool, () => undefined, () => undefined)?.label ?? t('On it')
+  const label = toolActivity(tool, () => undefined, () => undefined)?.label ?? t('On it')
+  return target ? `${label} · ${target}` : label
 }
 
 // Transcript rows report what is in flight to the one activity row at the tail.
@@ -565,6 +571,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   // Members speak one at a time, so only the current speaker is typing.
   const pending = done || !live.speaking ? [] : [live.speaking]
   const speakerTool = useWork?.(work => work.bots?.[live.speaking]?.tool) ?? undefined
+  const speakerDoing = useWork?.(work => (work.bots?.[live.speaking]?.tool ? workPhrase(work.bots[live.speaking]) : undefined)) ?? undefined
   if (replies.length === 0 && pending.length === 0) return null
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
@@ -606,7 +613,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (!bot) return null
       return h('div', { key: `pending-${id}`, className: 'bt-activity' },
         h(BotMark, { bot: bot, size: 22, state: speakerTool ? toolState(speakerTool) : 'thinking' }),
-        h(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t('{name} is typing…', { name: bot.name })))
+        h(Shimmer, null, speakerDoing ? `${bot.name} · ${speakerDoing}…` : t('{name} is typing…', { name: bot.name })))
     }))
 }
 

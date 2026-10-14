@@ -216,7 +216,25 @@ export function install(rt) {
     return merged
   }
 
-  // Per Bot, the turn it is running and its current tool; its own chat wins over a group.
+  // What the newest running call does, in its own words: its description, else the
+  // file, search or site it works on.
+  const doingOf = (entry) => {
+    const call = [...(entry.calls?.values() ?? [])].at(-1)
+    if (call === undefined) return {}
+    let args
+    try { args = JSON.parse(call.args || '{}') } catch { args = {} }
+    const first = keys => keys.map(key => args?.[key]).find(value => typeof value === 'string' && value.trim() !== '')?.replace(/\s+/g, ' ').trim()
+    const note = first(['description', 'justification'])
+    const path = first(['file_path', 'path'])
+    const url = first(['url'])
+    let site
+    try { site = url && new URL(url).host } catch { site = undefined }
+    const target = path?.split(/[\\/]/).filter(Boolean).at(-1) ?? first(['query', 'pattern']) ?? site
+    return { tool: call.name, ...(note ? { note: note.slice(0, 120) } : {}), ...(target ? { target: target.slice(0, 80) } : {}) }
+  }
+
+  // Per Bot, the turn it is running and what it is doing; its own chat wins over a
+  // group. A Bot writing its handoff note shows that.
   const workView = () => {
     const bots = {}
     for (const [id, entry] of live) {
@@ -224,25 +242,31 @@ export function install(rt) {
       const owner = rt.groupOwners.get(id)
       const botId = owner?.botId ?? rt.chatOwners.get(id)
       if (botId === undefined || (owner !== undefined && bots[botId] !== undefined)) continue
-      bots[botId] = { since: entry.since, ...(entry.tool ? { tool: entry.tool } : {}), ...(owner ? { roomId: owner.roomId } : {}) }
+      bots[botId] = { since: entry.since, ...doingOf(entry), ...(owner ? { roomId: owner.roomId } : {}) }
+    }
+    for (const job of rt.switchJobs()) {
+      const work = { since: job.since, switching: true, ...(job.roomId ? { roomId: job.roomId } : {}) }
+      if (job.roomId === undefined) bots[job.botId] = work
+      else bots[job.botId] ??= work
     }
     return bots
   }
 
-  // Per group, the members whose turn there is running; the round's current speaker is
-  // marked, since its round shows it.
+  // Per group, the members whose turn there is running or who move on to a fresh part;
+  // the round's current speaker is marked, since its round shows it.
   const roomWorkView = () => {
     const speaking = new Set([...roomProgress.values()].map(round => `${round.roomId}:${round.speaking}`))
     const rooms = {}
+    const add = (roomId, botId, work) => {
+      if (rooms[roomId]?.some(item => item.botId === botId)) return
+      rooms[roomId] = [...(rooms[roomId] ?? []), { botId, ...work, ...(speaking.has(`${roomId}:${botId}`) ? { speaking: true } : {}) }]
+    }
     for (const [id, entry] of live) {
       const owner = rt.groupOwners.get(id)
-      if (entry.turn === undefined || owner === undefined) continue
-      rooms[owner.roomId] = [...(rooms[owner.roomId] ?? []), {
-        botId: owner.botId,
-        since: entry.since,
-        ...(entry.tool ? { tool: entry.tool } : {}),
-        ...(speaking.has(`${owner.roomId}:${owner.botId}`) ? { speaking: true } : {}),
-      }]
+      if (entry.turn !== undefined && owner !== undefined) add(owner.roomId, owner.botId, { since: entry.since, ...doingOf(entry) })
+    }
+    for (const job of rt.switchJobs()) {
+      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true })
     }
     return rooms
   }

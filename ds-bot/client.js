@@ -472,6 +472,7 @@ var ZH = {
   "Moving ahead": "推进中",
   "Taking care of it": "处理中",
   "Making headway": "有进展了",
+  "Moving to a fresh conversation": "整理记忆，换到新对话",
   "Searching online": "上网搜索",
   "Reading a page": "阅读网页",
   "Running shell commands": "运行命令",
@@ -4324,9 +4325,14 @@ function toolActivity(name, arg, findBot, self) {
       return { label: phrase ? t(phrase) : null, state: toolState(name) };
   }
 }
-function workPhrase(tool) {
+function workPhrase(doing) {
+  const { tool, note, target, switching } = typeof doing === "string" ? { tool: doing } : doing ?? {};
+  if (switching) return t("Moving to a fresh conversation");
+  const own = note?.replace(/[\s.。…]+$/u, "");
+  if (own) return own;
   if (!tool) return t("Thinking about it");
-  return toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
+  const label = toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
+  return target ? `${label} · ${target}` : label;
 }
 function useLiveNote(actions, sessionId, id, entry) {
   const key = entry ? JSON.stringify(entry) : "";
@@ -4370,6 +4376,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   const pending = done || !live.speaking ? [] : [live.speaking];
   const speakerTool = useWork?.((work) => work.bots?.[live.speaking]?.tool) ?? void 0;
+  const speakerDoing = useWork?.((work) => work.bots?.[live.speaking]?.tool ? workPhrase(work.bots[live.speaking]) : void 0) ?? void 0;
   if (replies.length === 0 && pending.length === 0) return null;
   const room2 = roster.roomsById[sessionId];
   return (0, import_react6.createElement)(
@@ -4431,7 +4438,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         "div",
         { key: `pending-${id}`, className: "bt-activity" },
         (0, import_react6.createElement)(BotMark, { bot, size: 22, state: speakerTool ? toolState(speakerTool) : "thinking" }),
-        (0, import_react6.createElement)(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t("{name} is typing…", { name: bot.name }))
+        (0, import_react6.createElement)(Shimmer, null, speakerDoing ? `${bot.name} · ${speakerDoing}…` : t("{name} is typing…", { name: bot.name }))
       );
     })
   );
@@ -4748,12 +4755,10 @@ function useMarkedUnread(id, active, marked, actions) {
 }
 var PinMark = () => (0, import_react8.createElement)("span", { className: "bt-pin", "aria-hidden": true }, (0, import_react8.createElement)(PinMarkIcon));
 var useApproval = (useWork, match) => useWork ? useWork((work) => (work.approvals ?? []).some(match)) : false;
-var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => pick2(work.rooms ?? {}).join(",")) : "";
-var workKeys = (text) => text === "" ? [] : text.split(",").map((key) => {
-  const [id, tool] = key.split("|");
-  return { id, tool: tool || void 0 };
-});
-var workLine = (lead, tool, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(tool)}…${more > 0 ? ` +${more}` : ""}`);
+var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => JSON.stringify(pick2(work.rooms ?? {}))) : "[]";
+var workKeys = (text) => JSON.parse(text);
+var doingOf = ({ tool, note, target, switching }) => ({ tool, note, target, switching });
+var workLine = (lead, doing, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ""}`);
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id;
   const part = currentPart(bot);
@@ -4767,10 +4772,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const approval = useApproval(useWork, (entry) => entry.botId === id);
   const alert = roster.questions?.[part] !== void 0 || approval;
   const doing = useActivity((map) => map[id]);
-  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => `${roomId}|${entry.tool ?? ""}`))));
+  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
-  const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0].tool, groups.length - 1) : null;
+  const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   if (bot.hidden && !active && !main) return null;
   const onContextMenu = (event) => {
     event.preventDefault();
@@ -4827,9 +4832,9 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
   const unread = useSessionStatus((map) => map.get(id)?.completionUnread === true) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const approval = useApproval(useWork, (entry) => entry.roomId === id);
-  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => `${entry.botId}|${entry.tool ?? ""}`)));
+  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
   const first = roster.byId[members[0]?.id];
-  const workingLine = first ? workLine(first.name, members[0].tool, members.length - 1) : null;
+  const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
   if (room2.hidden && !active) return null;
   const pinned = room2.pinned === true;
   const label = [room2.name, pinned ? t("Pinned") : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
@@ -11070,7 +11075,7 @@ function botGroupWork(botId, work, roster) {
   return Object.entries(work.rooms ?? {}).flatMap(([roomId, entries2]) => {
     const entry = entries2.find((item) => item.botId === botId);
     const room2 = roster.roomsById[roomId];
-    return entry && room2 ? [{ room: room2, tool: entry.tool, since: entry.since }] : [];
+    return entry && room2 ? [{ room: room2, doing: entry, since: entry.since }] : [];
   });
 }
 function summaryText(busy) {
@@ -11079,7 +11084,7 @@ function summaryText(busy) {
   const names = asks.slice(0, 2).map((entry) => entry.bot.name);
   const waiting = asks.length === 0 ? "" : asks.length === 1 ? t("{name} is waiting for your approval", { name: names[0] }) : asks.length === 2 ? t("{first} and {second} are waiting for your approval", { first: names[0], second: names[1] }) : t("{first}, {second} and {count} more are waiting for your approval", { first: names[0], second: names[1], count: asks.length - 2, total: asks.length });
   const first = workers[0];
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing.tool)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
   return { waiting, doing };
 }
 function Face({ entry, size }) {
@@ -11089,13 +11094,13 @@ function Face({ entry, size }) {
     (0, import_react30.createElement)(BotMark, { bot: entry.bot, size, state: entry.state === "ask" ? "alert" : toolState(entry.doing?.tool ?? "") })
   );
 }
-function WorkRow({ bot, tool, label, at, now, onOpen }) {
-  const text = `${label} · ${workPhrase(tool)}…`;
+function WorkRow({ bot, doing, label, at, now, onOpen }) {
+  const text = `${label} · ${workPhrase(doing)}…`;
   const elapsed = typeof at === "number" && now - at >= 6e4 ? elapsedLabel(now - at) : "";
   return (0, import_react30.createElement)(
     "button",
-    { type: "button", className: "bt-mw-row", "aria-label": [text, elapsed].filter(Boolean).join(" · "), onClick: onOpen },
-    (0, import_react30.createElement)(BotMark, { bot, size: 22, state: toolState(tool ?? ""), live: true }),
+    { type: "button", className: "bt-mw-row", "aria-label": [text, elapsed].filter(Boolean).join(" · "), title: text, onClick: onOpen },
+    (0, import_react30.createElement)(BotMark, { bot, size: 22, state: doing?.switching ? "thinking" : toolState(doing?.tool ?? ""), live: true }),
     (0, import_react30.createElement)("span", { className: "bt-mw-row-text" }, (0, import_react30.createElement)(Shimmer, null, text)),
     elapsed ? (0, import_react30.createElement)("span", { className: "bt-mw-row-time" }, `· ${elapsed}`) : null
   );
@@ -11134,14 +11139,14 @@ function MemberDock({ sessionId, useRoster, useWork, actions }) {
     return (0, import_react30.createElement)(
       "div",
       { ref, className: "bt-mw-dock-stack" },
-      rows.map((entry) => (0, import_react30.createElement)(WorkRow, { key: entry.id, bot: entry.bot, tool: entry.doing.tool, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
+      rows.map((entry) => (0, import_react30.createElement)(WorkRow, { key: entry.id, bot: entry.bot, doing: entry.doing, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
       rest.length > 0 ? (0, import_react30.createElement)(SummaryLine, { busy: rest, onOpen: open }) : null
     );
   }
   return (0, import_react30.createElement)("div", { ref, className: "bt-mw-dock-stack" }, groups.slice(0, ROWS_MAX).map((item) => (0, import_react30.createElement)(WorkRow, {
     key: item.room.id,
     bot,
-    tool: item.tool,
+    doing: item.doing,
     label: t("in {name}", { name: item.room.name }),
     at: item.since,
     now,
@@ -11222,7 +11227,7 @@ function MemberWork({ entry, bot, room: room2, roster, actions, now }) {
     (0, import_react30.createElement)(
       "div",
       { className: "bt-mw-state bt-mw-work" },
-      (0, import_react30.createElement)("span", null, (0, import_react30.createElement)(Shimmer, null, `${workPhrase(entry.doing.tool)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
+      (0, import_react30.createElement)("span", null, (0, import_react30.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
       entry.here ? (0, import_react30.createElement)("button", { type: "button", className: "bt-mw-stop", disabled: stopping, onClick: stop }, t("Stop")) : null
     )
   );

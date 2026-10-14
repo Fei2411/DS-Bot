@@ -455,3 +455,14 @@ test('a private message to a group Session is answered privately, without steps 
   assert.match(text(host.agentOf('c').calls[0]), /我看一下。\n\n看过了，没问题。/)
   assert.deepEqual(host.agentOf('r1').calls, [])
 })
+
+test('the team view says what a member is doing in the call\'s own words', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: JSON.stringify({ command: 'iwr https://example.com/x.zip', description: 'Download  Ghidra 12.1.4\nand check its hash' }) })
+  host.emit('gc', 'turn/start', { turn: 1 })
+  host.emit('gc', 'tool/call', { callId: 'k2', name: 'read', arguments: JSON.stringify({ file_path: 'E:\\src\\tools\\dump.py' }) })
+  const { value } = await host.call('state', {})
+  assert.deepEqual(value.work.rooms.r1.map(entry => [entry.botId, entry.tool, entry.note, entry.target]), [['b', 'pwsh', 'Download Ghidra 12.1.4 and check its hash', undefined], ['c', 'read', undefined, 'dump.py']])
+  assert.equal(value.work.bots.b.note, 'Download Ghidra 12.1.4 and check its hash')
+})
