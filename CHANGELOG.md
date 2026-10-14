@@ -6,8 +6,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Changed
 
-- A Bot at work in a group chat no longer goes quiet until it is done. Each message it writes while it works appears in the group at once, and Bots are told to say what they will do, share what they find at the steps that matter, and end with the result. An @ in such a message calls that member; only the result is answered by the Bot that asked for the work. Messages from one Bot in a row stack under its name.
-- The work status in the group, the sidebar and a Bot's own chat says what the Bot is doing in the words of that step, such as the description of the command it runs or the file it opens, instead of only "On it". While a Bot moves to a fresh conversation, the status says so.
+- A Bot at work in a group chat no longer goes quiet until it is done. It first says what it will do. After that, what it writes while it works reaches the group at most once every two minutes, in one message, and lines still waiting when it finishes give way to its result. A line that calls a member with @ goes at once; only the result is answered by the Bot that asked for the work. Bots are told to write only when something matters, not at every step. Messages from one Bot in a row stack under its name.
+- The work status in the group, the sidebar and a Bot's own chat says what the Bot is doing in the words of that step: what the Bot wrote for it, else the description of the command it runs or the file it opens, instead of only "On it". While a Bot moves to a fresh conversation, the status says so.
 
 ### Fixed
 
