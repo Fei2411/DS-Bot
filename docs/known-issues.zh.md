@@ -42,3 +42,37 @@ dsh: disabling profile plugin row "bot": its declared peer dependencies cannot b
 想知道这一行来自哪里，可以运行 `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config`。它会列出每一行插件配置，以及提供它的文件。如果要报告这个问题，只复制 `id: bot` 的那几行和文件名，不要带上 key 或你不想公开的路径。
 
 删掉整个 profile 文件夹也能解决，但会一并删掉这个 profile 的其他插件和设置（比如模型）。Bot 团队数据在 `~/.dsh/bot/`，两种做法都不会影响它。
+
+## 关掉「web-search-auto」后，所有会话的网页搜索都失败
+
+**在哪里：** 在侧栏的插件页关掉 `web-search-auto` 这一行，或者在 profile 的 `cordis.patch.yml` 里给它写 `disabled: true` 之后，所有会话都受影响，Bot 聊天和普通 Agent 聊天都一样。每次调用 `web_search` 都返回：
+
+```text
+Error: configured web provider "auto" is not registered
+```
+
+错误码是 `WEB_PROVIDER_CONFIGURED_MISSING`。
+
+**原因：** 不管 `web-search-auto` 这一行开没开，DS Bot 的 `cordis.patch.yml` 都会把 `web` 行的 `searchProvider` 设成 `auto`；而它指定的 provider 不存在时，DeepSeek Harness 不会换用别的 provider。
+
+**怎么处理：** profile 文件夹和上一条里的一样。
+
+1. 退出 DSH。
+2. 打开 profile 文件夹里的 `cordis.patch.yml`。在关掉 `web-search-auto` 的那一行旁边，加一条 `web` 行，指定另一个搜索 provider。这一条会替换 `web` 行的整个 config，所以 `fetchProvider` 也要写上：
+
+   ```yaml
+   - id: web-search-auto
+     name: ds-bot/web-search
+     disabled: true
+   - id: web
+     name: '@deepseek-ai/dsh-web'
+     config:
+       searchProvider: deepseek-official
+       fetchProvider: http
+   ```
+
+3. 重新启动 DSH。
+
+想确认结果，可以运行 `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config`，看 `web` 那一行。另外，有的插件会在 DSH 运行时设置搜索 provider，时间在 profile patch 之后。以后关掉这类插件时，也要再检查一下这个设置。
+
+另见插件 README 的 [Web search](../ds-bot/README.md#web-search) 一节和 issue [#128](https://github.com/Fei2411/DeepSeek-Bot/issues/128)。

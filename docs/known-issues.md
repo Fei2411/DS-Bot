@@ -42,3 +42,37 @@ Installing another version of DS Bot does not help.
 To see where the row comes from, run `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config`. It prints every plugin row with the file that supplied it. If you report the problem, copy only the rows with `id: bot` and the file names; leave out keys and paths you do not want to share.
 
 Deleting the whole profile folder also fixes it, but it removes the profile's other plugins and its settings, such as models. The Bot team is in `~/.dsh/bot/` and is not affected either way.
+
+## Web search fails everywhere after turning off "web-search-auto"
+
+**Where:** every session, Bot chats and normal Agent chats alike, after you turn off the `web-search-auto` row in the sidebar's Plugins page or with `disabled: true` in the profile's `cordis.patch.yml`. Each `web_search` call returns:
+
+```text
+Error: configured web provider "auto" is not registered
+```
+
+The error code is `WEB_PROVIDER_CONFIGURED_MISSING`.
+
+**Why:** DS Bot's `cordis.patch.yml` sets the `web` row's `searchProvider` to `auto` whether or not the `web-search-auto` row is on, and DeepSeek Harness does not fall back to another provider when the one it names is missing.
+
+**What to do:** the profile folder is the same as in the entry above.
+
+1. Quit DSH.
+2. Open `cordis.patch.yml` in the profile folder. Next to the row that turns off `web-search-auto`, add a `web` row that names another search provider. This row replaces the whole config of the `web` row, so keep `fetchProvider` in it:
+
+   ```yaml
+   - id: web-search-auto
+     name: ds-bot/web-search
+     disabled: true
+   - id: web
+     name: '@deepseek-ai/dsh-web'
+     config:
+       searchProvider: deepseek-official
+       fetchProvider: http
+   ```
+
+3. Start DSH again.
+
+To check the result, run `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
+
+See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei2411/DeepSeek-Bot/issues/128).

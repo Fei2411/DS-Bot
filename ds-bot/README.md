@@ -122,6 +122,21 @@ The package includes a second plugin, `ds-bot/web-search`. It registers the sear
 
 Each result starts with a `Search backend: …` line that names the path it took.
 
+**Turning `auto` off**: the `web` row still names `auto` when you turn off only the `web-search-auto` row (in the sidebar's Plugins page or with `disabled: true` in a profile patch). Then `web_search` fails in every session, Bot or not, with `WEB_PROVIDER_CONFIGURED_MISSING` (`configured web provider "auto" is not registered`). When you turn that row off, also name another `searchProvider` for the `web` row in the profile's `cordis.patch.yml`. The override replaces the row's whole config, so restate `fetchProvider`:
+
+```yaml
+- id: web-search-auto
+  name: ds-bot/web-search
+  disabled: true
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: deepseek-official
+    fetchProvider: http
+```
+
+Another plugin can also set the search provider while dsh runs, after the profile patch. When you turn such a plugin off, check this setting again.
+
 ## Bot browser
 
 In dsh Desktop, a Bot's chat header has a globe button. It opens that Bot's own browser panel.
