@@ -6,6 +6,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Fixed
 
+- Bots could keep messaging each other for a long time without you, for example by forwarding a request from Bot to Bot or through group posts. Every forwarded message and group post now counts toward the limit on how long a chain of Bot messages can get, and after 40 Bot messages since you last wrote, answered a question card or a scheduled task ran, `message_bot` and `post_to_group` fail and tell the Bot to report to you. Bots are also told not to send thanks or acknowledgements, and not to answer a reply. ([#129](https://github.com/Fei2411/DeepSeek-Bot/issues/129))
 - An HTTP MCP capability with `$DSH_SECRET_<NAME>` in its URL sent the reference itself to the server and showed ready until the first tool call failed. The URL now gets the secret's value, URL-encoded, and a capability whose Bot may not use the secret shows an error. ([#125](https://github.com/Fei2411/DeepSeek-Bot/issues/125))
 
 ## [0.1.5] - 2026-10-13

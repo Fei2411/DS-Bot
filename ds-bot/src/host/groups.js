@@ -187,10 +187,11 @@ export function install(rt) {
   // round, or null when the round was stopped. The wait restarts on each event of the
   // member's Session, so a member at work is never cut off. `by` is the member that
   // called it, which answers what the turn posts after the round moved on.
-  async function roomTurn(room, member, sessionId, text, note, signal, started, by) {
+  async function roomTurn(room, member, sessionId, text, note, signal, round, by) {
     if (signal.aborted) return null
     const exchangeId = randomUUID()
     const turn = { botId: member.id, sessionId, exchangeId }
+    const { started } = round
     started.push(turn)
     room.seen[member.id] = room.seq
     // Checked before the delivery, which may start the turn at once.
@@ -214,7 +215,7 @@ export function install(rt) {
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
-      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, ...(by ? { askedBy: by } : {}) })
+      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, hop: round.hop, ...(by ? { askedBy: by } : {}) })
       // Still held by an earlier request: this turn cannot start until the user answers.
       if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
       // Still at earlier work: the call waits in its inbox and is answered after that.
@@ -298,9 +299,11 @@ export function install(rt) {
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       callMembers(round, turns, index - 1, openingSpeakers(room, { text: line.text }), note, ROOM_ADMIN_TURNS_EACH)
     }
-    // The user spoke in this room, so Bots may start their own rounds again.
+    // The user spoke in this room, so Bots may start their own rounds again. These
+    // messages never reach the Session as events, so the team's count resets here too.
     room.botRounds = 0
     room.lateRounds = 0
+    rt.userSpoke()
     void rt.save().catch(() => {})
     return round.slots.length - before
   }
@@ -339,7 +342,7 @@ export function install(rt) {
       const prompt = roomPrompt(room, member, round)
       round.shown?.push(member.id)
       const text = session.brief === undefined ? prompt : `${session.brief}\n\n${prompt}`
-      const reply = await roomTurn(room, member, session.id, text, slot.note ?? 'your turn', signal, round.started, slot.by)
+      const reply = await roomTurn(room, member, session.id, text, slot.note ?? 'your turn', signal, round, slot.by)
       round.speaking = null
       if (reply?.failure !== undefined) {
         // Not a pass: the user sees why the member is silent, and the round goes on.
@@ -422,6 +425,8 @@ export function install(rt) {
         roomId: room.id,
         members: room.members,
         startSeq,
+        // Member turns answer the opener, so they keep its hop; a round the user opens starts at 0.
+        hop: opener.hop ?? 0,
         ...(opener.kickoff ? { kickoff: true } : {}),
         ...(references.length > 0 ? { references, shown: [] } : {}),
         slots: openingSpeakers(room, opener).map(member => ({
@@ -587,7 +592,7 @@ export function install(rt) {
     const quiet = (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
     if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
-    await postToRoom(room, member, text, { late: true, ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
+    await postToRoom(room, member, text, { late: true, hop: info.hop ?? 0, ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
   }
   rt.lateRoomReply = lateRoomReply
@@ -645,7 +650,7 @@ export function install(rt) {
       round.passed.length > 0 ? `Stayed silent: ${round.passed.join(', ')}.` : '',
       round.failed.length > 0 ? `Could not answer because their model call failed: ${round.replies.filter(reply => reply.kind === 'failed').map(reply => `${reply.name} (${failureLine({ code: reply.code, status: reply.status, message: reply.text })})`).join(', ')}.` : '',
     ].filter(Boolean).join('\n\n')
-    await rt.deliver({ toId: post.botId, role: 'report', roomId: room.id, text, hop: (post.hop ?? 0) + 1 })
+    await rt.deliver({ toId: post.botId, role: 'report', roomId: room.id, text, hop: post.hop ?? 0 })
       .catch(error => rt.warn('ds-bot: group report to %s failed: %s', post.name, error))
   }
 
