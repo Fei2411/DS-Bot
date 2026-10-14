@@ -1789,23 +1789,26 @@ function useFlip(list, key, selector, id = (node) => node.dataset.flip) {
   }, [key]);
 }
 function useMorph(box, key) {
-  const last = (0, import_react.useRef)({ key, height: null });
+  const last = (0, import_react.useRef)({ key, height: null, node: null, observer: null });
   (0, import_react.useLayoutEffect)(() => {
     const node = box.current;
     const state = last.current;
-    if (!node) {
-      last.current = { key, height: null };
+    if (node !== state.node) {
+      state.observer?.disconnect();
+      Object.assign(state, { key, height: null, node, observer: null });
+      if (!node || typeof ResizeObserver !== "function") return;
+      state.observer = new ResizeObserver(([entry]) => {
+        if (node.dataset.morph === void 0) state.height = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight;
+      });
+      state.observer.observe(node);
       return;
     }
+    if (!node || key === state.key) return;
     const running = node.getAnimations().filter((animation2) => animation2.id === "bt-morph");
-    if (key === state.key) {
-      if (running.length === 0) state.height = node.offsetHeight;
-      return;
-    }
     const from = running.length ? node.offsetHeight : state.height;
     for (const animation2 of running) animation2.cancel();
     const to = node.offsetHeight;
-    last.current = { key, height: to };
+    Object.assign(state, { key, height: to });
     if (from === null || Math.abs(from - to) < 1 || reducedMotion()) return;
     node.dataset.morph = "";
     const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: "bt-morph" });
@@ -1816,6 +1819,7 @@ function useMorph(box, key) {
       if (!node.getAnimations().some((other) => other.id === "bt-morph" && other !== animation)) delete node.dataset.morph;
     };
   });
+  (0, import_react.useEffect)(() => () => last.current.observer?.disconnect(), []);
 }
 function useLinger(value, ms) {
   const [kept, setKept] = (0, import_react.useState)(value);
@@ -2163,7 +2167,13 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
 .bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
 .bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
-.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster{margin-bottom:16px}
+.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}
+.bt-pile{display:flex;align-items:center;justify-content:center;line-height:0}
+.bt-pile-face{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 3px var(--bt-main);animation:bt-pile-in .36s cubic-bezier(.34,1.56,.64,1) backwards}
+.bt-pile-face+.bt-pile-face{margin-left:-10px}
+.bt-pile-more{background:var(--bt-hover);color:var(--bt-ink-2);font-size:13px;line-height:1;font-weight:500;font-variant-numeric:tabular-nums}
+@keyframes bt-pile-in{from{opacity:0;transform:translateY(6px) scale(.85)}}
+@media (prefers-reduced-motion:reduce){.bt-pile-face{animation:none}}
 .bt-drawer-name{font-size:17px;line-height:24px;font-weight:500;border:0;background:none;color:inherit;cursor:text;padding:0 6px;border-radius:6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
@@ -2469,16 +2479,8 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-members{display:flex;flex-direction:column;gap:1px}
-.bt-member{display:flex;align-items:center;gap:4px;min-height:40px;padding:0 4px 0 6px;border-radius:8px;animation:bt-rise .18s ease-out}
-.bt-member:hover{background:var(--bt-hover)}
-.bt-member-name{flex:1;min-width:0;display:flex;align-items:center;gap:10px;border:0;background:none;padding:6px 0;color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;cursor:pointer;text-align:left}
-.bt-member-name>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-chip-admin{background:var(--bt-tag-bg);color:var(--bt-tag-ink);border-color:transparent}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-member .bt-mini,.bt-member .bt-x{opacity:0;transition:opacity .15s ease}
-.bt-member:hover .bt-mini,.bt-member:hover .bt-x,.bt-member .bt-mini:focus-visible,.bt-member .bt-x:focus-visible{opacity:1}
 .bt-add{color:var(--bt-ink-2);margin-top:2px}
 .bt-add:hover,.bt-addlist .bt-option:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-addlist{display:flex;flex-direction:column;margin-top:4px;padding:4px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-card);animation:bt-rise .16s ease-out}
@@ -2491,7 +2493,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-seg>.bt-thumb{top:2px;bottom:2px;border-radius:8px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bt-seg[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.bt-member,.bt-addlist{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-addlist{animation:none}}
 
 /* Memory dialog: a summary of every entry, the entries behind the menu, "Ask or update" below. */
 .bt-mem-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 8px 0 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
@@ -2634,6 +2636,12 @@ header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inse
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 [class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
+/* The shell writes the column's width on the conversation root at every resize, only to
+   derive the content width that the rule above replaces. Inherited, each write restyled
+   the whole conversation: once a frame while the details panel glides, most in a long
+   group chat. Kept on the root alone, a write restyles one element. */
+@property --dsh-conversation-column-width{syntax:"*";inherits:false}
+@property --dsh-chat-user-width{syntax:"*";inherits:false}
 /* DSH's turn tail keeps what plugins put in it (delivered files, the Bot's separators),
    without its copy and branch row; a tail with nothing in it takes no room. */
 [data-turn-tail]>:not([data-slot="conversation.chat.turnTail"]){display:none!important}
@@ -2851,7 +2859,10 @@ function installCompiledStyles(text, tag) {
   const onLoad = (event) => {
     if (event.target instanceof HTMLLinkElement) schedule();
   };
-  const observer = new MutationObserver(schedule);
+  const shell = (node) => node.dataset?.dshBot === void 0;
+  const observer = new MutationObserver((records) => {
+    if (records.some((record) => [...record.addedNodes, ...record.removedNodes].some(shell))) schedule();
+  });
   observer.observe(document.head, { childList: true });
   document.addEventListener("load", onLoad, true);
   return () => {
@@ -11061,7 +11072,8 @@ function migrateStorage(storage = globalThis.localStorage) {
 // src/client/member-status.js
 var import_react30 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
-var ROWS_MAX = 4;
+var FACES_MAX = 3;
+var DOCK_EXIT_MS = 160;
 function memberWork(room2, work = NO_WORK) {
   const here = work.rooms?.[room2.id] ?? [];
   return room2.members.map((id) => {
@@ -11075,11 +11087,8 @@ function busyMembers(room2, work, roster) {
   const busy = memberWork(room2, work).filter((entry) => entry.state !== "idle" && roster.byId[entry.id]);
   return [...busy.filter((entry) => entry.state === "ask"), ...busy.filter((entry) => entry.state === "work")].map((entry) => ({ ...entry, bot: roster.byId[entry.id] }));
 }
-function splitBusy(busy) {
-  const speaking = (entry) => entry.state === "work" && entry.here && entry.doing.speaking === true;
-  const rows = busy.filter((entry) => entry.state === "work" && entry.here && !speaking(entry)).slice(0, ROWS_MAX);
-  return { rows, rest: busy.filter((entry) => !rows.includes(entry) && !speaking(entry)) };
-}
+var dockMembers = (busy) => busy.filter((entry) => !(entry.state === "work" && entry.here && entry.doing.speaking === true));
+var workState = (doing) => doing?.switching ? "thinking" : toolState(doing?.tool ?? "");
 function botGroupWork(botId, work, roster) {
   return Object.entries(work.rooms ?? {}).flatMap(([roomId, entries2]) => {
     const entry = entries2.find((item) => item.botId === botId);
@@ -11096,88 +11105,77 @@ function summaryText(busy) {
   const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
   return { waiting, doing };
 }
-function Face({ entry, size }) {
+function dockModel(sessionId, roster, work) {
+  const room2 = roster.roomsById[sessionId];
+  if (room2) {
+    const busy = dockMembers(busyMembers(room2, work, roster));
+    if (busy.length === 0) return null;
+    const { waiting, doing } = summaryText(busy);
+    return {
+      open: { details: room2.id },
+      faces: busy.slice(0, FACES_MAX).map((entry) => ({ id: entry.id, ask: entry.state === "ask", state: workState(entry.doing) })),
+      waiting,
+      doing
+    };
+  }
+  const bot = roster.byId[sessionId];
+  if (!bot || work.bots?.[bot.id] !== void 0 && work.bots[bot.id].roomId === void 0) return null;
+  const groups = botGroupWork(bot.id, work, roster);
+  if (groups.length === 0) return null;
+  const [first] = groups;
+  return {
+    open: { session: first.room.id },
+    faces: [{ id: bot.id, ask: false, state: workState(first.doing) }],
+    waiting: "",
+    doing: `${t("in {name}", { name: first.room.name })} · ${workPhrase(first.doing)}…${groups.length > 1 ? ` +${groups.length - 1}` : ""}`
+  };
+}
+function Face({ bot, ask, state }) {
   return (0, import_react30.createElement)(
     "span",
-    { className: "bt-mw-face", "data-ask": entry.state === "ask" || void 0 },
-    (0, import_react30.createElement)(BotMark, { bot: entry.bot, size, state: entry.state === "ask" ? "alert" : toolState(entry.doing?.tool ?? "") })
+    { className: "bt-mw-face", "data-ask": ask || void 0 },
+    (0, import_react30.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state })
   );
 }
-function WorkRow({ bot, doing, label, at, now, onOpen }) {
-  const text = `${label} · ${workPhrase(doing)}…`;
-  const elapsed = typeof at === "number" && now - at >= 6e4 ? elapsedLabel(now - at) : "";
-  return (0, import_react30.createElement)(
-    "button",
-    { type: "button", className: "bt-mw-row", "aria-label": [text, elapsed].filter(Boolean).join(" · "), title: text, onClick: onOpen },
-    (0, import_react30.createElement)(BotMark, { bot, size: 22, state: doing?.switching ? "thinking" : toolState(doing?.tool ?? ""), live: true }),
-    (0, import_react30.createElement)("span", { className: "bt-mw-row-text" }, (0, import_react30.createElement)(Shimmer, null, text)),
-    elapsed ? (0, import_react30.createElement)("span", { className: "bt-mw-row-time" }, `· ${elapsed}`) : null
-  );
-}
-function SummaryLine({ busy, onOpen }) {
-  const { waiting, doing } = summaryText(busy);
-  return (0, import_react30.createElement)(
-    "div",
-    { className: "bt-event bt-mw-dock" },
-    (0, import_react30.createElement)(
-      "button",
-      { type: "button", className: "bt-event-whole bt-mw-line", "aria-label": [waiting, doing].filter(Boolean).join(" · "), onClick: onOpen },
-      (0, import_react30.createElement)("span", { className: "bt-mw-stack", "aria-hidden": true }, busy.slice(0, 4).map((entry) => (0, import_react30.createElement)(Face, { key: entry.id, entry, size: 16 }))),
-      waiting ? (0, import_react30.createElement)("span", { className: "bt-mw-ask" }, waiting) : null,
-      waiting && doing ? (0, import_react30.createElement)("span", { "aria-hidden": true }, "·") : null,
-      doing ? (0, import_react30.createElement)("span", { className: "bt-event-name" }, (0, import_react30.createElement)(Shimmer, null, doing)) : null
-    )
-  );
+function useFitWidth(inner, key) {
+  const [width, setWidth] = (0, import_react30.useState)(null);
+  (0, import_react30.useLayoutEffect)(() => {
+    setWidth(key && inner.current ? inner.current.offsetWidth : null);
+  }, [key]);
+  return width;
 }
 function MemberDock({ sessionId, useRoster, useWork, actions }) {
   const roster = useRoster((value) => value);
   const work = useWork((value) => value);
-  const room2 = roster.roomsById[sessionId];
-  const bot = room2 ? void 0 : roster.byId[sessionId];
-  const ownChat = bot !== void 0 && work.bots?.[bot.id] !== void 0 && work.bots[bot.id].roomId === void 0;
-  const busy = room2 ? busyMembers(room2, work, roster) : [];
-  const groups = bot !== void 0 && !ownChat ? botGroupWork(bot.id, work, roster) : [];
-  const shown = busy.length > 0 || groups.length > 0;
-  const now = useNow2(shown);
-  const ref = (0, import_react30.useRef)(null);
-  useFlowColumn(ref, shown, sessionId);
-  if (!shown) return null;
-  if (room2) {
-    const { rows, rest } = splitBusy(busy);
-    const open = () => actions.showDetails(sessionId);
-    return (0, import_react30.createElement)(
-      "div",
-      { ref, className: "bt-mw-dock-stack" },
-      rows.map((entry) => (0, import_react30.createElement)(WorkRow, { key: entry.id, bot: entry.bot, doing: entry.doing, label: entry.bot.name, at: entry.doing.since, now, onOpen: open })),
-      rest.length > 0 ? (0, import_react30.createElement)(SummaryLine, { busy: rest, onOpen: open }) : null
-    );
-  }
-  return (0, import_react30.createElement)("div", { ref, className: "bt-mw-dock-stack" }, groups.slice(0, ROWS_MAX).map((item) => (0, import_react30.createElement)(WorkRow, {
-    key: item.room.id,
-    bot,
-    doing: item.doing,
-    label: t("in {name}", { name: item.room.name }),
-    at: item.since,
-    now,
-    onOpen: () => actions.openSession(item.room.id)
-  })));
-}
-function useFlowColumn(ref, active, key) {
-  (0, import_react30.useLayoutEffect)(() => {
-    const node = ref.current;
-    const flow = document.querySelector("[data-chat-flow]");
-    if (!active || !node || !flow) return void 0;
-    const place = () => {
-      node.style.marginInlineStart = "0px";
-      const column = flow.getBoundingClientRect();
-      node.style.marginInlineStart = `${Math.round(column.left - node.getBoundingClientRect().left)}px`;
-      node.style.width = `${Math.round(column.width)}px`;
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    for (const target of [flow, flow.parentElement, node.parentElement]) if (target) observer.observe(target);
-    return () => observer.disconnect();
-  }, [active, key]);
+  const live = dockModel(sessionId, roster, work);
+  const [kept, leaving] = useLinger(live ? JSON.stringify(live) : null, DOCK_EXIT_MS);
+  const model = kept ? JSON.parse(kept) : null;
+  const inner = (0, import_react30.useRef)(null);
+  const width = useFitWidth(inner, kept);
+  if (!model) return null;
+  const faces = model.faces.map((face) => ({ ...face, bot: roster.byId[face.id] })).filter((face) => face.bot);
+  const label = [model.waiting, model.doing].filter(Boolean).join(" · ");
+  const open = () => model.open.details ? actions.showDetails(model.open.details) : actions.openSession(model.open.session);
+  return (0, import_react30.createElement)(
+    "div",
+    { className: "bt-mw-dock", "data-leaving": leaving || void 0 },
+    (0, import_react30.createElement)(
+      "button",
+      { type: "button", className: "bt-mw-pill", "aria-label": label, onClick: open, disabled: leaving, style: width ? { width } : void 0 },
+      (0, import_react30.createElement)(
+        "span",
+        { ref: inner, className: "bt-mw-pill-in" },
+        (0, import_react30.createElement)("span", { className: "bt-mw-faces", "aria-hidden": true }, faces.map((face) => (0, import_react30.createElement)(Face, { key: face.id, ...face }))),
+        (0, import_react30.createElement)(
+          "span",
+          { key: label, className: "bt-mw-label", "aria-hidden": true },
+          model.waiting ? (0, import_react30.createElement)("span", { className: "bt-mw-ask" }, model.waiting) : null,
+          model.waiting && model.doing ? (0, import_react30.createElement)("span", { className: "bt-mw-dot" }, "·") : null,
+          model.doing ? (0, import_react30.createElement)("span", { className: "bt-mw-doing" }, (0, import_react30.createElement)(Shimmer, null, model.doing)) : null
+        )
+      )
+    )
+  );
 }
 function useNow2(active) {
   const [now, setNow] = (0, import_react30.useState)(Date.now);
@@ -11214,32 +11212,30 @@ function ApprovalCard({ approval, bot, actions }) {
     )
   );
 }
-function MemberWork({ entry, bot, room: room2, roster, actions, now }) {
-  const [stopping, setStopping] = (0, import_react30.useState)(false);
-  if (entry.state === "ask") {
-    return (0, import_react30.createElement)(
-      "div",
-      { className: "bt-mw-member" },
-      (0, import_react30.createElement)("div", { className: "bt-mw-state bt-mw-ask" }, `${t("Waiting for your approval")}${since(now, entry.approvals[0].at)}`),
-      entry.approvals.map((approval) => (0, import_react30.createElement)(ApprovalCard, { key: approval.id, approval, bot, actions }))
-    );
-  }
-  if (entry.state !== "work") return null;
+function MemberState({ entry, bot, room: room2, roster, now }) {
+  if (entry?.state === "ask") return (0, import_react30.createElement)("span", { className: "bt-member-state bt-mw-ask" }, `${t("Waiting for your approval")}${since(now, entry.approvals[0].at)}`);
+  if (entry?.state !== "work") return bot.role ? (0, import_react30.createElement)("span", { className: "bt-member-state" }, bot.role) : null;
   const where = entry.doing.roomId === room2.id ? "" : entry.doing.roomId ? t("in {name}", { name: roster.roomsById[entry.doing.roomId]?.name ?? t("a group chat") }) : t("in its own chat");
+  return (0, import_react30.createElement)(
+    "span",
+    { className: "bt-member-state" },
+    (0, import_react30.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`),
+    where ? ` ${where}` : "",
+    since(now, entry.doing.since)
+  );
+}
+function StopMemberWork({ entry, bot, room: room2, actions }) {
+  const [stopping, setStopping] = (0, import_react30.useState)(false);
+  if (entry?.state !== "work" || !entry.here) return null;
   const stop = () => {
     setStopping(true);
     void Promise.resolve(actions.stopMemberWork(room2.id, bot.id)).catch((error) => actions.reportError(error, "stop")).finally(() => setStopping(false));
   };
-  return (0, import_react30.createElement)(
-    "div",
-    { className: "bt-mw-member" },
-    (0, import_react30.createElement)(
-      "div",
-      { className: "bt-mw-state bt-mw-work" },
-      (0, import_react30.createElement)("span", null, (0, import_react30.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : "", since(now, entry.doing.since)),
-      entry.here ? (0, import_react30.createElement)("button", { type: "button", className: "bt-mw-stop", disabled: stopping, onClick: stop }, t("Stop")) : null
-    )
-  );
+  return (0, import_react30.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
+}
+function MemberApprovals({ entry, bot, actions }) {
+  if (entry?.state !== "ask") return null;
+  return (0, import_react30.createElement)("div", { className: "bt-member-cards" }, entry.approvals.map((approval) => (0, import_react30.createElement)(ApprovalCard, { key: approval.id, approval, bot, actions })));
 }
 function useMemberWork(room2, useWork) {
   const work = useWork?.((value) => value) ?? NO_WORK;
@@ -11248,39 +11244,53 @@ function useMemberWork(room2, useWork) {
   return { entries: entries2, now };
 }
 var MEMBER_CSS = `
-.bt-mw-dock-stack{box-sizing:border-box;display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:var(--dsh-chat-content-width,min(960px,100%));margin:0 auto 6px;pointer-events:none}
-.bt-mw-dock-stack>.bt-event.bt-mw-dock{align-self:stretch;margin:0}
-.bt-mw-row{pointer-events:auto;display:flex;align-items:center;gap:10px;min-width:0;max-width:calc(100% + 6px);height:32px;margin-inline-start:-6px;padding:0 12px 0 6px;border:0;border-radius:16px;background:none;color:var(--bt-ink-2);font:inherit;font-size:14px;cursor:pointer;animation:bt-mw-in .32s cubic-bezier(.23,1,.32,1) backwards;transition:background-color .16s ease-out}
-.bt-mw-row:hover{background:var(--bt-hover)}
-.bt-mw-row>.bt-mark{flex:none}
-.bt-mw-row-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-mw-row-time{flex:none;font-size:12px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-mw-work{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bt-mw-stop{flex:none;height:22px;padding:0 10px;border:1px solid var(--bt-line,rgba(0,0,0,.12));border-radius:11px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer}
-.bt-mw-stop:hover{background:var(--bt-hover)}
-.bt-mw-stop:disabled{opacity:.5;cursor:default}
-.bt-event.bt-mw-dock{margin:0 0 6px;pointer-events:none}
-.bt-mw-dock>button{pointer-events:auto;animation:bt-mw-in .32s cubic-bezier(.23,1,.32,1) backwards}
-.bt-mw-line{gap:6px!important}
-.bt-mw-stack{display:inline-flex;align-items:center;flex:none;line-height:0}
-.bt-mw-stack>*+*{margin-left:-4px}
-.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%}
-.bt-mw-stack .bt-mw-face{box-shadow:0 0 0 1.5px var(--bt-main,#fff)}
-.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:50%;background:#e3a008;box-shadow:0 0 0 1.5px var(--bt-main,#fff)}
-.bt-mw-ask{color:#b7791f;flex:none;white-space:nowrap}
+.bt-mw-dock{display:flex;justify-content:center;margin:0 auto 8px;pointer-events:none}
+.bt-mw-pill{pointer-events:auto;position:relative;display:inline-flex;align-items:center;flex:none;box-sizing:border-box;height:32px;max-width:100%;padding:0;border:0;border-radius:999px;overflow:hidden;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12);color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer;animation:bt-mw-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .18s ease-out backwards;transition:background-color .12s ease,${spring(SPRING_SHAPE, "width")},${spring(SPRING_TAP, "scale")}}
+.bt-mw-pill:hover{background:color-mix(in srgb,var(--bt-ink) 4%,var(--bt-main))}
+.bt-mw-pill:active{scale:.97}
+.bt-mw-dock[data-leaving] .bt-mw-pill{animation:bt-mw-out .16s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
+.bt-mw-pill-in{display:inline-flex;align-items:center;gap:8px;flex:none;padding:0 13px 0 6px;white-space:nowrap}
+.bt-mw-faces{display:inline-flex;align-items:center;flex:none;line-height:0}
+.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat .26s cubic-bezier(.34,1.56,.64,1) backwards}
+.bt-mw-face+.bt-mw-face{margin-left:-5px}
+.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;background:#e3a008;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-mw-label{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:min(420px,58vw);animation:bt-mw-swap .22s ease-out backwards}
+.bt-mw-label>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-mw-ask{color:#b7791f;flex:none}
+.bt-mw-dot{flex:none;color:var(--bt-ink-3)}
+.bt-mw-doing{flex:0 1 auto}
 body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
-.bt-mw-member{padding:0 6px 8px 42px;display:flex;flex-direction:column;gap:6px}
-.bt-mw-state{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:-4px}
-.bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+@keyframes bt-mw-in{from{transform:translateY(8px) scale(.94)}}
+@keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:blur(3px)}}
+@keyframes bt-mw-seat{from{opacity:0;scale:.6}}
+@keyframes bt-mw-swap{from{opacity:0;filter:blur(4px)}}
+.bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
+.bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
+.bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
+.bt-member-row:hover{background:var(--bt-hover)}
+.bt-member-open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 0;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
+.bt-member-open>.bt-mark{flex:none}
+.bt-member-text{display:flex;flex-direction:column;min-width:0;gap:1px}
+.bt-member-line{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-member-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-member-line>.bt-tag{font-size:11px;line-height:15px;padding:0 5px}
+.bt-member-state{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-member-state.bt-mw-ask{color:#b7791f}
+body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
+.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:13px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-member-stop:active:not(:disabled){scale:.94}
+.bt-member-stop:disabled{opacity:.5;cursor:default}
+.bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
+.bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-tool{font-weight:600;color:var(--bt-ink)}
 .bt-mw-text{color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-mw-reason{overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.bt-mw-code{display:block;font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-mw-code{display:block;padding:4px 8px;border-radius:6px;background:var(--bt-main);font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@keyframes bt-mw-in{from{opacity:0;transform:translateY(4px)}}
-@media (prefers-reduced-motion:reduce){.bt-mw-dock>button,.bt-mw-row{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
 `;
 
 // src/client/details-drawer.js
@@ -11412,6 +11422,47 @@ function About({ text, title = "About" }) {
     long ? (0, import_react31.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
   );
 }
+var PILE_MAX = 4;
+function MemberPile({ room: room2, roster }) {
+  const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
+  const shown = members.length > PILE_MAX ? members.slice(0, PILE_MAX - 1) : members;
+  const more = members.length - shown.length;
+  return (0, import_react31.createElement)(
+    "span",
+    { className: "bt-pile", "aria-hidden": true },
+    shown.map((bot, index) => (0, import_react31.createElement)("span", { key: bot.id, className: "bt-pile-face", style: { animationDelay: `${index * 40}ms` } }, (0, import_react31.createElement)(BotMark, { bot, size: 44, live: true }))),
+    more > 0 ? (0, import_react31.createElement)("span", { key: "more", className: "bt-pile-face bt-pile-more", style: { animationDelay: `${shown.length * 40}ms` } }, `+${more}`) : null
+  );
+}
+var markOf = (entry) => entry?.state === "ask" ? "alert" : entry?.state === "work" ? workState(entry.doing) : "idle";
+function MemberRow({ member, entry, room: room2, roster, actions, now }) {
+  return (0, import_react31.createElement)(
+    "div",
+    { role: "listitem", className: "bt-member" },
+    (0, import_react31.createElement)(
+      "div",
+      { className: "bt-member-row" },
+      (0, import_react31.createElement)(
+        "button",
+        { type: "button", className: "bt-member-open", title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
+        (0, import_react31.createElement)(BotMark, { bot: member, size: 32, state: markOf(entry) }),
+        (0, import_react31.createElement)(
+          "span",
+          { className: "bt-member-text" },
+          (0, import_react31.createElement)(
+            "span",
+            { className: "bt-member-line" },
+            (0, import_react31.createElement)("span", { className: "bt-member-name" }, member.name),
+            room2.admin === member.id ? (0, import_react31.createElement)("span", { className: "bt-tag" }, t("Admin")) : null
+          ),
+          (0, import_react31.createElement)(MemberState, { entry, bot: member, room: room2, roster, now })
+        )
+      ),
+      (0, import_react31.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
+    ),
+    (0, import_react31.createElement)(MemberApprovals, { entry, bot: member, actions })
+  );
+}
 function GroupOverview({ room: room2, roster, actions, usage, useWork, openSettings }) {
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const { entries: entries2, now } = useMemberWork(room2, useWork);
@@ -11421,25 +11472,15 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, openSetti
       "div",
       { key: "members" },
       (0, import_react31.createElement)("div", { className: "bt-section-title" }, t("Members · {count}", { count: members.length })),
-      (0, import_react31.createElement)("div", { className: "bt-members", role: "list" }, members.map((member) => {
-        const entry = entries2.find((item) => item.id === member.id);
-        return (0, import_react31.createElement)(
-          "div",
-          { key: member.id, role: "listitem" },
-          (0, import_react31.createElement)(
-            "div",
-            { className: "bt-member" },
-            (0, import_react31.createElement)(
-              "button",
-              { type: "button", className: "bt-member-name", title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
-              (0, import_react31.createElement)(BotAvatar, { bot: member, size: 26, main: isMainOf(roster, member.id), admin: room2.admin === member.id, live: false }),
-              (0, import_react31.createElement)("span", null, member.name)
-            ),
-            room2.admin === member.id ? (0, import_react31.createElement)("span", { className: "bt-chip bt-chip-admin" }, t("Admin")) : null
-          ),
-          entry ? (0, import_react31.createElement)(MemberWork, { entry, bot: member, room: room2, roster, actions, now }) : null
-        );
-      }))
+      (0, import_react31.createElement)("div", { className: "bt-members", role: "list" }, members.map((member) => (0, import_react31.createElement)(MemberRow, {
+        key: member.id,
+        member,
+        entry: entries2.find((item) => item.id === member.id),
+        room: room2,
+        roster,
+        actions,
+        now
+      })))
     ),
     (0, import_react31.createElement)(
       "div",
@@ -11539,7 +11580,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     (0, import_react31.createElement)(
       "div",
       { key: "id", className: "bt-drawer-id", "data-move": side },
-      bot ? (0, import_react31.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react31.createElement)(RoomAvatar, { room: room2, roster, size: 64 }),
+      bot ? (0, import_react31.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react31.createElement)(MemberPile, { room: room2, roster }),
       editing ? (0, import_react31.createElement)("input", {
         className: "bt-drawer-name-input",
         autoFocus: true,
@@ -11561,12 +11602,12 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
       } }, current),
       subtitle ? (0, import_react31.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
     ),
-    (0, import_react31.createElement)(
+    tabs.length > 1 ? (0, import_react31.createElement)(
       "div",
       { key: "tabs", ref: glide.box, className: "bt-tabs", role: "tablist", "data-move": side },
       (0, import_react31.createElement)("span", { ref: glide.thumb, className: "bt-thumb", "aria-hidden": true }),
       tabs.map((key) => (0, import_react31.createElement)("button", { key, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))
-    ),
+    ) : null,
     (0, import_react31.createElement)(
       "div",
       { key: `body:${tab}`, className: "bt-drawer-body", "data-move": move },

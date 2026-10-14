@@ -348,7 +348,13 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
 .bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
 .bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
-.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster{margin-bottom:16px}
+.bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}
+.bt-pile{display:flex;align-items:center;justify-content:center;line-height:0}
+.bt-pile-face{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 3px var(--bt-main);animation:bt-pile-in .36s cubic-bezier(.34,1.56,.64,1) backwards}
+.bt-pile-face+.bt-pile-face{margin-left:-10px}
+.bt-pile-more{background:var(--bt-hover);color:var(--bt-ink-2);font-size:13px;line-height:1;font-weight:500;font-variant-numeric:tabular-nums}
+@keyframes bt-pile-in{from{opacity:0;transform:translateY(6px) scale(.85)}}
+@media (prefers-reduced-motion:reduce){.bt-pile-face{animation:none}}
 .bt-drawer-name{font-size:17px;line-height:24px;font-weight:500;border:0;background:none;color:inherit;cursor:text;padding:0 6px;border-radius:6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
@@ -654,16 +660,8 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
-.bt-members{display:flex;flex-direction:column;gap:1px}
-.bt-member{display:flex;align-items:center;gap:4px;min-height:40px;padding:0 4px 0 6px;border-radius:8px;animation:bt-rise .18s ease-out}
-.bt-member:hover{background:var(--bt-hover)}
-.bt-member-name{flex:1;min-width:0;display:flex;align-items:center;gap:10px;border:0;background:none;padding:6px 0;color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;cursor:pointer;text-align:left}
-.bt-member-name>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-chip-admin{background:var(--bt-tag-bg);color:var(--bt-tag-ink);border-color:transparent}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-member .bt-mini,.bt-member .bt-x{opacity:0;transition:opacity .15s ease}
-.bt-member:hover .bt-mini,.bt-member:hover .bt-x,.bt-member .bt-mini:focus-visible,.bt-member .bt-x:focus-visible{opacity:1}
 .bt-add{color:var(--bt-ink-2);margin-top:2px}
 .bt-add:hover,.bt-addlist .bt-option:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-addlist{display:flex;flex-direction:column;margin-top:4px;padding:4px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-card);animation:bt-rise .16s ease-out}
@@ -676,7 +674,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-seg>.bt-thumb{top:2px;bottom:2px;border-radius:8px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bt-seg[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.bt-member,.bt-addlist{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-addlist{animation:none}}
 
 /* Memory dialog: a summary of every entry, the entries behind the menu, "Ask or update" below. */
 .bt-mem-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 8px 0 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
@@ -820,6 +818,12 @@ header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inse
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 [class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
+/* The shell writes the column's width on the conversation root at every resize, only to
+   derive the content width that the rule above replaces. Inherited, each write restyled
+   the whole conversation: once a frame while the details panel glides, most in a long
+   group chat. Kept on the root alone, a write restyles one element. */
+@property --dsh-conversation-column-width{syntax:"*";inherits:false}
+@property --dsh-chat-user-width{syntax:"*";inherits:false}
 /* DSH's turn tail keeps what plugins put in it (delivered files, the Bot's separators),
    without its copy and branch row; a tail with nothing in it takes no room. */
 [data-turn-tail]>:not([data-slot="conversation.chat.turnTail"]){display:none!important}
@@ -1039,7 +1043,12 @@ export function installCompiledStyles(text, tag) {
   let timer
   const schedule = () => { clearTimeout(timer); timer = setTimeout(render, 120) }
   const onLoad = (event) => { if (event.target instanceof HTMLLinkElement) schedule() }
-  const observer = new MutationObserver(schedule)
+  // Our own sheets name no shell classes, so adding one (the panel's first open adds the
+  // chat column's rule) recompiles nothing.
+  const shell = node => node.dataset?.dshBot === undefined
+  const observer = new MutationObserver((records) => {
+    if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(shell))) schedule()
+  })
   observer.observe(document.head, { childList: true })
   document.addEventListener('load', onLoad, true)
   return () => {
