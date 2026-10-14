@@ -38,7 +38,7 @@ For the test bench, add the DeepSeek Harness checkout next to the plugin folder 
 ```sh
 cd ..
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout dsh-v0.2.1-alpha.1
+git -C deepseek-harness checkout dsh-v0.2.0-rc.2
 (cd deepseek-harness && pnpm install)
 ```
 
