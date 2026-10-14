@@ -85,7 +85,7 @@ export const referenceNote = references => (references?.length
   ? `Conversations the user referenced in this round:\n\n${references.map(reference => reference.text).join('\n\n')}`
   : '')
 
-const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, do it now with your tools. The group does not wait for you, and your final reply is posted here when you finish, so give the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
+const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, do it now with your tools. The group does not wait for you and sees each message you write while you work: say what you will do, share what matters as you go, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
 const ROOM_CALLS = 'Writing "@Name" calls that member next, to answer or to do what you ask; when it finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
 
 const slotLabel = (slot) => {
