@@ -9,7 +9,7 @@
 
 English | [中文](README.zh.md)
 
-![version](https://img.shields.io/badge/version-v0.1_preview-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.1--alpha.1-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.1_preview-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DeepSeek Bot (DS Bot) is a bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns DSH into bots. You create your own bots, then talk and work with them.
 
@@ -32,8 +32,8 @@ If npm is not reachable, in step 2 you can also enter the full path of `ds-bot-0
 Needs Node.js `22.19` or later, and pnpm.
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-alpha.1 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-alpha.1 web
+npx @deepseek-ai/dsh@0.2.0-rc.2 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.0-rc.2 web
 ```
 
 ## Setup
