@@ -73,6 +73,6 @@ The error code is `WEB_PROVIDER_CONFIGURED_MISSING`.
 
 3. Start DSH again.
 
-To check the result, run `npx @deepseek-ai/dsh@0.2.1-alpha.1 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
+To check the result, run `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
 
 See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei2411/DeepSeek-Bot/issues/128).

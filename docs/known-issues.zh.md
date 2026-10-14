@@ -73,6 +73,6 @@ Error: configured web provider "auto" is not registered
 
 3. 重新启动 DSH。
 
-想确认结果，可以运行 `npx @deepseek-ai/dsh@0.2.1-alpha.1 --profile web --dump-config`，看 `web` 那一行。另外，有的插件会在 DSH 运行时设置搜索 provider，时间在 profile patch 之后。以后关掉这类插件时，也要再检查一下这个设置。
+想确认结果，可以运行 `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config`，看 `web` 那一行。另外，有的插件会在 DSH 运行时设置搜索 provider，时间在 profile patch 之后。以后关掉这类插件时，也要再检查一下这个设置。
 
 另见插件 README 的 [Web search](../ds-bot/README.md#web-search) 一节和 issue [#128](https://github.com/Fei2411/DeepSeek-Bot/issues/128)。
