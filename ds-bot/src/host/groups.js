@@ -636,10 +636,10 @@ export function install(rt) {
     await postToRoom(room, member, text, { progress: true, hop: info?.hop ?? 0, ...(quiet ? { quiet: true } : {}) })
   }
 
-  // A member that writes at every step would fill the group, so what it says goes out at
-  // most once per gap, the lines since the last one together. The first line of work it
-  // was asked for and a line that calls a member go at once; lines still held when the
-  // turn ends give way to its result. Per group Session.
+  // Lines a member writes close together reach the group as one message, so a burst of
+  // steps does not come out as a string of messages. Its first line on work it was asked
+  // for and a line that calls a member go at once; lines still held when the turn ends
+  // open its result. Per group Session.
   const held = new Map()
   ctx.effect(() => () => { for (const entry of held.values()) clearTimeout(entry.timer) }, 'ds-bot: group step lines')
   const flushSteps = (sessionId) => {
@@ -662,14 +662,15 @@ export function install(rt) {
     if ((first && info?.role === 'room') || callsIn(room, member, text) || Date.now() - entry.last >= ROOM_STEP_GAP_MS) return flushSteps(sessionId)
     entry.timer ??= setTimeout(() => void flushSteps(sessionId)?.catch(error => rt.warn('ds-bot: step lines from %s not posted: %s', member.name, error)), entry.last + ROOM_STEP_GAP_MS - Date.now())
   }
-  rt.endRoomSteps = (sessionId) => {
+  rt.takeRoomSteps = (sessionId) => {
     const entry = held.get(sessionId)
-    if (entry === undefined) return
+    if (entry === undefined) return ''
     clearTimeout(entry.timer)
     entry.timer = undefined
-    entry.lines = []
     entry.last = Date.now()
+    return entry.lines.splice(0).join('\n\n')
   }
+  rt.withRoomSteps = (lines, reply) => (lines === '' ? reply : isPass(reply) ? lines : `${lines}\n\n${reply}`)
 
   // The user stops a member's work in this group from the group's details. Messages
   // still waiting for that member here go with it.

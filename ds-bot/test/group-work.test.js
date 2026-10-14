@@ -358,7 +358,7 @@ test('a member whose every message went out while it worked counts as posted, no
   assert.deepEqual([result().passed, result().replies.map(reply => reply.text)], [[], ['我看一下。']])
 })
 
-test('after the round went on, what a member says reaches the group at most once per gap; only the result is answered', async (t) => {
+test('after the round went on, lines a member writes close together reach the group as one message; only the result is answered', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)
   const first = host.round('c1', host.say('@Chief 安排一下文档'))
@@ -386,14 +386,14 @@ test('after the round went on, what a member says reaches the group at most once
   await settle(() => quiet() !== undefined)
   assert.deepEqual(quiet().replies, [])
 
-  // A line still held when the work ends gives way to the result.
+  // A line still held when the work ends opens the result.
   host.emit('gb', 'tool/result', { callId: 'k3' })
   step(host, 'gb', '索引也改完了。', 'k4')
   host.emit('gb', 'tool/result', { callId: 'k4' })
   host.finish('gb', '整理好了，在 docs/ 下。')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const done = host.takePost()
-  assert.deepEqual([done.source.late, done.source.askedBy, text(done)], [true, 'a', '[Group post from Writer]\n整理好了，在 docs/ 下。'])
+  assert.deepEqual([done.source.late, done.source.askedBy, text(done)], [true, 'a', '[Group post from Writer]\n索引也改完了。\n\n整理好了，在 docs/ 下。'])
   t.mock.timers.tick(ROOM_STEP_GAP_MS)
   await settle(() => true)
   assert.deepEqual(host.agentOf('r1').calls, [])
