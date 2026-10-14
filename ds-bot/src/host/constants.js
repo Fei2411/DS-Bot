@@ -30,6 +30,8 @@ export const MAX_UNREAD_REQUESTS = 10
 export const MAX_EXCHANGES = 600
 export const ROOM_REPLY_TIMEOUT_MS = 240_000
 export const SOURCE_KIND = 'bot'
+// The fixed reply that opens a fresh conversation part; it is never shown or sent on.
+export const HANDOFF_ACK = 'Noted. I have my handoff note and carry on from here.'
 // An answer from a question card, in the shape DSH's own late question replies use.
 export const REPLY_KIND = 'user-question-reply'
 // DSH's snapshot of a referenced conversation, logged right after the user's message

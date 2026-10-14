@@ -181,13 +181,22 @@ export function install(rt) {
   })
   const minutesSince = at => Math.max(1, Math.round((Date.now() - at) / 60000))
 
+  // A member's message in the round: in the log, for the members after it, and in the
+  // round's replies, for the user.
+  const postInRound = (room, round, member, text) => {
+    appendRoom(room, { who: member.name, botId: member.id, text })
+    round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now() })
+    void rt.save().catch(() => {})
+  }
+
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
   // model call failed, `{ missed }` when it went quiet for too long, `{ approval }` when
   // it waits for the user's approval, `{ working }` when it goes on working without the
   // round, or null when the round was stopped. The wait restarts on each event of the
   // member's Session, so a member at work is never cut off. `by` is the member that
-  // called it, which answers what the turn posts after the round moved on.
-  async function roomTurn(room, member, sessionId, text, note, signal, round, by) {
+  // called it, which answers what the turn posts after the round moved on. What the
+  // member writes before its last step is posted at once and collected in `said`.
+  async function roomTurn(room, member, sessionId, text, note, signal, round, by, said = []) {
     if (signal.aborted) return null
     const exchangeId = randomUUID()
     const turn = { botId: member.id, sessionId, exchangeId }
@@ -210,8 +219,14 @@ export function install(rt) {
         timer = setTimeout(() => finish({ missed: true }), ROOM_REPLY_TIMEOUT_MS)
       }
       const work = () => { grace ??= setTimeout(() => finish({ working: true }), ROOM_WORK_GRACE_MS) }
+      const say = (raw) => {
+        const step = stripOwnName(member.name, raw)
+        if (isPass(step)) return
+        said.push(step)
+        postInRound(room, round, member, step)
+      }
       touch()
-      rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, approval: () => finish({ approval: true }) })
+      rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, say, approval: () => finish({ approval: true }) })
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
@@ -342,42 +357,38 @@ export function install(rt) {
       const prompt = roomPrompt(room, member, round)
       round.shown?.push(member.id)
       const text = session.brief === undefined ? prompt : `${session.brief}\n\n${prompt}`
-      const reply = await roomTurn(room, member, session.id, text, slot.note ?? 'your turn', signal, round, slot.by)
+      const said = []
+      const reply = await roomTurn(room, member, session.id, text, slot.note ?? 'your turn', signal, round, slot.by, said)
       round.speaking = null
+      const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
       if (reply?.failure !== undefined) {
         // Not a pass: the user sees why the member is silent, and the round goes on.
         slot.status = 'failed'
         round.failed.push(member.name)
         const { code, status, message } = reply.failure
         round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
-        continue
-      }
-      // The member's turn goes on in the background and posts when it ends.
-      if (reply?.approval) {
+      } else if (reply?.approval) {
+        // The member's turn goes on in the background and posts when it ends.
         slot.status = 'waiting-approval'
         round.replies.push({ kind: 'approval', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-        continue
-      }
-      if (reply?.working) {
+      } else if (reply?.working) {
         slot.status = 'working'
         round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-        continue
-      }
-      if (reply === null || reply?.missed || isPass(reply)) {
+      } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
+        slot.status = 'posted'
+        if (final !== undefined) postInRound(room, round, member, final)
+      } else {
         slot.status = typeof reply === 'string' ? 'passed' : 'missed'
         round.passed.push(member.name)
         if (reply?.missed) round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-        continue
       }
-      slot.status = 'posted'
-      appendRoom(room, { who: member.name, botId: member.id, text: reply })
-      round.replies.push({ botId: member.id, name: member.name, color: member.color, text: reply, time: Date.now() })
-      void rt.save().catch(() => {})
+      const spoken = final === undefined ? said : [...said, final]
+      if (spoken.length === 0) continue
       // Only the admin's "@all" calls everyone, so a member cannot set off a storm.
       const leads = rt.isAdminOf(room, member.id)
       const everyone = room.members.map(rt.botOf).filter(Boolean)
       const others = everyone.filter(other => other.id !== member.id)
-      const { all, found: named } = mentionsIn(reply, everyone)
+      const { all, found: named } = mentionsIn(spoken.join('\n\n'), everyone)
       const found = named.filter(other => other.id !== member.id)
       const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
       callMembers(round, turns, index, callees, `${member.name} mentioned you`, leads ? ROOM_ADMIN_TURNS_EACH : ROOM_TURNS_EACH, member.id)
@@ -561,6 +572,7 @@ export function install(rt) {
     if (opener.quiet) return []
     const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
+    if (opener.progress) return found
     if (opener.late) return found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy)
     if (found.length > 0 && !all) return found
     if (!all && room.mode === 'admin' && admin) return [admin]
@@ -596,6 +608,29 @@ export function install(rt) {
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
   }
   rt.lateRoomReply = lateRoomReply
+
+  // A step's text from a member's turn in its group Session. While the member holds its
+  // place in a round, the text joins that round. Later, it joins whatever round runs in
+  // the group, or posts on its own. Only the members it calls with @ answer it, and not
+  // past the late round limit; the member that asked for the work answers the result.
+  rt.roomStepText = async (sessionId, info, raw) => {
+    const waiter = info?.role === 'room' ? rt.roomWaiters.get(info.exchangeId) : undefined
+    if (waiter !== undefined) return waiter.say(raw)
+    const owner = rt.groupOwners.get(sessionId)
+    const room = rt.roomOf(owner?.roomId ?? info?.roomId)
+    const member = rt.botOf(owner?.botId)
+    if (room === undefined || member === undefined || !room.members.includes(member.id)) return
+    const text = stripOwnName(member.name, raw)
+    if (isPass(text)) return
+    ensureRoomLog(room)
+    const calls = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.some(bot => bot.id !== member.id)
+    const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
+    if (!calls && running !== undefined) return postInRound(room, running, member, text)
+    const quiet = !calls || (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
+    if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
+    await rt.save()
+    await postToRoom(room, member, text, { progress: true, hop: info?.hop ?? 0, ...(quiet ? { quiet: true } : {}) })
+  }
 
   // The user stops a member's work in this group from the group's details. Messages
   // still waiting for that member here go with it.
