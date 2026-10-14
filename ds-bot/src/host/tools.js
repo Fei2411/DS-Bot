@@ -201,7 +201,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'update_bot',
-    description: 'Change a Bot\'s name, role, color, model, working folder, or instructions. Every Bot may change itself except its name; only a Main Bot may rename a Bot or change another Bot.',
+    description: 'Change a Bot\'s name, role, color, model, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
     parameters: {
       bot: { type: 'string', description: 'Current name of the Bot to change; leave out to change yourself' },
       name: { type: 'string', description: 'New name' },
@@ -220,8 +220,6 @@ export function install(rt) {
       const bot = args.bot ? rt.findBot(args.bot) : caller
       if (bot === undefined) return `No Bot named ${args.bot}.`
       if (bot.id !== caller.id && !rt.isMain(self)) return 'Only a Main Bot can change another Bot. Leave out bot to change yourself, or ask a Main Bot with message_bot.'
-      // A rename would let a Bot pass itself off as a Bot that does not exist.
-      if (args.name !== undefined && String(args.name).trim() !== bot.name && !rt.isMain(self)) return 'Only a Main Bot can rename a Bot. When the user wants another Bot, ask a Main Bot with message_bot.'
       try {
         const { name: newName, role, instructions, color, model } = args
         const moving = typeof args.work_dir === 'string'
