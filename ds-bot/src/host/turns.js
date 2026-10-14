@@ -171,15 +171,15 @@ export function install(rt) {
   // message to it is answered privately.
   const speaksInGroup = (id, info) => rt.groupOwners.has(id) && !(info !== undefined && expectsReply(info))
 
-  // The group sees each step's text while the member works. A text with a tool call is
-  // shown at once; one without may be the turn's last, so it waits for the next text or
-  // the turn's end, which shows the rest as the turn's reply.
+  // The group hears what the member says while it works. A text with a tool call goes
+  // on at once; one without may be the turn's last, so it waits for the next text or the
+  // turn's end, which shows the rest as the turn's reply.
   const showSteps = (id, entry, upTo) => {
     const info = entry.info
     if (!speaksInGroup(id, info) || (info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))) return
     for (; entry.shown < upTo; entry.shown += 1) {
       const text = stripWrittenCalls(entry.texts[entry.shown])
-      if (text !== '') void rt.roomStepText?.(id, info, text)?.catch(error => rt.warn('ds-bot: step text from %s not posted: %s', id, error))
+      if (text !== '') void rt.roomStepText?.(id, info, text, entry.shown === 0)?.catch(error => rt.warn('ds-bot: step text from %s not posted: %s', id, error))
     }
   }
 
@@ -216,11 +216,12 @@ export function install(rt) {
     return merged
   }
 
-  // What the newest running call does, in its own words: its description, else the
-  // file, search or site it works on.
+  // What the newest running call does, in its own words: what the Bot said in the step
+  // that made it, the call's description, or the file, search or site it works on.
   const doingOf = (entry) => {
     const call = [...(entry.calls?.values() ?? [])].at(-1)
     if (call === undefined) return {}
+    const said = entry.step?.replace(/\s+/g, ' ').trim().slice(0, 160)
     let args
     try { args = JSON.parse(call.args || '{}') } catch { args = {} }
     const first = keys => keys.map(key => args?.[key]).find(value => typeof value === 'string' && value.trim() !== '')?.replace(/\s+/g, ' ').trim()
@@ -230,7 +231,7 @@ export function install(rt) {
     let site
     try { site = url && new URL(url).host } catch { site = undefined }
     const target = path?.split(/[\\/]/).filter(Boolean).at(-1) ?? first(['query', 'pattern']) ?? site
-    return { tool: call.name, ...(note ? { note: note.slice(0, 120) } : {}), ...(target ? { target: target.slice(0, 80) } : {}) }
+    return { tool: call.name, ...(said ? { said } : {}), ...(note ? { note: note.slice(0, 120) } : {}), ...(target ? { target: target.slice(0, 80) } : {}) }
   }
 
   // Per Bot, the turn it is running and what it is doing; its own chat wins over a
@@ -332,6 +333,7 @@ export function install(rt) {
         entry.since = event.time ?? Date.now()
         entry.texts = []
         entry.shown = 0
+        entry.step = undefined
         entry.info = undefined
         // A turn turned away before its first step may end without a turn/end.
         entry.switched = false
@@ -432,6 +434,7 @@ export function install(rt) {
         }
         entry.lastText = text
         entry.lastCalled = called
+        entry.step = called && text !== HANDOFF_ACK ? stripWrittenCalls(text) || undefined : undefined
         break
       }
       case 'turn/end': {
@@ -447,6 +450,7 @@ export function install(rt) {
         entry.info = undefined
         entry.texts = []
         entry.shown = 0
+        entry.step = undefined
         entry.switched = false
         entry.joined = []
         entry.since = undefined
@@ -457,6 +461,7 @@ export function install(rt) {
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
         if (failure !== undefined) noteTurnFailure(id, failure)
+        if (rt.groupOwners.has(id)) rt.endRoomSteps?.(id)
         if (switched) break
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting

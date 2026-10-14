@@ -4335,9 +4335,9 @@ function toolActivity(name, arg, findBot, self) {
   }
 }
 function workPhrase(doing) {
-  const { tool, note, target, switching } = typeof doing === "string" ? { tool: doing } : doing ?? {};
+  const { tool, said, note, target, switching } = typeof doing === "string" ? { tool: doing } : doing ?? {};
   if (switching) return t("Moving to a fresh conversation");
-  const own = note?.replace(/[\s.。…]+$/u, "");
+  const own = (said || note)?.replace(/[\s.。…]+$/u, "");
   if (own) return own;
   if (!tool) return t("Thinking about it");
   const label = toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
@@ -4766,7 +4766,7 @@ var PinMark = () => (0, import_react8.createElement)("span", { className: "bt-pi
 var useApproval = (useWork, match) => useWork ? useWork((work) => (work.approvals ?? []).some(match)) : false;
 var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => JSON.stringify(pick2(work.rooms ?? {}))) : "[]";
 var workKeys = (text) => JSON.parse(text);
-var doingOf = ({ tool, note, target, switching }) => ({ tool, note, target, switching });
+var doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching });
 var workLine = (lead, doing, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ""}`);
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id;

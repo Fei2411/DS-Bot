@@ -29,6 +29,8 @@ export const MAX_UNATTENDED_MESSAGES = 40
 export const MAX_UNREAD_REQUESTS = 10
 export const MAX_EXCHANGES = 600
 export const ROOM_REPLY_TIMEOUT_MS = 240_000
+// How often at most what a member says while it works reaches its group.
+export const ROOM_STEP_GAP_MS = 120_000
 export const SOURCE_KIND = 'bot'
 // The fixed reply that opens a fresh conversation part; it is never shown or sent on.
 export const HANDOFF_ACK = 'Noted. I have my handoff note and carry on from here.'

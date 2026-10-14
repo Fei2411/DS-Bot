@@ -33,7 +33,7 @@ const useApproval = (useWork, match) => (useWork ? useWork(work => (work.approva
 // Picked as text, so a row redraws only when what it shows changes.
 const useGroupWork = (useWork, pick) => (useWork ? useWork(work => JSON.stringify(pick(work.rooms ?? {}))) : '[]')
 const workKeys = text => JSON.parse(text)
-const doingOf = ({ tool, note, target, switching }) => ({ tool, note, target, switching })
+const doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching })
 const workLine = (lead, doing, more) => h(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ''}`)
 
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {

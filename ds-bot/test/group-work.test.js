@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
-import { ROOM_LATE_ROUNDS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { ROOM_LATE_ROUNDS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
 const seed = (room = {}) => ({
@@ -358,7 +358,7 @@ test('a member whose every message went out while it worked counts as posted, no
   assert.deepEqual([result().passed, result().replies.map(reply => reply.text)], [[], ['我看一下。']])
 })
 
-test('after the round went on, each step posts to the group; only the result is answered', async (t) => {
+test('after the round went on, what a member says reaches the group at most once per gap; only the result is answered', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)
   const first = host.round('c1', host.say('@Chief 安排一下文档'))
@@ -373,19 +373,30 @@ test('after the round went on, each step posts to the group; only the result is 
   assert.deepEqual(kinds(first()), [['message', 'Chief'], ['message', 'Writer'], ['working', 'Writer']])
 
   host.emit('gb', 'tool/result', { callId: 'k1' })
-  step(host, 'gb', '目录理好了，在改索引。', 'k2')
+  step(host, 'gb', '目录理好了。', 'k2')
+  host.emit('gb', 'tool/result', { callId: 'k2' })
+  step(host, 'gb', '正文改完了，在改索引。', 'k3')
+  await settle(() => true)
+  assert.deepEqual(host.agentOf('r1').calls, [])
+  t.mock.timers.tick(ROOM_STEP_GAP_MS)
   await settle(() => host.agentOf('r1').calls.length === 1)
   const update = host.takePost()
-  assert.deepEqual([update.source.progress, update.source.quiet, update.source.askedBy, text(update)], [true, true, undefined, '[Group post from Writer]\n目录理好了，在改索引。'])
+  assert.deepEqual([update.source.progress, update.source.quiet, update.source.askedBy, text(update)], [true, true, undefined, '[Group post from Writer]\n目录理好了。\n\n正文改完了，在改索引。'])
   const quiet = host.round('c2', update)
   await settle(() => quiet() !== undefined)
   assert.deepEqual(quiet().replies, [])
 
-  host.emit('gb', 'tool/result', { callId: 'k2' })
+  // A line still held when the work ends gives way to the result.
+  host.emit('gb', 'tool/result', { callId: 'k3' })
+  step(host, 'gb', '索引也改完了。', 'k4')
+  host.emit('gb', 'tool/result', { callId: 'k4' })
   host.finish('gb', '整理好了，在 docs/ 下。')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const done = host.takePost()
   assert.deepEqual([done.source.late, done.source.askedBy, text(done)], [true, 'a', '[Group post from Writer]\n整理好了，在 docs/ 下。'])
+  t.mock.timers.tick(ROOM_STEP_GAP_MS)
+  await settle(() => true)
+  assert.deepEqual(host.agentOf('r1').calls, [])
 })
 
 test('a step that calls a member with @ after the round went on starts a round for that member', async (t) => {
@@ -465,4 +476,9 @@ test('the team view says what a member is doing in the call\'s own words', async
   const { value } = await host.call('state', {})
   assert.deepEqual(value.work.rooms.r1.map(entry => [entry.botId, entry.tool, entry.note, entry.target]), [['b', 'pwsh', 'Download Ghidra 12.1.4 and check its hash', undefined], ['c', 'read', undefined, 'dump.py']])
   assert.equal(value.work.bots.b.note, 'Download Ghidra 12.1.4 and check its hash')
+  // What the Bot said in the step that made the call comes with it.
+  host.emit('ga', 'turn/start', { turn: 1 })
+  step(host, 'ga', '先把 JDK\n下下来。', 'k3', 'pwsh', JSON.stringify({ description: 'Download JDK 21' }))
+  const later = (await host.call('state', {})).value
+  assert.deepEqual(['said', 'note'].map(key => later.work.bots.a[key]), ['先把 JDK 下下来。', 'Download JDK 21'])
 })

@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { ROOM_LATE_ROUNDS, ROOM_REPLY_TIMEOUT_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS } from './constants.js'
+import { ROOM_LATE_ROUNDS, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS } from './constants.js'
 import { escapeRegExp, splitRef, textOf } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
@@ -85,7 +85,7 @@ export const referenceNote = references => (references?.length
   ? `Conversations the user referenced in this round:\n\n${references.map(reference => reference.text).join('\n\n')}`
   : '')
 
-const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, do it now with your tools. The group does not wait for you and sees each message you write while you work: say what you will do, share what matters as you go, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
+const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, do it now with your tools. The group does not wait for you and sees what you write while you work: say what you will do, write again only when something matters, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
 const ROOM_CALLS = 'Writing "@Name" calls that member next, to answer or to do what you ask; when it finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
 
 const slotLabel = (slot) => {
@@ -609,27 +609,66 @@ export function install(rt) {
   }
   rt.lateRoomReply = lateRoomReply
 
-  // A step's text from a member's turn in its group Session. While the member holds its
-  // place in a round, the text joins that round. Later, it joins whatever round runs in
-  // the group, or posts on its own. Only the members it calls with @ answer it, and not
-  // past the late round limit; the member that asked for the work answers the result.
-  rt.roomStepText = async (sessionId, info, raw) => {
-    const waiter = info?.role === 'room' ? rt.roomWaiters.get(info.exchangeId) : undefined
-    if (waiter !== undefined) return waiter.say(raw)
+  const memberIn = (sessionId, info) => {
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info?.roomId)
     const member = rt.botOf(owner?.botId)
-    if (room === undefined || member === undefined || !room.members.includes(member.id)) return
-    const text = stripOwnName(member.name, raw)
-    if (isPass(text)) return
+    return room !== undefined && member !== undefined && room.members.includes(member.id) ? { room, member } : undefined
+  }
+  const callsIn = (room, member, text) => mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.some(bot => bot.id !== member.id)
+
+  // What a member says while it works, into the group. While the member holds its place
+  // in a round, it joins that round. Later, it joins whatever round runs in the group, or
+  // posts on its own. Only the members it calls with @ answer it, and not past the late
+  // round limit; the member that asked for the work answers the result.
+  async function postStep(sessionId, info, text) {
+    const waiter = info?.role === 'room' ? rt.roomWaiters.get(info.exchangeId) : undefined
+    if (waiter !== undefined) return waiter.say(text)
+    const { room, member } = memberIn(sessionId, info) ?? {}
+    if (room === undefined) return
     ensureRoomLog(room)
-    const calls = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.some(bot => bot.id !== member.id)
+    const calls = callsIn(room, member, text)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     if (!calls && running !== undefined) return postInRound(room, running, member, text)
     const quiet = !calls || (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
     if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
     await postToRoom(room, member, text, { progress: true, hop: info?.hop ?? 0, ...(quiet ? { quiet: true } : {}) })
+  }
+
+  // A member that writes at every step would fill the group, so what it says goes out at
+  // most once per gap, the lines since the last one together. The first line of work it
+  // was asked for and a line that calls a member go at once; lines still held when the
+  // turn ends give way to its result. Per group Session.
+  const held = new Map()
+  ctx.effect(() => () => { for (const entry of held.values()) clearTimeout(entry.timer) }, 'ds-bot: group step lines')
+  const flushSteps = (sessionId) => {
+    const entry = held.get(sessionId)
+    clearTimeout(entry.timer)
+    entry.timer = undefined
+    if (entry.lines.length === 0) return undefined
+    entry.last = Date.now()
+    return postStep(sessionId, entry.info, entry.lines.splice(0).join('\n\n'))
+  }
+  rt.roomStepText = async (sessionId, info, raw, first) => {
+    const { room, member } = memberIn(sessionId, info) ?? {}
+    if (room === undefined) return
+    const text = stripOwnName(member.name, raw)
+    if (isPass(text)) return
+    const entry = held.get(sessionId) ?? { last: 0, lines: [] }
+    held.set(sessionId, entry)
+    entry.info = info
+    entry.lines.push(text)
+    if ((first && info?.role === 'room') || callsIn(room, member, text) || Date.now() - entry.last >= ROOM_STEP_GAP_MS) return flushSteps(sessionId)
+    entry.timer ??= setTimeout(() => void flushSteps(sessionId)?.catch(error => rt.warn('ds-bot: step lines from %s not posted: %s', member.name, error)), entry.last + ROOM_STEP_GAP_MS - Date.now())
+  }
+  rt.endRoomSteps = (sessionId) => {
+    const entry = held.get(sessionId)
+    if (entry === undefined) return
+    clearTimeout(entry.timer)
+    entry.timer = undefined
+    entry.lines = []
+    entry.last = Date.now()
   }
 
   // The user stops a member's work in this group from the group's details. Messages
