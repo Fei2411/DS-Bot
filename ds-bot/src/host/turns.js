@@ -81,6 +81,10 @@ export function install(rt) {
   const queueRoomMessage = (roomId, item) => roomInbox.set(roomId, [...(roomInbox.get(roomId) ?? []), item])
   // Member turns of a group round the user stopped: what they end with stays out of the group.
   const stoppedRoomTurns = new Set()
+  // Bot messages sent since someone outside the team last spoke. Process-local: a
+  // restart is itself a pause, so the count starts afresh.
+  const unattended = { sent: 0 }
+  const userSpoke = () => { unattended.sent = 0 }
 
   // A stopped round stops the member work it started: the turn that answers it, or the
   // delivery still waiting for the member's Session. An earlier turn there keeps going.
@@ -300,6 +304,7 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
+        if (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule') userSpoke()
         // A message that shares a step with a bare handoff package is what the turn
         // answers, so the turn is not a hidden acknowledgement.
         const bare = info => info?.handoff === true && info.resume !== true
@@ -432,7 +437,7 @@ export function install(rt) {
               ...(back ? { sessionId: back } : {}),
               text: `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`,
               role: 'reply',
-              hop: (source.hop ?? 0) + 1,
+              hop: source.hop ?? 0,
               replyTo: source.exchangeId,
             }).catch(error => rt.warn('ds-bot: failure notice delivery failed: %s', error))
           } else if (reply !== '' || reason?.kind === 'aborted') {
@@ -444,7 +449,7 @@ export function install(rt) {
               ...(back ? { sessionId: back } : {}),
               text: reply !== '' ? reply : `${name} was stopped before it could answer your message.`,
               role: 'reply',
-              hop: (source.hop ?? 0) + 1,
+              hop: source.hop ?? 0,
               replyTo: source.exchangeId,
             }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
           }
@@ -496,5 +501,5 @@ export function install(rt) {
     }
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, stopRoomTurn })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, stopRoomTurn, unattended, userSpoke })
 }

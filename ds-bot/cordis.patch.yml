@@ -10,7 +10,9 @@
 
 # A config override replaces the whole entry config, so fetchProvider is
 # restated. A profile patch that names another searchProvider (exa, perplexity,
-# deepseek-official) wins over this one.
+# deepseek-official) wins over this one. Turning off web-search-auto alone
+# leaves this row on "auto", and every web_search then fails; the profile must
+# name another searchProvider too (see README "Web search").
 - id: web
   config:
     searchProvider: auto

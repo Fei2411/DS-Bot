@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { encodeUrlComponent } from './secrets.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -246,22 +247,23 @@ export function install(rt) {
     }
     return pluginPromise
   }
+  function secretFor(name, botId) {
+    const value = rt.canUseSecret(name, botId) ? rt.secretValue(name) : undefined
+    if (value === undefined) throw new Error(`Secret ${name} is missing or unavailable for this Bot.`)
+    return value
+  }
   function resolveValues(values, botId) {
     const resolved = {}
     for (const [key, raw] of Object.entries(values ?? {})) {
-      resolved[key] = String(raw).replace(SECRET_REFERENCE, (_match, name) => {
-        if (!rt.canUseSecret(name, botId)) throw new Error(`Secret ${name} is missing or unavailable for this Bot.`)
-        const value = rt.secretValue(name)
-        if (value === undefined) throw new Error(`Secret ${name} is missing or unavailable for this Bot.`)
-        return value
-      })
+      resolved[key] = String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId))
     }
     return resolved
   }
+  const resolveUrl = (url, botId) => String(url).replace(SECRET_REFERENCE, (_match, name) => encodeUrlComponent(secretFor(name, botId)))
   const configFor = (item, botId) => {
     if (item.kind === 'skill') return { name: item.name, description: item.description, content: item.content }
     if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: item.args ?? [], env: resolveValues(item.env, botId), failOnStartupError: true }
-    return { transport: 'streamable-http', serverName: item.name, url: item.url, headers: resolveValues(item.headers, botId), failOnStartupError: true }
+    return { transport: 'streamable-http', serverName: item.name, url: resolveUrl(item.url, botId), headers: resolveValues(item.headers, botId), failOnStartupError: true }
   }
   const disposeMount = async mount => {
     if (mount?.fiber) await Promise.resolve().then(() => mount.fiber.dispose()).catch(() => {})

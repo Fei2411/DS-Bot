@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { canUse, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
+import { canUse, encodeUrlComponent, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Test values are random on every run, so a leak can only come from this run.
@@ -42,6 +42,15 @@ test('redaction replaces the longest value first, JSON-escaped forms too, and sk
   assert.equal(value.list[1].text, `see ${long}`)
   const clean = { list: ['x'] }
   assert.equal(redactDeep(clean, redact), clean)
+})
+
+test('redaction replaces URL-encoded values', () => {
+  const value = `${fresh()} /+&?=#'!()* 中文`
+  const redact = redactor([{ name: 'TOKEN', value }])
+  assert.equal(redact(`https://example.test/mcp?key=${encodeUrlComponent(value)}&mode=1`), 'https://example.test/mcp?key=[secret:TOKEN]&mode=1')
+  assert.equal(redact(new URL(`https://example.test/mcp?key=${encodeUrlComponent(value)}`).href), 'https://example.test/mcp?key=[secret:TOKEN]')
+  const broken = `${fresh()}\uD800`
+  assert.equal(redactor([{ name: 'BROKEN', value: broken }])(`x ${broken}`), 'x [secret:BROKEN]')
 })
 
 test('a short key (4 to 7 characters) is replaced only where it stands alone', () => {
