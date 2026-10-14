@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
-import { botState, toolState, BotMark, BotAvatar } from './mark.js'
+import { botState, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm } from './bot-settings.js'
@@ -12,7 +12,7 @@ import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { Segmented, useGlide, useMorph } from './motion.js'
-import { MemberApprovals, MemberState, StopMemberWork, useMemberWork } from './member-status.js'
+import { MemberApprovals, MemberState, StopMemberWork, useMemberWork, workState } from './member-status.js'
 import { t } from './i18n.js'
 
 function transcriptOf(list, id, name, hiddenTurns = []) {
@@ -123,7 +123,7 @@ function MemberPile({ room, roster }) {
     more > 0 ? h('span', { key: 'more', className: 'bt-pile-face bt-pile-more', style: { animationDelay: `${shown.length * 40}ms` } }, `+${more}`) : null)
 }
 
-const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? toolState(entry.doing.tool ?? '') : 'idle')
+const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
 
 // One member: its mark, name and what it is doing on one surface that opens its chat;
 // Stop beside it while it works here, and the approvals it waits on below.

@@ -171,13 +171,25 @@ function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
 }
 
 // One Bot message inside a group chat: avatar, name (with its group role), bubble.
-function GroupMessage({ bot, text, room, roster, actions, msgKey, useUi }) {
+function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi }) {
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   return h('div', { className: 'bt-group-msg' },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
-    h(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead }))
+    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead }))
+}
+
+// A member's messages in a row, as one block under its name: what it says while it
+// works comes one message at a time.
+export function stackReplies(replies) {
+  const items = []
+  replies.forEach((reply, index) => {
+    const last = items.at(-1)
+    if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId) last.texts.push(reply.text)
+    else items.push({ reply, index, texts: reply.kind === undefined ? [reply.text] : [] })
+  })
+  return items
 }
 
 // A centered event line that names a group chat and opens it.
@@ -524,10 +536,17 @@ function toolActivity(name, arg, findBot, self) {
   }
 }
 
-// What a Bot busy elsewhere is doing, from its current tool alone.
-export function workPhrase(tool) {
+// What a Bot busy elsewhere is doing: what it said in the step it is on, its running
+// call's own description, else the kind of tool and what it works on. `doing` is a work
+// entry, or just a tool name.
+export function workPhrase(doing) {
+  const { tool, said, note, target, switching } = typeof doing === 'string' ? { tool: doing } : doing ?? {}
+  if (switching) return t('Moving to a fresh conversation')
+  const own = (said || note)?.replace(/[\s.。…]+$/u, '')
+  if (own) return own
   if (!tool) return t('Thinking about it')
-  return toolActivity(tool, () => undefined, () => undefined)?.label ?? t('On it')
+  const label = toolActivity(tool, () => undefined, () => undefined)?.label ?? t('On it')
+  return target ? `${label} · ${target}` : label
 }
 
 // Transcript rows report what is in flight to the one activity row at the tail.
@@ -565,10 +584,11 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   // Members speak one at a time, so only the current speaker is typing.
   const pending = done || !live.speaking ? [] : [live.speaking]
   const speakerTool = useWork?.(work => work.bots?.[live.speaking]?.tool) ?? undefined
+  const speakerDoing = useWork?.(work => (work.bots?.[live.speaking]?.tool ? workPhrase(work.bots[live.speaking]) : undefined)) ?? undefined
   if (replies.length === 0 && pending.length === 0) return null
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
-    replies.map((reply, index) => {
+    stackReplies(replies).map(({ reply, index, texts }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
         return h('div', { key: `user-${index}`, className: 'bt-urow' }, h('div', { className: 'bt-ububble' },
@@ -599,14 +619,14 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (reply.kind === 'stopped') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi })
     }),
     pending.map((id) => {
       const bot = roster.byId[id]
       if (!bot) return null
       return h('div', { key: `pending-${id}`, className: 'bt-activity' },
         h(BotMark, { bot: bot, size: 22, state: speakerTool ? toolState(speakerTool) : 'thinking' }),
-        h(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t('{name} is typing…', { name: bot.name })))
+        h(Shimmer, null, speakerDoing ? `${bot.name} · ${speakerDoing}…` : t('{name} is typing…', { name: bot.name })))
     }))
 }
 

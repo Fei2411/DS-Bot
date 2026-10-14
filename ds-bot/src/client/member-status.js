@@ -36,12 +36,14 @@ export function busyMembers(room, work, roster) {
 // The capsule leaves out the round's current speaker, which its round shows.
 const dockMembers = busy => busy.filter(entry => !(entry.state === 'work' && entry.here && entry.doing.speaking === true))
 
+export const workState = doing => (doing?.switching ? 'thinking' : toolState(doing?.tool ?? ''))
+
 // The groups a Bot is at work in.
 export function botGroupWork(botId, work, roster) {
   return Object.entries(work.rooms ?? {}).flatMap(([roomId, entries]) => {
     const entry = entries.find(item => item.botId === botId)
     const room = roster.roomsById[roomId]
-    return entry && room ? [{ room, tool: entry.tool, since: entry.since }] : []
+    return entry && room ? [{ room, doing: entry, since: entry.since }] : []
   })
 }
 
@@ -54,7 +56,7 @@ export function summaryText(busy) {
       : asks.length === 2 ? t('{first} and {second} are waiting for your approval', { first: names[0], second: names[1] })
         : t('{first}, {second} and {count} more are waiting for your approval', { first: names[0], second: names[1], count: asks.length - 2, total: asks.length })
   const first = workers[0]
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing.tool)}…${workers.length > 1 ? ` +${workers.length - 1}` : ''}` : ''
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${workers.length > 1 ? ` +${workers.length - 1}` : ''}` : ''
   return { waiting, doing }
 }
 
@@ -67,7 +69,7 @@ function dockModel(sessionId, roster, work) {
     const { waiting, doing } = summaryText(busy)
     return {
       open: { details: room.id },
-      faces: busy.slice(0, FACES_MAX).map(entry => ({ id: entry.id, ask: entry.state === 'ask', tool: entry.doing?.tool ?? '' })),
+      faces: busy.slice(0, FACES_MAX).map(entry => ({ id: entry.id, ask: entry.state === 'ask', state: workState(entry.doing) })),
       waiting, doing,
     }
   }
@@ -79,15 +81,15 @@ function dockModel(sessionId, roster, work) {
   const [first] = groups
   return {
     open: { session: first.room.id },
-    faces: [{ id: bot.id, ask: false, tool: first.tool ?? '' }],
+    faces: [{ id: bot.id, ask: false, state: workState(first.doing) }],
     waiting: '',
-    doing: `${t('in {name}', { name: first.room.name })} · ${workPhrase(first.tool)}…${groups.length > 1 ? ` +${groups.length - 1}` : ''}`,
+    doing: `${t('in {name}', { name: first.room.name })} · ${workPhrase(first.doing)}…${groups.length > 1 ? ` +${groups.length - 1}` : ''}`,
   }
 }
 
-function Face({ bot, ask, tool }) {
+function Face({ bot, ask, state }) {
   return h('span', { className: 'bt-mw-face', 'data-ask': ask || undefined },
-    h(BotMark, { bot, size: 20, state: ask ? 'alert' : toolState(tool) }))
+    h(BotMark, { bot, size: 20, state: ask ? 'alert' : state }))
 }
 
 // The capsule springs to the width of what it says; it is measured, so the spring runs
@@ -163,7 +165,7 @@ export function MemberState({ entry, bot, room, roster, now }) {
     : entry.doing.roomId ? t('in {name}', { name: roster.roomsById[entry.doing.roomId]?.name ?? t('a group chat') })
       : t('in its own chat')
   return h('span', { className: 'bt-member-state' },
-    h(Shimmer, null, `${workPhrase(entry.doing.tool)}…`), where ? ` ${where}` : '', since(now, entry.doing.since))
+    h(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : '', since(now, entry.doing.since))
 }
 
 // Work in this group can be stopped from its details, since the user cannot reach the

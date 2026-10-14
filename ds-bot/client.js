@@ -472,6 +472,7 @@ var ZH = {
   "Moving ahead": "推进中",
   "Taking care of it": "处理中",
   "Making headway": "有进展了",
+  "Moving to a fresh conversation": "整理记忆，换到新对话",
   "Searching online": "上网搜索",
   "Reading a page": "阅读网页",
   "Running shell commands": "运行命令",
@@ -3988,7 +3989,7 @@ function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
   });
   return (0, import_react6.createElement)("div", { className: "bt-event" }, parts);
 }
-function GroupMessage({ bot, text, room: room2, roster, actions, msgKey, useUi }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi }) {
   const lead = (0, import_react6.createElement)(
     "button",
     { type: "button", className: "bt-lead", "aria-label": t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
@@ -4003,8 +4004,17 @@ function GroupMessage({ bot, text, room: room2, roster, actions, msgKey, useUi }
       bot.name,
       room2?.admin === bot.id ? (0, import_react6.createElement)("span", { className: "bt-group-role" }, t("Admin")) : null
     ),
-    (0, import_react6.createElement)(Bubbles, { texts: [text], roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead })
+    (0, import_react6.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead })
   );
+}
+function stackReplies(replies) {
+  const items = [];
+  replies.forEach((reply, index) => {
+    const last = items.at(-1);
+    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) last.texts.push(reply.text);
+    else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [] });
+  });
+  return items;
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
   return (0, import_react6.createElement)(
@@ -4335,9 +4345,14 @@ function toolActivity(name, arg, findBot, self) {
       return { label: phrase ? t(phrase) : null, state: toolState(name) };
   }
 }
-function workPhrase(tool) {
+function workPhrase(doing) {
+  const { tool, said, note, target, switching } = typeof doing === "string" ? { tool: doing } : doing ?? {};
+  if (switching) return t("Moving to a fresh conversation");
+  const own = (said || note)?.replace(/[\s.。…]+$/u, "");
+  if (own) return own;
   if (!tool) return t("Thinking about it");
-  return toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
+  const label = toolActivity(tool, () => void 0, () => void 0)?.label ?? t("On it");
+  return target ? `${label} · ${target}` : label;
 }
 function useLiveNote(actions, sessionId, id, entry) {
   const key = entry ? JSON.stringify(entry) : "";
@@ -4381,12 +4396,13 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   const pending = done || !live.speaking ? [] : [live.speaking];
   const speakerTool = useWork?.((work) => work.bots?.[live.speaking]?.tool) ?? void 0;
+  const speakerDoing = useWork?.((work) => work.bots?.[live.speaking]?.tool ? workPhrase(work.bots[live.speaking]) : void 0) ?? void 0;
   if (replies.length === 0 && pending.length === 0) return null;
   const room2 = roster.roomsById[sessionId];
   return (0, import_react6.createElement)(
     "div",
     { className: "bt-group-replies" },
-    replies.map((reply, index) => {
+    stackReplies(replies).map(({ reply, index, texts: texts2 }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
         return (0, import_react6.createElement)("div", { key: `user-${index}`, className: "bt-urow" }, (0, import_react6.createElement)(
@@ -4433,7 +4449,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (reply.kind === "stopped") {
         return (0, import_react6.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
       }
-      return (0, import_react6.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, text: reply.text, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi });
+      return (0, import_react6.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi });
     }),
     pending.map((id) => {
       const bot = roster.byId[id];
@@ -4442,7 +4458,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         "div",
         { key: `pending-${id}`, className: "bt-activity" },
         (0, import_react6.createElement)(BotMark, { bot, size: 22, state: speakerTool ? toolState(speakerTool) : "thinking" }),
-        (0, import_react6.createElement)(Shimmer, null, speakerTool ? `${bot.name} · ${workPhrase(speakerTool)}…` : t("{name} is typing…", { name: bot.name }))
+        (0, import_react6.createElement)(Shimmer, null, speakerDoing ? `${bot.name} · ${speakerDoing}…` : t("{name} is typing…", { name: bot.name }))
       );
     })
   );
@@ -4759,12 +4775,10 @@ function useMarkedUnread(id, active, marked, actions) {
 }
 var PinMark = () => (0, import_react8.createElement)("span", { className: "bt-pin", "aria-hidden": true }, (0, import_react8.createElement)(PinMarkIcon));
 var useApproval = (useWork, match) => useWork ? useWork((work) => (work.approvals ?? []).some(match)) : false;
-var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => pick2(work.rooms ?? {}).join(",")) : "";
-var workKeys = (text) => text === "" ? [] : text.split(",").map((key) => {
-  const [id, tool] = key.split("|");
-  return { id, tool: tool || void 0 };
-});
-var workLine = (lead, tool, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(tool)}…${more > 0 ? ` +${more}` : ""}`);
+var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => JSON.stringify(pick2(work.rooms ?? {}))) : "[]";
+var workKeys = (text) => JSON.parse(text);
+var doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching });
+var workLine = (lead, doing, more) => (0, import_react8.createElement)(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ""}`);
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id;
   const part = currentPart(bot);
@@ -4778,10 +4792,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const approval = useApproval(useWork, (entry) => entry.botId === id);
   const alert = roster.questions?.[part] !== void 0 || approval;
   const doing = useActivity((map) => map[id]);
-  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => `${roomId}|${entry.tool ?? ""}`))));
+  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
-  const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0].tool, groups.length - 1) : null;
+  const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   if (bot.hidden && !active && !main) return null;
   const onContextMenu = (event) => {
     event.preventDefault();
@@ -4838,9 +4852,9 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
   const unread = useSessionStatus((map) => map.get(id)?.completionUnread === true) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const approval = useApproval(useWork, (entry) => entry.roomId === id);
-  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => `${entry.botId}|${entry.tool ?? ""}`)));
+  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
   const first = roster.byId[members[0]?.id];
-  const workingLine = first ? workLine(first.name, members[0].tool, members.length - 1) : null;
+  const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
   if (room2.hidden && !active) return null;
   const pinned = room2.pinned === true;
   const label = [room2.name, pinned ? t("Pinned") : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
@@ -11074,11 +11088,12 @@ function busyMembers(room2, work, roster) {
   return [...busy.filter((entry) => entry.state === "ask"), ...busy.filter((entry) => entry.state === "work")].map((entry) => ({ ...entry, bot: roster.byId[entry.id] }));
 }
 var dockMembers = (busy) => busy.filter((entry) => !(entry.state === "work" && entry.here && entry.doing.speaking === true));
+var workState = (doing) => doing?.switching ? "thinking" : toolState(doing?.tool ?? "");
 function botGroupWork(botId, work, roster) {
   return Object.entries(work.rooms ?? {}).flatMap(([roomId, entries2]) => {
     const entry = entries2.find((item) => item.botId === botId);
     const room2 = roster.roomsById[roomId];
-    return entry && room2 ? [{ room: room2, tool: entry.tool, since: entry.since }] : [];
+    return entry && room2 ? [{ room: room2, doing: entry, since: entry.since }] : [];
   });
 }
 function summaryText(busy) {
@@ -11087,7 +11102,7 @@ function summaryText(busy) {
   const names = asks.slice(0, 2).map((entry) => entry.bot.name);
   const waiting = asks.length === 0 ? "" : asks.length === 1 ? t("{name} is waiting for your approval", { name: names[0] }) : asks.length === 2 ? t("{first} and {second} are waiting for your approval", { first: names[0], second: names[1] }) : t("{first}, {second} and {count} more are waiting for your approval", { first: names[0], second: names[1], count: asks.length - 2, total: asks.length });
   const first = workers[0];
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing.tool)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${workers.length > 1 ? ` +${workers.length - 1}` : ""}` : "";
   return { waiting, doing };
 }
 function dockModel(sessionId, roster, work) {
@@ -11098,7 +11113,7 @@ function dockModel(sessionId, roster, work) {
     const { waiting, doing } = summaryText(busy);
     return {
       open: { details: room2.id },
-      faces: busy.slice(0, FACES_MAX).map((entry) => ({ id: entry.id, ask: entry.state === "ask", tool: entry.doing?.tool ?? "" })),
+      faces: busy.slice(0, FACES_MAX).map((entry) => ({ id: entry.id, ask: entry.state === "ask", state: workState(entry.doing) })),
       waiting,
       doing
     };
@@ -11110,16 +11125,16 @@ function dockModel(sessionId, roster, work) {
   const [first] = groups;
   return {
     open: { session: first.room.id },
-    faces: [{ id: bot.id, ask: false, tool: first.tool ?? "" }],
+    faces: [{ id: bot.id, ask: false, state: workState(first.doing) }],
     waiting: "",
-    doing: `${t("in {name}", { name: first.room.name })} · ${workPhrase(first.tool)}…${groups.length > 1 ? ` +${groups.length - 1}` : ""}`
+    doing: `${t("in {name}", { name: first.room.name })} · ${workPhrase(first.doing)}…${groups.length > 1 ? ` +${groups.length - 1}` : ""}`
   };
 }
-function Face({ bot, ask, tool }) {
+function Face({ bot, ask, state }) {
   return (0, import_react30.createElement)(
     "span",
     { className: "bt-mw-face", "data-ask": ask || void 0 },
-    (0, import_react30.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : toolState(tool) })
+    (0, import_react30.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state })
   );
 }
 function useFitWidth(inner, key) {
@@ -11204,7 +11219,7 @@ function MemberState({ entry, bot, room: room2, roster, now }) {
   return (0, import_react30.createElement)(
     "span",
     { className: "bt-member-state" },
-    (0, import_react30.createElement)(Shimmer, null, `${workPhrase(entry.doing.tool)}…`),
+    (0, import_react30.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`),
     where ? ` ${where}` : "",
     since(now, entry.doing.since)
   );
@@ -11419,7 +11434,7 @@ function MemberPile({ room: room2, roster }) {
     more > 0 ? (0, import_react31.createElement)("span", { key: "more", className: "bt-pile-face bt-pile-more", style: { animationDelay: `${shown.length * 40}ms` } }, `+${more}`) : null
   );
 }
-var markOf = (entry) => entry?.state === "ask" ? "alert" : entry?.state === "work" ? toolState(entry.doing.tool ?? "") : "idle";
+var markOf = (entry) => entry?.state === "ask" ? "alert" : entry?.state === "work" ? workState(entry.doing) : "idle";
 function MemberRow({ member, entry, room: room2, roster, actions, now }) {
   return (0, import_react31.createElement)(
     "div",

@@ -84,3 +84,11 @@ test('a Bot\'s own chat shows the groups it is at work in, unless its own chat r
   assert.equal(dock('a', { ...away, bots: { a: { since: 1 } } }), null)
   assert.equal(dock('b', away), null)
 })
+
+test('the capsule says what a member does in its call\'s own words, and that it moves to a fresh conversation', () => {
+  const label = doing => dock('r1', { bots: {}, rooms: { r1: [{ botId: 'a', since: 1, ...doing }] }, approvals: [] }).label
+  assert.equal(label({ tool: 'pwsh', note: 'Download Ghidra 12.1.4 and check its hash.' }), 'Anvil · Download Ghidra 12.1.4 and check its hash…')
+  assert.equal(label({ tool: 'read', target: 'dump.py' }), 'Anvil · Opening a file · dump.py…')
+  assert.equal(label({ switching: true }), 'Anvil · Moving to a fresh conversation…')
+  assert.equal(label({ tool: 'pwsh', said: '解压 Ghidra，顺便写脚本。', note: 'Expand-Archive' }), 'Anvil · 解压 Ghidra，顺便写脚本…')
+})
