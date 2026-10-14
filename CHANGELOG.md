@@ -4,7 +4,14 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Changed
+
+- A Bot at work in a group chat no longer goes quiet until it is done. Each message it writes while it works appears in the group at once, and Bots are told to say what they will do, share what they find at the steps that matter, and end with the result. An @ in such a message calls that member; only the result is answered by the Bot that asked for the work. Messages from one Bot in a row stack under its name.
+- The work status in the group, the sidebar and a Bot's own chat says what the Bot is doing in the words of that step, such as the description of the command it runs or the file it opens, instead of only "On it". While a Bot moves to a fresh conversation, the status says so.
+
 ### Fixed
+
+- In a group chat, a Bot's turn that a finished background job started, or that went on in a fresh conversation, never reached the group: what the Bot did and found there was lost. It now posts to the group like any other turn there.
 
 - Bots could keep messaging each other for a long time without you, for example by forwarding a request from Bot to Bot or through group posts. Every forwarded message and group post now counts toward the limit on how long a chain of Bot messages can get, and after 40 Bot messages since you last wrote, answered a question card or a scheduled task ran, `message_bot` and `post_to_group` fail and tell the Bot to report to you. Bots are also told not to send thanks or acknowledgements, and not to answer a reply. ([#129](https://github.com/Fei2411/DeepSeek-Bot/issues/129))
 - An HTTP MCP capability with `$DSH_SECRET_<NAME>` in its URL sent the reference itself to the server and showed ready until the first tool call failed. The URL now gets the secret's value, URL-encoded, and a capability whose Bot may not use the secret shows an error. ([#125](https://github.com/Fei2411/DeepSeek-Bot/issues/125))

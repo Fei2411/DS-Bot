@@ -60,7 +60,7 @@ In short: have a question? Ask the main bot.
 
 DS Bot has group chats. A group chat is a great way to get several bots to work together, but it clearly costs more. So DS Bot does this: every group chat has an admin. The admin answers your messages by default and calls in the other bots for you. You can also @ a bot directly, and it answers you directly: type @ and pick the bot from the list. To give the bots another chat as context, use + → Reference a chat in the message box.
 
-Any bot can hand work to another bot with @. That bot does the work on its own, and the group goes on. While it works, the group, the sidebar and the bot's own chat show what it is doing. When it is done, it posts the result in the group, and the bot that asked for the work answers. To stop the work, open the group's details.
+Any bot can hand work to another bot with @. That bot does the work on its own, and the group goes on. Each message it writes while it works appears in the group at once: what it will do, what it finds, how far it is. The group, the sidebar and the bot's own chat show the step it is on, in the words of that step. When it is done, it posts the result in the group, and the bot that asked for the work answers. To stop the work, open the group's details.
 
 ![Group chat: the admin, Chief, hands the work to Writer and Coder](docs/images/group.png)
 
