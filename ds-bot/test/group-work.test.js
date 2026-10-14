@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
-import { ROOM_LATE_ROUNDS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { ROOM_LATE_ROUNDS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
 const seed = (room = {}) => ({
@@ -316,4 +316,169 @@ test('members still at work show in the team view and in the prompts of the othe
   assert.deepEqual(value.work.rooms.r1.map(entry => [entry.botId, entry.tool, entry.speaking]), [['b', 'pwsh', undefined], ['c', undefined, true]])
   host.finish('gc', '没问题。')
   await settle(() => result() !== undefined)
+})
+
+// A step that says something and calls a tool, as a model writes it while it works.
+const step = (host, sessionId, said, callId, name = 'pwsh', args = '{}') => {
+  host.emit(sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: said }, { type: 'tool-call', id: callId, name }] } })
+  host.emit(sessionId, 'tool/call', { callId, name, arguments: args })
+}
+const progress = async host => (await host.call('room-progress', { roomId: 'r1' })).value[0]
+
+test('what a member writes while it works shows in the round at once, and its @ calls members', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '收到，我先看看 docs/ 的结构。@Tester 你等下帮我验一下', 'k1', 'list_bots')
+  await settle(() => true)
+  const live = await progress(host)
+  assert.deepEqual(live.replies.map(reply => [reply.name, reply.text]), [['Writer', '收到，我先看看 docs/ 的结构。@Tester 你等下帮我验一下']])
+  assert.equal(live.speaking, 'b')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '整理好了。')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.match(text(host.begin('gc')), /Writer: 收到，我先看看 docs\/ 的结构。[\s\S]*Writer: 整理好了。/)
+  host.finish('gc', '验过了。')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.name, reply.text]), [['Writer', '收到，我先看看 docs/ 的结构。@Tester 你等下帮我验一下'], ['Writer', '整理好了。'], ['Tester', '验过了。']])
+  const log = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.log
+  assert.deepEqual(log.map(line => line.who), ['User', 'Writer', 'Writer', 'Tester'])
+})
+
+test('a member whose every message went out while it worked counts as posted, not passed', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 看一下'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '我看一下。', 'k1', 'list_bots')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual([result().passed, result().replies.map(reply => reply.text)], [[], ['我看一下。']])
+})
+
+test('after the round went on, lines a member writes close together reach the group as one message; only the result is answered', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief 安排一下文档'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 把文档整理好')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '收到，开始整理。', 'k1')
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  assert.deepEqual(kinds(first()), [['message', 'Chief'], ['message', 'Writer'], ['working', 'Writer']])
+
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  step(host, 'gb', '目录理好了。', 'k2')
+  host.emit('gb', 'tool/result', { callId: 'k2' })
+  step(host, 'gb', '正文改完了，在改索引。', 'k3')
+  await settle(() => true)
+  assert.deepEqual(host.agentOf('r1').calls, [])
+  t.mock.timers.tick(ROOM_STEP_GAP_MS)
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const update = host.takePost()
+  assert.deepEqual([update.source.progress, update.source.quiet, update.source.askedBy, text(update)], [true, true, undefined, '[Group post from Writer]\n目录理好了。\n\n正文改完了，在改索引。'])
+  const quiet = host.round('c2', update)
+  await settle(() => quiet() !== undefined)
+  assert.deepEqual(quiet().replies, [])
+
+  // A line still held when the work ends opens the result.
+  host.emit('gb', 'tool/result', { callId: 'k3' })
+  step(host, 'gb', '索引也改完了。', 'k4')
+  host.emit('gb', 'tool/result', { callId: 'k4' })
+  host.finish('gb', '整理好了，在 docs/ 下。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const done = host.takePost()
+  assert.deepEqual([done.source.late, done.source.askedBy, text(done)], [true, 'a', '[Group post from Writer]\n索引也改完了。\n\n整理好了，在 docs/ 下。'])
+  t.mock.timers.tick(ROOM_STEP_GAP_MS)
+  await settle(() => true)
+  assert.deepEqual(host.agentOf('r1').calls, [])
+})
+
+test('a step that calls a member with @ after the round went on starts a round for that member', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'bot', role: 'room', exchangeId: 'x1', roomId: 'r1', hop: 1, askedBy: 'a' } })
+  step(host, 'gb', '@Tester 帮我跑一下测试', 'k1')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.progress, post.source.quiet, post.source.hop], [true, undefined, 1])
+  const result = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.equal(host.begin('gc').source.askedBy, 'b')
+  host.finish('gc', '测试过了。')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('a step joins a round that is running in the group', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'bot', role: 'room', exchangeId: 'x1', roomId: 'r1', hop: 0 } })
+  const result = host.round('c1', host.say('@Tester 你怎么看'))
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  step(host, 'gb', '索引改完了。', 'k1')
+  await settle(() => true)
+  host.begin('gc')
+  host.finish('gc', '没问题。')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.name, reply.text]), [['Writer', '索引改完了。'], ['Tester', '没问题。']])
+  assert.deepEqual(host.agentOf('r1').calls, [])
+})
+
+test('a turn that a finished background job starts in a group Session posts to the group', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'background job pwsh-3 finished' }], source: { kind: 'tool-jobs', form: 'notice' } })
+  step(host, 'gb', '下载完了，开始解压。', 'k1')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  assert.equal(text(host.takePost()), '[Group post from Writer]\n下载完了，开始解压。')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '解压好了。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.late, post.source.askedBy, text(post)], [true, undefined, '[Group post from Writer]\n解压好了。'])
+})
+
+test('a fresh part\'s opening line stays out of the group', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: '[Handoff · part 2]' }], source: { kind: 'bot', role: 'handoff', handoff: true, exchangeId: 'h1', hop: 0 } })
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Noted. I have my handoff note and carry on from here.' }] } })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'background job pwsh-7 finished' }], source: { kind: 'tool-jobs', form: 'notice' } })
+  host.finish('gb', 'Ghidra 解压好了。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  assert.equal(text(host.takePost()), '[Group post from Writer]\nGhidra 解压好了。')
+})
+
+test('a private message to a group Session is answered privately, without steps in the group', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: '[Message from Tester]\n能帮我看下吗' }], source: { kind: 'bot', role: 'request', senderSessionId: 'c', senderName: 'Tester', exchangeId: 'x1', hop: 0 } })
+  step(host, 'gb', '我看一下。', 'k1')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '看过了，没问题。')
+  await settle(() => host.agentOf('c').calls.length === 1)
+  assert.match(text(host.agentOf('c').calls[0]), /我看一下。\n\n看过了，没问题。/)
+  assert.deepEqual(host.agentOf('r1').calls, [])
+})
+
+test('the team view says what a member is doing in the call\'s own words', async (t) => {
+  const host = await start(t)
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: JSON.stringify({ command: 'iwr https://example.com/x.zip', description: 'Download  Ghidra 12.1.4\nand check its hash' }) })
+  host.emit('gc', 'turn/start', { turn: 1 })
+  host.emit('gc', 'tool/call', { callId: 'k2', name: 'read', arguments: JSON.stringify({ file_path: 'E:\\src\\tools\\dump.py' }) })
+  const { value } = await host.call('state', {})
+  assert.deepEqual(value.work.rooms.r1.map(entry => [entry.botId, entry.tool, entry.note, entry.target]), [['b', 'pwsh', 'Download Ghidra 12.1.4 and check its hash', undefined], ['c', 'read', undefined, 'dump.py']])
+  assert.equal(value.work.bots.b.note, 'Download Ghidra 12.1.4 and check its hash')
+  // What the Bot said in the step that made the call comes with it.
+  host.emit('ga', 'turn/start', { turn: 1 })
+  step(host, 'ga', '先把 JDK\n下下来。', 'k3', 'pwsh', JSON.stringify({ description: 'Download JDK 21' }))
+  const later = (await host.call('state', {})).value
+  assert.deepEqual(['said', 'note'].map(key => later.work.bots.a[key]), ['先把 JDK 下下来。', 'Download JDK 21'])
 })

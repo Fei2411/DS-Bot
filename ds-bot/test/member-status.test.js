@@ -82,3 +82,17 @@ test('a Bot\'s own chat shows the groups it is at work in, unless its own chat r
   assert.deepEqual(rowLabels(dock('a', { ...away, bots: { a: { since: 1 } } })), [])
   assert.equal(dock('b', away), null)
 })
+
+test('a row says what a member does in its call\'s own words, and that it moves to a fresh conversation', () => {
+  const work = {
+    bots: {},
+    rooms: { r1: [
+      { botId: 'a', since: 1, tool: 'pwsh', note: 'Download Ghidra 12.1.4 and check its hash.' },
+      { botId: 'b', since: 1, tool: 'read', target: 'dump.py' },
+      { botId: 'c', since: 1, switching: true },
+      { botId: 'd', since: 1, tool: 'pwsh', said: '解压 Ghidra，顺便写脚本。', note: 'Expand-Archive' },
+    ] },
+    approvals: [],
+  }
+  assert.deepEqual(rowLabels(dock('r1', work)), ['Anvil · Download Ghidra 12.1.4 and check its hash…', 'Flint · Opening a file · dump.py…', 'Prism · Moving to a fresh conversation…', 'Quill · 解压 Ghidra，顺便写脚本…'])
+})
