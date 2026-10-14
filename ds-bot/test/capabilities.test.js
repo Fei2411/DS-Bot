@@ -163,7 +163,7 @@ test('capability tool descriptions and attach results explain approval', async t
       command: 'Program that starts a local MCP server',
       args: 'Arguments for command',
       env: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
-      url: 'MCP server URL',
+      url: 'MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys',
       headers: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
       content: 'Skill instructions',
     },
@@ -424,4 +424,52 @@ test('mounts agent-only MCP and skills, remounts changed config, resolves scoped
   assert.equal(first.disposed, true)
   assert.equal(mounts.findLast(mount => mount.sessionId === 'chief' && mount.plugin.inject?.includes('skills')).disposed, true)
   assert.equal(rt.capabilityStatusesView().chief.team, undefined)
+})
+
+const exaSecret = (value, scope = ['chief']) => ({ name: 'EXA_API_KEY', value, purpose: '', scope, requestedBy: null, createdAt: 1, updatedAt: 1 })
+async function mountUrlCapability(t, { value, url, bots = ['chief'], awaitMount }) {
+  const env = await setup({ secret: exaSecret(value) })
+  t.after(() => env.dispose())
+  const { ctx, rt, mounts, skills } = env
+  await rt.capabilitySave({ name: 'exa', kind: 'mcp', description: '', transport: 'streamable-http', url, headers: {} }, { botId: 'chief' })
+  for (const bot of bots) await rt.changeCapabilityAttachment('attach', { name: 'exa', bot: rt.state.bots[bot].name }, 'chief')
+  for (const bot of bots) ctx.emit('agent/created', { agent: testAgent(bot, mounts, skills, { awaitMount }) })
+  await rt.scheduleCapabilitiesReconcile()
+  const mountFor = bot => mounts.find(mount => mount.sessionId === bot && mount.config?.serverName === 'exa')
+  return { ...env, mountFor }
+}
+
+test('secret references in an HTTP MCP URL are resolved, and an unavailable one is an error', async t => {
+  const env = await mountUrlCapability(t, { value: 'fake-exa-key', url: 'https://mcp.exa.test/mcp?apiKey=$DSH_SECRET_EXA_API_KEY', bots: ['chief', 'worker'] })
+  const { rt, mountFor } = env
+  assert.equal(mountFor('chief').config.url, 'https://mcp.exa.test/mcp?apiKey=fake-exa-key')
+  assert.equal(rt.capabilityStatusesView().chief.exa.state, 'ready')
+  assert.equal(JSON.stringify(rt.state.capabilities).includes('fake-exa-key'), false)
+  assert.equal(mountFor('worker'), undefined)
+  assert.equal(rt.capabilityStatusesView().worker.exa.state, 'error')
+  assert.match(rt.capabilityStatusesView().worker.exa.error, /EXA_API_KEY/)
+})
+
+test('a secret in an HTTP MCP URL query is encoded as one parameter value', async t => {
+  const value = "mock key/+&?=#'!()* 中文"
+  const env = await mountUrlCapability(t, { value, url: 'https://mcp.exa.test/mcp?apiKey=$DSH_SECRET_EXA_API_KEY&mode=test' })
+  const url = new URL(env.mountFor('chief').config.url)
+  assert.equal(url.searchParams.get('apiKey'), value)
+  assert.equal(url.searchParams.get('mode'), 'test')
+  assert.equal([...url.searchParams].length, 2)
+  const saved = JSON.stringify(env.rt.state.capabilities)
+  assert.equal(saved.includes(value), false)
+  assert.equal(saved.includes(encodeURIComponent(value)), false)
+})
+
+test('a failed HTTP MCP mount does not show the encoded secret from its URL', async t => {
+  const value = "mock key/+&?=#'!()* 中文"
+  const env = await mountUrlCapability(t, {
+    value,
+    url: 'https://mcp.exa.test/mcp?apiKey=$DSH_SECRET_EXA_API_KEY',
+    awaitMount: async mount => { throw new Error('Connection failed', { cause: new Error(`fetch ${mount.config.url}`) }) },
+  })
+  const status = env.rt.capabilityStatusesView().chief.exa
+  assert.equal(status.state, 'error')
+  assert.equal(status.error, 'Connection failed: fetch https://mcp.exa.test/mcp?apiKey=[secret:EXA_API_KEY]')
 })

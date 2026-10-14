@@ -27,8 +27,13 @@ export function normalizeName(raw) {
   return String(raw ?? '').trim().replace(/^\$(env:)?/i, '').replace(/^DSH_SECRET_/i, '').replace(/[\s-]+/g, '_').toUpperCase()
 }
 
+// encodeURIComponent leaves ' as is, but new URL() turns it into %27 in a query, so the
+// URL sent out would hold a form the redactor does not know. Encoding these characters
+// too keeps the sent URL equal to the text the redactor looks for.
+export const encodeUrlComponent = value => encodeURIComponent(value).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+
 // One function that replaces every known value in a string, longest first so a value
-// that contains another is replaced whole. JSON-escaped forms are covered too.
+// that contains another is replaced whole. JSON-escaped and URL-encoded forms are covered too.
 export function redactor(entries) {
   const pairs = []
   for (const { name, value } of entries) {
@@ -38,6 +43,9 @@ export function redactor(entries) {
     pairs.push([value, label, short])
     const escaped = JSON.stringify(value).slice(1, -1)
     if (escaped !== value) pairs.push([escaped, label, short])
+    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
+    const encoded = value.isWellFormed() ? encodeUrlComponent(value) : value
+    if (encoded !== value && encoded !== escaped) pairs.push([encoded, label, short])
   }
   pairs.sort((a, b) => b[0].length - a[0].length)
   if (pairs.length === 0) return text => text
