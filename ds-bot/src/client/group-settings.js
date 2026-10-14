@@ -5,6 +5,7 @@ import { AdminStar, BotAvatar, BotMark, RoomAvatar } from './mark.js'
 import { Card, Row, InlineText, SwitchRow } from './bot-settings.js'
 import { Segmented } from './motion.js'
 import { FolderMenu } from './folder-menu.js'
+import { PermissionPicker } from './permission-picker.js'
 import { t } from './i18n.js'
 
 export const ROOM_MODES = [
@@ -20,9 +21,23 @@ export function roomSubtitle(room, roster) {
   return [t('{count} members', { count: room.members.length }), admin ? t('Admin {name}', { name: admin.name }) : t('No admin')].join(' · ')
 }
 
+// One preset for every member in the group, or each member's own. Turning it on starts
+// from DSH's default preset.
+function GroupPermission({ room, catalog, update }) {
+  if (!catalog?.options?.length) return null
+  const shared = room.permission !== undefined
+  return h(Card, { title: t('Permissions') },
+    h(SwitchRow, {
+      label: t('Same for every member'), hint: t("Replaces each member's own permissions in this group."), on: shared,
+      onChange: on => update({ permission: on ? catalog.defaultPreset ?? catalog.options[0].value : null }),
+    }),
+    shared ? h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack bt-gs-perm bt-veil' },
+      h(PermissionPicker, { catalog, saved: room.permission, onPick: permission => update({ permission }) })) : null)
+}
+
 // A group chat's settings as grouped cards: its name and notice, who answers, its
-// members and admin, its sidebar place, and deleting it. The user may change all of
-// it; the host enforces what Bots may change.
+// members and admin, its permissions, its sidebar place, and deleting it. The user may
+// change all of it; the host enforces what Bots may change.
 export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
   const [adding, setAdding] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -65,6 +80,7 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) }))),
+    h(GroupPermission, { room, catalog: roster.permissions, update }),
     h(Card, { title: t('Members · {count}', { count: members.length }) },
       members.map((member) => {
         const leads = room.admin === member.id
@@ -159,5 +175,6 @@ export const GROUP_SETTINGS_CSS = `
 .bt-gs-add{gap:8px;color:var(--bt-ink-2)}
 .bt-gs-pick{gap:10px;animation:bt-rise .16s ease-out}
 .bt-bs-stack .bt-seg{align-self:stretch}
+.bt-gs-perm .bt-seg button{flex:auto;white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.bt-gs-pick{animation:none}}
 `

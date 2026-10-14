@@ -175,6 +175,7 @@ export function install(rt) {
             add: Array.isArray(body.add) ? body.add : undefined,
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
+            permission: body.permission,
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
         }

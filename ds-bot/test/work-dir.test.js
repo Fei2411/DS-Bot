@@ -298,6 +298,50 @@ test('a group\'s folder holds for every member there; only the user or a Main Bo
   assert.equal(requests[0].displayReason.zh, `允许群聊「Ops」的成员在 ${project} 中工作吗？之后可以修改这个文件夹里的文件。`)
 })
 
+test('a group\'s permissions hold for every member there in place of its own, until the user clears them', async (t) => {
+  // The preset each Session runs on, as DSH keeps it.
+  const presetOf = new Map()
+  const PRESETS = ['read-only', 'workspace-write', 'danger-full-access']
+  const permissionPresets = {
+    catalog: () => ({ options: PRESETS.map(value => ({ value, name: value })), defaultPreset: 'workspace-write' }),
+    resolve: (name) => { if (!PRESETS.includes(name)) throw new Error(`permission: unknown preset "${name}"`) },
+    set: (session, name) => { presetOf.set(session.id, name) },
+  }
+  const { call, tool, preStep, project, state, stop } = await start({ services: { ...approvalServices('allowed-once').services, permissionPresets } })
+  t.after(stop)
+
+  // A preset DSH does not offer changes nothing, not even the rest of the change; the
+  // next change that saves would keep it.
+  assert.equal((await call('update-room', { id: 'r1', notice: 'Ship it', permission: 'everything' })).ok, false)
+  assert.equal(presetOf.size, 0)
+
+  const set = await call('update-room', { id: 'r1', permission: 'read-only' })
+  assert.deepEqual(set.value.changes, ['every member now works with the read-only permissions here'])
+  assert.equal(state().rooms.r1.notice, undefined)
+  assert.equal(set.value.room.permission, 'read-only')
+  assert.equal(presetOf.get('gb'), 'read-only')
+  assert.match(await tool('list_bots', {}, 'a'), /"Ops" — .*; members work with the read-only permissions here/)
+
+  // Writer has no preset of its own, so its group Session goes back to DSH's default.
+  assert.deepEqual((await call('update-room', { id: 'r1', permission: null })).value.changes, ['every member uses its own permissions again'])
+  assert.equal(state().rooms.r1.permission, undefined)
+  assert.equal(presetOf.get('gb'), 'workspace-write')
+
+  // While the group sets one, Writer's own preset reaches its own chat only.
+  await call('update-room', { id: 'r1', permission: 'read-only' })
+  assert.equal((await call('update-bot', { id: 'b', permission: 'danger-full-access' })).ok, true)
+  assert.deepEqual([presetOf.get('b'), presetOf.get('gb')], ['danger-full-access', 'read-only'])
+
+  // A fresh part of the group conversation starts on the group's preset.
+  await call('update-room', { id: 'r1', workDir: project })
+  assert.deepEqual(await preStep('gb'), { kind: 'reject' })
+  await until(() => state().rooms.r1.sessions.b === 's1')
+  assert.equal(presetOf.get('s1'), 'read-only')
+
+  await call('update-room', { id: 'r1', permission: null })
+  assert.equal(presetOf.get('s1'), 'danger-full-access')
+})
+
 test('the approval counts every Session that would work in the folder', async (t) => {
   // Writer's own chat and new Sessions only read; its conversation in Ops may write.
   const group = approvalServices('allowed-once', { mode: 'read-only', modes: { gb: 'workspace-write' } })

@@ -231,6 +231,8 @@ const ZH = {
   'Read only': '仅可查看',
   'Workspace': '工作区内修改',
   'Full access': '完全权限',
+  'Same for every member': '全员统一',
+  "Replaces each member's own permissions in this group.": '在这个群里代替各成员自己的权限。',
   'The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.': '这是唯一的主 Bot。要把主 Bot 交给别的 Bot，请到「Bot」页的主 Bot 里换。',
   Change: '更换',
   'Can create and change Bots, and runs every group chat.': '可以创建和修改 Bot，并管理所有群聊。',

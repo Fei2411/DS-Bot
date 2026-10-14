@@ -772,7 +772,7 @@ export function install(rt) {
       await rt.selectSessionModel(freshId, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
         .catch(error => rt.warn('ds-bot: model for the fresh part of %s not applied: %s', bot.name, error))
     }
-    await rt.applyPermission(bot, freshId)
+    await rt.applyPermission(bot, freshId, room)
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', bot.name, error))
     const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted }
     if (room !== undefined) {

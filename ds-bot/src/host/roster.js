@@ -344,6 +344,9 @@ export function install(rt) {
     const moving = patch.workDir !== undefined
     if (moving && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    // A Bot's own permissions are the user's to set, so a group's are too.
+    if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
+    const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
@@ -372,6 +375,9 @@ export function install(rt) {
       if (workDir === undefined) delete room.workDir
       else room.workDir = workDir
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
+    }
+    if (permission !== undefined && await rt.setRoomPermission(room, permission)) {
+      changes.push(permission ? `every member now works with the ${permission} permissions here` : 'every member uses its own permissions again')
     }
     const before = room.name
     if (name !== undefined) {
