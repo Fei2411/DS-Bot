@@ -8,6 +8,10 @@ import { unquote } from './text.js'
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
+// DS Bot carries no goal across conversation parts, so Bot Sessions do not run DSH goals.
+const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
+const HIDDEN_TOOLS = [BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS]
+const GOAL_REFUSAL = 'DS Bot does not run goals. Ask the Bot in a message instead.'
 const MODE_PARAM = {
   type: 'string',
   enum: ROOM_MODES,
@@ -484,23 +488,26 @@ export function install(rt) {
 
   // dsh's own question tool holds the turn open until the user answers, and every
   // message from another Bot or a group round queues behind it. Bot Sessions ask
-  // through ask_user instead, so the tool is taken out of their tool list.
-  const hiddenQuestion = new WeakSet()
-  const hideBlockingQuestion = (agent) => {
-    if (agent === undefined || hiddenQuestion.has(agent) || !rt.isBotSession(agent.session?.id)) return
+  // through ask_user instead, so the tool is taken out of their tool list, as are the
+  // goal tools.
+  const hiddenTools = new WeakSet()
+  const hideBotUnusedTools = (agent) => {
+    if (agent === undefined || hiddenTools.has(agent) || !rt.isBotSession(agent.session?.id)) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {
       // restrict() throws on a name this profile does not serve.
-      if (!ctx.tools.schemas(agent).some(schema => schema.name === BLOCKING_QUESTION_TOOL)) return
-      agent.ctx.tools.restrict({ deny: [BLOCKING_QUESTION_TOOL] })
-      hiddenQuestion.add(agent)
+      const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+      const deny = HIDDEN_TOOLS.filter(name => served.has(name))
+      if (deny.length === 0) return
+      agent.ctx.tools.restrict({ deny })
+      hiddenTools.add(agent)
     } catch (error) {
-      rt.warn('ds-bot: %s stays in the tool list of %s: %s', BLOCKING_QUESTION_TOOL, agent.session?.id, error)
+      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), agent.session?.id, error)
     }
   }
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
-  // list is only trimmed once ds-bot resolves that Agent again; the guard refuses
-  // the tool in any Bot Session meanwhile.
+  // list is only trimmed once ds-bot resolves that Agent again; meanwhile the guard
+  // refuses the question tool in any Bot Session, and a goal made there is blocked.
   ctx.tools.guard(exec => (exec.name === BLOCKING_QUESTION_TOOL && rt.isBotSession(exec.agent?.id)
     ? `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
     : undefined))
@@ -508,10 +515,40 @@ export function install(rt) {
   ctx.on('agent/created', async ({ agent }) => {
     try {
       await rt.load()
-      hideBlockingQuestion(agent)
+      hideBotUnusedTools(agent)
     } catch (error) {
-      rt.warn('ds-bot: hiding %s on agent/created failed: %s', BLOCKING_QUESTION_TOOL, error)
+      rt.warn('ds-bot: hiding %s on agent/created failed: %s', HIDDEN_TOOLS.join(', '), error)
     }
+  })
+
+  // The /goal command stays open in every Session, so a goal started in a Bot chat or a
+  // group is blocked at once; DSH's round driver then starts no round for it.
+  let goals = null
+  const attachGoals = (sub) => {
+    const own = sub.goals
+    goals = own
+    sub.effect(() => () => { if (goals === own) goals = null }, 'ds-bot: goal service')
+  }
+  if (typeof ctx.inject === 'function') ctx.inject(['goals'], attachGoals)
+  else if (ctx.get?.('goals') !== undefined) attachGoals({ goals: ctx.get('goals'), effect: (execute, label) => ctx.effect(execute, label) })
+  const blockGoal = async (sessionId) => {
+    const service = goals
+    if (service === null) return
+    try {
+      const agent = await rt.resolveAgent(sessionId)
+      const goal = service.get(agent)
+      if (goal?.phase !== 'active') return
+      service.block(agent, { id: goal.id, revision: goal.revision }, { code: 'not-supported', message: GOAL_REFUSAL })
+    } catch (error) {
+      rt.warn('ds-bot: blocking the goal in %s failed: %s', sessionId, error)
+    }
+  }
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'goal/change' || event.data?.goal?.phase !== 'active') return
+    const id = session?.id
+    if (!rt.isBotSession(id) && rt.roomOf(id) === undefined) return
+    // block() appends to the same log, so it waits until every listener has seen this change.
+    setTimeout(() => void blockGoal(id), 0)
   })
 
   ctx.tools.register(defineTool({
@@ -612,5 +649,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBlockingQuestion })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools })
 }

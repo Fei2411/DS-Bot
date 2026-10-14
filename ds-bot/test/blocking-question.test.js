@@ -25,10 +25,10 @@ const team = () => ({
 
 // dsh keeps one Agent per Session and fires agent/created, waiting for its listeners,
 // the first time a Session resolves one. restrict() calls are recorded per Session.
-async function setup({ served = ['read', 'ask_user', QUESTION] } = {}) {
+async function setup({ served = ['read', 'ask_user', QUESTION], goals } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-blocking-question-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(team()))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services: goals === undefined ? {} : { goals } })
   const agents = new Map()
   const hidden = []
   const sent = []
@@ -79,6 +79,31 @@ async function setup({ served = ['read', 'ask_user', QUESTION] } = {}) {
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
   return { ctx, rt, agentFor, hidden, hiddenIn, guard, sent, stop }
+}
+
+// DSH's goal service, holding one goal per Session; block() records what was asked.
+function goalService() {
+  const current = new Map()
+  const blocked = []
+  return {
+    current,
+    blocked,
+    get: agent => current.get(agent.id),
+    block(agent, ref, reason) {
+      const goal = current.get(agent.id)
+      assert.deepEqual(ref, { id: goal.id, revision: goal.revision })
+      blocked.push({ sessionId: agent.id, ...reason })
+      current.set(agent.id, { ...goal, revision: goal.revision + 1, phase: 'blocked' })
+    },
+  }
+}
+
+// What DSH logs when /goal starts a goal: a snapshot change of the Session's goal log.
+const startGoal = (ctx, goals, sessionId) => {
+  const goal = { id: `goal-${sessionId}`, revision: 1, objective: 'Ship it', phase: 'active', maxGoalRounds: 256 }
+  goals?.current.set(sessionId, goal)
+  const event = { type: 'goal/change', data: { kind: 'goal/change', version: 1, operation: 'create', goal, roundsStarted: 0, createdAt: 1, updatedAt: 1 } }
+  for (const listener of ctx.listeners.get('session/event') ?? []) listener({ id: sessionId }, event)
 }
 
 const until = async (check) => {
@@ -143,4 +168,44 @@ test('a new Bot that rules out question tools opens without one and cannot block
   // The Agent was made before Receiver was on the team; the kickoff trims its list.
   assert.equal(hiddenIn(receiver.id).length, 1)
   assert.match(guard(QUESTION, receiver.id), /Bots cannot use ask_user_question/)
+})
+
+// Fei2411/DeepSeek-Bot#133: /goal in a group chat started DSH's goal rounds, which the
+// group never answered, so round after round ran and showed the raw goal prompt.
+test('a Bot\'s chat and its group Sessions lose the goal tools; other Sessions keep them', async (t) => {
+  const { agentFor, hidden, stop } = await setup({ served: ['read', 'ask_user', QUESTION, 'create_goal', 'update_goal', 'get_goal'] })
+  t.after(stop)
+  for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
+  // A DSH Agent Session ('plain') has its own mask, which leaves the goal tools.
+  assert.deepEqual(hidden.filter(([, deny]) => deny.includes('create_goal')), [
+    ['chief', [QUESTION, 'create_goal', 'update_goal', 'get_goal']],
+    ['room-writer', [QUESTION, 'create_goal', 'update_goal', 'get_goal']],
+  ])
+})
+
+test('a goal started in a Bot chat or a group is blocked; one elsewhere runs', async (t) => {
+  const goals = goalService()
+  const { ctx, agentFor, stop } = await setup({ goals })
+  t.after(stop)
+  const ids = ['writer', 'room', 'room-writer', 'plain']
+  for (const id of ids) await agentFor(id)
+  for (const id of ids) startGoal(ctx, goals, id)
+  // The block waits until DSH has handed the change to every listener.
+  assert.deepEqual(goals.blocked, [])
+  await until(() => goals.blocked.length === 3)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(goals.blocked.map(entry => entry.sessionId), ['writer', 'room', 'room-writer'])
+  for (const entry of goals.blocked) assert.deepEqual([entry.code, entry.message], ['not-supported', 'DS Bot does not run goals. Ask the Bot in a message instead.'])
+  assert.equal(goals.current.get('plain').phase, 'active')
+})
+
+test('without DSH\'s goal service a goal change is left alone', async (t) => {
+  const { ctx, rt, agentFor, stop } = await setup()
+  t.after(stop)
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  await agentFor('writer')
+  startGoal(ctx, undefined, 'writer')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(warnings, [])
 })

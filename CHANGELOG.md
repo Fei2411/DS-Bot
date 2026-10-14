@@ -8,6 +8,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 - Bots could keep messaging each other for a long time without you, for example by forwarding a request from Bot to Bot or through group posts. Every forwarded message and group post now counts toward the limit on how long a chain of Bot messages can get, and after 40 Bot messages since you last wrote, answered a question card or a scheduled task ran, `message_bot` and `post_to_group` fail and tell the Bot to report to you. Bots are also told not to send thanks or acknowledgements, and not to answer a reply. ([#129](https://github.com/Fei2411/DeepSeek-Bot/issues/129))
 - An HTTP MCP capability with `$DSH_SECRET_<NAME>` in its URL sent the reference itself to the server and showed ready until the first tool call failed. The URL now gets the secret's value, URL-encoded, and a capability whose Bot may not use the secret shows an error. ([#125](https://github.com/Fei2411/DeepSeek-Bot/issues/125))
+- Group chats now relay messages to their Bots with the `ptc` agent preset, DSH Desktop's default. New Bot chats, group chats and conversation parts use the `standard` preset. A group chat made under `ptc` still relays, but each of its rounds is limited by DSH's time limit for a program run, about 10 minutes. ([#37](https://github.com/Fei2411/DeepSeek-Bot/issues/37))
+- Bot chats and group chats no longer run DeepSeek Harness goals. A goal started there with `/goal` is stopped at once with a short note, so a group chat no longer runs round after round, and the chat shows no goal rounds. ([#133](https://github.com/Fei2411/DeepSeek-Bot/issues/133))
 
 ## [0.1.5] - 2026-10-13
 

@@ -21,6 +21,16 @@ export function install(rt) {
     return workspace.id
   }
 
+  // Under the PTC preset (DSH Desktop's default) a model may call only run_code, which
+  // turns down the group_relay call that a group chat's Session is given. A Session
+  // keeps the preset it is made with.
+  async function botPreset() {
+    const presets = ctx.get?.('agentPresets')
+    if (presets === undefined) return {}
+    const standard = (await presets.list()).some(preset => preset.id === 'standard' && preset.broken === undefined)
+    return standard ? { agentPreset: 'standard' } : {}
+  }
+
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are.
   async function createSession(title, { dir } = {}) {
@@ -30,7 +40,8 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
-    const { sessionId } = await ctx.sessionController.create(usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() })
+    const place = usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
+    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId
