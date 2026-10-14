@@ -673,9 +673,15 @@ export function install(rt) {
         return
       }
       const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
+      const declared = new Set((options.tools ?? []).map(tool => tool.name))
+      // Only for a group made under the PTC preset, which can call nothing but run_code;
+      // new group Sessions get the standard preset.
+      const [name, args] = declared.has('run_code') && !declared.has('group_relay')
+        ? ['run_code', JSON.stringify({ description: 'Relay the group chat to its Bots', code: 'return await tools.group_relay({})', timeoutMs: 600_000 })]
+        : ['group_relay', '{}']
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 0, id, name: 'group_relay', argumentsDelta: '{}' }
-      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'group_relay', arguments: '{}' } }
+      yield { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
     })()
   })

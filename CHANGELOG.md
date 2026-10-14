@@ -4,6 +4,10 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Fixed
+
+- Group chats now relay messages to their Bots with the `ptc` agent preset, DSH Desktop's default. New Bot chats, group chats and conversation parts use the `standard` preset. A group chat made under `ptc` still relays, but each of its rounds is limited by DSH's time limit for a program run, about 10 minutes. ([#37](https://github.com/Fei2411/DeepSeek-Bot/issues/37))
+
 ## [0.1.5] - 2026-10-13
 
 ### Added
