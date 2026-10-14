@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, callTree } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, callTree } from './src/client/cells.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -44,7 +44,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
+const { ToolCell, TriggerCell, callTree, QuestionDock, SecretDock, countCards } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -354,4 +354,19 @@ test('PTC secret and question cards show at their sub-calls and act on their own
   assert.doesNotMatch(after, /Paste or type the key/)
   assert.doesNotMatch(shown(program([call('ask_user', 'call-0-1:ptc:1')]), { roster }), /Which draft\?/)
   assert.equal(shown(program([call('ask_user', 'call-1-2:ptc:1')]), { roster: team() }), '')
+})
+
+// #133: a DSH goal round showed its raw <goal_round> prompt as an event line.
+test('a goal round draws nothing, while another unknown trigger keeps its event line', () => {
+  const trigger = source => expand(TriggerCell({
+    node: { key: 'node', data: { source, turn: 2, content: text$('<goal_round>Keep going</goal_round>') }, location: { turn: { turn: 2 } } },
+    sessionId: 'room',
+    useRoster: select => select(team()),
+    useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}),
+    useUi: select => select({ visits: {} }),
+    actions: {},
+  }))
+  assert.equal(trigger({ kind: 'goal', goalId: 'goal-1', revision: 1, round: 1 }), null)
+  assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
 })

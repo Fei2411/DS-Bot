@@ -377,7 +377,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       const prompts = reminderPrompts(contentText(data.content))
       return h('div', { className: 'bt-event' }, prompts.length > 0 ? t('Scheduled task: {text}', { text: prompts.join(' · ').slice(0, 80) }) : t('Routine started'))
     }
-    if (source.kind === 'user-question-reply') return null
+    if (source.kind === 'user-question-reply' || source.kind === 'goal') return null
     return h('div', { className: 'bt-event' }, contentText(data.content).slice(0, 80) || t('Update'))
   }
 }
