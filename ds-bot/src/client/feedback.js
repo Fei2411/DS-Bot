@@ -145,7 +145,7 @@ export const FEEDBACK_CSS = `
 .bt-fb-what .bt-input-area{min-height:80px}
 .bt-fb-preview{cursor:default;padding:0}
 .bt-fb-preview pre{margin:0;width:100%;max-height:240px;overflow:auto;padding:10px 12px;box-sizing:border-box;font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink-2);white-space:pre-wrap;word-break:break-word;outline:none}
-.bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease}
+.bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease;flex:none;white-space:nowrap}
 .bt-fb-primary:hover{filter:brightness(1.08)}
 .bt-fb-primary:active{filter:brightness(.94)}
 .bt-fb-note{margin:-8px 4px 0}

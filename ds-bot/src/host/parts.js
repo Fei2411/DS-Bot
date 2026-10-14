@@ -335,7 +335,7 @@ export function install(rt) {
     '',
     ...NOTE_SECTIONS.flatMap(([name, what]) => [`## ${name}`, `- [${what}]`, '']),
     'Rules:',
-    '- Do not make anything up. Leave a detail out rather than guess it. Keep identifiers, quotes, and numbers exact, and write every file path in full, as it first appeared: never shorten it.',
+    '- Do not make anything up. Leave a detail out rather than guess it. Keep identifiers, quotes, and numbers exact. Everything the work produced — every finding, figure, file, and result — is listed on its own line with its full path or identifier exactly as it first appeared: never a basename, an ellipsis, a shared "all under X" prefix, or a count in place of the items. A name or figure that must stay in another language is copied verbatim inside `backticks`.',
     '- When a newer message contradicts an older one, the newer one wins; drop what is stale.',
     '- Your latest messages travel to the fresh conversation word for word, and in your own chat so does every message the user and other Bots sent you (long ones cut). Do not copy them whole; record what they mean and what they rely on. Still put in the facts, quotes, and error messages from them that the work needs: the move after this one leaves them behind.',
     '- If the conversation starts with a "[Handoff · part N]" message, it holds your previous note, and a "[Checkpoint N]" summary holds a condensed stretch of this part. Merge them: keep what is still true, drop what is stale, and add what is new. Nothing in them survives unless this note keeps it.',
