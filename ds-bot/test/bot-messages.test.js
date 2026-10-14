@@ -8,7 +8,7 @@ import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installParts } from '../src/host/parts.js'
-import { SOURCE_KIND } from '../src/host/constants.js'
+import { MAX_HOPS, MAX_UNATTENDED_MESSAGES, REPLY_KIND, SOURCE_KIND } from '../src/host/constants.js'
 
 // A two-Bot team, optionally with b in a group Session 'gb' of room 'Ops'.
 function team({ group = false } = {}) {
@@ -314,7 +314,7 @@ test('a request that joins a user-started turn is handed back, not answered with
   emit('b', 'user/message', { content: textBlock('[Message from Chief · you read it during your last task; answer it now]\nmake it shorter'), source: replySource('request', { exchangeId: 'e1', hop: 2, deferred: true }) })
   emit('b', 'assistant/message', assistantText('done, it is shorter'))
   emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  assert.deepEqual(delivered.slice(1).map(job => [job.toId, job.role, job.replyTo, job.hop, job.text]), [['a', 'reply', 'e1', 3, 'done, it is shorter']])
+  assert.deepEqual(delivered.slice(1).map(job => [job.toId, job.role, job.replyTo, job.hop, job.text]), [['a', 'reply', 'e1', 2, 'done, it is shorter']])
   assert.deepEqual(rt.state.exchangeTurns, { b: [2] })
 })
 
@@ -427,7 +427,7 @@ test('a joined request crosses a part switch and is handed back in the new part'
   assert.equal(textOf(handedBack()[1].content), '[Message from Chief · you read it during your last task; answer it now]\nmore')
 })
 
-test('the caller hop is the highest of the turn\'s trigger and joined requests', async (t) => {
+test('a message goes one hop past the highest of the turn\'s trigger and joined requests', async (t) => {
   const { agents, emit, tool, stop } = await start(team())
   t.after(stop)
 
@@ -435,7 +435,118 @@ test('the caller hop is the highest of the turn\'s trigger and joined requests',
   emit('b', 'user/message', { content: textBlock('[Message from Chief]\ntask'), source: replySource('request', { exchangeId: 'e0', hop: 1 }) })
   emit('b', 'user/message', { content: textBlock('[Message from Chief]\nmore'), source: replySource('request', { exchangeId: 'e1', hop: 4 }) })
   await tool('message_bot', { to: 'Chief', message: 'onward' }, 'b')
-  assert.equal(agents.get('a').calls[0][1].source.hop, 4)
+  assert.equal(agents.get('a').calls[0][1].source.hop, 5)
+})
+
+// Each Session takes up the newest message it was sent as its next turn.
+function turnTaker(agents, emit) {
+  const turns = new Map()
+  const take = (id) => {
+    const [, message] = agents.get(id).calls.at(-1)
+    turns.set(id, (turns.get(id) ?? 0) + 1)
+    emit(id, 'turn/start', { turn: turns.get(id) })
+    emit(id, 'user/message', { content: message.content, source: message.source })
+    return message
+  }
+  const end = (id, text) => {
+    if (text !== undefined) emit(id, 'assistant/message', assistantText(text))
+    emit(id, 'turn/end', { turn: turns.get(id), reason: { kind: 'completed' } })
+  }
+  const userTurn = (id, text) => {
+    turns.set(id, (turns.get(id) ?? 0) + 1)
+    emit(id, 'turn/start', { turn: turns.get(id) })
+    emit(id, 'user/message', { content: textBlock(text), source: { kind: 'user' } })
+  }
+  return { take, end, userTurn }
+}
+const allCalls = agents => [...agents.values()].reduce((sum, agent) => sum + agent.calls.length, 0)
+
+test('every forwarded message counts a hop, and the one past MAX_HOPS is not sent', async (t) => {
+  const seed = team()
+  seed.bots.c = { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 }
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  const { take, end, userTurn } = turnTaker(agents, emit)
+  const ring = [['a', 'Writer', 'b'], ['b', 'Tester', 'c'], ['c', 'Chief', 'a']]
+
+  userTurn('a', 'ask Writer to pass it on')
+  const hops = []
+  let refused
+  for (let step = 0; step < MAX_HOPS + 3 && refused === undefined; step += 1) {
+    const [from, to, toId] = ring[step % ring.length]
+    if (step > 0) take(from)
+    const before = allCalls(agents)
+    const out = await tool('message_bot', { to, message: 'pass it on' }, from)
+    end(from)
+    if (out.startsWith('Delivered')) hops.push(agents.get(toId).calls.at(-1)[1].source.hop)
+    else {
+      refused = out
+      assert.equal(allCalls(agents), before)
+    }
+  }
+  assert.deepEqual(hops, Array.from({ length: MAX_HOPS }, (_, index) => index + 1))
+  assert.equal(refused, 'This chain of Bot messages is already long. Stop here and report to the user instead.')
+})
+
+test('a back-and-forth between two Bots ends at MAX_HOPS', async (t) => {
+  const { agents, emit, tool, stop } = await start(team())
+  t.after(stop)
+  const { take, end, userTurn } = turnTaker(agents, emit)
+  const replies = () => (agents.get('a')?.calls ?? []).length
+
+  userTurn('a', 'work it out with Writer')
+  const asked = []
+  for (let round = 0; round < MAX_HOPS + 3; round += 1) {
+    const out = await tool('message_bot', { to: 'Writer', message: 'and now?' }, 'a')
+    end('a')
+    if (!out.startsWith('Delivered')) break
+    asked.push(take('b').source.hop)
+    const before = replies()
+    end('b', 'here is my part')
+    for (let count = 0; count < 200 && replies() === before; count += 1) await delay(5)
+    const reply = take('a')
+    assert.equal(reply.source.role, 'reply')
+  }
+  assert.deepEqual(asked, Array.from({ length: MAX_HOPS }, (_, index) => index + 1))
+})
+
+const spentBudget = { message: new RegExp(`^Not sent: the team has sent ${MAX_UNATTENDED_MESSAGES} Bot messages since the user last wrote`) }
+
+test('the team sends no more Bot messages past the unattended limit, counting group posts', async (t) => {
+  const { agents, tool, stop } = await start(team({ group: true }))
+  t.after(stop)
+  const send = () => tool('message_bot', { to: 'Writer', message: 'ping' }, 'a')
+
+  for (let count = 1; count < MAX_UNATTENDED_MESSAGES; count += 1) await send()
+  assert.match(await tool('post_to_group', { group: 'Ops', message: 'note' }, 'a'), /^Posted in "Ops"/)
+  await assert.rejects(send(), spentBudget)
+  await assert.rejects(tool('post_to_group', { group: 'Ops', message: 'again' }, 'a'), spentBudget)
+  assert.equal(agents.get('b').calls.length, MAX_UNATTENDED_MESSAGES - 1)
+  assert.equal(agents.get('r1').calls.length, 1)
+})
+
+test('the user, a question card\'s answer and a scheduled task each reset the unattended count; a goal does not', async (t) => {
+  const { emit, tool, stop } = await start(team({ group: true }))
+  t.after(stop)
+  const send = () => tool('message_bot', { to: 'Writer', message: 'ping' }, 'a')
+  const spend = async (count) => {
+    for (let sent = 0; sent < count; sent += 1) await send()
+    await assert.rejects(send(), spentBudget)
+  }
+  const arrive = (id, source) => emit(id, 'user/message', { content: textBlock('next'), source })
+
+  await spend(MAX_UNATTENDED_MESSAGES)
+  arrive('b', { kind: 'goal' })
+  await assert.rejects(send(), spentBudget)
+
+  arrive('r1', { kind: 'user' })
+  await spend(MAX_UNATTENDED_MESSAGES)
+  arrive('a', { kind: REPLY_KIND })
+  await spend(MAX_UNATTENDED_MESSAGES)
+  arrive('b', { kind: 'schedule' })
+  await spend(MAX_UNATTENDED_MESSAGES)
+  arrive('a', { kind: 'user' })
+  assert.match(await send(), /^Delivered to Writer/)
 })
 
 test('an earlier part keeps the request its Bot answered', async () => {

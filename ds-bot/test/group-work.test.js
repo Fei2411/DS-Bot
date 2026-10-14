@@ -148,6 +148,36 @@ test('work past the grace lets the round go on, and the member that asked answer
   assert.deepEqual(host.agentOf('gc').calls, [])
 })
 
+test('a Bot\'s post keeps its hop through the round, the member\'s late reply and its own messages', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  host.emit('a', 'turn/start', { turn: 1 })
+  host.emit('a', 'user/message', { content: [{ type: 'text', text: '[Message from Tester]\npost it' }], source: { kind: 'bot', role: 'request', senderSessionId: 'c', senderName: 'Tester', exchangeId: 'x1', hop: 2 } })
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档' }, 'a')
+  const post = host.takePost()
+  assert.equal(post.source.hop, 3)
+
+  const first = host.round('c1', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal(host.begin('gb').source.hop, 3)
+  await host.tool('message_bot', { to: 'Tester', message: '帮我确认一下' }, 'gb')
+  assert.equal(host.agentOf('c').calls.at(-1).source.hop, 4)
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '看完了。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const late = host.takePost()
+  assert.deepEqual([late.source.late, late.source.hop], [true, 3])
+  const second = host.round('c2', late)
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  assert.equal(host.begin('ga').source.hop, 3)
+  host.finish('ga', '[PASS]')
+  await settle(() => second() !== undefined)
+})
+
 test('a member called while still at earlier work lets the round go on at once', async (t) => {
   const host = await start(t)
   host.emit('gb', 'turn/start', { turn: 1 })
