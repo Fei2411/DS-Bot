@@ -28,6 +28,10 @@ DS Bot 是 DSH 插件，只能用 DSH 公开的接口。有些地方 DSH 的设�
 | C13 | 10-14 | #37，PR #168 | 预设是全局或按会话选的，插件不能只给 Bot 会话换掉 PTC 的工具展示、保留用户其余配置 | DS Bot 新建的会话一律用 standard 预设，用户给 DSH 选的预设（包括自定义组合）不用于 Bot | 用户自定义预设里的插件不会出现在 Bot 里 | 每个 Bot 可选自己的 harness（愿景第 9 条），默认 standard |
 | C14 | 10-20 | #362，PR #363 | DSH 网页前端的 Windows 标题栏布局只有不透明一种，没有让窗口材质透出侧栏的接口；桌面模式（`data-platform`）要 DSH Desktop 的原生键盘桥 | 桌面应用只标 `data-windows-titlebar`（DSH 网页前端自己的标题栏布局），页面留在网页模式。Windows 11 上 `app/src/mica.css` 用 DSH 的私有类名让 Mica 透出侧栏；`check-packed` 检查每条规则还能找到元素 | 升级锁定的 DSH 时类名或结构可能变；macOS 暂时保留系统标题栏 | 自己的界面接着做时，窗口外框由应用自己画 |
 | C15 | 10-22 | #398 | DeepSeek 账号由 DSH 的账号插件管理，登录、退出的操作和文案都在它注入的条目里；DS Bot 没有自己的账号界面 | Bot 模式的账号菜单借用这个条目：账号插件在、且已登录时显示「退出登录」，确认文案和退出操作都用插件自己的 | 账号插件改了条目或文案的结构，这一项就不显示；文案跟着 DSH 走，不是 DS Bot 的 | DS Bot 自己的前端管理账号的登录和退出 |
+| C16 | 10-16 | #172，PR #244 | Bot 会话头替换了 DSH 的 `conversation.session.header`，它的子插槽（`.lineage` `.actions` `.utilities` `.corner`）由 DSH 原生头声明，替换者不能再声明，也不能渲染；`sidebarRight` 服务没有可订阅的展开状态 | Bot 会话头自己画右侧栏开关，调用 `sidebarRight.toggleExpanded()`；开关常驻，面板打开时也在 | 别的插件放进 `.actions`、`.utilities` 的条目在 Bot 会话里看不到；收起入口有两个 | 自己画会话头，按需放这些入口 |
+| C17 | 10-16 | #209，PR #250 | DSH 0.2.1 在 `system-prompt/assemble`（早于 `agent/pre-step`）检查 Session 的文件夹：文件夹和 Session 原来的文件夹都没了，这一轮就在第一步之前失败，输入被取走、不写进会话 | DS Bot 也挂 `system-prompt/assemble`（prepend，靠插件加载顺序排在 DSH 前面）：总工作区没了就建回；Bot 自己的文件夹没了，先用 `workingDirectory.set` 切到要去的文件夹，再由 pre-step 换到那里的新的一段 | 依赖钩子顺序；文件夹没了时，一次变化等于一次 `set` 加一次换段 | 应用自己决定插件的加载顺序；换文件夹仍然换到新的一段 |
+| C18 | 10-16 | #217，PR #251 | DSH 按显示消息的那个 Session 的文件夹解析相对文件链接；群自己的中继 Session 在总工作区 | Bot 的文字离开写它的 Session 时（一轮的回复和步骤、`message_bot`、`post_to_group`），相对文件链接按写它的 Session 的文件夹改成绝对路径 | 侧栏最后一条预览里的路径变长；用户自己在群里输入的相对链接仍按总工作区解析 | 群会话跟着群文件夹走，或用自己的消息记录，链接不用再改写 |
+| C19 | 10-16 | #206，PR #259 | DSH 的附件从不删除；DSH 的 `read` 工具每行最多显示 2,000 字，一行之内不能分页；DSH 的通用文件卡片打不开 | 超过 2 万字的 Bot 消息（`message_bot`、`post_to_group`）原样存成 DSH 附件，相同内容只存一份；消息里放说明、开头 1,000 字和文件块，有超长行时提示用 shell 读；往来弹窗和群里的「显示全部」由 DS Bot 自己读附件 | 附件只增不减（只有超过 2 万字的 Bot 消息才产生）；超长行要模型多走一步；用户看到的长消息开头带着给模型的英文说明 | 应用有自己的消息存储，长消息按引用回收；自己的读文件工具能在一行之内分页 |
 
 ## 记录规则
 
