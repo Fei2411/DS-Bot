@@ -33,6 +33,7 @@ Both forms run the same `ds-bot` plugin. The point of the app is that DS Bot con
 ## Principles for trade-offs
 
 - **Correct Bot behavior comes first.** Where a DSH mode or limit does not fit Bots, DS Bot does not pile up complexity to stay compatible. Concessions that cannot be avoided go into the [DSH concessions](plans/2026-10-13-dsh-concessions.md), to be removed once the app controls its own profile.
+- **Every request ends where the user can see it.** A message to a Bot, a task handed on, a key a Bot asks for: each one either finishes, or stops with a reason that the user can see and carry on from. Nothing is dropped silently; a limit set against runaway work pauses the work instead of dropping it.
 - **Data stays on the user's computer.** Teams, chats and memory live in DS Bot's data folder on the user's computer.
 - **Done means checked.** Behavior is covered by tests; interface changes are looked at for real.
 
