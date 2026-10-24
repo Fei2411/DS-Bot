@@ -4,6 +4,10 @@
 //   live      work changed without a new revision: ask for `state` again
 //   message   a new entry of a Bot's own chat, as the `chat` endpoint returns it
 //   stream    the reply a Bot is writing: a start, its text as it comes, an end
+//   notice    something a client that is not looking should hear about (mobile.js)
+//   room      a group chat changed: ask for `room-chat` again
+// `hello` carries the team's revision and, for the mobile API, its version and the
+// latest notice, so a client that reconnects knows what it missed.
 import { ROUTE } from './constants.js'
 
 export const FEED_ROUTE = `${ROUTE}/feed`
@@ -34,6 +38,9 @@ export function install(rt) {
 
   rt.stateSaved = () => {
     if (clients.size > 0) publish('revision', { revision: state.revision })
+  }
+  rt.publishFeed = (event, data) => {
+    if (clients.size > 0) publish(event, data)
   }
 
   let liveTimer
@@ -92,7 +99,8 @@ export function install(rt) {
         start(own) {
           controller = own
           clients.add(own)
-          send(own, encoder.encode(`event: hello\ndata: ${JSON.stringify({ revision: state.revision })}\n\n`))
+          const hello = { revision: state.revision, ...(rt.noticeCursor ? { api: rt.apiVersion, ...rt.noticeCursor() } : {}) }
+          send(own, encoder.encode(`event: hello\ndata: ${JSON.stringify(hello)}\n\n`))
         },
         cancel() { leave(controller) },
       })
