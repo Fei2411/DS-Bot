@@ -77,6 +77,33 @@ Apache License, Version 2.0, Copyright (c) Microsoft Corporation
   The license is the same Apache License, Version 2.0 that covers this
   repository; see LICENSE for the text.
 
+DSH Remote (https://github.com/liguobao/deepseek-harness-remote)
+MIT License, Copyright (c) 2026 DSH Remote contributors
+
+  The mobile app's link code in mobile/src/link/ adapts code from commit
+  4d888ad of DSH Remote. DS Bot changed the names, the Noise prologue label
+  and the fragment marker, so the protocol is DS Bot's own and does not talk
+  to DSH Remote.
+  - mobile/src/link/noise.ts adapts packages/crypto/src/noise.ts (the Noise
+    IK session and the remote-key check).
+  - mobile/src/link/keys.ts copies the key pair, fingerprint and Base64URL
+    functions of packages/crypto/src/index.ts.
+  - mobile/src/link/frames.ts adapts packages/protocol/src/index.ts: the
+    control frame and message envelopes, the frame size limits, and
+    SecureMessageCodec. It checks frames by hand instead of with zod.
+  - mobile/src/link/transport.ts copies packages/webrtc/src/transport.ts and
+    packages/webrtc/src/websocket-backpressure.ts.
+  - mobile/src/link/relay-transport.ts adapts RelayTransport in
+    packages/webrtc/src/index.ts.
+  - mobile/src/link/secure-transport.ts adapts
+    apps/android/src/services/secure-transport.ts.
+  - mobile/src/link/rpc-client.ts adapts RemoteClientCore in
+    packages/client-core/src/index.ts.
+  - mobile/src/polyfills.ts copies apps/android/src/polyfills.ts.
+
+  Full license text: the same MIT terms as printed under DeepSeek Harness
+  above, with the copyright line of DSH Remote.
+
 No other third-party code is copied into this repository. At run time the
 plugin uses the @deepseek-ai/* packages of the DeepSeek Harness install it
 runs in; they are not bundled. esbuild is a build tool only. The desktop app
@@ -85,7 +112,11 @@ npm; they keep their own licenses. The build of its window (app/ui) bundles,
 from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and
 affiliates), and react-markdown and remark-gfm with the packages they use
 (MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
-Copyright (c) Andrea Giammarchi). Vite is a build tool only.
+Copyright (c) Andrea Giammarchi). Vite is a build tool only. The mobile app in
+mobile/ bundles, from npm, Expo and React Native (MIT, Copyright (c) 650
+Industries, Inc. and Meta Platforms, Inc. and affiliates), @noble/ciphers,
+@noble/curves and @noble/hashes (MIT, Copyright (c) Paul Miller) and
+@lukeburns/clatterjs (MIT, Copyright (c) 2025 Joni Lepistö).
 
 ==============================================================================
 Projects that gave us ideas (no code copied)
