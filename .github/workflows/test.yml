@@ -86,6 +86,21 @@ jobs:
           node-version: 24
       - run: npm ci --no-fund --no-audit
       - run: npm run typecheck
+
+  link:
+    name: Phone link and Relay Server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: link
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
       - run: npm test
 
   app-package:
@@ -349,11 +364,11 @@ jobs:
 
   # The one check that branch rules require. A job whose needs failed is skipped,
   # and GitHub counts a skipped required check as passed, so this job always runs
-  # and fails unless the matrix, leak scan, app, mobile app, app package and Docker checks passed.
+  # and fails unless the matrix, leak scan, app, mobile app, phone link, app package and Docker checks passed.
   result:
     name: Test result
-    needs: [test, scan, app, mobile, app-package, app-package-macos, app-package-linux, docker]
+    needs: [test, scan, app, mobile, link, app-package, app-package-macos, app-package-linux, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test.result }}" = success && test "${{ needs.scan.result }}" = success && test "${{ needs.app.result }}" = success && test "${{ needs.mobile.result }}" = success && test "${{ needs.app-package.result }}" = success && test "${{ needs.app-package-macos.result }}" = success && test "${{ needs.app-package-linux.result }}" = success && test "${{ needs.docker.result }}" = success
+      - run: test "${{ needs.test.result }}" = success && test "${{ needs.scan.result }}" = success && test "${{ needs.app.result }}" = success && test "${{ needs.mobile.result }}" = success && test "${{ needs.link.result }}" = success && test "${{ needs.app-package.result }}" = success && test "${{ needs.app-package-macos.result }}" = success && test "${{ needs.app-package-linux.result }}" = success && test "${{ needs.docker.result }}" = success

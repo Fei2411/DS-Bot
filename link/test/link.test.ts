@@ -20,7 +20,7 @@ import {
   type RpcRequestPayload,
   type SecureHandshakeTransport,
   type TransportStats,
-} from '../src/link/index.ts'
+} from '../src/index.ts'
 
 const CONNECTION = 'conn-1'
 const HOST = 'host-1'

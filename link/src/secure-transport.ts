@@ -1,5 +1,6 @@
 import { SecureMessageCodec, type TransportStats } from './frames.ts'
 import { NoiseIkSession, createNoisePrologue } from './noise.ts'
+import { decodeHandshakeHello, encodeHandshakeHello, type HandshakeHello } from './pairing.ts'
 import type { RemoteTransport, SecureHandshakeTransport } from './transport.ts'
 
 export interface DeviceIdentity {
@@ -13,6 +14,12 @@ export interface PairedHost {
   identityKey: string
 }
 
+export interface SecureTransportOptions {
+  handshakeTimeoutMs?: number
+  /** Sent inside the encrypted handshake: the Server never sees it. */
+  hello?: HandshakeHello
+}
+
 /** End-to-end Noise channel from this phone to one paired computer, over any carrier. */
 export class SecureTransport implements RemoteTransport {
   private noise?: NoiseIkSession
@@ -24,13 +31,14 @@ export class SecureTransport implements RemoteTransport {
   private readonly inner: SecureHandshakeTransport
   private readonly identity: DeviceIdentity
   private readonly host: PairedHost
-  private readonly handshakeTimeoutMs: number
+  private readonly options: SecureTransportOptions
+  private remoteHello?: HandshakeHello
 
-  constructor(inner: SecureHandshakeTransport, identity: DeviceIdentity, host: PairedHost, handshakeTimeoutMs = 10_000) {
+  constructor(inner: SecureHandshakeTransport, identity: DeviceIdentity, host: PairedHost, options: SecureTransportOptions = {}) {
     this.inner = inner
     this.identity = identity
     this.host = host
-    this.handshakeTimeoutMs = handshakeTimeoutMs
+    this.options = options
     if (host.identityKey.length === 0) throw new Error('The paired computer has no identity key.')
   }
 
@@ -53,7 +61,8 @@ export class SecureTransport implements RemoteTransport {
     })
     this.noise = noise
     try {
-      await waitForResponder(this.inner, noise, this.handshakeTimeoutMs)
+      const reply = await waitForResponder(this.inner, noise, encodeHandshakeHello(this.options.hello ?? {}), this.options.handshakeTimeoutMs ?? 10_000)
+      this.remoteHello = decodeHandshakeHello(reply)
     } catch (error) {
       noise.destroy()
       this.noise = undefined
@@ -107,6 +116,9 @@ export class SecureTransport implements RemoteTransport {
 
   getStats(): TransportStats { return this.inner.getStats() }
 
+  /** What the computer said about itself in the handshake, such as its name. */
+  hostHello(): HandshakeHello | undefined { return this.remoteHello }
+
   private async sendNow(data: Uint8Array): Promise<void> {
     const plaintextFrames = this.outgoing.encode(data)
     try {
@@ -123,30 +135,37 @@ export class SecureTransport implements RemoteTransport {
   }
 }
 
-async function waitForResponder(inner: SecureHandshakeTransport, noise: NoiseIkSession, timeoutMs: number): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+async function waitForResponder(
+  inner: SecureHandshakeTransport,
+  noise: NoiseIkSession,
+  hello: Uint8Array,
+  timeoutMs: number,
+): Promise<Uint8Array> {
+  return await new Promise<Uint8Array>((resolve, reject) => {
     let settled = false
     const timer = setTimeout(() => finish(new Error('The secure handshake timed out.')), timeoutMs)
     const unsubscribe = inner.onHandshake((step, data) => {
       if (settled) return
       try {
         if (step !== 2) throw new Error('The secure handshake arrived out of order.')
-        noise.readHandshake(data)
+        const reply = noise.readHandshake(data)
         if (!noise.complete) throw new Error('The secure handshake did not complete.')
-        finish()
+        finish(undefined, reply)
       } catch (error) {
         finish(error instanceof Error ? error : new Error('The secure handshake failed.'))
       }
     })
-    const finish = (error?: Error): void => {
+    const finish = (error?: Error, reply: Uint8Array = new Uint8Array()): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       unsubscribe()
-      if (error === undefined) resolve()
+      unsubscribeClose?.()
+      if (error === undefined) resolve(reply)
       else reject(error)
     }
-    inner.sendHandshake(1, noise.writeHandshake()).catch(error => {
+    const unsubscribeClose = inner.onClose?.(() => finish(new Error('The link closed during the secure handshake.')))
+    inner.sendHandshake(1, noise.writeHandshake(hello)).catch(error => {
       finish(error instanceof Error ? error : new Error('The secure handshake failed.'))
     })
   })

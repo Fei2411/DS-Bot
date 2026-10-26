@@ -19,6 +19,7 @@ import { BaseTransport, type SecureHandshakeTransport, waitForRelayCapacity } fr
 
 export interface RelayTransportOptions {
   deviceId: string
+  identityKey: string
   accessToken: string
   targetDeviceId: string
   capabilities?: string[]
@@ -68,6 +69,7 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
         this.sendControl('hello', {
           role: 'client',
           deviceId: this.options.deviceId,
+          identityKey: this.options.identityKey,
           accessToken: this.options.accessToken,
           protocols: [PROTOCOL_VERSION],
           capabilities: this.offeredCapabilities(),

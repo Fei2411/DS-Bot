@@ -1,5 +1,6 @@
 import { x25519 } from '@noble/curves/ed25519'
 import { sha256 } from '@noble/hashes/sha256'
+import { randomBytes } from '@noble/ciphers/webcrypto'
 
 export interface KeyPair {
   publicKey: string
@@ -20,6 +21,17 @@ export function identityFingerprint(publicKey: string): string {
   return Array.from(sha256(fromBase64Url(publicKey)).slice(0, 6), byte => byte.toString(16).padStart(2, '0'))
     .join('')
     .toUpperCase()
+}
+
+/** A device's id is derived from its identity key, so the Server can check one against the other. */
+export function deviceIdFor(publicKey: string): string {
+  const key = fromBase64Url(publicKey)
+  if (key.byteLength !== 32) throw new Error('X25519 public keys must be 32 bytes')
+  return `d-${toBase64Url(sha256(key).slice(0, 16))}`
+}
+
+export function randomToken(bytes = 32): string {
+  return toBase64Url(randomBytes(bytes))
 }
 
 export function toBase64Url(bytes: Uint8Array): string {

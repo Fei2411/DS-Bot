@@ -50,7 +50,7 @@ export class NoiseIkSession {
 
   get complete(): boolean { return this.transport !== undefined }
 
-  writeHandshake(payload = new Uint8Array()): Uint8Array {
+  writeHandshake(payload: Uint8Array = new Uint8Array()): Uint8Array {
     this.assertHandshake(false)
     const output = new Uint8Array(payload.byteLength + this.handshake.getNextMessageOverhead())
     const length = this.handshake.writeMessage(payload, output)

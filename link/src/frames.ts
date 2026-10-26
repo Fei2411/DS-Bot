@@ -43,6 +43,7 @@ export interface ControlFrameByteLimits {
 export interface HelloPayload {
   role: 'host' | 'client'
   deviceId: string
+  identityKey: string
   accessToken: string
   protocols: number[]
   capabilities: string[]
