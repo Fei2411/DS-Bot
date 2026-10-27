@@ -20,6 +20,17 @@
       "predictiveBackGestureEnabled": false,
       "package": "io.github.fei2411.deepseekbot"
     },
-    "scheme": "dsbot"
+    "scheme": "dsbot",
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DS Bot uses the camera to scan the pairing code that your computer shows.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ]
   }
 }
