@@ -92,6 +92,7 @@ export function install(rt) {
     memoryReviews: rt.memoryReviews(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
+    phone: rt.phoneView(),
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
@@ -337,6 +338,11 @@ export function install(rt) {
         case 'connector-retry':
           await rt.load()
           return ok(await rt.connectorEndpoint(endpoint, body))
+        case 'phone-set':
+        case 'phone-pair':
+        case 'phone-pair-cancel':
+        case 'phone-remove':
+          return ok(await rt.phoneEndpoint(endpoint, body))
         case 'capability-save':
         case 'capability-delete':
         case 'capability-approve':
@@ -514,6 +520,8 @@ export function install(rt) {
       return fail(message, code)
     }
   }
+
+  rt.phoneServe(handle)
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => ctx.connection.fetch.register({

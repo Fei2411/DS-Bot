@@ -112,7 +112,10 @@ MIT License, Copyright (c) 2026 DSH Remote contributors
 
 No other third-party code is copied into this repository. At run time the
 plugin uses the @deepseek-ai/* packages of the DeepSeek Harness install it
-runs in; they are not bundled. esbuild is a build tool only. The desktop app
+runs in; they are not bundled. esbuild is a build tool only. The plugin's
+client.js bundles qrcode-generator from npm (MIT, Copyright (c) 2009 Kazuhiko
+Arase), and its link.js bundles the phone link from link/ with the packages
+it uses, listed below. The desktop app
 in app/ installs the pinned @deepseek-ai/* packages, Electron and pnpm from
 npm; they keep their own licenses. The build of its window (app/ui) bundles,
 from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and

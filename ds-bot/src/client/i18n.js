@@ -430,6 +430,25 @@ const ZH = {
   'Back to Bots': '返回 Bot 列表',
   'Close settings': '关闭设置',
 
+  // Phone
+  Phone: '手机',
+  'Off. Phones cannot reach this computer.': '已关闭。手机连不上这台电脑。',
+  'On. Paired phones can use DS Bot here.': '已开启。配对过的手机可以用这台电脑上的 DS Bot。',
+  'Cannot reach the Server. Trying again…': '连不上服务器，正在重试…',
+  'Pairing QR code': '配对二维码',
+  'Phone access': '手机访问',
+  Server: '服务器',
+  'The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.': '在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。',
+  'Pair a phone': '配对手机',
+  'Scan this code with the DS Bot app on your phone.': '用手机上的 DS Bot App 扫这个码。',
+  'The code works once. It stops working in {count} min.': '这个码只能用一次，{count} 分钟后失效。',
+  'Show a QR code': '显示二维码',
+  'Your phone scans it once. After that it connects by itself.': '手机扫一次就行，以后会自动连接。',
+  'Turn on phone access first': '请先打开手机访问',
+  Phones: '手机',
+  'No phones yet': '还没有配对的手机',
+  'Paired on {date}': '{date} 配对',
+
   // Context menu
   Unpin: '取消置顶',
   Pin: '置顶',
@@ -1063,6 +1082,13 @@ const HOST_ERRORS = [
   [/^Memory cannot change now: [\s\S]*$/, '现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队'],
 ]
 const HOST_ZH = {
+  'The Server address must start with ws:// or wss://': '服务器地址必须以 ws:// 或 wss:// 开头',
+  'Enter the Server address first': '请先填服务器地址',
+  'Turn on phone access first': '请先打开手机访问',
+  'This phone is not paired': '这台手机没有配对',
+  'Another dsh has this Bot team open, so phones connect to that one': '另一个 dsh 打开了这个 Bot 团队，手机会连到那一个',
+  'This dsh runs on a Node without WebSocket': '这个 dsh 用的 Node 不支持 WebSocket',
+  'Phones are paired and removed on the computer': '配对和删除手机只能在电脑上做',
   'Request failed': '请求失败',
   'Permissions are not available in this DeepSeek Harness': '这个 DeepSeek Harness 不支持权限设置',
   'Avatar images must be PNG, JPEG, WebP, or GIF': '头像图片必须是 PNG、JPEG、WebP 或 GIF',

@@ -34,6 +34,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci --no-fund --no-audit
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - name: Install DSH ${{ matrix.dsh }}
         run: npm run harness -- --no-save "@deepseek-ai/dsh@${{ matrix.dsh }}"
       - run: npm test
