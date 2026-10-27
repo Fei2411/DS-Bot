@@ -13,6 +13,7 @@ export interface SecureHandshakeTransport extends RemoteTransport {
   connectionInfo(): { connectionId: string; localDeviceId: string; remoteDeviceId: string }
   sendHandshake(step: number, data: Uint8Array): Promise<void>
   onHandshake(cb: (step: number, data: Uint8Array) => void): () => void
+  readonly closeReason?: Error
 }
 
 type MessageHandler = (data: Uint8Array) => void

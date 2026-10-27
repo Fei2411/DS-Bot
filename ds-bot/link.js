@@ -7826,6 +7826,8 @@ var RelayTransport = class extends BaseTransport {
   bytesReceived = 0;
   connectionId;
   relayCounter = 0;
+  /** Why the Host or Server dropped a connection that was already set up, such as a phone no longer paired. */
+  closeReason;
   readyResolve;
   readyReject;
   handshakeTimer;
@@ -7842,6 +7844,7 @@ var RelayTransport = class extends BaseTransport {
     this.socket = this.options.createSocket?.(this.url) ?? new WebSocket(this.url);
     this.controlFrameLimits = {};
     this.relayCounter = 0;
+    this.closeReason = void 0;
     this.socket.binaryType = "arraybuffer";
     await new Promise((resolve, reject) => {
       this.readyResolve = resolve;
@@ -7989,6 +7992,7 @@ var RelayTransport = class extends BaseTransport {
     const reject = this.readyReject;
     this.readyResolve = void 0;
     this.readyReject = void 0;
+    if (reject === void 0) this.closeReason = error;
     reject?.(error);
     this.socket?.close();
     this.socket = void 0;
@@ -8264,7 +8268,7 @@ async function waitForResponder(inner, noise, hello, timeoutMs) {
       if (error === void 0) resolve(reply);
       else reject(error);
     };
-    const unsubscribeClose = inner.onClose?.(() => finish(new Error("The link closed during the secure handshake.")));
+    const unsubscribeClose = inner.onClose?.(() => finish(inner.closeReason ?? new Error("The link closed during the secure handshake.")));
     inner.sendHandshake(1, noise.writeHandshake(hello)).catch((error) => {
       finish(error instanceof Error ? error : new Error("The secure handshake failed."));
     });

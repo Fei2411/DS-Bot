@@ -86,7 +86,8 @@ test('an unpaired phone is refused', async () => {
   const desk = await computer()
   await assert.rejects(phone(desk.self).client.connect(), { code: 'NOT_PAIRED' })
   desk.registry.openPairing()
-  await assert.rejects(phone(desk.self, { pairingCode: 'wrong' }).client.connect())
+  await assert.rejects(phone(desk.self, { pairingCode: 'wrong' }).client.connect(), { code: 'NOT_PAIRED' })
+  await assert.rejects(phone(desk.self).client.connect(), { code: 'NOT_PAIRED' })
   assert.equal(desk.registry.list().length, 0)
   assert.equal(desk.calls(), 0)
 })
@@ -135,6 +136,8 @@ test('a removed phone is cut off and cannot come back', async () => {
   desk.registry.revoke(link.self.deviceId)
   desk.host.disconnect(link.self.deviceId)
   await closed
+  await assert.rejects(phone(desk.self, {}, link.self, link.token).client.connect(), { code: 'NOT_PAIRED' })
+  desk.registry.openPairing()
   await assert.rejects(phone(desk.self, {}, link.self, link.token).client.connect(), { code: 'NOT_PAIRED' })
 })
 

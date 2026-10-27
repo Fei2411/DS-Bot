@@ -164,7 +164,7 @@ async function waitForResponder(
       if (error === undefined) resolve(reply)
       else reject(error)
     }
-    const unsubscribeClose = inner.onClose?.(() => finish(new Error('The link closed during the secure handshake.')))
+    const unsubscribeClose = inner.onClose?.(() => finish(inner.closeReason ?? new Error('The link closed during the secure handshake.')))
     inner.sendHandshake(1, noise.writeHandshake(hello)).catch(error => {
       finish(error instanceof Error ? error : new Error('The secure handshake failed.'))
     })

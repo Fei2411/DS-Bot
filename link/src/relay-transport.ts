@@ -37,6 +37,8 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
   private bytesReceived = 0
   private connectionId?: string
   private relayCounter = 0
+  /** Why the Host or Server dropped a connection that was already set up, such as a phone no longer paired. */
+  closeReason?: Error
   private readyResolve?: () => void
   private readyReject?: (error: Error) => void
   private handshakeTimer?: ReturnType<typeof setTimeout>
@@ -55,6 +57,7 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
     this.socket = this.options.createSocket?.(this.url) ?? new WebSocket(this.url)
     this.controlFrameLimits = {}
     this.relayCounter = 0
+    this.closeReason = undefined
     this.socket.binaryType = 'arraybuffer'
     await new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve
@@ -219,6 +222,7 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
     const reject = this.readyReject
     this.readyResolve = undefined
     this.readyReject = undefined
+    if (reject === undefined) this.closeReason = error
     reject?.(error)
     this.socket?.close()
     this.socket = undefined
