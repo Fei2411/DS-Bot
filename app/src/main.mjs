@@ -22,6 +22,7 @@ import { hostPort } from './host-port.mjs'
 import { HostProcess } from './host-process.mjs'
 import { copySessions, findTeam, importTeam, teamInUse, userDshHome } from './import.mjs'
 import { copyData, moveProblem } from './move-data.mjs'
+import { linuxPackageAsset, linuxPackageFormat, readOsRelease } from './linux-package.mjs'
 import { CHECK_PROFILE, PROFILE } from './profile.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
 import { UPDATE_TEXT, watchReleases, watchUpdates } from './updates.mjs'
@@ -513,7 +514,7 @@ async function moveData(workspace) {
 const notePage = message => `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
 <body style="margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;background:Canvas;color:CanvasText">${message.replace(/[&<>]/gu, char => `&#${String(char.charCodeAt(0))};`)}</body>`)}`
 
-// Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
+// Windows and a Linux AppImage update themselves; macOS and Linux packages ask to download the new
 // version. Throwaway runs check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
@@ -525,13 +526,12 @@ function startUpdates() {
     })
   }
   // electron-updater's Linux updater works only from inside an AppImage (APPIMAGE is set there);
-  // a deb cannot update itself and points at the release page instead, as on macOS. The deb's
-  // file name uses the Debian architecture (x64 → amd64).
+  // deb and RPM installs point at the release page with the asset for this OS family.
   if (process.platform === 'linux' && process.env.APPIMAGE === undefined) {
-    const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
+    const format = linuxPackageFormat(readOsRelease())
     return watchReleases({
       current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
-      asset: version => `DeepSeek-Bot-${version}-linux-${debArch}.deb`,
+      asset: version => linuxPackageAsset(version, format),
     })
   }
   if (process.platform === 'win32' || process.platform === 'linux') {

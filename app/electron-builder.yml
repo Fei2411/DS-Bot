@@ -8,6 +8,10 @@ files:
   - package.json
   - src/**
   - assets/**
+  # Let sharp use its official WASM fallback on Linux. Native libvips conflicts with
+  # Electron's system GLib on current Fedora (electron/electron#46323).
+  - '!node_modules/@img/sharp-linux*/**'
+  - '!node_modules/@img/sharp-libvips-linux*/**'
 # The Host runs pnpm as a separate Node process to install plugins, so it must be a plain file.
 asarUnpack:
   - node_modules/pnpm/**
@@ -41,13 +45,15 @@ mac:
   category: public.app-category.productivity
 linux:
   # One AppImage runs on every distribution and updates itself; the deb is for Debian/Ubuntu,
-  # where it avoids Ubuntu 24.04's AppArmor question of an AppImage and adds a menu entry.
+  # where it avoids Ubuntu 24.04's AppArmor question. RPM serves Fedora/RHEL installations.
   target:
     - target: AppImage
       arch: [x64]
     - target: deb
       arch: [x64]
-  # The binary and the deb's menu entry take this name; productName has a space, which a
+    - target: rpm
+      arch: [x64]
+  # The binary and the deb/RPM menu entry take this name; productName has a space, which a
   # terminal command should not have.
   executableName: deepseek-bot
   # A deb needs a maintainer; package.json's author has no email, so it goes here.
@@ -56,6 +62,19 @@ linux:
   syncDesktopName: true
   icon: assets/icon.png
   category: Utility
+rpm:
+  # Keep the builder's runtime dependencies and include Electron's audio and GBM libraries.
+  depends:
+    - gtk3
+    - libnotify
+    - nss
+    - libXScrnSaver
+    - (libXtst or libXtst6)
+    - xdg-utils
+    - at-spi2-core
+    - (libuuid or libuuid1)
+    - alsa-lib
+    - mesa-libgbm
 # Where the installed app looks for updates (app-update.yml in the package). The build writes
 # latest.yml beside the installer; the release workflow attaches both to the GitHub release,
 # so the build itself never publishes (--publish never).

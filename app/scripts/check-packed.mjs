@@ -74,12 +74,32 @@ function checkSharp(app) {
     const appRequire = createRequire(${JSON.stringify(join(resources, 'app.asar', 'package.json'))})
     const sharp = appRequire('sharp')
     ;(async () => {
+      if (process.platform === 'linux') assert.ok(sharp.versions.emscripten, 'Linux uses the official sharp WASM backend')
       const image = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#ff0000' } }).png().toBuffer()
       const { data, info } = await sharp(image).resize(2, 2).removeAlpha().raw().toBuffer({ resolveWithObject: true })
       assert.equal(info.width, 2)
       assert.equal(info.height, 2)
       assert.deepEqual([...data], Array.from({ length: 4 }, () => [255, 0, 0]).flat())
       console.log('check-packed: sharp image processing passed (libvips ' + sharp.versions.vips + ')')
+      const { prepareImageFile } = await import(require('node:url').pathToFileURL(appRequire.resolve('@deepseek-ai/dsh-attachment-local')).href)
+      const limits = {
+        maxImageBytes: 1024 * 1024, maxImagesPerMessage: 20, maxMessageImageBytes: 20 * 1024 * 1024,
+        maxImagePixels: 1024 * 1024, maxImageDimension: 1024,
+        mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+      }
+      const policy = { maxPixels: 1024, maxDimension: 32, maxBytes: 64 * 1024 }
+      for (const format of ['png', 'jpeg', 'webp', 'gif']) {
+        const source = await sharp({ create: { width: 128, height: 96, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0.5 } } }).toFormat(format).toBuffer()
+        const prepared = await prepareImageFile({ data: source, mediaType: 'image/' + format }, limits, policy)
+        assert.equal(prepared.ref.width, 32)
+        assert.equal(prepared.ref.height, 24)
+        const metadata = await sharp(prepared.data).metadata()
+        assert.equal(metadata.width, 32)
+        assert.equal(metadata.height, 24)
+        if (format === 'png' || format === 'webp') assert.equal(metadata.hasAlpha, true)
+      }
+      await assert.rejects(prepareImageFile({ data: Buffer.from('invalid image'), mediaType: 'image/png' }, limits, policy))
+      console.log('check-packed: DSH PNG/JPEG/WebP/GIF normalization and invalid-image rejection passed')
     })().catch(error => { console.error(error); process.exitCode = 1 })
   `
   // Use the shipped Electron and dependencies outside the checkout, just like the Host.

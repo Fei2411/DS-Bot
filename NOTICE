@@ -121,3 +121,16 @@ their ideas; it does not contain their code.
     (packages/experimental/client-ui-voice-input), MIT: the voice chat
     records with the same steps (record, resample to 16 kHz mono, PCM16 WAV)
     before it calls the plugin's speech service.
+
+==============================================================================
+Linux desktop image backend
+==============================================================================
+
+The Linux desktop packages include the unmodified official @img/sharp-wasm32
+0.35.5 distribution from sharp (https://github.com/lovell/sharp/tree/v0.35.5/npm/wasm32).
+It contains sharp (Apache-2.0), libvips (LGPL-3.0-or-later), and supporting
+components under their respective licenses. The package's LICENSE and version
+information are shipped with it, outside app.asar, so the backend can be replaced.
+Sources and build instructions: https://github.com/lovell/sharp and
+https://github.com/lovell/sharp-libvips . The WASM runtime dependency,
+@emnapi/runtime (https://github.com/toyobayashi/emnapi), is MIT licensed.
