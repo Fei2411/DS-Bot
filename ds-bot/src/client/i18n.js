@@ -347,6 +347,8 @@ const ZH = {
   'Click again to delete. Its chats are archived.': '再点一次删除，它的对话会归档。',
   'Removes the Bot from the team.': '把这个 Bot 从团队里移除。',
   'Pick a model and {name} can start.': '选好模型，{name} 就能开始工作。',
+  'Agent preset': 'Agent 预设',
+  'New sessions of {name} start with this preset.': '{name} 之后新建的会话都会用这个预设启动。',
   'Permissions': '权限',
   'Read only': '仅可查看',
   'Workspace': '工作区内修改',

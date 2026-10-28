@@ -378,6 +378,8 @@ var ZH = {
   "Click again to delete. Its chats are archived.": "再点一次删除，它的对话会归档。",
   "Removes the Bot from the team.": "把这个 Bot 从团队里移除。",
   "Pick a model and {name} can start.": "选好模型，{name} 就能开始工作。",
+  "Agent preset": "Agent 预设",
+  "New sessions of {name} start with this preset.": "{name} 之后新建的会话都会用这个预设启动。",
   "Permissions": "权限",
   "Read only": "仅可查看",
   "Workspace": "工作区内修改",
@@ -17340,6 +17342,24 @@ function PermissionRow({ bot, roster, actions, run: run2 }) {
     (0, import_react47.createElement)(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === void 0, onPick: (permission) => run2(actions.updateBot(bot.id, { permission })) })
   );
 }
+function AgentPresetRow({ bot, roster, actions, run: run2 }) {
+  const options = roster.agentPresets;
+  if (!options?.length) return null;
+  const choices = options.some((option) => option.value === "standard") ? options : [{ value: "standard", name: "standard" }, ...options];
+  const current = bot.agentPreset ?? "standard";
+  return (0, import_react47.createElement)(
+    "div",
+    { className: "bt-drawer-permission" },
+    (0, import_react47.createElement)("div", { className: "bt-section-title" }, t("Agent preset")),
+    (0, import_react47.createElement)("select", {
+      className: "bt-select",
+      value: current,
+      "aria-label": t("Agent preset"),
+      onChange: (event) => run2(actions.updateBot(bot.id, { agentPreset: event.target.value === "standard" ? "" : event.target.value }))
+    }, choices.map((option) => (0, import_react47.createElement)("option", { key: option.value, value: option.value }, option.name + (option.broken ? " ⚠" : "")))),
+    (0, import_react47.createElement)("div", { className: "bt-note" }, t("New sessions of {name} start with this preset.", { name: bot.name }))
+  );
+}
 function RunStats({ bot, part, running, actions }) {
   const [values, setValues] = (0, import_react47.useState)(null);
   (0, import_react47.useEffect)(() => {
@@ -17661,6 +17681,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           modelOf(bot, roster) ? null : (0, import_react47.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
         (0, import_react47.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
+        (0, import_react47.createElement)(AgentPresetRow, { key: "agent-preset", bot, roster, actions, run: run2 }),
         (0, import_react47.createElement)(
           "div",
           { key: "folder", className: "bt-drawer-model" },

@@ -16,8 +16,11 @@
 
 ### Agent 预设
 
-- 只有一个 Bot 预设：DS Bot 的 Bot 内核加 DSH 的标准 harness（`standard`），不改造。
-- 这个预设归 DS Bot 所有：新建的 Bot 会话、群会话和对话分段都显式用 `standard`，**不跟随**用户在 DSH 里设的「新任务默认」。DSH 里没有可用的 `standard` 时，才交给 DSH 决定。
+- Bot 会话默认用 DS Bot 的 Bot 内核加 DSH 的标准 harness（`standard`），不改造。
+- 每个 Bot 可以在 profile 已声明的 agent preset 里**选定一个自己的**（详情面板，或 `create_bot` / `update_bot` 的 `agent_preset` 参数），它的 Bot 会话、群会话和新分段都用这个预设构成（工具、prompt 段、技能）。预设本身由部署者在 profile 配置里声明，DS Bot 不生成、不改造；Bot 和 Main Bot 只能在已有清单里选（#341）。
+- Bot 没有选定、或选定的预设不存在或已损坏时，回落到 `standard`；`standard` 也不可用时，才交给 DSH 决定。这仍然是 DS Bot 的默认，**不跟随**用户在 DSH 里设的「新任务默认」。
+- 换绑预设不打断当前会话：会话保留它创建时所用的预设，新预设从该 Bot 的下一个新会话起生效。
+- 团队自己的会话（DSH Agent）不受 Bot 预设影响，仍然不提供团队工具。
 - Bot 的工具只挂在 Bot 的作用域里，不出现在普通 DSH 会话中。
 - 以前在 PTC 预设下建的群会话只能调用 `run_code`，DS Bot 为它们单独处理群的接力；新的群会话都用标准预设（#37、#168）。
 
@@ -77,4 +80,5 @@
 - 2026-10-10：Bot 预设归 DS Bot 所有；不预置分工 Bot；能力包只做加法。
 - 2026-10-14：新的 Bot 会话、群会话和分段显式用 `standard`，修好 PTC 预设下群聊不接力（#37）。
 - 2026-10-19：Bot 用 DSH 的 `working_directory` 换到工作文件夹以外时，当作给自己设工作文件夹（同样的检查和批准），换到新的一段；在工作文件夹里面换只是走进去（#345）。
+- 2026-10-19：每个 Bot 可选定 profile 已声明的一个 agent preset，默认仍是 `standard`（#341，待维护者确认）。
 - 2026-10-20：用户能在设置里换总工作区；中文名「团队工作区」改叫「总工作区」（#364）。

@@ -73,6 +73,8 @@ export function install(rt) {
     models: rt.cachedCatalog(),
     defaultModel: rt.cachedDefault() ?? null,
     permissions: rt.permissionCatalog?.() ?? null,
+    // The agent presets this profile serves, for a Bot's details panel; null when DSH offers none.
+    agentPresets: rt.cachedAgentPresets?.() ?? null,
     modelsKey: modelsKey(),
     prefs: state.prefs,
     // Whether a Desktop window should serve Bot browser reads (see browser.js).
@@ -230,7 +232,7 @@ export function install(rt) {
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null })))
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, agentPreset: body.agentPreset, workDir: body.workDir })
           return ok(bot)
         }
         case 'update-bot':

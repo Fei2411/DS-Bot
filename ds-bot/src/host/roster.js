@@ -67,16 +67,64 @@ export function install(rt) {
   // Under the PTC preset (DSH Desktop's default) a model may call only run_code, which
   // turns down the group_relay call that a group chat's Session is given. A Session
   // keeps the preset it is made with.
-  async function botPreset() {
+  // A Bot may pin an agent preset of its own, so its Sessions are made with that
+  // composition (tools, prompt sections, skills). An unknown or broken pin falls back
+  // to `standard`, so the Bot keeps working.
+  async function agentPresetOk(name) {
+    const presets = ctx.get?.('agentPresets')
+    if (presets === undefined || name === undefined) return false
+    try {
+      return (await presets.list()).some(preset => preset.id === name && preset.broken === undefined)
+    } catch {
+      return false
+    }
+  }
+
+  async function botPreset(bot) {
+    if (await agentPresetOk(bot?.agentPreset)) return { agentPreset: bot.agentPreset }
     const presets = ctx.get?.('agentPresets')
     if (presets === undefined) return {}
-    const standard = (await presets.list()).some(preset => preset.id === 'standard' && preset.broken === undefined)
+    let known
+    try {
+      known = await presets.list()
+    } catch {
+      return {}
+    }
+    const standard = known.some(preset => preset.id === 'standard' && preset.broken === undefined)
     return standard ? { agentPreset: 'standard' } : {}
+  }
+
+  // The agent presets this profile serves, for the client and `list_presets`. Refreshed
+  // with each team load; presets only change when the profile's patch does.
+  let presetCache = []
+  const refreshPresets = async () => {
+    const presets = ctx.get?.('agentPresets')
+    if (presets === undefined) {
+      presetCache = []
+      return presetCache
+    }
+    try {
+      presetCache = (await presets.list())
+        .map(preset => ({ value: preset.id, name: preset.id, ...(preset.broken !== undefined ? { broken: true } : {}) }))
+    } catch {
+      presetCache = []
+    }
+    return presetCache
+  }
+  // store.js installs first, so rt.load is in place; the team reads it on every
+  // user action, which is often enough to pick up a patch reload.
+  const baseLoad = rt.load
+  rt.load = async (...args) => {
+    const result = await baseLoad(...args)
+    void refreshPresets().catch(() => {})
+    return result
   }
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are.
-  async function createSession(title, { dir } = {}) {
+  // `agentPreset` pins the preset a Session is made with; without it the Bot's own pin
+  // or `standard` applies.
+  async function createSession(title, { dir, agentPreset } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
     const readOnly = rt.readOnly()
@@ -84,7 +132,7 @@ export function install(rt) {
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const place = usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
-    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
+    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset(agentPreset === undefined ? undefined : { agentPreset }) })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId
@@ -137,7 +185,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, agentPreset, copyOf, pickModel = false }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
@@ -149,10 +197,12 @@ export function install(rt) {
     const effortId = modelRef === undefined ? undefined
       : effort === null || effort === '' ? undefined
       : (await rt.resolveEffort(modelRef, effort)) ?? await rt.defaultEffort(modelRef)
+    // Checked before the Session is made, so a preset that does not pass leaves nothing behind.
+    if (agentPreset !== undefined && !(await agentPresetOk(agentPreset))) throw new Error(`No agent preset named ${agentPreset}`)
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
-    const id = await createSession(cleanName, { dir })
+    const id = await createSession(cleanName, { dir, agentPreset })
     try {
       state.bots[id] = {
         id,
@@ -164,6 +214,7 @@ export function install(rt) {
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
+        ...(agentPreset !== undefined ? { agentPreset } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
@@ -249,6 +300,9 @@ export function install(rt) {
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
+      // Read from the cache `rt.load` refreshes: no await here, so two copies made at
+      // once still get different names. A preset that went away copies as nothing.
+      agentPreset: rt.cachedAgentPresets().some(preset => preset.value === bot.agentPreset && !preset.broken) ? bot.agentPreset : undefined,
       workDir,
       copyOf: bot.id,
     })
@@ -268,6 +322,12 @@ export function install(rt) {
     // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    // A pinned agent preset is validated up front too. A Session keeps the preset it
+    // is made with, so a new pin applies from the Bot's next new Session on.
+    const presetRef = patch.agentPreset === undefined ? undefined
+      : patch.agentPreset === null || patch.agentPreset === '' ? null
+      : (await agentPresetOk(patch.agentPreset)) ? patch.agentPreset : undefined
+    if (presetRef === undefined && patch.agentPreset !== undefined) throw new Error(`No agent preset named ${patch.agentPreset}`)
     const flag = patch.private === undefined ? undefined : patch.private === true
     await rt.checkPrivacyChange(bot, { flag, moving, workDir })
     const modelRef = patch.model === undefined ? undefined
@@ -320,6 +380,10 @@ export function install(rt) {
       if (effortId === null) delete bot.effort
       else bot.effort = effortId
       modelChanged = true
+    }
+    if (patch.agentPreset !== undefined) {
+      if (presetRef === null) delete bot.agentPreset
+      else bot.agentPreset = presetRef
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
     if (browserGrants !== undefined) {
@@ -708,6 +772,7 @@ export function install(rt) {
 
   Object.assign(rt, {
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
+    refreshAgentPresets: refreshPresets, cachedAgentPresets: () => presetCache,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     setMain, deleteBot, bootstrap, dropKickoff,
   })

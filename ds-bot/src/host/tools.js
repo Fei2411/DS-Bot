@@ -305,6 +305,7 @@ export function install(rt) {
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
       model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
       effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
+      agent_preset: { type: 'string', description: 'Agent preset for the Bot, as list_presets shows it. Only when the user names one; it fixes the tools and skills the Bot\'s Sessions are made with.' },
       work_dir: WORK_DIR_PARAM,
       avatar: AVATAR_PARAM,
     },
@@ -322,7 +323,7 @@ export function install(rt) {
         const creator = callerBot(exec)
         const served = creator?.model && (await rt.catalog()).some(entry => entry.ref === creator.model)
         const model = args.model || (served ? creator.model : undefined)
-        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, createdBy: creator?.id })
+        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, agentPreset: args.agent_preset, createdBy: creator?.id })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`
@@ -342,6 +343,7 @@ export function install(rt) {
       avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the Bot's character again.` },
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
       effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_bot_models shows; an empty string returns to the model\'s default' },
+      agent_preset: { type: 'string', description: 'Agent preset for the Bot, as list_presets shows it; an empty string returns to the standard preset. A change applies from the Bot\'s next new session on.' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
     },
     output,
@@ -361,16 +363,18 @@ export function install(rt) {
           image = input === null || input === '' ? null : await readAvatar(String(input), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData })
         }
         const moving = typeof args.work_dir === 'string'
+        const presetSet = typeof args.agent_preset === 'string' && args.agent_preset !== ''
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
         // The photo rides on the Bot's other avatar fields, as the settings page's upload
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
         const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self, exec.agent?.id)
-        if (!moving) return `Updated ${next.name}.`
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(args.agent_preset === undefined ? {} : { agentPreset: args.agent_preset }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self, exec.agent?.id)
+        const presetNote = presetSet ? ' The preset applies from its next new session.' : ''
+        if (!moving) return `Updated ${next.name}.${presetNote}`
         const folder = workDir ?? 'the team workspace'
-        return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
+        return bot.id === caller.id ? `Updated ${next.name}.${presetNote} From your next step on, you work in ${folder}.` : `Updated ${next.name}.${presetNote} It now works in ${folder}.`
       } catch (error) {
         return `Could not update the Bot: ${error.message}`
       }
@@ -421,6 +425,18 @@ export function install(rt) {
         const thinking = levels.length > 0 ? `, thinking: ${levels.join(', ')}${entry.reasoning.defaultEffort === undefined ? '' : ` (default: ${entry.reasoning.defaultEffort})`}` : ''
         return `- ${entry.ref}${entry.name !== entry.id ? ` (${entry.name})` : ''}${entry.input?.includes('image') ? ', reads images' : ''}${entry.ref === fallback ? ', default' : ''}${thinking}`
       }).join('\n')
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'list_presets',
+    description: 'List the agent presets a Bot can run with, as agent_preset values for create_bot and update_bot. A preset fixes the tools and skills the Bot\'s Sessions are made with.',
+    parameters: {},
+    output,
+    async execute() {
+      const presets = await rt.refreshAgentPresets()
+      if (presets.length === 0) return 'No agent presets are configured; Bots run on the standard preset.'
+      return presets.map(preset => `- ${preset.value}${preset.broken ? ' (broken)' : ''}${preset.value === 'standard' ? ', default' : ''}`).join('\n')
     },
   }))
 
