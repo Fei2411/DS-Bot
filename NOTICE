@@ -103,6 +103,11 @@ affiliates), and react-markdown and remark-gfm with the packages they use
 (MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
 Copyright (c) Andrea Giammarchi). Vite is a build tool only.
 
+The Bot client bundles mdast-util-from-markdown, micromark-extension-math,
+mdast-util-math and their parser dependencies from npm (MIT, Copyright (c)
+Titus Wormer and other contributors). These parse formula card boundaries;
+formula previews use DeepSeek Harness's public MarkdownText component.
+
 ==============================================================================
 Projects that gave us ideas (no code copied)
 ==============================================================================
