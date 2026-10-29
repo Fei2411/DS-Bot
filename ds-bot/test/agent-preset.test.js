@@ -87,6 +87,30 @@ test('without a usable standard preset a Bot Session keeps DSH\'s default', asyn
   }
 })
 
+test('a Bot Session is made with the preset the Bot pins', async (t) => {
+  const { rt, created, stop } = start({ presets: [{ id: 'ptc' }, { id: 'standard' }] })
+  t.after(stop)
+  await rt.load()
+  await rt.createSession('Chief', { agentPreset: 'ptc' })
+  assert.deepEqual(created, [{ workspaceId: 'w1', agentPreset: 'ptc' }])
+})
+
+test('a pin that names no served preset fails before a Session is made', async (t) => {
+  const { rt, created, stop } = start({ presets: [{ id: 'ptc' }, { id: 'standard' }] })
+  t.after(stop)
+  await rt.load()
+  await assert.rejects(rt.createBot({ name: 'Reader', role: '读', instructions: '' , agentPreset: 'nope' }), /No agent preset named nope/)
+  assert.deepEqual(created, [])
+})
+
+test('a broken pin falls back to standard instead of failing the Bot', async (t) => {
+  const { rt, created, stop } = start({ presets: [{ id: 'ptc', broken: 'failed to start' }, { id: 'standard' }] })
+  t.after(stop)
+  await rt.load()
+  await rt.createSession('Chief', { agentPreset: 'ptc' })
+  assert.deepEqual(created, [{ workspaceId: 'w1', agentPreset: 'standard' }])
+})
+
 test('a group round calls group_relay directly when the Session declares it', async (t) => {
   const { relay, stop } = start()
   t.after(stop)

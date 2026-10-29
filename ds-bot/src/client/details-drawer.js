@@ -45,6 +45,23 @@ function PermissionRow({ bot, roster, actions, run }) {
     h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
 }
 
+// The agent preset the Bot's Sessions are made with, from the presets this profile
+// serves. `standard` is always offered; clearing the pick returns to it. A change
+// applies from the Bot's next new session on.
+function AgentPresetRow({ bot, roster, actions, run }) {
+  const options = roster.agentPresets
+  if (!options?.length) return null
+  const choices = options.some(option => option.value === 'standard') ? options : [{ value: 'standard', name: 'standard' }, ...options]
+  const current = bot.agentPreset ?? 'standard'
+  return h('div', { className: 'bt-drawer-permission' },
+    h('div', { className: 'bt-section-title' }, t('Agent preset')),
+    h('select', {
+      className: 'bt-select', value: current, 'aria-label': t('Agent preset'),
+      onChange: event => run(actions.updateBot(bot.id, { agentPreset: event.target.value === 'standard' ? '' : event.target.value })),
+    }, choices.map(option => h('option', { key: option.value, value: option.value }, option.name + (option.broken ? ' ⚠' : '')))),
+    h('div', { className: 'bt-note' }, t('New sessions of {name} start with this preset.', { name: bot.name })))
+}
+
 // The current part's turns, speed, cache hits and context, for a window without DSH's
 // status bar (actions.runStats). It reads them again when a turn starts or ends.
 function RunStats({ bot, part, running, actions }) {
@@ -277,6 +294,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h(ModelMenu, { bot, roster, actions, run, wide: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name }))),
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
+        h(AgentPresetRow, { key: 'agent-preset', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Working folder')),
           h(FolderMenu, { value: bot.workDir, actions, run, wide: true, onPick: workDir => run(actions.updateBot(bot.id, { workDir })) })),
