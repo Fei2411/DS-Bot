@@ -513,12 +513,24 @@ async function moveData(workspace) {
 const notePage = message => `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
 <body style="margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;background:Canvas;color:CanvasText">${message.replace(/[&<>]/gu, char => `&#${String(char.charCodeAt(0))};`)}</body>`)}`
 
+// A check reaches a feed only when this build asked for one. Our package carries no
+// resources/app-update.yml, and electron-updater answers a missing one by failing the check —
+// once at start and every four hours after that — so a build that was never meant to update
+// itself must not check at all. DS_BOT_UPDATE_URL names a feed and counts as asking;
+// DS_BOT_UPDATES=1 or 0 says it outright and wins over the URL.
+function updatesWanted(feed) {
+  const flag = process.env.DS_BOT_UPDATES
+  if (flag === '1') return true
+  if (flag === '0') return false
+  return feed !== undefined
+}
+
 // Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
 // version. Throwaway runs check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
   const throwaway = Boolean(process.env.DS_BOT_HOME)
-  if (!app.isPackaged || (throwaway && feed === undefined)) return undefined
+  if (!app.isPackaged || !updatesWanted(feed) || (throwaway && feed === undefined)) return undefined
   if (process.platform === 'darwin') {
     return watchReleases({
       current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
