@@ -29,9 +29,31 @@ test('sharp native modules and versioned libvips libraries are unpacked together
     '@img/sharp-libvips-linuxmusl-x64/lib/libvips-cpp.so.8.18.7',
     '@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib',
     '@img/sharp-win32-x64/lib/libvips-42.dll',
+    '@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm',
     'pnpm/bin/pnpm.cjs',
   ]) assert.equal(filter(join(root, 'node_modules', file), stat), true, file)
   assert.equal(filter(join(root, 'node_modules/yaml/dist/index.js'), stat), false)
+})
+
+test('Linux packages select the official sharp WASM fallback without changing other platforms', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  const root = resolve('app-fixture')
+  const filter = new FileMatcher(root, root, value => value, ['node_modules/**/*', ...config.files]).createFilter()
+  const stat = { isDirectory: () => false }
+  for (const file of [
+    '@img/sharp-linux-x64/index.cjs',
+    '@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.7',
+  ]) assert.equal(filter(join(root, 'node_modules', file), stat), false, file)
+  for (const file of ['@img/sharp-wasm32/index.cjs', '@emnapi/runtime/dist/emnapi.cjs.js', 'sharp/dist/index.cjs', '@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node', '@img/sharp-win32-x64/lib/sharp-win32-x64.node']) {
+    assert.equal(filter(join(root, 'node_modules', file), stat), true, file)
+  }
+  const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'))
+  assert.equal(lock.packages['node_modules/@img/sharp-wasm32'].version, lock.packages['node_modules/sharp'].version)
+  assert.equal(config.mac.files, undefined)
+  assert.equal(config.win.files, undefined)
+  for (const file of ['test/package.test.mjs', 'scripts/check-packed.mjs', 'dist-pack/old.AppImage', 'dist-next/next.AppImage']) {
+    assert.equal(filter(join(root, file), stat), false, file)
+  }
 })
 
 // A release is tagged with the version of ds-bot, and the installed apps compare their own

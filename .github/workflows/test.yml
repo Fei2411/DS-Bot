@@ -253,13 +253,18 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - name: Install RPM build tools
+        run: sudo apt-get update -qq && sudo apt-get install -y rpm
       - run: npm run dist
       - name: Check the packages
         run: |
           version="$(node -p "require('./package.json').version")"
           test -f "dist-pack/DeepSeek-Bot-$version-linux-x86_64.AppImage"
           test -f "dist-pack/DeepSeek-Bot-$version-linux-amd64.deb"
+          test -f "dist-pack/DeepSeek-Bot-$version-linux-x86_64.rpm"
           test -f dist-pack/latest-linux.yml
+      - name: Install, check and remove the RPM on Fedora
+        run: docker run --rm --cap-add SYS_ADMIN -v "$PWD/..:/src:ro" -w /src/app fedora:44 bash scripts/check-rpm.sh
       # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
       # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
       - name: Prepare to run the app
@@ -291,7 +296,7 @@ jobs:
         if: steps.scope.outputs.update == 'true'
         run: |
           next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
-          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
+          npx electron-builder --linux AppImage --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
       - name: The AppImage takes the update
         if: steps.scope.outputs.update == 'true'
         run: |

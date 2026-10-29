@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { describe, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { linuxPackageAsset } from '../src/linux-package.mjs'
 import { isNewer, RELEASES_URL, watchReleases, watchUpdates } from '../src/updates.mjs'
 
 // electron-updater's AppUpdater, as far as the app uses it. `found` makes the answer of a
@@ -218,21 +219,23 @@ describe('watchReleases', () => {
     assert.deepEqual(asked, ['0.1.9'])
   })
 
-  test('a given asset replaces the mac zip: the deb of a Linux install', async (t) => {
+  for (const [format, name, other] of [
+    ['deb', 'linux-amd64.deb', 'linux-x86_64.rpm'],
+    ['rpm', 'linux-x86_64.rpm', 'linux-amd64.deb'],
+  ]) test(`a ${format} install waits for its own package asset`, async (t) => {
     const page = 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9'
-    // The deb's file name uses the Debian architecture (x64 → amd64).
-    const deb = version => `DeepSeek-Bot-${version}-linux-amd64.deb`
-    // A release with only the mac zip does not count for a deb install.
-    const misses = watchReleases({
-      current: '0.1.7', arch: 'x64', asset: deb,
-      fetch: async () => releaseResponse([release('0.1.9', { page })]), log: quietLog(),
-    })
-    t.after(misses.stop)
-    assert.equal(await misses.latest(), null)
-
+    const asset = version => linuxPackageAsset(version, format, 'x64')
+    for (const wrong of ['mac-arm64.zip', other, 'linux-x86_64.AppImage']) {
+      const misses = watchReleases({
+        current: '0.1.7', arch: 'x64', asset,
+        fetch: async () => releaseResponse([release('0.1.9', { page, assets: [{ name: `DeepSeek-Bot-0.1.9-${wrong}` }] })]), log: quietLog(),
+      })
+      t.after(misses.stop)
+      assert.equal(await misses.latest(), null, wrong)
+    }
     const hits = watchReleases({
-      current: '0.1.7', arch: 'x64', asset: deb,
-      fetch: async () => releaseResponse([release('0.1.9', { page, assets: [{ name: 'DeepSeek-Bot-0.1.9-linux-amd64.deb' }] })]),
+      current: '0.1.7', arch: 'x64', asset,
+      fetch: async () => releaseResponse([release('0.1.9', { page, assets: [{ name: `DeepSeek-Bot-0.1.9-${name}` }] })]),
       log: quietLog(),
     })
     t.after(hits.stop)
