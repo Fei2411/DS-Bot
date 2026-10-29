@@ -37,3 +37,7 @@ export function MarkdownText({ text, labels, variant }) {
   return h('div', { className: variant === 'compact' ? 'md_markdown md-compact' : 'md_markdown' },
     h(Markdown, { remarkPlugins: plugins, components }, text ?? ''))
 }
+
+export function useMarkdown(props) {
+  return h(MarkdownText, props)
+}
