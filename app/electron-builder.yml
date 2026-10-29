@@ -67,10 +67,8 @@ linux:
   syncDesktopName: true
   icon: assets/icon.png
   category: Utility
-# Where the installed app looks for updates (app-update.yml in the package). The build writes
-# latest.yml beside the installer; the release workflow attaches both to the GitHub release,
-# so the build itself never publishes (--publish never).
-publish:
-  provider: github
-  owner: Fei2411
-  repo: DS-Bot
+# No publish block on purpose. It is the only thing that makes electron-builder write
+# resources/app-update.yml into the package, and that file is where the installed app looks for
+# an update feed: with it absent the app can never replace itself with an upstream build.
+# A release bundle therefore carries no latest.yml either; whoever ships a release adds its own
+# publish settings at build time (`--config.publish=…`), not in this file.

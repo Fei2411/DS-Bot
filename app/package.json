@@ -13,8 +13,9 @@
   "scripts": {
     "build": "vite build",
     "start": "electron .",
-    "pack": "electron-builder --dir --publish never",
-    "dist": "electron-builder --publish never",
+    "pack": "electron-builder --dir --publish never && node scripts/check-no-feed.mjs",
+    "dist": "electron-builder --publish never && node scripts/check-no-feed.mjs",
+    "check-no-feed": "node scripts/check-no-feed.mjs",
     "check-packed": "node scripts/check-packed.mjs",
     "runtime": "node scripts/prepare-runtime.mjs",
     "check-lifecycle": "node scripts/check-lifecycle.mjs",
