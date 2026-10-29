@@ -251,6 +251,35 @@ test('Main Bots and group admins write the team memory; only Main Bots touch ano
   await assert.rejects(tool('remember', { text: 'x' }, 'stranger'), /Only Bots on the team keep a memory\./)
 })
 
+test('recall reads a continuous Chinese query as character pairs, and keeps spaced queries exact', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '- 女友小李的生日是 10 月 22 日，她喜欢蓝色' }, 'b2')
+  // The issue's case: the whole phrase is not a substring of the entry, so the
+  // pairs that do hit rank it, under the count wording.
+  assert.match(await tool('recall', { query: '小李生日' }, 'b2'), /No entry has all of "小李生日"; entries with the most of these words:\n\[yours · MEMORY\.md\] 女友小李的生日/)
+  // The spaced form keeps the old all-terms path and its wording.
+  assert.match(await tool('recall', { query: '生日 小李' }, 'b2'), /^Entries with "生日 小李" in your memory and the team memory:\n\[yours · MEMORY\.md\] 女友小李的生日/)
+  // One Han character still matches by substring, as before.
+  assert.match(await tool('recall', { query: '蓝' }, 'b2'), /^Entries with "蓝" in your memory and the team memory:/)
+  assert.match(await tool('recall', { query: '没有任何关系的词' }, 'b2'), /^Nothing in your memory and the team memory mentions/)
+})
+
+test('recall handles Chinese mixed with English, long questions, and the team scope', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '- 小李的AI助手叫小智，每天八点提醒' }, 'b2')
+  // "AI" is neither a pair nor a 3+ letter word; the Chinese pairs still find it.
+  assert.match(await tool('recall', { query: '小李的AI助手' }, 'b2'), /叫小智/)
+  await tool('remember', { text: '- 用户喜欢在深夜听爵士乐' }, 'b2')
+  await tool('remember', { text: '- 用户上次说过想法很多' }, 'b2')
+  // The pairs that matter sit past the sixth term of a long question.
+  assert.match(await tool('recall', { query: '想问问上次说的那个爵士乐' }, 'b2'), /深夜听爵士乐/)
+  // Another scope answers the same way.
+  await tool('remember', { text: '- 团队每周五发周报', scope: 'team' }, 'm1')
+  assert.match(await tool('recall', { query: '周报' }, 'b2'), /\[team · MEMORY\.md\] 团队每周五发周报/)
+})
+
 test('keys, long entries, and full files are refused with what to do instead', async (t) => {
   const { tool, read, stop, home } = start()
   t.after(() => stop())
