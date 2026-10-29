@@ -21,7 +21,7 @@ npm installs `ds-bot` from `../ds-bot` as a copy of its package files (`install-
 | `DS_BOT_HOME` | The data location: the `DSH_HOME` of the app. When it is set, the app asks nothing at its first start and imports nothing | The folder chosen at the first start |
 | `DS_BOT_WORKSPACE` | With `DS_BOT_HOME`: the team workspace | `bot/workspace` in the data location |
 | `DS_BOT_SHELL_DATA` | The app's own data (window, Chromium storage, the Bot browsers' logins, `locations.json`) | Electron's `userData` (Windows: `%APPDATA%\DeepSeek Bot`; macOS: `~/Library/Application Support/DeepSeek Bot`) |
-| `DS_BOT_UPDATE_URL` | Windows and a Linux AppImage: a folder URL with `latest.yml` / `latest-linux.yml` and the installer. macOS and a Linux deb: a URL returning a JSON list like GitHub's `releases` API; a release counts only when this machine's package is attached. Prereleases count only for prerelease installs (see [Updates](#updates)). With `DS_BOT_HOME`, the app checks only when this is set | The newest GitHub release |
+| `DS_BOT_UPDATE_URL` | Windows and a Linux AppImage: a folder URL with `latest.yml` / `latest-linux.yml` and the installer. macOS and a Linux deb/RPM: a URL returning a JSON list like GitHub's `releases` API; a release counts only when this machine's package is attached. Prereleases count only for prerelease installs (see [Updates](#updates)). With `DS_BOT_HOME`, the app checks only when this is set | The newest GitHub release |
 
 On macOS, Electron's default `userData` directory for `productName` "DeepSeek Bot" is `~/Library/Application Support/DeepSeek Bot`.
 
@@ -81,7 +81,7 @@ Never point `DS_BOT_HOME` at `~/.dsh` or at the data of an app that you use.
 
 ```sh
 npm run pack           # the app without an installer: dist-pack/win-unpacked/ (Windows), dist-pack/mac*/ (macOS), dist-pack/linux-unpacked/ (Linux)
-npm run dist           # the installer: dist-pack/DeepSeek-Bot-<version>-win-x64.exe (Windows), a .zip (macOS), an .AppImage and a .deb (Linux)
+npm run dist           # the installer: dist-pack/DeepSeek-Bot-<version>-win-x64.exe (Windows), a .zip (macOS), an .AppImage, a .deb and an .rpm (Linux)
 npm run check-packed   # starts the packaged app on throwaway folders with the mock model, chats once, closes it
 ```
 
@@ -89,11 +89,13 @@ macOS produces one zip per architecture. Build arm64 on an Apple chip Mac and x6
 
 `check-packed` takes another executable as its first argument, and a file for a screenshot of the window as its second. It runs an app that lies inside this checkout from a copy in its throwaway folder: from inside the checkout, Node would find a module that the package left out in the checkout's own `node_modules`.
 
+Packaged Linux apps use sharp's official `@img/sharp-wasm32` backend at the same version as sharp. Native sharp/libvips packages are excluded only from Linux packages, so sharp selects its supported WASM fallback without changing DSH or its APIs. This avoids the Electron/system-GLib symbol conflict on Fedora ([electron#46323](https://github.com/electron/electron/issues/46323)). Windows and macOS retain their native backend. The packaged check exercises PNG, JPEG, WebP and GIF through DSH's public image-normalization API, including resizing, alpha preservation and malformed input. WASM does not support native text rendering or tiled output; these are not used by DSH's attachment normalization. Development runs from `node_modules` still use npm's native Linux backend.
+
 electron-builder packs only the packages that it finds through `dependencies` and `optionalDependencies`. The DSH packages ask for many packages as peers, which npm installs but electron-builder would leave out, so `package.json` lists them as dependencies. `npm test` fails when one is missing and names it.
 
 The Windows installer installs for the current user only, without administrator rights, by default into `%LOCALAPPDATA%\Programs\DeepSeek Bot` (`build/installer.nsh` skips the page that asks for all users or only for the current one). The uninstaller removes the program and keeps the data location and the app's own data. CI builds the Windows installer on every pull request, checks the packaged app, then installs it, checks the installed app and uninstalls it. For a change to `app/` or the workflows, it also updates the installed app before the uninstall (see [Updates](#updates)).
 
-Linux gets one AppImage for every distribution — it runs on any glibc system, updates itself, and needs no per-distribution packages — and a deb for Debian/Ubuntu, built in the same `npm run dist`. An AppImage mounts through FUSE 2 (`libfuse2t64` on Ubuntu 24.04+/Debian 13+, `libfuse2` on Ubuntu 22.04, `fuse-libs` on Fedora, `fuse2` on Arch; `--appimage-extract-and-run` works without it). Ubuntu 24.04 and later restrict the unprivileged user namespaces that Chromium's sandbox needs, so an AppImage can refuse to start there ("The SUID sandbox helper binary was found, but is not configured correctly"): the deb does not have this problem, since its post-install sets `chrome-sandbox` up (electron-builder 26 also writes an AppArmor profile). The binary and the deb's menu entry are `deepseek-bot` (`executableName`); the deb installs into `/opt/DeepSeek Bot`. CI builds the Linux packages on every pull request, checks the AppImage's self-update on a throwaway copy, and installs, checks, update-checks and removes the deb.
+Linux gets one AppImage for every distribution — it runs on any glibc system, updates itself, and needs no per-distribution packages — a deb for Debian/Ubuntu, and an RPM for Fedora/RHEL, built in the same `npm run dist`. An AppImage mounts through FUSE 2 (`libfuse2t64` on Ubuntu 24.04+/Debian 13+, `libfuse2` on Ubuntu 22.04, `fuse-libs` on Fedora, `fuse2` on Arch; `--appimage-extract-and-run` works without it). Ubuntu 24.04 and later restrict the unprivileged user namespaces that Chromium's sandbox needs, so an AppImage can refuse to start there ("The SUID sandbox helper binary was found, but is not configured correctly"): the deb does not have this problem, since its post-install sets `chrome-sandbox` up (electron-builder 26 also writes an AppArmor profile). The binary and the deb/RPM menu entry are `deepseek-bot` (`executableName`); both packages install into `/opt/DeepSeek Bot`. CI builds the Linux packages on every pull request, checks the AppImage's self-update on a throwaway copy, and installs, checks, update-checks and removes the deb. It also installs the RPM with dnf in a disposable Fedora 44 container, checks the desktop entry, icon and sandbox permissions, runs the installed app and update check as a non-root user, and removes the package. On Linux, install `rpm-build` (Fedora) or `rpm` (Ubuntu) before building. The RPM is `DeepSeek-Bot-<version>-linux-x86_64.rpm`; install it with `sudo dnf install ./DeepSeek-Bot-<version>-linux-x86_64.rpm`.
 
 ## Updates
 
@@ -101,9 +103,9 @@ The installed app on Windows updates itself with electron-updater (`src/updates.
 
 The checks start before the Host (after a first start's import), so that a version whose Host does not start can still update. When the start fails, the app waits up to 15 seconds for the newest check. When it found a newer version, the error box says so; after the box the app waits for the download, then installs it and opens again.
 
-On macOS, the app checks GitHub's releases at start and every 4 hours. It asks once per version, after that release's zip for this Mac is attached. A Linux deb works the same way, except that it waits for the `linux-amd64` deb (Debian's name for x64). Stable installs ignore prereleases; prerelease installs can see them. Download opens the release page; Later closes the dialog. The app does not install the update itself. `DS_BOT_UPDATE_URL` on macOS and for a deb points to a JSON list like the `releases` API response. A release needs `tag_name`, an HTTPS `html_url`, and the machine's package in `assets`.
+On macOS, the app checks GitHub's releases at start and every 4 hours. It asks once per version, after that release's zip for this Mac is attached. Linux deb/RPM installs work the same way: Debian/Ubuntu wait for `linux-amd64.deb`, and Fedora/RHEL wait for `linux-x86_64.rpm`. The app reads `ID`, then `ID_LIKE`, from `/etc/os-release` (falling back to `/usr/lib/os-release`); unknown systems retain the deb behavior. AppImage installs keep their self-update path on either family. Stable installs ignore prereleases; prerelease installs can see them. Download opens the release page; Later closes the dialog. The app does not install the update itself. `DS_BOT_UPDATE_URL` on macOS and for a deb/RPM points to a JSON list like the `releases` API response. A release needs `tag_name`, an HTTPS `html_url`, and the machine's package in `assets`.
 
-On Windows and for an AppImage, `app-update.yml` tells the app where its releases are; `npm run dist` writes it from `publish` in `electron-builder.yml`, together with `latest.yml` / `latest-linux.yml` beside the installer (`npm run pack` writes neither). Neither command publishes. The release workflow (`.github/workflows/release.yml`) builds the packages when a release is published and attaches the Windows installer with its `.blockmap` and `latest.yml`, the AppImage with its `.blockmap`, the deb and `latest-linux.yml` to the release. The release tag is the version of `ds-bot`, and `npm test` checks that the app has the same version. The macOS release job builds each zip on a matching-architecture runner and attaches only the zip.
+On Windows and for an AppImage, `app-update.yml` tells the app where its releases are; `npm run dist` writes it from `publish` in `electron-builder.yml`, together with `latest.yml` / `latest-linux.yml` beside the installer (`npm run pack` writes neither). Neither command publishes. The release workflow (`.github/workflows/release.yml`) builds the packages when a release is published and attaches the Windows installer with its `.blockmap` and `latest.yml`, the AppImage with its embedded block map, the deb, RPM and `latest-linux.yml` to the release. The release tag is the version of `ds-bot`, and `npm test` checks that the app has the same version. The macOS release job builds each zip on a matching-architecture runner and attaches only the zip.
 
 On throwaway folders (`DS_BOT_HOME`) the app checks for updates only from `DS_BOT_UPDATE_URL`, and it never asks: the update waits until the app quits. `scripts/check-update.mjs` checks the update of a packaged app with such a feed:
 
@@ -115,13 +117,13 @@ node scripts/check-update.mjs ./deepseek-bot.AppImage dist-next --kill          
 
 It serves the feed folder, starts the app on throwaway folders and waits until the app has downloaded the update and checked its sha512. Then it ends the app the way the tray's Quit ends it, so that the app installs the update as it quits; with `--kill` it ends the app, so that nothing is installed. On your own machine use `--kill`: the installer would install into `%LOCALAPPDATA%\Programs\DeepSeek Bot`, and an AppImage replaces itself. The download stays in `%LOCALAPPDATA%\deepseek-bot-updater` (`~/.cache/deepseek-bot-updater` on Linux). CI runs it without `--kill` on its installed app, then checks that the installed version is the new one and that the updated app passes `check-packed`; for an AppImage it checks that the file is the new one.
 
-On macOS and for a Linux deb, pass the app executable and a version to mock a newer release:
+On macOS and for a Linux deb/RPM, pass the app executable and a version to mock a newer release:
 
 ```sh
 node scripts/check-update.mjs "<app executable>" 99.0.0
 ```
 
-The script serves a releases list with one release of that version that has this machine's package (the Mac's zip, or the `linux-amd64` deb), starts the app on throwaway folders with it, waits until the app logs the new version, and ends the app the way the tray's Quit ends it. It does not open a browser.
+The script serves a releases list with one release of that version that has this machine's package (the Mac's zip, `linux-amd64.deb`, or `linux-x86_64.rpm`), starts the app on throwaway folders with it, waits until the app logs the new version, and ends the app the way the tray's Quit ends it. It does not open a browser.
 
 ## The tray and quitting
 
@@ -158,14 +160,14 @@ The launch URL of the Host is good for one use only. When the first load never c
 | `src/first-run.mjs` | The first start's dialogs (the two folders and the offer to import) and the texts of the data move |
 | `src/import.mjs` | The import of a Bot team from the user's DSH |
 | `src/move-data.mjs` | The move of the data location: which folders can take it, and the copy through a staging folder |
-| `src/updates.mjs` | The self-updates (Windows installer, Linux AppImage) and the release-page checks (macOS, Linux deb) |
+| `src/updates.mjs` | The self-updates (Windows installer, Linux AppImage) and the release-page checks (macOS, Linux deb/RPM) |
 | `engine/` | On hold, not installed: the bundle `deepseek-bot-engine` for the app's own window in `ui/` |
 | `test/` | `npm test`: the composition of the profile, the dependencies that the package needs, and the window and the tray (the main process runs there with the Electron parts as test doubles, in `test/helpers/`) |
 | `ui/` | On hold, not built or packaged: the app's own window. React, built with Vite (`vite.config.js`) into `ui/dist`. It draws the plugin's own Bot views from `../ds-bot/src/client/` (sidebar, chat rows, docks, dialogs and their stylesheets) and puts its own Markdown in place of DSH's. It uses ds-bot's `api/bot` channel and its live feed `api/bot/feed` |
 | `assets/` | The app icon: `icon.svg`, `icon.png` (1024 px) and `icon.ico` (Windows, 16 to 256 px), and the tray marks: `tray.ico` (Windows), `tray.png` (Linux) and `trayTemplate.png` with its `@2x` (macOS). `npm run icon` (`scripts/icon.mjs`) draws them again from the Main Bot's whale in `../ds-bot` |
-| `electron-builder.yml`, `build/` | The package and the installers: app identity, files, icons, the Windows installer, the macOS zip and the Linux AppImage and deb |
+| `electron-builder.yml`, `build/` | The package and the installers: app identity, files, icons, the Windows installer, the macOS zip and the Linux AppImage, deb and RPM |
 | `scripts/check-packed.mjs` | `npm run check-packed`: the check of a packaged app |
-| `scripts/check-update.mjs` | The check of a packaged app's update from a feed folder (Windows, AppImage) or a mocked release (macOS, deb) |
+| `scripts/check-update.mjs` | The check of a packaged app's update from a feed folder (Windows, AppImage) or a mocked release (macOS, deb/RPM) |
 | `scripts/check-lifecycle.mjs` | `npm run check-lifecycle`: the check of the window and the tray in a real Electron, with a fake Host |
 
 The Host installs plugins with the app's own pnpm (`node_modules/pnpm`).

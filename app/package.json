@@ -58,6 +58,7 @@
     "@deepseek-ai/dsh-util-workspace-path": "0.2.1-rc.4",
     "@deepseek-ai/dsh-workflow": "0.2.1-rc.4",
     "@deepseek-ai/libreoffice-kit": "0.1.5",
+    "@img/sharp-wasm32": "0.35.5",
     "deep-view": "0.1.0",
     "ds-bot": "file:../ds-bot",
     "electron-updater": "6.8.10",
