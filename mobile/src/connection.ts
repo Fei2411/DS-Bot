@@ -8,11 +8,49 @@ export interface Bot {
   id: string
   name: string
   role?: string
+  color?: string
+  avatar?: { shape?: string; image?: string }
+  sessionId?: string
+  waiting?: boolean
+}
+
+export interface Room {
+  id: string
+  name: string
+  preview?: string
+}
+
+export interface Question {
+  id: string
+  question: string
+  detail?: string
+  options?: { label: string }[]
+  multiSelect?: boolean
+}
+
+export interface Approval {
+  id: string
+  sessionId: string
+  botId: string
+  tool: string
+  reason: string
+  detail?: { text?: string; code?: string }
+  answerable?: boolean
 }
 
 export interface TeamState {
+  revision: number
+  unchanged?: boolean
   bots: Bot[]
+  rooms?: Room[]
   mainBotIds?: string[]
+  questions?: Record<string, Question>
+  work?: {
+    bots?: Record<string, { tool?: string }>
+    approvals?: Approval[]
+    turns?: Record<string, number>
+  }
+  prefs?: { theme?: string; accent?: string }
 }
 
 function phoneName(): string {
