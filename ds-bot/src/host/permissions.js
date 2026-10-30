@@ -46,7 +46,7 @@ export function install(rt) {
     const wanted = checkPreset(name, 'a Bot\'s')
     await applyPermission({ ...bot, permission: wanted }, rt.chatOf(bot.id))
     bot.permission = wanted
-    for (const sessionId of rt.groupSessionsOf(bot.id)) {
+    for (const sessionId of [...rt.groupSessionsOf(bot.id), ...[...(rt.automationOwners?.values() ?? [])].filter(task => task.botId === bot.id && !task.disabled).map(task => task.sessionId)]) {
       if (roomOfSession(sessionId)?.permission) continue
       await applyPermission(bot, sessionId)
         .catch(error => rt.warn('ds-bot: permission for %s in a group not applied: %s', bot.name, error))

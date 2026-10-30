@@ -106,6 +106,12 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 Bots work with Office documents. They can create and edit .docx, .pptx and .xlsx, read a document's structure with stable ids, check a package for the defects Office would refuse, make targeted edits (comments, tracked changes, fields, table cells), reorder or duplicate slides, list workbook errors, and review rendered pages on a contact sheet. The desktop app includes everything needed; in DSH Desktop Bots use DSH's Office runtime plus DS Bot's commands; in DSH Web the inspect, check and edit commands work, while creating files from scratch and rendering pages need the desktop app or DSH Desktop.
 
+### Automation and completion notifications
+
+Choose **Silent monitor** when creating a scheduled task, or ask a Bot to use `create_automation` in monitor mode. The first successful check establishes a baseline; later checks publish only new matching message IDs. Empty checks remain in the run records, not in chat. The Host must stay running. Existing normal tasks can be converted explicitly.
+
+Each Bot has a **Task completion notifications** switch, enabled by default. Notifications appear when you are away from its chat; Web requires browser permission and an open page. Deleting a Bot first previews its tasks and related files: delete tasks or transfer them to another Bot, keep files by default, and recycle only verified new, unchanged, unshared files. Chats and memory are archived.
+
 ## Data
 
 All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.

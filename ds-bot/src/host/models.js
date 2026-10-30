@@ -166,7 +166,7 @@ export function install(rt) {
     if (!force && bot.appliedModel === ref && (bot.appliedEffort ?? undefined) === effort) return ref
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
     await selectSessionModel(rt.chatOf(bot.id), route)
-    for (const sessionId of rt.groupSessionsOf(bot.id)) {
+    for (const sessionId of [...rt.groupSessionsOf(bot.id), ...[...(rt.automationOwners?.values() ?? [])].filter(task => task.botId === bot.id && !task.disabled).map(task => task.sessionId)]) {
       await selectSessionModel(sessionId, route)
         .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
     }

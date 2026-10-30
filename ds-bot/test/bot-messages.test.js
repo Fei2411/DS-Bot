@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -671,7 +672,7 @@ test('deleting a Bot that waits for work it handed on tells the Bot that asked',
   const { agents, call } = team
   const { end } = await handedOn(team)
   end('b', 'handed it on')
-  assert.equal((await call('delete-bot', { id: 'b' })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: 'b' })).ok, true)
   await settled(() => callsOf(agents, 'a').length === 1)
   assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nWriter was deleted before it could answer your message.')
   assert.deepEqual(await worksIn(team), {})

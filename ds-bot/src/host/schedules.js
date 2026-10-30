@@ -29,7 +29,7 @@ export function reminderText(text) {
 }
 
 // The create request that gives a stored record its timing again, for a move.
-function requestOf(record) {
+export function requestOf(record) {
   const base = { title: record.title, prompt: record.prompt }
   if (record.kind === 'after' || record.kind === 'at') return { ...base, at: record.scheduledAt }
   if (record.kind === 'every') return { ...base, every_seconds: record.everySeconds }
@@ -83,6 +83,8 @@ export function install(rt) {
   // The Bot (and group chat) a task's Session speaks for, the group chat for a group's
   // own Session, or nothing for a Session outside the team.
   const ownerOf = (sessionId) => {
+    const monitor = rt.automationOwners.get(sessionId)
+    if (monitor) return { botId: monitor.botId }
     const chat = rt.chatOwners.get(sessionId)
     if (chat !== undefined) return { botId: chat }
     if (rt.roomOf(sessionId) !== undefined) return { roomId: sessionId }
@@ -96,7 +98,8 @@ export function install(rt) {
     for (const entry of await service.catalog()) {
       const owner = ownerOf(entry.sessionId)
       if (!known(owner)) continue
-      tasks.push({ ...entry, ...owner })
+      const monitor = rt.automationOwners.get(entry.sessionId)
+      tasks.push({ ...entry, ...owner, mode: monitor ? 'monitor' : 'normal', ...(monitor ? { automationId: monitor.id, lastRun: monitor.runs?.at(-1) } : {}) })
     }
     return { available: true, tasks }
   }
@@ -104,9 +107,12 @@ export function install(rt) {
   const endpoints = {
     schedules: () => schedulesView(),
     async 'schedule-create'(body) {
+      if (body.mode !== undefined && !['normal', 'monitor'].includes(body.mode)) throw invalid('Choose a normal task or a silent monitor')
+      if (body.mode === 'monitor') return rt.createMonitor(body)
       if (service === null) throw invalid('Automation tasks are off in DSH')
       const bot = rt.botOf(body.target)
       const room = rt.roomOf(body.target)
+      if (bot && rt.deletingBots?.has(bot.id)) throw invalid('This Bot is being deleted')
       if (bot === undefined && room === undefined) throw invalid('No such Bot or group chat')
       const title = String(body.title ?? '').trim()
       const prompt = String(body.prompt ?? '').trim()
@@ -120,6 +126,7 @@ export function install(rt) {
       if (service === null) throw invalid('Automation tasks are off in DSH')
       if (ownerOf(body.sessionId) === undefined) throw invalid('No such task')
       await service.delete({ sessionId: body.sessionId, id: body.id })
+      await rt.dropMonitor?.(body.sessionId)
       return schedulesView()
     },
   }
@@ -144,5 +151,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules })
+  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules, schedulesView, scheduleService: () => service, scheduleSelector: selectorOf })
 }

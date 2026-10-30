@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, hostname, tmpdir } from 'node:os'
@@ -686,7 +687,7 @@ test('a Bot deleted while its chat moves to a new folder leaves no fresh part be
   }
   assert.equal((await call('update-bot', { id: 'b', workDir: project })).ok, true)
   const fresh = await making
-  assert.equal((await call('delete-bot', { id: 'b' })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: 'b' })).ok, true)
   release()
   await until(() => archived.includes(fresh))
   await settle()
