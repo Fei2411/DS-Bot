@@ -432,17 +432,15 @@ test('work inside a PTC program lets the round go on after the grace', async (t)
   assert.deepEqual(kinds(result()), [['working', 'Writer']])
 })
 
-test('work the user asked for is left for the user to read, and the user\'s message resets the relay count', async (t) => {
+test('work the user asked for is left for the user to read', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host = await start(t, { relays: 5 })
+  const host = await start(t)
   const first = host.round('c1', host.say('@Writer 整理文档'))
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
   host.emit('gb', 'tool/call', { callId: 'k1', name: 'write', arguments: '{}' })
   t.mock.timers.tick(ROOM_WORK_GRACE_MS)
   await settle(() => first() !== undefined)
-  // The user's message resets the count.
-  assert.equal(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.relays, 0)
   host.finish('gb', '好了。')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const post = host.takePost()
@@ -453,36 +451,25 @@ test('work the user asked for is left for the user to read, and the user\'s mess
   assert.deepEqual([host.agentOf('ga').calls.length, host.agentOf('gc').calls.length], [0, 0])
 })
 
-test('a late post that calls a member counts into the relays, and parks past the limit', async (t) => {
-  // Three members, so the default relay limit is 9: the eighth relay still runs.
-  const host = await start(t, { relays: 8 })
-  host.emit('gb', 'turn/start', { turn: 1 })
-  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'bot', role: 'room', exchangeId: 'x1', roomId: 'r1', askedBy: 'a' } })
-  host.finish('gb', '@Tester 看看这个')
-  await settle(() => host.agentOf('r1').calls.length === 1)
-  const post = host.takePost()
-  assert.deepEqual([post.source.late, post.source.quiet], [true, undefined])
-  const first = host.round('c2', post)
-  await settle(() => host.agentOf('gc').calls.length === 1)
-  host.begin('gc')
-  host.finish('gc', '[PASS]')
-  await settle(() => first() !== undefined)
-  assert.equal(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.relays, 9)
-
-  // The next late call parks: the group pauses instead of running it, and nothing
-  // is dropped — the Tester just gets no turn until the user goes on.
-  host.emit('gb', 'turn/start', { turn: 2 })
-  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'more' }], source: { kind: 'bot', role: 'room', exchangeId: 'x2', roomId: 'r1', askedBy: 'a' } })
-  host.finish('gb', '@Tester 再看一个')
-  await settle(() => host.agentOf('r1').calls.length === 1)
-  const second = host.round('c3', host.takePost())
-  await settle(() => second() !== undefined)
+test('a late post that calls a member reaches it every time, with no count to stop it', async (t) => {
+  const host = await start(t)
+  for (const [turn, text] of [[1, '@Tester 看看这个'], [2, '@Tester 再看一个']]) {
+    host.emit('gb', 'turn/start', { turn })
+    host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'bot', role: 'room', exchangeId: `x${turn}`, roomId: 'r1', askedBy: 'a' } })
+    host.finish('gb', text)
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const post = host.takePost()
+    assert.deepEqual([post.source.late, post.source.quiet], [true, undefined])
+    const round = host.round(`c${turn}`, post)
+    await settle(() => host.agentOf('gc').calls.length === turn)
+    host.begin('gc')
+    host.finish('gc', '[PASS]')
+    await settle(() => round() !== undefined)
+    assert.equal(round().replies.filter(reply => reply.kind === 'paused').length, 0)
+  }
   const saved = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1
-  assert.equal(saved.relays, 9, 'the parked call did not run')
-  assert.deepEqual(saved.paused.map(entry => [entry.id, entry.name]), [['c', 'Tester']])
-  assert.equal('lateRounds' in saved, false)
-  assert.equal(host.agentOf('gc').calls.length, 1, 'the parked call never reached the Tester')
-  assert.deepEqual(second().replies.filter(reply => reply.kind === 'paused').map(reply => [reply.names, reply.count]), [[['Tester'], 9]])
+  assert.equal(saved.relays, undefined)
+  assert.equal(saved.paused, undefined)
 })
 
 // #198: a post during a running round waited for the round's own relay before

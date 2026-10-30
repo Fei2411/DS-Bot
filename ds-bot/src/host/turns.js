@@ -465,8 +465,6 @@ export function install(rt) {
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(id, { text: '', kickoff: true })
-        } else if (source?.kind === SOURCE_KIND && source.role === 'resume' && rt.roomOf(id)) {
-          queueRoomMessage(id, { text: '', resume: true })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) entry.pending = source
           else if (!opened) claimTrigger(id, entry, source)
