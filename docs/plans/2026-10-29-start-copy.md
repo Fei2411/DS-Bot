@@ -27,31 +27,31 @@
 
 | 层 | 在哪里 | 谁在说 | 规则 |
 |---|---|---|---|
-| `voice.*` | 鲸鱼下面那一行 | 鲸鱼，第一人称、口语 | 一行，不折行，最多 16 字；不加句号，可以问号；可以用口语的动词（「搬过来」） |
+| `voice.*` | 鲸鱼下面那一行，只在用户要知道或回答时有字：45 秒、180 秒、失败、搬数据 | 鲸鱼，第一人称、口语 | 一行，不折行，最多 16 字；不加句号，可以问号；可以用口语的动词（「搬过来」） |
 | `say.*` | 卡片的第一行（15/20、600） | 鲸鱼 | 最多 12 字；不加句号 |
-| `hint.*` | 提示行 | 应用，中性 | 只写接下来要知道的一件事，最多 22 字；不加句号 |
+| `hint.*` | 提示行，只有盘不够时前 10 秒的那一句 | 应用，中性 | 只写一件用户现在要知道的事，最多 22 字；不加句号 |
 | `card.*` | 卡片正文 | 应用 | 整句，以 。？ 结尾；说出了什么事，怎么办交给按钮；路径放 `code`；`card.<卡>.<部分>`，几张卡共用的放 `card.update.*` |
 | `reason.*` | 卡片正文里复用的原因 | 应用 | 整句的以 。 结尾（`reason.place.*` 位置不能用的七个原因、`reason.start.*` 启动失败的五个）；嵌进句子的片段不带标点（`reason.copy.*` 复制失败的三个） |
 | `btn.*` | 按钮 | 用户的动作 | 最多 10 字，动词或动作短语开头；打开系统选择框或离开这张卡的以 … 结尾；不加句号；链接样式的小按钮可以是名词短语（「其他位置…」「详细」） |
 | `note.*` | 卡片脚注 | 应用 | 一句，以 。 结尾，说以后在哪里改 |
 | `foot.*` | 底注行 | 应用 | 不加句号（「社区开源项目，不是 DeepSeek 官方产品」、位置行） |
-| `status.*` | 只给读屏和计数 | 应用 | 不加句号：隐藏列表「启动进度」、三个阶段名、四个状态词、朗读句、「已用 N 秒」 |
+| `status.*` | 只给读屏 | 应用 | 不加句号：隐藏列表「启动进度」、三个阶段名、四个状态词、朗读句 |
 | `dialog.*` | 系统对话框的正文和标题 | 应用 | 正文整句以 。？ 结尾，可以两段（`\n\n`）；选择框标题不加句号；按钮用 `btn.*` |
 
 - 同一句话只有一个键；两层里都要的同一句，各自一键（提示行的「C 盘只剩 1.2 GB」和卡片里的「C 盘只剩 1.2 GB。」是两层两键）。
 - 同一个意思只有一种写法：「先不复制」（不复制团队，继续）和「先不带团队开始」（放弃复制、带空白团队启动）是两个意思，各一种写法；对话框里原来的「不复制」「不带团队开始」改成这两句。
 - 一个东西一个名字（上手流程「用词」）：对话（不是聊天记录）、群聊（不是群）、API Key（不是密钥）、附件、总工作区、数据文件夹、位置（设置项，英文 Location，单数）。鲸鱼的话可以口语（「正在搬过来」），按钮和正文用正式名（「复制过来」「停止复制」）。
-- 不写过程词：马上、稍后、下个版本（UI 标准第 11 节；测试扫全表）。「待会儿要接一个模型」说的是用户的下一步，不是引擎的承诺，留着。
+- 不写过程词：马上、稍后、下个版本（UI 标准第 11 节；测试扫全表）。
 
 ### 3. 键的对照
 
 旧键 → 新键，中文照旧的不写，改了的写出来。
 
-鲸鱼的话 `voice.*`：`voice.hello / helloName / helloBack / data / found / engine / slow10 / slow45 / team / ready / watchdog` 不动；`title.later` → `voice.opening`，`title.moving` → `voice.moving`，`title.failed` → `voice.failed`，`title.viewFailed` → `voice.viewFailed`「团队界面没有加载出来」（去句号）。
+鲸鱼的话 `voice.*`：`voice.slow45 / watchdog` 不动；`title.moving` → `voice.moving`，`title.failed` → `voice.failed`，`title.viewFailed` → `voice.viewFailed`「团队界面没有加载出来」（去句号），`slow.45.later` → `voice.slowLater`「比平时慢，请再等一会儿」（去句号；以后的启动和搬数据时 45 秒起由鲸鱼说）。启动窗口顺利时不说话（[启动窗口](2026-10-26-start-window.md) 第 3 节），所以表里没有问候、各阶段的话和「进去吧」（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready`），`title.later`「正在打开你的团队…」也没有键。
 
 卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / import / importSpace / inUse / newer` 不动；`copying.title` → `say.copying`「正在搬过来」。
 
-提示行 `hint.*`：`hint.model / preview / reinstall / space` 不动；`slow.45.later` → `hint.slowLater`「比平时慢，请再等一会儿」（去句号）。
+提示行 `hint.*`：只有 `hint.space`，不动。接模型、预览版说明和重装的三句（`hint.model / preview / reinstall`）没有键：启动页不提前说进门以后的事。
 
 卡片正文 `card.*`：
 
@@ -112,7 +112,7 @@
 
 底注 `foot.*`：`footer` → `foot.community`；`place.drive / driveOnly / path / pathOnly` → `foot.place.drive / driveOnly / path / pathOnly`。
 
-状态 `status.*`：`track.label` → `status.track`；`phase.*` → `status.phase.*`；`state.*` → `status.state.*`；`sr.*` → `status.sr.*`；`elapsed` → `status.elapsed`。
+状态 `status.*`：`track.label` → `status.track`；`phase.*` → `status.phase.*`；`state.*` → `status.state.*`；`sr.*` → `status.sr.*`。`elapsed`（「已用 N 秒」）没有新键：启动页不显示已用秒数。
 
 对话框 `dialog.*`（原来在 `first-run.mjs` 和 `updates.mjs`）：
 
@@ -139,7 +139,7 @@
 - 逐键对照中文的意思，不另写一套：位置行写全「Data on drive {drive}, {free} free」（原来只有「Drive C, 412 GB free」）。
 - 句首大写；`voice / say / hint / btn / foot / status` 不加句号；`card / reason（整句）/ note / dialog` 以句号或问号结尾；… 和中文同步。
 - 名词：chats（不用 conversations）、group chats、attachments、API Key、Settings → General → Location（单数）、team workspace、data folder、local engine。
-- 单复数用 `{n|one|many}`：`hint.reinstall`「Your {bots|Bot|Bots} and {groups|group chat|group chats} are still here」、`card.import.lead`、`card.import.found`、`dialog.import.found`、`dialog.import.newer`。
+- 单复数用 `{n|one|many}`：`card.import.lead`「DeepSeek Harness has {bots|Bot|Bots} and {groups|group chat|group chats} …」、`card.import.found`、`dialog.import.found`、`dialog.import.newer`。
 - 「先不复制」是 Don't copy yet，「先不带团队开始」是 Start without the team，「先不重启」Not now（重启框）、「先不下载」Not now（下载框）。
 
 ### 5. 测试
@@ -154,6 +154,7 @@
   - `start.html` 里 `data-act="pick"` 的按钮，键的中文以 … 结尾。
   - 主进程三个文件里 `tx('…')` 用到的键都在表里；`first-run.mjs` 和 `updates.mjs` 里没有自己的字符串表。
   - `t()` 的单复数：`{bots|Bot|Bots}` 在 1 和 6 上各填对。
+  - `voice` 层只有六个键（`voice.failed / moving / slow45 / slowLater / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
 
 ## 改动的已定设计
 
@@ -168,6 +169,9 @@
 | `first-run.mjs`：「DeepSeek Harness 里有一个 Bot 团队：6 个 Bot、2 个群。」「会复制 Bot、群、记忆、对话、文件、密钥和模型设置。」 | 「DeepSeek Harness 里有 6 个 Bot 和 2 个群聊。要复制到 DeepSeek Bot 吗？」「会复制 Bot、群聊、记忆、对话、附件、模型设置和 API Key。…」 | 群聊、附件、API Key 是定下的名字 |
 | 桌面应用稿 安装和更新、`updates.mjs`：更新框的〔稍后〕 | 〔先不重启〕〔先不下载〕 | 稍后是过程词，UI 标准第 11 节 |
 | `main.mjs`：搬数据被拒绝的框只有英文的〔OK〕 | 〔确定〕/〔OK〕按语言 | 表以外不再有用户看得到的字 |
+| 本文第 3 节：`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready` 不动，`title.later` → `voice.opening`；`hint.model / preview / reinstall` 不动；`elapsed` → `status.elapsed`；第 2 节「「待会儿要接一个模型」……留着」 | 这 14 个键都没有了（`voice` 十个、`hint` 三个、`status` 一个），那句说明也去掉 | 启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md)「改动的已定设计」里 2026-10-30 的几行）：顺利时不说话，不显示已用秒数，不提前说进门以后的事。维护者 2026-10-30 转来的讨论：「现在这版有点噪了」「其实我觉得可能就放一个鲸鱼就够，然后可以做交互动画，文字什么的不太需要」 |
+| 本文第 3 节：`slow.45.later` → `hint.slowLater`「比平时慢，请再等一会儿」，在提示行 | `voice.slowLater`，同一句 | 以后的启动和搬数据时，45 秒起这一句由鲸鱼说，和首次启动的 `voice.slow45` 在同一行；提示行只留〔打开日志文件夹〕 |
+| 本文第 2 节 `status.*`「只给读屏和计数」 | 只给读屏 | 启动页不显示已用秒数 |
 
 ## 不做什么
 
@@ -186,3 +190,4 @@
 ## 变更
 
 - 2026-10-29 首稿：十层、一张表、键的对照、测试；对应 `text.mjs` 重排、`first-run.mjs` 和 `updates.mjs` 的表并入、`start.html` 和 `start.js` 改键。依据：2026-10-29 对三张表的审读（30 个对话框键和 11 个更新键都在用，没有死键；页面表和两份设计稿逐句对照只有 `failed.reason.*` 的句号一处不同；风格问题 30 条，全部复核过）。
+- 2026-10-30：启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：鲸鱼的话只剩用户要知道或回答时的几句，表里去掉 14 个键（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready / opening`、`hint.model / preview / reinstall`、`status.elapsed`），`hint.slowLater` 改名 `voice.slowLater`（同一句，以后的启动和搬数据时 45 秒起由鲸鱼说）；第 2 节 `voice`、`hint`、`status` 三层的说明、第 3 节的对照和第 4 节单复数的例子跟着改，第 5 节加一条测试。依据：维护者 2026-10-30 转来的讨论（「现在这版有点噪了」）和维护者选定的圆环原型。

@@ -67,6 +67,35 @@ test('the page sends only the acts of the start window', () => {
   for (const name of START_ACTS) assert.ok(sent.has(name), `the main process takes ${name}, which the page never sends`)
 })
 
+// The progress is a ring of three arcs round the whale, one per stage: radius 106 round the
+// centre of a 220 box, 120 degrees each from the top, clockwise, 10 degrees apart, with one
+// circle that closes the ring at the hand-off. The rings that the whale left at its stops and
+// the elapsed clock are gone.
+test('the start page draws the progress as a ring of three arcs and a closing circle', () => {
+  const arcs = [...html.matchAll(/<g class="arc" data-state="pending">(.*?)<\/g>/gu)].map(match => match[1])
+  assert.equal(arcs.length, 3)
+  const point = (deg) => {
+    const a = (deg * Math.PI) / 180
+    return [110 + 106 * Math.cos(a), 110 + 106 * Math.sin(a)]
+  }
+  arcs.forEach((arc, k) => {
+    const paths = [...arc.matchAll(/<path class="(arc-[a-z]+)" d="([^"]+)" pathLength="100"\/>/gu)]
+    assert.deepEqual(paths.map(match => match[1]), ['arc-base', 'arc-fill', 'arc-glow'], `arc ${String(k)}`)
+    const d = paths[0][2]
+    for (const match of paths) assert.equal(match[2], d, `arc ${String(k)}: its three paths differ`)
+    const [x0, y0, rx, ry, , large, sweep, x1, y1] = d.match(/-?\d+(?:\.\d+)?/gu).map(Number)
+    assert.deepEqual([rx, ry, large, sweep], [106, 106, 0, 1], `arc ${String(k)}: not a clockwise arc of radius 106`)
+    const near = ([px, py], [qx, qy]) => Math.abs(px - qx) < 0.01 && Math.abs(py - qy) < 0.01
+    assert.ok(near([x0, y0], point(-90 + k * 120 + 5)), `arc ${String(k)} starts elsewhere`)
+    assert.ok(near([x1, y1], point(-90 + (k + 1) * 120 - 5)), `arc ${String(k)} ends elsewhere`)
+  })
+  assert.equal(html.match(/<circle class="ring-full" cx="110" cy="110" r="106" pathLength="100" transform="rotate\(-90 110 110\)"\/>/gu)?.length, 1)
+  // The ring, the water, the whale and its hit box move as one block when a card comes.
+  assert.match(html, /<div class="pond">\r?\n<svg class="ring"[\s\S]*?<div class="water"[\s\S]*?<div class="lane">[\s\S]*?<span class="spout"><svg class="plume"[^>]*\shidden>[\s\S]*?<div class="whale-hit"[\s\S]*?<div class="fx" aria-hidden="true"><span class="ripple"><\/span><\/div>\r?\n<\/div>/u)
+  assert.doesNotMatch(html, /class="(?:trace|elapsed)"/u)
+  assert.doesNotMatch(read('start.css'), /\.(?:trace|elapsed)\b/u)
+})
+
 // docs/plans/2026-10-29-start-copy.md §2: the first part of a key says where the line is.
 const LAYERS = ['voice', 'say', 'hint', 'card', 'reason', 'btn', 'note', 'foot', 'status', 'dialog']
 const layerOf = key => key.split('.')[0]
@@ -81,6 +110,16 @@ test('zh and en carry the same keys and the same placeholders', () => {
 
 test('every text key starts with one of the ten layers', () => {
   for (const key of Object.keys(TEXT.zh)) assert.ok(LAYERS.includes(layerOf(key)), `${key}: unknown layer`)
+})
+
+// The whale speaks only when the user is needed (past 45 s, the 180 s question, a failure, a data
+// move), and the hint row only for a short drive: no greeting, stage lines or clock.
+test('the whale and the hint row have only the lines for when the user is needed', () => {
+  const layer = name => Object.keys(TEXT.zh).filter(key => layerOf(key) === name).sort()
+  assert.deepEqual(layer('voice'), ['voice.failed', 'voice.moving', 'voice.slow45', 'voice.slowLater', 'voice.viewFailed', 'voice.watchdog'])
+  assert.deepEqual(layer('hint'), ['hint.space'])
+  assert.equal(TEXT.zh['voice.slowLater'], '比平时慢，请再等一会儿')
+  assert.ok(!('status.elapsed' in TEXT.zh), 'the elapsed clock is back')
 })
 
 // §2 and §4: a line that stands alone takes no full stop; card, reason, note and dialog text is
@@ -168,7 +207,7 @@ test('every text key that the page uses exists', () => {
     for (const [, prefix] of text.matchAll(/`([\w.]+\.)\$\{/gu)) assert.ok(keys.some(key => key.startsWith(prefix)), `${name}: no text key starts with ${prefix}`)
   }
   // Keys the page builds from the snapshot's views, the stages and the failure reasons.
-  for (const key of ['voice.failed', 'voice.viewFailed', 'voice.opening', 'voice.moving', 'status.phase.data', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
+  for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'voice.moving', 'voice.slow45', 'voice.slowLater', 'status.phase.data', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
   assert.deepEqual(matching('reason.start.{reason}').sort(), ['reason.start.engine', 'reason.start.files', 'reason.start.other', 'reason.start.permission', 'reason.start.space'])
   assert.deepEqual(matching('reason.place.{reason}').sort(), ['reason.place.dsh', 'reason.place.foreign', 'reason.place.nested', 'reason.place.onedrive', 'reason.place.permission', 'reason.place.program', 'reason.place.space'])
   assert.deepEqual(matching('reason.copy.{reason}').sort(), ['reason.copy.full', 'reason.copy.inUse', 'reason.copy.permission'])
@@ -194,19 +233,19 @@ test('the main process uses only keys of the table and keeps no table of its own
 })
 
 test('t fills placeholders and falls back to zh, then to the key', () => {
-  assert.equal(t('zh', 'status.elapsed', { n: 12 }), '已用 12 秒')
-  assert.equal(t('en', 'status.elapsed', { n: 12 }), '12 s so far')
-  assert.equal(t('en', 'voice.helloName', { name: 'Ada' }), 'Hi, I’m Ada')
+  assert.equal(t('zh', 'hint.space', { drive: 'C', free: '1.2 GB' }), 'C 盘只剩 1.2 GB')
+  assert.equal(t('en', 'hint.space', { drive: 'C', free: '1.2 GB' }), 'Only 1.2 GB left on drive C')
+  assert.equal(t('en', 'btn.useRec', { rec: 'D' }), 'Put it on drive D')
   assert.equal(t('fr', 'btn.retry'), '重试')
   assert.equal(t('en', 'hint.space', { drive: 'C' }), 'Only {free} left on drive C')
   assert.equal(t('zh', 'no.such.key'), 'no.such.key')
 })
 
 test('t picks the English singular or plural by the value', () => {
-  assert.equal(t('en', 'hint.reinstall', { bots: 1, groups: 6 }), 'Your 1 Bot and 6 group chats are still here')
-  assert.equal(t('en', 'hint.reinstall', { bots: 6, groups: 1 }), 'Your 6 Bots and 1 group chat are still here')
-  assert.equal(t('zh', 'hint.reinstall', { bots: 6, groups: 1 }), '上次的 6 个 Bot 和 1 个群聊都在')
-  assert.equal(t('en', 'hint.reinstall', { bots: 1 }), 'Your 1 Bot and {groups|group chat|group chats} are still here')
+  assert.equal(t('en', 'dialog.import.found', { bots: 1, groups: 6 }), 'DeepSeek Harness has 1 Bot and 6 group chats. Copy them into DeepSeek Bot?')
+  assert.equal(t('en', 'dialog.import.found', { bots: 6, groups: 1 }), 'DeepSeek Harness has 6 Bots and 1 group chat. Copy them into DeepSeek Bot?')
+  assert.equal(t('zh', 'dialog.import.found', { bots: 6, groups: 1 }), 'DeepSeek Harness 里有 6 个 Bot 和 1 个群聊。要复制到 DeepSeek Bot 吗？')
+  assert.equal(t('en', 'dialog.import.found', { bots: 1 }), 'DeepSeek Harness has 1 Bot and {groups|group chat|group chats}. Copy them into DeepSeek Bot?')
 })
 
 test('langOf gives zh for every Chinese locale and en otherwise', () => {

@@ -137,8 +137,8 @@ export function growthSteps(from, to, { duration, step } = GROWTH) {
   }
 }
 
-// When the page never sends handoffShow, the main process shows the team window itself. A first
-// start and a celebrating hand-off take up to about 1.2 s, plus up to 600 ms of queued swimming.
+// When the page never sends handoffShow, the main process shows the team window itself. The page
+// sends it about 0.72 s after ready on a celebrating hand-off and 0.22 s otherwise (start-window §8).
 export const fallbackMs = ({ start, celebrate }) => (start === 'first' || celebrate ? 2500 : 800)
 
 // The five reasons of the failure page (windows-onboarding §3), most specific first: a Host
@@ -180,10 +180,10 @@ export function mainBotName(state) {
   return typeof name === 'string' && name.trim() !== '' ? name.trim() : undefined
 }
 
-// What the hint row can prepare for. previewNotice: DSH shows its preview notice when the
-// Session is ready and the main view has no non-empty Session (windows-onboarding §3, the row of
-// the third stop), which a data folder without a team always has. A kept or copied team may have
-// read it already, and the main process cannot tell before the team view has loaded.
+// What the start knows about the team it opens. The ring page no longer shows it (no greeting or
+// hint lines since 2026-10-30); the snapshot keeps it for now. previewNotice: DSH shows its
+// preview notice when the Session is ready and the main view has no non-empty Session, which a
+// data folder without a team always has.
 export function explainOf({ offered = false, team } = {}) {
   if (offered) return { mode: 'import', nextStep: false, previewNotice: false }
   if (team !== undefined) {
@@ -399,7 +399,7 @@ export class StartWindow {
 
   /**
    * The start begins again in another folder (§7): the stages go back to the start, the whale
-   * sinks and surfaces at the first stop, and the clock starts from 0. The first success after
+   * sinks and surfaces with its arcs emptied, and the clock starts from 0. The first success after
    * it celebrates, as after a retry.
    */
   restart() {

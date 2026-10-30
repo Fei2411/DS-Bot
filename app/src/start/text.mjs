@@ -15,7 +15,7 @@
 //           leaves the card ends in …; no full stop
 //   note    card footnotes: one sentence ending in 。 that says where to change it later
 //   foot    the footer row: no full stop
-//   status  screen readers and counters only: no full stop
+//   status  screen readers only: no full stop
 //   dialog  system dialogs: sentences ending in 。 or ？, picker titles without a full stop
 //
 // Placeholders are {name}; paths, sizes, names and versions come from the snapshot or the
@@ -23,18 +23,9 @@
 export const TEXT = {
   zh: {
     // voice
-    'voice.hello': '嗨，我是总管',
-    'voice.helloName': '嗨，我是{name}',
-    'voice.helloBack': '嗨，我来了',
-    'voice.data': '先找个地方放东西',
-    'voice.found': '找到了',
-    'voice.engine': '热身中，等我一下',
-    'voice.slow10': '第一次会慢一点',
     'voice.slow45': '有点久，可能是杀毒软件在查新文件',
-    'voice.team': '开门去了',
-    'voice.ready': '进去吧',
+    'voice.slowLater': '比平时慢，请再等一会儿',
     'voice.watchdog': '等太久了，要不要重试？',
-    'voice.opening': '正在打开你的团队…',
     'voice.moving': '正在搬 DeepSeek Bot 的数据…',
     'voice.failed': 'DeepSeek Bot 没能启动',
     'voice.viewFailed': '团队界面没有加载出来',
@@ -50,11 +41,7 @@ export const TEXT = {
     'say.newer': '这些对话比我新',
     'say.copying': '正在搬过来',
     // hint
-    'hint.model': '待会儿要接一个模型：DeepSeek 账号或 API Key',
-    'hint.preview': '里面先有一页说明，点「继续」就行',
-    'hint.reinstall': '上次的 {bots} 个 Bot 和 {groups} 个群聊都在',
     'hint.space': '{drive} 盘只剩 {free}',
-    'hint.slowLater': '比平时慢，请再等一会儿',
     // card
     'card.recommend.ask': '放到 {rec} 盘（剩 {recFree}）？',
     'card.missing.lead': '找不到数据文件夹 {path}。可能是移动硬盘没插上，或者文件夹被移走、删除了。旧数据不会被改动。',
@@ -154,7 +141,6 @@ export const TEXT = {
     'status.state.failed': '没有完成',
     'status.sr.active': '{phase}：进行中',
     'status.sr.done': '{phase}：已完成',
-    'status.elapsed': '已用 {n} 秒',
     // dialog
     'dialog.pickRoot': '选择 DeepSeek Bot 放数据的位置',
     'dialog.pickMove': '选择 DeepSeek Bot 数据的新文件夹',
@@ -183,18 +169,9 @@ export const TEXT = {
   },
   en: {
     // voice
-    'voice.hello': 'Hi, I’m Chief',
-    'voice.helloName': 'Hi, I’m {name}',
-    'voice.helloBack': 'Hi, I’m here',
-    'voice.data': 'First, a place for my things',
-    'voice.found': 'Found one',
-    'voice.engine': 'Warming up, one moment',
-    'voice.slow10': 'The first time takes a bit longer',
     'voice.slow45': 'Taking a while: antivirus may be checking new files',
-    'voice.team': 'Off to open the door',
-    'voice.ready': 'Come on in',
+    'voice.slowLater': 'Slower than usual; please wait a little longer',
     'voice.watchdog': 'This is taking too long. Try again?',
-    'voice.opening': 'Opening your team…',
     'voice.moving': 'Moving DeepSeek Bot’s data…',
     'voice.failed': 'DeepSeek Bot couldn’t start',
     'voice.viewFailed': 'The team view didn’t load',
@@ -210,11 +187,7 @@ export const TEXT = {
     'say.newer': 'These chats are newer than me',
     'say.copying': 'Moving your team in',
     // hint
-    'hint.model': 'Next you’ll connect a model: a DeepSeek account or an API Key',
-    'hint.preview': 'A notice page comes first; just click “Continue”',
-    'hint.reinstall': 'Your {bots|Bot|Bots} and {groups|group chat|group chats} are still here',
     'hint.space': 'Only {free} left on drive {drive}',
-    'hint.slowLater': 'Slower than usual; please wait a little longer',
     // card
     'card.recommend.ask': 'Put it on drive {rec} ({recFree} free)?',
     'card.missing.lead': 'Can’t find the data folder {path}. The external drive may be unplugged, or the folder was moved or deleted. The old data won’t be changed.',
@@ -314,7 +287,6 @@ export const TEXT = {
     'status.state.failed': 'Not finished',
     'status.sr.active': '{phase}: in progress',
     'status.sr.done': '{phase}: done',
-    'status.elapsed': '{n} s so far',
     // dialog
     'dialog.pickRoot': 'Choose where DeepSeek Bot keeps its data',
     'dialog.pickMove': 'Choose a new folder for DeepSeek Bot’s data',

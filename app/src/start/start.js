@@ -1,8 +1,8 @@
 // The start page: binds window.dsBotStart and applies each full snapshot to the page (the
-// whale's line, the hint row and the clock, the sheet and its cards, focus and the live
-// region). The whale, its rings and the hidden stage list belong to the director in whale.js;
-// the whale's line follows where the director has the whale, not the snapshot alone. Text is
-// set only through textContent (and text nodes), never as markup.
+// whale's line and the hint row, which speak only when the user is needed, the sheet and its
+// cards, focus and the live region). The whale, the ring of arcs that is the progress and the
+// hidden stage list belong to the director in whale.js. Text is set only through textContent
+// (and text nodes), never as markup.
 import { fill as fillIn, t } from './text.mjs'
 import { createDirector, reduced, play, spring, sleep, clamped } from './whale.js'
 
@@ -18,9 +18,9 @@ const first = START === 'first'
 root.dataset.sheet = 'none'
 
 const $ = selector => document.querySelector(selector)
-const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), stage = $('.stage'), live = $('.live')
+const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), stage = $('.stage'), pond = $('.pond'), live = $('.live')
 const voiceEl = $('.voice'), voiceText = $('.voice>span')
-const captionText = $('.caption-text'), logs = $('.caption .btn'), elapsed = $('.elapsed')
+const captionText = $('.caption-text'), logs = $('.caption .btn')
 const placeEl = $('.place'), placeText = $('.place-text')
 const CODE = new Set(['path', 'dataDir', 'workspace'])
 let lang = 'zh'
@@ -68,7 +68,7 @@ function placeUI(place) {
 function varsOf(snap) {
   const card = snap.card ?? {}
   const update = snap.update ?? {}
-  const vars = { ...snap.explain, ...card }
+  const vars = { ...card }
   if (snap.view === 'failed' || snap.view === 'viewFailed') vars.reason = snap.failure?.reason ?? 'other'
   if (card.kind === 'importFailed') vars.reason = say(`reason.copy.${card.reason}`)
   if (card.kind === 'newerUpdating') vars.p = card.percent ?? 0
@@ -78,129 +78,51 @@ function varsOf(snap) {
 function announce(text) { if (text) live.textContent = text }
 
 // ---- the whale's line ----
-// One short line at a time, under the waterline. It follows the whale: the stop it is at, the
-// stage shown active there, the leg it is swimming. A card speaks with its own first line, so
-// the whale's line is empty while a card is up (the 180 s question is the exception: its card
-// holds only the buttons). Each line stays long enough to read before the next replaces it;
-// lines skipped meanwhile are never shown late; the line is empty while the whale sinks to start
-// over in a new folder. A failure and the 180 s question come at once;
-// 「进去吧」 lets the line before it be read for READ_MS first, and the director starts the
-// celebration READY_MS (whale.js) after 「进去吧」 is up.
-const HOLDS = { 'voice.hello': 1500, 'voice.found': 700 }
-// The line of a later start, a data move and the two failure views.
-const VOICES = { later: 'voice.opening', moving: 'voice.moving', failed: 'voice.failed', viewFailed: 'voice.viewFailed' }
-const HOLD_MS = 900
-const READ_MS = 400
+// One short line under the ring, and only when the user is needed: a start that runs past 45 s,
+// the 180 s question, a failure. A data move (which the user started, and which takes a while)
+// keeps its line. A card speaks with its own first line, so the whale's line is empty while a
+// card is up (the 180 s question is the exception: its card holds only the buttons). A new line
+// fades in once the old one has faded out.
+const VOICES = { failed: 'voice.failed', viewFailed: 'voice.viewFailed', watchdog: 'voice.watchdog' }
 const FADE_MS = 160
-// Lines put up while a reloaded page catches up are not held.
-const catchUp = resume ? performance.now() + 1000 : 0
-// key/text: the line chosen (on screen, or coming in once the old one has faded out); shown/at:
-// the line on screen and when it went up; last: the last line that really went up.
-const v = { key: '', text: '', shown: '', at: 0, timer: 0, swap: 0, renaming: false, last: '', cards: false, readyAt: 0, waiters: [] }
-const readyLine = () => (v.readyAt ? Promise.resolve(v.readyAt) : new Promise(resolve => v.waiters.push(resolve)))
+// key/text: the line chosen (on screen, or coming in once the old one has faded out).
+const v = { key: '', text: '', swap: 0 }
+// Past 45 s with the engine not up yet: the whale says why it takes so long.
+const late = () => ['boot', 'moving'].includes(s.view) && !(s.done ?? []).includes('engine') && bootMs() >= 45000
 function voiceWant() {
-  const view = s.view
-  if (view === 'failed' || view === 'viewFailed') return [VOICES[view], true]
-  if (view === 'watchdog') return ['voice.watchdog', true]
-  if (view === 'card') return ['', false]
-  if (!first) return [VOICES[START], true]
-  if (view === 'handoff') return ['voice.ready', false]
-  const st = director.stage()
-  // The whale is sinking to start over: the line goes with it, without the usual hold.
-  if (st.sinking) return ['', true]
-  if (st.ready) return ['voice.ready', false]
-  if (st.at >= 2 || (st.at === 1 && st.legging)) return ['voice.team', false]
-  const ms = bootMs()
-  const engineDone = (s.done ?? []).includes('engine')
-  if (view === 'boot' && !engineDone && ms >= 45000) return ['voice.slow45', false]
-  if (view === 'boot' && !engineDone && ms >= 10000) return ['voice.slow10', false]
-  // Not once the stage is done and the whale only waits for the greeting before it leaves.
-  if (st.active === 0 && !(s.done ?? []).includes('data')) return ['voice.data', false]
-  // 「找到了」 comes once after 「先找个地方放东西」, also when the second stage turns active while
-  // the old line is still fading out: the second stage starts 250 ms after the first is done.
-  if (v.last === 'voice.data' && (st.at === 1 || st.legging)) return ['voice.found', false]
-  if (st.active === 1) return ['voice.engine', false]
-  // Between stages: 「找到了」 answers 「先找个地方放东西」 only if that was said; the greeting
-  // stays until there is news, unless a card has already spoken.
-  if (['voice.data', 'voice.found'].includes(v.last) && (st.at === 1 || st.legging)) return ['voice.found', false]
-  if (!v.cards && (!v.last || v.last === 'voice.hello')) return ['voice.hello', false]
-  return [st.at === 0 ? 'voice.data' : 'voice.engine', false]
-}
-// The greeting names the Main Bot the user is about to meet: the team's own on a reinstall, the
-// default name for a new team. A team to import has no name yet (the answer decides which Main
-// Bot it is), and neither has a reinstall whose name could not be read. It stays one key
-// (voice.hello) whichever words it takes: the main process may learn the team after the window
-// opens, and the greeting on screen then fades over to the new words as a new line.
-function greeting() {
-  const e = s.explain ?? {}
-  if (e.mode === 'import' || (e.mode === 'reinstall' && !e.name)) return say('voice.helloBack')
-  return e.name ? say('voice.helloName', { name: e.name }) : say('voice.hello')
+  if (VOICES[s.view]) return VOICES[s.view]
+  if (s.view === 'card') return ''
+  if (late()) return first ? 'voice.slow45' : 'voice.slowLater'
+  return START === 'moving' ? 'voice.moving' : ''
 }
 function speak() {
-  clearTimeout(v.timer)
   if (!s) return
-  const [key, urgent] = voiceWant()
-  if (!urgent && v.key === 'voice.hello' && v.shown === 'voice.hello' && !v.swap && voiceEl.hasAttribute('data-on') && greeting() !== v.text) {
-    v.text = greeting()
-    delete voiceEl.dataset.on
-    // The new greeting has not been read yet: no other line takes its place while it fades in.
-    v.renaming = true
-    v.swap = setTimeout(() => { v.renaming = false; put(); speak() }, reduced() ? 120 : FADE_MS)
-    return
-  }
-  const text = key === 'voice.hello' ? greeting() : key ? say(key) : ''
+  const key = voiceWant()
+  const text = key ? say(key) : ''
   if (key === v.key) { if (text !== v.text) { v.text = text; if (!v.swap) voiceText.textContent = text } return }
-  // The old line is already fading out: the new choice simply takes its place.
-  if (v.swap) { if (!v.renaming) { v.key = key; v.text = text } return }
-  const hold = urgent ? 0 : key === 'voice.ready' ? READ_MS : HOLDS[v.shown] ?? HOLD_MS
-  const left = v.shown ? v.at + hold - performance.now() : 0
-  if (left > 0) { v.timer = setTimeout(speak, left); return }
   v.key = key
   v.text = text
-  if (!v.shown || !voiceEl.hasAttribute('data-on')) { put(); return }
+  // The old line is already fading out: the new choice simply takes its place.
+  if (v.swap) return
+  if (!voiceEl.hasAttribute('data-on')) { put(); return }
   delete voiceEl.dataset.on
   v.swap = setTimeout(put, reduced() ? 120 : FADE_MS)
 }
 function put() {
   v.swap = 0
-  v.shown = v.key
   voiceText.textContent = v.text
   voiceEl.toggleAttribute('data-on', Boolean(v.text))
-  v.at = performance.now() < catchUp ? -Infinity : performance.now()
-  if (!v.shown) return
-  v.last = v.shown
-  if (v.shown === 'voice.failed' || v.shown === 'voice.viewFailed') announce(v.text)
-  if (v.shown === 'voice.ready' && !v.readyAt) { v.readyAt = performance.now(); for (const resolve of v.waiters.splice(0)) resolve(v.readyAt) }
+  if (v.key === 'voice.failed' || v.key === 'voice.viewFailed') announce(v.text)
 }
 
-// ---- the hint row and the clock ----
-// The hint prepares the user for what comes next and is empty otherwise: the model to connect
-// at the second stop (the team carried over on a reinstall), DSH's preview notice on the way to
-// the last one; a short drive's one-line note for the first 10 s (as before). From 45 s the row
-// holds only 〔打开日志文件夹〕, since the whale's line says why. Later starts keep their decided
-// lines. Nothing shows while a card, the 180 s question or a failure is up.
+// ---- the hint row ----
+// Empty unless the user is needed: a short drive's one-line note for the first 10 s, and from
+// 45 s 〔打开日志文件夹〕 alone, since the whale's line says why. Nothing shows while a card, the
+// 180 s question or a failure is up.
 function hintWant() {
-  const view = s.view
-  const ms = bootMs()
-  const sec = Math.floor(ms / 1000)
-  if (!first) {
-    if (view !== 'boot' && view !== 'moving') return ['', {}, false]
-    if (ms >= 45000) return ['hint.slowLater', {}, true]
-    if (ms >= 10000) return ['status.elapsed', { n: sec }, false]
-    return [s.hint ? 'hint.space' : '', { ...s.hint }, false]
-  }
-  if (view !== 'boot' && view !== 'handoff') return ['', {}, false]
-  const engineDone = (s.done ?? []).includes('engine')
-  if (view === 'boot' && !engineDone && ms >= 45000) return ['', {}, true]
-  const st = director.stage()
-  if (st.sinking) return ['', {}, false]
-  const e = s.explain ?? {}
-  const toTeam = view === 'handoff' || st.ready || st.at >= 2 || (st.at === 1 && st.legging)
-  if (toTeam && e.previewNotice) return ['hint.preview', {}, false]
-  if (s.hint && ms < 10000) return ['hint.space', { ...s.hint }, false]
-  if (st.at >= 1 && e.mode === 'reinstall') return ['hint.reinstall', e, false]
-  if (st.at >= 1 && e.nextStep !== false) return ['hint.model', {}, false]
-  return ['', {}, false]
+  if (s.view !== 'boot' && s.view !== 'moving') return ['', {}, false]
+  if (late()) return ['', {}, true]
+  return [s.hint && bootMs() < 10000 ? 'hint.space' : '', { ...s.hint }, false]
 }
 let shimmerReady = false
 if (!first) setTimeout(() => { shimmerReady = true; if (s) shimmer() }, resume ? 0 : 1000)
@@ -208,6 +130,7 @@ const shimmer = () => root.toggleAttribute('data-shimmer', shimmerReady && (s.vi
 // The main process's boot clock: ms at the wall time `at`, paused while a card waits on the user.
 const bootMs = () => { const c = s?.clock; if (!c) return 0; return c.running ? c.ms + Math.max(0, Date.now() - c.at) : c.ms }
 let tick = 0
+// Runs on every snapshot and on each second of the boot clock: the 10 s and 45 s marks.
 function timeUI() {
   clearTimeout(tick)
   if (!s) return
@@ -215,12 +138,6 @@ function timeUI() {
   const sec = Math.floor(ms / 1000)
   const booting = s.view === 'boot' || s.view === 'moving'
   const engineDone = (s.done ?? []).includes('engine')
-  if (first) {
-    // The clock stays through 「进去吧」 and fades with the hint row when the celebration starts.
-    const shown = (booting || s.view === 'handoff') && ms >= 5000
-    root.toggleAttribute('data-elapsed', shown)
-    if (shown) elapsed.textContent = say('status.elapsed', { n: sec })
-  }
   hint()
   speak()
   if (booting) director.slow(first && engineDone ? 0 : ms >= 45000 ? 2 : ms >= 10000 ? 1 : 0)
@@ -303,12 +220,21 @@ function enter(el) {
   el.inert = false
   el.hidden = false
 }
+// The whale's line fades and veils in on CSS; shift() cancels only its scripted rise.
+const rises = el => el.getAnimations().filter(a => !(a instanceof CSSTransition) && !(a instanceof CSSAnimation))
+// The stage rises to make room for the sheet; the pond (the whale and its ring) shrinks and
+// rises with it on the same spring, so the ring ends above the card, and the whale's line rises
+// with them so that it stays under the ring (start.css html[data-up]).
 function shift(up, jump) {
   const from = getComputedStyle(stage).translate
-  for (const a of stage.getAnimations()) a.cancel()
+  const pondFrom = { scale: getComputedStyle(pond).scale, translate: getComputedStyle(pond).translate }
+  const voiceFrom = getComputedStyle(voiceEl).translate
+  for (const a of [...stage.getAnimations(), ...pond.getAnimations(), ...rises(voiceEl)]) a.cancel()
   root.toggleAttribute('data-up', up)
   if (jump || reduced()) return
   play(stage, [{ translate: from }, { translate: up ? '0px 0px' : '0px 80px' }], { ...spring('shape'), fill: 'none' })
+  play(pond, [pondFrom, { scale: up ? '.62' : '1', translate: up ? '0px -60px' : '0px 0px' }], { ...spring('shape'), fill: 'none' })
+  play(voiceEl, [{ translate: voiceFrom }, { translate: up ? '0px -108px' : '0px 0px' }], { ...spring('shape'), fill: 'none' })
 }
 async function showBlock(name, jump) {
   if (name === shown) return
@@ -320,7 +246,6 @@ async function showBlock(name, jump) {
   const el = blockEl(name)
   if (name && el) {
     root.dataset.sheet = 'card'
-    v.cards = true
     if (!root.hasAttribute('data-up')) {
       shift(true, jump)
       if (!jump) { await sleep(70); if (mine !== sheetRun) return }
@@ -513,10 +438,7 @@ matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => 
 new MutationObserver(() => director.refresh()).observe(root, { attributes: true, attributeFilter: ['data-motion'] })
 
 // ---- snapshots ----
-// The director reports every change of where the whale is (a stage shown active, a leg begun
-// or ended, a reset, 「进去吧」); the line and the hint follow.
-const onStage = () => { if (s) { hint(); speak() } }
-const director = createDirector({ start: START, resume, act: (name, detail) => bridge?.act(name, detail), label: say, announce, onStage, readyLine })
+const director = createDirector({ start: START, resume, act: (name, detail) => bridge?.act(name, detail), label: say, announce })
 let applied = false
 function apply(next) {
   const jump = !applied && resume
