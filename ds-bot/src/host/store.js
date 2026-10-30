@@ -410,7 +410,8 @@ export function install(rt) {
     if (ref === undefined) return undefined
     const byId = own(state.bots, ref)
     if (byId) return byId
-    const wanted = normalize(ref).replace(/^@/, '')
+    // Quoted refs ("Ada") miss the name table: findRooms unquotes, so findBot does too.
+    const wanted = normalize(unquote(ref)).replace(/^@/, '')
     return Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
   }
   // Every group chat whose id or name matches; callers refuse an ambiguous name.
