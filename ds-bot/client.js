@@ -42,6 +42,34 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "{name} was deleted": "已删除 {name}",
+  "The Bot has been removed from your team. Here is what happened to its resources.": "Bot 已从团队中移除，关联资源的处理结果如下。",
+  "Review what happens to its tasks and files before continuing.": "确认关联任务和文件的处理方式后，再继续删除。",
+  "Chat and memory": "聊天与记忆",
+  "Will be archived": "将归档保留",
+  "Browser data": "浏览器数据",
+  "Will be deleted": "将删除",
+  "Shared secrets": "共享密钥",
+  "Leaves group chats: {names}": "将退出群聊：{names}",
+  "No associated automation tasks.": "没有关联的自动化任务",
+  "Task handling": "任务处理方式",
+  Active: "已启用",
+  "Working files": "工作文件",
+  Archived: "已归档",
+  "Files stay in your working folder unless you select them for recovery storage.": "文件默认留在原工作文件夹，只有勾选的文件会移入回收区。",
+  "No files eligible for automatic cleanup. Your files will be kept.": "没有可自动清理的文件，原有文件均会保留。",
+  "Only verified new, unchanged, unshared files can be moved to recovery storage.": "仅允许回收可确认由该 Bot 新建、未被修改且未共享的文件。",
+  "{count} tasks deleted": "已删除 {count} 个任务",
+  "{count} tasks transferred": "已转交 {count} 个任务",
+  "{count} files in recovery storage": "{count} 个文件已移入回收区",
+  "No files were removed.": "未移除任何文件",
+  "File recovery": "恢复文件",
+  "Restore a file to its original location without overwriting an existing file.": "可恢复到原路径，不会覆盖同名文件。",
+  "View saved scheduling history ({count})": "查看保留的历史调度记录（{count} 条）",
+  "These are records from before deletion, not tasks that are still running.": "以下是删除前的历史记录，仅供查阅，不会继续执行。",
+  "Scheduled for {time}": "原定执行时间：{time}",
+  "Original task instruction": "查看原任务指令",
+  "Deleting…": "正在删除…",
   "Saved task records": "已保存的任务记录",
   "Only active tasks are transferred. Finished task records are kept.": "仅转交活动任务，已结束任务的记录会保留。",
   "Deletion progress": "删除进度",
@@ -18928,7 +18956,7 @@ function DeleteBotDialog({ id, actions, leaving }) {
     setBusy(true);
     try {
       await actions.restoreArtifact(id, fileId);
-      const update = (progress) => ({ ...progress, files: { ...progress.files, [fileId]: { ...progress.files[fileId], status: "restored" } } });
+      const update = (progress2) => ({ ...progress2, files: { ...progress2.files, [fileId]: { ...progress2.files[fileId], status: "restored" } } });
       if (done) setDone((value) => ({ ...value, progress: update(value.progress) }));
       else setView((value) => ({ ...value, progress: update(value.progress) }));
     } catch (failure) {
@@ -18938,113 +18966,215 @@ function DeleteBotDialog({ id, actions, leaving }) {
     }
   };
   const targetInfo = view?.targets.find((bot) => bot.id === target);
-  return (0, import_react49.createElement)("div", { className: "bt-delete-backdrop", "data-leaving": leaving || void 0 }, (0, import_react49.createElement)(
-    "section",
-    {
-      className: "bt-delete-dialog bt-set-card",
-      role: "dialog",
-      "aria-modal": true,
-      "aria-labelledby": "bt-delete-title",
-      tabIndex: -1,
-      ref,
-      onKeyDown: (event) => {
-        if (event.key !== "Tab") return;
-        const controls = ref.current.querySelectorAll("button:not(:disabled),select,input");
-        const first = controls[0];
-        const last = controls[controls.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }
-    },
-    (0, import_react49.createElement)("h2", { id: "bt-delete-title" }, done ? t("Bot deleted") : t("Delete {name}?", { name: view?.bot.name ?? t("Bot") })),
-    !view && !error ? (0, import_react49.createElement)("p", null, t("Loading…")) : null,
-    view && !done ? (0, import_react49.createElement)(
-      "div",
-      null,
-      (0, import_react49.createElement)("p", null, t("Chats and memory are archived. Browser data is deleted. Shared secrets are kept.")),
-      (0, import_react49.createElement)("p", null, `${t("Working folder")}: ${view.bot.workDir ?? "—"}`),
-      (0, import_react49.createElement)("p", null, `${t("Group chats")}: ${view.groups.map((group) => group.name).join(", ") || "—"}`),
-      (0, import_react49.createElement)("h3", null, t("Automation tasks")),
-      (0, import_react49.createElement)("ul", null, view.tasks.map((task) => (0, import_react49.createElement)("li", { key: task.id }, `${task.title}${task.status === "active" ? "" : ` · ${t("Finished")}`}`))),
-      view.tasks.length ? (0, import_react49.createElement)("label", null, t("Automation tasks"), (0, import_react49.createElement)(
-        "select",
-        { className: "bt-select", value: policy, disabled: busy, onChange: (event) => setPolicy(event.target.value) },
-        (0, import_react49.createElement)("option", { value: "delete" }, t("Delete with the Bot")),
-        (0, import_react49.createElement)("option", { value: "transfer" }, t("Transfer to another Bot"))
-      )) : null,
-      policy === "transfer" ? (0, import_react49.createElement)(
-        "div",
-        null,
-        (0, import_react49.createElement)(
-          "select",
-          { className: "bt-select", value: target, disabled: busy, "aria-label": t("Receive tasks"), onChange: (event) => setTarget(event.target.value) },
-          (0, import_react49.createElement)("option", { value: "" }, t("Choose a Bot")),
-          view.targets.map((bot) => (0, import_react49.createElement)("option", { key: bot.id, value: bot.id }, bot.name))
-        ),
-        targetInfo ? (0, import_react49.createElement)("p", null, `${t("Working folder")}: ${targetInfo.workDir ?? "—"} · ${t("Permissions")}: ${targetInfo.permission ?? t("Default")}`) : null,
-        (0, import_react49.createElement)("p", null, t("Interval tasks restart their timer when transferred. Keys are not transferred.")),
-        (0, import_react49.createElement)("p", null, t("The selected Bot receives the task instructions and monitor baseline.")),
-        (0, import_react49.createElement)("p", null, t("Only active tasks are transferred. Finished task records are kept.")),
-        (0, import_react49.createElement)("ul", null, view.tasks.filter((task) => task.status === "active").map((task) => (0, import_react49.createElement)("li", { key: task.id }, `${task.title}: ${task.kind === "every" ? new Date(Date.now() + task.everySeconds * 1e3).toLocaleString() : new Date(task.scheduledAt).toLocaleString()}`)))
-      ) : null,
-      (0, import_react49.createElement)("h3", null, t("Related files")),
-      (0, import_react49.createElement)("p", null, t("Files are kept unless selected. Only verified new, unchanged, unshared files can be recycled.")),
-      (0, import_react49.createElement)("ul", null, view.files.map((file) => (0, import_react49.createElement)("li", { key: file.id }, (0, import_react49.createElement)(
-        "label",
-        null,
-        (0, import_react49.createElement)("input", { type: "checkbox", disabled: busy || !file.cleanable, checked: files.includes(file.id), onChange: (event) => setFiles((value) => event.target.checked ? [...value, file.id] : value.filter((key) => key !== file.id)) }),
-        (0, import_react49.createElement)("code", null, file.path),
-        !file.cleanable ? ` — ${t("Kept")}` : ""
-      )))),
-      view.progress ? (0, import_react49.createElement)(
-        "div",
-        null,
-        (0, import_react49.createElement)("h3", null, t("Deletion progress")),
-        (0, import_react49.createElement)("ul", null, Object.values(view.progress.tasks).map((task, index) => (0, import_react49.createElement)("li", { key: index }, `${task.original?.title ?? t("Task")}: ${task.status === "done" ? t("Finished") : t("Needs attention")}`))),
-        Object.entries(view.progress.files).map(([key, file]) => (0, import_react49.createElement)("p", { key }, (0, import_react49.createElement)("code", null, file.original), file.status === "recycled" ? (0, import_react49.createElement)("button", { type: "button", disabled: busy, className: "bt-soft", onClick: () => restore(key) }, t("Restore file")) : t("Kept")))
-      ) : null
-    ) : null,
-    done ? (0, import_react49.createElement)(
-      "div",
-      null,
-      (0, import_react49.createElement)("p", null, t("Selected files were moved to the recovery folder.")),
-      Object.entries(done.progress.files).map(([key, file]) => (0, import_react49.createElement)(
-        "p",
-        { key },
-        (0, import_react49.createElement)("code", null, file.original),
-        file.status === "recycled" ? (0, import_react49.createElement)("button", { type: "button", className: "bt-soft", disabled: busy, onClick: () => restore(key) }, t("Restore file")) : t("Restored")
-      ))
-    ) : null,
-    error ? (0, import_react49.createElement)("p", { role: "alert", className: "bt-danger" }, error) : null,
-    done?.progress ?? view?.progress ? (0, import_react49.createElement)("div", null, Object.entries((done?.progress ?? view.progress).tasks).map(([key, task]) => task.records?.length ? (0, import_react49.createElement)(
-      "details",
-      { key },
-      (0, import_react49.createElement)("summary", null, `${task.original?.title ?? t("Task")} · ${t("Saved task records")}`),
-      (0, import_react49.createElement)("ul", null, task.records.map((record) => (0, import_react49.createElement)("li", { key: record.messageId }, `${record.scheduledAt} · ${record.prompt ?? ""}`)))
-    ) : null)) : null,
-    (0, import_react49.createElement)(
-      "div",
-      { className: "bt-delete-actions" },
-      (0, import_react49.createElement)("button", { type: "button", className: "bt-soft", disabled: busy, onClick: close }, done ? t("Close") : t("Cancel")),
-      !done ? (0, import_react49.createElement)("button", { type: "button", className: "bt-soft", disabled: busy, onClick: load }, t("Refresh")) : null,
-      view && !done ? (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-danger", disabled: busy || policy === "transfer" && !target, onClick: remove }, t("Delete Bot")) : null
-    )
+  const progress = done?.progress ?? view?.progress;
+  const taskProgress = Object.values(progress?.tasks ?? {});
+  const recycled = Object.entries(progress?.files ?? {}).filter(([, file]) => file.status === "recycled");
+  const transferred = taskProgress.filter((task) => task.to && task.status === "done");
+  const deleted = taskProgress.filter((task) => !task.to && task.status === "done");
+  const history = taskProgress.filter((task) => task.records?.length);
+  const name = view?.bot.name ?? t("Bot");
+  const section = (title, ...children) => (0, import_react49.createElement)("section", { className: "bt-delete-section" }, (0, import_react49.createElement)("h3", null, title), ...children);
+  const hint = (text) => (0, import_react49.createElement)("p", { className: "bt-delete-hint" }, text);
+  const fileRecovery = () => Object.entries(progress?.files ?? {}).map(([key, file]) => (0, import_react49.createElement)(
+    "div",
+    { className: "bt-delete-file", key },
+    (0, import_react49.createElement)("code", null, file.original),
+    file.status === "recycled" ? (0, import_react49.createElement)("button", { type: "button", disabled: busy, className: "bt-soft bt-soft-sm", onClick: () => restore(key) }, t("Restore file")) : (0, import_react49.createElement)("span", { className: "bt-delete-hint" }, file.status === "restored" ? t("Restored") : t("Needs attention"))
   ));
+  return (0, import_react49.createElement)(
+    "div",
+    { className: "bt-delete-backdrop", "data-leaving": leaving || void 0 },
+    (0, import_react49.createElement)("div", { className: "bt-scrim", onMouseDown: close }),
+    (0, import_react49.createElement)(
+      "section",
+      {
+        className: "bt-delete-dialog",
+        role: "dialog",
+        "aria-modal": true,
+        "aria-labelledby": "bt-delete-title",
+        "aria-describedby": "bt-delete-description",
+        tabIndex: -1,
+        ref,
+        onKeyDown: (event) => {
+          if (event.key !== "Tab") return;
+          const controls = [...ref.current.querySelectorAll("button:not(:disabled),select:not(:disabled),input:not(:disabled),summary")].filter((control) => control.getClientRects().length);
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === ref.current)) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }
+      },
+      (0, import_react49.createElement)(
+        "header",
+        { className: "bt-delete-head" },
+        done ? (0, import_react49.createElement)("span", { className: "bt-delete-success", "aria-hidden": true }, (0, import_react49.createElement)(CheckIcon)) : null,
+        (0, import_react49.createElement)(
+          "div",
+          null,
+          (0, import_react49.createElement)("h2", { id: "bt-delete-title" }, done ? t("{name} was deleted", { name }) : t("Delete {name}?", { name })),
+          (0, import_react49.createElement)("p", { id: "bt-delete-description", className: "bt-delete-hint" }, done ? t("The Bot has been removed from your team. Here is what happened to its resources.") : t("Review what happens to its tasks and files before continuing."))
+        )
+      ),
+      (0, import_react49.createElement)(
+        "div",
+        { className: "bt-delete-body" },
+        !view && !error ? (0, import_react49.createElement)("p", { role: "status" }, t("Loading…")) : null,
+        view && !done ? (0, import_react49.createElement)(
+          "div",
+          { className: "bt-delete-content" },
+          (0, import_react49.createElement)(
+            "dl",
+            { className: "bt-delete-facts" },
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Chat and memory")), (0, import_react49.createElement)("dd", null, t("Will be archived"))),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Browser data")), (0, import_react49.createElement)("dd", null, t("Will be deleted"))),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Shared secrets")), (0, import_react49.createElement)("dd", null, t("Kept")))
+          ),
+          view.groups.length ? hint(t("Leaves group chats: {names}", { names: view.groups.map((group) => group.name).join(", ") })) : null,
+          section(
+            t("Automation tasks"),
+            view.tasks.length ? (0, import_react49.createElement)("ul", { className: "bt-delete-tasks" }, view.tasks.map((task) => (0, import_react49.createElement)(
+              "li",
+              { key: `${task.sessionId}:${task.id}` },
+              (0, import_react49.createElement)("span", null, task.title),
+              (0, import_react49.createElement)("span", { className: "bt-delete-hint" }, task.status === "active" ? t("Active") : t("Finished"))
+            ))) : hint(t("No associated automation tasks.")),
+            view.tasks.length ? (0, import_react49.createElement)(
+              "label",
+              { className: "bt-delete-field" },
+              (0, import_react49.createElement)("span", null, t("Task handling")),
+              (0, import_react49.createElement)(
+                "select",
+                { className: "bt-select", value: policy, disabled: busy, onChange: (event) => setPolicy(event.target.value) },
+                (0, import_react49.createElement)("option", { value: "delete" }, t("Delete with the Bot")),
+                (0, import_react49.createElement)("option", { value: "transfer" }, t("Transfer to another Bot"))
+              )
+            ) : null,
+            policy === "transfer" ? (0, import_react49.createElement)(
+              "div",
+              { className: "bt-delete-transfer" },
+              (0, import_react49.createElement)(
+                "label",
+                { className: "bt-delete-field" },
+                (0, import_react49.createElement)("span", null, t("Receive tasks")),
+                (0, import_react49.createElement)(
+                  "select",
+                  { className: "bt-select", value: target, disabled: busy, onChange: (event) => setTarget(event.target.value) },
+                  (0, import_react49.createElement)("option", { value: "" }, t("Choose a Bot")),
+                  view.targets.map((bot) => (0, import_react49.createElement)("option", { key: bot.id, value: bot.id }, bot.name))
+                )
+              ),
+              targetInfo ? (0, import_react49.createElement)("div", { className: "bt-delete-target" }, hint(`${t("Permissions")}: ${targetInfo.permission ?? t("Default")}`), (0, import_react49.createElement)("code", null, targetInfo.workDir ?? "—")) : null,
+              hint(t("Interval tasks restart their timer when transferred. Keys are not transferred.")),
+              hint(t("Only active tasks are transferred. Finished task records are kept.")),
+              (0, import_react49.createElement)("ul", { className: "bt-delete-tasks" }, view.tasks.filter((task) => task.status === "active").map((task) => (0, import_react49.createElement)(
+                "li",
+                { key: task.id },
+                (0, import_react49.createElement)("span", null, task.title),
+                (0, import_react49.createElement)("time", null, new Date(task.kind === "every" ? Date.now() + task.everySeconds * 1e3 : task.scheduledAt).toLocaleString())
+              )))
+            ) : null
+          ),
+          section(
+            t("Related files"),
+            hint(t("Files stay in your working folder unless you select them for recovery storage.")),
+            view.files.length ? (0, import_react49.createElement)("ul", { className: "bt-delete-files" }, view.files.map((file) => (0, import_react49.createElement)("li", { key: file.id }, (0, import_react49.createElement)(
+              "label",
+              { className: "bt-delete-file" },
+              (0, import_react49.createElement)("input", { type: "checkbox", disabled: busy || !file.cleanable, checked: files.includes(file.id), onChange: (event) => setFiles((value) => event.target.checked ? [...value, file.id] : value.filter((key) => key !== file.id)) }),
+              (0, import_react49.createElement)("code", null, file.path),
+              !file.cleanable ? (0, import_react49.createElement)("span", { className: "bt-delete-hint" }, t("Kept")) : null
+            )))) : (0, import_react49.createElement)("p", { className: "bt-delete-empty" }, t("No files eligible for automatic cleanup. Your files will be kept.")),
+            (0, import_react49.createElement)(
+              "details",
+              { className: "bt-delete-folder" },
+              (0, import_react49.createElement)("summary", null, t("Working folder")),
+              (0, import_react49.createElement)("code", null, view.bot.workDir ?? "—"),
+              hint(t("Only verified new, unchanged, unshared files can be moved to recovery storage."))
+            )
+          ),
+          progress ? section(
+            t("Deletion progress"),
+            (0, import_react49.createElement)("ul", { className: "bt-delete-tasks" }, taskProgress.map((task, index) => (0, import_react49.createElement)("li", { key: index }, (0, import_react49.createElement)("span", null, task.original?.title ?? t("Task")), (0, import_react49.createElement)("span", null, task.status === "done" ? t("Finished") : t("Needs attention"))))),
+            ...fileRecovery()
+          ) : null
+        ) : null,
+        done ? (0, import_react49.createElement)(
+          "div",
+          { className: "bt-delete-content" },
+          (0, import_react49.createElement)(
+            "dl",
+            { className: "bt-delete-facts bt-delete-outcome" },
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Chat and memory")), (0, import_react49.createElement)("dd", null, t("Archived"))),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Automation tasks")), (0, import_react49.createElement)(
+              "dd",
+              null,
+              deleted.length ? (0, import_react49.createElement)("span", null, t("{count} tasks deleted", { count: deleted.length })) : null,
+              transferred.length ? (0, import_react49.createElement)("span", null, t("{count} tasks transferred", { count: transferred.length })) : null,
+              !deleted.length && !transferred.length ? t("No associated automation tasks.") : null
+            )),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Working files")), (0, import_react49.createElement)("dd", null, recycled.length ? t("{count} files in recovery storage", { count: recycled.length }) : t("No files were removed."))),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Browser data")), (0, import_react49.createElement)("dd", null, t("Deleted"))),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Shared secrets")), (0, import_react49.createElement)("dd", null, t("Kept")))
+          ),
+          Object.keys(progress?.files ?? {}).length ? section(t("File recovery"), hint(t("Restore a file to its original location without overwriting an existing file.")), ...fileRecovery()) : null
+        ) : null,
+        error ? (0, import_react49.createElement)("p", { role: "alert", className: "bt-delete-error bt-danger" }, error) : null,
+        history.length ? (0, import_react49.createElement)(
+          "details",
+          { className: "bt-delete-history" },
+          (0, import_react49.createElement)("summary", null, t("View saved scheduling history ({count})", { count: history.reduce((count, task) => count + task.records.length, 0) })),
+          hint(t("These are records from before deletion, not tasks that are still running.")),
+          history.map((task, index) => (0, import_react49.createElement)(
+            "section",
+            { className: "bt-delete-history-task", key: index },
+            (0, import_react49.createElement)("h3", null, task.original?.title ?? t("Task")),
+            (0, import_react49.createElement)("ul", null, task.records.map((record, index2) => (0, import_react49.createElement)(
+              "li",
+              { key: record.messageId ?? index2 },
+              (0, import_react49.createElement)("time", null, t("Scheduled for {time}", { time: new Date(record.scheduledAt).toLocaleString() }))
+            ))),
+            (0, import_react49.createElement)("details", null, (0, import_react49.createElement)("summary", null, t("Original task instruction")), (0, import_react49.createElement)("p", null, task.original?.prompt ?? task.records[0]?.prompt ?? ""))
+          ))
+        ) : null
+      ),
+      (0, import_react49.createElement)(
+        "footer",
+        { className: "bt-delete-actions" },
+        !done && view ? (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-delete-refresh", disabled: busy, onClick: load }, t("Refresh")) : null,
+        (0, import_react49.createElement)(
+          "div",
+          null,
+          (0, import_react49.createElement)("button", { type: "button", className: "bt-soft", disabled: busy, onClick: close }, done ? t("Done") : t("Cancel")),
+          view && !done ? (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-delete-confirm", disabled: busy || policy === "transfer" && !target, onClick: remove }, busy ? t("Deleting…") : t("Delete Bot")) : null
+        )
+      )
+    )
+  );
 }
 var DELETE_BOT_CSS = `
-.bt-delete-backdrop{position:fixed;inset:0;background:color-mix(in srgb,var(--bt-ink) 35%,transparent);z-index:1000;display:grid;place-items:center;padding:24px}
-.bt-delete-dialog{width:min(640px,100%);max-height:85vh;overflow:auto;padding:24px;background:var(--bt-main);border:1px solid var(--bt-line-2)}
-.bt-delete-dialog h2{font-size:18px;margin:0 0 16px}.bt-delete-dialog h3{font-size:14px;margin:20px 0 8px}
-.bt-delete-dialog p,.bt-delete-dialog li{font-size:13px;line-height:1.6;overflow-wrap:anywhere}.bt-delete-dialog select{margin:8px}
-.bt-delete-dialog code{white-space:normal}.bt-delete-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
-.bt-delete-dialog{animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
-.bt-delete-backdrop[data-leaving]{pointer-events:none;animation:bt-veil-out .16s ease-out forwards}
-.bt-delete-backdrop[data-leaving] .bt-delete-dialog{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+.bt-delete-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px}
+.bt-delete-dialog{position:relative;box-sizing:border-box;width:min(560px,100%);max-height:min(85vh,820px);display:flex;flex-direction:column;background:var(--bt-main);color:var(--bt-ink);border:.5px solid var(--bt-line-2);border-radius:16px;overflow:hidden;font-family:var(--bt-font);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-delete-head{display:flex;align-items:flex-start;gap:12px;padding:24px 24px 20px;flex:none}
+.bt-delete-dialog h2{font-size:18px;line-height:26px;font-weight:600;margin:0 0 6px}.bt-delete-dialog h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 12px}
+.bt-delete-dialog p{font-size:13px;line-height:20px;margin:0;overflow-wrap:anywhere}.bt-delete-dialog .bt-delete-hint{font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-delete-body{overflow:auto;min-height:0;padding:0 24px 24px;overscroll-behavior:contain}.bt-delete-content{display:flex;flex-direction:column;gap:24px}
+.bt-delete-section{display:flex;flex-direction:column;gap:12px}.bt-delete-section h3{margin:0}
+.bt-delete-facts{margin:0;padding:14px 16px;background:var(--bt-card);border:1px solid var(--bt-line);border-radius:10px;display:grid;gap:12px}
+.bt-delete-facts>div{display:grid;grid-template-columns:120px minmax(0,1fr);gap:16px;font-size:13px;line-height:20px}.bt-delete-facts dt{color:var(--bt-ink-2)}.bt-delete-facts dd{margin:0;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:4px}
+.bt-delete-tasks,.bt-delete-files{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}.bt-delete-tasks li{display:flex;justify-content:space-between;align-items:baseline;gap:16px;font-size:13px;line-height:20px;overflow-wrap:anywhere}.bt-delete-tasks li>span:first-child{min-width:0}.bt-delete-tasks time{font-size:12px;color:var(--bt-ink-2);text-align:right}
+.bt-delete-field{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--bt-ink-2)}.bt-delete-dialog .bt-select{box-sizing:border-box;width:100%;margin:0;font-size:13px;min-height:38px;color:var(--bt-ink)}
+.bt-delete-transfer{display:flex;flex-direction:column;gap:12px}.bt-delete-target{display:flex;flex-direction:column;gap:4px}.bt-delete-dialog code{font:12px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;white-space:normal}
+.bt-delete-empty{padding:12px 14px;background:var(--bt-card);border-radius:8px;color:var(--bt-ink-2)}.bt-delete-file{display:flex;align-items:center;gap:10px;font-size:13px}.bt-delete-file code{flex:1;min-width:0}.bt-delete-file input{flex:none}
+.bt-delete-folder,.bt-delete-history{font-size:12px;line-height:20px;color:var(--bt-ink-2)}.bt-delete-dialog summary{cursor:pointer;padding:4px 0}.bt-delete-folder>code{display:block;margin:8px 0}.bt-delete-history{margin-top:24px;border-top:1px solid var(--bt-line);padding-top:16px}.bt-delete-history>summary{color:var(--bt-ink);font-weight:500}.bt-delete-history>.bt-delete-hint{margin:8px 0 16px}.bt-delete-history-task+section{margin-top:16px}.bt-delete-history-task h3{margin:0 0 8px}.bt-delete-history-task ul{margin:0 0 8px;padding-left:20px}.bt-delete-history-task p{white-space:pre-wrap;margin-top:8px}
+.bt-delete-success{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;color:var(--bt-green);background:color-mix(in srgb,var(--bt-green) 12%,transparent)}
+.bt-delete-actions{flex:none;display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--bt-line);padding:16px 24px;background:var(--bt-main)}.bt-delete-actions>div{display:flex;justify-content:flex-end;gap:8px;margin-left:auto}.bt-delete-actions .bt-soft{min-height:36px;padding:8px 16px;white-space:nowrap}.bt-delete-refresh{color:var(--bt-ink-2)}.bt-delete-actions .bt-delete-confirm{background:var(--bt-danger);color:var(--bt-knob)}.bt-delete-error{margin:16px 0!important}
+.bt-delete-backdrop[data-leaving]{pointer-events:none;animation:bt-veil-out .16s ease-out forwards}.bt-delete-backdrop[data-leaving] .bt-delete-dialog{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+@media(max-width:520px){.bt-delete-backdrop{padding:12px}.bt-delete-head{padding:20px 16px 16px}.bt-delete-body{padding:0 16px 20px}.bt-delete-actions{padding:14px 16px}.bt-delete-facts>div{grid-template-columns:96px minmax(0,1fr);gap:12px}}
 @media(prefers-reduced-motion:reduce){.bt-delete-dialog,.bt-delete-backdrop[data-leaving],.bt-delete-backdrop[data-leaving] .bt-delete-dialog{animation-duration:.01s}}
 .bt-automation-results{display:flex;flex-direction:column;gap:12px}.bt-monitor-result .bt-set-row{gap:12px}.bt-monitor-result time{font-size:12px;color:var(--bt-ink-3)}
 `;
