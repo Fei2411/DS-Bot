@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -119,6 +121,23 @@ test('the live feed tells a window about saves, new chat entries and the reply b
   assert.deepEqual(await next(), { event: 'live', data: {} })
 
   abort.abort()
+  assert.equal(await next(), undefined)
+})
+
+test('live feed cancellation survives garbage collection of the request caller', () => {
+  execFileSync(process.execPath, ['--expose-gc', '--import', new URL('./harness-resolve.mjs', import.meta.url).href,
+    fileURLToPath(new URL('./fixtures/feed-gc.mjs', import.meta.url))], { timeout: 5000 })
+})
+
+test('an already cancelled request cannot leave a live feed behind', { timeout: 5000 }, async t => {
+  const { call, stop, routes } = start()
+  t.after(stop)
+  await call('state')
+  const abort = new AbortController()
+  abort.abort()
+  const response = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal }))
+  const next = reader(response)
+  assert.equal((await next()).event, 'hello')
   assert.equal(await next(), undefined)
 })
 
