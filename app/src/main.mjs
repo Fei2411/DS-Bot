@@ -223,6 +223,7 @@ async function start() {
     host = newHost()
     host.onMessage(message => {
       if (message?.type === 'ds-bot:completion') { completions.show(message); return }
+      if (message?.type === 'ds-bot:attention') { completions.show(message); return }
       if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
       const downloadRoots = message.downloadRoots
       if (!Array.isArray(downloadRoots) || downloadRoots.length > 4 || !Array.from(downloadRoots).every(root => typeof root === 'string' && isAbsolute(root))) {
