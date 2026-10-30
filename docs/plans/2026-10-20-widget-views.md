@@ -73,7 +73,7 @@ Bot 的回答现在只有 Markdown 文本。有些回答天生是结构化的：
 ### 公式
 
 - 写法：`{ "=": "表达式" }`。能写公式的属性：metric 的 value、caption、tone；text 的 text；progress 的 percent、value、max、valueLabel、tone；callout 的 text、tone；表格单元格；图表的每个值。
-- 表达式只读输入的 `id` 和 `let` 里的名字：数字、'文字'、`+ - * / %`、比较、`&& || !`、`a ? b : c`，以及 `min max abs floor ceil sqrt pow round clamp fixed format percent`。没有属性访问、赋值、循环，碰不到页面。解析和计算在 `src/shared/formula.js`，主机和界面共用。
+- 表达式只读输入的 `id` 和 `let` 里的名字：数字、'文字'、`+ - * / %`、比较、`&& || !`、`a ? b : c`，以及 `min max abs floor ceil sqrt pow round clamp fixed format percent`。没有属性访问、赋值、循环，碰不到页面。解析和计算在 `deep-view` 包的 `src/core/formula.js`，主机和界面共用。
 - 主机按 Bot 设的初始值把每个公式算一遍：解析失败、用了不存在的名字、`let` 互相引用、结果类型不对（如 tone 不在允许值里），都原样拒绝并给出路径。
 - 页面上每次输入变化都重算；某个公式在用户的值下算不出来时，这一处显示占位，不影响别处。
 
@@ -130,9 +130,14 @@ Bot 的回答现在只有 Markdown 文本。有些回答天生是结构化的：
 - 已答视图在会话压缩后只剩一行摘要，Bot 看不到当时的完整蓝图。
 - 8 KiB 上限是按 DSH 会话日志里 `ask_user_question` 参数的现有形状定的起点，未在真实持久化日志里验证过 DSH/供应商的硬上限；冒烟测试要实测接近上限和超限的调用。
 
+## 代码位置
+
+蓝图、公式、回复格式和卡片组件的实现收在独立的 `deep-view` 包里，ds-bot 依赖它，不再自带一份。ds-bot 也不再全局注册 `show_view`：每个 Bot 自己的会话和群会话都在自己的 Agent 作用域里注册同名工具（作用域注册压过全局注册），所以另一个插件的全局 `show_view`（比如 Deep View）只管 ds-bot 不管的会话；群里调用照样被 ds-bot 的注册拦下，回「只能在自己的会话里画视图」。
+
 ## 变更
 
 - 2026-10-20：初稿（声明式目录，第二版）。评审：Antigravity 否决第一版 iframe 方案；Codex 一审（ship with changes）：state.views 独立、已答视图在回复节点、交互组合规则、未提交输入的限制、摘要带关键值。
 - 2026-10-20：Codex 二审（ship with changes）：concludeTurn 绑定生效后的 await_reply；回复格式改判别字段双分支；标识唯一性和 values 形状定死；首次提交结算整张卡；views 与 questions 共存规则写明。
 - 2026-10-20：Codex 三审签字（ship，无需再改）。
 - 2026-10-23：第三版（#468）：图表、输入控件和公式、row/callout/sources、沙箱 html；只展示的视图去掉外框和「视图」标签，标题可选。
+- 2026-10-27：核心代码移入独立的 deep-view 包；show_view 改为按会话在 Agent 作用域注册，在 Bot 会话和群会话里压过别的插件全局注册的同名工具。

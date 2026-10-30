@@ -9,12 +9,18 @@ const bundle = await build({
   bundle: true, format: 'cjs', platform: 'node', write: false,
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
-const ISSUES = 'https://github.com/Fei2411/DeepSeek-Bot/issues/new'
+const ISSUES = 'https://github.com/Fei2411/DS-Bot/issues/new'
 
 // Settings → Feedback in a window whose `open` is `open`, with every state change kept.
 function page(window) {
   const notes = []
   const react = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+  useContext: ctx => ctx.value,
+  useMemo: make => make(),
+  useCallback: fn => fn,
+  useId: () => 'dv-id',
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useState: initial => [initial, (next) => { if (typeof next === 'string') notes.push(next) }],

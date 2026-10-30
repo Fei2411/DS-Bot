@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions & help
-    url: https://github.com/Fei2411/DeepSeek-Bot/discussions/new?category=q-a
+    url: https://github.com/Fei2411/DS-Bot/discussions/new?category=q-a
     about: Installation, setup and usage questions — ask in Discussions, not Issues.
   - name: Feature requests & ideas
-    url: https://github.com/Fei2411/DeepSeek-Bot/discussions/new?category=ideas
+    url: https://github.com/Fei2411/DS-Bot/discussions/new?category=ideas
     about: Suggest features and discuss anything that is not a bug — in Discussions.

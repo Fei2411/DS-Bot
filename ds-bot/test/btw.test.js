@@ -91,8 +91,8 @@ function projectionRegistry(ctx) {
   }
 }
 
-// The ask path is gone; saved cards stay where they were, read-only. `btw`
-// seeds card files: { botId: { partId: [cards] } }.
+// The ask path is gone; saved cards stay readable until deleted. `btw` seeds
+// card files: { botId: { partId: [cards] } }.
 async function setup({ state = team(), messages, seq = 4, events, foreignLock = false, btw = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-btw-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(state))
@@ -208,6 +208,65 @@ test('a saved card rides the current part\'s view, whole and read-only', async (
   assert.equal(saved.revision, 3)
 })
 
+test('a user deletes saved cards from current and earlier parts', async (t) => {
+  const env = await setup({
+    btw: {
+      b1: {
+        's-now': [
+          { id: 'first', botId: 'b1', partId: 's-now', atSeq: 3, question: 'Now?', answer: 'Yes.', status: 'done', createdAt: 10, finishedAt: 11 },
+          { id: 'second', botId: 'b1', partId: 's-now', atSeq: 2, question: 'Earlier?', answer: 'Yes.', status: 'done', createdAt: 9, finishedAt: 10 },
+        ],
+        's-old': [{ id: 'old', botId: 'b1', partId: 's-old', atSeq: 1, question: 'Before?', answer: 'Yes.', status: 'done', createdAt: 5, finishedAt: 6 }],
+      },
+    },
+  })
+  t.after(() => env.stop())
+  const revision = env.rt.state.revision
+  const deleted = await env.call('btw-delete', { sessionId: 's-now', cardId: 'first' })
+  assert.deepEqual(deleted, { ok: true, value: { deleted: true } })
+  assert.deepEqual(cardsOf(env.rt).map(card => card.id), ['second'])
+  assert.deepEqual(cardsFile(env.home).map(card => card.id), ['second'])
+  assert.equal(env.rt.state.revision, revision + 1)
+  const view = await env.call('state', { since: revision })
+  assert.equal(view.ok, true)
+  assert.equal(view.value.unchanged, undefined)
+  assert.deepEqual(view.value.btwCards.b1.map(card => card.id), ['second'])
+
+  const wrongPart = await env.call('btw-delete', { sessionId: 's-old', cardId: 'second' })
+  assert.deepEqual(wrongPart, { ok: true, value: { deleted: false } })
+  assert.deepEqual(cardsFile(env.home).map(card => card.id), ['second'])
+  assert.equal(env.rt.state.revision, revision + 1)
+
+  const old = await env.call('btw-delete', { sessionId: 's-old', cardId: 'old' })
+  assert.deepEqual(old, { ok: true, value: { deleted: true } })
+  assert.deepEqual(cardsFile(env.home, 'b1', 's-old'), [])
+  assert.deepEqual(cardsOf(env.rt).map(card => card.id), ['second'])
+  assert.equal(env.rt.state.revision, revision + 2)
+
+  const again = await env.call('btw-delete', { sessionId: 's-now', cardId: 'first' })
+  assert.deepEqual(again, { ok: true, value: { deleted: false } })
+  assert.equal(env.rt.state.revision, revision + 2)
+  const invalid = await env.call('btw-delete', { sessionId: 's-now' })
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.error.code, 'bot/invalid')
+  assert.equal(env.requests.length, 0)
+  assert.equal(env.session.writes, 0)
+})
+
+test('concurrent deletes in one part keep both removals', async (t) => {
+  const card = (id, at) => ({ id, botId: 'b1', partId: 's-now', atSeq: at, question: `${id}?`, answer: 'Yes.', status: 'done', createdAt: at, finishedAt: at + 1 })
+  const env = await setup({ btw: { b1: { 's-now': [card('a', 1), card('b', 2), card('c', 3)] } } })
+  t.after(() => env.stop())
+  const [a, b] = await Promise.all([
+    env.call('btw-delete', { sessionId: 's-now', cardId: 'a' }),
+    env.call('btw-delete', { sessionId: 's-now', cardId: 'b' }),
+  ])
+  assert.deepEqual(a, { ok: true, value: { deleted: true } })
+  assert.deepEqual(b, { ok: true, value: { deleted: true } })
+  assert.deepEqual(cardsOf(env.rt).map(item => item.id), ['c'])
+  assert.deepEqual(cardsFile(env.home).map(item => item.id), ['c'])
+})
+
 test('a restart marks an aside that was still answering as failed', async (t) => {
   const env = await setup({
     btw: {
@@ -265,6 +324,10 @@ test('a second host does not fail an aside the writer is still answering', async
   assert.equal(saved.revision, 3)
   assert.equal(env.rt.state.revision, 3)
   assert.equal(env.notices(), 0)
+  const deleted = await env.call('btw-delete', { sessionId: 's-now', cardId: 'old' })
+  assert.equal(deleted.ok, false)
+  assert.equal(deleted.error.code, 'bot/read-only')
+  assert.equal(cardsFile(env.home).length, 2)
 })
 
 test('deleting a Bot removes its card files', async (t) => {

@@ -123,6 +123,40 @@ test('a shell that cannot go on keeps the conversation group off too', (t) => {
   assert.deepEqual([...live], [])
 })
 
+test('remount takes a mounted group off and installs it again', (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const log = []
+  const groups = recordingGroups(log)
+  groups.reconcile(groupsFor({ mode: 'bot' }))
+  log.length = 0
+  groups.remount('shell', groupsFor({ mode: 'bot' }))
+  assert.deepEqual(log, ['conversation cells', 'conversation tokens', 'conversation styles', 'shell theme', 'shell styles', 'install shell', 'install conversation'])
+  log.length = 0
+  // Without a wanted set remount falls back to the last reconciled one.
+  groups.remount('shell')
+  assert.deepEqual(log, ['conversation cells', 'conversation tokens', 'conversation styles', 'shell theme', 'shell styles', 'install shell', 'install conversation'])
+  log.length = 0
+  // A group the surface does not want stays off — remount only retries mounts.
+  groups.reconcile(groupsFor({ mode: 'agent' }))
+  log.length = 0
+  groups.remount('shell', groupsFor({ mode: 'agent' }))
+  assert.deepEqual(log, [])
+  groups.dispose()
+})
+
+// A withdraw that throws on the way down does not strand the conversation
+// group: the remount still takes the shell off and puts both back.
+test('a failed shell withdraw does not strand the conversation group', (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const log = []
+  const groups = recordingGroups(log, { failing: 'shell theme' })
+  groups.reconcile(groupsFor({ mode: 'bot' }))
+  log.length = 0
+  groups.remount('shell', groupsFor({ mode: 'bot' }))
+  assert.deepEqual(log, ['conversation cells', 'conversation tokens', 'conversation styles', 'shell theme', 'shell styles', 'install shell', 'install conversation'])
+  groups.dispose()
+})
+
 test('a shadow goes below every entry of its cell, so a same-priority plugin does not block it', () => {
   const entry = options => ({ options })
   assert.equal(freePriority([], { priority: -100 }), -100)

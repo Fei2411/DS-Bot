@@ -1,0 +1,242 @@
+{
+  "note": "Skill review cases. expect: none | create | update. must/mustNot: regexes (case-insensitive) on description+content. heldOut: tasks of the same class, answered with and without the learned skill; unrelated: a task the skill must not leak into.",
+  "cases": [
+    {
+      "id": "routine-rename",
+      "expect": "none",
+      "bot": {
+        "name": "Coder",
+        "role": "Developer"
+      },
+      "lines": [
+        "User: Rename the variable `cnt` to `count` in src/stats.js.",
+        "Renamed `cnt` to `count` in src/stats.js (4 places) and ran the tests: all pass.",
+        "User: Thanks."
+      ]
+    },
+    {
+      "id": "one-off-bug",
+      "expect": "none",
+      "bot": {
+        "name": "Coder",
+        "role": "Developer"
+      },
+      "lines": [
+        "User: The export button crashes with \"Cannot read properties of undefined (reading 'rows')\".",
+        "Found it: exportTable() runs before the table loads, so table is undefined. I added a guard that waits for the load event, and added a test.",
+        "User: Works now, thanks."
+      ]
+    },
+    {
+      "id": "personal-fact",
+      "expect": "none",
+      "bot": {
+        "name": "Assistant",
+        "role": "Personal assistant"
+      },
+      "lines": [
+        "User: 帮我订周五去上海的高铁，我一般坐靠窗。",
+        "已查到周五 9:00 G7 次有靠窗座位，已帮你预订。",
+        "User: 好的。我老家在杭州，以后过年也要订票。"
+      ]
+    },
+    {
+      "id": "release-corrections",
+      "expect": "create",
+      "bot": {
+        "name": "Shipper",
+        "role": "Release engineer"
+      },
+      "lines": [
+        "User: 发 0.4.0。",
+        "已把改动直接推到 main，并打了 v0.4.0 标签。",
+        "User: 不对。不要直接推 main，先开 PR 到 dev，合并要我同意。标签也删掉。",
+        "已删除标签，回退 main，在 dev 上开了 PR。",
+        "User: 发版前还要跑 node dev/release/scan.mjs 扫描泄露，必须是 must fix: 0。你漏了。",
+        "已运行扫描，结果 must fix: 0。",
+        "User: 还有，版本号在 ds-bot/package.json，CHANGELOG 要同时填日期，两个一起改，别只改一个。",
+        "已同时更新 package.json 版本号和 CHANGELOG 日期，并推到 PR 分支。",
+        "User: 上次发 0.3.0 你也是只改了版本号。记住这套流程。"
+      ],
+      "must": [
+        "dev",
+        "scan\\.mjs",
+        "must fix: ?0",
+        "CHANGELOG",
+        "package\\.json"
+      ],
+      "mustNot": [
+        "#\\d{2,}",
+        "20\\d\\d-\\d\\d-\\d\\d",
+        "0\\.4\\.0"
+      ],
+      "heldOut": [
+        {
+          "task": "我修好了一个小 bug，准备发 0.5.2。告诉我你接下来按什么步骤做，列出来。",
+          "expect": [
+            "scan\\.mjs",
+            "CHANGELOG",
+            "(PR|pull request)",
+            "package\\.json"
+          ],
+          "mustNot": [
+            "(直接|先)推(到)? ?main"
+          ]
+        },
+        {
+          "task": "Ship version 1.2.0 of this repo. List the exact steps you will take, in order.",
+          "expect": [
+            "scan\\.mjs",
+            "CHANGELOG",
+            "dev"
+          ]
+        }
+      ],
+      "unrelated": {
+        "task": "Write a Python function that reverses a string, with one example.",
+        "mustNot": [
+          "scan\\.mjs",
+          "CHANGELOG"
+        ]
+      }
+    },
+    {
+      "id": "review-format",
+      "expect": "create",
+      "bot": {
+        "name": "Reviewer",
+        "role": "Code reviewer"
+      },
+      "lines": [
+        "User: Review my diff in src/auth.js.",
+        "Great work overall! The code is clean. A few thoughts: maybe consider renaming `tok`, the error message could be friendlier, and line 42 compares the password with == which may allow timing attacks.",
+        "User: Stop praising. Only list what must be fixed before merge, most severe first. Each item: file:line, the problem, the fix. Skip style nits.",
+        "1. src/auth.js:42 — password compared with ==, open to timing attacks. Fix: use crypto.timingSafeEqual.",
+        "User: Better. Next time review like this from the start. Also say \"No blocking issues\" when there are none instead of inventing some.",
+        "Understood.",
+        "User: Review src/session.js too.",
+        "No blocking issues."
+      ],
+      "must": [
+        "sever",
+        "line",
+        "(nit|style)",
+        "no blocking issues"
+      ],
+      "mustNot": [
+        "auth\\.js",
+        "timingSafeEqual"
+      ],
+      "heldOut": [
+        {
+          "task": "Review this change before merge:\n```js\nfunction getUser(id) {\n  const q = 'SELECT * FROM users WHERE id = ' + id\n  return db.query(q)\n}\nconst x = 1;\n```\nFile is src/users.js, the function starts at line 10.",
+          "expect": [
+            "users\\.js:1\\d",
+            "(sql|inject)"
+          ],
+          "mustNot": [
+            "(great|nice|good) (work|job)",
+            "well done"
+          ]
+        },
+        {
+          "task": "Review this change before merge, file src/math.js line 3:\n```js\nexport const add = (a, b) => a + b\n```",
+          "expect": [
+            "no blocking issues"
+          ]
+        }
+      ],
+      "unrelated": {
+        "task": "Explain in two sentences what a hash table is.",
+        "mustNot": [
+          "no blocking issues",
+          "file:line"
+        ]
+      }
+    },
+    {
+      "id": "weekly-update",
+      "expect": "update",
+      "target": "weekly-report",
+      "bot": {
+        "name": "Writer",
+        "role": "Report writer"
+      },
+      "learned": [
+        {
+          "name": "weekly-report",
+          "description": "Use when writing the user's weekly work report.",
+          "content": "- Group items by project.\n- List what was done, then what is next."
+        }
+      ],
+      "lines": [
+        "User: 写本周周报。",
+        "（按项目分组的周报，约 30 行，列出了完成项和下周计划）",
+        "User: 太长了。先写一句结论，再列要点，全文最多 10 行。风险单独一行放最后。",
+        "已改为：结论一句 + 7 行要点 + 风险一行。",
+        "User: 对，以后都这样。"
+      ],
+      "must": [
+        "结论|conclusion",
+        "10",
+        "风险|risk",
+        "项目|project"
+      ],
+      "mustNot": [
+        "20\\d\\d-\\d\\d-\\d\\d"
+      ],
+      "heldOut": [
+        {
+          "task": "写本周周报。本周：A 项目完成登录页、修了 3 个 bug；B 项目接口联调完成一半，第三方接口不稳定；下周：A 上线，B 完成联调。",
+          "maxLines": 12,
+          "lastLine": "风险"
+        }
+      ],
+      "unrelated": {
+        "task": "把这句话翻成英文：今天天气很好。",
+        "mustNot": [
+          "结论",
+          "风险"
+        ]
+      }
+    },
+    {
+      "id": "already-covered",
+      "expect": "none",
+      "bot": {
+        "name": "Shipper",
+        "role": "Release engineer"
+      },
+      "library": [
+        {
+          "name": "release-checks",
+          "description": "Use when releasing a new version: PR to dev, leak scan, version and CHANGELOG together."
+        }
+      ],
+      "lines": [
+        "User: 发 0.6.1。",
+        "按流程：在 dev 开 PR，跑了 node dev/release/scan.mjs（must fix: 0），同时改了 package.json 版本号和 CHANGELOG 日期，等你同意合并。",
+        "User: 好，合并吧。"
+      ]
+    },
+    {
+      "id": "declined-before",
+      "expect": "none",
+      "bot": {
+        "name": "Coder",
+        "role": "Developer"
+      },
+      "declined": [
+        {
+          "name": "commit-messages",
+          "description": "Use when writing commit messages: imperative mood, under 72 characters."
+        }
+      ],
+      "lines": [
+        "User: Commit this.",
+        "Committed: \"Add retry to the upload client\".",
+        "User: ok"
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, parse } from 'node:path'
+import { dirname, isAbsolute, join, parse } from 'node:path'
 import { test } from 'node:test'
 import { copyTree } from '../src/copy-tree.mjs'
 import { copyData, installFolder, moveProblem } from '../src/move-data.mjs'
@@ -144,7 +144,12 @@ test('links in the data lead inside the copy, not back into the old folder', asy
   assert.equal(target('chained'), join(to, 'sessions'))
   if (process.platform !== 'win32') {
     assert.equal(target('relative'), join('..', 'sessions'))
-    assert.equal(target('relative-outside'), join(root, 'elsewhere'))
+    // The copy writes an outside link through the real path of the old folder, which macOS
+    // spells /private/var where the temporary folder is /var; both lead to the same folder.
+    const outside = target('relative-outside')
+    assert.ok(isAbsolute(outside))
+    assert.equal(realpathSync(outside), realpathSync(join(root, 'elsewhere')))
+    assert.equal(readFileSync(join(to, 'bot', 'relative-outside', 'file.txt'), 'utf8'), 'x')
     assert.equal(target('relative-alias'), join(to, 'sessions'))
   }
   assert.equal(readFileSync(join(to, 'bot', 'absolute', 'g', 's1', 'log.jsonl'), 'utf8'), 'chat')

@@ -1147,7 +1147,7 @@ test('a turn whose Session moves to a fresh part before its review is still revi
 test('config.memoryReview false leaves memory to the Bots\' own remember calls', async (t) => {
   const { ctx, call, section, requests, stop } = start({ config: { memoryReview: false, memoryReviewDelayMs: 0 } })
   t.after(() => stop())
-  assert.equal(ctx.calls.filter(entry => entry === 'on agent/status').length, 3)
+  assert.equal(ctx.calls.filter(entry => entry === 'on agent/status').length, 4)
   await call('state', {})
   assert.match(section('b2'), /Call it in that same turn, before you reply/)
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })

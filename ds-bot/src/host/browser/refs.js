@@ -134,7 +134,7 @@ export const toolDefs = [
       note: { type: 'string', description: 'What the user should do' },
     },
     async execute(args, ctx) {
-      return { text: ctx.session.handoff(args.reason, args.note) }
+      return { text: ctx.session.handoff(args.reason, args.note, ctx.origin) }
     },
   },
   {

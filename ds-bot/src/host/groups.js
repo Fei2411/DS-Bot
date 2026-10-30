@@ -61,6 +61,7 @@ const unseenLines = (room, memberId) => {
 const noticeText = (line) => {
   if (line.reason === 'missed') return `${(line.names ?? []).join(' and ')} did not answer within ${line.minutes} minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.`
   if (line.reason === 'paused') return `Paused: Bots have called each other ${line.limit} times since the user last wrote here. The calls to @${(line.names ?? []).join(' and @')} wait until the user continues or writes here; do not call them again.`
+  if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
   return line.text ?? ''
 }
 // `text` is what to show of a message line, by default what the log keeps of it.
@@ -222,6 +223,9 @@ export function install(rt) {
     await rt.applyPermission(member, id, room)
       .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', member.name, room.name, error))
     await rt.save()
+    // The Session was resolved before the group owned it, so its scoped tools land now.
+    await rt.resolveAgent(id)
+      .catch(error => rt.warn('ds-bot: scoped tools for %s in %s not applied: %s', member.name, room.name, error))
     await rt.ensureCapabilities(id)
     return { id, brief: await rt.ownChatBrief(member) }
   }
@@ -298,7 +302,9 @@ export function install(rt) {
     const turn = { botId: member.id, sessionId, exchangeId }
     const { started } = round
     started.push(turn)
-    room.seen[member.id] = room.seq
+    // The read position is the one of this turn's start, and moves only when the
+    // delivery lands: a delivery that failed leaves the member where it was.
+    const seenAt = room.seq
     // Checked before the delivery, which may start the turn at once.
     const busy = rt.live.get(sessionId)?.turn !== undefined
     const done = new Promise((resolve) => {
@@ -326,10 +332,12 @@ export function install(rt) {
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
-      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, files, ...(by ? { askedBy: by } : {}) })
+      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, files, steer: busy, ...(by ? { askedBy: by } : {}) })
+      // The prompt reached the member: its read position moves on.
+      room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
       if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
-      // Still at earlier work: the call waits in its inbox and is answered after that.
+      // Still at earlier work: the call steers it at its next step; the round goes on.
       else if (busy) rt.roomWaiters.get(exchangeId)?.resolve({ working: true })
     } catch (error) {
       rt.warn('ds-bot: group delivery to %s failed: %s', member.name, error)
@@ -545,6 +553,17 @@ export function install(rt) {
       const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
       callMembers(round, index, callees, `${member.name} mentioned you`, member.id, 'bot')
     }
+    // The admin was alone with the user's message and passed: the round ends with
+    // nothing said. The group says so once, so the user knows to call a member.
+    const alone = round.soleAdmin !== undefined && round.slots.find(slot => slot.id === round.soleAdmin.id)?.status === 'passed'
+    // An answer that came, or is still coming, means the round is not left silent.
+    const answered = round.slots.some(slot => ['posted', 'working', 'waiting-approval'].includes(slot.status))
+    if (alone && !answered) {
+      appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'admin-passed', names: [round.soleAdmin.name] })
+      // The round the user watched shows the same notice as one line of its replies.
+      round.replies.push({ kind: 'admin-passed', botId: round.soleAdmin.id, name: round.soleAdmin.name, color: round.soleAdmin.color, time: Date.now() })
+      await rt.save()
+    }
     // A round that ended with parked calls says so once, to the group and to the
     // user: the log's "@Name" lines are real calls that wait, not drops in silence.
     if (round.parked !== undefined) {
@@ -600,19 +619,26 @@ export function install(rt) {
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
       const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
+      const speakers = openingSpeakers(room, opener)
+      // The admin alone with the user's message: when it passes, the round ends with
+      // nothing said, and the group says so once.
+      const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
+      const soleAdmin = opener.botId === undefined && !opener.kickoff && room.mode === 'admin' && admin !== undefined
+        && speakers.length === 1 && speakers[0].id === admin.id
       const round = {
         roomId: room.id,
         members: room.members,
         startSeq,
         ...(opener.kickoff ? { kickoff: true } : {}),
         ...(references.length > 0 ? { references, shown: [] } : {}),
-        slots: openingSpeakers(room, opener).map(member => ({
+        slots: speakers.map(member => ({
           id: member.id, name: member.name, status: 'waiting',
           origin: opener.botId === undefined ? 'user' : 'bot',
           ...(opener.kickoff ? { note: 'the group was just created' } : {}),
           ...(named.includes(member) ? { by: opener.botId } : {}),
           ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
         })),
+        ...(soleAdmin ? { soleAdmin: { id: admin.id, name: admin.name, color: admin.color } } : {}),
         speaking: null,
         replies: [],
         passed: [],
@@ -733,6 +759,7 @@ export function install(rt) {
       }
       // Thirty whole lines could fill the context, so a long one shows its start.
       const short = (line) => {
+        if (line.text === undefined) return ''
         const length = line.length ?? line.text.length
         return length <= TEXT_KEPT ? line.text : `${headOf(line.text, TEXT_KEPT)}… (cut; ${length} characters in all; read_group_chat with seq ${line.seq} reads it whole)`
       }
@@ -899,6 +926,22 @@ export function install(rt) {
     return true
   }
   rt.stopMemberWork = stopMemberWork
+
+  // The user stops everything at work in this group at once: the round the group's own
+  // Session runs, which takes the member turns it started with it, then each member's
+  // turn here. The round goes first, so it calls no one else meanwhile. Work the same
+  // Bots do in their own chats or other groups goes on.
+  async function stopRoomWork(roomId) {
+    await rt.load()
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return false
+    const round = rt.roomBusy(room.id)
+    if (round) (await rt.resolveAgent(room.id)).cancel({ kind: 'user' })
+    let stopped = false
+    for (const botId of room.members) stopped = (await stopMemberWork(room.id, botId)) || stopped
+    return round || stopped
+  }
+  rt.stopRoomWork = stopRoomWork
 
   // The round said such a member posts when done; a failed model call is how it ended.
   // Nobody answers it.

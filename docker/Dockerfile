@@ -48,5 +48,5 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 LABEL org.opencontainers.image.title="DS Bot" \
       org.opencontainers.image.description="A team of long-lived Bots on DeepSeek Harness, served by dsh web" \
-      org.opencontainers.image.source="https://github.com/Fei2411/DeepSeek-Bot" \
+      org.opencontainers.image.source="https://github.com/Fei2411/DS-Bot" \
       org.opencontainers.image.licenses="Apache-2.0"

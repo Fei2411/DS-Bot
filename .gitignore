@@ -1,10 +1,13 @@
 node_modules/
 *.tgz
 # The desktop app's window build (npm run build in app/), its packages (npm run pack, npm run dist)
-# and the next version that checks its update (see app/README.md).
+# and the next version that checks its update (see app/README.md). The Office runtime payload
+# (npm run runtime in app/) is downloaded per machine.
 /app/ui/dist/
 /app/dist-pack/
 /app/dist-next/
+/app/build/runtime/
+/app/build/runtime-cache/
 
 # A DeepSeek Harness checkout for the tests and the test bench.
 /deepseek-harness/
@@ -17,6 +20,9 @@ node_modules/
 
 # Extra patterns for scripts/scan.mjs that must not be named in the repository.
 .scan-extra
+
+# Persistent data for start.ps1 (profiles, credentials, chats and Bot files).
+/.ds-bot-local/
 
 # Browser-plugin bench output (the HTML report is written beside it and committed).
 /browser-plugins/bench/out/

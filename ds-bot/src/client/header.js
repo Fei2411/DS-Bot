@@ -82,6 +82,10 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   useEffect(() => {
     document.body.style.setProperty('--bt-placeholder', JSON.stringify(name ? t('Message {name}', { name }) : t('Message')))
   }, [name, t('Message')])
+  // The unread label under a pending steering bubble reads its text from here.
+  useEffect(() => {
+    document.body.style.setProperty('--bt-steer-unread', JSON.stringify(t('Not read yet')))
+  }, [t('Not read yet')])
   useEffect(() => {
     actions.beginVisit(sessionId)
     return () => actions.endVisit(sessionId)

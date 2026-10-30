@@ -7,6 +7,7 @@ import { VoiceMode } from './voice.js'
 import { SettingsDialog } from './settings.js'
 import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
+import { frameLayout, FALLBACK_SIDEBAR_WIDTH } from './frame-layout.js'
 import { MemoryDialog } from './memory-panel.js'
 import { useLinger } from './motion.js'
 
@@ -14,10 +15,12 @@ import { useLinger } from './motion.js'
 const DIALOG_EXIT_MS = 160
 const MENU_EXIT_MS = 120
 
-export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, actions }) {
+export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, actions }) {
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
+  const frameSnap = useFrame ? useFrame(value => value) : { viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
+  const pref = useSidebarPref ? useSidebarPref(value => value) : 'open'
   const current = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
   // An open panel follows the conversation in the main view. Only a change of the
   // main view moves it, so opening details for another id (Rename) is not undone.
@@ -28,13 +31,22 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     if (current) actions.followPanel?.(current)
   }, [current])
   const open = ui.details ? { id: ui.details, view: ui.view ?? 'details', renaming: ui.renaming, tab: ui.tab, side: ui.side } : null
-  const [kept, setKept] = useState(open)
+  // A panel that no longer fits folds away: its state stays open, it just is not
+  // mounted — the usual exit plays and the webview goes with it — until the room
+  // returns and it shows again on its own.
+  const layout = frameLayout({
+    viewport: frameSnap.viewport, sidebarWidth: frameSnap.sidebarWidth,
+    pref, drawer: ui.leftDrawer === true,
+    panel: open ? { view: open.view, yielded: ui.panelYield === true } : null,
+  })
+  const shown = open !== null && layout.panel !== 'folded' ? open : null
+  const [kept, setKept] = useState(shown)
   useEffect(() => {
-    if (open) { setKept(open); return undefined }
+    if (shown) { setKept(shown); return undefined }
     const timer = setTimeout(() => setKept(null), PANEL_LINGER_MS)
     return () => clearTimeout(timer)
-  }, [ui.details, ui.view, ui.renaming, ui.tab])
-  const pane = open ?? kept
+  }, [ui.details, ui.view, ui.renaming, ui.tab, shown === null])
+  const pane = shown ?? kept
   const [settings, settingsLeaving] = useLinger(ui.settings, DIALOG_EXIT_MS)
   // The memory dialog shows a Bot's memory or a group chat's.
   const memoryOwner = (id) => {
@@ -47,7 +59,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const owner = memory ? memoryOwner(memory) : null
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   return h(Fragment, null,
-    pane ? createPortal(h(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
+    pane ? createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: ui.newChat, mode: ui.newChat, roster, actions }), document.body) : null,
     ui.palette ? createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, roster, actions }), document.body) : null,

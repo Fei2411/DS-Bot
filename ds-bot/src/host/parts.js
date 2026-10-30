@@ -21,7 +21,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './cons
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
-import { checkShownView, inputsSummary, normalizeView, validateViewAnswer, viewSummary } from '../shared/views.js'
+import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
 // which means nothing without the card. Arguments the tool would refuse (no question,
@@ -40,23 +40,8 @@ export function cardText(args) {
   return `[Question card] ${question}${detail ? ` (${detail})` : ''}\nOptions: ${options.join(' / ')}`
 }
 
-// A show_view card as the user saw it. A call the tool would refuse (an oversized
-// or invalid view, no title, a display-only card asked to wait or an interactive
-// one told not to) showed no card, so it gives no text. checkShownView runs the
-// tool's own checks, normalization included, so a wrapped card keeps its summary.
-export function viewCardText(args) {
-  let card = args
-  if (typeof card === 'string') {
-    try { card = JSON.parse(card) } catch { return '' }
-  }
-  const shown = checkShownView(card?.title, card?.view)
-  if (shown.error !== undefined) return ''
-  if (!shown.interactive && card?.await_reply === true) return ''
-  if (shown.interactive && card?.await_reply === false) return ''
-  const summary = viewSummary(shown.view)
-  const head = shown.title === '' ? '[View card]' : `[View card] ${shown.title}`
-  return summary === '' ? head : `${head}\n${summary}`
-}
+// The card text and reply format live in the shared deep-view core.
+export { viewCardText, viewReply }
 
 // What one event adds to a Bot's chat history: an answer of the Bot's (its text, or a
 // question card), or a message from the user (`who: 'user'`) or another Bot
@@ -87,63 +72,55 @@ export function questionReply(question, answer) {
   }
 }
 
-// The user's answer to a show_view card. The message carries the blueprint with
-// the answer, so the answer still makes sense after a checkpoint drops the card.
-export function viewReply(record, action, values) {
-  const checked = validateViewAnswer(record?.view, action, values)
-  if (checked.error !== undefined) return undefined
-  const callId = record.callId ?? record.id
-  const shown = { id: record.id, title: record.title, view: record.view }
-  const given = { id: record.id, action, values: checked }
+
+// The user's answer to a browser_handoff card: they finished the step, skipped it,
+// or only gave the browser back from its panel. The message carries the reason with
+// the answer, so it still makes sense after a checkpoint drops the card.
+export function handoffReply(hold, outcome) {
+  const settled = outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'returned'
+  const callId = hold.callId
+  const message = settled === 'skipped'
+    ? 'The user skipped this step and gave the browser back. Do not retry it. Do what you can without it, or tell the user you cannot.'
+    : settled === 'done'
+      ? 'The user finished this step and gave the browser back. Carry on from where you stopped. Take a browser_snapshot first to see the page.'
+      : 'The user gave the browser back. Do not assume this step is finished. Take a browser_snapshot to see the page, then carry on or ask the user what remains.'
   return {
-    text: JSON.stringify({ kind: 'answer_to_pending_view', tool: 'show_view', callId, views: [shown], answers: [given] }),
+    text: JSON.stringify({
+      kind: 'answer_to_pending_handoff',
+      tool: 'browser_handoff',
+      callId,
+      reason: hold.reason,
+      ...(hold.note ? { note: hold.note } : {}),
+      outcome: settled,
+      message,
+    }),
     source: { kind: REPLY_KIND, callId, outcome: 'answered' },
   }
 }
 
-const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-
 export function readReply(text) {
   let value
   try { value = JSON.parse(text) } catch { return undefined }
-  if (value?.kind === 'answer_to_pending_view' || (Array.isArray(value?.views) && value.views.length > 0 && value?.kind !== 'answer_to_pending_question')) {
-    const views = (Array.isArray(value.views) ? value.views : []).filter(item => typeof item?.id === 'string' && typeof item.title === 'string' && isRecord(item.view))
-    if (views.length === 0) return undefined
-    const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && typeof item.action === 'string' && isRecord(item.values))
-    return { views, answers }
+  if (value?.kind === 'answer_to_pending_handoff') {
+    if (typeof value.callId !== 'string' || typeof value.reason !== 'string') return undefined
+    return { handoff: { callId: value.callId, reason: value.reason, note: typeof value.note === 'string' ? value.note : '', outcome: value.outcome === 'skipped' || value.outcome === 'returned' ? value.outcome : 'done' } }
   }
+  const viewReplyData = readViewReply(text)
+  if (viewReplyData !== undefined) return viewReplyData
   const questions = Array.isArray(value?.questions) ? value.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string') : []
   if (questions.length === 0) return undefined
   const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && Array.isArray(item.selected))
   return { questions, answers }
 }
 
-// The submitted component, and the view's inputs as the user left them. A long form
-// is cut so a checkpoint stays small.
-function actionSummary(answer, view) {
-  const values = answer?.values
-  if (!isRecord(values)) return '(skipped)'
-  const inputs = inputsSummary(view, values.inputs)
-  let text
-  if (Array.isArray(values.selected)) text = `selected: ${values.selected.join(', ')}`
-  else if (typeof values.confirmed === 'boolean') text = values.confirmed ? 'confirmed' : 'cancelled'
-  else if (isRecord(values.fields)) text = Object.entries(values.fields).map(([key, value]) => `${key}: ${value}`).join('; ')
-  else if (inputs !== '') text = ''
-  else text = typeof answer.action === 'string' && answer.action !== '' ? answer.action : '(skipped)'
-  if (inputs !== '') text = text === '' ? inputs : `${text}; ${inputs}`
-  if (text === '') text = '(empty)'
-  return text.length > 500 ? text.slice(0, 500) : text
-}
-
 export function replyText(text) {
   const reply = readReply(text)
   if (reply === undefined) return text
-  if (reply.views !== undefined) {
-    return reply.views.map((view) => {
-      const answer = reply.answers.find(item => item.id === view.id)
-      return `${view.title === '' ? '[Answer to view card]' : `[Answer to view card] ${view.title}`}\nAnswer: ${actionSummary(answer, view.view)}`
-    }).join('\n\n')
+  if (reply.handoff !== undefined) {
+    const { reason, note, outcome } = reply.handoff
+    return `[Browser handoff] ${note === '' ? reason : `${reason} — ${note}`}\nAnswer: ${outcome}`
   }
+  if (reply.views !== undefined) return viewReplyText(text)
   return reply.questions.map((question) => {
     const answer = reply.answers.find(item => item.id === question.id)
     const values = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
@@ -788,7 +765,10 @@ export function install(rt) {
         if (currentOf(owner) !== sessionId) {
           await forward(owner, held)
           for (const message of held) agent.inbox.remove(message.id)
-          await ctx.workspaceRegistry.archiveSession(sessionId)
+          // An interrupted switch may not have finished moving the tasks over; stop
+          // the earlier part only after they sit on the part that replaced it.
+          await rt.moveSchedules?.(sessionId, currentOf(owner))
+          await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
             .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
         } else {
           try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
@@ -876,7 +856,14 @@ export function install(rt) {
     }
     if (job.moved) {
       rt.renewMemory(agent.id)
-      await ctx.workspaceRegistry.archiveSession(agent.id)
+      try {
+        await rt.moveSchedules(agent.id, currentOf(job))
+      } catch (error) {
+        // Keep the restart marker: stopping this part would delete unmoved tasks.
+        job.kept = true
+        throw error
+      }
+      await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
     }
   }
@@ -977,7 +964,6 @@ export function install(rt) {
     const now = await freshRoute(bot, session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute(bot, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
-    void rt.moveSchedules(agent.id, freshId)
     job.moved = true
     const resume = job.resume || job.overflow
     // Then what the old part held: the stopped turn's input, then whatever waited. It
@@ -1223,13 +1209,14 @@ export function install(rt) {
   // Earlier parts of a Bot's own chat, newest page first, for the chat to show above
   // the current part as one conversation.
   const EARLIER_PAGE = 60
-  function displayItems(partId, events, session) {
+  function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
     const items = []
     // The turn/start still in effect. A steered or queued user message stays in
     // it; only another turn/start moves on. A later page does not repeat the
-    // turn/start from the page before, so seed that turn when the projection has it.
-    let turn = openTurnAt(ctx.get?.('sessionProjections'), session, events[0]?.seq)
+    // turn/start from the page before, so seed that turn when the projection has
+    // it — or when the caller walked the log back to it (no live session).
+    let turn = seedTurn ?? openTurnAt(ctx.get?.('sessionProjections'), session, events[0]?.seq)
     const stamp = (event, item) => {
       if (typeof event.seq === 'number' && Number.isInteger(event.seq)) item.seq = event.seq
       if (turn !== undefined) item.turn = turn
@@ -1273,6 +1260,7 @@ export function install(rt) {
         const text = textOf(event.data.content)
         const reply = readReply(text)
         if (reply?.questions !== undefined) stamp(event, { kind: 'answer', questions: reply.questions, answers: reply.answers, time: event.time })
+        else if (reply?.handoff !== undefined) stamp(event, { kind: 'answer', text: replyText(text), handoff: reply.handoff, time: event.time })
         else if (reply?.views !== undefined) stamp(event, { kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
@@ -1283,15 +1271,39 @@ export function install(rt) {
 
   async function partPage(parts, index, cursor) {
     const part = parts[index]
-    const agent = await rt.resolveAgent(part.sessionId)
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+    // An archived earlier part may have no live agent left; its stored events
+    // still page fine, so resolve failure only drops the live-session cap.
+    const agent = await rt.resolveAgent(part.sessionId).catch(() => undefined)
     const page = await ctx.sessionController.page({
       address: { kind: 'session', sessionId: part.sessionId },
-      throughSeq: Number(agent.session.seq) - 1,
+      ...(agent ? { throughSeq: Number(agent.session.seq) - 1 } : {}),
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: EARLIER_PAGE,
-    }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+    }, signal)
     const events = page.records.map(record => record.event)
-    const items = displayItems(part.sessionId, events, agent.session)
+    let seedTurn
+    if (agent === undefined) {
+      // Without the live session's projection, rows on a page that does not
+      // hold its own turn/start would lose their turn; walk back for it.
+      let before = events[0]?.seq
+      while (Number.isInteger(before) && seedTurn === undefined) {
+        const back = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId: part.sessionId },
+          beforeSeq: before,
+          maxMessages: EARLIER_PAGE,
+        }, signal)
+        const starts = back.records.map(record => record.event).filter(event => event.type === 'turn/start')
+        if (starts.length > 0) {
+          const last = starts.at(-1).data?.turn
+          if (Number.isInteger(last)) seedTurn = last
+          break
+        }
+        if (!back.hasMore) break
+        before = back.records[0]?.event?.seq
+      }
+    }
+    const items = displayItems(part.sessionId, events, agent?.session, seedTurn)
     const more = page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })

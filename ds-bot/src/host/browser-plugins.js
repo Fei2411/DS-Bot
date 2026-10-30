@@ -57,6 +57,13 @@ function grantAllows(bot, action) {
   })
 }
 
+// A handoff card answers into the Bot's own chat. A group turn has no card, so its
+// hold keeps no call and the browser panel clears it without telling the Bot.
+export function handoffHold(rt, botId, { sessionId, callId, ...hold }) {
+  const own = sessionId !== undefined && rt.chatOwners.get(sessionId) === botId
+  return own && callId !== undefined ? { ...hold, callId } : hold
+}
+
 async function authorizeBrowserAction(rt, exec, botId, action) {
   await rt.load()
   const bot = rt.botOf(botId)
@@ -140,7 +147,7 @@ export function install(rt) {
     executablePath,
     connect: process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? appBrowserEndpoint : undefined,
     getHold: botId => rt.browserChannel?.holdOf(botId) ?? null,
-    onHold: (botId, hold) => rt.browserChannel?.setHold(botId, hold),
+    onHold: (botId, hold) => rt.browserChannel?.setHold(botId, hold && handoffHold(rt, botId, hold)),
     subscribeHolds: listener => rt.browserChannel?.subscribeHolds?.(listener),
     authorize: (exec, botId, action) => authorizeBrowserAction(rt, exec, botId, action),
     completeFor: rt.config.browserComplete

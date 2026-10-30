@@ -8,9 +8,22 @@ files:
   - package.json
   - src/**
   - assets/**
-# The Host runs pnpm as a separate Node process to install plugins, so it must be a plain file.
+# The Host runs pnpm as a separate Node process to install plugins, and the Office payload's
+# plain Node runs the LibreOffice Kit CLI: both must be plain files outside the asar.
 asarUnpack:
   - node_modules/pnpm/**
+  - node_modules/@deepseek-ai/libreoffice-kit/**
+  # The payload Node cannot read office.js through the asar.
+  - node_modules/ds-bot/office.js
+  # Automatic unpacking misses versioned Linux libraries such as libvips-cpp.so.8.18.7.
+  - node_modules/@img/sharp*/**
+# The Office payload that scripts/prepare-runtime.mjs writes in beforePack (see package.json's
+# `runtime` script). build/ is not in `files`, so nothing of it lands inside the asar.
+extraResources:
+  - from: build/runtime/primary-runtime
+    to: primary-runtime
+  - from: build/runtime/office-skills
+    to: office-skills
 # node-pty, sharp and koffi ship prebuilt binaries for each platform. A rebuild would compile
 # node-pty from source and needs a C++ toolchain.
 npmRebuild: false
@@ -60,4 +73,4 @@ linux:
 publish:
   provider: github
   owner: Fei2411
-  repo: DeepSeek-Bot
+  repo: DS-Bot

@@ -173,6 +173,21 @@ export function StopMemberWork({ entry, bot, room, actions }) {
   return h('button', { type: 'button', className: 'bt-member-stop', disabled: stopping, 'aria-label': `${t('Stop')} · ${bot.name}`, onClick: stop }, t('Stop'))
 }
 
+// The group's work stops all at once from its details: DSH's own stop reaches only the
+// round, and a member the round moved on from keeps working.
+export function StopRoomWork({ room, entries, actions }) {
+  const [stopping, setStopping] = useState(false)
+  if (!entries.some(entry => entry.here)) return null
+  const stop = () => {
+    setStopping(true)
+    void Promise.resolve(actions.stopRoomWork(room.id))
+      .catch(error => actions.reportError(error, 'stop'))
+      .finally(() => setStopping(false))
+  }
+  const label = t('Stop all work in this group')
+  return h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: stopping, 'aria-label': label, title: label, onClick: stop }, t('Stop all'))
+}
+
 export function MemberApprovals({ entry, bot, actions }) {
   if (entry?.state !== 'ask') return null
   return h('div', { className: 'bt-member-cards' }, entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot, actions })))
@@ -205,6 +220,11 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
 @keyframes bt-mw-swap{from{opacity:0;filter:blur(4px)}}
 .bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
+.bt-members-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.bt-members-head>.bt-section-title{margin:0}
+/* The button hangs over the title's line, so the list below does not move when it appears. */
+.bt-members-head>.bt-soft-sm{margin:-6px 0}
+.bt-members-head>.bt-soft-sm:disabled{opacity:.5;cursor:default}
 .bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
 .bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
 .bt-member-row:hover{background:var(--bt-hover)}

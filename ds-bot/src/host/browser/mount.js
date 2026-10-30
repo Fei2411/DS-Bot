@@ -14,6 +14,18 @@ export const browserOutput = {
         properties: {
           text: { type: 'string', required: true },
           image: { type: 'string' },
+          attachment: {
+            type: 'object',
+            properties: {
+              attachmentId: { type: 'string', required: true },
+              mediaType: { type: 'string', required: true },
+              bytes: { type: 'number' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              name: { type: 'string' },
+            },
+            additionalProperties: true,
+          },
         },
         additionalProperties: false,
       },
@@ -22,11 +34,33 @@ export const browserOutput = {
   render(_args, value) {
     if (value && typeof value === 'object') {
       const blocks = [{ type: 'text', text: String(value.text ?? '') }]
-      if (value.image) blocks.push({ type: 'image', data: value.image, mediaType: 'image/jpeg' })
+      // Image blocks must reference a stored attachment; a raw base64 payload is
+      // not a valid content block and breaks the session's transport encoding.
+      if (value.attachment) blocks.push({ type: 'image', attachment: value.attachment })
       return blocks
     }
     return [{ type: 'text', text: String(value) }]
   },
+}
+
+// Tool bodies return screenshot bytes; the model-facing result must carry the
+// stored attachment instead, since content blocks cannot inline image data.
+async function saveShot(ctx, value) {
+  if (!value || typeof value !== 'object' || typeof value.image !== 'string') return value
+  const attachments = ctx.get('attachments')
+  if (typeof attachments?.saveImage === 'function') {
+    try {
+      const attachment = await attachments.saveImage({
+        mediaType: 'image/jpeg',
+        data: Buffer.from(value.image, 'base64'),
+        name: 'Browser screenshot',
+      })
+      return { text: value.text, attachment }
+    } catch (error) {
+      ctx.logger?.warn?.('ds-bot: screenshot could not be stored: %s', error?.message ?? error)
+    }
+  }
+  return { text: `${value.text ?? ''} (The screenshot could not be attached.)` }
 }
 
 /**
@@ -35,6 +69,36 @@ export const browserOutput = {
  */
 export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api }) {
   const sessions = new Map()
+  const names = new Set(toolDefs.map(tool => tool.name))
+  // Tool results persist their rendered blocks, so changing render() cannot fix
+  // old screenshots. Replace only this plugin's malformed image blocks through
+  // DSH's public surface API, keeping the original log for the transcript.
+  ctx.on?.('agent/pre-step', async ({ agent }, next) => {
+    const session = agent.session
+    let changed = false
+    for (const seq of session.surface?.nodes ?? []) {
+      const event = session.eventAt(seq)
+      if (event.type !== 'tool/result') continue
+      if (!event.sourceEventSeqs?.some(source => names.has(session.eventAt(source)?.data?.name))) continue
+      const message = session.deriveEventMessage(event)
+      if (!message.content.some(block => block.type === 'image' && !block.attachment && typeof block.data === 'string')) continue
+      if (!await keyOf({ agent })) continue
+      const content = []
+      for (const block of message.content) {
+        if (block.type !== 'image' || block.attachment || typeof block.data !== 'string') { content.push(block); continue }
+        const saved = await saveShot(ctx, { text: '', image: block.data })
+        content.push(saved.attachment
+          ? { type: 'image', attachment: saved.attachment, ...(block.offloaded ? { offloaded: true } : {}) }
+          : { type: 'text', text: saved.text.trim() })
+      }
+      session.append('tool/result', { ...event.data, message: { ...message, content } }, {
+        surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq],
+      })
+      changed = true
+    }
+    if (changed) await ctx.sessions.flush(session)
+    return next()
+  }, { prepend: true })
   const unsubscribeHolds = subscribeHolds?.((botId, hold) => {
     if (hold?.by !== 'user') return
     const session = sessions.get(botId)
@@ -96,12 +160,13 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
         }
         session = await session
         const gate = authorize ? action => authorize(exec, botId, action) : undefined
-        return gateScope.run(gate, () => spec.execute(args ?? {}, {
+        return saveShot(ctx, await gateScope.run(gate, () => spec.execute(args ?? {}, {
           botId,
           profileDir: join(profileRoot, botId),
           session,
           complete: completeFor?.(exec),
-        }))
+          origin: { ...(exec.callId !== undefined ? { callId: exec.callId } : {}), ...(exec.agent?.id !== undefined ? { sessionId: exec.agent.id } : {}) },
+        })))
       },
     }))
   }

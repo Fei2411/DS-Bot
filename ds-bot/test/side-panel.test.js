@@ -46,7 +46,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   window: { addEventListener() {}, removeEventListener() {}, innerWidth: 1280 },
   require: (name) => {
     const platform = {
-      react: {
+      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
         createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
         useState: () => [true, () => {}], useEffect: () => {}, useRef: () => ({ current: null }),
         useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
@@ -112,7 +112,7 @@ const sideExports = (states) => {
     window: { addEventListener() {}, removeEventListener() {}, innerWidth: 1280 },
     require: (name) => {
       const platform = {
-        react: {
+        react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
           createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
           useState: init => states[hook++] ?? [init, () => {}],
           useEffect: () => {}, useRef: () => ({ current: null }),

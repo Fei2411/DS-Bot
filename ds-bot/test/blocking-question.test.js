@@ -170,7 +170,7 @@ test('a new Bot that rules out question tools opens without one and cannot block
   assert.match(guard(QUESTION, receiver.id), /Bots cannot use ask_user_question/)
 })
 
-// Fei2411/DeepSeek-Bot#133: /goal in a group chat started DSH's goal rounds, which the
+// Fei2411/DS-Bot#133: /goal in a group chat started DSH's goal rounds, which the
 // group never answered, so round after round ran and showed the raw goal prompt.
 test('a Bot\'s chat and its group Sessions lose the goal tools; other Sessions keep them', async (t) => {
   const { agentFor, hidden, stop } = await setup({ served: ['read', 'ask_user', QUESTION, 'create_goal', 'update_goal', 'get_goal'] })

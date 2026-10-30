@@ -20,6 +20,11 @@ export { reducedMotion }
 export const rowVisible = ({ running, streaming, tools, relaying, bot, room }) =>
   running && (!streaming || tools.length > 0) && !relaying && (bot !== undefined || room !== undefined)
 
+// A queued message waits for the next turn, so only a transcript or steering
+// send counts as fresh input; a steer the host saw counts from when it landed.
+export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ?? 0,
+  ...(submissions ?? []).filter(sub => sub.placement !== 'queued').map(sub => sub.time))
+
 // The shell's running slot can sit under wrappers it adds around the flow, so the
 // search is a descendant one; without the slot the row mounts at the flow's tail.
 // No flow at all is a mount failure, noted once per page — the observer keeps
@@ -108,10 +113,8 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   if (!running) runAt.current = 0
   else if (runAt.current === 0) runAt.current = Date.now()
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
-  // A queued message waits for the next turn, so only a transcript or steering
-  // send counts as fresh input.
-  const pendingInput = useSession(snapshot => Math.max(0, ...(snapshot?.pendingSubmissions ?? [])
-    .filter(sub => sub.placement !== 'queued').map(sub => sub.time)))
+  const steeredAt = useWork?.(work => work.steered?.[sessionId])
+  const pendingInput = useSession(snapshot => freshInputAt(snapshot?.pendingSubmissions, steeredAt))
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
   // The one switch the row names: a working-folder move jumps the chat to a fresh

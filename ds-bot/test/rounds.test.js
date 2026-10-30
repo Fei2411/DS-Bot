@@ -873,6 +873,97 @@ test('a member the reply timeout cut short is told to the group, not left as sil
   assert.match(lineText(notices[0]), /late reply/)
 })
 
+// #512: in admin mode the user's message goes to the admin alone. When the admin
+// passes, the round ends with nothing said, so the group says what to do about it.
+test('in admin mode a sole admin that passes leaves the group a notice', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = (await call('state', {})).value.mainBotId
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  // The user names a member without "@": nobody is called, the admin alone answers.
+  await emit(room.id, userMessage('Writer, what do you think?'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first, 'the admin gets the turn alone')
+  await answer(first.sessionId, first.message.source.exchangeId, '[PASS]', 1)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.passed, ['Chief'])
+  assert.equal(result.replies.filter(reply => reply.kind === undefined).length, 0, 'the round ends without an answer')
+
+  // The user sees the notice in the round, not only the log.
+  const events = result.replies.filter(reply => reply.kind === 'admin-passed')
+  assert.equal(events.length, 1, 'the round shows the notice once')
+  assert.deepEqual({ botId: events[0].botId, name: events[0].name },
+    { botId: chief, name: 'Chief' })
+
+  const notices = rt.state.rooms[room.id].log.filter(line => line.kind === 'notice')
+  assert.equal(notices.length, 1, 'the group is told once')
+  assert.deepEqual({ reason: notices[0].reason, names: notices[0].names },
+    { reason: 'admin-passed', names: ['Chief'] })
+  assert.match(lineText(notices[0]), /did not answer or call anyone/)
+  assert.match(lineText(notices[0]), /@Name/)
+
+  // The notice is in the group: the next member to speak reads it.
+  await emit(room.id, userMessage('Anyone there?'))
+  const next = relay(room.id, 'relay-2')
+  const turn = await turnFor(sent, first)
+  assert.match(turn.message.content[0].text, /did not answer or call anyone/)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Here.', 2)
+  await next
+})
+
+test('in admin mode an admin that answers leaves the group no notice', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  await emit(room.id, userMessage('Writer, what do you think?'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => reply.name ?? 'User'), ['Chief'])
+  assert.equal(result.replies.filter(reply => reply.kind === 'admin-passed').length, 0)
+  assert.deepEqual(rt.state.rooms[room.id].log.filter(line => line.kind === 'notice'), [])
+})
+
+test('in admin mode a member the user called alone is not the admin, and the group says nothing', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  await emit(room.id, userMessage('@Writer your take'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first, 'the member the user called answers')
+  await answer(first.sessionId, first.message.source.exchangeId, '[PASS]', 1)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.passed, ['Writer'])
+  assert.deepEqual(result.replies, [], 'the member passed, and the admin was not alone')
+  assert.deepEqual(rt.state.rooms[room.id].log.filter(line => line.kind === 'notice'), [])
+})
+
+test('a group where everyone answers says nothing when the admin passes', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '[PASS]', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Writer here.', 2)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => reply.name ?? 'User'), ['Writer'])
+  assert.equal(result.replies.filter(reply => reply.kind === 'admin-passed').length, 0)
+  assert.deepEqual(rt.state.rooms[room.id].log.filter(line => line.kind === 'notice'), [])
+})
+
 test('a member still at work is shown with the group messages it has not read yet', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)

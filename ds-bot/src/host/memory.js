@@ -6,7 +6,8 @@
 //   <home>/memory/bots/<botId>/    a Bot's own MEMORY.md and topics
 //   <home>/memory/groups/<roomId>/ what the members of one group chat share there
 //   <home>/memory/team/            what every Bot reads
-//   <home>/memory/journal.jsonl    every change, with the line before and after
+//   <home>/memory/journal.jsonl    non-private changes, with the line before and after
+//   <home>/memory/bots/<botId>/journal.jsonl    a private Bot's own change log
 //   <home>/memory/snapshots/       the memory section each Session froze
 //   <home>/memory/summaries/       the memory panel's summary per Bot or group chat
 //   <home>/memory/archive/         the memory of deleted Bots and group chats
@@ -318,11 +319,13 @@ const memoryRules = review => [
   '- Each entry ends with [source: …]. A part anchor such as part 2 #1234 opens with read_own_chat around: in your own chat, or, when the entry has by: and a Bot\'s name, in that Bot\'s chat, which you can ask about with message_bot.',
 ].join('\n')
 
-const teamRule = (main, writer) => (main
+const teamRule = (main, writer, privateBot) => (main
   ? '- The team memory is shared by every Bot. As a Main Bot you write it with remember scope "team", for what the whole team needs; with scope set to a Bot\'s name you read or change that Bot\'s memory, when the user asks.'
-  : writer
-    ? '- The team memory is shared by every Bot. As a group admin you write it with remember scope "team", for what the whole team needs.'
-    : '- The team memory is shared by every Bot. Main Bots and group admins write it; when the whole team should know something, tell a Main Bot with message_bot.')
+  : privateBot
+    ? '- The team memory is shared by every Bot. Main Bots and group admins write it; with scope set to a public Bot\'s name you read that Bot\'s memory.'
+    : writer
+      ? '- The team memory is shared by every Bot. As a group admin you write it with remember scope "team", for what the whole team needs.'
+      : '- The team memory is shared by every Bot. Main Bots and group admins write it; when the whole team should know something, tell a Main Bot with message_bot.')
 
 // A group Session shows its group's memory after the rest of the section, so the text
 // before it is the same as in the Bot's own chat.
@@ -474,6 +477,14 @@ export function install(rt) {
   const groupScope = roomId => ({ kind: 'group', roomId })
   const dirOf = scope => (scope.kind === 'team' ? join(root, 'team') : scope.kind === 'group' ? join(root, 'groups', safeId(scope.roomId)) : join(root, 'bots', safeId(scope.botId)))
   const scopeKey = scope => (scope.kind === 'team' ? 'team' : scope.kind === 'group' ? `group:${scope.roomId}` : `bot:${scope.botId}`)
+  // A private Bot's before/after text never goes into the team-wide change log.
+  const journalFor = (scope, op) => {
+    const botId = scope?.startsWith('bot:') ? scope.slice(4) : undefined
+    const archived = (state.privateArchives ?? []).find(entry => entry.id === botId)
+    if (op === 'archive' || (botId === undefined || (!rt.isPrivate(botId) && archived === undefined))) return { path: journalPath, torn: tornPath }
+    const dir = archived?.archivePath ?? dirOf(ownScope(botId))
+    return { path: join(dir, 'journal.jsonl'), torn: join(dir, 'journal.torn') }
+  }
   // The group a Session speaks in, an earlier part of it included: none for a Bot's
   // own chat. Writes check membership again, so a member that has left writes nothing.
   const roomIdOf = sessionId => rt.groupOwners.get(sessionId)?.roomId ?? rt.pastOwners.get(sessionId)?.roomId
@@ -556,12 +567,12 @@ export function install(rt) {
 
   // The change log as it is. A log that cannot be read stops the memory: it is what
   // says what was done.
-  function readJournal() {
+  function readJournal(path) {
     try {
-      return readFileSync(journalPath, 'utf8')
+      return readFileSync(path, 'utf8')
     } catch (error) {
       if (error?.code === 'ENOENT') return ''
-      unreadable(journalPath, error)
+      unreadable(path, error)
     }
   }
 
@@ -593,25 +604,26 @@ export function install(rt) {
   // kept beside the log as the evidence it is, the log is cut back to the rows that
   // are whole, and the row after it starts on a line of its own.
   async function journalRow(row) {
-    const text = readJournal()
+    const { path, torn } = journalFor(row.scope, row.op)
+    const text = readJournal(path)
     if (journalled(text, row.id)) return false
     const cut = text.lastIndexOf('\n') + 1
     const half = text.slice(cut)
     const line = JSON.stringify(row)
-    mkdirSync(root, { recursive: true })
+    mkdirSync(dirname(path), { recursive: true })
     if (half === '') {
-      await appendFile(journalPath, `${line}\n`, 'utf8')
+      await appendFile(path, `${line}\n`, 'utf8')
       return true
     }
     if (whole(half)) {
       // A whole row that lost its newline: it is ended, and the row after it starts
       // on a line of its own.
-      await appendFile(journalPath, `\n${line}\n`, 'utf8')
+      await appendFile(path, `\n${line}\n`, 'utf8')
       return true
     }
-    await appendFile(tornPath, `${half}\n`, 'utf8')
-    truncateSync(journalPath, Buffer.byteLength(text.slice(0, cut), 'utf8'))
-    await appendFile(journalPath, `${line}\n`, 'utf8')
+    await appendFile(torn, `${half}\n`, 'utf8')
+    truncateSync(path, Buffer.byteLength(text.slice(0, cut), 'utf8'))
+    await appendFile(path, `${line}\n`, 'utf8')
     return true
   }
 
@@ -858,7 +870,11 @@ export function install(rt) {
       const name = `${safeId(botId)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
+      // The memory is in the archive from here: a log row that cannot be written must not
+      // hide where it went, which the privacy guard needs to keep a private archive closed.
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(ownScope(botId)), actor: 'user', actorName: 'user', botName: bot?.name, to: `archive/${name}` })
+        .catch(error => rt.warn('ds-bot: archive of the memory of %s not logged: %s', bot?.name ?? botId, error))
+      return join(root, 'archive', name)
     }).catch(error => rt.warn('ds-bot: memory of %s not archived: %s', bot?.name ?? botId, error))
   }
 
@@ -922,7 +938,7 @@ export function install(rt) {
     const lines = [
       '# Your memory',
       memoryRules(reviewOn),
-      teamRule(rt.isMain(bot.id), writesTeam(bot.id)),
+      teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id)),
       '',
       '## Your memory (MEMORY.md)',
       ...sectionEntries(main),
@@ -975,7 +991,7 @@ export function install(rt) {
     // longer one) is frozen again, so the rule it states matches what the tools allow;
     // so is a group Session's section frozen before groups kept a memory.
     const roomId = roomIdOf(sessionId)
-    const marks = [teamRule(rt.isMain(bot.id), writesTeam(bot.id)), ...(roomId === undefined ? [] : [GROUP_HEADING])]
+    const marks = [teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id)), ...(roomId === undefined ? [] : [GROUP_HEADING])]
     const holds = text => marks.every(mark => text.includes(mark))
     const kept = frozen.get(sessionId)
     if (kept !== undefined && holds(kept)) return kept
@@ -1158,7 +1174,10 @@ export function install(rt) {
     const { scope, error } = namedScope(raw, botId, roomId)
     if (error) return { error }
     if (scope === undefined) return { scopes: roomId === undefined ? [ownScope(botId), TEAM] : [ownScope(botId), groupScope(roomId), TEAM] }
-    if (scope.kind === 'bot' && scope.botId !== botId && !rt.isMain(botId)) return { error: 'Only a Main Bot can read another Bot\'s memory. Ask that Bot with message_bot instead.' }
+    if (scope.kind === 'bot' && scope.botId !== botId) {
+      const allowed = rt.isMain(botId) || (rt.isPrivate(botId) && rt.botOf(scope.botId)?.private !== true)
+      if (!allowed) return { error: 'Only a Main Bot can read another Bot\'s memory. Ask that Bot with message_bot instead.' }
+    }
     return { scopes: [scope] }
   }
   const tagOf = (scope, botId) => (scope.kind === 'team' ? 'team' : scope.kind === 'group' ? 'group' : scope.botId === botId ? 'yours' : rt.botOf(scope.botId)?.name ?? '?')
@@ -1169,7 +1188,7 @@ export function install(rt) {
     parameters: {
       query: { type: 'string', description: 'Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown' },
       topic: { type: 'string', description: 'A topic to read whole, as listed with [[topic]]' },
-      scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name (Main Bots only)' },
+      scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name (Main Bots; private Bots may read public Bots)' },
     },
     output,
     async execute(args, exec) {
@@ -1743,6 +1762,6 @@ export function install(rt) {
 
   Object.assign(rt, {
     memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
-    memoryNews: () => Object.fromEntries(news),
+    memoryNews: () => Object.fromEntries(news), botShot,
   })
 }

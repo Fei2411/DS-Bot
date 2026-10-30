@@ -1,0 +1,114 @@
+{
+ "note": "AGENTS.md review tuning cases.",
+ "cases": [
+  {
+   "id": "a-routine",
+   "expect": "none",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Add a dark mode toggle to settings.",
+    "Added the toggle, stored the choice in localStorage, ran npm test: all pass.",
+    "User: Looks good."
+   ]
+  },
+  {
+   "id": "a-one-off",
+   "expect": "none",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Fix the crash in parser.js when input is empty.",
+    "Found it: `tokens[0]` on an empty array. Added a guard and a test. npm test passes.",
+    "User: Thanks, ship it in v2.4.1."
+   ]
+  },
+  {
+   "id": "a-already-said",
+   "expect": "none",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Did you run the tests before committing?",
+    "Yes, npm test passed before the commit.",
+    "User: Good, always do that."
+   ]
+  },
+  {
+   "id": "a-lang-repeat",
+   "expect": "edit",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: 改一下登录页的按钮颜色。",
+    "Changed the button color to the brand blue. Tests pass.",
+    "User: 用中文回答我，说过很多次了。",
+    "好的。按钮已改为品牌蓝，测试通过。",
+    "User: 还有，回答先说结论，别写一大段过程。",
+    "结论：已完成。"
+   ],
+   "must": [
+    "中文|Chinese",
+    "结论|conclusion"
+   ],
+   "mustNot": [
+    "登录|login|button|按钮"
+   ],
+   "effect": {
+    "task": "The user asks: \"Rename the `getUser` helper to `fetchUser` everywhere.\" Write your reply to the user after doing it (made-up results are fine).",
+    "expect": [
+     "[\\u4e00-\\u9fff]"
+    ]
+   }
+  },
+  {
+   "id": "a-push-rule",
+   "expect": "edit",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Push the fix.",
+    "Pushed to main.",
+    "User: Never push to main. Open a branch and a PR to dev, I told you last week too.",
+    "Sorry. Reverted main, pushed branch fix/header and opened a PR to dev.",
+    "User: Right. Every change goes through a PR to dev."
+   ],
+   "must": [
+    "main",
+    "dev",
+    "(PR|pull request)"
+   ],
+   "mustNot": [
+    "fix/header",
+    "last week"
+   ],
+   "effect": {
+    "task": "You finished a small change to README.md in this repo. List the exact git commands you run now to deliver it.",
+    "expect": [
+     "checkout -b|switch -c|branch",
+     "dev"
+    ],
+    "expectNot": [
+     "push\\s+origin\\s+main\\b"
+    ]
+   }
+  },
+  {
+   "id": "a-stale",
+   "expect": "edit",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n- Use yarn, never npm.\n",
+   "lines": [
+    "User: Install lodash.",
+    "Ran yarn add lodash.",
+    "User: We moved to pnpm last month, yarn is gone. Use pnpm from now on.",
+    "Removed yarn.lock and ran pnpm add lodash; pnpm test passes."
+   ],
+   "must": [
+    "pnpm"
+   ],
+   "mustNot": [
+    "Use yarn, never npm",
+    "last month"
+   ],
+   "needsOp": [
+    "replace",
+    "remove"
+   ]
+  }
+ ]
+}

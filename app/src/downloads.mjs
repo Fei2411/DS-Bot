@@ -5,8 +5,10 @@ import { join } from 'node:path'
 
 export function downloadSaver({ window, dialog, downloads }) {
   return (event, item, source) => {
-    if (source !== window.webContents) return
-    const file = dialog.showSaveDialogSync(window, { defaultPath: join(downloads, item.getFilename()) })
+    // The window is asked for at the moment of the download: the app may build a new one.
+    const owner = typeof window === 'function' ? window() : window
+    if (owner === undefined || owner === null || source !== owner.webContents) return
+    const file = dialog.showSaveDialogSync(owner, { defaultPath: join(downloads, item.getFilename()) })
     if (file === undefined) event.preventDefault()
     else item.setSavePath(file)
   }

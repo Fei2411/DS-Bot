@@ -50,16 +50,40 @@ export async function bundleClient() {
   ].join('\n')
 }
 
+const OFFICE_OUTPUT = join(PLUGIN, 'office.js')
+
+export async function bundleOffice() {
+  const result = await build({
+    absWorkingDir: PLUGIN,
+    entryPoints: ['src/office/cli.js'],
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'es2022',
+    charset: 'utf8',
+    write: false,
+    logLevel: 'silent',
+    banner: {
+      js: '#!/usr/bin/env node\n// Generated from src/office by `npm run build` (scripts/build-client.mjs). Do not edit by hand.',
+    },
+  })
+  if (result.warnings.length > 0) throw new Error(`esbuild warnings:\n${result.warnings.map(warning => warning.text).join('\n')}`)
+  return result.outputFiles[0].text
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const next = await bundleClient()
+  const office = await bundleOffice()
   if (process.argv.includes('--check')) {
-    let current = null
+    let current = null, currentOffice = null
     try { current = readFileSync(OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
-    if (current !== next) {
-      console.error('client.js is stale: run `npm run build` in ds-bot and commit the result')
+    try { currentOffice = readFileSync(OFFICE_OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
+    if (current !== next || currentOffice !== office) {
+      console.error('client.js or office.js is stale: run `npm run build` in ds-bot and commit the result')
       process.exit(1)
     }
   } else {
     writeFileSync(OUTPUT, next)
+    writeFileSync(OFFICE_OUTPUT, office)
   }
 }

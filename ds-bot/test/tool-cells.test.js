@@ -25,6 +25,9 @@ const sets = []
 const Fragment = Symbol('Fragment')
 const h = (type, props, ...children) => ({ type, props: { ...props, children } })
 const react = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+  useContext: ctx => ctx.value,
+  useCallback: fn => fn,
   createElement: h, Fragment,
   useEffect: (effect) => { effects.push(effect) },
   useLayoutEffect: (effect) => { effects.push(effect) },
@@ -174,6 +177,15 @@ test('a paused group shows the wait, and Continue releases it while calls are pa
   assert.ok(button, 'the Continue button is drawn while the room parks calls')
   button.props.onClick()
   assert.deepEqual(clicked, ['room'])
+})
+
+// The admin was alone with the user's message and passed: the round shows the
+// notice, so the user sees why nothing was answered.
+test('a group whose admin passed alone shows the notice', () => {
+  const replies = [{ kind: 'admin-passed', botId: 'chief', name: 'Chief', time: at(0, 14, 5) }]
+  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room' })
+  const events = findAll(out, node => node.props?.className === 'bt-event').map(text)
+  assert.deepEqual(events, ['Chief did not answer or call anyone; call a member with @Name'])
 })
 
 // The trigger of a post in a group chat carries the event's time, not the post's.
@@ -591,6 +603,35 @@ test('a secret in a hidden turn shows in the dock instead of nowhere', () => {
   unmount()
 })
 
+// 公开#557: compaction prunes the middle of a long relay result, leaving invalid
+// JSON — draw the replies that survived, or a marker row, never a blank turn.
+test('a pruned group relay still draws the replies that survived', () => {
+  const pruned = '{"replies":[{"botId":"writer","text":"Still here."},{"botId":"chief","text":"[... tool result middle pruned ...'
+  const out = show(call('group_relay', 'direct', { content: pruned }), { sessionId: 'room' })
+  assert.match(text(out), /Writer.*Still here\./)
+  const gone = show(call('group_relay', 'direct', { content: '{"replies":[{"botId":"writer","text":"cut' }), { sessionId: 'room' })
+  assert.match(text(gone), /The group replies could not be shown/)
+})
+
+// The prune marker's "]" must not end the scan, and a cut inside a string must
+// not hide the replies after it either.
+test('a group relay recovers replies after the prune marker', () => {
+  const between = '{"replies":[{"botId":"writer","text":"First."}[... tool result middle pruned ...],{"botId":"chief","text":"Last."}]}'
+  const out = show(call('group_relay', 'direct', { content: between }), { sessionId: 'room' })
+  assert.match(text(out), /Writer.*First\..*Chief.*Last\./)
+  const inside = '{"replies":[{"botId":"writer","text":"First."},{"botId":"chief","text":"cut[... tool result middle pruned ...]{"botId":"writer","text":"Last."}]}'
+  const out2 = show(call('group_relay', 'direct', { content: inside }), { sessionId: 'room' })
+  assert.match(text(out2), /Writer.*First\..*Last\./)
+})
+
+// Only the compactor's own marker splits the text: a reply that quotes a
+// bracketed ellipsis stays whole.
+test('a reply quoting a bracketed ellipsis is not mistaken for a prune marker', () => {
+  const quoted = '{"replies":[{"botId":"writer","text":"Step [... details ...] done."}[... tool result middle pruned ...]{"botId":"chief","text":"Last."}]}'
+  const out = show(call('group_relay', 'direct', { content: quoted }), { sessionId: 'room' })
+  assert.match(text(out), /Step \[... details ...] done\..*Chief.*Last\./)
+})
+
 // #38: a PTC group round's replies vanished once the round ended.
 test('a PTC group relay shows its replies from the sub-call, live and after reload', async () => {
   const replies = [{ botId: 'writer', text: 'Hello from Writer.' }, { botId: 'chief', text: 'Hello from Chief.' }]
@@ -714,13 +755,13 @@ test('a show_view call the host refused draws nothing; a display-only card draws
   gone(cell('Pick', { type: 'options', id: 'o', options: [{ label: 'A' }] }))
   gone(cell('Meter', { type: 'metric', label: 'Done', value: '3' }, { await_reply: true }))
   const card = cell('  Status  ', { type: 'metric', label: 'Done', value: '3' })
-  const title = find(card, node => node.props?.className === 'bt-view-title')
+  const title = find(card, node => node.props?.className === 'dv-view-title')
   assert.ok(title !== undefined)
   assert.equal(text(title), 'Status')
   // A view needs no title: it then draws without a heading.
   const bare = cell('  ', { type: 'text', text: 'hi' })
-  assert.equal(find(bare, node => node.props?.className === 'bt-view-title'), undefined)
-  assert.ok(find(bare, node => typeof node.props?.className === 'string' && node.props.className.includes('bt-view-bare')) !== undefined)
+  assert.equal(find(bare, node => node.props?.className === 'dv-view-title'), undefined)
+  assert.ok(find(bare, node => typeof node.props?.className === 'string' && node.props.className.includes('dv-view-bare')) !== undefined)
 })
 
 test('a display-only call still draws when the args come through the value accessor', () => {
@@ -733,7 +774,7 @@ test('a display-only call still draws when the args come through the value acces
     call: { name: 'show_view', argsRaw: JSON.stringify(data) }, content: text$('The view is on screen.'), subCalls: [],
   }
   const node = show(callNode, { roster: team({ views: {} }) })
-  const title = find(node, item => item.props?.className === 'bt-view-title')
+  const title = find(node, item => item.props?.className === 'dv-view-title')
   assert.ok(title !== undefined, 'the card draws')
   assert.equal(text(title), 'Status')
 })
@@ -749,23 +790,23 @@ test('a view works its formulas out, draws a chart, and keeps html in a sandboxe
     ],
   }
   const live = cell(calculator)
-  assert.equal(text(classed(live, 'bt-widget-metric-value')), '¥60')
-  assert.equal(classed(live, 'bt-widget-metric').props['data-tone'], 'bad')
-  assert.ok(classed(live, 'bt-q') !== undefined, 'a view with inputs wears a light frame')
+  assert.equal(text(classed(live, 'dv-widget-metric-value')), '¥60')
+  assert.equal(classed(live, 'dv-widget-metric').props['data-tone'], 'bad')
+  assert.ok(classed(live, 'dv-q') !== undefined, 'a view with inputs wears a light frame')
   assert.equal(find(live, item => item.type === 'input' && item.props.type === 'range').props.value, 30)
 
   const chart = cell({ type: 'chart', kind: 'bar', categories: ['A', 'B'], series: [{ values: [3, 5] }], unit: 'ms' })
-  assert.ok(classed(chart, 'bt-view-bare') !== undefined, 'a view that only shows has no frame')
+  assert.ok(classed(chart, 'dv-view-bare') !== undefined, 'a view that only shows has no frame')
   assert.ok(find(chart, item => item.type === 'svg') !== undefined)
   const figure = find(chart, item => item.type === 'figure')
   assert.equal(figure.props['data-kind'], 'bar')
   // The ⋯ menu sits in the card's head, not on the chart's axes (#476).
-  const head = classed(chart, 'bt-view-head')
-  assert.ok(find(head, item => typeof item.props?.className === 'string' && item.props.className.includes('bt-view-more')) !== undefined, 'the card head has the menu button')
+  const head = classed(chart, 'dv-view-head')
+  assert.ok(find(head, item => typeof item.props?.className === 'string' && item.props.className.includes('dv-view-more')) !== undefined, 'the card head has the menu button')
   assert.equal(find(figure, item => typeof item.props?.className === 'string' && (item.props.className.includes('bt-chart-more') || item.props.className.includes('bt-chart-tools'))), undefined, 'the chart itself has no menu')
   // A view without a chart has no ⋯ button.
   const metric = cell({ type: 'metric', label: 'Done', value: '3' })
-  assert.equal(find(metric, item => typeof item.props?.className === 'string' && item.props.className.includes('bt-view-more')), undefined)
+  assert.equal(find(metric, item => typeof item.props?.className === 'string' && item.props.className.includes('dv-view-more')), undefined)
   for (const kind of ['hbar', 'line', 'area', 'donut']) {
     assert.ok(find(cell({ type: 'chart', kind, categories: ['A', 'B'], series: [{ values: [3, 5] }] }), item => item.type === 'svg') !== undefined, kind)
   }
@@ -774,12 +815,12 @@ test('a view works its formulas out, draws a chart, and keeps html in a sandboxe
   const handle = (label, asTable = false) => ({ label, asTable, toggleTable: () => {}, copy: () => {}, save: () => {} })
   const menuItems = node => findAll(node, item => item.props?.role === 'menuitem').map(text)
   const single = expand(ViewMenuList({ charts: [handle('Revenue')], pick: run => run }))
-  assert.equal(findAll(single, item => item.props?.className === 'bt-view-menu-label').length, 0, 'one chart needs no group label')
+  assert.equal(findAll(single, item => item.props?.className === 'dv-view-menu-label').length, 0, 'one chart needs no group label')
   assert.deepEqual(menuItems(single), ['View as table', 'Copy data', 'Download image'])
   const pair = expand(ViewMenuList({ charts: [handle('Revenue'), handle(null, true), handle('Costs')], pick: run => run }))
-  const labels = findAll(pair, item => item.props?.className === 'bt-view-menu-label').map(text)
+  const labels = findAll(pair, item => item.props?.className === 'dv-view-menu-label').map(text)
   assert.deepEqual(labels, ['Revenue', 'Chart 2', 'Costs'], 'each group is named after its chart')
-  assert.equal(findAll(pair, item => item.props?.className === 'bt-menu-sep').length, 2, 'groups are separated')
+  assert.equal(findAll(pair, item => item.props?.className === 'dv-menu-sep').length, 2, 'groups are separated')
   assert.deepEqual(menuItems(pair), [
     'View as table', 'Copy data', 'Download image',
     'View as chart', 'Copy data', 'Download image',
@@ -803,7 +844,7 @@ test('a view works its formulas out, draws a chart, and keeps html in a sandboxe
   assert.equal(ordered.length, 3)
   ordered[0].toggleTable()
   const orderedMenu = expand(ViewMenuList({ charts: ordered, pick: run => run }))
-  assert.deepEqual(findAll(orderedMenu, item => item.props?.className === 'bt-view-menu-label').map(text), ['One', 'Two', 'Chart 3'], 'the toggled chart keeps its group position')
+  assert.deepEqual(findAll(orderedMenu, item => item.props?.className === 'dv-view-menu-label').map(text), ['One', 'Two', 'Chart 3'], 'the toggled chart keeps its group position')
   assert.deepEqual(menuItems(orderedMenu).slice(0, 3), ['View as chart', 'Copy data', 'Download image'], 'the first group shows the table state')
 
   const frame = find(cell({ type: 'html', html: '<b>hi</b>', summary: 'A greeting' }), item => item.type === 'iframe')

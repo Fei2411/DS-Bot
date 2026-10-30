@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path'
 const args = process.argv.slice(2)
 const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback)
 const out = resolve(option('--out', join(tmpdir(), 'issue-triage')))
-const repo = option('--repo', 'Fei2411/DeepSeek-Bot')
+const repo = option('--repo', 'Fei2411/DS-Bot')
 
 const run = (cmd, cmdArgs) => execFileSync(cmd, cmdArgs, { encoding: 'utf8', maxBuffer: 1 << 28 })
 const gh = cmdArgs => JSON.parse(run('gh', [...cmdArgs, '--repo', repo]))

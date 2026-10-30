@@ -1,0 +1,75 @@
+{
+ "note": "Held-out AGENTS.md review cases: never used while tuning. Run once per prompt version.",
+ "cases": [
+  {
+   "id": "t-chat",
+   "expect": "none",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: What does this regex do: ^\\d{3}-\\d{4}$ ?",
+    "It matches strings like 555-1234: three digits, a dash, four digits.",
+    "User: ok"
+   ]
+  },
+  {
+   "id": "t-long-routine",
+   "expect": "none",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Add CSV export to the reports page.",
+    "Added an Export button that builds a CSV from the table, with a test for quoting commas. npm test passes.",
+    "User: Also include the header row.",
+    "Done, test updated.",
+    "User: Great."
+   ]
+  },
+  {
+   "id": "t-check-cmd",
+   "expect": "edit",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Fix the type error in api.ts.",
+    "Fixed the type; npm test passes.",
+    "User: npm test does not type-check. Run npm run typecheck too, CI fails on it.",
+    "Ran npm run typecheck, fixed two more errors; both pass now.",
+    "User: Do both before every commit, every time."
+   ],
+   "must": [
+    "typecheck"
+   ],
+   "mustNot": [
+    "api\\.ts"
+   ],
+   "effect": {
+    "task": "You edited src/util.ts. List, in order, the commands you run before committing.",
+    "expect": [
+     "typecheck"
+    ]
+   }
+  },
+  {
+   "id": "t-report-format",
+   "expect": "edit",
+   "agents": "# Project\n\n## Work rules\n- Run `npm test` before every commit.\n- Do not edit files under `vendor/`.\n",
+   "lines": [
+    "User: Update the dependency versions.",
+    "I updated 14 packages. First I looked at each changelog, then ... (a long story of every step)",
+    "User: Too long. When you finish, give me three lines: what changed, how you checked it, what is left.",
+    "What changed: 14 packages updated. Checked: npm test passes. Left: none.",
+    "User: Yes, report like that every time."
+   ],
+   "must": [
+    "(three|3)"
+   ],
+   "mustNot": [
+    "14 packages"
+   ],
+   "effect": {
+    "task": "You just added input validation to the signup form and the tests pass. Write your final report to the user.",
+    "expect": [
+     "(?is)^(?:(?!\\n\\s*\\n).){0,600}$"
+    ]
+   }
+  }
+ ]
+}

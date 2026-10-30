@@ -7,7 +7,7 @@ CI 只跑单元测试和 Linux 上的测试台。窗口外框、输入法、高 
 ## 准备
 
 - Windows 10 / 11 x64，或 macOS（Apple 芯片）。
-- 官方的 DSH Desktop，版本和 README 里写的一致（现在是 `0.2.1-rc.2`）。只从 DeepSeek Harness 官方渠道下载。
+- 官方的 DSH Desktop，版本和 README 里写的一致（现在是 `0.2.1-rc.4`）。只从 DeepSeek Harness 官方渠道下载。
 - 要发的包：在 `ds-bot/` 里运行 `npm pack`，得到 `ds-bot-<版本>.tgz`。
 - 桌面应用的安装包：在 `app/` 里运行 `npm run dist`，得到 `app/dist-pack/DeepSeek-Bot-<版本>-win-x64.exe`。`app/package.json` 和 `ds-bot/package.json` 的版本号要一样。
 - 也可以用发版工作流的试运行：在 GitHub 的 Actions 里选 Release → Run workflow，勾着 dry run 运行。跑完后在这次运行的页面下载 Windows 安装包和两个 Mac 的 zip（保留 7 天）。它们和 Release 里的文件在同样的 runner 上、用同样的方法打包，不发布任何东西。
@@ -29,7 +29,7 @@ CI 只跑单元测试和 Linux 上的测试台。窗口外框、输入法、高 
 | 2.1 | `.tgz` | 插件 → 添加插件 → 填 `.tgz` 的完整路径（去掉引号）→ 安装 → 立即启用 | 装好；需要时提示重启 | |
 | 2.2 | `.tgz` 的路径 | 用系统「复制为路径 / 拷贝路径名」得到的路径直接填；路径里有空格、中文时也试一次 | 能装 | |
 | 2.3 | npm（发布后） | 填 `ds-bot`；再用「中国大陆镜像源」装一次 | 两种安装源都能装，版本是新版 | |
-| 2.4 | GitHub（发布后，需要 Git） | 填 `github:Fei2411/DeepSeek-Bot#v<版本>&path:/ds-bot` | 能装；没装 Git 时记下错误信息 | |
+| 2.4 | GitHub（发布后，需要 Git） | 填 `github:Fei2411/DS-Bot#v<版本>&path:/ds-bot` | 能装；没装 Git 时记下错误信息 | |
 | 2.5 | 命令行 | 应用菜单 → 管理 dsh 命令 → 安装；退出 Desktop；新开终端运行 `dsh --version`、`dsh plugin --profile desktop add <tgz 路径>` | 能装；重启 Desktop 后生效 | |
 | 2.6 | 重启 | 完全退出（Windows：托盘图标 → 退出；macOS：⌘Q）再打开 | 团队界面出现 | |
 | 2.7 | 恢复（可选） | 故意装坏一次，看恢复对话框里的「禁用第三方插件」 | 能回到普通 DSH | |

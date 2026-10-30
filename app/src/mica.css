@@ -22,6 +22,11 @@ div[class*="_sidebarCol"] > div[class*="_root"],
 div[class*="_sidebarCol"] > * > div[class*="_root"] {
   background: transparent !important;
 }
+/* ds-bot's own collapsed column (.bt-leftcol) reaches the window's top edge and
+   takes the same coat as the shell's sidebar under it. */
+body {
+  --bt-leftcol-fill: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 45%, transparent);
+}
 div[class*="_centerCol"] {
   padding-top: var(--dsh-windows-titlebar-height) !important;
 }

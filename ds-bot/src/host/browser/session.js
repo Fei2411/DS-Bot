@@ -117,7 +117,7 @@ export async function openBotBrowser({ botId, profileRoot, downloadDir, headless
   return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, getHold, onHold, uploadRoots })
 }
 
-function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout, getHold, onHold, uploadRoots }) {
+export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout, getHold, onHold, uploadRoots }) {
   const pages = new Set()
   const unknownByOrigin = new Map()
   const unknownPageOrigins = new WeakMap()
@@ -700,12 +700,17 @@ function createSession({ context, browser, page, botId, userDataDir, cookieFile,
       return finishAction(() => target.goBack({ waitUntil: 'domcontentloaded', timeout: 15_000 }).catch(() => {}), target)
     },
     shot,
-    handoff(reason, note) {
+    // `origin` names the call and Session that asked, so a card can answer them.
+    handoff(reason, note, origin) {
       ready()
       const kind = REASONS.has(reason) ? reason : 'other'
       hold = { reason: kind, note: String(note ?? '').slice(0, 300) }
-      onHold?.({ by: 'bot', reason: kind, note: hold.note })
-      return `Waiting for the user (${kind}). ${hold.note || 'Ask them to take over.'} Call browser_resume when they have finished.`
+      onHold?.({ by: 'bot', reason: kind, note: hold.note, ...origin })
+      const recorded = getHold?.()
+      const guidance = origin?.callId !== undefined && recorded && recorded.callId === undefined
+        ? 'There is no handoff card in this conversation. Tell the user here what you need them to do. After they reply, call browser_resume, then browser_snapshot to check the page.'
+        : 'Call browser_resume when they have finished.'
+      return `Waiting for the user (${kind}). ${hold.note || 'Ask them to take over.'} ${guidance}`
     },
     resume() {
       if (getHold?.()?.by === 'user') throw new Error('The user has taken over this browser. Only the user can give it back.')
@@ -713,7 +718,7 @@ function createSession({ context, browser, page, botId, userDataDir, cookieFile,
       onHold?.(null)
       return 'The browser is yours again.'
     },
-    async runScript(source) {
+    async runScript(source, origin) {
       const body = String(source ?? '')
       if (body.length > 8_000) throw new Error('Script is longer than 8000 characters.')
       const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
@@ -739,7 +744,7 @@ function createSession({ context, browser, page, botId, userDataDir, cookieFile,
         },
         () => this.snapshotText(),
         (ref, paths) => this.upload(ref, paths),
-        (reason, note) => this.handoff(reason, note),
+        (reason, note) => this.handoff(reason, note, origin),
         () => this.resume(),
         () => this.back(),
         done,

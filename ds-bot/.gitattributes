@@ -1,3 +1,4 @@
-# The client bundle is compared byte for byte with a fresh build (npm test and
-# build-client.mjs --check). Checked out with CRLF on Windows it always reads as stale.
+# The client and office bundles are compared byte for byte with a fresh build (npm test and
+# build-client.mjs --check). Checked out with CRLF on Windows they always read as stale.
 client.js text eol=lf
+office.js text eol=lf

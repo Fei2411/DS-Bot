@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
-// Fei2411/DeepSeek-Bot#37: under DSH Desktop's default PTC preset a model may call only
+// Fei2411/DS-Bot#37: under DSH Desktop's default PTC preset a model may call only
 // run_code, so the group_relay call made for a group chat's Session was turned down
 // and no group message reached its Bots.
 

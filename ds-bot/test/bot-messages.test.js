@@ -90,9 +90,9 @@ async function start(seed) {
   }
   apply(ctx, { home })
   let seq = 0
-  const emit = (id, type, data) => {
+  const emit = (id, type, data, extra) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data, ...extra })
     }
   }
   // Runs every registered waterfall listener; `next` settles the chain.
@@ -195,6 +195,35 @@ test('a request steered into a running turn is recorded once and answered in a t
   assert.equal(textOf(reply.content), '[Reply from Writer]\n2025')
   assert.equal(reply.source.replyTo, steered.source.exchangeId)
   assert.deepEqual((await exchanges()).map(entry => entry.role), ['request', 'reply'])
+})
+
+// Issue #580: a queued message the user steers into the running turn restarts
+// the activity row's clock from when it landed, not from the turn's start.
+test('a user message steered into the running steps marks when it landed', async (t) => {
+  const { emit, call, stop } = await start(team())
+  t.after(stop)
+  const steered = async () => (await call('state', {})).value.work.steered ?? {}
+  const userMessage = id => ({ id, role: 'user', content: textBlock('还没好吗'), source: { kind: 'user' } })
+  const spliced = (target, inserted, time, extra = {}) => emit('b', 'agent/inbox/spliced', { target, start: 0, inserted, ...extra }, { time })
+
+  emit('b', 'turn/start', { turn: 1 })
+  // Queued for the next turn first; only moving it into the running steps steers.
+  spliced('next-turn', [userMessage('m1')], 2000)
+  assert.deepEqual(await steered(), {})
+  spliced('next-turn', [], 3000, { removedCount: 1, outcome: 'canceled' })
+  spliced('next-step', [userMessage('m1')], 3001)
+  assert.equal((await steered()).b, 3001)
+  // A Bot's request spliced into the same place is not the user's input.
+  spliced('next-step', [{ ...userMessage('m2'), source: replySource('request') }], 4000)
+  assert.equal((await steered()).b, 3001)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.deepEqual(await steered(), {})
+
+  // A turn a part switch cut short may see turn/start without a turn/end.
+  emit('b', 'turn/start', { turn: 2 })
+  spliced('next-step', [userMessage('m3')], 5000)
+  emit('b', 'turn/start', { turn: 3 })
+  assert.deepEqual(await steered(), {})
 })
 
 test('a request from a name with brackets keeps its body when replayed after the current work', async (t) => {
@@ -705,6 +734,38 @@ test('an earlier part keeps the request its Bot answered', async () => {
   const { items } = await rt.earlierPage('b2')
   assert.deepEqual(items.map(item => [item.kind, item.role ?? item.text]), [['event', 'request'], ['bot', 'Understood, I stopped.']])
   assert.equal(items[0].botId, 'a')
+})
+
+// #537: an archived earlier part may have no live agent to resolve; the page
+// still loads from the stored events.
+test('an earlier part loads when its agent is gone', async () => {
+  const rt = earlierParts([
+    { type: 'user/message', seq: 1, time: 10, data: { content: [{ type: 'text', text: 'still here' }], source: { kind: 'user' } } },
+  ])
+  rt.resolveAgent = async () => { throw Object.assign(new Error('Session unavailable'), { code: 'session/gone' }) }
+  const { items } = await rt.earlierPage('b2')
+  assert.deepEqual(items.map(item => [item.kind, item.text]), [['user', 'still here']])
+})
+
+// #537: a turn that spans a page boundary keeps its number on the newer page
+// even when the part's agent is gone (no live projection to seed it).
+test('an agentless part keeps the turn that opened on an older page', async () => {
+  const events = [{ seq: 1, type: 'turn/start', time: 1, data: { turn: 6 } }]
+  for (let seq = 2; seq <= 430; seq += 1) {
+    events.push({ seq, type: 'user/message', time: seq, data: { content: [{ type: 'text', text: `m${seq}` }], source: { kind: 'user' } } })
+  }
+  const rt = earlierParts([])
+  rt.ctx.sessionController.page = async ({ beforeSeq, maxMessages }) => {
+    let list = events.filter(event => !Number.isInteger(beforeSeq) || event.seq < beforeSeq)
+    const hasMore = list.length > maxMessages
+    if (hasMore) list = list.slice(-maxMessages)
+    return { records: list.map(event => ({ event })), hasMore }
+  }
+  rt.resolveAgent = async () => { throw Object.assign(new Error('Session unavailable'), { code: 'session/gone' }) }
+  const { items } = await rt.earlierPage('b2')
+  const first = items.find(item => item.kind !== 'divider')
+  assert.equal(first?.kind, 'user')
+  assert.equal(first?.turn, 6)
 })
 
 test('each text block of a Bot message is an entry of its own, as each is a bubble of its own', async () => {

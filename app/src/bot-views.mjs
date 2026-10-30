@@ -47,6 +47,8 @@ export class BotViews {
   #saved = {}
   #active = new Map()
   #held = new Set()
+  // The tabs whose view waits for a window to belong to.
+  #waiting = new Set()
 
   constructor({ window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, statePath }) {
     this.#window = window
@@ -118,7 +120,10 @@ export class BotViews {
     })
     const entry = { tabId, botId, view, createdByBot, openerId, sessions: new Map(), sessionMaps: new Map(), downloads: new Map(), downloadPath: this.#downloadPaths.get(botId), mainFrameId: undefined }
     this.#views.set(tabId, entry)
-    this.#window()?.contentView.addChildView(view)
+    const owner = this.#window()
+    if (owner !== undefined && owner !== null) owner.contentView.addChildView(view)
+    // Without a window the view waits for the next one.
+    else this.#waiting.add(tabId)
     view.setBounds(rectOf(null))
     view.setVisible(false)
     const contents = view.webContents
@@ -336,10 +341,40 @@ export class BotViews {
     return [...this.#views.values()].filter(entry => entry.botId === botId).map(entry => this.#state(entry))
   }
 
+  /**
+   * The window that owned the views is gone. The views that went with it are dropped; the
+   * ones that are still alive wait for the window that comes next.
+   */
+  release() {
+    for (const [tabId, entry] of [...this.#views]) {
+      if (!entry.view.webContents.isDestroyed()) { this.#waiting.add(tabId); continue }
+      this.#views.delete(tabId)
+      this.#waiting.delete(tabId)
+      if (this.#active.get(entry.botId) === tabId) this.#active.delete(entry.botId)
+    }
+  }
+
+  /** The views that waited for a window join it, so that the tabs go on. */
+  attach(window) {
+    if (window === undefined || window === null) return
+    for (const [tabId, entry] of [...this.#views]) {
+      if (!this.#waiting.has(tabId)) continue
+      if (entry.view.webContents.isDestroyed()) {
+        this.#views.delete(tabId)
+        this.#waiting.delete(tabId)
+        if (this.#active.get(entry.botId) === tabId) this.#active.delete(entry.botId)
+        continue
+      }
+      window.contentView.addChildView(entry.view)
+      this.#waiting.delete(tabId)
+    }
+  }
+
   dispose() {
     this.#persist()
     for (const entry of this.#views.values()) entry.view.webContents.close()
     this.#views.clear()
+    this.#waiting.clear()
     this.#tokens.clear()
     this.#wss.close()
     this.#server.close()

@@ -8,7 +8,7 @@ name: Release
 # npm Trusted Publishing: npm trusts this workflow through GitHub's OIDC token, so the
 # repository keeps no npm token, and every version gets a provenance statement. It is set
 # up once on npmjs.com: package ds-bot → Settings → Trusted Publisher → GitHub Actions,
-# user Fei2411, repository DeepSeek-Bot, workflow release.yml, no environment.
+# user Fei2411, repository DS-Bot, workflow release.yml, no environment.
 #
 # The release tag must be v<version in ds-bot/package.json> and must point at a commit on
 # main. A version with a pre-release part (0.2.0-rc.1) goes to the npm tag "next", so that

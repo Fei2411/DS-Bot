@@ -10,6 +10,12 @@ const bundle = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const react = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+  useContext: ctx => ctx.value,
+  useMemo: make => make(),
+  useCallback: fn => fn,
+  useId: () => 'dv-id',
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
   Fragment: 'fragment',
   useState: initial => [initial, () => {}],
@@ -55,7 +61,7 @@ test('the six app update states set the DS Bot row\'s hint and button', () => {
     [{ phase: 'downloading', version: '0.2.2' }, 'Downloading 0.2.2…', []],
     [{ phase: 'downloaded', version: '0.2.2' }, '0.2.2 is ready; it installs when you restart',
       [{ text: 'Restart to update', className: 'bt-fb-primary', action: 'installOwnApp' }]],
-    [{ phase: 'available', version: '0.2.2', page: 'https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v0.2.2' }, '0.2.2 is available',
+    [{ phase: 'available', version: '0.2.2', page: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.2.2' }, '0.2.2 is available',
       [{ text: 'Download', className: 'bt-soft bt-soft-sm', action: 'openOwnApp' }]],
     [{ phase: 'failed' }, 'Could not check for updates.', [{ text: 'Check for updates', className: 'bt-soft bt-soft-sm', action: 'checkOwnApp' }]],
   ]

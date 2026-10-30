@@ -143,9 +143,15 @@ export function install(rt) {
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
-    if (effort !== undefined && effort !== '' && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
-    const effortId = modelRef === undefined ? undefined : await rt.resolveEffort(modelRef, effort)
+    if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
+    // An explicit level wins; an explicit Default (null) picks the model's own
+    // level; an untouched pick inherits the profile default's level.
+    const effortId = modelRef === undefined ? undefined
+      : effort === null || effort === '' ? undefined
+      : (await rt.resolveEffort(modelRef, effort)) ?? await rt.defaultEffort(modelRef)
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
+    const clash = dir === undefined ? undefined : await rt.privateClash(dir)
+    if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
     const id = await createSession(cleanName, { dir })
     try {
       state.bots[id] = {
@@ -181,12 +187,18 @@ export function install(rt) {
       const opener = `${kickoff}\nWhere your instructions say otherwise, follow them.`
       const text = !main && language ? `${opener}\nWrite in ${language}.` : opener
       const bot = state.bots[id]
+      // The Bot is saved by now; a failure here must not archive it in the catch below.
+      const scopeTools = () => rt.resolveAgent(id)
+        .catch(error => rt.warn('ds-bot: scoped tools for %s not applied: %s', cleanName, error))
       if (modelRef === undefined) {
         bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
         await rt.save()
+        // The Session was resolved before the Bot existed, so its scoped tools land now.
+        await scopeTools()
         return bot
       }
       await rt.save()
+      await scopeTools()
       // The greeting runs on the Bot's own model, once its provider is registered.
       void rt.waitForModel(bot)
         .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
@@ -222,6 +234,7 @@ export function install(rt) {
   async function duplicateBot(id) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (bot.private === true) throw new Error(`${bot.name} is private, so it cannot be copied`)
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
@@ -233,23 +246,30 @@ export function install(rt) {
       color: bot.color,
       avatar: bot.avatar,
       model: served ? bot.model : undefined,
-      effort: served ? bot.effort : undefined,
+      // A copy of a Bot on the model's own default stays on it (null marks the
+      // explicit Default pick); else the create would inherit the profile level.
+      effort: served ? (bot.effort ?? null) : undefined,
       workDir,
       copyOf: bot.id,
     })
   }
 
-  async function updateBot(id, patch, actorId) {
+  async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
+    }
+    if (patch.private !== undefined && actorId !== undefined) {
+      throw new Error(`Only the user can make ${bot.name} private or open`)
     }
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const flag = patch.private === undefined ? undefined : patch.private === true
+    await rt.checkPrivacyChange(bot, { flag, moving, workDir })
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
@@ -277,6 +297,8 @@ export function install(rt) {
       await ctx.sessionTitle.rename(agent.session, next)
       await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
     }
+    const roleBefore = bot.role
+    const instructionsBefore = bot.instructions
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
     let modelChanged = false
@@ -304,12 +326,31 @@ export function install(rt) {
       if (browserGrants === null) delete bot.browserGrants
       else bot.browserGrants = browserGrants
     }
+    if (flag === true) bot.private = true
+    else if (flag === false) delete bot.private
     const moved = moving && workDir !== bot.workDir
     if (moving) {
       if (workDir === undefined) delete bot.workDir
       else bot.workDir = workDir
     }
     await rt.save()
+    // The system prompt reads the live profile every turn, but a Session with
+    // several rounds behind it follows the old kickoff's pull until a message
+    // lands; notify the Bot's chat so the next turn honors the new profile.
+    const notes = []
+    if (bot.role !== roleBefore) notes.push(`Your role is now "${bot.role || '(none)'}"`)
+    if (bot.instructions !== instructionsBefore) notes.push(`Your instructions now read:\n${bot.instructions || '(none)'}`)
+    // A held greeting means the model pick is still open: the kickoff it later sends
+    // already reads the new profile, and a notice would start a turn before that.
+    // A Bot editing itself in its own chat just got the tool result in the turn
+    // that made the edit; a notice there would only buy it a second, unsolicited
+    // reply. The same edit made from a group Session reaches no own-chat turn, so
+    // the notice still goes out.
+    const selfEditInChat = actorId === bot.id && fromSessionId === rt.chatOf(bot.id)
+    if (notes.length > 0 && bot.kickoff === undefined && !selfEditInChat) {
+      void rt.deliver({ toId: bot.id, text: notes.join('\n'), role: 'update' })
+        .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
+    }
     if (modelChanged) await rt.applyModel(bot, { force: true })
     if (moved) void rt.followFolder(bot.id)
     if (bot.model && bot.kickoff !== undefined) {
@@ -367,6 +408,7 @@ export function install(rt) {
   function checkMembers(members) {
     if (members.length < 2) throw new Error('A group chat needs at least two Bots')
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
+    rt.checkNoPrivate(members)
   }
 
   // A Main Bot leads the groups it makes; a group the user makes is led by a Main Bot
@@ -472,6 +514,8 @@ export function install(rt) {
     planRoomChange(asked, patch, actorId)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
+    if (clash) throw new Error(`${workDir} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
@@ -557,6 +601,7 @@ export function install(rt) {
   async function setMain(id, main, { primary = false, replace } = {}) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (main && bot.private === true) throw new Error(`${bot.name} is private, so it cannot be a Main Bot`)
     const others = state.mainBotIds.filter(other => other !== id)
     let next
     if (!main) {
@@ -591,7 +636,17 @@ export function install(rt) {
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
+    // `archiving` stands until the archive's path is known: the memory may already be
+    // there, and no region of its own closes it yet.
+    const closedArchive = bot.private === true ? {
+      id: bot.id,
+      name: bot.name,
+      ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
+      sessionIds: [...parts, ...rt.groupSessionsOf(id)],
+      archiving: true,
+    } : undefined
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
+    if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]
@@ -609,7 +664,12 @@ export function install(rt) {
     }
     await followMemberNames(touched)
     await rt.forgetBotSecrets(id)
-    await archived
+    const archivePath = await archived
+    if (closedArchive !== undefined) {
+      // No path means nothing was moved: a memory that stayed in place is a region already.
+      if (archivePath !== undefined) closedArchive.archivePath = archivePath
+      delete closedArchive.archiving
+    }
     const failed = await saveForDelete()
     // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
     // Past parts are archived too: a part move can leave tasks on the old Session,

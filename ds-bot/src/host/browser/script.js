@@ -26,7 +26,7 @@ export const toolDefs = [
       script: { type: 'string', required: true, description: 'Function body. Await the helpers. No imports.' },
     },
     async execute(args, ctx) {
-      const text = await ctx.session.runScript(args.script)
+      const text = await ctx.session.runScript(args.script, ctx.origin)
       const image = typeof ctx.session.takeLastImage === 'function' ? ctx.session.takeLastImage() : ctx.session.lastImage
       return image ? { text, image } : { text }
     },

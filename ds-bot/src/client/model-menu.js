@@ -77,11 +77,11 @@ function EffortRows({ reasoning, current, onPick }) {
     h('div', { className: 'bt-menu-sep', role: 'separator' }),
     h('div', { className: 'bt-model-group', role: 'presentation' }, t('Thinking level')),
     effortRows(reasoning).map(row => h('button', {
-      key: row.effort ?? 'default', type: 'button', role: 'menuitemradio', 'aria-checked': row.effort === current,
+      key: row.effort ?? 'default', type: 'button', role: 'menuitemradio', 'aria-checked': (row.effort ?? null) === (current ?? null),
       onClick: () => onPick(row.effort),
     },
     h('span', { className: 'bt-menu-label' }, row.label),
-    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, row.effort === current ? h(CheckIcon) : null))))
+    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, (row.effort ?? null) === (current ?? null) ? h(CheckIcon) : null))))
 }
 
 function ModelRows({ roster, current, onPick }) {

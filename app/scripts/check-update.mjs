@@ -39,7 +39,7 @@ const server = createServer((request, response) => {
     served.push(pathname)
     response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify([{
       tag_name: `v${version}`,
-      html_url: `https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v${version}`,
+      html_url: `https://github.com/Fei2411/DS-Bot/releases/tag/v${version}`,
       draft: false,
       prerelease: false,
       assets: [{ name: asset(version) }],
@@ -56,9 +56,9 @@ const server = createServer((request, response) => {
 await new Promise((done) => { server.listen(0, '127.0.0.1', done) })
 const feed = `http://127.0.0.1:${String(server.address().port)}/`
 
-// Closes the window from inside the page, as check-packed does; the app then quits as it does
-// when a user closes it. The page goes away with the window, so the call gets no answer.
-async function closeWindow(port, waitForReady = false) {
+// The tray's Quit ends the app. The check cannot click the tray icon, so it asks the browser
+// target of the debugging port to close. Tray menu dispatch is covered by the main-process tests.
+async function quitApp(port, waitForReady = false) {
   // Until the Host is ready the window shows a note of its own.
   const find = async () => {
     const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
@@ -95,7 +95,15 @@ async function closeWindow(port, waitForReady = false) {
     })
     if (!ready) throw new Error('the app window did not finish booting')
   }
-  socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'window.close()' } }))
+  socket.close()
+  const version = await (await fetch(`http://127.0.0.1:${String(port)}/json/version`)).json()
+  const browser = new WebSocket(version.webSocketDebuggerUrl)
+  await new Promise((done, reject) => {
+    browser.addEventListener('open', done, { once: true })
+    browser.addEventListener('error', reject, { once: true })
+  })
+  browser.send(JSON.stringify({ id: 1, method: 'Browser.close' }))
+  browser.close()
 }
 
 // taskkill /T takes the Host and Electron's helpers along; a unix kill ends the tree's root,
@@ -135,21 +143,21 @@ try {
   if (releasePage && !served.includes('/')) throw new Error('the release feed was not requested')
   console.log(`check-update: ${updateLine}; the feed served ${served.join(', ')}`)
   if (releasePage) {
-    await closeWindow(port, true)
+    await quitApp(port, true)
     const code = await Promise.race([exited, sleep(60_000).then(() => 'timeout')])
     if (code === 'timeout') throw new Error('the app did not exit after its window closed')
     if (code !== 0) throw new Error(`the app exited with code ${String(code)}`)
-    console.log('check-update: the app closed without installing')
+    console.log('check-update: the app quit without installing')
   } else if (mode === '--kill') {
     killApp()
     await exited
     console.log('check-update: ended the app, so nothing was installed')
   } else {
-    await closeWindow(port)
+    await quitApp(port)
     const code = await Promise.race([exited, sleep(60_000).then(() => 'timeout')])
     if (code === 'timeout') throw new Error('the app did not exit after its window closed')
     if (code !== 0) throw new Error(`the app exited with code ${String(code)}, so it does not install the update`)
-    console.log('check-update: the app closed; its installer runs now')
+    console.log('check-update: the app quit; its installer runs now')
   }
   console.log('check-update: passed')
 } catch (error) {

@@ -7,6 +7,10 @@ import { test } from 'node:test'
 import { WebSocket } from 'ws'
 import { BotViews, isBotId } from '../src/bot-views.mjs'
 
+// Windows makes a junction to a folder without special rights; elsewhere it is a plain
+// symbolic link to the folder.
+const folderLink = process.platform === 'win32' ? 'junction' : 'dir'
+
 function fixture({ statePath } = {}) {
   const changes = []
   const handlers = new Map()
@@ -49,9 +53,10 @@ function fixture({ statePath } = {}) {
     storageFor(key) { return { partition: `persist:${key}` } },
     setDownloadHandler(key, handler) { handlers.set(key, handler) },
   }
-  const window = { contentView: { addChildView() {}, removeChildView() {} } }
+  const added = []
+  let window = { contentView: { addChildView(view) { added.push(view) }, removeChildView() {} } }
   const manager = new BotViews({ window: () => window, WebContentsView, guests, origin: () => 'http://127.0.0.1:43117', statePath, onChange: change => changes.push(change) })
-  return { manager, handlers, views, changes }
+  return { manager, handlers, views, changes, added, setWindow: (next) => { window = next } }
 }
 
 test('Bot endpoint identifiers follow DSH session.create IDs', () => {
@@ -293,8 +298,12 @@ test('cancelling a relay download removes its save path', async t => {
     async cancel() { this.emit('done', {}, 'cancelled') },
   })
   handlers.get('bot:a')({ preventDefault() {} }, item, views[0].webContents)
-  await new Promise(resolve => setTimeout(resolve, 0))
-  const guid = events.find(message => message.method === 'Browser.downloadWillBegin').params.guid
+  let willBegin
+  for (let tries = 0; tries < 100 && !willBegin; tries++) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+    willBegin = events.find(message => message.method === 'Browser.downloadWillBegin')
+  }
+  const guid = willBegin.params.guid
   await request(socket, 3, 'Browser.cancelDownload', { guid })
   for (let tries = 0; tries < 100 && existsSync(savePath); tries++) await new Promise(resolve => setTimeout(resolve, 10))
   assert.equal(existsSync(savePath), false)
@@ -305,7 +314,7 @@ test('CDP rejects outside, traversal, and symlink download paths and cancels dow
   t.after(() => manager.dispose())
   const rootPath = mkdtempSync(join(tmpdir(), 'bot-views-download-root-'))
   const outsidePath = mkdtempSync(join(tmpdir(), 'bot-views-download-outside-'))
-  symlinkSync(outsidePath, join(rootPath, 'outside-link'))
+  symlinkSync(outsidePath, join(rootPath, 'outside-link'), folderLink)
   t.after(() => {
     rmSync(rootPath, { recursive: true, force: true })
     rmSync(outsidePath, { recursive: true, force: true })
@@ -389,7 +398,7 @@ test('a relay download is cancelled if its accepted directory is swapped for an 
   assert.deepEqual(accepted.result, {})
 
   rmSync(downloadPath, { recursive: true, force: true })
-  symlinkSync(outsidePath, downloadPath)
+  symlinkSync(outsidePath, downloadPath, folderLink)
   let prevented = false
   const item = Object.assign(new EventEmitter(), {
     setSavePath(path) { writeFileSync(path, 'outside') },
@@ -500,4 +509,41 @@ test('load errors remain published until a real main-frame navigation starts', a
   contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
   assert.equal(changes.at(-1).error, null)
   assert.ok(entry)
+})
+
+test('a tab whose window is gone joins the next window', async t => {
+  const { manager, views, added } = fixture()
+  t.after(() => manager.dispose())
+  manager.create('a')
+  assert.equal(added.length, 1, 'the view belongs to the window')
+  // The window is gone, but its view is still alive.
+  manager.release()
+  const next = { contentView: { addChildView(view) { added.push(view) } } }
+  manager.attach(next)
+  assert.equal(added.length, 2, 'the view joins the next window')
+  assert.equal(added[1], views[0], 'it is the same view')
+})
+
+test('a view that went with its window is dropped', async t => {
+  const { manager, views, added } = fixture()
+  t.after(() => manager.dispose())
+  manager.create('a')
+  views[0].webContents.isDestroyed = () => true
+  manager.release()
+  const next = { contentView: { addChildView(view) { added.push(view) } } }
+  manager.attach(next)
+  assert.equal(added.length, 1, 'the dead view is not attached again')
+  assert.deepEqual(manager.sync('a'), [], 'the tab is gone')
+})
+
+test('a view that is built without a window waits for one', async t => {
+  const { manager, views, added, setWindow } = fixture()
+  t.after(() => manager.dispose())
+  setWindow(undefined)
+  manager.create('a')
+  assert.equal(added.length, 0, 'there is no window to hold it')
+  const next = { contentView: { addChildView(view) { added.push(view) } } }
+  manager.attach(next)
+  assert.equal(added.length, 1, 'the view joins the window that comes')
+  assert.equal(added[0], views[0], 'it is the same view')
 })

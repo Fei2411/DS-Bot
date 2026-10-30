@@ -205,7 +205,8 @@ test('TEAM_TOOLS names exactly the tools ds-bot registers', async (t) => {
   // read_browser registers only in the Desktop profile; the flag stands in for it.
   const { stop, ctx } = start(TEAM, { config: { browser: true } })
   t.after(stop)
-  assert.deepEqual([...ctx.registeredTools.keys()].sort(), [...TEAM_TOOLS].sort())
+  // show_view registers in each Bot agent's own scope, so it is not a global one.
+  assert.deepEqual([...ctx.registeredTools.keys()].sort(), [...TEAM_TOOLS].filter(name => name !== 'show_view').sort())
 })
 
 test('agent-session honors a known workspace and falls back to the team workspace', async (t) => {

@@ -10,10 +10,14 @@ import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
-function start(team, { models = [], reasoning = {}, archiveError } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, selection } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext()
+  if (selection !== undefined) {
+    const baseGet = ctx.get
+    ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => selection } : baseGet(name)
+  }
   const workspaces = new Map()
   const sent = []
   const selected = []
@@ -150,8 +154,8 @@ for (const kind of ['main', 'copy', 'made by a Main Bot', 'made by the user']) {
     } else {
       bot = (await call('create-bot', { name: 'Writer', instructions })).value
     }
-    await until(() => sent.some(entry => entry.sessionId === bot.id))
-    const greetings = sent.filter(entry => entry.sessionId === bot.id)
+    await until(() => sent.some(entry => entry.sessionId === bot.id && entry.message.source.role === 'kickoff'))
+    const greetings = sent.filter(entry => entry.sessionId === bot.id && entry.message.source.role === 'kickoff')
     assert.equal(greetings.length, 1)
     const { message } = greetings[0]
     const text = message.content[0].text
@@ -237,6 +241,35 @@ test('a Bot takes a thinking level its model serves, applied with the model', as
   await settle()
   assert.equal(writer.effort, 'high')
   assert.equal(selected.at(-1).reasoningEffort, 'high')
+})
+
+test('a new Bot inherits the profile default thinking level', async (t) => {
+  const reasoning = { 'deepseek/deepseek-v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } } }
+  const selection = { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }
+  const { call, stop, selected } = start(undefined, { models: ['deepseek-v4-flash'], reasoning, selection })
+  t.after(stop)
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  await settle()
+  assert.equal(writer.model, 'deepseek/deepseek-v4-flash')
+  assert.equal(writer.effort, 'high')
+  assert.equal(selected.at(-1).reasoningEffort, 'high')
+
+  // An explicit level still wins, and a level the model does not serve is dropped.
+  const coder = (await call('create-bot', { name: 'Coder', effort: 'low' })).value
+  assert.equal(coder.effort, 'low')
+
+  // An explicit Default pick (null) stays on the model's own level, and so does a
+  // copy of a Bot that has no level of its own.
+  const plain = (await call('create-bot', { name: 'Plain', effort: null })).value
+  assert.equal(plain.effort, undefined)
+  const copy = (await call('duplicate-bot', { id: plain.id })).value
+  assert.equal(copy.effort, undefined)
+
+  const other = { provider: 'deepseek', model: 'other', reasoningEffort: 'max' }
+  const { call: call2, stop: stop2 } = start(undefined, { models: ['deepseek/deepseek-v4-flash'], reasoning, selection: other })
+  t.after(stop2)
+  const tester = (await call2('create-bot', { name: 'Tester' })).value
+  assert.equal(tester.effort, undefined)
 })
 
 test('the state reports a changed model list without a new revision', async (t) => {
@@ -754,12 +787,12 @@ test('a non-Main Bot still cannot change another Bot\u2019s thinking level', asy
   assert.equal((await call('state', {})).value.bots.find(bot => bot.id === writer.id).effort, 'low')
 })
 
-test('list_models names the thinking levels of the models a Bot runs on', async (t) => {
+test('list_bot_models names the thinking levels of the models a Bot runs on', async (t) => {
   const { ctx, call, stop } = start(undefined, { models: ['deepseek-v4-flash', 'plain'], reasoning: TOOL_REASONING })
   t.after(stop)
   const chief = (await call('state', {})).value.mainBotId
   await call('update-bot', { id: chief, model: 'deepseek/deepseek-v4-flash' })
-  const result = await ctx.registeredTools.get('list_models').execute({}, { agent: { id: chief } })
+  const result = await ctx.registeredTools.get('list_bot_models').execute({}, { agent: { id: chief } })
   assert.match(result, /deepseek\/deepseek-v4-flash.*thinking: low, high \(default: high\)/)
   assert.doesNotMatch(result.split('\n').find(line => line.includes('deepseek/plain')), /thinking/)
 })

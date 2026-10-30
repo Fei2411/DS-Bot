@@ -51,3 +51,34 @@ test('a download from another contents passes through', () => {
   assert.equal(download.path, undefined)
   assert.equal(ev.prevented, false)
 })
+
+test('the window is asked for at the moment of the download, because the app may build a new one', () => {
+  const contents = {}
+  const calls = []
+  let window = { webContents: {} }
+  const save = downloadSaver({
+    window: () => window,
+    dialog: { showSaveDialogSync: (win) => { calls.push(win); return '/picked/chart.png' } },
+    downloads: '/downloads',
+  })
+  // A new window took the place of the old one.
+  window = { webContents: contents }
+  save(event(), item(), contents)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0], window, 'the dialog belongs to the current window')
+})
+
+test('a download without a window passes through', () => {
+  let asked = false
+  const save = downloadSaver({
+    window: () => undefined,
+    dialog: { showSaveDialogSync: () => { asked = true; return '/picked' } },
+    downloads: '/downloads',
+  })
+  const ev = event()
+  const download = item()
+  save(ev, download, { webContents: {} })
+  assert.equal(asked, false)
+  assert.equal(download.path, undefined)
+  assert.equal(ev.prevented, false)
+})

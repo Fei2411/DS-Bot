@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotMark } from './mark.js'
-import { CharacterGrid, avatarImage } from './bot-settings.js'
+import { CharacterGrid } from './bot-settings.js'
+import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { DEFAULT_SHAPES, DEFAULT_COLORS } from './characters.js'
 import { ChevronLeftIcon, CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
@@ -21,6 +22,7 @@ const randomLook = (avoid = {}) => {
 export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBack, onCreated, inline = false }) {
   const [look, setLook] = useState(() => randomLook())
   const [image, setImage] = useState(null)
+  const [library, setLibrary] = useState(false)
   const [name, setName] = useState(start?.name ?? '')
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
@@ -69,8 +71,11 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h('div', { className: 'bt-actions bt-create-lookbar' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setImage(null); setLook(current => randomLook(current)) } }, t('Shuffle')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => fileRef.current?.click() }, image ? t('Replace photo') : t('Upload photo')),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'aria-expanded': library, onClick: () => setLibrary(value => !value) }, t('Library')),
         image ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setImage(null) }, t('Remove photo')) : null,
         h('input', { ref: fileRef, type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; upload(file) } }))),
+    // The library is a block of its own under the look, not a part of the button row.
+    library ? h(AvatarLibraryPanel, { actions, onPick: entry => { setImage(entry.image); setLibrary(false) } }) : null,
     h('label', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Name')),
       h('input', {
@@ -82,7 +87,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         : clash ? h('span', { className: 'bt-note bt-danger' }, t('A Bot named {name} already exists', { name: finalName })) : null),
     h('div', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Model')),
-      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: model || undefined, effort }, roster, actions, wide: true, onPick: ref => { setModel(ref); setEffort(undefined) }, onPickEffort: setEffort }),
+      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: model || undefined, effort }, roster, actions, wide: true, onPick: ref => { setModel(ref); setEffort(undefined) }, onPickEffort: picked => setEffort(picked ?? null) }),
       h('span', { className: 'bt-note' }, (roster.models ?? []).length > 0
         ? t('The Bot runs on this model. You can change it later in its details.')
         : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))),

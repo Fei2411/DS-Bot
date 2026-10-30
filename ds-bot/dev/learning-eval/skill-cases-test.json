@@ -1,0 +1,60 @@
+{
+  "note": "Held-out skill review cases: never used while tuning the prompt. Run once per prompt version.",
+  "cases": [
+    {
+      "id": "t-explain-concept", "expect": "none",
+      "bot": { "name": "Tutor", "role": "Teacher" },
+      "lines": [
+        "User: 什么是闭包？",
+        "闭包是函数和它定义时所在作用域的组合……（附一个计数器例子）",
+        "User: 懂了，谢谢。"
+      ]
+    },
+    {
+      "id": "t-long-but-routine", "expect": "none",
+      "bot": { "name": "Coder", "role": "Developer" },
+      "lines": [
+        "User: Add pagination to the /orders API.",
+        "Added `page` and `pageSize` query params with defaults 1 and 20, a total count in the response, and tests for the first page, the last page, and an out-of-range page. All tests pass.",
+        "User: Also cap pageSize at 100.",
+        "Capped at 100 and added a test.",
+        "User: Great, merge it."
+      ]
+    },
+    {
+      "id": "t-env-pitfall", "expect": "create",
+      "bot": { "name": "Builder", "role": "Build engineer" },
+      "lines": [
+        "User: Windows CI 构建又挂了，看看。",
+        "错误是 Filename too long。我把 node_modules 删掉重装，还是失败。",
+        "改用短一点的工作目录 C:\\b，构建通过。但这个仓库的 checkout 路径是 CI 固定的，改不了。",
+        "User: 别动目录。在 checkout 之后加 git config --system core.longpaths true，我们其他仓库也这么处理。",
+        "已加这一步，构建通过。",
+        "User: 以后 Windows 上遇到 Filename too long 都先这样处理，不要去删 node_modules。"
+      ],
+      "must": ["longpaths", "windows", "filename too long"],
+      "mustNot": ["C:\\\\b"],
+      "heldOut": [
+        { "task": "我们的 GitHub Actions Windows 任务在 npm ci 时报 'Filename too long'。给出你的修复，写出要改的 workflow 步骤。", "expect": ["longpaths"] }
+      ],
+      "unrelated": { "task": "用一句话解释什么是 HTTP 缓存。", "mustNot": ["longpaths"] }
+    },
+    {
+      "id": "t-delivery-pref", "expect": "create",
+      "bot": { "name": "Analyst", "role": "Data analyst" },
+      "lines": [
+        "User: Pull last month's signups by country.",
+        "Here is a 40-row table of signups by country, sorted alphabetically.",
+        "User: Sort by count, biggest first, top 10 only, and put the total on top. Always give me the SQL you ran under the table so I can check it.",
+        "Done: total 12,430; top 10 countries by count; the SQL is below the table.",
+        "User: Do every data pull like this from now on."
+      ],
+      "must": ["sql", "(top|10)", "total"],
+      "mustNot": ["12,?430", "signups by country"],
+      "heldOut": [
+        { "task": "Pull the number of orders per product category for last week from the `orders` table (columns: id, category, created_at). Show the result as you would deliver it to me, with made-up numbers.", "expect": ["select", "total"] }
+      ],
+      "unrelated": { "task": "Write a haiku about autumn.", "mustNot": ["select", "sql"] }
+    }
+  ]
+}

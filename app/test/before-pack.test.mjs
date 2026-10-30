@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { Arch } from 'electron-builder'
-import { archProblem, beforePack } from '../scripts/before-pack.mjs'
+import { archProblem, beforePack, officeRuntimeRequest } from '../scripts/before-pack.mjs'
+import { runtimeTarget } from '../scripts/prepare-runtime.mjs'
 
 test('a build for the architecture of this Node goes on', async () => {
   assert.equal(archProblem({ target: 'arm64', platform: 'darwin', host: 'arm64' }), undefined)
   assert.equal(archProblem({ target: 'x64', platform: 'win32', host: 'x64' }), undefined)
-  await beforePack({ arch: Arch[process.arch], electronPlatformName: process.platform })
+  const asked = []
+  const packager = { projectDir: 'app-dir', appInfo: { version: '0.0.0' } }
+  await beforePack({ arch: Arch[process.arch], electronPlatformName: process.platform, packager }, async (request) => { asked.push(request) })
+  assert.equal(asked.length, 1)
+  assert.equal(asked[0].target, runtimeTarget(process.platform, process.arch))
+  assert.equal(asked[0].output, join('app-dir', 'build', 'runtime'))
 })
 
 test('a build for another architecture stops and says where to build it', async () => {
@@ -30,4 +37,13 @@ test('a requested universal build stops before packing either architecture', asy
 
 test('electron-builder runs the check before it packs', () => {
   assert.match(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'), /^beforePack: \.\/scripts\/before-pack\.mjs$/m)
+})
+
+test('the Office payload goes next to the asar for a platform the lock pins', () => {
+  const request = officeRuntimeRequest({ arch: Arch.x64, electronPlatformName: 'win32', packager: { projectDir: 'app-dir', appInfo: { version: '9.9.9' } } })
+  assert.equal(request.target, 'win-x64')
+  assert.equal(request.version, '9.9.9')
+  assert.equal(request.output, join('app-dir', 'build', 'runtime'))
+  assert.throws(() => officeRuntimeRequest({ arch: Arch.arm64, electronPlatformName: 'win32', packager: { projectDir: 'app-dir' } }), /No Office runtime payload for win32 arm64/)
+  assert.match(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'), /from: build\/runtime\/primary-runtime\r?\n\s+to: primary-runtime/u)
 })

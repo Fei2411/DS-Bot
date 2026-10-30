@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from '../src/shared/views.js'
+import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -29,7 +29,7 @@ const TEAM = {
 const CHOICES = { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] }
 const METER = { type: 'metric', label: '进度', value: '70%' }
 
-function start() {
+async function start() {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-views-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const ctx = fakeContext()
@@ -52,6 +52,8 @@ function start() {
     return register(options)
   }
   apply(ctx, { home })
+  // show_view lives in the agent scope; a Bot agent appearing registers it.
+  await ctx.emitAsync('agent/created', { agent: ctx.scopeAgent('writer-now') })
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
@@ -79,7 +81,7 @@ function start() {
 const text = value => [{ type: 'text', text: value }]
 
 test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
-  const { ctx, emit, show, team, stop } = start()
+  const { ctx, emit, show, team, stop } = await start()
   t.after(stop)
   await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
 
@@ -150,7 +152,7 @@ test('show_view registers an interactive card, refuses a group and a display-onl
 })
 
 test('view-reply claims the card, refuses a stale or invalid answer, and restores the card when queueing fails', async (t) => {
-  const { ctx, show, call, team, sent, failFlush, stop } = start()
+  const { ctx, show, call, team, sent, failFlush, stop } = await start()
   t.after(stop)
   await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
   await ctx.registeredTools.get('ask_user').execute(
@@ -206,7 +208,7 @@ test('view-reply claims the card, refuses a stale or invalid answer, and restore
 })
 
 test('dismiss-view drops the open view and leaves a question card alone', async (t) => {
-  const { ctx, show, call, team, stop } = start()
+  const { ctx, show, call, team, stop } = await start()
   t.after(stop)
   await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
   await ctx.registeredTools.get('ask_user').execute(
@@ -222,7 +224,7 @@ test('dismiss-view drops the open view and leaves a question card alone', async 
 })
 
 test('a user message drops the open question and the open view together', async (t) => {
-  const { ctx, emit, show, team, stop } = start()
+  const { ctx, emit, show, team, stop } = await start()
   t.after(stop)
   await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
   await ctx.registeredTools.get('ask_user').execute(
@@ -239,7 +241,7 @@ test('a user message drops the open question and the open view together', async 
 })
 
 test('show_view measures the bytes the model sent, before unwrapping the provider encoding', async (t) => {
-  const { ctx, show, stop } = start()
+  const { ctx, show, stop } = await start()
   t.after(stop)
   await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
   // Nested { item: ... } wrappers all disappear in normalization: measured after

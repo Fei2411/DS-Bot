@@ -1,5 +1,6 @@
 // Dev check: run the app on throwaway folders, save a screenshot of its window, print what the page shows,
-// then close the window the way a user does and wait until the app has exited.
+// then close the window the way a user does (it hides, and the app goes on) and end the app the way the
+// tray's Quit ends it.
 // Usage: node scripts/shot.mjs <out.png> [seconds to wait before the screenshot]
 // Set DS_BOT_HOME and DS_BOT_SHELL_DATA to throwaway folders, plus the model variables for the Host
 // (for the ds-bot mock model: DEEPSEEK_BASE_URL=http://127.0.0.1:<port>/v1 and DEEPSEEK_API_KEY=mock-key).
@@ -73,8 +74,19 @@ try {
   })
   console.log(`shot: saved ${resolve(out)}`)
   console.log(`shot: page ${String(result.value)}`)
-  // The page goes away with the window, so this call gets no answer.
+  // The window closes the way a user closes it: it hides, and the app goes on.
   void cdp.call('Runtime.evaluate', { expression: 'window.close()' }).catch(() => undefined)
+  await sleep(2000)
+  // The tray's Quit ends the app. The script cannot click the tray icon, so it asks the browser
+  // target of the debugging port to close, which ends the app gracefully.
+  const version = await (await fetch(`http://127.0.0.1:${String(port)}/json/version`)).json()
+  const browser = new WebSocket(version.webSocketDebuggerUrl)
+  await new Promise((done, reject) => {
+    browser.addEventListener('open', done, { once: true })
+    browser.addEventListener('error', reject, { once: true })
+  })
+  browser.send(JSON.stringify({ id: 1, method: 'Browser.close' }))
+  browser.close()
 } catch (error) {
   console.error(error)
   child.kill()
@@ -82,7 +94,7 @@ try {
 }
 const outcome = await Promise.race([exited, sleep(40_000).then(() => undefined)])
 if (outcome === undefined) {
-  console.error('shot: the app did not exit after its window closed')
+  console.error('shot: the app did not exit after the quit')
   child.kill()
   process.exitCode = 1
 } else {

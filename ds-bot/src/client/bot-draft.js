@@ -18,7 +18,7 @@ export function startModel(roster) {
 export function createPayload({ name, look, image, model, effort, brief }) {
   const payload = { name, color: look.color, avatar: image ? { shape: look.shape, image } : { shape: look.shape } }
   if (model) payload.model = model
-  if (effort) payload.effort = effort
+  if (effort !== undefined) payload.effort = effort
   if (brief) payload.brief = brief
   return payload
 }

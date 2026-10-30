@@ -4,6 +4,67 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-29
+
+### Added
+
+- A Bot can be marked private: other Bots cannot read its folder, memory or chats, and sharing anything with the team needs your approval. A private Bot you delete stays protected until you release it entry by entry. ([#597](https://github.com/Fei2411/DS-Bot/issues/597), [#602](https://github.com/Fei2411/DS-Bot/pull/602))
+- Bots can read, check and edit Word, PowerPoint and Excel documents; the desktop app ships the Office runtime they need. ([#613](https://github.com/Fei2411/DS-Bot/issues/613), [#624](https://github.com/Fei2411/DS-Bot/pull/624))
+- After long work a Bot can propose a new skill, applied only when you approve. ([#628](https://github.com/Fei2411/DS-Bot/pull/628))
+- A Bot working on a project can propose updates to its AGENTS.md, written only when you approve. ([#629](https://github.com/Fei2411/DS-Bot/pull/629))
+- All work in a group can be stopped at once from its details, beside the member list; each working member keeps its own Stop. ([#592](https://github.com/Fei2411/DS-Bot/issues/592), [#616](https://github.com/Fei2411/DS-Bot/pull/616))
+- Bot views run on the shared Deep View package, so DS Bot can be installed together with the Deep View plugin. ([#635](https://github.com/Fei2411/DS-Bot/pull/635))
+
+### Changed
+
+- The sidebar edge can be dragged to resize it or folded to an avatar rail, and on a narrow window the Bot panel folds first. ([#612](https://github.com/Fei2411/DS-Bot/issues/612), [#617](https://github.com/Fei2411/DS-Bot/pull/617))
+- DS Bot tracks DeepSeek Harness 0.2.1-rc.4. ([#625](https://github.com/Fei2411/DS-Bot/pull/625))
+
+### Fixed
+
+- The full group name shows on hover when the sidebar truncates it, in both the wide sidebar and the avatar rail. ([#593](https://github.com/Fei2411/DS-Bot/issues/593), [#615](https://github.com/Fei2411/DS-Bot/pull/615))
+- Reading a group chat no longer fails on rows without text, such as member notices. ([#618](https://github.com/Fei2411/DS-Bot/issues/618), [#671](https://github.com/Fei2411/DS-Bot/pull/671))
+- The Windows installer checks the chosen folder can be written to and lets you pick another instead of failing midway. ([#626](https://github.com/Fei2411/DS-Bot/issues/626), [#630](https://github.com/Fei2411/DS-Bot/pull/630))
+
+## [0.2.3] - 2026-10-27
+
+### Added
+
+- The desktop app keeps running in the system tray when you close its window, so Bots go on with their work. Click the tray icon to open the window again, or choose Quit there to end the app. ([#500](https://github.com/Fei2411/DS-Bot/issues/500), [#549](https://github.com/Fei2411/DS-Bot/pull/549))
+- An avatar library in Bot settings and New Bot: import several photos at once and reuse them for any Bot. If some files fail, the others are still imported. ([#484](https://github.com/Fei2411/DS-Bot/issues/484), [#491](https://github.com/Fei2411/DS-Bot/pull/491))
+- When a Bot hands its browser to you for a sign-in, a payment or a check, a card in the chat lets you take over, skip it, or tell the Bot you're done. ([#591](https://github.com/Fei2411/DS-Bot/pull/591))
+- A message you steer into a running turn shows "Not read yet" under it until the Bot reads it. ([#581](https://github.com/Fei2411/DS-Bot/issues/581), [#598](https://github.com/Fei2411/DS-Bot/pull/598))
+- Old `/btw` cards left by 0.2.1 can be deleted from the chat. ([#550](https://github.com/Fei2411/DS-Bot/issues/550), [#555](https://github.com/Fei2411/DS-Bot/pull/555))
+
+### Changed
+
+- Long replies are easier to read: in the desktop app, Chinese text uses the system font, lines are a little looser and stay even around inline code, and list items have room between them. The body font you set in DSH still comes first. ([#601](https://github.com/Fei2411/DS-Bot/issues/601), [#607](https://github.com/Fei2411/DS-Bot/pull/607))
+- Attached images and files sit on their own row above the text in the message box. ([#565](https://github.com/Fei2411/DS-Bot/issues/565), [#566](https://github.com/Fei2411/DS-Bot/pull/566))
+- When you steer a queued message into the running turn, the working indicator starts its clock again. ([#580](https://github.com/Fei2411/DS-Bot/issues/580), [#587](https://github.com/Fei2411/DS-Bot/pull/587))
+- A change to a Bot's role or instructions takes effect on its next reply: the Bot is told about it. ([#535](https://github.com/Fei2411/DS-Bot/issues/535), [#584](https://github.com/Fei2411/DS-Bot/pull/584))
+- A new Bot starts on the thinking level of the default model you set in DSH. ([#525](https://github.com/Fei2411/DS-Bot/issues/525), [#586](https://github.com/Fei2411/DS-Bot/pull/586))
+- A group member that is busy reads your correction at its next step, and the answer to a later call still goes back to the one who asked. ([#534](https://github.com/Fei2411/DS-Bot/issues/534), [#585](https://github.com/Fei2411/DS-Bot/pull/585))
+- In an admin-led group, if the only admin who speaks first passes without an answer, the group tells you to call a member with @Name. ([#512](https://github.com/Fei2411/DS-Bot/issues/512), [#605](https://github.com/Fei2411/DS-Bot/pull/605))
+- The Connect plugins button is no longer in the Bot sidebar. Manage connectors in Settings or the account menu. ([#452](https://github.com/Fei2411/DS-Bot/issues/452), [#570](https://github.com/Fei2411/DS-Bot/pull/570))
+- The Bot tool that lists models is now `list_bot_models`, so DS Bot installs together with plugins that have their own `list_models`. ([#568](https://github.com/Fei2411/DS-Bot/issues/568), [#575](https://github.com/Fei2411/DS-Bot/pull/575))
+- Buttons on question, secret, approval and model key cards show a focus ring when you move to them with the keyboard. ([#614](https://github.com/Fei2411/DS-Bot/pull/614))
+
+### Fixed
+
+- The Linux desktop packages can read images. ([#542](https://github.com/Fei2411/DS-Bot/issues/542), [#544](https://github.com/Fei2411/DS-Bot/pull/544))
+- A browser screenshot no longer breaks the Bot's conversation, and a conversation that an earlier screenshot broke works again. ([#560](https://github.com/Fei2411/DS-Bot/issues/560), [#578](https://github.com/Fei2411/DS-Bot/pull/578))
+- The first-run import copies each group's own conversation, so imported groups open. ([#551](https://github.com/Fei2411/DS-Bot/issues/551), [#567](https://github.com/Fei2411/DS-Bot/pull/567))
+- When a Bot moves to a fresh part, a scheduled task no longer stays in both parts and runs twice. ([#511](https://github.com/Fei2411/DS-Bot/issues/511), [#604](https://github.com/Fei2411/DS-Bot/pull/604))
+- If a message to a group member fails, the member gets the lines it missed on its next turn. ([#510](https://github.com/Fei2411/DS-Bot/issues/510), [#569](https://github.com/Fei2411/DS-Bot/pull/569))
+- Earlier parts of a Bot's conversation are stopped and archived when it moves to a fresh part, so they no longer show as active in DSH's Agent mode. ([#571](https://github.com/Fei2411/DS-Bot/issues/571), [#573](https://github.com/Fei2411/DS-Bot/pull/573))
+- Earlier parts of a Bot's conversation stay readable when their agent is gone. ([#537](https://github.com/Fei2411/DS-Bot/issues/537), [#583](https://github.com/Fei2411/DS-Bot/pull/583))
+- Opening a subagent's Session no longer reports a false error in Feedback. ([#540](https://github.com/Fei2411/DS-Bot/issues/540), [#582](https://github.com/Fei2411/DS-Bot/pull/582))
+- In the bubble layout, the end of a one-line reply can be selected and its links clicked. ([#563](https://github.com/Fei2411/DS-Bot/issues/563), [#572](https://github.com/Fei2411/DS-Bot/pull/572))
+- The Bot list shows in the sidebar when the window opens in Bot mode on a cold start. ([#559](https://github.com/Fei2411/DS-Bot/issues/559), [#574](https://github.com/Fei2411/DS-Bot/pull/574))
+- A group chat no longer shows a blank turn when an old reply was removed by compaction. ([#557](https://github.com/Fei2411/DS-Bot/issues/557), [#576](https://github.com/Fei2411/DS-Bot/pull/576))
+- A long message that starts with a code block folds to a real preview, and Show all shows it. ([#520](https://github.com/Fei2411/DS-Bot/issues/520), [#579](https://github.com/Fei2411/DS-Bot/pull/579))
+- The sidebar scrollbar no longer touches the highlighted row. ([#595](https://github.com/Fei2411/DS-Bot/issues/595), [#596](https://github.com/Fei2411/DS-Bot/pull/596))
+
 ## [0.2.2] - 2026-10-25
 
 ### Added

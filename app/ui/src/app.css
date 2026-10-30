@@ -1,7 +1,7 @@
 /* The frame around the Bot views. The views bring their own stylesheets (main.js); these
    rules give the frame the sizes the views have in DSH. Colors come from the --bt-* variables. */
 html,body,#root{height:100%;margin:0}
-body{color-scheme:light;background:var(--bt-main);color:var(--bt-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+body{color-scheme:light;background:var(--bt-main);color:var(--bt-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 body[data-ds-dark-theme]{color-scheme:dark}
 ::-webkit-scrollbar{width:12px;height:12px}
 ::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:12px;background:var(--bt-line-2) content-box}

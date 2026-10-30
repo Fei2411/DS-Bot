@@ -5,12 +5,17 @@ import { noteClientError } from './diagnostics.js'
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  // An action that shows the panel lands the yield with it: when a folded
+  // panel's explicit opener fires, the column gives way in the same set.
+  // `view` is the next view, since its minimum decides what fits; a yield already
+  // given stays.
+  const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true
   // The panel on a side chat's view, on the chat the strip tab or menu named.
   const openSideChat = (sessionId, chatId) => {
-    ui.set(state => ({ ...state, details: sessionId, view: 'side', side: chatId ?? null, renaming: false, tab: null }))
+    ui.set(state => ({ ...state, details: sessionId, view: 'side', side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, 'side') }))
   }
   return {
     openNewChat: (mode) => { ui.set(state => ({ ...state, newChat: mode, menu: null, palette: null })) },
@@ -23,6 +28,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     toggleDetails: (id, force) => {
       ui.set((state) => {
         const details = force || state.details !== id || state.view !== 'details' ? id : null
+        // A folded panel is open but not shown: its opener then means "show it"
+        // (the column yields it room), not "close it".
+        if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
         return { ...state, renaming: false, tab: null, details, view: 'details' }
       })
     },
@@ -39,9 +47,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         return { ...state, details: id, view, renaming: false, tab: null }
       })
     },
-    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab })) },
+    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
     // Opening the conversation would move focus to its composer and blur the name field.
-    renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null })) },
+    renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null, panelYield: yieldTo(state, 'details') })) },
     // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
     openSettings: (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) },
     closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
@@ -50,7 +58,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
     setPanelView: (view) => {
       if (view !== 'details' && view !== 'browser' && view !== 'side') return
-      ui.set(state => (state.details && state.view !== view ? { ...state, view } : state))
+      ui.set(state => (state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state))
     },
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
@@ -78,6 +86,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
+    // The avatar library: photos the user imported once, kept by the host.
+    avatarLibrary: (options = {}) => call('avatar-library', options),
+    importAvatars: items => call('avatar-import', { items }),
+    deleteAvatar: id => call('avatar-delete', { id }),
     createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     refreshModels: () => after(call('models')).catch(() => {}),
@@ -87,6 +99,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     folderList: path => call('folder-list', { path: path ?? '' }),
     setTeamWorkspace: path => after(call('team-workspace', { path })),
     deleteBot: id => after(call('delete-bot', { id })),
+    releasePrivate: id => after(call('private-release', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
@@ -97,8 +110,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
     answerView: (sessionId, viewId, action, values) => after(call('view-reply', { sessionId: partFor(sessionId), viewId, action, values })),
     dismissView: sessionId => after(call('dismiss-view', { sessionId: partFor(sessionId) })),
+    deleteBtw: (sessionId, cardId) => after(call('btw-delete', { sessionId, cardId })),
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
+    stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),
     secretAllow: requestId => after(call('secret-allow', { requestId })),

@@ -3,17 +3,22 @@
 import { runToolLoop } from './loop.js'
 import { systemPrompt as refsPrompt, toolDefs as refTools } from './refs.js'
 
-const driverTools = (session) => refTools.map(tool => ({
+const driverTools = (session, origin, handoffs) => refTools.map(tool => ({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
-    execute: (args) => tool.execute(args, { session, botId: session.botId, profileDir: session.userDataDir }),
+    execute: async (args) => {
+      const value = await tool.execute(args, { session, botId: session.botId, profileDir: session.userDataDir, origin })
+      if (tool.name === 'browser_handoff') handoffs.push(typeof value === 'string' ? value : String(value?.text ?? ''))
+      return value
+    },
   }))
 
-export async function runTask({ session, goal, complete, maxSteps = 8 }) {
+export async function runTask({ session, goal, complete, origin, maxSteps = 8 }) {
   if (typeof complete !== 'function') throw new Error('browser_task needs a Bot session model')
+  const handoffs = []
   const result = await runToolLoop({
-    tools: driverTools(session),
+    tools: driverTools(session, origin, handoffs),
     complete,
     goal,
     system: refsPrompt,
@@ -23,6 +28,8 @@ export async function runTask({ session, goal, complete, maxSteps = 8 }) {
   const text = [
     result.answer || '(no answer)',
     '',
+    // The outer Bot needs the handoff instructions even if the nested model omits them.
+    ...(handoffs.length > 0 ? ['Handoffs:', handoffs.join('\n'), ''] : []),
     result.stopped === 'max-steps' ? `Stopped after ${result.steps} steps.` : `Finished in ${result.steps} steps.`,
     'Steps:',
     steps || '(none)',
@@ -47,6 +54,7 @@ export const toolDefs = [
         session: ctx.session,
         goal: String(args.goal ?? ''),
         complete: ctx.complete,
+        origin: ctx.origin,
       })
       return { text: result.text }
     },

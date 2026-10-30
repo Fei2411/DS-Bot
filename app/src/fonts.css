@@ -1,0 +1,7 @@
+/* The app names no CJK font, so the system picks one: PingFang through -apple-system on
+   macOS, fontconfig's choice on Linux, the system's or the user's font on Windows. DSH's
+   text and code font settings still come first, as they do over its own defaults. */
+html:root {
+  --dsh-font-family-text-default: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --dsh-font-family-code-default: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}

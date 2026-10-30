@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { findHost, rowVisible } from './src/client/activity-row.js'",
+      "export { findHost, rowVisible, freshInputAt } from './src/client/activity-row.js'",
       "export { clientErrors } from './src/client/diagnostics.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
@@ -24,6 +24,10 @@ const { outputFiles } = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const react = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+  useContext: ctx => ctx.value,
+  useCallback: fn => fn,
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
   useEffect() {}, useLayoutEffect() {}, useState: initial => [initial, () => {}],
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'id',
@@ -39,7 +43,7 @@ runInNewContext(outputFiles[0].text, {
   cancelAnimationFrame: id => clearTimeout(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { findHost, rowVisible, clientErrors } = module.exports
+const { findHost, rowVisible, freshInputAt, clientErrors } = module.exports
 
 test('the activity row mounts at the running slot even under an extra wrapper', () => {
   dom.window.document.body.innerHTML = '<div data-chat-flow><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
@@ -79,4 +83,20 @@ test('the row shows while a turn runs, also when text streamed before a tool', (
     [{ running: true, streaming: false, tools: [], relaying: false, room: {} }, true],
   ]
   for (const [input, expected] of cases) assert.equal(rowVisible(input), expected, JSON.stringify(input))
+})
+
+// A queued message waits for the next turn; a transcript or steering send counts
+// as fresh input, and a steer the host saw counts from when it landed.
+test('fresh input ignores queued sends and takes the newest of the rest', () => {
+  const submissions = [
+    { placement: 'queued', time: 300 },
+    { placement: 'steering', time: 100 },
+    { placement: 'transcript', time: 200 },
+  ]
+  assert.equal(freshInputAt(submissions, undefined), 200)
+  assert.equal(freshInputAt(submissions, 400), 400)
+  assert.equal(freshInputAt(submissions, 50), 200)
+  assert.equal(freshInputAt([{ placement: 'queued', time: 300 }], undefined), 0)
+  assert.equal(freshInputAt(undefined, 400), 400)
+  assert.equal(freshInputAt([], undefined), 0)
 })

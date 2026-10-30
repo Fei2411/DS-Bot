@@ -33,25 +33,45 @@ export function surfaceGroups(install, { onError } = {}) {
     mounted[group] = []
     disposeAll(disposers, `withdraw ${group}`)
   }
-  return {
+  const mount = (group) => {
+    const disposers = []
+    try {
+      for (const step of install[group]()) if (step) disposers.push(step())
+      mounted[group] = disposers
+      return true
+    } catch (error) {
+      disposeAll(disposers, `roll back ${group}`)
+      console.warn(`[ds-bot] install ${group}`, error)
+      onError?.(group, error)
+      return false
+    }
+  }
+  let lastWanted = {}
+  const api = {
     reconcile(wanted) {
+      lastWanted = wanted
       for (const group of [...GROUPS].reverse()) if (!wanted[group]) withdraw(group)
       for (const group of GROUPS) {
         if (!wanted[group] || mounted[group].length > 0) continue
-        const disposers = []
-        try {
-          for (const step of install[group]()) if (step) disposers.push(step())
-          mounted[group] = disposers
-        } catch (error) {
-          disposeAll(disposers, `roll back ${group}`)
-          console.warn(`[ds-bot] install ${group}`, error)
-          onError?.(group, error)
-          break
-        }
+        if (!mount(group)) break
       }
+    },
+    // A step can go on with nothing actually contributed — a slot inject whose
+    // callback threw inside the host still returns its disposer. remount takes
+    // the group off and lets the reconcile put it back, so a caller that
+    // notices the contribution is missing can retry instead of trusting
+    // `mounted`. Groups that lean on it (the conversation on the shell's
+    // styles) come off first and go back only through the reconcile — a
+    // failed remount never leaves one stranded.
+    remount(group, wanted = lastWanted) {
+      if (!GROUPS.includes(group)) return
+      for (const later of GROUPS.slice(GROUPS.indexOf(group) + 1)) withdraw(later)
+      withdraw(group)
+      api.reconcile(wanted)
     },
     dispose() { for (const group of [...GROUPS].reverse()) withdraw(group) },
   }
+  return api
 }
 
 // The priority that puts an entry below every other entry of its cell (lowest

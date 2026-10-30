@@ -132,7 +132,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
 
   function setHold(botId, hold) {
     if (hold === null) holds.delete(botId)
-    else holds.set(botId, { by: hold.by, reason: hold.reason, note: hold.note })
+    else holds.set(botId, { by: hold.by, reason: hold.reason, note: hold.note, ...(typeof hold.callId === 'string' ? { callId: hold.callId.slice(0, 200) } : {}) })
     holdVersion += 1
     for (const client of clients.values()) client.wake?.()
     for (const listener of holdListeners) {

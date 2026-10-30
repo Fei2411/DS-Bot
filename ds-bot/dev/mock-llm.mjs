@@ -548,6 +548,27 @@ function decide(body) {
       },
     })]
   }
+  // The calculator without the submit control: local formula recompute only.
+  if (/^\s*视图静态计算器/.test(userText) && tools.has('show_view')) {
+    return [text('拖一下滑块看看每月要花多少：'), tool('show_view', {
+      title: 'Monthly cost',
+      await_reply: false,
+      view: {
+        type: 'stack',
+        let: { tokens: 'req * 30 * 2000 / 1e6', cost: 'tokens * (1 - hit) * 2 + tokens * hit * 0.5' },
+        children: [
+          { type: 'slider', id: 'req', label: 'Requests a day', min: 100, max: 5000, step: 100, value: 1200 },
+          { type: 'choice', id: 'hit', label: 'Cache hits', options: [{ label: 'Low', value: 0.2 }, { label: 'Mid', value: 0.5 }, { label: 'High', value: 0.8 }], value: 0.5 },
+          { type: 'row', children: [
+            { type: 'metric', label: 'Cost a month', value: { '=': "'¥' + format(cost, 0)" }, tone: { '=': "cost > 100 ? 'bad' : 'good'" } },
+            { type: 'metric', label: 'Tokens a month', value: { '=': "format(tokens, 1) + ' M'" } },
+          ] },
+          { type: 'progress', label: 'Basic plan (¥100)', value: { '=': 'min(cost, 100)' }, max: 100, valueLabel: { '=': "cost > 100 ? '¥' + format(cost - 100, 0) + ' over' : '¥' + format(100 - cost, 0) + ' left'" }, tone: { '=': "cost > 100 ? 'bad' : cost > 80 ? 'warn' : 'good'" } },
+          { type: 'callout', text: 'Assumes 2,000 tokens a request and list prices.', tone: 'info' },
+        ],
+      },
+    })]
+  }
   if (/^\s*视图网页/.test(userText) && tools.has('show_view')) {
     return [tool('show_view', {
       view: {

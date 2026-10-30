@@ -91,6 +91,7 @@ const ENDPOINTS = [
   ['delete-room', id => ({ id })],
   ['stop-member-work', id => ({ roomId: id, botId: 'b2' })],
   ['stop-member-work', id => ({ roomId: 'r1', botId: id })],
+  ['stop-room-work', id => ({ roomId: id })],
   ['schedule-create', id => ({ target: id, title: 't', prompt: 'p', when: { kind: 'every', minutes: 5 } })],
   ['dismiss-question', id => ({ sessionId: id })],
   ['answer-question', id => ({ sessionId: id, questionId: 'q1', answer: 'yes' })],

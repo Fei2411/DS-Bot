@@ -11,8 +11,8 @@ body:
         Fastest: in DS Bot, **Settings → Feedback → Report on GitHub** fills in the diagnostics.
         最快：在 DS Bot 里点 **设置 → 反馈 → 在 GitHub 上报告**，诊断信息会自动填好。
 
-        Security problems: **Security** tab → **Report a vulnerability**. Questions and ideas: [Discussions](https://github.com/Fei2411/DeepSeek-Bot/discussions).
-        安全问题请在 **Security** 页私下报告；提问和建议请发到 [Discussions](https://github.com/Fei2411/DeepSeek-Bot/discussions)。
+        Security problems: **Security** tab → **Report a vulnerability**. Questions and ideas: [Discussions](https://github.com/Fei2411/DS-Bot/discussions).
+        安全问题请在 **Security** 页私下报告；提问和建议请发到 [Discussions](https://github.com/Fei2411/DS-Bot/discussions)。
   - type: textarea
     id: what
     attributes:

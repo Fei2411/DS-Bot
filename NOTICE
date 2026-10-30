@@ -16,7 +16,17 @@ MIT License, Copyright (c) 2026 DeepSeek
     developer script for screenshots on Linux and is not in the npm package.
   - app/src/host.mjs and app/src/profile.mjs follow
     apps/desktop-host/src/index.ts: the profile boot and the ready, fatal and
-    shutdown messages.
+    shutdown messages. app/src/office-patch.mjs follows
+    apps/desktop-host/src/office.ts: the workspace-dependencies and skill-office
+    plugin rows with the payload's Node and the unpacked LibreOffice Kit CLI.
+  - ds-bot/src/office/skills/office/SKILL.md adapts the office routing skill
+    (assets/office/SKILL.md in @deepseek-ai/dsh-skill-office): the routing body
+    is kept, with one added row that routes package checks and in-place edits
+    to office-tools.
+  - app/scripts/prepare-runtime.mjs and app/scripts/primary-runtime.lock.json are a
+    JavaScript port of scripts/primary-runtime/ (prepare.ts, prune-python-tests.ts
+    and lock.json): the pinned Python, Node and wheel downloads with checksum
+    verification, the wheel test pruning and the Office skill asset copy.
   - app/src/host-process.mjs follows apps/desktop/src/host-process.ts: the
     Host in Electron's Node mode and the shutdown escalation.
   - app/src/main.mjs follows apps/desktop/src/main.ts for the Windows window
@@ -24,6 +34,10 @@ MIT License, Copyright (c) 2026 DeepSeek
     apps/desktop/src/preload-windows.ts, apps/desktop/src/preload-platform.ts
     and apps/desktop/src/preload-theme.ts: the caption-band marks, the
     fullscreen mark, the caption-color measure and the theme sync.
+  - app/src/shell.mjs, app/src/tray.mjs and app/src/background-notice.mjs follow
+    apps/desktop/src/tray.ts and apps/desktop/src/background-notice.ts: the
+    system tray with its menu, the window that hides instead of closing, and
+    the one-time confirmation before it hides.
   - app/src/bot-browser.mjs adapts apps/desktop/src/browser-guests.ts, and
     the browser part of app/src/preload.cjs follows
     apps/desktop/src/preload-browser.ts: the webview leases, the attachment
@@ -112,7 +126,9 @@ MIT License, Copyright (c) 2026 DSH Remote contributors
 
 No other third-party code is copied into this repository. At run time the
 plugin uses the @deepseek-ai/* packages of the DeepSeek Harness install it
-runs in; they are not bundled. esbuild is a build tool only. The plugin's
+runs in; they are not bundled. The bundled ds-bot/office.js includes
+@xmldom/xmldom (https://github.com/xmldom/xmldom, MIT License, Copyright (c)
+jindw and contributors) from npm. esbuild is a build tool only. The plugin's
 client.js bundles qrcode-generator from npm (MIT, Copyright (c) 2009 Kazuhiko
 Arase), and its link.js bundles the phone link from link/ with the packages
 it uses, listed below. The desktop app

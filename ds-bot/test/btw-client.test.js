@@ -268,7 +268,7 @@ test('a card whose turn is not loaded stays in the trailing block', () => {
 
 // BtwDock, bundled and rendered with a minimal React stand-in: the dock is the
 // composer slot for cards whose turn is still open or matches nothing closed.
-// Old cards are read-only, so the dock shows no Cancel.
+// Old cards have no Cancel, but their delete action removes the saved aside.
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -284,7 +284,7 @@ runInNewContext(btwBundle.outputFiles[0].text, {
   window: { addEventListener() {}, removeEventListener() {}, innerWidth: 1280 },
   require: (name) => {
     const platform = {
-      react: {
+      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id', 
         createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
         useState: init => [typeof init === 'function' ? init() : init, () => {}],
         useEffect: () => {}, useRef: () => ({ current: null }),
@@ -309,15 +309,37 @@ const findIn = (node, match, out = []) => {
   return out
 }
 
-test('an open-turn card renders in the dock without a Cancel button', () => {
+test('an open-turn card renders a delete action in the dock', async () => {
   const card = { id: 'c1', partId: 's', status: 'done', question: 'q?', answer: 'a.', atSeq: null, createdAt: 1, finishedAt: 2 }
   const roster = { ready: true, btwCards: { bot: [card] }, byId: { s: { id: 'bot', sessionId: 's' } }, roomsById: {} }
-  const actions = { turnFacts: () => ({ turns: new Map(), openTurn: { seq: 1 } }), watchTurns: () => () => {} }
+  const sent = []
+  const removed = []
+  const actions = {
+    turnFacts: () => ({ turns: new Map(), openTurn: { seq: 1 } }),
+    watchTurns: () => () => {},
+    deleteBtw: (sessionId, cardId) => { sent.push([sessionId, cardId]); return Promise.resolve({ deleted: true }) },
+    reportError: error => { throw error },
+  }
   const tree = BtwDock({ sessionId: 's', useRoster: select => select(roster), actions })
   assert.equal(findIn(tree, node => node.props?.className === 'bt-btw-dock').length, 1)
   // The card component sits in the tree as a vnode; render it to see the card.
   const [cardNode] = findIn(tree, node => typeof node.type === 'function' && node.props?.card?.id === 'c1')
-  const view = cardNode.type(cardNode.props)
+  const view = cardNode.type({ ...cardNode.props, onDeleted: id => removed.push(id) })
   assert.equal(view.props.className, 'bt-btw bt-btw-compact')
+  assert.equal(view.props['aria-label'], 'Side chat')
   assert.equal(findIn(view, node => node.props?.className === 'bt-btw-cancel').length, 0)
+  const [button] = findIn(view, node => node.props?.className === 'bt-icon-btn bt-btw-delete')
+  assert.ok(button)
+  assert.equal(button.props['aria-label'], 'Delete side chat')
+  button.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(sent, [['s', 'c1']])
+  assert.deepEqual(removed, ['c1'])
+
+  actions.deleteBtw = () => Promise.resolve({ deleted: false })
+  const staleView = cardNode.type({ ...cardNode.props, onDeleted: id => removed.push(id) })
+  const [staleButton] = findIn(staleView, node => node.props?.className === 'bt-icon-btn bt-btw-delete')
+  staleButton.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(removed, ['c1'])
 })

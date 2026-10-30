@@ -128,21 +128,18 @@ export function install(rt) {
   // the fresh Session before the old one goes, so a failure leaves it where it was.
   async function moveSchedules(fromId, toId) {
     if (service === null) return
-    let records
-    try {
-      records = await service.list({ sessionId: fromId })
-    } catch (error) {
-      rt.warn('ds-bot: tasks of %s not moved: %s', fromId, error?.message ?? error)
-      return
-    }
+    const records = await service.list({ sessionId: fromId })
     for (const record of records) {
       const request = requestOf(record)
       if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+      // A failed read or copy must prevent stopActivity from deleting an unmoved
+      // task. Equal requests can be separate tasks; copy each source record.
+      await service.create(toId, request)
       try {
-        await service.create(toId, request)
         await service.delete({ sessionId: fromId, id: record.id })
       } catch (error) {
-        rt.warn('ds-bot: task %s stayed with the earlier part: %s', record.title, error?.message ?? error)
+        // The copy is safe; archiving the earlier part will remove its old task.
+        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
       }
     }
   }
