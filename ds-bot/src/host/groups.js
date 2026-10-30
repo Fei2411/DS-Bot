@@ -1,15 +1,16 @@
 // Group chats: the room log, members' group Sessions, rounds and @mentions, round
 // reports, and the group tools (group_relay, read_own_chat, read_group_chat).
 //
-// Group chat rounds. A group chat is one shared, ordered conversation, so members
-// speak one at a time: a turn starts only after the previous speaker has posted or
-// passed, and it shows everything that arrived since that member last looked, plus
-// the speaking order and the member's place in it. Nobody answers a room that has
-// moved on, and nobody has to count lines to know who went before. A plain message
-// goes to every member in roster order, admin first, or to the admin alone in admin
-// mode; "@Name" picks members. A reply that @mentions a member calls that member
-// next, and the user's own messages are always answered. Bots may call each other
-// for as long as the work needs; the user stops a group from its details.
+// Group chat rounds. "@Name" calls a member, and the members one message calls start
+// at the same time: a call takes effect as soon as the message that makes it is
+// posted, whether the user wrote it, a member said it while working, or a Bot posted
+// it while the round runs. Each turn shows everything that arrived since that member
+// last looked, and who else is answering. A plain message goes to the admin alone in
+// admin mode; otherwise every member answers it in turn, admin first, each after the
+// one before has posted or passed, so a discussion or a count-off stays in order. A
+// member answers one call at a time. The user's own messages are always answered.
+// Bots may call each other for as long as the work needs; the user stops a group from
+// its details.
 //
 // Work does not hold a round up: a member that is still busy with tools a little after
 // it started, or that is called while still at earlier work, lets the round go on. Its
@@ -93,10 +94,10 @@ export const referenceNote = references => (references?.length
   : '')
 
 const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, do it now with your tools. The group does not wait for you and sees what you write while you work: say what you will do, write again only when something matters, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
-const ROOM_CALLS = 'Writing "@Name" calls that member next, to answer or to do what you ask; when it finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
+const ROOM_CALLS = 'Writing "@Name" calls that member at once, to answer or to do what you ask, as soon as your message is posted: call members before you start on your own part. Members called in one message start together and do not see each other\'s replies until they post, so when one needs another\'s result, call the first and ask it to call the next. When a member finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
 
-const slotLabel = (slot) => {
-  if (slot.status === 'speaking') return `${slot.name} (you, now)`
+const slotLabel = (slot, self) => {
+  if (slot.status === 'speaking') return slot === self ? `${slot.name} (you, now)` : `${slot.name} (answering now)`
   if (slot.status === 'posted') return `${slot.name} (posted)`
   if (slot.status === 'passed') return `${slot.name} (passed)`
   if (slot.status === 'missed') return `${slot.name} (no answer)`
@@ -226,7 +227,7 @@ export function install(rt) {
   // Lines from before the round's opening message are kept apart from this round, so
   // an earlier round (an old count-off, say) never reads as part of the current one.
   // `files` are the files of the lines shown, which go to the member with the prompt.
-  function roomPrompt(room, member, round) {
+  function roomPrompt(room, member, round, slot) {
     const peers = room.members.filter(id => id !== member.id).map(rt.botOf).filter(Boolean)
       .map(bot => `${bot.name}${rt.isAdminOf(room, bot.id) ? ' (admin)' : ''}`)
     const leads = rt.isAdminOf(room, member.id)
@@ -234,13 +235,12 @@ export function install(rt) {
     const earlier = lines.filter(line => line.seq < round.startSeq).slice(-ROOM_EARLIER_MAX)
     const current = lines.filter(line => line.seq >= round.startSeq)
     const spokeThisRound = (room.seen[member.id] ?? 0) >= round.startSeq
-    const index = round.slots.findIndex(slot => slot.status === 'speaking')
-    const before = index
-    const after = round.slots.length - index - 1
-    const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. Members speak one at a time; each message is posted before the next speaker starts. ${ROOM_CALLS}`
+    const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${ROOM_CALLS}`
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
     if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), files: [] }
-    const working = workingIn(room).filter(item => item.bot.id !== member.id)
+    // Members answering in this round are named with the round below.
+    const answering = new Set(round.slots.filter(other => other.status === 'speaking').map(other => other.id))
+    const working = workingIn(room).filter(item => item.bot.id !== member.id && !answering.has(item.bot.id))
       .map(item => ({ ...item, unread: unreadCount(room, item.bot.id) }))
     const text = [
       members,
@@ -252,11 +252,31 @@ export function install(rt) {
         : 'Nothing new in this round since your last message.',
       round.shown?.includes(member.id) ? '' : referenceNote(round.references),
       working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min${item.unread > 0 ? `, with ${item.unread} group message(s) it has not read yet` : ''})`).join(', ')}.` : '',
-      `Speaking order for this round: ${round.slots.map(slotLabel).join(' → ')}.`,
-      `You are number ${index + 1} of ${round.slots.length}. ${before === 0 ? 'Nobody spoke before you' : `${before} went before you`}${after === 0 ? ', and you are the last.' : `; ${after} after you will see your message.`}`,
+      ...placeLines(round, slot),
       ROOM_REPLY,
     ].filter(Boolean).join('\n\n')
     return { text, files: [...earlier, ...current].flatMap(line => line.files ?? []) }
+  }
+
+  // Where a turn stands in its round: its place in the order when members take turns,
+  // or who was called with it and answers at the same time; then the others' latest
+  // calls in this round.
+  function placeLines(round, slot) {
+    const lines = []
+    if (slot.ordered) {
+      const order = round.slots.filter(other => other.ordered)
+      const index = order.indexOf(slot)
+      const after = order.length - index - 1
+      lines.push(`Members answer this message one at a time: ${order.map(other => slotLabel(other, slot)).join(' → ')}.`,
+        `You are number ${index + 1} of ${order.length}. ${index === 0 ? 'Nobody spoke before you' : `${index} went before you`}${after === 0 ? ', and you are the last.' : `; ${after} after you will see your message.`}`)
+    } else {
+      const together = round.slots.filter(other => other !== slot && other.batch === slot.batch && other.id !== slot.id)
+      if (together.length > 0) lines.push(`Called together with you: ${together.map(other => other.name).join(', ')}. You answer at the same time and do not see each other's replies until they post.`)
+    }
+    const latest = new Map()
+    for (const other of round.slots) if (other.id !== slot.id && !(slot.ordered && other.ordered)) latest.set(other.id, other)
+    if (latest.size > 0) lines.push(`Also in this round: ${[...latest.values()].map(other => slotLabel(other, slot)).join(', ')}.`)
+    return lines
   }
 
   // Members whose turn in this group is running, and since when.
@@ -287,8 +307,9 @@ export function install(rt) {
   // round, or null when the round was stopped. The wait restarts on each event of the
   // member's Session, so a member at work is never cut off. `by` is the member that
   // called it, which answers what the turn posts after the round moved on. What the
-  // member writes before its last step is posted at once and collected in `said`.
-  async function roomTurn(room, member, sessionId, { text, files }, note, signal, round, by, said = []) {
+  // member writes before its last step is posted at once and collected in `said`, and
+  // `heard` takes each such line once it is posted.
+  async function roomTurn(room, member, sessionId, { text, files }, note, signal, round, by, said = [], heard = () => {}) {
     if (signal.aborted) return null
     const startedAt = Date.now()
     const exchangeId = randomUUID()
@@ -319,6 +340,7 @@ export function install(rt) {
         if (isPass(step)) return
         said.push(step)
         postInRound(room, round, member, step, Date.now() - startedAt)
+        heard(step)
       }
       touch()
       rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, say, approval: () => finish({ approval: true }) })
@@ -370,33 +392,65 @@ export function install(rt) {
     if (QUICK_TOOLS.has(tool)) return
     for (const waiter of waitersOf(sessionId)) waiter.work()
   }
-
-  // A called member moves up if it is still waiting, or gets one more turn if it
-  // already spoke; either way it goes right after slot `index`. `by` is the calling
-  // member, if a member called.
-  function callMembers(round, index, callees, note, by) {
-    let next = index + 1
-    for (const peer of callees) {
-      const waiting = round.slots.findIndex((other, at) => at > index && other.id === peer.id && other.status === 'waiting')
-      const called = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots.splice(waiting, 1)[0]
-      called.note = note
-      if (by === undefined) delete called.by
-      else called.by = by
-      round.slots.splice(next, 0, called)
-      next += 1
+  // The group Session's inbox changed: a running round looks for the user's messages
+  // once DSH has finished the change.
+  rt.nudgeRoom = (roomId) => {
+    for (const round of rt.roomProgress.values()) {
+      if (round.roomId === roomId) setImmediate(() => round.nudge?.())
     }
   }
 
+  // Calls members into a round; the members one call names share a batch. Ordered calls
+  // (a plain message everyone answers in turn) go ahead of the ordered calls still
+  // waiting, in their own order; the others start as soon as their member is free. A
+  // member still waiting is called once, with the newest note: an ordered call moves
+  // it up the order, any other call lets it start at once. `by` is the calling member,
+  // if a member called.
+  function callIn(round, callees, note, by, { ordered = false } = {}) {
+    if (callees.length === 0) return
+    round.batches = (round.batches ?? 0) + 1
+    let last
+    for (const peer of callees) {
+      const waiting = round.slots.findIndex(slot => slot.id === peer.id && slot.status === 'waiting')
+      const moves = waiting === -1 || (ordered && round.slots[waiting].ordered === true)
+      const slot = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots[waiting]
+      if (moves && waiting !== -1) round.slots.splice(waiting, 1)
+      slot.note = note
+      slot.batch = round.batches
+      if (by === undefined) delete slot.by
+      else slot.by = by
+      if (!moves) slot.ordered = false
+      else if (!ordered) round.slots.push(slot)
+      else {
+        slot.ordered = true
+        const queue = round.slots.findIndex(other => other.ordered && other.status === 'waiting')
+        round.slots.splice(last ? round.slots.indexOf(last) + 1 : queue === -1 ? round.slots.length : queue, 0, slot)
+        last = slot
+      }
+    }
+    round.nudge?.()
+  }
+
+  // Whether a waiting call can start now: its member answers nothing else in this
+  // round, and an ordered call waits for the ordered calls before it.
+  const startable = (round, slot) => {
+    if (slot.status !== 'waiting' || round.slots.some(other => other.id === slot.id && other.status === 'speaking')) return false
+    if (!slot.ordered) return true
+    const at = round.slots.indexOf(slot)
+    return round.slots.every((other, index) => !other.ordered || other === slot || (other.status !== 'speaking' && !(other.status === 'waiting' && index < at)))
+  }
+
   // LEGACY: groups used to park Bot calls past a relay limit until the user went on.
-  // Calls still parked from then run in the group's next round, after its opening
-  // speakers; one already waiting in the round is not queued twice.
+  // Calls still parked from then run in the group's next round, with its opening
+  // speakers; one already waiting in the round is not called twice.
   const releaseParked = (room, round) => {
     const parked = room.paused ?? []
     delete room.paused
     for (const entry of parked) {
       if (round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
+      round.batches = (round.batches ?? 0) + 1
       round.slots.push({
-        id: entry.id, name: entry.name, status: 'waiting',
+        id: entry.id, name: entry.name, status: 'waiting', batch: round.batches,
         ...(entry.note !== undefined ? { note: entry.note } : {}),
         ...(entry.by !== undefined ? { by: entry.by } : {}),
       })
@@ -419,11 +473,11 @@ export function install(rt) {
     return lines
   })
 
-  // Messages the user sent while this round is running post into the log before the
-  // next speaker, so everyone still to speak sees them. The members the message's own
-  // round would open with answer it next, inside this round. Each message leaves the
-  // Session's inbox, so it does not open another round when this one ends.
-  function drainRoomInbox(room, round, index, agent) {
+  // Messages the user sent while this round is running post into the log at once, so
+  // every turn that starts from now on sees them. The members the message's own round
+  // would open with answer it inside this round, as soon as they are free. Each message
+  // leaves the Session's inbox, so it does not open another round when this one ends.
+  function drainRoomInbox(room, round, agent) {
     // The greeting's prompt tells the admin the user has not written yet.
     if (round.kickoff) return
     const lines = waitingLines(agent).filter(line => agent.inbox.remove(line.id))
@@ -434,90 +488,53 @@ export function install(rt) {
       round.replies.push({ kind: 'user', text: line.text, time: Date.now() })
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
-      callMembers(round, index - 1, openingSpeakers(room, { text: line.text }), note)
+      const { speakers, ordered } = openingCall(room, { text: line.text })
+      callIn(round, speakers, note, undefined, { ordered })
     }
     void rt.save().catch(() => {})
   }
 
+  // The members a member's message calls: those it names with @, or everyone when the
+  // admin writes "@all" (only the admin, so a member cannot set off a storm). A turn
+  // calls each member once, however many of its lines name it.
+  function callFrom(room, round, member, text, called) {
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const others = everyone.filter(other => other.id !== member.id)
+    const { all, found: named } = mentionsIn(text, everyone)
+    const found = named.filter(other => other.id !== member.id)
+    const callees = (rt.isAdminOf(room, member.id) && all ? [...found, ...others.filter(other => !found.includes(other))] : found)
+      .filter(peer => !called.has(peer.id))
+    for (const peer of callees) called.add(peer.id)
+    callIn(round, callees, `${member.name} mentioned you`, member.id)
+  }
+
+  // A round runs every call that can start, and wakes when a turn ends, a call comes
+  // in, the user writes or the round is stopped. It ends when no turn runs and no call
+  // or message waits. The inbox check keeps a message sent during the last turn inside
+  // this round.
   async function runRound(room, round, signal, agent) {
-    // The inbox check keeps a message sent during the last speaker's turn inside
-    // this round: it drains at the loop's head even once the slots ran out.
-    for (let index = 0; index < round.slots.length || waitingLines(agent).length > 0; index += 1) {
+    const turns = new Set()
+    let due = true
+    let wake = () => {}
+    round.nudge = () => { due = true; wake() }
+    signal.addEventListener('abort', round.nudge, { once: true })
+    while (!signal.aborted) {
+      if (!due) await new Promise((resolve) => { wake = resolve })
+      due = false
       if (signal.aborted) break
-      drainRoomInbox(room, round, index, agent)
-      if (index >= round.slots.length) break
-      const slot = round.slots[index]
-      const member = rt.botOf(slot.id)
-      // Settings may change mid-round, for example when the admin removes someone.
-      if (member === undefined || !room.members.includes(slot.id)) {
-        slot.status = 'left'
-        continue
+      drainRoomInbox(room, round, agent)
+      for (const slot of round.slots) {
+        if (!startable(round, slot)) continue
+        const turn = memberTurn(room, round, slot, signal)
+          .catch(error => rt.warn('ds-bot: group turn of %s in %s failed: %s', slot.name, room.name, error))
+          .finally(() => { turns.delete(turn); round.nudge() })
+        turns.add(turn)
       }
-      slot.status = 'speaking'
-      round.speaking = member.id
-      let session
-      try {
-        session = await groupSessionFor(room, member)
-      } catch (error) {
-        rt.warn('ds-bot: group Session for %s in %s failed: %s', member.name, room.name, error)
-        round.speaking = null
-        slot.status = 'failed'
-        round.failed.push(member.name)
-        round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code: 'SESSION', text: String(error?.message ?? error).slice(0, 300), time: Date.now() })
-        continue
-      }
-      if (session === undefined) {
-        round.speaking = null
-        slot.status = 'left'
-        continue
-      }
-      await loadGroupLines(room)
-      const prompt = roomPrompt(room, member, round)
-      round.shown?.push(member.id)
-      const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
-      const said = []
-      const startedAt = Date.now()
-      const reply = await roomTurn(room, member, session.id, { text, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said)
-      round.speaking = null
-      const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
-      if (reply?.failure !== undefined) {
-        // Not a pass: the user sees why the member is silent, and the round goes on.
-        slot.status = 'failed'
-        round.failed.push(member.name)
-        const { code, status, message } = reply.failure
-        round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
-      } else if (reply?.approval) {
-        // The member's turn goes on in the background and posts when it ends.
-        slot.status = 'waiting-approval'
-        round.replies.push({ kind: 'approval', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-      } else if (reply?.working) {
-        slot.status = 'working'
-        round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-      } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
-        slot.status = 'posted'
-        if (final !== undefined) postInRound(room, round, member, final, Date.now() - startedAt)
-      } else {
-        slot.status = typeof reply === 'string' ? 'passed' : 'missed'
-        round.passed.push(member.name)
-        if (reply?.missed) {
-          round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-          // The round moved on without this member: the log shows the call and then
-          // silence, which reads as a lost message. The group is told the baton was
-          // dropped, and what brings the member back.
-          appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'missed', names: [member.name], minutes: Math.round(ROOM_REPLY_TIMEOUT_MS / 60000) })
-        }
-      }
-      const spoken = final === undefined ? said : [...said, final]
-      if (spoken.length === 0) continue
-      // Only the admin's "@all" calls everyone, so a member cannot set off a storm.
-      const leads = rt.isAdminOf(room, member.id)
-      const everyone = room.members.map(rt.botOf).filter(Boolean)
-      const others = everyone.filter(other => other.id !== member.id)
-      const { all, found: named } = mentionsIn(spoken.join('\n\n'), everyone)
-      const found = named.filter(other => other.id !== member.id)
-      const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
-      callMembers(round, index, callees, `${member.name} mentioned you`, member.id)
+      // The greeting round leaves the user's messages for a round of their own.
+      if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || waitingLines(agent).length === 0)) break
     }
+    await Promise.allSettled([...turns])
+    delete round.nudge
     // The admin was alone with the user's message and passed: the round ends with
     // nothing said. The group says so once, so the user knows to call a member.
     const alone = round.soleAdmin !== undefined && round.slots.find(slot => slot.id === round.soleAdmin.id)?.status === 'passed'
@@ -531,9 +548,74 @@ export function install(rt) {
     }
   }
 
+  // One call's turn in the round. Its status says how it ended; what it says calls
+  // members as soon as each line is posted.
+  async function memberTurn(room, round, slot, signal) {
+    const member = rt.botOf(slot.id)
+    // Settings may change mid-round, for example when the admin removes someone.
+    if (member === undefined || !room.members.includes(slot.id)) {
+      slot.status = 'left'
+      return
+    }
+    slot.status = 'speaking'
+    let session
+    try {
+      session = await groupSessionFor(room, member)
+    } catch (error) {
+      rt.warn('ds-bot: group Session for %s in %s failed: %s', member.name, room.name, error)
+      slot.status = 'failed'
+      round.failed.push(member.name)
+      round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code: 'SESSION', text: String(error?.message ?? error).slice(0, 300), time: Date.now() })
+      return
+    }
+    if (session === undefined) {
+      slot.status = 'left'
+      return
+    }
+    await loadGroupLines(room)
+    const prompt = roomPrompt(room, member, round, slot)
+    round.shown?.push(member.id)
+    const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
+    const said = []
+    const called = new Set()
+    const startedAt = Date.now()
+    const reply = await roomTurn(room, member, session.id, { text, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said, line => callFrom(room, round, member, line, called))
+    const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
+    if (reply?.failure !== undefined) {
+      // Not a pass: the user sees why the member is silent, and the round goes on.
+      slot.status = 'failed'
+      round.failed.push(member.name)
+      const { code, status, message } = reply.failure
+      round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
+    } else if (reply?.approval) {
+      // The member's turn goes on in the background and posts when it ends.
+      slot.status = 'waiting-approval'
+      round.replies.push({ kind: 'approval', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+    } else if (reply?.working) {
+      slot.status = 'working'
+      round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+    } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
+      slot.status = 'posted'
+      if (final !== undefined) {
+        postInRound(room, round, member, final, Date.now() - startedAt)
+        callFrom(room, round, member, final, called)
+      }
+    } else {
+      slot.status = typeof reply === 'string' ? 'passed' : 'missed'
+      round.passed.push(member.name)
+      if (reply?.missed) {
+        round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+        // The round moved on without this member: the log shows the call and then
+        // silence, which reads as a lost message. The group is told the baton was
+        // dropped, and what brings the member back.
+        appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'missed', names: [member.name], minutes: Math.round(ROOM_REPLY_TIMEOUT_MS / 60000) })
+      }
+    }
+  }
+
   ctx.tools.register(defineTool({
     name: 'group_relay',
-    description: 'Group chat relay only. Deliver the latest user message to the Bots in this group chat, one at a time, and collect their replies.',
+    description: 'Group chat relay only. Deliver the latest user message to the Bots it calls in this group chat, and collect their replies.',
     parameters: {},
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
     async execute(_args, exec) {
@@ -565,13 +647,15 @@ export function install(rt) {
       }
       await rt.save()
       // An event post, and a member post that calls nobody, never pick the speakers
-      // over a message queued with them.
+      // over a message queued with them. A post whose members an earlier round already
+      // called (`called`) picks none.
       const callsNobody = post => post.member === true && openingSpeakers(room, post).length === 0
-      const opener = posts.findLast(post => !event(post) && !callsNobody(post)) ?? posts.findLast(post => !event(post)) ?? posts.at(-1)
+      const open = posts.filter(post => post.called !== true)
+      const opener = open.findLast(post => !event(post) && !callsNobody(post)) ?? open.findLast(post => !event(post)) ?? open.at(-1) ?? { text: '', quiet: true }
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
       const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
-      const speakers = openingSpeakers(room, opener)
+      const { speakers, ordered } = openingCall(room, opener)
       // The admin alone with the user's message: when it passes, the round ends with
       // nothing said, and the group says so once.
       const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
@@ -584,13 +668,14 @@ export function install(rt) {
         ...(opener.kickoff ? { kickoff: true } : {}),
         ...(references.length > 0 ? { references, shown: [] } : {}),
         slots: speakers.map(member => ({
-          id: member.id, name: member.name, status: 'waiting',
+          id: member.id, name: member.name, status: 'waiting', batch: 1,
+          ...(ordered ? { ordered: true } : {}),
           ...(opener.kickoff ? { note: 'the group was just created' } : {}),
           ...(named.includes(member) ? { by: opener.botId } : {}),
           ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
         })),
+        batches: 1,
         ...(soleAdmin ? { soleAdmin: { id: admin.id, name: admin.name, color: admin.color } } : {}),
-        speaking: null,
         replies: [],
         passed: [],
         failed: [],
@@ -624,8 +709,18 @@ export function install(rt) {
         for (const turn of round.started) void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
       }
       await rt.save()
-      for (const post of posts) {
+      for (const post of open) {
         if (post.reportBack && rt.botOf(post.botId)) void reportRound(room, post, round)
+      }
+      // A post this round took in while it ran gets the replies of the members it called.
+      for (const { post, ids, from } of round.reports ?? []) {
+        if (!rt.botOf(post.botId)) continue
+        const names = ids.map(id => rt.botOf(id)?.name).filter(Boolean)
+        void reportRound(room, post, {
+          replies: round.replies.slice(from).filter(reply => ids.includes(reply.botId)),
+          passed: round.passed.filter(name => names.includes(name)),
+          failed: round.failed.filter(name => names.includes(name)),
+        })
       }
       exec.concludeTurn?.()
       return JSON.stringify({ replies: round.replies, passed: round.passed, ...(round.failed.length > 0 ? { failed: round.failed } : {}) })
@@ -723,30 +818,58 @@ export function install(rt) {
   // the admin answers alone in admin mode, or first of everyone. What a member posts
   // after its round moved on is answered by the member that asked for it; work the
   // user asked for is left for the user to read.
-  function openingSpeakers(room, opener) {
+  // `ordered`: a plain message everyone answers in turn, admin first; any other call
+  // starts its members at once.
+  function openingCall(room, opener) {
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const members = everyone.filter(bot => bot.id !== opener.botId)
     const admin = members.find(bot => rt.isAdminOf(room, bot.id))
-    if (opener.kickoff) return admin ? [admin] : []
-    if (opener.quiet) return []
-    if (opener.done) return members.filter(bot => bot.id === opener.askedBy)
+    const at = speakers => ({ speakers, ordered: false })
+    if (opener.kickoff) return at(admin ? [admin] : [])
+    if (opener.quiet) return at([])
+    if (opener.done) return at(members.filter(bot => bot.id === opener.askedBy))
     const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
-    if (opener.progress) return found
-    if (opener.late) return found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy)
-    if (opener.member) return found
-    if (found.length > 0 && !all) return found
-    if (!all && room.mode === 'admin' && admin) return [admin]
-    return admin ? [admin, ...members.filter(bot => bot !== admin)] : members
+    if (opener.progress) return at(found)
+    if (opener.late) return at(found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy))
+    if (opener.member) return at(found)
+    if (found.length > 0 && !all) return at(found)
+    if (!all && room.mode === 'admin' && admin) return at([admin])
+    const speakers = admin ? [admin, ...members.filter(bot => bot !== admin)] : members
+    return { speakers, ordered: !all && speakers.length > 1 }
+  }
+  const openingSpeakers = (room, opener) => openingCall(room, opener).speakers
+
+  // A Bot's post that lands while a round runs calls its members in that round at
+  // once, as the relay it opens would. Returns whether it called anyone. A post that
+  // wants the replies (`reportBack`) gets those of the members it called when the
+  // round ends.
+  function callPost(room, round, sender, text, extra) {
+    if (extra.failed !== undefined || extra.resumed || extra.stopped) return false
+    const post = { ...extra, botId: sender.id, name: sender.name, text }
+    const { speakers, ordered } = openingCall(room, post)
+    if (speakers.length === 0) return false
+    const named = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found
+    const by = speakers.filter(peer => named.includes(peer))
+    const rest = speakers.filter(peer => !named.includes(peer))
+    const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
+    callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered })
+    callIn(round, rest, note, undefined, { ordered })
+    if (extra.reportBack) {
+      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
+    }
+    return true
   }
 
   // A Bot's message into the group's own Session, which relays it as a new round.
   // While a round runs, the post goes into the group's log and that round's replies at
-  // once, so it is not held back until the round ends; the relay it still opens does not
-  // write it again (source `logged`).
+  // once, and the members it calls start in that round, so it is not held back until
+  // the round ends; the relay it still opens does not write it again (source `logged`)
+  // nor call them again (source `called`).
   async function postToRoom(room, sender, text, extra = {}, files = []) {
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     let logged
+    let called = false
     if (running !== undefined) {
       ensureRoomLog(room)
       if (extra.failed !== undefined) {
@@ -766,12 +889,13 @@ export function install(rt) {
         running.replies.push({ botId: sender.id, name: sender.name, color: sender.color, text: line, time: Date.now() })
         logged = room.seq
       }
+      called = callPost(room, running, sender, text, extra)
       await rt.save()
     }
     const agent = await rt.resolveAgent(room.id)
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra, ...(logged !== undefined ? { logged } : {}) },
+      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra, ...(logged !== undefined ? { logged } : {}), ...(called ? { called: true } : {}) },
     }))
     await ctx.sessions.flush(agent.session)
   }

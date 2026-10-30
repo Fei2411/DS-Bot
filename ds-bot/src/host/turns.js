@@ -316,9 +316,10 @@ export function install(rt) {
     .map(([id, entry]) => [id, entry.steeredAt]))
 
   // Per group, the members whose turn there is running or who move on to a fresh part;
-  // the round's current speaker is marked, since its round shows it.
+  // the members answering in a round are marked, since the round shows them.
   const roomWorkView = () => {
-    const speaking = new Set([...roomProgress.values()].map(round => `${round.roomId}:${round.speaking}`))
+    const speaking = new Set([...roomProgress.values()].flatMap(round => round.slots
+      .filter(slot => slot.status === 'speaking').map(slot => `${round.roomId}:${slot.id}`)))
     const rooms = {}
     const add = (roomId, botId, work) => {
       if (rooms[roomId]?.some(item => item.botId === botId)) return
@@ -462,6 +463,7 @@ export function install(rt) {
             // A post written into a running round already carries its log seq, or true
             // when its event needed none; the relay must not write it again.
             ...(source.logged !== undefined ? { logged: source.logged } : {}),
+            ...(source.called ? { called: true } : {}),
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(id, { text: '', kickoff: true })
@@ -513,6 +515,8 @@ export function install(rt) {
         break
       }
       case 'agent/inbox/spliced':
+        // A message the user sends to a group while its round runs joins that round.
+        if (rt.roomOf(id)) rt.nudgeRoom?.(id)
         // A message the user steered into the running turn is fresh input, like
         // a send that never queued.
         if (event.data?.target === 'next-step' && entry.turn !== undefined

@@ -8529,7 +8529,7 @@ function scanReplies(text, start, replies) {
   }
 }
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
-  const [live, setLive] = (0, import_react16.useState)({ replies: [], speaking: null });
+  const [live, setLive] = (0, import_react16.useState)({ replies: [], speaking: [] });
   (0, import_react16.useEffect)(() => {
     if (done) return void 0;
     let stop = false;
@@ -8542,7 +8542,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : "";
       if (entry && key !== seen) {
         seen = key;
-        setLive({ replies: entry.replies ?? [], speaking: entry.speaking ?? null });
+        setLive({ replies: entry.replies ?? [], speaking: [entry.speaking ?? []].flat() });
       }
       timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
     };
@@ -8559,9 +8559,11 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     replies = parsed.replies.length ? parsed.replies : live.replies;
     broken = parsed.broken;
   }
-  const pending = done || !live.speaking ? [] : [live.speaking];
-  const speakerTool = useWork?.((work) => work.bots?.[live.speaking]?.tool) ?? void 0;
-  const speakerDoing = useWork?.((work) => work.bots?.[live.speaking]?.tool ? workPhrase(work.bots[live.speaking]) : void 0) ?? void 0;
+  const pending = done ? [] : live.speaking;
+  const doing = JSON.parse(useWork?.((work) => JSON.stringify(pending.map((id) => {
+    const tool = work.bots?.[id]?.tool;
+    return tool ? [tool, workPhrase(work.bots[id])] : [];
+  }))) ?? "[]");
   if (replies.length === 0 && pending.length === 0) {
     return broken ? (0, import_react16.createElement)("div", { className: "bt-group-replies" }, (0, import_react16.createElement)("div", { className: "bt-event" }, t("The group replies could not be shown"))) : null;
   }
@@ -8636,14 +8638,15 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       }
       return (0, import_react16.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
     }),
-    pending.map((id) => {
+    pending.map((id, at) => {
       const bot = roster.byId[id];
       if (!bot) return null;
+      const [tool, phrase] = doing[at] ?? [];
       return (0, import_react16.createElement)(
         "div",
         { key: `pending-${id}`, className: "bt-activity" },
-        (0, import_react16.createElement)(BotMark, { bot, size: 22, state: speakerTool ? toolState(speakerTool) : "thinking" }),
-        (0, import_react16.createElement)(Shimmer, null, speakerDoing ? `${bot.name} · ${speakerDoing}…` : t("{name} is typing…", { name: bot.name }))
+        (0, import_react16.createElement)(BotMark, { bot, size: 22, state: tool ? toolState(tool) : "thinking" }),
+        (0, import_react16.createElement)(Shimmer, null, phrase ? `${bot.name} · ${phrase}…` : t("{name} is typing…", { name: bot.name }))
       );
     })
   );

@@ -683,17 +683,19 @@ test('calls parked under the old relay limit run in the group\'s next round', as
   state().paused = [{ id: writer.id, name: 'Writer', note: 'Chief mentioned you', by: chief }]
   await rt.save()
 
-  // The user's next message opens the round; its own speaker, the admin, goes first.
+  // The user's next message opens the round: its own speaker, the admin, and the
+  // parked call start together.
   sent.length = 0
   await emit(room.id, userMessage('Status, please'))
   assert.equal(state().paused.length, 1, 'still parked until a round runs')
   const running = relay(room.id, 'relay')
   const first = await turnFor(sent)
-  assert.equal(first.sessionId, state().sessions[chief])
-  await answer(first.sessionId, first.message.source.exchangeId, 'All fine.', 1)
-  const parked = await turnFor(sent, first)
-  assert.equal(parked.sessionId, state().sessions[writer.id], 'the parked call runs after the round\'s own speaker')
+  const second = await turnFor(sent, first)
+  const [own, parked] = first.sessionId === state().sessions[chief] ? [first, second] : [second, first]
+  assert.equal(own.sessionId, state().sessions[chief])
+  assert.equal(parked.sessionId, state().sessions[writer.id], 'the parked call runs')
   assert.match(parked.message.content[0].text, /Chief mentioned you/)
+  await answer(own.sessionId, own.message.source.exchangeId, 'All fine.', 1)
   await answer(parked.sessionId, parked.message.source.exchangeId, 'On it.', 2)
   await running
   assert.equal(state().paused, undefined)
@@ -852,3 +854,82 @@ test('a member still at work is shown with the group messages it has not read ye
   await second0
 })
 
+
+// #726: members one message calls start together, and a user's message mid-round
+// reaches its members at once instead of waiting for the members already answering.
+async function trio(call, sent) {
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const tester = (await call('create-bot', { name: 'Tester' })).value
+  const room = (await call('create-room', { name: 'R3', members: [chief, writer.id, tester.id] })).value
+  await call('update-room', { id: room.id, mode: 'admin' })
+  sent.length = 0
+  return room
+}
+
+test('members called in one message start together, each told who else answers', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  await emit(room.id, userMessage('Search it, all of you'))
+  const running = relay(room.id, 'relay')
+  const admin = await turnFor(sent)
+  await answer(admin.sessionId, admin.message.source.exchangeId, '@Writer @Tester search it', 1)
+  // Both prompts go out before either member answers.
+  const first = await turnFor(sent, admin)
+  const second = await turnFor(sent, admin, first)
+  assert.ok(first && second, 'both members got their turn at once')
+  const prompts = [first, second].map(entry => entry.message.content[0].text)
+  assert.ok(prompts.some(prompt => /Called together with you: Tester\./.test(prompt)))
+  assert.ok(prompts.some(prompt => /Called together with you: Writer\./.test(prompt)))
+  assert.ok(prompts.every(prompt => !/one at a time/.test(prompt)))
+  await answer(second.sessionId, second.message.source.exchangeId, 'Second found it.', 2)
+  await answer(first.sessionId, first.message.source.exchangeId, 'First found it too.', 3)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => reply.text), ['@Writer @Tester search it', 'Second found it.', 'First found it too.'])
+})
+
+test('a user message mid-round reaches the admin at once while a member still answers', async (t) => {
+  const { call, emit, userMessage, compose, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const admin = await turnFor(sent)
+  await answer(admin.sessionId, admin.message.source.exchangeId, '@Writer go', 1)
+  const writer = await turnFor(sent, admin)
+  // The Writer is still answering when the user writes; DSH reports the inbox change.
+  await compose(room.id, 'why is the Tester idle?')
+  await emit(room.id, { type: 'agent/inbox/spliced', data: { target: 'next-turn', inserted: [] } })
+  const again = await turnFor(sent, admin, writer)
+  assert.equal(again.sessionId, rt.state.rooms[room.id].sessions[chief], 'the admin answers the user without waiting for the Writer')
+  assert.match(again.message.content[0].text, /why is the Tester idle\?/)
+  assert.match(again.message.content[0].text, /Writer \(answering now\)/)
+  await answer(again.sessionId, again.message.source.exchangeId, 'It was not called.', 2)
+  await answer(writer.sessionId, writer.message.source.exchangeId, 'Done.', 3)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => reply.name ?? 'User'), ['Chief', 'User', 'Chief', 'Writer'])
+})
+
+test('a plain message in a group where everyone answers still goes one member at a time', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  await emit(room.id, userMessage('Count off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.match(first.message.content[0].text, /Members answer this message one at a time/)
+  assert.match(first.message.content[0].text, /You are number 1 of 3/)
+  await settle()
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 1, 'the next member waits')
+  await answer(first.sessionId, first.message.source.exchangeId, 'one', 1)
+  const second = await turnFor(sent, first)
+  assert.match(second.message.content[0].text, /You are number 2 of 3/)
+  await answer(second.sessionId, second.message.source.exchangeId, 'two', 2)
+  const third = await turnFor(sent, first, second)
+  await answer(third.sessionId, third.message.source.exchangeId, 'three', 3)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => reply.text), ['one', 'two', 'three'])
+})
