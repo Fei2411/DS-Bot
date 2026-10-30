@@ -210,7 +210,7 @@ test('an idle Bot\'s sidebar row keeps the message preview', () => {
 test('a sidebar row shows its name on hover when the name is hidden or cut', () => {
   viewport.innerWidth = 1280
   const bot = { id: 'writer', name: 'Writer', createdAt: 1 }
-  const room = { id: 'room', name: 'Launch plan for the spring release', members: ['writer'], createdAt: 2 }
+  const room = { id: 'room', name: 'Launch plan for the spring release', members: [], createdAt: 2 }
   const roster = { bots: [bot], rooms: [room], agents: [], byId: { writer: bot }, roomsById: { room }, ready: true, exchangeTurns: {} }
   const rowsOf = (pref) => {
     const rows = []
@@ -232,7 +232,20 @@ test('a sidebar row shows its name on hover when the name is hidden or cut', () 
   }
   const rail = rowsOf('rail')
   assert.equal(rail.BotRow.props.title, 'Writer')
-  assert.equal(rail.RoomRow.props.title, 'Launch plan for the spring release')
+  // A group row is a wrapper (the row button plus its folded member list); the
+  // hover title lives on the row button inside.
+  const walkNode = (node, visit) => {
+    if (Array.isArray(node)) { node.forEach(child => walkNode(child, visit)); return }
+    if (!node || typeof node !== 'object') return
+    visit(node)
+    walkNode(node.props?.children, visit)
+  }
+  const roomButton = (wrapper) => {
+    let button = null
+    walkNode(wrapper, (node) => { if (node.type === 'button' && node.props?.['data-room-id'] !== undefined) button = node })
+    return button
+  }
+  assert.equal(roomButton(rail.RoomRow).props.title, 'Launch plan for the spring release')
   const wide = rowsOf('open')
   assert.equal(wide.RoomRow.props.title, undefined)
   // jsdom lays nothing out, so the name's widths are set by hand.
@@ -241,12 +254,12 @@ test('a sidebar row shows its name on hover when the name is hidden or cut', () 
   const name = button.firstChild
   Object.defineProperty(name, 'clientWidth', { value: 120 })
   Object.defineProperty(name, 'scrollWidth', { value: 120, configurable: true })
-  wide.RoomRow.props.onMouseEnter({ currentTarget: button })
+  roomButton(wide.RoomRow).props.onMouseEnter({ currentTarget: button })
   assert.equal(button.hasAttribute('title'), false)
   Object.defineProperty(name, 'scrollWidth', { value: 260 })
-  wide.RoomRow.props.onMouseEnter({ currentTarget: button })
+  roomButton(wide.RoomRow).props.onMouseEnter({ currentTarget: button })
   assert.equal(button.title, 'Launch plan for the spring release')
-  assert.equal(wide.BotRow.props.onMouseEnter, wide.RoomRow.props.onMouseEnter)
+  assert.equal(wide.BotRow.props.onMouseEnter, roomButton(wide.RoomRow).props.onMouseEnter)
 })
 
 test('preparing sidebar navigation leaves actions elsewhere unchanged', () => {
