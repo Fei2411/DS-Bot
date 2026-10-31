@@ -21,12 +21,34 @@ export function install(rt) {
   }
   // 桌面端注意力通知：卡片在等用户、或用户的任务失败。与完成通知同走 Host IPC，但不持久化，
   // 也不受 notifyCompletion 约束——那个开关只管完成，不管"需要你"。
-  const attentionNotify = ({ kind, id, botId, sessionId, roomId }) => {
+  // 审批与问题卡附带的细节（工具、命令、选项）只用于通知里展示和答复。
+  const attentionNotify = ({ kind, id, botId, sessionId, roomId, ...details }) => {
     if (process.env.DS_BOT_APP !== '1' || !process.connected || typeof process.send !== 'function') return
     const bot = rt.botOf(botId)
     if (!bot) return
-    process.send({ type: 'ds-bot:attention', kind, id, botId, sessionId, ...(roomId ? { roomId } : {}), name: bot.name })
+    process.send({ type: 'ds-bot:attention', kind, id, botId, sessionId, ...(roomId ? { roomId } : {}), ...details, name: bot.name })
   }
+  // 通知里点的选项或输入的自定义答案，与聊天里答卡走同一条路径；结果经 IPC 回传，
+  // 过期或被拒的答复由通知说明原因。
+  const answerFromNotice = (answer) => {
+    if (answer.kind === 'approval') return rt.answerApproval(answer.id, answer.choice)
+    if (answer.kind === 'question') return rt.answerQuestion(answer.sessionId, answer.id, { selected: answer.selected, custom: answer.custom })
+    throw Object.assign(new Error('This card cannot be answered from a notice'), { code: 'bot/invalid' })
+  }
+  const receiveNoticeAnswer = (message) => {
+    if (message?.type !== 'ds-bot:attention-answer') return
+    void Promise.resolve()
+      .then(() => answerFromNotice(message))
+      .then(
+        () => process.send?.({ type: 'ds-bot:attention-result', id: message.id, ok: true }),
+        error => process.send?.({ type: 'ds-bot:attention-result', id: message.id, ok: false, error: error?.message ?? String(error) }),
+      )
+      .catch(error => rt.warn('ds-bot: notice answer not reported: %s', error))
+  }
+  ctx.effect(() => {
+    process.on('message', receiveNoticeAnswer)
+    return () => process.off('message', receiveNoticeAnswer)
+  }, 'ds-bot: notice answers')
   ctx.on('session/event', (session, event) => {
     const botId = rt.chatOwners.get(session.id)
     if (!botId) return

@@ -106,9 +106,11 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 Bots work with Office documents. They can create and edit .docx, .pptx and .xlsx, read a document's structure with stable ids, check a package for the defects Office would refuse, make targeted edits (comments, tracked changes, fields, table cells), reorder or duplicate slides, list workbook errors, and review rendered pages on a contact sheet. The desktop app includes everything needed; in DSH Desktop Bots use DSH's Office runtime plus DS Bot's commands; in DSH Web the inspect, check and edit commands work, while creating files from scratch and rendering pages need the desktop app or DSH Desktop.
 
-### Completion notifications
+### Notifications
 
 Each Bot has a **Task completion notifications** switch, enabled by default. Notifications appear when you are away from its chat; the desktop app shows them natively, and Web requires browser permission and an open page.
+
+The desktop app also notifies you when a Bot needs you: a waiting approval, a question card, a view, a secret, or a task that failed. For a group member's approval the notification names the tool, the command and the reason, and you can allow or reject it right there; a question card shows its options and takes your own answer when the Bot allows one. An approval in a Bot's own chat is answered in that chat. The other notices open the chat they belong to.
 
 ## Data
 

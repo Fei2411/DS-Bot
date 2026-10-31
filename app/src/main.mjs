@@ -128,6 +128,10 @@ let notificationBot
 const completions = completionNotices({ Notification, window: () => mainWindow, open: () => shell.open(), navigate: botId => {
   notificationBot = botId
   mainWindow?.webContents.send('ds-bot:open-chat', botId)
+}, answer: message => {
+  if (host === undefined) throw new Error('The Bot team is not running.')
+  // The Host is reached over its IPC channel; once that channel is closed, the team is not running.
+  try { host.send(message) } catch { throw new Error('The Bot team is not running.') }
 } })
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
 app.once('will-quit', () => { shell.dispose(); botViews.dispose(); updates?.stop() })
@@ -224,6 +228,7 @@ async function start() {
     host.onMessage(message => {
       if (message?.type === 'ds-bot:completion') { completions.show(message); return }
       if (message?.type === 'ds-bot:attention') { completions.show(message); return }
+      if (message?.type === 'ds-bot:attention-result') { completions.result(message); return }
       if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
       const downloadRoots = message.downloadRoots
       if (!Array.isArray(downloadRoots) || downloadRoots.length > 4 || !Array.from(downloadRoots).every(root => typeof root === 'string' && isAbsolute(root))) {

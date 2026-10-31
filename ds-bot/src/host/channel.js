@@ -32,6 +32,30 @@ export function install(rt) {
 
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
+  // A question card's answer, from the card or from a desktop notice. It reaches the Bot as
+  // the user's next message; a card that is no longer open is refused.
+  rt.answerQuestion = async (requested, questionId, answer) => {
+    if (typeof requested !== 'string') throw invalid('Nothing to send')
+    await rt.load()
+    const past = rt.pastOwners.get(requested)
+    const sessionId = rt.botOf(requested) ? rt.chatOf(requested) : past && past.roomId === undefined ? rt.chatOf(past.botId) : requested
+    const question = rt.own(state.questions, sessionId)
+    if (question === undefined || question.id !== questionId) throw Object.assign(new Error('This question is no longer open'), { code: 'bot/stale' })
+    const reply = questionReply(question, answer)
+    if (reply === undefined) throw invalid('Nothing to send')
+    // Claim the question before queueing so a second answer is refused.
+    delete state.questions[sessionId]
+    try {
+      await rt.ensureCapabilities(sessionId)
+      const agent = await rt.resolveAgent(sessionId)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
+      await ctx.sessions.flush(agent.session)
+    } catch (error) {
+      state.questions[sessionId] ??= question
+      throw error
+    }
+    await rt.save()
+  }
   // Models come from DSH, not state.json, so a provider added in Harness settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
@@ -386,29 +410,10 @@ export function install(rt) {
         case 'learning-answer':
           await rt.load()
           return ok(await rt.learningEndpoint(endpoint, body))
-        case 'answer-question': {
+        case 'answer-question':
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
-          await rt.load()
-          const past = rt.pastOwners.get(body.sessionId)
-          const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
-          const question = rt.own(state.questions, sessionId)
-          if (question === undefined || question.id !== body.questionId) return fail('This question is no longer open', 'bot/stale')
-          const reply = questionReply(question, body.answer)
-          if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
-          // Claim the question before queueing so a second answer is refused.
-          delete state.questions[sessionId]
-          try {
-            await rt.ensureCapabilities(sessionId)
-            const agent = await rt.resolveAgent(sessionId)
-            agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
-            await ctx.sessions.flush(agent.session)
-          } catch (error) {
-            state.questions[sessionId] ??= question
-            throw error
-          }
-          await rt.save()
+          await rt.answerQuestion(body.sessionId, body.questionId, body.answer)
           return ok(true)
-        }
         case 'view-reply': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()

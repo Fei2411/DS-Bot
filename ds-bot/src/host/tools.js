@@ -661,7 +661,11 @@ export function install(rt) {
       }
       state.questions[id] = card
       await rt.save()
-      if (!hidden) rt.attentionNotify?.({ kind: 'question', id: card.id, botId: rt.selfOf(id), sessionId: id })
+      if (!hidden) {
+        rt.attentionNotify?.({ kind: 'question', id: card.id, botId: rt.selfOf(id), sessionId: id, question: card.question,
+          ...(card.detail ? { detail: card.detail } : {}), options: card.options.map(option => option.label),
+          multiSelect: card.multiSelect, allowCustom: card.allowCustom === true })
+      }
       exec.concludeTurn?.()
       return 'The card is on screen; the user\'s answer arrives as their next message.'
     },
