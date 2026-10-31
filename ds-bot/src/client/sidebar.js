@@ -57,7 +57,8 @@ const waitingFor = (roster, waits) => {
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id
   const part = currentPart(bot)
-  const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
+  const result = (roster.monitorResults ?? []).findLast(entry => entry.botId === id)
+  const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part], result))
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)

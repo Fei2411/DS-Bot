@@ -132,7 +132,7 @@ export function install(rt) {
   }
 
   // Every Session of a Bot: its own chat and its conversation in each of its groups.
-  const sessionsOfBot = botId => [rt.chatOf(botId), ...Object.values(state.rooms)
+  const sessionsOfBot = botId => [rt.chatOf(botId), ...[...(rt.automationOwners?.values() ?? [])].filter(task => task.botId === botId && !task.disabled).map(task => task.sessionId), ...Object.values(state.rooms)
     .filter(room => room.members.includes(botId)).map(room => room.sessions?.[botId])].filter(Boolean)
 
   // A folder outside the team workspace widens where a Bot may write, so a Bot that

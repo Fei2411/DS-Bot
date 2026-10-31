@@ -110,6 +110,10 @@ Bots work with Office documents. They can create and edit .docx, .pptx and .xlsx
 
 Each Bot has a **Task completion notifications** switch, enabled by default. Notifications appear when you are away from its chat; the desktop app shows them natively, and Web requires browser permission and an open page.
 
+### Silent monitors
+
+Choose **Silent monitor** when creating a scheduled task, or ask a Bot to use `create_automation` in monitor mode. The first successful check establishes a baseline; later checks publish only new matching message IDs. Empty checks remain in the run records, not in chat. The Host must stay running. Existing normal tasks can be converted explicitly.
+
 ## Data
 
 All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.

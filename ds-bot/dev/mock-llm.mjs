@@ -133,6 +133,15 @@ function decide(body) {
     return [text(`Side note: ${pairs} earlier pair(s) seen.`)]
   }
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
+  if (system.includes('## Background monitor check') && tools.has('report_monitor')) {
+    if (blocks.some(block => block.type === 'tool_result')) return [text('Check finished.')]
+    const checks = messages.filter(message => message.role === 'assistant' && Array.isArray(message.content)
+      && message.content.some(block => block.type === 'tool_use' && block.name === 'report_monitor')).length
+    return [tool('report_monitor', { status: 'match', items: [
+      { id: 'fixture-existing', text: 'Existing fixture message', matched: true },
+      ...(checks > 0 ? [{ id: 'fixture-new', text: 'New fixture message', matched: true }] : []),
+    ] })]
+  }
   const isMain = system.includes('You are the Main Bot')
   const isRelay = system.includes('# Group chat relay')
 
