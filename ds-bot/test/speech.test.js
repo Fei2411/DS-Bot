@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { base64Of, closingReplyText, speechCatalog, transcribeWave, turnDetector, waveBytes } from '../src/client/speech.js'
+import { base64Of, closingReplyText, preparationStep, requestPreparation, speechCatalog, transcribeWave, turnDetector, waveBytes } from '../src/client/speech.js'
 
 const catalog = (phase, extra = {}) => ({
   providers: [{ id: 'sensevoice', preparation: { phase } }],
@@ -36,6 +36,29 @@ test('speechCatalog is usable only when the selected provider is ready', async (
     assert.equal((await speechCatalog(speech)).usable, usable, phase)
   }
   await assert.rejects(speechCatalog({ catalog: async () => ({ ok: false, error: { message: 'down' } }) }), /down/)
+})
+
+test('requestPreparation is false on a refused request and on a throw', async () => {
+  let asked = 0
+  const speech = { prepare: async () => { asked += 1; return { ok: true } } }
+  assert.equal(await requestPreparation(speech, 'sensevoice'), true)
+  assert.equal(asked, 1)
+  // The remote reports refusal as a result, not a rejection: the pane must
+  // leave 'preparing' or it would wait on a task that never started.
+  assert.equal(await requestPreparation({ prepare: async () => ({ ok: false, error: { message: 'unavailable' } }) }), false)
+  assert.equal(await requestPreparation({ prepare: async () => { throw new Error('gone') } }), false)
+})
+
+test('preparationStep maps every catalog phase to the pane step', () => {
+  for (const phase of ['ready', 'standby', 'waking']) assert.equal(preparationStep(catalog(phase)).state, 'usable', phase)
+  for (const phase of ['downloading', 'checking', 'loading', 'cancelling']) assert.equal(preparationStep(catalog(phase)).state, 'waiting', phase)
+  // Every terminal non-usable state ends the wait so the setup step can retry.
+  for (const phase of ['cancelled', 'unprepared']) assert.deepEqual(preparationStep(catalog(phase)), { state: 'done', failed: false }, phase)
+  assert.deepEqual(preparationStep(catalog('failed')), { state: 'done', failed: true })
+  // The selected provider gone from the catalog is done too.
+  assert.deepEqual(preparationStep({ providers: [], selection: { providerId: 'sensevoice', language: 'auto' } }), { state: 'done', failed: false })
+  assert.deepEqual(preparationStep(catalog('downloading', { providers: [{ id: 'sensevoice', preparation: { phase: 'downloading', completedBytes: 25, totalBytes: 100 } }] })), { state: 'waiting', pct: 25 })
+  assert.deepEqual(preparationStep(catalog('downloading')), { state: 'waiting', pct: undefined })
 })
 
 test('transcribeWave sends the selection and returns trimmed text', async () => {

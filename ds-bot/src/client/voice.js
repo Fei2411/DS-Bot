@@ -6,7 +6,7 @@ import { speechApi, useDictation } from './composer.js'
 import { Shimmer } from './cells.js'
 import { useEscape, usePaneLeft } from './overlay-hooks.js'
 import { t } from './i18n.js'
-import { openCapture, speechCatalog, transcribeWave, turnDetector } from './speech.js'
+import { openCapture, preparationStep, speechCatalog, transcribeWave, turnDetector } from './speech.js'
 
 // Voice chat: listen, send what the user said, read the Bot's answer aloud, listen
 // again. With DSH's Voice Input plugin on, its recognizer hears the user: one
@@ -19,6 +19,26 @@ const VOICE_LABELS = {
   unsupported: 'Voice chat is not available in this browser',
 }
 const CAPTURE_NOTES = { blocked: 'Microphone access is blocked', unavailable: 'Voice chat is not available in this browser', 'too-long': 'That was too long to recognize' }
+
+// Reads the reply until it lands, then consumes it once. The chat target can
+// publish synchronously inside `watch`, before it returns the disposer, so the
+// consumed flag — not the disposer — is what stops a second pass: a reply
+// already spoken is never spoken again.
+export function watchReply(read, watch, consume) {
+  let off = () => {}
+  let consumed = false
+  const attempt = () => {
+    if (consumed) return
+    const text = read()
+    if (text === undefined) return
+    consumed = true
+    off()
+    consume(text)
+  }
+  off = watch(attempt)
+  attempt()
+  return () => { consumed = true; off() }
+}
 
 function useMicLevel(enabled) {
   const [level, setLevel] = useState(0)
@@ -202,17 +222,13 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
     // The outline commits at turn/end but only holds a bounded preview; the
     // closing Assistant text can trail it, so the answer is read through the
     // chat view's own changes until it lands (or the Session goes away).
-    let off = () => {}
-    const attempt = () => {
-      const text = actions.closingReply(sessionId, turn)
-      if (text === undefined) return
-      off()
-      if (text === null) { waiting.current = null; setPhase('listening'); return }
-      speak(text)
-    }
-    off = actions.watchTurns(sessionId, attempt)
-    attempt()
-    return () => off()
+    return watchReply(
+      () => actions.closingReply(sessionId, turn),
+      listener => actions.watchTurns(sessionId, listener),
+      (text) => {
+        if (text === null) { waiting.current = null; setPhase('listening'); return }
+        speak(text)
+      })
   }, [phase, running, lastReply])
   useEffect(() => () => window.speechSynthesis?.cancel(), [])
   const micLevel = useMicLevel(!speech && phase === 'listening' && dictation.listening)
@@ -233,16 +249,17 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
     let timer
     const tick = async () => {
       try {
-        const { catalog: next, usable } = await speechCatalog(speech)
+        const { catalog: next } = await speechCatalog(speech)
         if (stopped) return
         setCatalog(next)
-        if (usable) { setPhase('listening'); return }
-        const provider = next.providers.find(item => item.id === next.selection.providerId)
-        const preparation = provider?.preparation
-        if (preparation?.phase === 'failed') { setPhase('setup'); setNote(t("Couldn't prepare voice input")); return }
-        setNote(preparation?.phase === 'downloading' && preparation.totalBytes
-          ? t('Downloading the speech model… {pct}%', { pct: Math.floor((preparation.completedBytes / preparation.totalBytes) * 100) })
-          : '')
+        const step = preparationStep(next)
+        if (step.state === 'usable') { setPhase('listening'); return }
+        if (step.state === 'done') {
+          setPhase('setup')
+          if (step.failed) setNote(t("Couldn't prepare voice input"))
+          return
+        }
+        setNote(step.pct === undefined ? '' : t('Downloading the speech model… {pct}%', { pct: step.pct }))
       } catch { if (!stopped) { setPhase('setup'); return } }
       timer = setTimeout(tick, 1500)
     }
@@ -254,7 +271,9 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
     if (openSetup?.navigate) { close(); openSetup.navigate(); return }
     turn.current += 1
     setPhase('preparing')
-    void Promise.resolve(openSetup.prepare()).catch(() => { setPhase('setup'); setNote(t("Couldn't prepare voice input")) })
+    void Promise.resolve(openSetup.prepare()).then((started) => {
+      if (started === false) { setPhase('setup'); setNote(t("Couldn't prepare voice input")) }
+    })
   }
   const caption = phase === 'speaking' ? said : heard
   const shownNote = note || dictation.note

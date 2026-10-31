@@ -15,7 +15,7 @@ import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
-import { VOICE_BUNDLE, closingReplyText } from './speech.js'
+import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
@@ -641,7 +641,7 @@ export function apply(ctx) {
     const navigation = ctx.get('pluginNavigation')
     if (navigation !== undefined) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) }
     const speech = ctx.get('remote.speech')
-    return speech === undefined || providerId === undefined ? null : { prepare: () => speech.prepare(providerId) }
+    return speech === undefined || providerId === undefined ? null : { prepare: () => requestPreparation(speech, providerId) }
   }
   // The full text the voice chat reads aloud: the turn's closing Assistant
   // message, not the turn outline's bounded preview. undefined while the chat

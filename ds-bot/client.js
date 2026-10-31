@@ -11009,6 +11009,24 @@ async function speechCatalog(speech) {
   const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
   return { catalog, usable: USABLE.has(provider?.preparation?.phase) };
 }
+async function requestPreparation(speech, providerId) {
+  try {
+    const result = await speech.prepare(providerId);
+    return result?.ok !== false;
+  } catch {
+    return false;
+  }
+}
+function preparationStep(catalog) {
+  const preparation = catalog.providers.find((item) => item.id === catalog.selection.providerId)?.preparation;
+  if (preparation === void 0) return { state: "done", failed: false };
+  if (USABLE.has(preparation.phase)) return { state: "usable" };
+  if (preparation.phase === "failed" || preparation.phase === "cancelled" || preparation.phase === "unprepared") {
+    return { state: "done", failed: preparation.phase === "failed" };
+  }
+  const pct = preparation.phase === "downloading" && preparation.totalBytes ? Math.floor(preparation.completedBytes / preparation.totalBytes * 100) : void 0;
+  return { state: "waiting", pct };
+}
 function waveBytes(samples, rate = 16e3) {
   const bytes = new Uint8Array(44 + samples.length * 2);
   const view = new DataView(bytes.buffer);
@@ -14048,6 +14066,25 @@ var VOICE_LABELS = {
   unsupported: "Voice chat is not available in this browser"
 };
 var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize" };
+function watchReply(read, watch, consume) {
+  let off = () => {
+  };
+  let consumed = false;
+  const attempt = () => {
+    if (consumed) return;
+    const text = read();
+    if (text === void 0) return;
+    consumed = true;
+    off();
+    consume(text);
+  };
+  off = watch(attempt);
+  attempt();
+  return () => {
+    consumed = true;
+    off();
+  };
+}
 function useMicLevel(enabled) {
   const [level, setLevel] = (0, import_react34.useState)(0);
   (0, import_react34.useEffect)(() => {
@@ -14244,22 +14281,18 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(utterance);
     };
-    let off = () => {
-    };
-    const attempt = () => {
-      const text = actions.closingReply(sessionId, turn2);
-      if (text === void 0) return;
-      off();
-      if (text === null) {
-        waiting.current = null;
-        setPhase("listening");
-        return;
+    return watchReply(
+      () => actions.closingReply(sessionId, turn2),
+      (listener) => actions.watchTurns(sessionId, listener),
+      (text) => {
+        if (text === null) {
+          waiting.current = null;
+          setPhase("listening");
+          return;
+        }
+        speak(text);
       }
-      speak(text);
-    };
-    off = actions.watchTurns(sessionId, attempt);
-    attempt();
-    return () => off();
+    );
   }, [phase, running, lastReply]);
   (0, import_react34.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
   const micLevel = useMicLevel(!speech && phase === "listening" && dictation.listening);
@@ -14281,21 +14314,20 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     let timer;
     const tick = async () => {
       try {
-        const { catalog: next, usable } = await speechCatalog(speech);
+        const { catalog: next } = await speechCatalog(speech);
         if (stopped) return;
         setCatalog(next);
-        if (usable) {
+        const step = preparationStep(next);
+        if (step.state === "usable") {
           setPhase("listening");
           return;
         }
-        const provider = next.providers.find((item) => item.id === next.selection.providerId);
-        const preparation = provider?.preparation;
-        if (preparation?.phase === "failed") {
+        if (step.state === "done") {
           setPhase("setup");
-          setNote(t("Couldn't prepare voice input"));
+          if (step.failed) setNote(t("Couldn't prepare voice input"));
           return;
         }
-        setNote(preparation?.phase === "downloading" && preparation.totalBytes ? t("Downloading the speech model… {pct}%", { pct: Math.floor(preparation.completedBytes / preparation.totalBytes * 100) }) : "");
+        setNote(step.pct === void 0 ? "" : t("Downloading the speech model… {pct}%", { pct: step.pct }));
       } catch {
         if (!stopped) {
           setPhase("setup");
@@ -14319,9 +14351,11 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     }
     turn.current += 1;
     setPhase("preparing");
-    void Promise.resolve(openSetup.prepare()).catch(() => {
-      setPhase("setup");
-      setNote(t("Couldn't prepare voice input"));
+    void Promise.resolve(openSetup.prepare()).then((started) => {
+      if (started === false) {
+        setPhase("setup");
+        setNote(t("Couldn't prepare voice input"));
+      }
     });
   };
   const caption = phase === "speaking" ? said : heard;
@@ -20939,7 +20973,7 @@ function apply(ctx) {
     const navigation = ctx.get("pluginNavigation");
     if (navigation !== void 0) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) };
     const speech = ctx.get("remote.speech");
-    return speech === void 0 || providerId === void 0 ? null : { prepare: () => speech.prepare(providerId) };
+    return speech === void 0 || providerId === void 0 ? null : { prepare: () => requestPreparation(speech, providerId) };
   };
   actions.closingReply = (sessionId, turn) => {
     try {
