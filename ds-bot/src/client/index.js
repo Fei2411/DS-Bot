@@ -205,14 +205,18 @@ export function apply(ctx) {
       try {
         await pull()
         misses = 0
+        // A late-arriving API clears the failure the misses reported.
+        ui.set(state => (state.bootFailed ? { ...state, bootFailed: false } : state))
       } catch (error) {
         if (!stopped) {
           console.warn('[ds-bot] state', error)
-          // The Bot API never comes up when the host plugin did not activate
-          // (e.g. the Session store failed); "Setting up your Main Bot…" alone
-          // would spin forever, so the sidebar says the start-up failed (#516).
-          misses += 1
-          if (misses >= 10 && !roster.getSnapshot().ready) ui.set(state => (state.bootFailed ? state : { ...state, bootFailed: true }))
+          // Only a missing Bot API counts toward a failed start: while the
+          // host plugin stays unmounted the route answers 404. A network miss
+          // is the host reconnecting, not a start-up failure (#516).
+          if (error?.code === 'HTTP_404') {
+            misses += 1
+            if (misses >= 10 && !roster.getSnapshot().ready) ui.set(state => (state.bootFailed ? state : { ...state, bootFailed: true }))
+          }
         }
       } finally { running = false }
       if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
