@@ -196,7 +196,9 @@ export function install(rt) {
         const monitor = rt.automationOwners.get(sessionId)
         if (monitor && monitor.botId !== id) continue
         if (!job.archived.includes(sessionId)) {
+          // A Bot that never ran has no stored Session; that is not a reason to stop the deletion.
           await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+            .catch(error => rt.warn('ds-bot: %s not archived while deleting %s: %s', sessionId, id, error?.message ?? error))
           job.archived.push(sessionId)
           await rt.save({ required: true })
         }

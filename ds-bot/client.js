@@ -61,13 +61,36 @@ var ZH = {
   "Only verified new, unchanged, unshared files can be moved to recovery storage.": "仅允许回收可确认由该 Bot 新建、未被修改且未共享的文件。",
   "{count} tasks deleted": "已删除 {count} 个任务",
   "{count} tasks transferred": "已转交 {count} 个任务",
-  "{count} files in recovery storage": "{count} 个文件已移入回收区",
+  "{count} files moved to recovery storage": "{count} 个文件已移入回收区",
   "No files were removed.": "未移除任何文件",
   "File recovery": "恢复文件",
   "Restore a file to its original location without overwriting an existing file.": "可恢复到原路径，不会覆盖同名文件。",
   "View saved scheduling history ({count})": "查看保留的历史调度记录（{count} 条）",
   "These are records from before deletion, not tasks that are still running.": "以下是删除前的历史记录，仅供查阅，不会继续执行。",
   "Scheduled for {time}": "原定执行时间：{time}",
+  "Next run {time}": "下次运行：{time}",
+  "Remove the Main Bot role before deleting this Bot": "请先取消该 Bot 的主 Bot 身份，再删除",
+  "This Bot is being deleted": "该 Bot 正在删除",
+  "This Bot is already being deleted": "该 Bot 已经在删除中",
+  "Refresh the deletion preview before confirming": "请先刷新删除预览再确认",
+  "Resources changed; refresh the deletion preview": "资源已发生变化，请刷新删除预览",
+  "Choose whether to delete or transfer automation tasks": "请选择删除还是转交自动化任务",
+  "Only verified new files from this preview can be recycled": "只能回收本次预览中确认的新文件",
+  "Choose another Bot to receive the tasks": "请选择其他 Bot 接手任务",
+  "A previous transfer has an unknown outcome; inspect the task lists before retrying": "上次转交的结果未知，请先核对任务列表再重试",
+  "Task history could not be saved; refresh before deleting": "任务历史保存失败，请刷新后再删除",
+  "Task history cursor did not advance": "任务历史读取没有推进，请刷新后重试",
+  "Finish the previous transfer to the same Bot before changing the target": "请先完成到同一 Bot 的转交，再更改接手 Bot",
+  "A monitor is running; stop it before transferring and refresh": "监视任务正在运行，请先停止并刷新",
+  "This task rule cannot be transferred": "该任务规则无法转交",
+  "A file changed; refresh the deletion preview": "文件已发生变化，请刷新删除预览",
+  "An interrupted file cleanup needs inspection before retrying": "上次文件清理被中断，请检查后再重试",
+  "A file changed during recycling; its original was kept": "回收过程中文件发生变化，原文件已保留",
+  "No recycled file to restore": "没有可恢复的回收文件",
+  "The recycled file changed": "回收区文件已发生变化，无法恢复",
+  "The original folder changed; inspect it before restoring": "原文件夹已发生变化，请检查后再恢复",
+  "Preview the resources and confirm deletion first": "请先预览并确认要删除的资源",
+  "A selected Bot is being deleted": "所选 Bot 正在删除",
   "Original task instruction": "查看原任务指令",
   "Deleting…": "正在删除…",
   "Saved task records": "已保存的任务记录",
@@ -18968,13 +18991,14 @@ function DeleteBotDialog({ id, actions, leaving }) {
   const targetInfo = view?.targets.find((bot) => bot.id === target);
   const progress = done?.progress ?? view?.progress;
   const taskProgress = Object.values(progress?.tasks ?? {});
-  const recycled = Object.entries(progress?.files ?? {}).filter(([, file]) => file.status === "recycled");
+  const moved = Object.entries(progress?.files ?? {}).filter(([, file]) => file.status === "recycled" || file.status === "restored");
   const transferred = taskProgress.filter((task) => task.to && task.status === "done");
   const deleted = taskProgress.filter((task) => !task.to && task.status === "done");
   const history = taskProgress.filter((task) => task.records?.length);
   const name = view?.bot.name ?? t("Bot");
   const section = (title, ...children) => (0, import_react49.createElement)("section", { className: "bt-delete-section" }, (0, import_react49.createElement)("h3", null, title), ...children);
   const hint = (text) => (0, import_react49.createElement)("p", { className: "bt-delete-hint" }, text);
+  const nextRun = (task) => task.scheduledAt ? (0, import_react49.createElement)("time", { dateTime: new Date(task.scheduledAt).toISOString() }, t("Next run {time}", { time: clockLabel(task.scheduledAt) })) : null;
   const fileRecovery = () => Object.entries(progress?.files ?? {}).map(([key, file]) => (0, import_react49.createElement)(
     "div",
     { className: "bt-delete-file", key },
@@ -19075,7 +19099,7 @@ function DeleteBotDialog({ id, actions, leaving }) {
                 "li",
                 { key: task.id },
                 (0, import_react49.createElement)("span", null, task.title),
-                (0, import_react49.createElement)("time", null, new Date(task.kind === "every" ? Date.now() + task.everySeconds * 1e3 : task.scheduledAt).toLocaleString())
+                nextRun(task)
               )))
             ) : null
           ),
@@ -19117,7 +19141,7 @@ function DeleteBotDialog({ id, actions, leaving }) {
               transferred.length ? (0, import_react49.createElement)("span", null, t("{count} tasks transferred", { count: transferred.length })) : null,
               !deleted.length && !transferred.length ? t("No associated automation tasks.") : null
             )),
-            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Working files")), (0, import_react49.createElement)("dd", null, recycled.length ? t("{count} files in recovery storage", { count: recycled.length }) : t("No files were removed."))),
+            (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Working files")), (0, import_react49.createElement)("dd", null, moved.length ? t("{count} files moved to recovery storage", { count: moved.length }) : t("No files were removed."))),
             (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Browser data")), (0, import_react49.createElement)("dd", null, t("Deleted"))),
             (0, import_react49.createElement)("div", null, (0, import_react49.createElement)("dt", null, t("Shared secrets")), (0, import_react49.createElement)("dd", null, t("Kept")))
           ),
@@ -19136,7 +19160,7 @@ function DeleteBotDialog({ id, actions, leaving }) {
             (0, import_react49.createElement)("ul", null, task.records.map((record, index2) => (0, import_react49.createElement)(
               "li",
               { key: record.messageId ?? index2 },
-              (0, import_react49.createElement)("time", null, t("Scheduled for {time}", { time: new Date(record.scheduledAt).toLocaleString() }))
+              (0, import_react49.createElement)("time", null, t("Scheduled for {time}", { time: clockLabel(record.scheduledAt) }))
             ))),
             (0, import_react49.createElement)("details", null, (0, import_react49.createElement)("summary", null, t("Original task instruction")), (0, import_react49.createElement)("p", null, task.original?.prompt ?? task.records[0]?.prompt ?? ""))
           ))

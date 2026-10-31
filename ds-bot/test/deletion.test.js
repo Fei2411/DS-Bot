@@ -5,9 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { monitorDecision } from '../src/host/automations.js'
-import { completionReady } from '../src/host/completions.js'
-import { previewOf } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
 
 async function bench(t, config = {}) {
@@ -144,6 +141,15 @@ test('a transferred monitor keeps deduplication but receives a fresh isolated Se
   assert.equal(Object.values(result.progress.tasks)[0].records[0].messageId, 'receipt')
 })
 
+
+test('a Bot whose Session DSH no longer knows is still deleted', async t => {
+  const b = await bench(t)
+  b.ctx.workspaceRegistry.archiveSession = async id => { throw new Error(`cannot archive session '${id}': live sessions and session persistence hold no such session`) }
+  const preview = await b.rt.deletionPreview('writer')
+  const result = await b.rt.deletionExecute({ id: 'writer', token: preview.token, tasks: 'delete', files: [] })
+  assert.equal(result.deleted, true)
+  assert.equal(b.rt.botOf('writer'), undefined)
+})
 
 test('shared and externally changed files cannot be selected for cleanup', async t => {
   const b = await bench(t)

@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { useEscape } from './overlay-hooks.js'
 import { hostText, t } from './i18n.js'
 import { SPRING_SHAPE } from './motion.js'
+import { clockLabel } from './text.js'
 import { CheckIcon } from './icons.js'
 
 export function DeleteBotDialog({ id, actions, leaving }) {
@@ -44,13 +45,14 @@ export function DeleteBotDialog({ id, actions, leaving }) {
   const targetInfo = view?.targets.find(bot => bot.id === target)
   const progress = done?.progress ?? view?.progress
   const taskProgress = Object.values(progress?.tasks ?? {})
-  const recycled = Object.entries(progress?.files ?? {}).filter(([, file]) => file.status === 'recycled')
+  const moved = Object.entries(progress?.files ?? {}).filter(([, file]) => file.status === 'recycled' || file.status === 'restored')
   const transferred = taskProgress.filter(task => task.to && task.status === 'done')
   const deleted = taskProgress.filter(task => !task.to && task.status === 'done')
   const history = taskProgress.filter(task => task.records?.length)
   const name = view?.bot.name ?? t('Bot')
   const section = (title, ...children) => h('section', { className: 'bt-delete-section' }, h('h3', null, title), ...children)
   const hint = text => h('p', { className: 'bt-delete-hint' }, text)
+  const nextRun = task => task.scheduledAt ? h('time', { dateTime: new Date(task.scheduledAt).toISOString() }, t('Next run {time}', { time: clockLabel(task.scheduledAt) })) : null
   const fileRecovery = () => Object.entries(progress?.files ?? {}).map(([key, file]) => h('div', { className: 'bt-delete-file', key },
     h('code', null, file.original), file.status === 'recycled'
       ? h('button', { type: 'button', disabled: busy, className: 'bt-soft bt-soft-sm', onClick: () => restore(key) }, t('Restore file'))
@@ -94,7 +96,7 @@ export function DeleteBotDialog({ id, actions, leaving }) {
             hint(t('Interval tasks restart their timer when transferred. Keys are not transferred.')),
             hint(t('Only active tasks are transferred. Finished task records are kept.')),
             h('ul', { className: 'bt-delete-tasks' }, view.tasks.filter(task => task.status === 'active').map(task => h('li', { key: task.id },
-              h('span', null, task.title), h('time', null, new Date(task.kind === 'every' ? Date.now() + task.everySeconds * 1000 : task.scheduledAt).toLocaleString()))))) : null),
+              h('span', null, task.title), nextRun(task))))) : null),
         section(t('Related files'),
           hint(t('Files stay in your working folder unless you select them for recovery storage.')),
           view.files.length ? h('ul', { className: 'bt-delete-files' }, view.files.map(file => h('li', { key: file.id }, h('label', { className: 'bt-delete-file' },
@@ -113,7 +115,7 @@ export function DeleteBotDialog({ id, actions, leaving }) {
             deleted.length ? h('span', null, t('{count} tasks deleted', { count: deleted.length })) : null,
             transferred.length ? h('span', null, t('{count} tasks transferred', { count: transferred.length })) : null,
             !deleted.length && !transferred.length ? t('No associated automation tasks.') : null)),
-          h('div', null, h('dt', null, t('Working files')), h('dd', null, recycled.length ? t('{count} files in recovery storage', { count: recycled.length }) : t('No files were removed.'))),
+          h('div', null, h('dt', null, t('Working files')), h('dd', null, moved.length ? t('{count} files moved to recovery storage', { count: moved.length }) : t('No files were removed.'))),
           h('div', null, h('dt', null, t('Browser data')), h('dd', null, t('Deleted'))),
           h('div', null, h('dt', null, t('Shared secrets')), h('dd', null, t('Kept')))),
         Object.keys(progress?.files ?? {}).length ? section(t('File recovery'), hint(t('Restore a file to its original location without overwriting an existing file.')), ...fileRecovery()) : null) : null,
@@ -123,7 +125,7 @@ export function DeleteBotDialog({ id, actions, leaving }) {
         hint(t('These are records from before deletion, not tasks that are still running.')),
         history.map((task, index) => h('section', { className: 'bt-delete-history-task', key: index }, h('h3', null, task.original?.title ?? t('Task')),
           h('ul', null, task.records.map((record, index) => h('li', { key: record.messageId ?? index },
-            h('time', null, t('Scheduled for {time}', { time: new Date(record.scheduledAt).toLocaleString() }))))),
+            h('time', null, t('Scheduled for {time}', { time: clockLabel(record.scheduledAt) }))))),
           h('details', null, h('summary', null, t('Original task instruction')), h('p', null, task.original?.prompt ?? task.records[0]?.prompt ?? ''))))) : null),
     h('footer', { className: 'bt-delete-actions' },
       !done && view ? h('button', { type: 'button', className: 'bt-soft bt-delete-refresh', disabled: busy, onClick: load }, t('Refresh')) : null,

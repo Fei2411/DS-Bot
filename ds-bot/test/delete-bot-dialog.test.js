@@ -22,8 +22,8 @@ function walk(node) {
 }
 const text = node => typeof node === 'string' ? node : (node?.props?.children ?? []).map(text).join(' ')
 const view = { bot: { name: 'Writer', workDir: '/work' }, targets: [], groups: [], files: [], tasks: [] }
-function render({ preview = view, done = null, busy = false } = {}) {
-  states = [preview, 'delete', '', [], busy, '', done]; cursor = 0
+function render({ preview = view, done = null, busy = false, policy = 'delete', target = '' } = {}) {
+  states = [preview, policy, target, [], busy, '', done]; cursor = 0
   return walk(DeleteBotDialog({ id: 'writer', actions: {}, leaving: false }))
 }
 
@@ -41,8 +41,18 @@ test('deletion with no selected files never claims that files were recycled', ()
   const all = text(nodes[0])
   assert.match(all, /Writer was deleted/)
   assert.match(all, /No files were removed/)
-  assert.doesNotMatch(all, /files in recovery storage|Selected files were moved/)
+  assert.doesNotMatch(all, /moved to recovery storage|Selected files were moved/)
   assert.equal(nodes.filter(node => node.type === 'button').length, 1)
+})
+
+test('a restored file still counts as moved to recovery storage', () => {
+  const nodes = render({ done: { progress: {
+    tasks: {}, files: { report: { status: 'restored', original: '/work/report.txt' } },
+  } } })
+  const all = text(nodes[0])
+  assert.match(all, /1 files moved to recovery storage/)
+  assert.doesNotMatch(all, /No files were removed/)
+  assert.doesNotMatch(all, /Restore file/)
 })
 
 test('the result distinguishes deleted and transferred tasks and allows file restoration', () => {
@@ -52,7 +62,7 @@ test('the result distinguishes deleted and transferred tasks and allows file res
   } } })
   const all = text(nodes[0])
   assert.match(all, /1 tasks deleted/); assert.match(all, /1 tasks transferred/)
-  assert.match(all, /1 files in recovery storage/)
+  assert.match(all, /1 files moved to recovery storage/)
   assert.ok(nodes.some(node => node.type === 'button' && text(node) === 'Restore file'))
 })
 
@@ -65,4 +75,18 @@ test('scheduling history is collapsed and explains that saved records do not kee
   assert.equal(history.type, 'details'); assert.equal(history.props.open, undefined)
   assert.match(text(history), /not tasks that are still running/)
   assert.doesNotMatch(text(history), /2026-10-30T06:35:42/)
+})
+
+test('transfer lists each active task with the next run from the task record', () => {
+  const nodes = render({
+    policy: 'transfer', target: 'reader',
+    preview: { ...view, targets: [{ id: 'reader', name: 'Reader' }], tasks: [
+      { id: 'one', title: 'Check inbox', status: 'active', kind: 'every', everySeconds: 3600, scheduledAt: '2026-10-31T11:17:16.589Z' },
+      { id: 'two', title: 'Old check', status: 'finished', scheduledAt: '2026-10-01T09:00:00.000Z' },
+    ] },
+  })
+  const all = text(nodes[0])
+  assert.match(all, /Next run/)
+  assert.doesNotMatch(all, /2026-10-31T11:17:16/)
+  assert.equal(nodes.filter(node => node.type === 'time').length, 1)
 })
