@@ -70,6 +70,8 @@ export function timingText(task) {
   }
 }
 const nextText = task => (task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished'))
+// A monitor run's state, in the user's words.
+const RUN_STATUS = { baseline: 'Baseline', no_change: 'No change', match: 'Match', failed: 'Failed' }
 
 function TaskRow({ task, actions, onView, showBot, roster }) {
   const [runs, setRuns] = useState(null)
@@ -95,10 +97,12 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
       task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt' }, task.prompt) : null),
     h('span', { className: 'bt-task-next' }, nextText(task)),
-    task.mode === 'monitor' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void actions.monitorRuns(task.automationId).then(setRuns, failure => setError(failure.message)) } }, t('View monitor runs'))
+    task.mode === 'monitor' ? h(Fragment, null,
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void actions.monitorRuns(task.automationId).then(setRuns, failure => setError(failure.message)) } }, t('View monitor runs')),
+      task.status === 'active' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => { setBusy(true); void actions.convertNormal(task).then(onView, failure => setError(failure.message)).finally(() => setBusy(false)) } }, t('Make normal task')) : null)
       : task.botId && !task.roomId && task.status === 'active' && task.kind !== 'cron' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setBusy(true); void actions.convertMonitor(task).then(onView, failure => setError(failure.message)).finally(() => setBusy(false)) }, disabled: busy }, t('Make silent monitor')) : null,
     runs ? h('div', { className: 'bt-task-runs' }, runs.slice().reverse().map(run => h('div', { key: run.id },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void actions.monitorRunLog(task.automationId, run.id).then(setRunLog, failure => setError(failure.message)) } }, `${new Date(run.at).toLocaleString()} · ${run.status}${run.error ? ` · ${run.error}` : ''}`)))) : null,
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void actions.monitorRunLog(task.automationId, run.id).then(setRunLog, failure => setError(failure.message)) } }, `${new Date(run.at).toLocaleString(dateLocale(), { dateStyle: 'medium', timeStyle: 'short' })} · ${t(RUN_STATUS[run.status] ?? run.status)}${run.error ? ` · ${run.error}` : ''}`)))) : null,
     runLog ? h('pre', { className: 'bt-task-log' }, runLog) : null,
     error ? h('span', { role: 'alert', className: 'bt-danger' }, error) : null,
     h('button', {
@@ -248,6 +252,11 @@ export function ScheduleSummary({ bot, actions }) {
 
 export const SCHEDULE_CSS = `
 .bt-task{gap:10px;flex-wrap:wrap}
+/* The copy keeps a real basis so a narrow panel wraps it onto its own line
+   instead of squeezing the title to one character per line. */
+.bt-task>.bt-set-copy{flex:1 1 180px}
+.bt-task-runs{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.bt-task-runs .bt-soft{height:auto;min-height:28px;padding:4px 12px;text-align:left;white-space:normal;max-width:100%}
 .bt-task-runs,.bt-task-log{flex-basis:100%;max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-task[data-done]{opacity:.6}
 .bt-task[data-busy]{opacity:.4}

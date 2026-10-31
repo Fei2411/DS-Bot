@@ -51,6 +51,11 @@ var ZH = {
   "Saved task records": "已保存的任务记录",
   "View monitor runs": "查看监视记录",
   "Make silent monitor": "改为静默监视",
+  "Make normal task": "改为普通任务",
+  Baseline: "基线",
+  "No change": "无变化",
+  Match: "命中",
+  Failed: "失败",
   "Task type": "任务类型",
   "Normal task": "普通任务",
   "Silent monitor": "静默监视",
@@ -1700,6 +1705,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     monitorRuns: (id) => call2("monitor-runs", { id }),
     monitorRunLog: (id, runId) => call2("monitor-run-log", { id, runId }),
     convertMonitor: (task) => call2("schedule-monitor", { id: task.id, sessionId: task.sessionId }),
+    convertNormal: (task) => call2("schedule-normal", { id: task.id, sessionId: task.sessionId }),
     releasePrivate: (id) => after(call2("private-release", { id })),
     duplicateBot: (id) => after(call2("duplicate-bot", { id })),
     setPrefs: (prefs) => after(call2("set-prefs", prefs)),
@@ -12083,6 +12089,7 @@ function timingText(task) {
   }
 }
 var nextText = (task) => task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
+var RUN_STATUS = { baseline: "Baseline", no_change: "No change", match: "Match", failed: "Failed" };
 function TaskRow({ task, actions, onView, showBot, roster }) {
   const [runs, setRuns] = (0, import_react26.useState)(null);
   const [runLog, setRunLog] = (0, import_react26.useState)(null);
@@ -12115,9 +12122,17 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
       task.prompt && task.prompt !== task.title ? (0, import_react26.createElement)("span", { className: "bt-task-prompt" }, task.prompt) : null
     ),
     (0, import_react26.createElement)("span", { className: "bt-task-next" }, nextText(task)),
-    task.mode === "monitor" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
-      void actions.monitorRuns(task.automationId).then(setRuns, (failure) => setError(failure.message));
-    } }, t("View monitor runs")) : task.botId && !task.roomId && task.status === "active" && task.kind !== "cron" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+    task.mode === "monitor" ? (0, import_react26.createElement)(
+      import_react26.Fragment,
+      null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+        void actions.monitorRuns(task.automationId).then(setRuns, (failure) => setError(failure.message));
+      } }, t("View monitor runs")),
+      task.status === "active" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => {
+        setBusy(true);
+        void actions.convertNormal(task).then(onView, (failure) => setError(failure.message)).finally(() => setBusy(false));
+      } }, t("Make normal task")) : null
+    ) : task.botId && !task.roomId && task.status === "active" && task.kind !== "cron" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
       setBusy(true);
       void actions.convertMonitor(task).then(onView, (failure) => setError(failure.message)).finally(() => setBusy(false));
     }, disabled: busy }, t("Make silent monitor")) : null,
@@ -12126,7 +12141,7 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
       { key: run2.id },
       (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
         void actions.monitorRunLog(task.automationId, run2.id).then(setRunLog, (failure) => setError(failure.message));
-      } }, `${new Date(run2.at).toLocaleString()} · ${run2.status}${run2.error ? ` · ${run2.error}` : ""}`)
+      } }, `${new Date(run2.at).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" })} · ${t(RUN_STATUS[run2.status] ?? run2.status)}${run2.error ? ` · ${run2.error}` : ""}`)
     ))) : null,
     runLog ? (0, import_react26.createElement)("pre", { className: "bt-task-log" }, runLog) : null,
     error ? (0, import_react26.createElement)("span", { role: "alert", className: "bt-danger" }, error) : null,
@@ -12340,6 +12355,11 @@ function ScheduleSummary({ bot, actions }) {
 }
 var SCHEDULE_CSS = `
 .bt-task{gap:10px;flex-wrap:wrap}
+/* The copy keeps a real basis so a narrow panel wraps it onto its own line
+   instead of squeezing the title to one character per line. */
+.bt-task>.bt-set-copy{flex:1 1 180px}
+.bt-task-runs{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.bt-task-runs .bt-soft{height:auto;min-height:28px;padding:4px 12px;text-align:left;white-space:normal;max-width:100%}
 .bt-task-runs,.bt-task-log{flex-basis:100%;max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-task[data-done]{opacity:.6}
 .bt-task[data-busy]{opacity:.4}
@@ -20405,11 +20425,17 @@ function AutomationResults({ sessionId, turn, useRoster, actions, unanchored = f
   return (0, import_react52.createElement)("div", { className: "bt-automation-results" }, entries2.map((entry) => (0, import_react52.createElement)(
     "article",
     { key: entry.id, className: "bt-set-card bt-monitor-result" },
-    (0, import_react52.createElement)("div", { className: "bt-set-row" }, (0, import_react52.createElement)("strong", null, entry.title), (0, import_react52.createElement)("time", { dateTime: new Date(entry.time).toISOString() }, new Date(entry.time).toLocaleString())),
-    (0, import_react52.createElement)("div", { className: "bt-set-row" }, (0, import_react52.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: entry.text, labels: mdLabels2(), variant: "compact" })),
-    (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("View monitor runs"))
+    (0, import_react52.createElement)("div", { className: "bt-set-row" }, (0, import_react52.createElement)("strong", null, entry.title), (0, import_react52.createElement)("time", { dateTime: new Date(entry.time).toISOString() }, new Date(entry.time).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" }))),
+    (0, import_react52.createElement)("div", { className: "bt-set-row" }, (0, import_react52.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: entry.text, labels: mdLabels2(), variant: "compact" }), (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("View monitor runs")))
   )));
 }
+var AUTOMATION_CSS = `
+.bt-automation-results{display:flex;flex-direction:column;gap:12px}
+.bt-monitor-result time{margin-left:auto;font-size:12px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-monitor-result .bt-soft{flex:none}
+/* A narrow viewport turns .bt-set-row into a stretched column; keep the action compact. */
+@media (max-width:640px){.bt-monitor-result .bt-soft{align-self:flex-start}}
+`;
 
 // src/client/open-listed.js
 function listedOpener({ list, open, refresh, current }) {
@@ -21271,6 +21297,7 @@ function apply(ctx) {
     () => shadow("shell.overlay", { id: "bot-toast", order: 60, inject: face }, ErrorToast)
   ];
   const installConversation = () => [
+    () => installCompiledStyles(AUTOMATION_CSS, "automations"),
     () => shadow("conversation.chat.turnTail", { id: "bot-monitor-results", order: 900, inject: face }, AutomationResults),
     () => shadow("conversation.input.dock", { id: "bot-monitor-unanchored", order: 900, inject: face }, (props) => AutomationResults({ ...props, unanchored: true })),
     () => installCompiledStyles(CONVERSATION_CSS, "conversation"),
