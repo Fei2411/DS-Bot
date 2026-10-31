@@ -58,13 +58,13 @@ export function install(rt) {
   // A Bot that could write where DSH or the team keeps its data could change its own
   // permissions or the team, so neither those folders nor one that holds them is allowed.
   // The workspace exception covers only a workspace lying inside the data root (the
-  // plugin's default does): one that holds a data root does not open it up.
+  // plugin's default does): one that holds or is a data root does not open it up.
   async function guarded(path) {
     const team = await realTeam()
     for (const root of dataRoots()) {
       const data = await real(root)
       if (within(data, path)) return true
-      if (within(path, data) && !(team !== undefined && within(path, team) && within(team, data))) return true
+      if (within(path, data) && !(team !== undefined && within(path, team) && team !== data && within(team, data))) return true
     }
     return false
   }
@@ -76,7 +76,7 @@ export function install(rt) {
     const team = await realTeam()
     for (const root of dataRoots()) {
       const data = await real(root)
-      if (within(path, data) && !(team !== undefined && within(path, team) && within(team, data))) return true
+      if (within(path, data) && !(team !== undefined && within(path, team) && team !== data && within(team, data))) return true
     }
     return false
   }

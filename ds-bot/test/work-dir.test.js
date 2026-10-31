@@ -641,7 +641,7 @@ test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'
 test('a team workspace that holds the data still keeps Bots out of it', async (t) => {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
   const { dsh, home, project, state, call, tool, stop } = await start({
-    rootDir: root,
+    root,
     workspaces: [{ id: 'w9', path: root, title: 'root' }],
     team: { ...TEAM, workspaceId: 'w9' },
   })
@@ -659,6 +659,30 @@ test('a team workspace that holds the data still keeps Bots out of it', async (t
   writeFileSync(join(dsh, 'profiles', 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   const pic = join(dsh, 'profiles', 'pic.png')
   assert.equal(await tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+})
+
+// #508: the exception covers a workspace lying inside a data root, not one equal to
+// it: a workspace that is DSH's home or the team's own data opens every folder in it.
+test('a team workspace that is a data root still keeps Bots out of it', async (t) => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  for (const name of ['dsh', 'bot']) {
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
+    const at = name === 'dsh' ? join(root, 'dsh') : join(root, 'dsh', 'bot')
+    const env = await start({
+      root,
+      workspaces: [{ id: 'w9', path: at, title: name }],
+      team: { ...TEAM, workspaceId: 'w9' },
+    })
+    t.after(env.stop)
+    const error = async workDir => (await env.call('update-bot', { id: 'b', workDir })).error?.message
+    for (const guarded of [join(env.dsh, 'profiles'), join(env.home, 'memory')]) {
+      mkdirSync(guarded, { recursive: true })
+      assert.equal(await error(guarded), `${guarded} holds DeepSeek Harness data, so Bots cannot work there`)
+    }
+    writeFileSync(join(env.dsh, 'profiles', 'pic.png'), PNG)
+    const pic = join(env.dsh, 'profiles', 'pic.png')
+    assert.equal(await env.tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+  }
 })
 
 // #508: with no sandbox policy service a folder outside the workspace asked nobody.
