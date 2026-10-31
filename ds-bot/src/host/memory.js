@@ -71,8 +71,10 @@ const REVIEW_PASSES_MAX = 4
 const NO_MATCH = 'memory/no-match'
 const GONE = 'memory/bot-gone'
 const DENIED = 'memory/denied'
+// A change a file has no room for.
+const FULL = 'memory/full'
 // The codes the memory review routes on. A failure that carries one keeps it.
-const ROUTED = new Set([NO_MATCH, GONE, DENIED])
+const ROUTED = new Set([NO_MATCH, GONE, DENIED, FULL])
 // A write the tools refused, and a write that broke. The code says which, so
 // nothing has to read the message to know what happened.
 const REFUSED = 'memory/refused'
@@ -279,8 +281,8 @@ export function reviewEntries(home, team, budget = REVIEW_MEMORY_MAX, about = ''
 }
 
 // The memory review's answer: {"changes": […]}, perhaps in a code fence, where
-// every change is well formed. Anything else is no answer, so the review keeps its
-// place and reads the turn again.
+// every change is well formed. Anything else is no answer: the review says so and
+// moves on — the same lines are not read again.
 export function parseReview(text) {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
@@ -737,9 +739,9 @@ export function install(rt) {
     const limit = limitOf(file)
     // A file already past its size (edited by hand) may still shrink.
     if (next.length <= limit || next.length <= file.content.length) return
-    throw new Error(file.topic === undefined
+    throw Object.assign(new Error(file.topic === undefined
       ? `${capital(label)}'s MEMORY.md would have ${next.length} of its ${limit} characters. Make room first: move details into a topic (remember with topic, then forget them here), merge entries with replace, or forget what no longer matters.`
-      : `The topic [[${file.topic}]] in ${label} would have ${next.length} of its ${limit} characters. Put the rest in another topic, or forget old entries.`)
+      : `The topic [[${file.topic}]] in ${label} would have ${next.length} of its ${limit} characters. Put the rest in another topic, or forget old entries.`), { code: FULL })
   }
   const capital = text => text[0].toUpperCase() + text.slice(1)
   const sizeNote = (file, size) => `${file.file}: ${size} of ${limitOf(file)} characters`
@@ -1548,21 +1550,34 @@ export function install(rt) {
       const label = labelOf(scope, keeper.id)
       const text = cleanEntry(change?.text)
       const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today() }
+      // A change memory cannot keep is set aside and said, so what was not saved
+      // shows in the diagnostics; the rest of the answer is kept all the same —
+      // the same lines read again would meet the same limit. A secret's text is
+      // not repeated into the log.
+      const badTopic = op === 'add' && change?.topic !== undefined && String(change.topic).trim() !== '' && topic === undefined
+      const problem = op === 'add' || op === 'edit' ? entryProblem(text) : undefined
+      const leftOut =
+        op !== 'add' && target === undefined ? `it names entry ${change?.entry}, which is not listed` :
+        scope.kind === 'team' && !team ? 'it is for the team memory, which the review may not write' :
+        badTopic ? `it names the topic "${clip(String(change.topic), 60)}", which cannot be a topic name` :
+        problem !== undefined ? (secretEntry(text) ? 'the entry looks like a key, token, password, or ID number, which memory never keeps' : `the entry "${clip(text, 160)}": ${problem}`) :
+        undefined
+      if (leftOut !== undefined) {
+        rt.warn('ds-bot: memory review of %s left out a change: %s', name, leftOut)
+        continue
+      }
       try {
-        if (op !== 'add' && target === undefined) continue
-        if (scope.kind === 'team' && !team) continue
-        if ((op === 'add' || op === 'edit') && entryProblem(text) !== undefined) continue
         if (op === 'add') done.push(await addEntry({ scope, topic, text, meta, actor, label }))
         else if (op === 'edit') done.push(await replaceEntry({ scope, topic: target.file.topic, match: target.text, text, meta, actor, label }))
         else if (op === 'remove') done.push(await removeEntry({ scope, topic: target.file.topic, match: target.text, actor, label }))
       } catch (failure) {
         if (failure?.code === GONE) return 0
         rt.warn('ds-bot: memory review of %s left out a change: %s', name, failure?.message ?? failure)
-        if (failure?.code !== NO_MATCH && failure?.code !== DENIED) failed ??= failure
+        if (!ROUTED.has(failure?.code)) failed ??= failure
       }
     }
-    // A full file or a failed write is no reason to pass the lines: the next
-    // review reads them again, and its request shows how full MEMORY.md is.
+    // A write that broke keeps the review's place: it may work when the lines are
+    // next read. What memory could not keep was set aside above, said already.
     if (failed !== undefined) throw failed
     return done.filter(result => result.changed).length
   }
@@ -1653,30 +1668,26 @@ export function install(rt) {
       const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
       const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
       const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
+      if (!alive()) return
       const changes = parseReview(reply)
-      if (changes === undefined) throw new Error(`the model's answer is not a list of changes: ${clip(reply.replace(/\s+/g, ' '), 120)}`)
-      const unknown = changes.find(change => change.op !== 'add' && numbered[Number(change.entry) - 1] === undefined)
-      if (unknown !== undefined) throw new Error(`the model's answer names entry ${unknown.entry}, which is not listed`)
-      // A secret is left out for good; any other entry memory cannot keep (one too
-      // long, say) fails the answer, so the next review reads the lines again.
-      const applied = changes.slice(0, REVIEW_CHANGES_MAX)
-      const unfit = applied.filter(change => change.op !== 'remove').map(change => cleanEntry(change.text)).find(text => !secretEntry(text) && entryProblem(text) !== undefined)
-      if (unfit !== undefined) throw new Error(`the model's answer holds an entry memory cannot keep: ${entryProblem(unfit)}`)
-      const badTopic = applied.find(change => change.op === 'add' && typeof change.topic === 'string' && change.topic.trim() !== '' && cleanTopic(change.topic) === undefined)
-      if (badTopic !== undefined) throw new Error(`the model's answer names the topic "${clip(badTopic.topic, 60)}", which cannot be a topic name`)
-      if (!alive()) return
-      const changed = await applyReview({ keeper, name, home, numbered, changes: applied, source: batch.source(read), teamWrites })
-      if (!alive()) return
-      // An answer at the limit may have left some out, so the same lines are read
-      // again, a few times at most, while each pass still changes something.
-      const prior = overflowed.get(key)
-      const passes = prior !== undefined && prior.since === since ? prior.passes : 0
-      if (changes.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
-        overflowed.set(key, { since, passes: passes + 1 })
-        through = since
-        again = true
+      // An answer that is no list of changes keeps nothing of the batch; the miss
+      // is said, and the place moves on — the same lines are not read again.
+      if (changes === undefined) {
+        rt.warn('ds-bot: memory review of %s got no list of changes from the model: %s', name, clip(reply.replace(/\s+/g, ' '), 120))
       } else {
-        overflowed.delete(key)
+        const changed = await applyReview({ keeper, name, home, numbered, changes: changes.slice(0, REVIEW_CHANGES_MAX), source: batch.source(read), teamWrites })
+        if (!alive()) return
+        // An answer at the limit may have left some out, so the same lines are read
+        // again, a few times at most, while each pass still changes something.
+        const prior = overflowed.get(key)
+        const passes = prior !== undefined && prior.since === since ? prior.passes : 0
+        if (changes.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
+          overflowed.set(key, { since, passes: passes + 1 })
+          through = since
+          again = true
+        } else {
+          overflowed.delete(key)
+        }
       }
     }
     const now = cursorsNow()[key]
