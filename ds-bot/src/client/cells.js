@@ -946,6 +946,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           h('button', { type: 'button', className: 'bt-event-whole', onClick: () => actions.showDetails(sessionId) },
             h(BotMark, { bot, size: 16 }), h('span', { className: 'bt-event-name' }, t(reply.kind === 'working' ? '{name} started on it' : '{name} paused for your approval', { name: bot.name }))))
       }
+      if (reply.kind === 'folder') {
+        return h('div', { key: `folder-${index}`, className: 'bt-event' }, reply.text)
+      }
       if (reply.kind === 'stopped') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
       }

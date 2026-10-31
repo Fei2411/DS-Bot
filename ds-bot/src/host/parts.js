@@ -1082,13 +1082,29 @@ export function install(rt) {
     const folders = ctx.get?.('workingDirectory')
     if (agent === undefined || typeof folders?.get !== 'function' || readOnly()) return next()
     const current = folders.get(agent.session)
-    if (current === undefined || await rt.isFolder(current)) return next()
+    if (current === undefined) return next()
     await rt.load()
+    // A group's own Session only relays, so it stays in the team workspace. It has no
+    // fresh part to move to, so a stale or gone folder is corrected in place; without
+    // this every round failed with 'directory does not exist' (#710).
+    if (rt.roomOf(agent.id) !== undefined) {
+      if (current === rt.teamFolder()) return next()
+      const team = await rt.keepTeamFolder()
+      if (team === undefined) return next()
+      await folders.set(agent, team, context.signal)
+        .catch(error => rt.warn('ds-bot: the group chat works in %s and could not change to %s: %s', current, team, error))
+      return next()
+    }
+    if (await rt.isFolder(current)) return next()
     const team = await rt.keepTeamFolder()
     if (current === team || !rt.isBotSession(agent.id)) return next()
     const place = placeOf(agent.id)
     const wanted = rt.workDirOf(place)
-    const target = wanted !== undefined && await rt.isFolder(wanted) ? wanted : team
+    const usable = wanted !== undefined && await rt.isFolder(wanted)
+    // A member whose group's folder went away works on in the team workspace; the
+    // group is told once, so every round is not told again.
+    if (!usable) await rt.roomFolderNotice?.(place?.roomId, wanted)
+    const target = usable ? wanted : team
     if (target !== undefined) {
       await folders.set(agent, target, context.signal)
         .catch(error => rt.warn('ds-bot: %s works in %s, which is gone, and could not change to %s: %s', rt.botOf(place?.botId)?.name ?? agent.id, current, target, error))
