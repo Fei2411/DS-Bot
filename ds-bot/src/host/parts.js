@@ -1010,6 +1010,8 @@ export function install(rt) {
   // room before the step (condensed in place, or it stops and goes on in a fresh
   // part), and the backend's own pre-step listener sees the wrapper.
   ctx.on('agent/pre-step', async (payload, next) => {
+    if (rt.deletingBots?.has(rt.selfOf(payload.agent.id))) return { kind: 'reject' }
+    if (rt.automationOwners.has(payload.agent.id)) return next()
     await rt.load()
     const { agent } = payload
     const past = rt.pastOwners.get(agent.id)
@@ -1225,6 +1227,14 @@ export function install(rt) {
       items.push(item)
     }
     for (const event of events) {
+      if (event.type === 'turn/end') {
+        for (const result of state.monitorResults ?? []) {
+          if (result.sessionId === partId && result.anchorTurn === (event.data?.turn ?? turn)) {
+            stamp(event, { kind: 'monitor', text: result.text, title: result.title, time: result.time, resultId: result.id })
+          }
+        }
+        continue
+      }
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
         continue

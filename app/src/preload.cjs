@@ -9,6 +9,16 @@ const host = process.argv.find(value => value.startsWith('--ds-bot-origin='))?.s
 if (host !== undefined && location.origin === host) {
   // DS Bot's settings show and move the app's data location through this.
   contextBridge.exposeInMainWorld('dsBotApp', {
+    notifications: {
+      supported: () => ipcRenderer.invoke('ds-bot:notification-status'),
+      current: id => ipcRenderer.send('ds-bot:notification-current', id),
+      onOpen: callback => {
+        const listener = (_event, id) => callback(id)
+        ipcRenderer.on('ds-bot:open-chat', listener)
+        ipcRenderer.send('ds-bot:notification-ready')
+        return () => ipcRenderer.removeListener('ds-bot:open-chat', listener)
+      },
+    },
     dataLocation: () => ipcRenderer.invoke('ds-bot:data-location'),
     moveData: (workspace) => ipcRenderer.invoke('ds-bot:move-data', typeof workspace === 'string' ? workspace : undefined),
     teamWorkspaceChanged: (path) => { ipcRenderer.send('ds-bot:team-workspace', String(path)) },

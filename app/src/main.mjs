@@ -1,7 +1,8 @@
 // Electron main process: one window for the Bot team, served by the app's own DSH Host.
 // The window loads the Host's loopback address as DSH Web does: DSH's sign-in sends the page's
 // origin as the address the browser comes back to, and accepts only a loopback one.
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, session, shell as electronShell, Tray } from 'electron'
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, session, shell as electronShell, Tray } from 'electron'
+import { completionNotices } from './completion-notices.mjs'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -122,6 +123,12 @@ const shell = createShell({
   // Without a tray the close asks whether the app should end.
   fallback: { show: (options) => dialog.showMessageBox(options) },
 })
+
+let notificationBot
+const completions = completionNotices({ Notification, window: () => mainWindow, open: () => shell.open(), navigate: botId => {
+  notificationBot = botId
+  mainWindow?.webContents.send('ds-bot:open-chat', botId)
+} })
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
 app.once('will-quit', () => { shell.dispose(); botViews.dispose(); updates?.stop() })
 
@@ -171,6 +178,12 @@ function stopHost() {
 }
 
 async function start() {
+  if (process.platform === 'win32') app.setAppUserModelId('io.github.fei2411.deepseekbot')
+  ipcMain.handle('ds-bot:notification-status', event => { assertWindow(event); return completions.supported() })
+  ipcMain.on('ds-bot:notification-current', (event, id) => { if (fromWindow(event)) completions.current(typeof id === 'string' ? id : null) })
+  ipcMain.on('ds-bot:notification-ready', event => {
+    if (fromWindow(event) && notificationBot) { event.sender.send('ds-bot:open-chat', notificationBot); notificationBot = undefined }
+  })
   choosing = new AbortController()
   const where = await chooseLocations(choosing.signal).finally(() => { choosing = undefined })
   if (where.quit) { app.exit(0); return }
@@ -209,6 +222,8 @@ async function start() {
     updates?.subscribe((state) => { mainWindow?.webContents.send(IPC.appUpdateChanged, state) })
     host = newHost()
     host.onMessage(message => {
+      if (message?.type === 'ds-bot:completion') { completions.show(message); return }
+      if (message?.type === 'ds-bot:attention') { completions.show(message); return }
       if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
       const downloadRoots = message.downloadRoots
       if (!Array.isArray(downloadRoots) || downloadRoots.length > 4 || !Array.from(downloadRoots).every(root => typeof root === 'string' && isAbsolute(root))) {
@@ -627,6 +642,7 @@ function createWindow() {
   // The tabs that outlived the last window join this one.
   botViews.attach(win)
   const contents = win.webContents
+  contents.on('did-finish-load', () => { if (notificationBot) contents.send('ds-bot:open-chat', notificationBot) })
   // The session is the same for every window of the app, so the handler is bound once.
   if (!downloadsBound) {
     downloadsBound = true

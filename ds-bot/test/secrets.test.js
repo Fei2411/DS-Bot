@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -289,7 +290,7 @@ test('a deleted Bot leaves every scope list and takes its cards along', async (t
   t.after(bench.stop)
   await bench.call('secret-set', { name: 'API_KEY', value: fresh(), scope: ['b2', 'c3'], purpose: 'p' })
   await bench.tool('request_secret', { name: 'OTHER_KEY', purpose: 'x' }, 'c3')
-  assert.equal((await bench.call('delete-bot', { id: 'c3' })).ok, true)
+  assert.equal((await deleteConfirmed(bench.call, { id: 'c3' })).ok, true)
   const team = await bench.view()
   assert.deepEqual(team.secrets[0].scope, ['b2'])
   assert.equal(team.secretRequests.c3, undefined)

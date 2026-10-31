@@ -257,6 +257,8 @@ export function install(rt) {
   async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (rt.deletingBots?.has(id)) throw new Error('This Bot is being deleted')
+    if (patch.notifyCompletion !== undefined && (actorId !== undefined || typeof patch.notifyCompletion !== 'boolean')) throw new Error('Only the user can set completion notifications')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
@@ -298,6 +300,7 @@ export function install(rt) {
       await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
     }
     const roleBefore = bot.role
+    if (patch.notifyCompletion !== undefined) bot.notifyCompletion = patch.notifyCompletion
     const instructionsBefore = bot.instructions
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
@@ -406,6 +409,7 @@ export function install(rt) {
   }
 
   function checkMembers(members) {
+    if (members.some(id => rt.deletingBots?.has(id))) throw new Error('A selected Bot is being deleted')
     if (members.length < 2) throw new Error('A group chat needs at least two Bots')
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
     rt.checkNoPrivate(members)
@@ -631,6 +635,7 @@ export function install(rt) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
+    await rt.removeBotMonitors?.(id)
     // Before the Bot and its group Sessions leave the state, which the archive reads.
     const archived = rt.archiveBotMemory(id)
     const current = rt.chatOf(id)
@@ -642,7 +647,7 @@ export function install(rt) {
       id: bot.id,
       name: bot.name,
       ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
-      sessionIds: [...parts, ...rt.groupSessionsOf(id)],
+      sessionIds: [...parts, ...rt.groupSessionsOf(id), ...rt.monitorTasksOf(id).map(task => task.sessionId)],
       archiving: true,
     } : undefined
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
@@ -675,6 +680,7 @@ export function install(rt) {
     // Past parts are archived too: a part move can leave tasks on the old Session,
     // which otherwise stays armed and invisible. Already-archived ids are a no-op.
     for (const part of parts) {
+      if (rt.deletionArchived?.has(part)) continue
       await ctx.workspaceRegistry.archiveSession(part, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: Bot %s not archived: %s', bot.name, error))
     }

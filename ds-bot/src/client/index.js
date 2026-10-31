@@ -45,6 +45,9 @@ import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
+import { noticeCompletions } from './completion-notices.js'
+import { AutomationResults } from './automation-results.js'
+import { DELETE_BOT_CSS } from './delete-bot.js'
 import { listedOpener } from './open-listed.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -677,6 +680,12 @@ export function apply(ctx) {
     shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
     openSession: id => actions.openSession(id),
   }), 'ds-bot: approval notifications')
+  ctx.effect(() => noticeCompletions({
+    roster,
+    shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
+    openSession: id => actions.openSession(id), markUnread: id => actions.markUnread(id),
+    claim: (id, clientId) => call('completion-claim', { id, clientId }),
+  }), 'ds-bot: completion notifications')
   const assistantFace = (sessionId) => {
     const binding = ctx.sessions.binding(sessionId)
     if (binding === undefined) throw new Error(`ds-bot: unknown session "${sessionId}"`)
@@ -854,6 +863,7 @@ export function apply(ctx) {
   // group re-skins the session itself. Each step returns a disposer from slots.inject,
   // so a surface change withdraws the whole group and the outlets re-render.
   const installShell = () => [
+    () => installCompiledStyles(DELETE_BOT_CSS, 'bot-delete'),
     () => installCompiledStyles(SHELL_CSS, 'shell'),
     () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
     () => installCompiledStyles(SECRET_CSS, 'secrets'),
@@ -886,6 +896,8 @@ export function apply(ctx) {
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
   ]
   const installConversation = () => [
+    () => shadow('conversation.chat.turnTail', { id: 'bot-monitor-results', order: 900, inject: face }, AutomationResults),
+    () => shadow('conversation.input.dock', { id: 'bot-monitor-unanchored', order: 900, inject: face }, props => AutomationResults({ ...props, unanchored: true })),
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
     () => installMentions(),
     () => installAtMenu(),

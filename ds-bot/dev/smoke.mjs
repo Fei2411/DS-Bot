@@ -48,6 +48,10 @@ async function login() {
 
 const cookie = await login()
 async function api(endpoint, payload = {}) {
+  if (endpoint === 'delete-bot') {
+    const preview = await api('delete-preview', payload)
+    return api('delete-confirm', { ...payload, token: preview.token, tasks: 'delete', files: [] })
+  }
   const response = await fetch(`${BASE}/api/bot`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', cookie },
