@@ -17,3 +17,22 @@
   config:
     searchProvider: auto
     fetchProvider: http
+
+# Cap foreground shell commands and job waits to 5 seconds so long-running
+# tasks (builds, tests, scripts) move to background jobs instead of blocking
+# the Bot session, keeping the bot responsive to messages and steering
+# (inspired by DeepSeek SuperAgent).
+- id: bash-sandbox
+  config:
+    timeoutMs: 5000
+    maxTimeoutMs: 5000
+
+- id: pwsh-sandbox
+  config:
+    timeoutMs: 5000
+    maxTimeoutMs: 5000
+
+- id: tool-jobs
+  config:
+    waitTimeoutMs: 5000
+    maxWaitTimeoutMs: 5000
