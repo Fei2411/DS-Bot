@@ -3,6 +3,7 @@
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
@@ -901,7 +902,11 @@ export function install(rt) {
       } catch (error) {
         const id = request?.sessionId
         if (id === undefined || (rt.roomOf(id) === undefined && !rt.isBotSession(id))) throw error
-        const reason = typeof error?.details?.reason === 'string' && error.details.reason !== '' ? error.details.reason : undefined
+        // The reason can name local paths or carry tokens, so the same cleaning the
+        // diagnostics get applies before it reaches the client.
+        const reason = typeof error?.details?.reason === 'string' && error.details.reason !== ''
+          ? cleanText(error.details.reason, { redact: rt.redactSecrets })
+          : undefined
         rt.noteFailure({
           source: 'prompt',
           text: `prompt rejected for ${placeOf(id)}${reason === undefined ? '' : `: ${reason}`}`,
@@ -909,11 +914,12 @@ export function install(rt) {
           where: placeOf(id),
           sessionId: id,
         })
+        // The gateway passes a RemoteError's code and details on as they are, but
+        // wraps a fresh plain Error as 'gateway/internal': the reason is written on
+        // the rejection itself, keeping its identity.
         if (reason !== undefined) {
-          const enriched = new Error(`${error?.message ?? 'prompt rejected'} — ${reason}`)
-          enriched.code = error.code
-          enriched.details = error.details
-          throw enriched
+          error.message = `${error?.message ?? 'prompt rejected'} — ${reason}`
+          error.details = { ...error.details, reason }
         }
         throw error
       }

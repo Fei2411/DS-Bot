@@ -610,15 +610,43 @@ test('the user moves the team workspace, and Bots without a folder of their own 
 
 // #424: DSH's prompt admission wraps any unexpected failure as 'session/agent-busy'
 // with the cause in details.reason. For a Session this team owns the reason reaches
-// the user and the diagnostics log.
+// the user and the diagnostics log — on the same error, so the gateway still sees a
+// RemoteError and passes its code and details on instead of 'gateway/internal'.
 test('a prompt rejected with a hidden reason shows the reason and logs it', async (t) => {
   const { ctx, call, stop } = await start()
   t.after(stop)
-  ctx.__promptError = Object.assign(new Error('prompt rejected'), { code: 'session/agent-busy', details: { reason: 'Error: Could not load the "sharp" module' } })
-  const denied = await ctx.sessionController.prompt({ sessionId: 'r1', content: [] }).then(() => 'ok', error => `${error.message} (${error.code})`)
-  assert.match(denied, /prompt rejected — Error: Could not load the "sharp" module \(session\/agent-busy\)/)
+  ctx.__promptError = Object.assign(new Error('prompt rejected'), {
+    code: 'session/agent-busy',
+    isDSHRemoteError: true,
+    details: { reason: 'Error: Could not load the "sharp" module', rest: 1 },
+  })
+  const failure = await ctx.sessionController.prompt({ sessionId: 'r1', content: [] }).then(() => undefined, error => error)
+  assert.equal(failure, ctx.__promptError)
+  assert.match(failure.message, /prompt rejected — Error: Could not load the "sharp" module/)
+  assert.equal(failure.code, 'session/agent-busy')
+  assert.deepEqual(failure.details, { reason: 'Error: Could not load the "sharp" module', rest: 1 })
   const log = (await call('diagnostics-log', {})).value
   assert.match(log, /sharp/)
+})
+
+// #424: the hidden reason can name a local path or carry a token; what reaches the
+// user is cleaned like the diagnostics, not the raw reason.
+test('a rejected prompt reason reaches the user cleaned of paths and tokens', async (t) => {
+  const { ctx, call, stop } = await start()
+  t.after(stop)
+  ctx.__promptError = Object.assign(new Error('prompt rejected'), {
+    code: 'session/attachment-invalid',
+    isDSHRemoteError: true,
+    details: { reason: `Cannot read ${join(homedir(), 'key.pem')} or https://hook.example/in?token=t0ken123` },
+  })
+  const failure = await ctx.sessionController.prompt({ sessionId: 'r1', content: [] }).then(() => undefined, error => error)
+  assert.equal(failure.code, 'session/attachment-invalid')
+  assert.ok(!failure.message.includes('t0ken123'), failure.message)
+  assert.ok(!failure.message.includes(homedir()), failure.message)
+  assert.match(failure.message, /token=\[hidden\]/)
+  assert.equal(failure.details.reason, `Cannot read ~${join(homedir(), 'key.pem').slice(homedir().length)} or https://hook.example/in?token=[hidden]`)
+  const log = (await call('diagnostics-log', {})).value
+  assert.ok(!log.includes('t0ken123'), log)
 })
 
 test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'s own default', async (t) => {
