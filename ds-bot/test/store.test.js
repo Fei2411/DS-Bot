@@ -285,3 +285,25 @@ test('dispose waits for a pending save and prevents later writes', async (t) => 
     restore()
   }
 })
+
+// #715: a model that quotes the Bot's name must find it, like findRooms does.
+test('findBot unquotes a Bot ref before matching the name', async (t) => {
+  const { rt } = runtime(t, {
+    version: 1,
+    mainBotIds: [],
+    bots: {
+      a1: { id: 'a1', name: 'Ada' },
+      s2: { id: 's2', name: 'Sun Tzu' },
+    },
+    rooms: {},
+  })
+  await rt.load()
+  for (const ref of ['Ada', 'ada', ' @Ada ', '"Ada"', "'Ada'", '“Ada”', '「Ada」']) {
+    assert.equal(rt.findBot(ref)?.id, 'a1', ref)
+  }
+  assert.equal(rt.findBot('“Sun Tzu”')?.id, 's2')
+  // An id still resolves itself; an unknown name still misses.
+  assert.equal(rt.findBot('a1')?.id, 'a1')
+  assert.equal(rt.findBot('"Nobody"'), undefined)
+  assert.equal(rt.findBot(undefined), undefined)
+})
