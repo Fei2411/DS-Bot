@@ -71,7 +71,7 @@ const REVIEW_PASSES_MAX = 4
 const NO_MATCH = 'memory/no-match'
 const GONE = 'memory/bot-gone'
 const DENIED = 'memory/denied'
-// A change a file has no room for.
+// A change the memory has no room for: a file at its size, or the last topic.
 const FULL = 'memory/full'
 // The codes the memory review routes on. A failure that carries one keeps it.
 const ROUTED = new Set([NO_MATCH, GONE, DENIED, FULL])
@@ -280,9 +280,11 @@ export function reviewEntries(home, team, budget = REVIEW_MEMORY_MAX, about = ''
   return { numbered: [...main, ...topics.filter(entry => shown.has(entry))], left: topics.length - shown.size }
 }
 
-// The memory review's answer: {"changes": […]}, perhaps in a code fence, where
-// every change is well formed. Anything else is no answer: the review says so and
-// moves on — the same lines are not read again.
+// The memory review's answer: {"changes": […]}, perhaps in a code fence. `changes`
+// are the well-formed ones; `leftOut` the rest, so a malformed change does not
+// take the whole answer down — it is set aside and said, and the well-formed ones
+// are saved. Anything else is no answer: the review says so and moves on — the
+// same lines are not read again.
 export function parseReview(text) {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
@@ -294,7 +296,10 @@ export function parseReview(text) {
     return undefined
   }
   if (value === null || typeof value !== 'object' || !Array.isArray(value.changes)) return undefined
-  return value.changes.every(wellFormed) ? value.changes : undefined
+  const changes = []
+  const leftOut = []
+  for (const change of value.changes) (wellFormed(change) ? changes : leftOut).push(change)
+  return { changes, leftOut }
 }
 const wellFormed = (change) => {
   if (change === null || typeof change !== 'object') return false
@@ -771,7 +776,7 @@ export function install(rt) {
       let target = topic === undefined ? main : files.find(file => file.topic === topic)
       const fresh = target === undefined
       if (fresh) {
-        if (files.length - 1 >= MEMORY_LIMITS.topics) throw new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`)
+        if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
         target = { topic, file: `${topic}.md`, path: join(dirOf(scope), `${topic}.md`), content: '', ...parseMemory(`# ${topic}\n`) }
       }
       const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${topic}\n`).lines
@@ -1572,7 +1577,11 @@ export function install(rt) {
         else if (op === 'remove') done.push(await removeEntry({ scope, topic: target.file.topic, match: target.text, actor, label }))
       } catch (failure) {
         if (failure?.code === GONE) return 0
-        rt.warn('ds-bot: memory review of %s left out a change: %s', name, failure?.message ?? failure)
+        // The change is named by its text and where it was headed, so the
+        // diagnostics say what was not kept, not only why.
+        const held = op === 'remove' ? `the removal of "${clip(target.text, 160)}"` : `the entry "${clip(text, 160)}"`
+        const aimed = `${fileName(op === 'add' ? { topic } : target.file)} of ${label}`
+        rt.warn('ds-bot: memory review of %s left out a change: %s for %s: %s', name, held, aimed, failure?.message ?? failure)
         if (!ROUTED.has(failure?.code)) failed ??= failure
       }
     }
@@ -1669,19 +1678,25 @@ export function install(rt) {
       const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
       const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
       if (!alive()) return
-      const changes = parseReview(reply)
+      const parsed = parseReview(reply)
       // An answer that is no list of changes keeps nothing of the batch; the miss
-      // is said, and the place moves on — the same lines are not read again.
-      if (changes === undefined) {
+      // is said, and the place moves on — the same lines are not read again. A
+      // change that is not well formed is set aside and said, one by one.
+      if (parsed === undefined) {
         rt.warn('ds-bot: memory review of %s got no list of changes from the model: %s', name, clip(reply.replace(/\s+/g, ' '), 120))
       } else {
+        const { changes, leftOut } = parsed
+        for (const change of leftOut) {
+          const shown = clip(JSON.stringify(change), 160)
+          rt.warn('ds-bot: memory review of %s left out a change: %s', name, secretEntry(shown) ? 'it looks like a key, token, password, or ID number, which memory never keeps' : `it is not a well-formed change: ${shown}`)
+        }
         const changed = await applyReview({ keeper, name, home, numbered, changes: changes.slice(0, REVIEW_CHANGES_MAX), source: batch.source(read), teamWrites })
         if (!alive()) return
         // An answer at the limit may have left some out, so the same lines are read
         // again, a few times at most, while each pass still changes something.
         const prior = overflowed.get(key)
         const passes = prior !== undefined && prior.since === since ? prior.passes : 0
-        if (changes.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
+        if (changes.length + leftOut.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
           overflowed.set(key, { since, passes: passes + 1 })
           through = since
           again = true
