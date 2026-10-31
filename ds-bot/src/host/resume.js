@@ -19,9 +19,6 @@ import { textOf } from './text.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
 export const RESUME_DELAY_MS = 3000
-// A delivery waiting longer than this was not lost to a restart.
-const QUEUED_KEPT_MS = 24 * 60 * 60 * 1000
-const QUEUED_MAX = 50
 
 export const resumeText = record => [
   'DeepSeek Harness restarted while you were working on this, so your last turn stopped before it finished.',
@@ -172,7 +169,8 @@ export function install(rt) {
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
     // Noted before it is sent: a turn may take it up before the send returns.
-    queued = { ...queued, [sessionId]: [...(queued[sessionId] ?? []), { at: Date.now(), args: noted }].slice(-QUEUED_MAX) }
+    // Age and queue size do not mean the sender withdrew the work.
+    queued = { ...queued, [sessionId]: [...(queued[sessionId] ?? []), { at: Date.now(), args: noted }] }
     persist()
     try {
       return await deliver(noted)
@@ -273,13 +271,13 @@ export function install(rt) {
       if (rt.isBotSession(sessionId)) return sessionId
       return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
     }
-    const fresh = list.filter(item => Date.now() - item.at < QUEUED_KEPT_MS && rt.botOf(item.args?.toId) !== undefined
+    const pending = list.filter(item => rt.botOf(item.args?.toId) !== undefined
       && current(item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
-    if (fresh.length === 0) return
-    const target = current(fresh[0].args)
+    if (pending.length === 0) return
+    const target = current(pending[0].args)
     const agent = await rt.resolveAgent(target)
     const waiting = new Set([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].map(message => message.source?.exchangeId))
-    for (const { args } of fresh) {
+    for (const { args } of pending) {
       if (waiting.has(args.exchangeId) || taken?.has(args.exchangeId) === true) continue
       await rt.deliver({ ...args, sessionId: current(args), steer: false, resent: true })
     }

@@ -462,7 +462,7 @@ test('a turn DSH stops as it shuts down stays noted; one the user stops does not
   await settle(() => inflight(home).a !== undefined && inflight(home).b === undefined)
 })
 
-test('a message a shutdown cancelled is sent again once; one still waiting, taken up or withdrawn is not', async (t) => {
+test('an old message a shutdown cancelled is sent again once; one still waiting, taken up or withdrawn is not', async (t) => {
   const home = freshHome(t)
   const first = await start(home)
   const send = message => first.tool('message_bot', { to: 'Writer', message, when: 'queue' }, 'a')
@@ -470,23 +470,90 @@ test('a message a shutdown cancelled is sent again once; one still waiting, take
   await send('Check the numbers')
   await send('Read the notes')
   await send('Never mind')
-  const [plan, numbers, notesMessage, withdrawn] = first.agentOf('b').calls
+  await send('Read during startup')
+  const [plan, numbers, notesMessage, withdrawn, startup] = first.agentOf('b').calls
   // Taken up by a turn, or withdrawn while DS Bot runs (the user stopped the Bot).
   first.emit('b', 'user/message', { content: notesMessage.content, source: notesMessage.source })
   for (const listener of first.ctx.listeners.get('agent/inbox/discarded')) listener({ message: withdrawn })
-  await settle(() => (notes(home).queued.b ?? []).length === 2)
+  await settle(() => (notes(home).queued.b ?? []).length === 3)
   await first.stop()
+  const saved = notes(home)
+  for (const item of saved.queued.b) item.at = Date.now() - 25 * 60 * 60 * 1000
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify(saved))
 
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const second = await start(home)
   // A hard stop keeps the inbox: that message runs when the Session wakes.
   second.agentOf('b').inbox.nextTurn.push(numbers)
+  run(second, 'b', 1, startup)
   t.mock.timers.tick(3000)
   await settle(() => second.agentOf('b').calls.length === 1)
   const [again] = second.agentOf('b').calls
   assert.deepEqual([again.source.exchangeId, again.source.role, text(again)], [plan.source.exchangeId, 'request', text(plan)])
   // The resend is the same exchange, not a new one.
-  assert.equal((await second.call('exchange', { a: 'a', b: 'b' })).value.length, 4)
+  assert.equal((await second.call('exchange', { a: 'a', b: 'b' })).value.length, 5)
+})
+
+test('queued requests survive a day offline under their original exchanges and settle their work', async (t) => {
+  const home = freshHome(t)
+  const first = await start(home)
+  for (const message of ['Older than a day', 'Exactly a day', 'Recent request']) {
+    await first.tool('message_bot', { to: 'Writer', message, when: 'queue' }, 'a')
+  }
+  await settle(() => (notes(home).queued.b ?? []).length === 3)
+  await first.stop()
+  const saved = notes(home)
+  const now = Date.now()
+  for (const [i, hours] of [25, 24, 1].entries()) saved.queued.b[i].at = now - hours * 60 * 60 * 1000
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify(saved))
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 3)
+  const again = second.agentOf('b').calls
+  assert.deepEqual(again.map(message => message.source), first.agentOf('b').calls.map(message => message.source))
+  assert.deepEqual(again.map(text), first.agentOf('b').calls.map(text))
+  assert.equal((await second.call('exchange', { a: 'a', b: 'b' })).value.length, 3)
+  for (const [i, message] of again.entries()) {
+    run(second, 'b', i + 1, message)
+    second.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: `Finished request ${i + 1}` }] } })
+    second.emit('b', 'turn/end', { turn: i + 1, reason: { kind: 'completed' } })
+  }
+  await settle(() => second.agentOf('a').calls.length === 3)
+  assert.deepEqual(second.agentOf('a').calls.map(message => message.source.replyTo), again.map(message => message.source.exchangeId))
+  await settleState(t, home, () => Object.keys(stateOf(home).works ?? {}).length === 0)
+  await second.stop()
+  const third = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => third.agentOf('a').calls.length === 3)
+  assert.equal(third.agentOf('b').calls.length, 0)
+})
+
+test('all queued deliveries are kept and recovered when more than fifty await one Session', async (t) => {
+  const state = seed()
+  const senders = ['a']
+  for (let i = 1; i < 51; i += 1) {
+    const id = `sender${i}`
+    state.bots[id] = { id, name: `Sender ${i}`, role: 'Write', sessionId: id, createdAt: i + 2 }
+    senders.push(id)
+  }
+  const home = freshHome(t, state)
+  const first = await start(home)
+  for (const [i, sender] of senders.entries()) {
+    await first.tool('message_bot', { to: 'Writer', message: `Request ${i + 1}`, when: 'queue' }, sender)
+  }
+  await first.stop()
+  const expected = first.agentOf('b').calls.map(message => message.source.exchangeId)
+  assert.equal(expected.length, 51)
+  assert.deepEqual(notes(home).queued.b.map(item => item.args.exchangeId), expected)
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 51)
+  assert.deepEqual(second.agentOf('b').calls.map(message => message.source.exchangeId), expected)
+  assert.equal(stateOf(home).exchanges.length, 51)
 })
 
 const WRITTEN = 'Checking now.\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem E:\\\n</parameter>\n</function>\n</tool_call>'
