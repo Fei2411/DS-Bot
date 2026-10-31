@@ -1045,8 +1045,10 @@ export function install(rt) {
       running.carry.push(...payload.messages)
       return { kind: 'reject' }
     }
-    const midTurn = payload.step > 1
     const entry = rt.liveOf(agent.id)
+    // A turn carried through a steer cut keeps its trigger and joined work, so
+    // its first step is already the middle of a turn for the folder check.
+    const midTurn = payload.step > 1 || entry.carried === true
     entry.switched = true
     startSwitch(agent, { resume: midTurn, carry: payload.messages, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
     return { kind: 'reject' }
