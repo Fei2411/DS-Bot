@@ -37,7 +37,13 @@ export function answerSender(rt, id, source, text, long) {
     role: 'reply',
     replyTo: source.exchangeId,
     ...(work ? { work } : {}),
-  }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
+  }).catch((error) => {
+    rt.warn('ds-bot: reply delivery failed: %s', error)
+    // The reply never reached the asker, but its result is already kept with the
+    // work it was for: the wait for the message to be read ends, and the asker's
+    // next answer names the failure instead of waiting on it forever.
+    rt.answerMissed?.(source.exchangeId)
+  })
 }
 
 // A group's own Session never reaches a model, so the snapshot DSH prepared there

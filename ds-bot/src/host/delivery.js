@@ -14,7 +14,7 @@ export function install(rt) {
     return resolved.agent
   }
 
-  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, asker } = {}) => {
+  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, asker } = {}) => {
     // What came back for work another Bot gave this one says where its answer goes.
     const goesOn = asker === undefined ? '' : ` · for the work ${asker} asked you for; your answer goes to ${asker} once everything you handed on is back`
     if (deferred && role === 'reply') return `[Reply from ${fromName} · you read it during your last task; go on with the work it is for now${goesOn}]`
@@ -23,6 +23,7 @@ export function install(rt) {
     if (retried && role !== 'room') return '[Your last reply wrote a tool call as text, so nothing ran]'
     if (resumed && role === 'resume') return '[DeepSeek Harness restarted while you were working]'
     if (resumed && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted while you were working on it]`
+    if (resent && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted before it could reach you]`
     if (role === 'reply') return `[Reply from ${fromName}${goesOn}]`
     if (role === 'stopped') return `[Stopped by ${fromName}]`
     if (role === 'room') return `[Group chat "${roomName}" · ${note}]`
@@ -77,9 +78,24 @@ export function install(rt) {
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
     }
     const targetSessionId = sessionId ?? rt.chatOf(toId)
+    await rt.ensureCapabilities(targetSessionId)
+    const agent = await resolveAgent(targetSessionId)
+    // A steered message cuts into a running turn at its next step; a follow-up
+    // queues for the next turn (see turns.js for how each is routed).
+    const message = createUserMessage({
+      content: [
+        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, asker })}\n${text}` },
+        ...files.map(attachment => ({ type: 'file', attachment })),
+      ],
+      source,
+    })
+    if (steer) agent.steer(message)
+    else agent.followup(message)
+    await ctx.sessions.flush(agent.session)
     if (EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried && !resent) {
-      // The whole text is in its file, or in the Session it goes to; exchangeText reads
-      // it back there.
+      // Recorded once the message is in the Session: an earlier record would show
+      // a failed delivery as delivered. The whole text is in its file, or in the
+      // Session it goes to; exchangeText reads it back there.
       const kept = headOf(text, TEXT_KEPT)
       const whole = length !== undefined ? { length, files } : kept.length < text.length ? { length: text.length, sessionId: targetSessionId } : {}
       const entry = { id: exchangeId, from: fromId, to: toId, text: kept, ...whole, role, time: Date.now(), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) }
@@ -88,20 +104,6 @@ export function install(rt) {
       else state.exchanges[earlier] = entry
       void rt.save().catch(() => {})
     }
-    await rt.ensureCapabilities(targetSessionId)
-    const agent = await resolveAgent(targetSessionId)
-    // A steered message cuts into a running turn at its next step; a follow-up
-    // queues for the next turn (see turns.js for how each is routed).
-    const message = createUserMessage({
-      content: [
-        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, asker })}\n${text}` },
-        ...files.map(attachment => ({ type: 'file', attachment })),
-      ],
-      source,
-    })
-    if (steer) agent.steer(message)
-    else agent.followup(message)
-    await ctx.sessions.flush(agent.session)
     return exchangeId
   }
 
