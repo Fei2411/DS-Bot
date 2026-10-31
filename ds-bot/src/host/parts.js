@@ -192,9 +192,9 @@ export function install(rt) {
   // A broken provider adapter must not crash every turn; estimate from the
   // derived messages instead, with one warning.
   let measureWarned = false
-  const tokensOf = (session) => {
+  const measureOf = (session) => {
     try {
-      return ctx.get('tokenMeter')?.measure(session).totalTokens
+      return ctx.get('tokenMeter')?.measure(session)
     } catch (error) {
       if (!measureWarned) {
         measureWarned = true
@@ -202,11 +202,12 @@ export function install(rt) {
       }
     }
     try {
-      return estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n'))
+      return { totalTokens: estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n')) }
     } catch {
       return undefined
     }
   }
+  const tokensOf = session => measureOf(session)?.totalTokens
   const clock = createClock(config.timeZone)
   // Replacing a handoff must shrink the request, not just create another Session.
   async function canMakeRoom(agent, carry = []) {
@@ -229,10 +230,14 @@ export function install(rt) {
     })
     const meter = ctx.get('tokenMeter')
     const size = message => meter?.estimateMessage(message) ?? estimateTokens(textOf(message.content))
-    const history = messages.filter(message => message.role !== 'system').reduce((total, message) => total + size(message), 0)
+    const measured = measureOf(session)
+    // Images in the replaced history must use the same route pricing as the total.
+    const history = measured?.nodes === undefined
+      ? messages.filter(message => message.role !== 'system').reduce((total, message) => total + size(message), 0)
+      : measured.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
     const pending = carry.reduce((total, message) => total + size(message), 0)
     const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
-    const tokens = tokensOf(session)
+    const tokens = measured?.totalTokens
     // The system prompt and tool definitions stay; pending input is forwarded whole.
     return replacement < history + pending
       && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)

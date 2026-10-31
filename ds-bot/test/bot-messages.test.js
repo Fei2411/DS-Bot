@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { Session } from '@deepseek-ai/dsh-session'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { apply } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { install as installTurns } from '../src/host/turns.js'
@@ -954,6 +957,75 @@ test('a failed turn past the hard line keeps the real error instead of switching
 })
 
 for (const id of ['b', 'gb']) {
+  test(`model-priced images after a handoff can make room by switching (${id})`, async (t) => {
+    const seed = team({ group: true })
+    const segment = { sessionId: 'old', note: 'Keep working on the request.', endedAt: 1 }
+    if (id === 'gb') seed.rooms.r1.segments = { b: [segment] }
+    else seed.bots.b.segments = [segment]
+    const { ctx, agentOf, emit, fire, stop } = await start(seed)
+    t.after(stop)
+    const meterCtx = new Context()
+    meterCtx.provide('sessionProjections', { register() {} })
+    meterCtx.provide('llm', {
+      imageRequestPricing: () => ({ priceImages: images => images.map(() => ({ visualTokens: 2_000, text: '' })) }),
+    })
+    await meterCtx.plugin(TokenMeter)
+    t.after(() => meterCtx.fiber.dispose())
+    const meter = meterCtx.tokenMeter
+    const get = ctx.get
+    ctx.get = name => name === 'tokenMeter' ? meter : get(name)
+    ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 50_000 } })
+    let made = 0
+    ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+    const agent = agentOf(id)
+    const session = Session.create(id)
+    agent.session = session
+    const events = []
+    const record = (type, data, surface) => {
+      events.push(session.append(type, data, surface ? { surfaceOp: 'append' } : undefined))
+      emit(id, type, data)
+    }
+    ctx.sessionController.page = async ({ address, beforeSeq }) => ({
+      records: address.sessionId === id ? events.filter(event => beforeSeq === undefined || event.seq < beforeSeq).map(event => ({ event })) : [],
+      hasMore: false,
+    })
+    const header = { config: { provider: 'custom', model: 'image-model' } }
+    const system = { role: 'system', content: textBlock('System instructions. '.padEnd(36_000, 's')) }
+    record('request/header', { header })
+    record('system/message', { turn: 1, step: 1, message: system }, true)
+    record('user/message', { source: { kind: SOURCE_KIND, handoff: true }, content: textBlock('Earlier context. '.padEnd(12_000, 'x')) }, true)
+    record('step/start', { turn: 1, step: 1 })
+    record('assistant/message', { turn: 1, step: 1, ...assistantText('Ready to work with the images.'), stream: [] }, true)
+    record('step/end', { turn: 1, step: 1 })
+    record('user/message', {
+      source: { kind: 'user' },
+      content: [
+        ...textBlock('Inspect these images.'),
+        ...Array.from({ length: 30 }, () => ({ type: 'image', attachment: { attachmentId: `sha256:${'1'.repeat(64)}`, mediaType: 'image/png', bytes: 100, width: 1600, height: 1600 } })),
+      ],
+    }, true)
+    const before = meter.measure(session)
+    const history = before.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
+    const heuristic = session.deriveMessages().filter(message => message.role !== 'system').reduce((total, message) => total + meter.estimateMessage(message), 0)
+    assert.ok(before.totalTokens > 50_000)
+    assert.ok(history > 60_000)
+    assert.ok(before.totalTokens - heuristic > 50_000, 'structural image references cannot stand in for the removed visual tokens')
+
+    await fire('agent/request-error', { agent, failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000) })
+    for (let count = 0; count < 200 && !agentOf('s1').calls.some(([, message]) => message.source?.handoff); count += 1) await delay(5)
+    const handoff = agentOf('s1').calls.find(([, message]) => message.source?.handoff)?.[1]
+    assert.ok(handoff, 'the shorter part can replace the model-priced images')
+    assert.equal(made, 1)
+    const replacement = Session.create('replacement')
+    replacement.append('request/header', { header })
+    replacement.append('system/message', { turn: 1, step: 1, message: system }, { surfaceOp: 'append' })
+    replacement.append('user/message', handoff, { surfaceOp: 'append' })
+    const after = meter.measure(replacement).totalTokens
+    assert.ok(after < 50_000, 'the same system prompt and the real handoff fit')
+    assert.ok(after < before.totalTokens)
+    t.diagnostic(`pressure ${before.totalTokens} -> ${after}; replaced history ${history} (heuristic ${heuristic}); new parts ${made}`)
+  })
+
   test(`a fresh part with oversized tools stops until the replacement context can fit (${id})`, async (t) => {
     const { ctx, agentOf, emit, fire, stop } = await start(team({ group: true }))
     t.after(stop)
