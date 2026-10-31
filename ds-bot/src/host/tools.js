@@ -649,7 +649,7 @@ export function install(rt) {
       // composer dock, which takes questions without a call.
       const turn = rt.live.get(id)?.turn
       const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
-      state.questions[id] = {
+      const card = {
         id: randomUUID(),
         ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
         question: String(args.question ?? '').trim(),
@@ -659,7 +659,13 @@ export function install(rt) {
         ...(args.allowCustom === true ? { allowCustom: true } : {}),
         askedAt: Date.now(),
       }
+      state.questions[id] = card
       await rt.save()
+      if (!hidden) {
+        rt.attentionNotify?.({ kind: 'question', id: card.id, botId: rt.selfOf(id), sessionId: id, question: card.question,
+          ...(card.detail ? { detail: card.detail } : {}), options: card.options.map(option => option.label),
+          multiSelect: card.multiSelect, allowCustom: card.allowCustom === true })
+      }
       exec.concludeTurn?.()
       return 'The card is on screen; the user\'s answer arrives as their next message.'
     },
@@ -689,14 +695,16 @@ export function install(rt) {
       // composer dock, which takes a card without a call.
       const turn = rt.live.get(id)?.turn
       const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
-      state.views[id] = {
+      const card = {
         id: randomUUID(),
         ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
         title,
         view,
         askedAt: Date.now(),
       }
+      state.views[id] = card
       await rt.save()
+      if (!hidden) rt.attentionNotify?.({ kind: 'view', id: card.id, botId: rt.selfOf(id), sessionId: id })
       exec.concludeTurn?.()
       return 'The view is on screen; the user\'s answer arrives as their next message.'
     },
