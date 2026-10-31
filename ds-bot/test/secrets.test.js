@@ -296,6 +296,54 @@ test('a deleted Bot leaves every scope list and takes its cards along', async (t
   assert.deepEqual(JSON.parse(readFileSync(join(bench.home, 'secrets.json'), 'utf8')).secrets[0].scope, ['b2'])
 })
 
+test('list_secrets leaves redacted content for outer dispatch wrappers', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'DEMO_TOKEN', value, purpose: `Example: ${value}`, scope: ['b2'] })
+  const tool = bench.ctx.registeredTools.get('list_secrets')
+  const exec = { agent: { id: 'b2' } }
+  const redact = bench.listeners['tools/execute'].at(-1)
+  const outer = async (next) => {
+    const result = await next()
+    // Dispatch wrappers run before the registry re-renders the returned value.
+    assert.ok(result.content.length > 0)
+    assert.ok(!JSON.stringify(result).includes(value))
+    assert.match(result.content[0].text, /\[secret:DEMO_TOKEN\]/)
+    return result
+  }
+  const result = await outer(() => redact(exec, async () => {
+    const value = await tool.execute({}, exec)
+    return { isError: false, value, content: tool.output.render({}, value) }
+  }))
+  assert.equal(result.isError, false)
+  assert.match(result.value, /Saved keys/)
+})
+
+test('tool projections are redacted even when their value is unchanged', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'DEMO_TOKEN', value })
+  const execute = bench.listeners['tools/execute'].at(-1)
+  const original = Object.freeze({
+    isError: false,
+    value: 'safe value',
+    content: [{ type: 'text', text: value }],
+    meta: { detail: value },
+    additionalContexts: [{ role: 'user', content: [{ type: 'text', text: value }] }],
+    concludesTurn: true,
+  })
+  const result = await execute({}, async () => original)
+  assert.equal(JSON.stringify(result).includes(value), false)
+  assert.equal(result.value, original.value)
+  assert.deepEqual(result.content, [{ type: 'text', text: '[secret:DEMO_TOKEN]' }])
+  assert.deepEqual(result.meta, { detail: '[secret:DEMO_TOKEN]' })
+  assert.deepEqual(result.additionalContexts, [{ role: 'user', content: [{ type: 'text', text: '[secret:DEMO_TOKEN]' }] }])
+  assert.equal(result.concludesTurn, true)
+  assert.equal(original.content[0].text, value)
+})
+
 test('tool results and model requests lose the values', async (t) => {
   const bench = start()
   t.after(bench.stop)
@@ -304,7 +352,12 @@ test('tool results and model requests lose the values', async (t) => {
   // The team tools' listener (working_directory) registers first.
   const execute = bench.listeners['tools/execute'].at(-1)
   const ok = await execute({}, async () => ({ isError: false, value: { kind: 'foreground', stdout: { text: `${value}\n`, truncated: false } }, content: [{ type: 'text', text: value }], meta: { stdout: value } }))
-  assert.deepEqual(ok, { isError: false, value: { kind: 'foreground', stdout: { text: '[secret:DEMO_TOKEN]\n', truncated: false } } })
+  assert.deepEqual(ok, {
+    isError: false,
+    value: { kind: 'foreground', stdout: { text: '[secret:DEMO_TOKEN]\n', truncated: false } },
+    content: [{ type: 'text', text: '[secret:DEMO_TOKEN]' }],
+    meta: { stdout: '[secret:DEMO_TOKEN]' },
+  })
   const failed = await execute({}, async () => ({ isError: true, error: { message: `bad ${value}` }, content: [{ type: 'text', text: `bad ${value}` }] }))
   assert.equal(failed.content[0].text, 'bad [secret:DEMO_TOKEN]')
   assert.equal(failed.error.message, 'bad [secret:DEMO_TOKEN]')
