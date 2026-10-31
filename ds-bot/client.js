@@ -870,6 +870,9 @@ var ZH = {
   "Recognizing…": "识别中…",
   "Voice input needs its speech model": "语音输入还没有语音模型",
   "Set up voice input": "设置语音输入",
+  "Preparing voice input…": "正在准备语音输入…",
+  "Downloading the speech model… {pct}%": "正在下载语音模型… {pct}%",
+  "Couldn't prepare voice input": "语音输入准备失败",
   "That was too long to recognize": "这段太长了，识别不了",
   // Usage page
   "24 hours": "24 小时",
@@ -11107,6 +11110,14 @@ async function transcribeWave(speech, catalog, wave, signal) {
   if (!result?.ok) throw Object.assign(new Error(result?.error?.message ?? "Transcription failed"), { kind: "service" });
   return String(result.value?.text ?? "").trim();
 }
+function closingReplyText(chat, turn) {
+  const location2 = chat?.timeline?.turns?.get(turn);
+  if (location2 === void 0) return void 0;
+  const closing = location2.data?.get("turn-tail")?.closing;
+  if (closing === void 0) return void 0;
+  if (closing === null) return "";
+  return (closing.blocks ?? []).filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text).join("\n\n");
+}
 function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
   let spokeAt = 0;
   let quietSince = 0;
@@ -14033,6 +14044,7 @@ var VOICE_LABELS = {
   speaking: "Speaking",
   paused: "Paused",
   setup: "Voice input needs its speech model",
+  preparing: "Preparing voice input…",
   unsupported: "Voice chat is not available in this browser"
 };
 var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize" };
@@ -14086,7 +14098,7 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
   const lastReply = useSessions((list) => {
     const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
     const entry = Array.isArray(outline) ? outline[outline.length - 1] : void 0;
-    return entry ? `${outline.length}|${entry.response ?? ""}` : "0|";
+    return entry ? `${outline.length}|${entry.turn}` : "0|";
   });
   const [speech] = (0, import_react34.useState)(() => actions.speech());
   const [phase, setPhase] = (0, import_react34.useState)(speech ? "starting" : speechApi() ? "listening" : "unsupported");
@@ -14211,30 +14223,49 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     };
   }, [speech, catalog, listen, cycle]);
   (0, import_react34.useEffect)(() => {
-    if (phase !== "thinking" || running || waiting.current === null) return;
-    const [count, text] = [lastReply.slice(0, lastReply.indexOf("|")), lastReply.slice(lastReply.indexOf("|") + 1)];
-    if (count === waiting.current || !text.trim()) return;
-    waiting.current = null;
-    const spoken = plainSpeech(text);
-    setSaid(spoken);
-    setHeard("");
-    if (!window.speechSynthesis || !spoken) {
-      setPhase("listening");
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(spoken);
-    utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
-    utterance.onend = () => setPhase((current) => current === "speaking" ? "listening" : current);
-    utterance.onerror = utterance.onend;
-    setPhase("speaking");
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    if (phase !== "thinking" || running || waiting.current === null) return void 0;
+    const count = lastReply.slice(0, lastReply.indexOf("|"));
+    const turn2 = Number(lastReply.slice(lastReply.indexOf("|") + 1));
+    if (count === waiting.current) return void 0;
+    const speak = (text) => {
+      waiting.current = null;
+      const spoken = plainSpeech(text);
+      setSaid(spoken);
+      setHeard("");
+      if (!window.speechSynthesis || !spoken) {
+        setPhase("listening");
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(spoken);
+      utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
+      utterance.onend = () => setPhase((current) => current === "speaking" ? "listening" : current);
+      utterance.onerror = utterance.onend;
+      setPhase("speaking");
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    };
+    let off = () => {
+    };
+    const attempt = () => {
+      const text = actions.closingReply(sessionId, turn2);
+      if (text === void 0) return;
+      off();
+      if (text === null) {
+        waiting.current = null;
+        setPhase("listening");
+        return;
+      }
+      speak(text);
+    };
+    off = actions.watchTurns(sessionId, attempt);
+    attempt();
+    return () => off();
   }, [phase, running, lastReply]);
   (0, import_react34.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
   const micLevel = useMicLevel(!speech && phase === "listening" && dictation.listening);
   const level = speech ? serviceLevel : micLevel;
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
-  const blocked = phase === "unsupported" || phase === "setup" || phase === "starting";
+  const blocked = phase === "unsupported" || phase === "setup" || phase === "starting" || phase === "preparing";
   const togglePause = () => {
     if (phase === "paused") {
       setPhase("listening");
@@ -14244,7 +14275,55 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     window.speechSynthesis?.cancel();
     setPhase("paused");
   };
-  const openSetup = phase === "setup" ? actions.voiceSetup() : null;
+  (0, import_react34.useEffect)(() => {
+    if (phase !== "preparing" || !speech) return void 0;
+    let stopped = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const { catalog: next, usable } = await speechCatalog(speech);
+        if (stopped) return;
+        setCatalog(next);
+        if (usable) {
+          setPhase("listening");
+          return;
+        }
+        const provider = next.providers.find((item) => item.id === next.selection.providerId);
+        const preparation = provider?.preparation;
+        if (preparation?.phase === "failed") {
+          setPhase("setup");
+          setNote(t("Couldn't prepare voice input"));
+          return;
+        }
+        setNote(preparation?.phase === "downloading" && preparation.totalBytes ? t("Downloading the speech model… {pct}%", { pct: Math.floor(preparation.completedBytes / preparation.totalBytes * 100) }) : "");
+      } catch {
+        if (!stopped) {
+          setPhase("setup");
+          return;
+        }
+      }
+      timer = setTimeout(tick, 1500);
+    };
+    timer = setTimeout(tick, 800);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [phase, speech]);
+  const openSetup = phase === "setup" ? actions.voiceSetup(catalog?.selection?.providerId) : null;
+  const startSetup = () => {
+    if (openSetup?.navigate) {
+      close();
+      openSetup.navigate();
+      return;
+    }
+    turn.current += 1;
+    setPhase("preparing");
+    void Promise.resolve(openSetup.prepare()).catch(() => {
+      setPhase("setup");
+      setNote(t("Couldn't prepare voice input"));
+    });
+  };
   const caption = phase === "speaking" ? said : heard;
   const shownNote = note || dictation.note;
   return (0, import_react34.createElement)(
@@ -14267,10 +14346,7 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
         phase === "thinking" ? (0, import_react34.createElement)(Shimmer, null, t("Thinking…")) : phase === "transcribing" ? (0, import_react34.createElement)(Shimmer, null, t("Recognizing…")) : VOICE_LABELS[phase] ? t(VOICE_LABELS[phase]) : ""
       ),
       (0, import_react34.createElement)("div", { className: "bt-voice-caption", key: `${phase}:${caption.slice(0, 12)}` }, caption),
-      openSetup ? (0, import_react34.createElement)("button", { type: "button", className: "bt-voice-setup", onClick: () => {
-        close();
-        openSetup();
-      } }, t("Set up voice input")) : null,
+      openSetup ? (0, import_react34.createElement)("button", { type: "button", className: "bt-voice-setup", onClick: startSetup }, t("Set up voice input")) : null,
       shownNote ? (0, import_react34.createElement)("div", { className: "bt-voice-note" }, shownNote) : null
     ),
     (0, import_react34.createElement)(
@@ -20859,9 +20935,20 @@ function apply(ctx) {
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
   actions.openHarnessSettings = openHarnessSettings;
   actions.openHarnessOnboarding = openHarnessOnboarding;
-  actions.voiceSetup = () => {
+  actions.voiceSetup = (providerId) => {
     const navigation = ctx.get("pluginNavigation");
-    return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null;
+    if (navigation !== void 0) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) };
+    const speech = ctx.get("remote.speech");
+    return speech === void 0 || providerId === void 0 ? null : { prepare: () => speech.prepare(providerId) };
+  };
+  actions.closingReply = (sessionId, turn) => {
+    try {
+      const binding = ctx.sessions.binding(sessionId);
+      if (binding === void 0) return null;
+      return closingReplyText(ctx.uiConversation.binding(binding).target("chat").getSnapshot(), turn);
+    } catch {
+      return null;
+    }
   };
   actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async () => {

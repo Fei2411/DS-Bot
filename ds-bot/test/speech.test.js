@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { base64Of, speechCatalog, transcribeWave, turnDetector, waveBytes } from '../src/client/speech.js'
+import { base64Of, closingReplyText, speechCatalog, transcribeWave, turnDetector, waveBytes } from '../src/client/speech.js'
 
 const catalog = (phase, extra = {}) => ({
   providers: [{ id: 'sensevoice', preparation: { phase } }],
@@ -50,6 +50,22 @@ test('transcribeWave rejects audio over the limit and service failures', async (
   const speech = { transcribe: async () => ({ ok: false, error: { message: 'busy' } }) }
   await assert.rejects(transcribeWave(speech, catalog('ready'), new Uint8Array(1001)), error => error.kind === 'too-long')
   await assert.rejects(transcribeWave(speech, catalog('ready'), new Uint8Array(10)), error => error.kind === 'service')
+})
+
+test('closingReplyText reads the full closing text, not the preview', () => {
+  const tail = (closing) => ({ data: { get: key => (key === 'turn-tail' ? { closing } : undefined) } })
+  const chat = (...turns) => ({ timeline: { turns: new Map(turns) } })
+  const full = 'The whole answer. '.repeat(300)
+  assert.equal(closingReplyText(chat([3, tail({ blocks: [{ kind: 'text', text: full }] })]), 3), full)
+  assert.equal(closingReplyText(chat([3, tail({ blocks: [{ kind: 'text', text: 'a' }, { kind: 'tool' }, { kind: 'text', text: 'b' }] })]), 3), 'a\n\nb')
+  // Not materialized yet: the voice pane waits for the view's next change.
+  assert.equal(closingReplyText(chat([3, tail(undefined)]), 3), undefined)
+  assert.equal(closingReplyText(chat([2, tail({ blocks: [{ kind: 'text', text: 'older' }] })]), 3), undefined)
+  assert.equal(closingReplyText(undefined, 3), undefined)
+  assert.equal(closingReplyText(chat(), 3), undefined)
+  // A turn that closed with no Assistant text goes back to listening silently.
+  assert.equal(closingReplyText(chat([3, tail(null)]), 3), '')
+  assert.equal(closingReplyText(chat([3, tail({ blocks: [] })]), 3), '')
 })
 
 test('turnDetector ends a turn after a pause that follows speech', () => {

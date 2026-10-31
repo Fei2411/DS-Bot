@@ -15,7 +15,8 @@ import { openCapture, speechCatalog, transcribeWave, turnDetector } from './spee
 const plainSpeech = text => stripHeader(text).replace(/```[\s\S]*?```/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`#>|~-]+/g, ' ').replace(/\s+/g, ' ').trim()
 const VOICE_LABELS = {
   listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', paused: 'Paused',
-  setup: 'Voice input needs its speech model', unsupported: 'Voice chat is not available in this browser',
+  setup: 'Voice input needs its speech model', preparing: 'Preparing voice input…',
+  unsupported: 'Voice chat is not available in this browser',
 }
 const CAPTURE_NOTES = { blocked: 'Microphone access is blocked', unavailable: 'Voice chat is not available in this browser', 'too-long': 'That was too long to recognize' }
 
@@ -65,7 +66,7 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
   const lastReply = useSessions((list) => {
     const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline
     const entry = Array.isArray(outline) ? outline[outline.length - 1] : undefined
-    return entry ? `${outline.length}|${entry.response ?? ''}` : '0|'
+    return entry ? `${outline.length}|${entry.turn}` : '0|'
   })
   // The Voice Input plugin's Remote, read once: the engine does not change mid-chat.
   const [speech] = useState(() => actions.speech())
@@ -180,34 +181,81 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
     }
   }, [speech, catalog, listen, cycle])
   useEffect(() => {
-    if (phase !== 'thinking' || running || waiting.current === null) return
-    const [count, text] = [lastReply.slice(0, lastReply.indexOf('|')), lastReply.slice(lastReply.indexOf('|') + 1)]
-    if (count === waiting.current || !text.trim()) return
-    waiting.current = null
-    const spoken = plainSpeech(text)
-    setSaid(spoken)
-    setHeard('')
-    if (!window.speechSynthesis || !spoken) { setPhase('listening'); return }
-    const utterance = new SpeechSynthesisUtterance(spoken)
-    utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? 'zh-CN' : 'en-US'
-    utterance.onend = () => setPhase(current => (current === 'speaking' ? 'listening' : current))
-    utterance.onerror = utterance.onend
-    setPhase('speaking')
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.speak(utterance)
+    if (phase !== 'thinking' || running || waiting.current === null) return undefined
+    const count = lastReply.slice(0, lastReply.indexOf('|'))
+    const turn = Number(lastReply.slice(lastReply.indexOf('|') + 1))
+    if (count === waiting.current) return undefined
+    const speak = (text) => {
+      waiting.current = null
+      const spoken = plainSpeech(text)
+      setSaid(spoken)
+      setHeard('')
+      if (!window.speechSynthesis || !spoken) { setPhase('listening'); return }
+      const utterance = new SpeechSynthesisUtterance(spoken)
+      utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? 'zh-CN' : 'en-US'
+      utterance.onend = () => setPhase(current => (current === 'speaking' ? 'listening' : current))
+      utterance.onerror = utterance.onend
+      setPhase('speaking')
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(utterance)
+    }
+    // The outline commits at turn/end but only holds a bounded preview; the
+    // closing Assistant text can trail it, so the answer is read through the
+    // chat view's own changes until it lands (or the Session goes away).
+    let off = () => {}
+    const attempt = () => {
+      const text = actions.closingReply(sessionId, turn)
+      if (text === undefined) return
+      off()
+      if (text === null) { waiting.current = null; setPhase('listening'); return }
+      speak(text)
+    }
+    off = actions.watchTurns(sessionId, attempt)
+    attempt()
+    return () => off()
   }, [phase, running, lastReply])
   useEffect(() => () => window.speechSynthesis?.cancel(), [])
   const micLevel = useMicLevel(!speech && phase === 'listening' && dictation.listening)
   const level = speech ? serviceLevel : micLevel
   const markState = phase === 'thinking' || phase === 'transcribing' ? 'thinking' : phase === 'speaking' ? 'sending' : 'idle'
-  const blocked = phase === 'unsupported' || phase === 'setup' || phase === 'starting'
+  const blocked = phase === 'unsupported' || phase === 'setup' || phase === 'starting' || phase === 'preparing'
   const togglePause = () => {
     if (phase === 'paused') { setPhase('listening'); return }
     turn.current += 1
     window.speechSynthesis?.cancel()
     setPhase('paused')
   }
-  const openSetup = phase === 'setup' ? actions.voiceSetup() : null
+  // A 'preparing' phase follows the speech Remote's own catalog until the
+  // provider is usable; the plugin-manager path navigates away instead.
+  useEffect(() => {
+    if (phase !== 'preparing' || !speech) return undefined
+    let stopped = false
+    let timer
+    const tick = async () => {
+      try {
+        const { catalog: next, usable } = await speechCatalog(speech)
+        if (stopped) return
+        setCatalog(next)
+        if (usable) { setPhase('listening'); return }
+        const provider = next.providers.find(item => item.id === next.selection.providerId)
+        const preparation = provider?.preparation
+        if (preparation?.phase === 'failed') { setPhase('setup'); setNote(t("Couldn't prepare voice input")); return }
+        setNote(preparation?.phase === 'downloading' && preparation.totalBytes
+          ? t('Downloading the speech model… {pct}%', { pct: Math.floor((preparation.completedBytes / preparation.totalBytes) * 100) })
+          : '')
+      } catch { if (!stopped) { setPhase('setup'); return } }
+      timer = setTimeout(tick, 1500)
+    }
+    timer = setTimeout(tick, 800)
+    return () => { stopped = true; clearTimeout(timer) }
+  }, [phase, speech])
+  const openSetup = phase === 'setup' ? actions.voiceSetup(catalog?.selection?.providerId) : null
+  const startSetup = () => {
+    if (openSetup?.navigate) { close(); openSetup.navigate(); return }
+    turn.current += 1
+    setPhase('preparing')
+    void Promise.resolve(openSetup.prepare()).catch(() => { setPhase('setup'); setNote(t("Couldn't prepare voice input")) })
+  }
   const caption = phase === 'speaking' ? said : heard
   const shownNote = note || dictation.note
   return h('div', { className: 'bt-pane bt-voice-pane', style: { left: paneLeft } },
@@ -222,7 +270,7 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
           : phase === 'transcribing' ? h(Shimmer, null, t('Recognizing…'))
             : VOICE_LABELS[phase] ? t(VOICE_LABELS[phase]) : ''),
       h('div', { className: 'bt-voice-caption', key: `${phase}:${caption.slice(0, 12)}` }, caption),
-      openSetup ? h('button', { type: 'button', className: 'bt-voice-setup', onClick: () => { close(); openSetup() } }, t('Set up voice input')) : null,
+      openSetup ? h('button', { type: 'button', className: 'bt-voice-setup', onClick: startSetup }, t('Set up voice input')) : null,
       shownNote ? h('div', { className: 'bt-voice-note' }, shownNote) : null),
     h('div', { className: 'bt-voice-bar' },
       h('button', {

@@ -107,6 +107,18 @@ export async function transcribeWave(speech, catalog, wave, signal) {
   return String(result.value?.text ?? '').trim()
 }
 
+// The full closing Assistant text of a finished turn: what voice chat speaks.
+// undefined while the chat view has not materialized the turn; '' when the turn
+// closed without assistant text.
+export function closingReplyText(chat, turn) {
+  const location = chat?.timeline?.turns?.get(turn)
+  if (location === undefined) return undefined
+  const closing = location.data?.get('turn-tail')?.closing
+  if (closing === undefined) return undefined
+  if (closing === null) return ''
+  return (closing.blocks ?? []).filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text).join('\n\n')
+}
+
 // Voice activity on the loudness of each animation frame: speech starts above
 // `loud`, and the turn ends after `quietMs` below `quiet`.
 export function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
