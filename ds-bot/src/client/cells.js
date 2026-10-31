@@ -927,10 +927,10 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' },
           t('{name} did not answer or call anyone; call a member with @Name', { name: bot.name }))
       }
+      // LEGACY: rounds from when groups paused at a relay limit.
       if (reply.kind === 'paused') {
         return h('div', { key: `paused-${index}`, className: 'bt-event' },
-          h('span', null, t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) })),
-          room?.paused?.length > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.continueRoom(sessionId) }, t('Continue')) : null)
+          t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) }))
       }
       if (reply.kind === 'resumed') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t('{name} was cut off by a restart and picked its work back up', { name: bot.name }))

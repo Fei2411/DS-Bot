@@ -154,29 +154,14 @@ test('a user message inside a group relay shows its time', () => {
   assert.deepEqual(times.map(node => node.props.title), [`Today ${clockOf(today)}`])
 })
 
-// A group paused at its relay limit shows the wait, with a Continue button while
-// the room still parks calls — which calls room-continue with the group's id.
-test('a paused group shows the wait, and Continue releases it while calls are parked', () => {
+// LEGACY: a round from when groups paused at a relay limit still shows the pause,
+// with nothing to press.
+test('an old paused round shows the pause as a plain line', () => {
   const replies = [{ kind: 'paused', names: ['Writer', 'Coder'], count: 6, time: at(0, 14, 5) }]
-  const relay = call('group_relay', 'direct', { content: { replies } })
-
-  // Nothing parked on the room: the line stands alone, with no button.
-  const plain = show(relay, { sessionId: 'room' })
-  const events = findAll(plain, node => node.props?.className === 'bt-event').map(text)
+  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room' })
+  const events = findAll(out, node => node.props?.className === 'bt-event').map(text)
   assert.deepEqual(events, ['Paused after 6 Bot relays. Waiting: Writer and Coder'])
-  assert.equal(find(plain, node => node.type === 'button' && text(node) === 'Continue'), undefined)
-
-  const parked = { ...room, paused: [{ id: 'writer', name: 'Writer' }] }
-  const clicked = []
-  const live = show(relay, {
-    sessionId: 'room',
-    roster: team({ rooms: [parked], roomsById: { room: parked } }),
-    actions: { continueRoom: id => clicked.push(id) },
-  })
-  const button = find(live, node => node.type === 'button' && text(node) === 'Continue')
-  assert.ok(button, 'the Continue button is drawn while the room parks calls')
-  button.props.onClick()
-  assert.deepEqual(clicked, ['room'])
+  assert.equal(find(out, node => node.type === 'button'), undefined)
 })
 
 // The admin was alone with the user's message and passed: the round shows the
