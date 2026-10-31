@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
-import { MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
 const seed = (room = {}, extraRooms = {}) => ({
@@ -591,6 +591,193 @@ test('a Main Bot outside the group posts into its running round, and a long post
   host.finish('gb', '收到，看一下。')
   await settle(() => first() !== undefined)
   assert.equal(logLines(host).filter(entry => entry.files?.length === 1).length, 1)
+})
+
+// #198: a post past MESSAGE_INLINE_MAX keeps its first LONG_HEAD characters and a file.
+// "@" past that opening is taken from the whole message, before the cut.
+const filler = count => '文'.repeat(count)
+const postBody = post => text(post).replace(/^\[Group post from [^\n]*\n/, '')
+const fileOf = (store, post) => {
+  const file = post.content.find(block => block.type === 'file')?.attachment
+  return { file, whole: file === undefined ? undefined : new TextDecoder().decode(store.files.get(file.attachmentId)) }
+}
+const orderOf = message => text(message).match(/Members answer this message one at a time: .+\./)?.[0]
+const togetherOf = message => text(message).match(/Called together with you: [^.]+\./)?.[0]
+
+test('a long post calls a member named past the preview, and the preview stays the opening', async (t) => {
+  const store = fakeAttachments()
+  const host = await start(t, {}, { attachments: store })
+  const message = `${filler(LONG_HEAD)}@Tester 看一下${filler(MESSAGE_INLINE_MAX)}`
+  assert.equal(message.indexOf('@Tester'), LONG_HEAD)
+  assert.ok(message.length > MESSAGE_INLINE_MAX)
+  await host.tool('post_to_group', { group: 'Ops', message }, 'a')
+  await assert.rejects(host.tool('message_bot', { to: 'Tester', message: '再看一眼' }, 'a'), /^Error: Not sent: you called Tester in "Ops" in this turn/)
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: ['c'], all: false })
+  assert.equal(post.source.length, message.length)
+  const { file, whole } = fileOf(store, post)
+  assert.equal(file?.name, 'Post from Chief.txt')
+  assert.equal(whole, message)
+  const shown = postBody(post)
+  assert.ok(shown.length < message.length)
+  assert.ok(shown.startsWith(`[A long message: ${message.length} characters.`))
+  assert.ok(shown.includes(`${message.slice(0, LONG_HEAD)}…`))
+  assert.equal(shown.includes('@Tester'), false)
+
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  const turn = host.agentOf('gc').calls[0]
+  assert.equal(host.begin('gc').source.askedBy, 'a')
+  assert.ok(turn.content.some(block => block.type === 'file' && block.attachment?.attachmentId === file.attachmentId))
+  assert.equal(text(turn).includes('@Tester'), false)
+  host.finish('gc', '看过了。')
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('gb').calls, [])
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('a long post still calls a member named in its opening', async (t) => {
+  const store = fakeAttachments()
+  const host = await start(t, {}, { attachments: store })
+  const message = `@Tester ${filler(MESSAGE_INLINE_MAX)}`
+  assert.ok(message.indexOf('@Tester') < LONG_HEAD)
+  assert.ok(message.length > MESSAGE_INLINE_MAX)
+  await host.tool('post_to_group', { group: 'Ops', message }, 'a')
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: ['c'], all: false })
+  assert.equal(fileOf(store, post).whole, message)
+  assert.equal(postBody(post).includes('@Tester'), true)
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '看过了。')
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('gb').calls, [])
+})
+
+test('an ordinary member\'s long post calls the member it names past the preview', async (t) => {
+  const store = fakeAttachments()
+  const host = await start(t, {}, { attachments: store })
+  const message = `${filler(LONG_HEAD)}@Tester 看一下${filler(MESSAGE_INLINE_MAX)}`
+  const posted = await host.tool('post_to_group', { group: 'Ops', message }, 'b')
+  assert.match(posted, /^Posted in "Ops"\. Members reply there/)
+  assert.doesNotMatch(posted, /Nobody answers/)
+  const post = host.takePost()
+  assert.equal(post.source.member, true)
+  assert.deepEqual(post.source.mentions, { ids: ['c'], all: false })
+  assert.equal(fileOf(store, post).whole, message)
+  assert.equal(postBody(post).includes('@Tester'), false)
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.equal(host.begin('gc').source.askedBy, 'b')
+  host.finish('gc', '看过了。')
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.deepEqual(host.agentOf('gb').calls, [])
+})
+
+test('an ordinary member\'s long post that names nobody still calls nobody', async (t) => {
+  const host = await start(t, {}, { attachments: fakeAttachments() })
+  const message = filler(MESSAGE_INLINE_MAX + 1)
+  const posted = await host.tool('post_to_group', { group: 'Ops', message }, 'b')
+  assert.match(posted, /Nobody answers it: your post only calls the members you name with @Name\./)
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: [], all: false })
+  const round = host.round('c1', post)
+  await settle(() => round() !== undefined)
+  assert.equal(logLines(host).some(line => line.botId === 'b' && line.files?.length === 1), true)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.deepEqual(host.agentOf('gc').calls, [])
+})
+
+test('an ordinary member\'s long @all past the preview still calls nobody', async (t) => {
+  const host = await start(t, {}, { attachments: fakeAttachments() })
+  const message = `${filler(LONG_HEAD)}@all 看一下${filler(MESSAGE_INLINE_MAX)}`
+  assert.ok(message.indexOf('@all') >= LONG_HEAD)
+  const posted = await host.tool('post_to_group', { group: 'Ops', message }, 'b')
+  assert.match(posted, /Nobody answers it/)
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: [], all: true })
+  const round = host.round('c1', post)
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.deepEqual(host.agentOf('gc').calls, [])
+})
+
+test('a long post does not call a name that sits in code past the preview', async (t) => {
+  const host = await start(t, {}, { attachments: fakeAttachments() })
+  const message = `${filler(LONG_HEAD)}\n\`@Tester\`\n${filler(MESSAGE_INLINE_MAX)}`
+  assert.ok(message.indexOf('@Tester') > LONG_HEAD)
+  assert.ok(message.length > MESSAGE_INLINE_MAX)
+  const posted = await host.tool('post_to_group', { group: 'Ops', message }, 'b')
+  assert.match(posted, /Nobody answers it/)
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: [], all: false })
+  const round = host.round('c1', post)
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('gc').calls, [])
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('a long @all past the preview calls every other member at once', async (t) => {
+  const host = await start(t, { admin: 'b' }, { attachments: fakeAttachments() })
+  const message = `${filler(LONG_HEAD)}@all 看一下${filler(MESSAGE_INLINE_MAX)}`
+  await host.tool('post_to_group', { group: 'Ops', message }, 'a')
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: [], all: true })
+  assert.equal(postBody(post).includes('@all'), false)
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+  assert.equal(togetherOf(host.agentOf('gb').calls[0]), 'Called together with you: Tester.')
+  assert.equal(togetherOf(host.agentOf('gc').calls[0]), 'Called together with you: Writer.')
+  host.begin('gb')
+  host.finish('gb', '收到。')
+  host.begin('gc')
+  host.finish('gc', '收到。')
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('a post between the preview and the file limit still calls who it names', async (t) => {
+  const host = await start(t)
+  const message = `${filler(3000)}@Tester @Writer 看一下`
+  assert.ok(message.length > LONG_HEAD && message.length <= MESSAGE_INLINE_MAX)
+  assert.ok(message.indexOf('@Tester') > LONG_HEAD)
+  await host.tool('post_to_group', { group: 'Ops', message }, 'a')
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: ['c', 'b'], all: false })
+  assert.equal(post.source.length, undefined)
+  assert.equal(post.content.some(block => block.type === 'file'), false)
+  assert.equal(postBody(post), message)
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1 && host.agentOf('gb').calls.length === 1)
+  assert.equal(togetherOf(host.agentOf('gc').calls[0]), 'Called together with you: Writer.')
+  assert.equal(host.begin('gc').source.askedBy, 'a')
+  assert.ok(text(host.agentOf('gc').calls[0]).includes('@Tester @Writer 看一下'))
+  assert.equal(host.begin('gb').source.askedBy, 'a')
+  host.finish('gc', '看过了。')
+  host.finish('gb', '也看了。')
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('a plain post between the preview and the file limit still calls the other members in turn', async (t) => {
+  const host = await start(t)
+  const message = filler(1500)
+  assert.ok(message.length > LONG_HEAD && message.length <= MESSAGE_INLINE_MAX)
+  await host.tool('post_to_group', { group: 'Ops', message }, 'a')
+  const post = host.takePost()
+  assert.deepEqual(post.source.mentions, { ids: [], all: false })
+  assert.equal(post.content.some(block => block.type === 'file'), false)
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal(orderOf(host.agentOf('gb').calls[0]), 'Members answer this message one at a time: Writer (you, now) → Tester.')
+  host.begin('gb')
+  host.finish('gb', '收到。')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '收到。')
+  await settle(() => round() !== undefined)
 })
 
 test('a post with no round running keeps the old way: queued, no logged mark', async (t) => {
