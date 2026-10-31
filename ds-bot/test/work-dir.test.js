@@ -624,6 +624,18 @@ test("a group chat's own Session follows the team workspace it was made in", asy
   assert.deepEqual(sets, [['r1', moved]])
 })
 
+// #710: the group's own Session sits in the team workspace; when that folder itself is
+// deleted it is made again, as for any other Session.
+test("a group chat's own Session makes a deleted team workspace again", async (t) => {
+  const { sets, service } = folderService()
+  const { ctx, agentOf, team, stop } = await start({ services: { workingDirectory: service } })
+  t.after(stop)
+  rmSync(team, { recursive: true, force: true })
+  assert.equal(await assemble(ctx, agentOf('r1')), true)
+  assert.equal(existsSync(team), true)
+  assert.deepEqual(sets, [])
+})
+
 // #710: a member whose group's folder went away works on in the team workspace, and
 // the group is told once, not on every round.
 test('a group whose folder is gone works on in the team workspace and is told once', async (t) => {
@@ -643,6 +655,24 @@ test('a group whose folder is gone works on in the team workspace and is told on
   // Clearing or setting the folder clears the mark.
   assert.equal((await call('update-room', { id: 'r1', workDir: '' })).ok, true)
   assert.equal(state().rooms.r1.folderNotice, undefined)
+})
+
+// #710: a member still in the team workspace when the group's folder went away needs
+// no correction, but the group is still told once.
+test("a member that never reached the group's folder still brings the one-time notice", async (t) => {
+  const { sets, service } = folderService()
+  const { ctx, call, agentOf, project, state, stop } = await start({ services: { workingDirectory: service } })
+  t.after(stop)
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  rmSync(project, { recursive: true, force: true })
+  // 'gb' was made in the team workspace and never moved to the group's folder.
+  assert.equal(await assemble(ctx, agentOf('gb')), true)
+  assert.deepEqual(sets, [])
+  const notice = () => (state().rooms.r1.log ?? []).filter(line => line.kind === 'notice' && line.reason === 'folder')
+  assert.equal(notice().length, 1)
+  assert.equal(notice()[0].path, project)
+  assert.equal(await assemble(ctx, agentOf('gb')), true)
+  assert.equal(notice().length, 1)
 })
 
 // #710: a Session made for a folder that is registered as a workspace joins it, so it

@@ -1088,22 +1088,27 @@ export function install(rt) {
     // fresh part to move to, so a stale or gone folder is corrected in place; without
     // this every round failed with 'directory does not exist' (#710).
     if (rt.roomOf(agent.id) !== undefined) {
-      if (current === rt.teamFolder()) return next()
+      if (current === rt.teamFolder() && await rt.isFolder(current)) return next()
       const team = await rt.keepTeamFolder()
       if (team === undefined) return next()
-      await folders.set(agent, team, context.signal)
-        .catch(error => rt.warn('ds-bot: the group chat works in %s and could not change to %s: %s', current, team, error))
+      // Already at the team path, it was only gone and is now made again.
+      if (current !== team) {
+        await folders.set(agent, team, context.signal)
+          .catch(error => rt.warn('ds-bot: the group chat works in %s and could not change to %s: %s', current, team, error))
+      }
       return next()
     }
-    if (await rt.isFolder(current)) return next()
-    const team = await rt.keepTeamFolder()
-    if (current === team || !rt.isBotSession(agent.id)) return next()
     const place = placeOf(agent.id)
     const wanted = rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A member whose group's folder went away works on in the team workspace; the
-    // group is told once, so every round is not told again.
+    // group is told once, so every round is not told again. A member still in a
+    // usable folder — it may never have moved to the group's — needs no correction,
+    // but the group is told all the same.
     if (!usable) await rt.roomFolderNotice?.(place?.roomId, wanted)
+    if (await rt.isFolder(current)) return next()
+    const team = await rt.keepTeamFolder()
+    if (current === team || !rt.isBotSession(agent.id)) return next()
     const target = usable ? wanted : team
     if (target !== undefined) {
       await folders.set(agent, target, context.signal)
