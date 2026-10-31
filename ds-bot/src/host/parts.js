@@ -863,6 +863,7 @@ export function install(rt) {
         job.kept = true
         throw error
       }
+      rt.pastOwners?.set(agent.id, job.roomId === undefined ? { botId: job.botId } : { botId: job.botId, roomId: job.roomId })
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
     }
@@ -1333,5 +1334,8 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor)) }
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, heldBack, switchJobs: () => switches.values() })
+  const isSwitching = botId => Array.from(switches.values()).some(j => j.botId === botId)
+    || Object.values(state.switching ?? {}).some(owner => owner?.botId === botId)
+
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, heldBack, isSwitching, switchJobs: () => switches.values() })
 }
