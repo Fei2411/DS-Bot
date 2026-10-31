@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -357,7 +358,7 @@ test('AGENTS review falls back to another contributor when its Bot is deleted', 
   assert.equal(runtime.learningState().agentsPending[folderPath].botId, 'b2')
   assert.deepEqual(runtime.learningState().agentsPending[folderPath].records.map(item => item.botId), ['b2', 'b3'])
 
-  await runtime.call('delete-bot', { id: 'b2' })
+  await deleteConfirmed(runtime.call, { id: 'b2' })
   await runtime.rt.learningRun()
   assert.equal(runtime.learningState().agentsPending[folderPath], undefined)
   const view = (await runtime.call('state')).value.learning
@@ -387,8 +388,8 @@ test('AGENTS folder queue is removed when all contributing Bots are deleted', as
     config: { learningTimes: { tickMs: 100_000 } },
   })
   t.after(() => runtime.stop())
-  await runtime.call('delete-bot', { id: 'b2' })
-  await runtime.call('delete-bot', { id: 'b3' })
+  await deleteConfirmed(runtime.call, { id: 'b2' })
+  await deleteConfirmed(runtime.call, { id: 'b3' })
   await runtime.rt.learningRun()
   assert.equal(runtime.learningState().agentsPending[folderPath], undefined)
   assert.equal(runtime.requests.length, 0)

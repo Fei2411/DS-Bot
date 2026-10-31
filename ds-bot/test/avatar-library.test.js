@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
@@ -150,7 +151,7 @@ test('the library outlives a restart, a Bot that is deleted, and a Bot that chan
 
   // The Bot changes its look and is deleted: the library keeps the photo.
   await first.call('update-bot', { id: botId, avatar: { shape: 'star' } })
-  await first.call('delete-bot', { id: botId })
+  await deleteConfirmed(first.call, { id: botId })
   assert.equal((await first.call('avatar-library', {})).value.items.length, 1)
 
   // A new host on the same data reads the library again.

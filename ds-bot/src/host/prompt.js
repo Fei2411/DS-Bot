@@ -2,6 +2,7 @@
 // record, so the prefix stays byte-stable across turns and roster changes.
 
 const TEAM_RULES = [
+  '- For a task that should periodically check a source and stay silent until NEW matching messages appear, call create_automation with mode "monitor". Ordinary schedule_create reminders are normal chat tasks and do not provide silence. Monitoring first establishes a baseline and requires the Host to keep running.',
   '## How your Bot team works',
   '- Every Bot is its own long-lived conversation with the user, with its own memory and computer.',
   '- The team changes over time. Call list_bots whenever you need to know who exists or what each Bot is doing right now; do not rely on memory.',

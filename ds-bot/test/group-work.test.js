@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1083,7 +1084,7 @@ test('deleting a working Bot clears its activity and tells the Bots waiting for 
   host.agentOf('b').inbox.nextStep.push({ id: 'm2', source: { kind: 'bot', role: 'request', senderSessionId: 'c', senderName: 'Tester', exchangeId: 'x2', hop: 1 } })
   assert.equal((await host.call('state', {})).value.activity.b, 'working')
 
-  const deleted = await host.call('delete-bot', { id: 'b' })
+  const deleted = await deleteConfirmed(host.call, { id: 'b' })
   assert.equal(deleted.ok, true)
   assert.equal((await host.call('state', {})).value.activity.b, undefined)
   await settle(() => host.agentOf('a').calls.length === 1 && host.agentOf('c').calls.length === 1)

@@ -527,6 +527,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case 'divider': return h(PartLine, { key, time: row.time })
     case 'user': return h(EarlierUser, { key, row })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
+    case 'monitor': return h('article', { key, className: 'bt-set-card bt-monitor-result' }, h('div', { className: 'bt-set-row' }, row.title), h('div', { className: 'bt-set-row' }, h(MarkdownText, { text: row.text, labels: mdLabels(), variant: 'compact' })))
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })
     case 'bot': {

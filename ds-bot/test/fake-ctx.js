@@ -118,3 +118,10 @@ export function fakeContext({ services = {} } = {}) {
   }
   return ctx
 }
+
+// 删除测试也经过用户确认接口，避免测试夹具绕过生产的删除边界。
+export async function deleteConfirmed(call, payload) {
+  const preview = await call('delete-preview', payload)
+  if (!preview.ok) return preview
+  return call('delete-confirm', { ...payload, token: preview.value.token, tasks: 'delete', files: [] })
+}

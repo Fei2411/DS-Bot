@@ -30,7 +30,7 @@ export function install(rt) {
   const privateBots = () => Object.values(state.bots).filter(bot => bot.private === true)
   // Deleting a private Bot does not make the files and memory it leaves behind public.
   const protectedBots = () => [...new Map([...(state.privateArchives ?? []), ...privateBots()].map(bot => [bot.id, bot])).values()]
-  const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId), ...rt.groupSessionsOf(bot.id)])])]
+  const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId), ...rt.groupSessionsOf(bot.id), ...[...rt.automationOwners.values()].filter(task => task.botId === bot.id).map(task => task.sessionId)])])]
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 
   // A path as it is and as the file system resolves it, folded for comparing. realBeyond

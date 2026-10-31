@@ -70,8 +70,13 @@ export function timingText(task) {
   }
 }
 const nextText = task => (task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished'))
+// A monitor run's state, in the user's words.
+const RUN_STATUS = { baseline: 'Baseline', no_change: 'No change', match: 'Match', failed: 'Failed' }
 
 function TaskRow({ task, actions, onView, showBot, roster }) {
+  const [runs, setRuns] = useState(null)
+  const [runLog, setRunLog] = useState(null)
+  const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -92,6 +97,14 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
       task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt' }, task.prompt) : null),
     h('span', { className: 'bt-task-next' }, nextText(task)),
+    task.mode === 'monitor' ? h(Fragment, null,
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void actions.monitorRuns(task.automationId).then(setRuns, failure => setError(failure.message)) } }, t('View monitor runs')),
+      task.status === 'active' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => { setBusy(true); void actions.convertNormal(task).then(onView, failure => setError(failure.message)).finally(() => setBusy(false)) } }, t('Make normal task')) : null)
+      : task.botId && !task.roomId && task.status === 'active' && task.kind !== 'cron' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setBusy(true); void actions.convertMonitor(task).then(onView, failure => setError(failure.message)).finally(() => setBusy(false)) }, disabled: busy }, t('Make silent monitor')) : null,
+    runs ? h('div', { className: 'bt-task-runs' }, runs.slice().reverse().map(run => h('div', { key: run.id },
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void actions.monitorRunLog(task.automationId, run.id).then(setRunLog, failure => setError(failure.message)) } }, `${new Date(run.at).toLocaleString(dateLocale(), { dateStyle: 'medium', timeStyle: 'short' })} · ${t(RUN_STATUS[run.status] ?? run.status)}${run.error ? ` · ${run.error}` : ''}`)))) : null,
+    runLog ? h('pre', { className: 'bt-task-log' }, runLog) : null,
+    error ? h('span', { role: 'alert', className: 'bt-danger' }, error) : null,
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
@@ -108,6 +121,7 @@ const KINDS = [['at', 'Once'], ['daily', 'Every day'], ['weekly', 'Every week'],
 const UNITS = [['minutes', 1, 'minutes'], ['hours', 60, 'hours'], ['days', 1440, 'days']]
 
 function TaskForm({ roster, actions, start, onDone, onCancel }) {
+  const [mode, setMode] = useState('normal')
   // A task goes to a Bot's chat or to a group chat, where it reads as your message.
   const [target, setTarget] = useState(start ?? roster.bots[0]?.id ?? '')
   const [title, setTitle] = useState('')
@@ -132,14 +146,21 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     setError('')
     let when
     try { when = timing() } catch { setError(t('Pick a date and time')); setBusy(false); return }
-    void actions.scheduleCreate({ target, title, prompt, when })
+    void actions.scheduleCreate({ target, title, prompt, when, mode })
       .then(onDone, (failure) => { setError(hostText(failure?.message ?? String(failure))); setBusy(false) })
   }
   const toggleDay = day => setWeekdays(days => (days.includes(day) ? days.filter(item => item !== day) : [...days, day].sort()))
   return h('form', { className: 'bt-set-card bt-task-form', onSubmit: submit },
+    h('label', { className: 'bt-set-row bt-bs-row' }, t('Task type'),
+      h('select', { className: 'bt-select', value: mode, onChange: event => setMode(event.target.value) },
+        h('option', { value: 'normal' }, t('Normal task')), h('option', { value: 'monitor', disabled: roster.rooms.some(room => room.id === target) }, t('Silent monitor')))),
+    mode === 'monitor' ? h('p', { className: 'bt-set-hint' }, t('The first check establishes a baseline. Only new matching messages appear in chat. The Host must stay running.')) : null,
     h('label', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Send to'))),
-      h('select', { className: 'bt-select bt-task-bot', value: target, onChange: event => setTarget(event.target.value) },
+      h('select', { className: 'bt-select bt-task-bot', value: target, onChange: event => {
+        setTarget(event.target.value)
+        if (roster.rooms.some(room => room.id === event.target.value)) setMode('normal')
+      } },
         h('optgroup', { label: t('Bots') }, roster.bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name))),
         roster.rooms.length > 0 ? h('optgroup', { label: t('Group chats') }, roster.rooms.map(room => h('option', { key: room.id, value: room.id }, room.name))) : null)),
     h('label', { className: 'bt-set-row bt-bs-row' },
@@ -230,7 +251,13 @@ export function ScheduleSummary({ bot, actions }) {
 }
 
 export const SCHEDULE_CSS = `
-.bt-task{gap:10px}
+.bt-task{gap:10px;flex-wrap:wrap}
+/* The copy keeps a real basis so a narrow panel wraps it onto its own line
+   instead of squeezing the title to one character per line. */
+.bt-task>.bt-set-copy{flex:1 1 180px}
+.bt-task-runs{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.bt-task-runs .bt-soft{height:auto;min-height:28px;padding:4px 12px;text-align:left;white-space:normal;max-width:100%}
+.bt-task-runs,.bt-task-log{flex-basis:100%;max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-task[data-done]{opacity:.6}
 .bt-task[data-busy]{opacity:.4}
 .bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}

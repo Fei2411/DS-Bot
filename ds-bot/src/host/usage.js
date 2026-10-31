@@ -283,6 +283,10 @@ export function install(rt) {
   function liveOwners(listed, stored) {
     const owners = new Map()
     const botOwner = bot => ({ owner: bot.id, name: bot.name })
+    for (const task of Object.values(state.automations ?? {})) {
+      const bot = rt.botOf(task.botId)
+      if (bot) owners.set(task.sessionId, botOwner(bot))
+    }
     for (const bot of Object.values(state.bots)) {
       for (const sessionId of [bot.id, rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId)]) owners.set(sessionId, botOwner(bot))
     }
