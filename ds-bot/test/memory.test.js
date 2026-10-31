@@ -233,6 +233,22 @@ test('topics hold details, linked from MEMORY.md, and go when their last entry d
   assert.equal(read('bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n')
 })
 
+test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '女友小李的生日是 10 月 22 日' }, 'b2')
+  await tool('remember', { text: 'The user likes green tea' }, 'b2')
+  // The phrase is not a substring of the entry: its character pairs find it.
+  assert.match(await tool('recall', { query: '小李生日' }, 'b2'), /女友小李的生日是 10 月 22 日/)
+  // An entry holding the whole phrase still matches every term.
+  await tool('remember', { text: '小李生日会定在周六' }, 'b2')
+  assert.match(await tool('recall', { query: '小李生日' }, 'b2'), /^Entries with "小李生日" in your memory and the team memory:\n\[yours · MEMORY\.md\] 小李生日会定在周六/)
+  // Space-separated terms and Latin words match as they did.
+  assert.match(await tool('recall', { query: '小李 生日' }, 'b2'), /女友小李的生日/)
+  assert.match(await tool('recall', { query: 'green tea' }, 'b2'), /likes green tea/)
+  assert.match(await tool('recall', { query: 'green 生日' }, 'b2'), /No entry has all of "green 生日"/)
+})
+
 test('Main Bots and group admins write the team memory; only Main Bots touch another Bot\'s', async (t) => {
   const { tool, read, stop } = start()
   t.after(() => stop())
