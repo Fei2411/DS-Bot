@@ -483,22 +483,14 @@ export function install(rt) {
     },
   }))
 
-  // Tool results lose the values before the registry renders and saves them: a fresh
-  // result object is re-rendered from its value, so the model content, the saved
-  // `tool/result`, and the tool card's presentation all come from the redacted value.
+  // Tool results lose the values before the registry renders and saves them. Every
+  // field is redacted — a wrapper further out in the pipeline still sees a whole
+  // result (its `content`, `meta`, and `additionalContexts` too), and the registry
+  // re-renders a changed success result from its redacted value.
   ctx.on('tools/execute', async (exec, next) => {
     const result = await next()
     if (secrets.size === 0 || result === null || typeof result !== 'object') return result
-    if (result.isError) {
-      const content = redactDeep(result.content, redact)
-      const meta = redactDeep(result.meta, redact)
-      const error = redactDeep(result.error, redact)
-      if (content === result.content && meta === result.meta && error === result.error) return result
-      return { ...result, content, error, ...(meta !== undefined ? { meta } : {}) }
-    }
-    const value = redactDeep(result.value, redact)
-    if (value === result.value) return result
-    return { isError: false, value, ...(result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {}) }
+    return redactDeep(result, redact)
   })
 
   // Anything that still carries a value (the user pasted it, an earlier part kept it)
