@@ -386,6 +386,7 @@ export function install(rt) {
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
+    if (room.memberDirs !== undefined) delete room.memberDirs[botId]
     const sessionId = room.sessions?.[botId]
     if (sessionId === undefined) return
     delete room.sessions[botId]
