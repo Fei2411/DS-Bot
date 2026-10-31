@@ -1224,7 +1224,13 @@ export function install(rt) {
           ].join('\n')
         }).join('\n\n')
       }
-      const terms = [...new Set(squash(query).split(' ').filter(Boolean))].slice(0, QUERY_TERMS_MAX)
+      // A continuous run of Han characters has no spaces to split on: its
+      // character pairs stand for the words inside it. Other words, and
+      // space-separated terms, match as they did.
+      const terms = [...new Set(squash(query).split(' ').filter(Boolean).flatMap((word) => {
+        const words = /[\u4e00-\u9fff]/.test(word) ? [...wordsOf(word)] : []
+        return words.length > 0 ? words : [word]
+      }))].slice(0, QUERY_TERMS_MAX)
       const scored = loaded.flatMap(({ tag, files }) => allEntries(files).map((entry) => {
         const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
