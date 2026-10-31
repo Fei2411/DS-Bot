@@ -87,6 +87,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
         cwds.set(sessionId, options.cwd ?? registry.get(options.workspaceId)?.path)
         return { sessionId }
       },
+      prompt: async () => { if (ctx.__promptError !== undefined) throw ctx.__promptError; return { accepted: true } },
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
@@ -605,6 +606,19 @@ test('the user moves the team workspace, and Bots without a folder of their own 
   assert.deepEqual(created.at(-1), { workspaceId: 'w-new' })
   // A Bot with a folder of its own stays where it works.
   assert.equal(state().bots.a.workDir, project)
+})
+
+// #424: DSH's prompt admission wraps any unexpected failure as 'session/agent-busy'
+// with the cause in details.reason. For a Session this team owns the reason reaches
+// the user and the diagnostics log.
+test('a prompt rejected with a hidden reason shows the reason and logs it', async (t) => {
+  const { ctx, call, stop } = await start()
+  t.after(stop)
+  ctx.__promptError = Object.assign(new Error('prompt rejected'), { code: 'session/agent-busy', details: { reason: 'Error: Could not load the "sharp" module' } })
+  const denied = await ctx.sessionController.prompt({ sessionId: 'r1', content: [] }).then(() => 'ok', error => `${error.message} (${error.code})`)
+  assert.match(denied, /prompt rejected — Error: Could not load the "sharp" module \(session\/agent-busy\)/)
+  const log = (await call('diagnostics-log', {})).value
+  assert.match(log, /sharp/)
 })
 
 test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'s own default', async (t) => {
