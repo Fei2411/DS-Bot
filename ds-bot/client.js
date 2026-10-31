@@ -42,6 +42,12 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Task completed": "任务已完成",
+  Notifications: "通知",
+  "Task completion notifications": "任务完成通知",
+  "Notify when a task finishes while you are away from this chat.": "未聚焦此聊天时，在任务完成后发送系统通知。",
+  "Enable system notifications": "启用系统通知",
+  "Notification permission: {status}": "系统通知权限：{status}",
   // Shared
   "Main Bot": "主 Bot",
   Working: "工作中",
@@ -13102,6 +13108,79 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   );
 }
 
+// src/client/completion-notices.js
+async function completionPermission() {
+  if (globalThis.dsBotApp?.notifications) return await globalThis.dsBotApp.notifications.supported() ? "granted" : "unavailable";
+  if (typeof Notification !== "function") return "unavailable";
+  return Notification.permission;
+}
+async function requestCompletionPermission() {
+  const permission = await completionPermission();
+  return permission === "default" ? Notification.requestPermission() : permission;
+}
+function noticeCompletions({ roster, shownSession, openSession, markUnread, claim, storage = globalThis.localStorage, bridge = globalThis.dsBotApp?.notifications, since = Date.now() }) {
+  const handled = /* @__PURE__ */ new Set();
+  let monitorSeen = {};
+  try {
+    const saved = JSON.parse(storage.getItem("ds-bot-monitor-seen") ?? "{}");
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) monitorSeen = saved;
+  } catch {
+  }
+  let stopped = false;
+  let clientId;
+  try {
+    clientId = storage.getItem("ds-bot-notification-client");
+    if (!clientId) {
+      clientId = crypto.randomUUID();
+      storage.setItem("ds-bot-notification-client", clientId);
+    }
+  } catch {
+    clientId = crypto.randomUUID();
+  }
+  const notify = () => {
+    bridge?.current(shownSession());
+    const snapshot = roster.getSnapshot();
+    const latest = /* @__PURE__ */ new Map();
+    for (const result of snapshot.monitorResults ?? (snapshot.completions ?? []).filter((entry) => entry.kind === "monitor")) latest.set(result.botId, result);
+    for (const [botId, result] of latest) {
+      if (!snapshot.byId[botId] || Object.hasOwn(monitorSeen, botId) && monitorSeen[botId] === result.id) continue;
+      monitorSeen[botId] = result.id;
+      const foreground = document.visibilityState === "visible" && document.hasFocus() && shownSession() === result.sessionId;
+      if (!foreground) markUnread(botId);
+      try {
+        storage.setItem("ds-bot-monitor-seen", JSON.stringify(monitorSeen));
+      } catch {
+      }
+    }
+    for (const entry of snapshot.completions ?? []) {
+      if (!snapshot.byId[entry.botId] || handled.has(entry.id) || entry.time < since) continue;
+      handled.add(entry.id);
+      const foreground = document.visibilityState === "visible" && document.hasFocus() && shownSession() === entry.sessionId;
+      if (foreground || bridge || snapshot.byId[entry.botId]?.notifyCompletion === false || typeof Notification !== "function" || Notification.permission !== "granted") continue;
+      void claim(entry.id, clientId).then((allowed2) => {
+        if (!allowed2 || stopped) return;
+        const note = new Notification(snapshot.byId[entry.botId]?.name ?? t("A Bot"), { body: t("Task completed"), tag: `ds-bot-completion-${entry.id}` });
+        note.onclick = () => {
+          window.focus();
+          openSession(entry.botId);
+          note.close();
+        };
+      }).catch(() => {
+      });
+    }
+  };
+  const unsubscribe = roster.subscribe(notify);
+  const open = bridge?.onOpen(openSession);
+  const timer = bridge ? setInterval(() => bridge.current(shownSession()), 500) : void 0;
+  notify();
+  return () => {
+    stopped = true;
+    unsubscribe();
+    open?.();
+    clearInterval(timer);
+  };
+}
+
 // src/client/bot-settings.js
 var import_react30 = require("react");
 var capitalize = (word) => word[0].toUpperCase() + word.slice(1);
@@ -13328,12 +13407,24 @@ function MemoryCard({ bot, actions }) {
 function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const [editing, setEditing] = (0, import_react30.useState)(false);
   const [confirming, setConfirming] = (0, import_react30.useState)(false);
+  const [notificationStatus, setNotificationStatus] = (0, import_react30.useState)("");
   const closeEditor = (0, import_react30.useCallback)(() => setEditing(false), []);
   (0, import_react30.useEffect)(() => {
     if (!confirming) return void 0;
     const timer = setTimeout(() => setConfirming(false), 4e3);
     return () => clearTimeout(timer);
   }, [confirming]);
+  (0, import_react30.useEffect)(() => {
+    let active = true;
+    void completionPermission().then((status) => {
+      if (active) setNotificationStatus(status);
+    }).catch(() => {
+      if (active) setNotificationStatus("unavailable");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const isMainBot = isMainOf(roster, bot.id);
   const onlyMain = isMainBot && (roster.mainBotIds ?? []).length === 1;
   const isTile = roster.mainBotId === bot.id;
@@ -13422,6 +13513,23 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
     (0, import_react30.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2, SwitchRow }),
     roster.memory === false ? null : (0, import_react30.createElement)(MemoryCard, { bot, actions }),
     (0, import_react30.createElement)(BotSchedules, { bot, roster, actions }),
+    (0, import_react30.createElement)(
+      Card2,
+      { title: t("Notifications") },
+      (0, import_react30.createElement)(SwitchRow, {
+        label: t("Task completion notifications"),
+        hint: t("Notify when a task finishes while you are away from this chat."),
+        on: bot.notifyCompletion !== false,
+        onChange: (on) => run2((async () => {
+          if (on) setNotificationStatus(await requestCompletionPermission());
+          await actions.updateBot(bot.id, { notifyCompletion: on });
+        })())
+      }),
+      (0, import_react30.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+        void requestCompletionPermission().then(setNotificationStatus);
+      } }, t("Enable system notifications")),
+      notificationStatus ? (0, import_react30.createElement)("p", { role: "status" }, t("Notification permission: {status}", { status: notificationStatus })) : null
+    ),
     (0, import_react30.createElement)(
       Card2,
       { title: t("Main Bot") },
@@ -20903,6 +21011,13 @@ function apply(ctx) {
     shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
     openSession: (id) => actions.openSession(id)
   }), "ds-bot: approval notifications");
+  ctx.effect(() => noticeCompletions({
+    roster,
+    shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
+    openSession: (id) => actions.openSession(id),
+    markUnread: (id) => actions.markUnread(id),
+    claim: (id, clientId) => call("completion-claim", { id, clientId })
+  }), "ds-bot: completion notifications");
   const assistantFace = (sessionId) => {
     const binding = ctx.sessions.binding(sessionId);
     if (binding === void 0) throw new Error(`ds-bot: unknown session "${sessionId}"`);

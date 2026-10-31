@@ -5,6 +5,12 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Task completed': '任务已完成',
+  Notifications: '通知',
+  'Task completion notifications': '任务完成通知',
+  'Notify when a task finishes while you are away from this chat.': '未聚焦此聊天时，在任务完成后发送系统通知。',
+  'Enable system notifications': '启用系统通知',
+  'Notification permission: {status}': '系统通知权限：{status}',
   // Shared
   'Main Bot': '主 Bot',
   Working: '工作中',

@@ -36,6 +36,7 @@ export function install(rt) {
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
   const view = () => ({
+    completions: state.completions ?? [],
     revision: state.revision,
     workspaceId: state.workspaceId ?? null,
     // `mainBotId` is the first Main Bot, which the sidebar shows as its tile.
@@ -246,6 +247,15 @@ export function install(rt) {
         case 'avatar-delete':
           await rt.load()
           return ok(await rt.avatarLibraryDelete(String(body.id ?? '')))
+        case 'completion-claim': {
+          const entry = state.completions.find(item => item.id === body.id)
+          if (!entry || rt.botOf(entry.botId)?.notifyCompletion === false || typeof body.clientId !== 'string' || body.clientId.length > 100) return ok(false)
+          entry.claimed ??= []
+          if (entry.claimed.includes(body.clientId)) return ok(false)
+          entry.claimed.push(body.clientId)
+          await rt.save({ required: true })
+          return ok(true)
+        }
         case 'delete-bot':
           await rt.load()
           await rt.deleteBot(body.id)
