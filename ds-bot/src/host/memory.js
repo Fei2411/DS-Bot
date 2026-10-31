@@ -1224,13 +1224,18 @@ export function install(rt) {
           ].join('\n')
         }).join('\n\n')
       }
-      // A continuous run of Han characters has no spaces to split on: its
-      // character pairs stand for the words inside it. Other words, and
-      // space-separated terms, match as they did.
-      const terms = [...new Set(squash(query).split(' ').filter(Boolean).flatMap((word) => {
-        const words = /[\u4e00-\u9fff]/.test(word) ? [...wordsOf(word)] : []
-        return words.length > 0 ? words : [word]
-      }))].slice(0, QUERY_TERMS_MAX)
+      // The cap is on the user's own words, so a long phrase's pairs do not push
+      // its end or later words out. A run of Han characters has no spaces to
+      // split on: the word itself is a term, so an entry holding the whole
+      // phrase outranks one holding only its parts; its character pairs stand
+      // for the words inside it, and a Latin part of a mixed word is a term too.
+      const words = squash(query).split(' ').filter(Boolean).slice(0, QUERY_TERMS_MAX)
+      const terms = [...new Set(words.flatMap((word) => {
+        if (!/[\u4e00-\u9fff]/.test(word)) return [word]
+        const parts = new Set(word.match(/[a-z0-9]+/g) ?? [])
+        for (const run of word.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) parts.add(run.slice(at, at + 2))
+        return [word, ...parts]
+      }))]
       const scored = loaded.flatMap(({ tag, files }) => allEntries(files).map((entry) => {
         const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
