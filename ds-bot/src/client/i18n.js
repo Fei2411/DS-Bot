@@ -5,6 +5,19 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Task completed': '任务已完成',
+  Notifications: '通知',
+  'Task completion notifications': '任务完成通知',
+  'Notify when a task finishes while you are away from this chat.': '未聚焦此聊天时，在任务完成后发送系统通知。',
+  'Enable system notifications': '启用系统通知',
+  'Notification permission: {status}': '系统通知权限：{status}',
+  'Saved task records': '已保存的任务记录',
+  'View monitor runs': '查看监视记录',
+  'Make silent monitor': '改为静默监视',
+  'Task type': '任务类型',
+  'Normal task': '普通任务',
+  'Silent monitor': '静默监视',
+  'The first check establishes a baseline. Only new matching messages appear in chat. The Host must stay running.': '首次检查建立基线，之后仅在聊天中发布新增且符合条件的消息。Host 必须保持运行。',
   // Shared
   'Main Bot': '主 Bot',
   Working: '工作中',

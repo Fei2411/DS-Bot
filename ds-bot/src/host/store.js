@@ -19,7 +19,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, prefs: {}, switching: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, prefs: {}, switching: {}, automations: {}, monitorResults: [], completions: [], revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -108,6 +108,7 @@ export function install(rt) {
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
     state.prefs ??= {}
+    state.pendingCompletions ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     let migrated = !hadCapabilities
@@ -355,6 +356,7 @@ export function install(rt) {
   // archived and stay readable.
   /** @type {Map<string, string>} */
   const chatOwners = new Map()
+  const automationOwners = new Map()
   /** @type {Map<string, {botId:string, roomId:string}>} */
   const groupOwners = new Map()
   /** @type {Map<string, {botId:string, roomId?:string}>} */
@@ -364,6 +366,10 @@ export function install(rt) {
     chatOwners.clear()
     groupOwners.clear()
     pastOwners.clear()
+    automationOwners.clear()
+    for (const task of Object.values(state.automations ?? {})) {
+      if (task.sessionId && state.bots[task.botId]) automationOwners.set(task.sessionId, task)
+    }
     for (const bot of Object.values(state.bots)) {
       for (const segment of bot.segments ?? []) pastOwners.set(segment.sessionId, { botId: bot.id })
       chatOwners.set(chatOf(bot.id), bot.id)
@@ -379,9 +385,9 @@ export function install(rt) {
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
   // earlier segment of either.
-  const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
+  const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? automationOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
   // A Session where the Bot speaks now, as opposed to an archived segment.
-  const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
+  const isBotSession = id => chatOwners.has(id) || groupOwners.has(id) || automationOwners.has(id)
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
     const sessionId = room.sessions?.[botId]
@@ -426,7 +432,7 @@ export function install(rt) {
   Object.assign(rt, {
     state, load, save, refresh, readOnly, own,
     botOf, roomOf, isMain, chatOf, selfOf, isBotSession,
-    chatOwners, groupOwners, pastOwners,
+    chatOwners, groupOwners, pastOwners, automationOwners, indexSessions,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }

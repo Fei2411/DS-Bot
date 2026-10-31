@@ -257,6 +257,7 @@ export function install(rt) {
   async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (patch.notifyCompletion !== undefined && (actorId !== undefined || typeof patch.notifyCompletion !== 'boolean')) throw new Error('Only the user can set completion notifications')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
@@ -297,6 +298,7 @@ export function install(rt) {
       await ctx.sessionTitle.rename(agent.session, next)
       await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
     }
+    if (patch.notifyCompletion !== undefined) bot.notifyCompletion = patch.notifyCompletion
     const roleBefore = bot.role
     const instructionsBefore = bot.instructions
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
@@ -631,6 +633,7 @@ export function install(rt) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
+    await rt.removeBotMonitors?.(id)
     // Before the Bot and its group Sessions leave the state, which the archive reads.
     const archived = rt.archiveBotMemory(id)
     const current = rt.chatOf(id)
