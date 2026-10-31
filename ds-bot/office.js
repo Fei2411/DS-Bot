@@ -34,9 +34,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/conventions.js
+// node_modules/@xmldom/xmldom/lib/conventions.js
 var require_conventions = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/conventions.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/conventions.js"(exports) {
     "use strict";
     function find(list, predicate, ac) {
       if (ac === void 0) {
@@ -243,9 +243,9 @@ var require_conventions = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/errors.js
+// node_modules/@xmldom/xmldom/lib/errors.js
 var require_errors = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/errors.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/errors.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     function extendError(constructor, writableName) {
@@ -402,9 +402,9 @@ var require_errors = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/grammar.js
+// node_modules/@xmldom/xmldom/lib/grammar.js
 var require_grammar = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/grammar.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/grammar.js"(exports) {
     "use strict";
     function detectUnicodeSupport(RegExpImpl) {
       try {
@@ -609,9 +609,9 @@ var require_grammar = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/dom.js
+// node_modules/@xmldom/xmldom/lib/dom.js
 var require_dom = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/dom.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/dom.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     var find = conventions.find;
@@ -3276,9 +3276,9 @@ var require_dom = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/entities.js
+// node_modules/@xmldom/xmldom/lib/entities.js
 var require_entities = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/entities.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/entities.js"(exports) {
     "use strict";
     var freeze = require_conventions().freeze;
     exports.XML_ENTITIES = freeze({
@@ -5419,9 +5419,9 @@ var require_entities = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/sax.js
+// node_modules/@xmldom/xmldom/lib/sax.js
 var require_sax = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/sax.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/sax.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     var g = require_grammar();
@@ -6201,9 +6201,9 @@ var require_sax = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/dom-parser.js
+// node_modules/@xmldom/xmldom/lib/dom-parser.js
 var require_dom_parser = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/dom-parser.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/dom-parser.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     var dom = require_dom();
@@ -6469,9 +6469,9 @@ var require_dom_parser = __commonJS({
   }
 });
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/index.js
+// node_modules/@xmldom/xmldom/lib/index.js
 var require_lib = __commonJS({
-  "../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/@xmldom/xmldom/lib/index.js"(exports) {
+  "node_modules/@xmldom/xmldom/lib/index.js"(exports) {
     "use strict";
     var conventions = require_conventions();
     exports.assign = conventions.assign;

@@ -888,5 +888,41 @@ export function install(rt) {
     if (entry?.turn !== undefined) entry.cut = { texts: entry.texts.length }
   }
 
+  // DSH's prompt admission wraps any unexpected failure as 'session/agent-busy' and
+  // keeps the real cause in details.reason, which the window never shows and the log
+  // never saw (#424). For a Session this team owns, the reason is written to the
+  // diagnostics and put into the error the user reads.
+  const prompt = ctx.sessionController?.prompt
+  if (typeof prompt === 'function') {
+    const controller = ctx.sessionController
+    const admitted = async function (request, ...rest) {
+      try {
+        return await prompt.call(this, request, ...rest)
+      } catch (error) {
+        const id = request?.sessionId
+        if (id === undefined || (rt.roomOf(id) === undefined && !rt.isBotSession(id))) throw error
+        const reason = typeof error?.details?.reason === 'string' && error.details.reason !== '' ? error.details.reason : undefined
+        rt.noteFailure({
+          source: 'prompt',
+          text: `prompt rejected for ${placeOf(id)}${reason === undefined ? '' : `: ${reason}`}`,
+          code: error?.code,
+          where: placeOf(id),
+          sessionId: id,
+        })
+        if (reason !== undefined) {
+          const enriched = new Error(`${error?.message ?? 'prompt rejected'} — ${reason}`)
+          enriched.code = error.code
+          enriched.details = error.details
+          throw enriched
+        }
+        throw error
+      }
+    }
+    ctx.effect(() => {
+      controller.prompt = admitted
+      return () => { if (controller.prompt === admitted) controller.prompt = prompt }
+    }, 'ds-bot: prompt rejection reasons')
+  }
+
   Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, markSteerCut, hasSubagents, stopSubagents })
 }
