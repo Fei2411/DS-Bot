@@ -180,8 +180,8 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
-  // A failed connection says nothing about the conversation, so it never moves a part on.
-  const STUCK_CODES = ['INVALID_REQUEST', 'IMAGE_OFFLOAD_REQUIRED']
+  // Generic request and credential errors say nothing about the conversation.
+  const STUCK_CODES = ['IMAGE_OFFLOAD_REQUIRED']
   const ORIGINAL_COMPACT = Symbol.for('ds-bot/compaction')
   const STEWARD_MAX_TOKENS = 4_096
   const STEWARD_TIMEOUT_MS = 120_000
@@ -208,6 +208,13 @@ export function install(rt) {
     }
   }
   const clock = createClock(config.timeZone)
+  // A fresh part has only its handoff and perhaps our synthetic acknowledgement.
+  // Replacing it again cannot make room until the model has added real work.
+  const canMakeRoom = (session) => {
+    const messages = session.deriveMessages()
+    return !messages.some(message => message.source?.handoff === true)
+      || messages.some(message => message.role === 'assistant' && textOf(message.content) !== HANDOFF_ACK)
+  }
 
   // Lines for the model the Session last routed to; undefined while it has not
   // routed yet.
@@ -1032,7 +1039,7 @@ export function install(rt) {
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
-    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
+    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly() || !canMakeRoom(agent.session)) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
@@ -1117,9 +1124,6 @@ export function install(rt) {
     await rt.load()
     const { agent } = payload
     if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || rescued.get(agent.id) === 'bare') return decided
-    // A provider may turn down one request for reasons of its own; a history that
-    // breaks every request fails the next turn as well.
-    if (failure.code === 'INVALID_REQUEST' && !STUCK_CODES.includes(lastTurnEnd(agent)?.data?.reason?.error?.code)) return decided
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     // The latest messages carried into a rescued part may be what breaks the request.
@@ -1131,7 +1135,7 @@ export function install(rt) {
     if (payload.failure?.code !== OVERFLOW || payload.signal?.aborted) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !canMakeRoom(agent.session)) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -1143,9 +1147,10 @@ export function install(rt) {
   // past it.
   async function checkContext(agent) {
     if (switches.has(agent.id) || freshParts.has(agent.id) || checking.has(agent.id) || readOnly()) return
+    if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
-    if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
+    if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines) || !canMakeRoom(agent.session)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)

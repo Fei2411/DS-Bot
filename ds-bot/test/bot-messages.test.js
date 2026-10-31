@@ -8,7 +8,7 @@ import { apply } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installParts } from '../src/host/parts.js'
-import { SOURCE_KIND } from '../src/host/constants.js'
+import { HANDOFF_ACK, SOURCE_KIND } from '../src/host/constants.js'
 
 // A two-Bot team, optionally with b in a group Session 'gb' of room 'Ops'.
 function team({ group = false } = {}) {
@@ -39,8 +39,9 @@ async function start(seed) {
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
       const calls = []
+      const messages = []
       agents.set(sessionId, {
-        session: { id: sessionId, requestHeader: () => undefined },
+        session: { id: sessionId, requestHeader: () => undefined, deriveMessages: () => messages },
         id: sessionId,
         calls,
         status: 'idle',
@@ -80,7 +81,7 @@ async function start(seed) {
       page: async () => ({ records: [], hasMore: false }),
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: async () => {}, messageProjections: [] },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -91,6 +92,8 @@ async function start(seed) {
   apply(ctx, { home })
   let seq = 0
   const emit = (id, type, data, extra) => {
+    if (type === 'user/message') agentOf(id).session.deriveMessages().push({ role: 'user', content: data.content, source: data.source })
+    if (type === 'assistant/message') agentOf(id).session.deriveMessages().push({ ...data.message, role: 'assistant' })
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data, ...extra })
     }
@@ -879,7 +882,7 @@ test('one turn keeps its identity across two earlier pages', async (t) => {
   assert.equal(older.items.some(item => item.seq === 2 && item.turn === 6), true)
 })
 
-test('a request the model keeps turning down moves the Bot on, without its latest messages the second time; a connection failure does not', async (t) => {
+test('an image offload failure moves the Bot on, without its latest messages the second time; other request failures do not', async (t) => {
   const { ctx, agents, agentOf, emit, fire, stop } = await start(team())
   t.after(stop)
   let made = 0
@@ -903,31 +906,99 @@ test('a request the model keeps turning down moves the Bot on, without its lates
   }
 
   await failTurn('b', 'TRANSPORT')
-  // One turned-down request may be the provider's own hiccup.
+  endedWith('b', 'INVALID_REQUEST')
   await failTurn('b', 'INVALID_REQUEST')
+  for (const code of ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH']) await failTurn('b', code)
   await delay(30)
   assert.equal(made, 0)
 
-  endedWith('b', 'INVALID_REQUEST')
-  await failTurn('b', 'INVALID_REQUEST')
+  await failTurn('b', 'IMAGE_OFFLOAD_REQUIRED')
   await waitFor(() => handoffIn('s1') !== undefined)
   const first = textOf(handoffIn('s1').content)
-  assert.match(first, /because a request in the previous part kept failing \(INVALID_REQUEST\)/)
+  assert.match(first, /because a request in the previous part kept failing \(IMAGE_OFFLOAD_REQUIRED\)/)
   assert.match(first, /first tell the user in one short sentence that the last message could not be sent as it was/)
 
-  endedWith('s1', 'INVALID_REQUEST')
-  await failTurn('s1', 'INVALID_REQUEST')
+  endedWith('s1', 'IMAGE_OFFLOAD_REQUIRED')
+  await failTurn('s1', 'IMAGE_OFFLOAD_REQUIRED')
   await waitFor(() => handoffIn('s2') !== undefined)
   const second = textOf(handoffIn('s2').content)
   assert.match(second, /so they are left out this time\. First tell the user/)
   assert.match(second, /## Latest messages[^#]*\(none\)/)
 
   // A part that already left the messages out stays where it is.
-  endedWith('s2', 'INVALID_REQUEST')
-  await failTurn('s2', 'INVALID_REQUEST')
+  endedWith('s2', 'IMAGE_OFFLOAD_REQUIRED')
+  await failTurn('s2', 'IMAGE_OFFLOAD_REQUIRED')
   await delay(30)
   assert.equal(made, 2)
 })
+
+test('a failed turn past the hard line keeps the real error instead of switching in the background', async (t) => {
+  const { ctx, agentOf, emit, stop } = await start(team())
+  t.after(stop)
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  const get = ctx.get
+  ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: 120_000 }) } : get(name)
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 } })
+  const agent = agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+  emit('b', 'assistant/message', assistantText('Earlier work'))
+  const error = { code: 'MISSING_CREDENTIAL', message: 'No API key' }
+  agent.session.seq = 2
+  agent.session.eventAt = () => ({ type: 'turn/end', data: { reason: { kind: 'error', error } } })
+  ctx.emit('agent/status', { agent, status: 'idle' })
+  await delay(50)
+  assert.equal(made, 0)
+  assert.equal(agent.session.eventAt(1).data.reason.error, error)
+})
+
+for (const id of ['b', 'gb']) {
+  test(`a fresh part with oversized tools surfaces overflow, and can switch again after real work (${id})`, async (t) => {
+    const { ctx, agentOf, emit, fire, stop } = await start(team({ group: true }))
+    t.after(stop)
+    let made = 0
+    let tokens = 272_000
+    ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+    const get = ctx.get
+    ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: tokens }) } : get(name)
+    ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 192_000 } })
+    const preStep = async (agent) => {
+      agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+      return ctx.listeners.get('agent/pre-step').at(-1)({ agent, messages: [], step: 1, signal: AbortSignal.timeout(60_000) }, async () => 'next')
+    }
+    const overflow = agent => fire('agent/request-error', { agent, failure: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Tools exceed the context window' }, signal: AbortSignal.timeout(60_000) })
+    const waitForHandoff = async (sessionId) => {
+      for (let count = 0; count < 200 && !agentOf(sessionId).calls.some(([, message]) => message.source?.handoff); count += 1) await delay(5)
+      const handoff = agentOf(sessionId).calls.find(([, message]) => message.source?.handoff)?.[1]
+      assert.ok(handoff)
+      emit(sessionId, 'user/message', handoff)
+    }
+
+    // A grown conversation still gets its normal overflow recovery.
+    emit(id, 'assistant/message', assistantText('Earlier work'))
+    await overflow(agentOf(id))
+    await waitForHandoff('s1')
+    assert.equal(await preStep(agentOf('s1')), 'next')
+    // A larger tool set can cross the growth line without adding any conversation.
+    tokens += 192_000
+    assert.equal(await preStep(agentOf('s1')), 'next')
+    await overflow(agentOf('s1'))
+    await delay(30)
+    assert.equal(made, 1, 'replacing an unchanged handoff cannot make room')
+
+    // An idle handoff acknowledgement is synthetic, not evidence the model works.
+    emit('s1', 'assistant/message', assistantText(HANDOFF_ACK))
+    ctx.emit('agent/status', { agent: agentOf('s1'), status: 'idle' })
+    await delay(30)
+    assert.equal(made, 1)
+
+    // Once the user fixes the cause and the model works, later overflow can recover.
+    emit('s1', 'assistant/message', assistantText('Work after reducing the tool set'))
+    await overflow(agentOf('s1'))
+    await waitForHandoff('s2')
+    assert.equal(made, 2)
+  })
+}
 
 // #206: a message between Bots used to go whole into state.json, which is written whole
 // on every save; an empty one started a turn on nothing.
