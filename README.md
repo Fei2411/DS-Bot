@@ -114,6 +114,10 @@ Each Bot has a **Task completion notifications** switch, enabled by default. Not
 
 Choose **Silent monitor** when creating a scheduled task, or ask a Bot to use `create_automation` in monitor mode. The first successful check establishes a baseline; later checks publish only new matching message IDs. Empty checks remain in the run records, not in chat. The Host must stay running. Existing normal tasks can be converted explicitly.
 
+### Deleting a Bot
+
+Deleting a Bot first previews its tasks and related files: delete tasks or transfer them to another Bot, keep files by default, and recycle only verified new, unchanged, unshared files. Chats and memory are archived.
+
 ## Data
 
 All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.

@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -97,6 +98,9 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on agent/created',
     'effect ds-bot: monitor timers',
     'on session/event',
+    'on session/event',
+    'on tools/execute',
+    'on agent/pre-step (prepend)',
     'effect ds-bot: Bot compaction',
     'on agent/created',
     'on agent/pre-step (prepend)',
@@ -189,7 +193,7 @@ test('the client channel answers from the saved state', async (t) => {
   await call('set-prefs', { thinking: true })
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
   // A refusal from the team code keeps its message for the user.
-  assert.deepEqual((await call('delete-bot', { id: 'nobody' })).error, { code: 'bot/refused', message: 'Unknown Bot', details: {} })
+  assert.deepEqual((await deleteConfirmed(call, { id: 'nobody' })).error, { code: 'bot/invalid', message: 'Unknown Bot', details: {} })
   // Off the Desktop profile there are no Bot browsers.
   assert.equal((await call('browser-wait', { clientId: 'w' })).error.code, 'bot/browser-off')
 })

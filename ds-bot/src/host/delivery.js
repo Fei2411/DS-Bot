@@ -55,6 +55,7 @@ export function install(rt) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
+    if (rt.deletingBots?.has(toId)) throw new Error('This Bot is being deleted')
     const fromName = from?.name ?? 'You'
     const room = rt.roomOf(roomId)
     const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name

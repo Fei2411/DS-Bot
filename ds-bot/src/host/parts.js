@@ -1010,6 +1010,7 @@ export function install(rt) {
   // room before the step (condensed in place, or it stops and goes on in a fresh
   // part), and the backend's own pre-step listener sees the wrapper.
   ctx.on('agent/pre-step', async (payload, next) => {
+    if (rt.deletingBots?.has(rt.selfOf(payload.agent.id))) return { kind: 'reject' }
     if (rt.automationOwners.has(payload.agent.id)) return next()
     await rt.load()
     const { agent } = payload

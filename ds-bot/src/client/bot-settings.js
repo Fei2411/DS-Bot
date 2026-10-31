@@ -178,19 +178,13 @@ function MemoryCard({ bot, actions }) {
 // sidebar place, and copies.
 export function BotSettingsForm({ bot, roster, actions, run }) {
   const [editing, setEditing] = useState(false)
-  const [confirming, setConfirming] = useState(false)
   const [notificationStatus, setNotificationStatus] = useState('')
-  const closeEditor = useCallback(() => setEditing(false), [])
-  useEffect(() => {
-    if (!confirming) return undefined
-    const timer = setTimeout(() => setConfirming(false), 4000)
-    return () => clearTimeout(timer)
-  }, [confirming])
   useEffect(() => {
     let active = true
     void completionPermission().then(status => { if (active) setNotificationStatus(status) }).catch(() => { if (active) setNotificationStatus('unavailable') })
     return () => { active = false }
   }, [])
+  const closeEditor = useCallback(() => setEditing(false), [])
   const isMainBot = isMainOf(roster, bot.id)
   const onlyMain = isMainBot && (roster.mainBotIds ?? []).length === 1
   const isTile = roster.mainBotId === bot.id
@@ -199,7 +193,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
-  const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
+  const remove = () => { void actions.deleteBot(bot.id) }
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
   return h('div', { className: 'bt-bs' },
@@ -264,10 +258,10 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       bot.private === true ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row', onClick: duplicate },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Duplicate')), h('span', { className: 'bt-set-hint' }, t('A copy with the same job and model, and fresh memory.'))),
         h('span', { className: 'bt-chevron' }, h(ChevronRightIcon))),
-      isMainBot ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-bs-danger', 'data-confirm': confirming || undefined, onClick: remove },
+      isMainBot ? null : h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-bs-danger', onClick: remove },
         h('span', { className: 'bt-set-copy' },
-          h('span', { className: 'bt-bs-label' }, confirming ? t('Delete {name}?', { name: bot.name }) : t('Delete Bot')),
-          h('span', { className: 'bt-set-hint' }, confirming ? t('Click again to delete. Its chats are archived.') : t('Removes the Bot from the team.'))),
+          h('span', { className: 'bt-bs-label' }, t('Delete Bot')),
+          h('span', { className: 'bt-set-hint' }, t('Review automation tasks and related files before deleting.'))),
         h('span', { className: 'bt-chevron' }, h(ChevronRightIcon)))))
 }
 

@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -328,7 +329,7 @@ test('a team from before the whale was stored gets it once, on its first Main Bo
 
   // The whale is now an ordinary look: it does not pass on when its Bot is deleted.
   assert.equal((await call('set-main', { id: 'm1', main: false })).ok, true)
-  assert.equal((await call('delete-bot', { id: 'm1' })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: 'm1' })).ok, true)
   team = await bots()
   assert.equal(team.w2.avatar, undefined)
   assert.equal(team.w2.color, undefined)
@@ -345,7 +346,7 @@ test('another Bot takes the Main Bot place in one step', async (t) => {
   // The whale stays with the Bot it was given to.
   assert.deepEqual(team.bots.find(bot => bot.id === chief).avatar, { shape: 'whale' })
   // The old Main Bot can now be deleted, and no new Chief is made in its place.
-  assert.equal((await call('delete-bot', { id: chief })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: chief })).ok, true)
   const after = (await call('state', {})).value
   assert.deepEqual(after.mainBotIds, [writer.id])
   assert.deepEqual(after.bots.map(bot => bot.id), [writer.id])
@@ -385,7 +386,7 @@ test('deleting a Bot or group chat stops its Session, so its tasks are removed',
   const writer = (await call('create-bot', { name: 'Writer' })).value
   const room = (await call('create-room', { members: [chief, writer.id], admin: writer.id })).value
   archived.length = 0
-  assert.equal((await call('delete-bot', { id: writer.id })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: writer.id })).ok, true)
   assert.equal((await call('delete-room', { id: room.id })).ok, true)
   // `stopActivity` lets DSH's session-stop hook drop the Session's armed
   // scheduled tasks; without it the archive is refused and they keep
@@ -414,7 +415,7 @@ test("deleting a Bot also stops its past parts' Sessions, where tasks can stay a
   const { call, stop, archived } = start(TEAM_WITH_PART, { models: ['deepseek-v4-flash'] })
   t.after(stop)
   archived.length = 0
-  assert.equal((await call('delete-bot', { id: 'w1' })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: 'w1' })).ok, true)
   // A part switch can leave armed tasks on the old Session (w1); archiving only
   // the current one (w2) would orphan them exactly like a skipped archive.
   assert.deepEqual(archived, [
@@ -423,13 +424,12 @@ test("deleting a Bot also stops its past parts' Sessions, where tasks can stay a
   ])
 })
 
-test('an archive failure on delete is warned instead of passing silently', async (t) => {
-  const { call, stop, warnings } = start(undefined, { models: ['deepseek-v4-flash'], archiveError: new Error('archive refused') })
+test('an archive failure refuses deletion and keeps the Bot available for retry', async (t) => {
+  const { call, stop } = start(undefined, { models: ['deepseek-v4-flash'], archiveError: new Error('archive refused') })
   t.after(stop)
   const writer = (await call('create-bot', { name: 'Writer' })).value
-  assert.equal((await call('delete-bot', { id: writer.id })).ok, true)
-  await settle()
-  assert.equal(warnings.filter(text => text.includes('not archived')).length, 1)
+  assert.equal((await deleteConfirmed(call, { id: writer.id })).ok, false)
+  assert.ok((await call('state', {})).value.bots.some(bot => bot.id === writer.id))
 })
 
 test('a hidden Bot made Main Bot shows again, and a replaced Chief drops its held greeting', async (t) => {
@@ -475,24 +475,23 @@ test('a host that loses its lock to another dsh refuses changes instead of makin
   assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
 })
 
-test('a delete whose save fails still stops the Sessions, and the next save writes it', async (t) => {
+test('a failed deletion checkpoint keeps the Bot and reports the partially archived Session', async (t) => {
   const { call, stop, home, archived } = start(TEAM_WITH_PART, { models: ['deepseek-v4-flash'] })
   t.after(stop)
   await call('state', {})
   archived.length = 0
   const blocker = join(home, `state.json.${process.pid}.tmp`)
   mkdirSync(blocker)
-  const answer = await call('delete-bot', { id: 'w1' })
+  const answer = await deleteConfirmed(call, { id: 'w1' })
   assert.equal(answer.ok, false)
-  // The Bot is gone from the team, so nothing could stop its tasks later.
+  // 确认接口在归档检查点失败时保留 Bot，尚未归档的任务仍有可见的所有者。
   assert.deepEqual(archived, [
     ['w1', { stopActivity: true }],
-    ['w2', { stopActivity: true }],
   ])
   rmSync(blocker, { recursive: true })
   await call('set-prefs', { theme: 'dark' })
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  assert.equal(saved.bots.w1, undefined)
+  assert.ok(saved.bots.w1)
 })
 
 test('a rolled-back Bot does not come back with a save queued before the rollback', async (t) => {

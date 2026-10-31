@@ -47,6 +47,7 @@ import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-m
 import { noticeApprovals } from './approval-notices.js'
 import { noticeCompletions } from './completion-notices.js'
 import { AutomationResults } from './automation-results.js'
+import { DELETE_BOT_CSS } from './delete-bot.js'
 import { listedOpener } from './open-listed.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -862,6 +863,7 @@ export function apply(ctx) {
   // group re-skins the session itself. Each step returns a disposer from slots.inject,
   // so a surface change withdraws the whole group and the outlets re-render.
   const installShell = () => [
+    () => installCompiledStyles(DELETE_BOT_CSS, 'bot-delete'),
     () => installCompiledStyles(SHELL_CSS, 'shell'),
     () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
     () => installCompiledStyles(SECRET_CSS, 'secrets'),

@@ -101,7 +101,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['monitor-runs', 'monitor-run-log', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library'])
+  const READS = new Set(['delete-preview', 'monitor-runs', 'monitor-run-log', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -248,6 +248,12 @@ export function install(rt) {
         case 'avatar-delete':
           await rt.load()
           return ok(await rt.avatarLibraryDelete(String(body.id ?? '')))
+        case 'delete-preview':
+          return ok(await rt.deletionPreview(String(body.id ?? '')))
+        case 'delete-confirm':
+          return ok(await rt.deletionExecute(body))
+        case 'artifact-restore':
+          return ok(await rt.restoreArtifact(body))
         case 'monitor-runs':
           return ok(await rt.monitorRuns(String(body.id ?? '')))
         case 'monitor-run-log':
@@ -264,9 +270,7 @@ export function install(rt) {
           return ok(true)
         }
         case 'delete-bot':
-          await rt.load()
-          await rt.deleteBot(body.id)
-          return ok(view())
+          return fail('Preview the resources and confirm deletion first', 'bot/confirmation-required')
         case 'private-release':
           await rt.load()
           await rt.releaseArchive(String(body.id ?? ''))
@@ -445,6 +449,7 @@ export function install(rt) {
           const text = String(body.text ?? '').trim()
           if (text === '' || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
+          if (rt.deletingBots?.has(rt.selfOf(body.sessionId) ?? body.sessionId)) return fail('This Bot is being deleted', 'bot/busy')
           // A Bot id or an earlier part of its own chat means the current part.
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId

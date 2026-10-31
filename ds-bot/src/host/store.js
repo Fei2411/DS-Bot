@@ -19,7 +19,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, prefs: {}, switching: {}, automations: {}, monitorResults: [], completions: [], revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, prefs: {}, switching: {}, automations: {}, monitorResults: [], completions: [], artifacts: {}, deletionJobs: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -400,7 +400,7 @@ export function install(rt) {
     rt.cancelApprovals?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
-    void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
+    if (!rt.deletionArchived?.has(sessionId)) void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
   }
   // A group Session DSH can no longer open is set aside; the member's earlier parts in
   // the group stay, and its next turn there starts a new Session.

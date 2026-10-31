@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -478,7 +479,7 @@ test('a member deleted while its group Session is made is left out, and the Sess
   }
   await answer(first.sessionId, first.message.source.exchangeId, 'Chief here.', 1)
   const sessionId = await making
-  assert.equal((await call('delete-bot', { id: writer })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: writer })).ok, true)
   release()
 
   const result = JSON.parse(await running)

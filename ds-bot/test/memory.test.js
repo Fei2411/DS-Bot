@@ -1,3 +1,4 @@
+import { deleteConfirmed } from './fake-ctx.js'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
@@ -369,7 +370,7 @@ test('deleting a Bot moves its memory to the archive', async (t) => {
   await tool('remember', { text: 'Temporary fact' }, 'b4')
   section('b4')
   assert.equal(existsSync(join(home, 'memory', 'snapshots', 'b4.md')), true)
-  assert.equal((await call('delete-bot', { id: 'b4' })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: 'b4' })).ok, true)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b4')), false)
   assert.equal(existsSync(join(home, 'memory', 'snapshots', 'b4.md')), false)
   const [archived] = readdirSync(join(home, 'memory', 'archive'))
@@ -1050,7 +1051,7 @@ test('a Bot deleted while its review writes keeps no more of it, and its folder 
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   const folder = join(home, 'memory', 'bots', 'b2')
   while (!existsSync(join(folder, 'MEMORY.md'))) await new Promise(resolve => setImmediate(resolve))
-  assert.equal((await call('delete-bot', { id: 'b2' })).ok, true)
+  assert.equal((await deleteConfirmed(call, { id: 'b2' })).ok, true)
   await reviewed(call)
   assert.equal(existsSync(folder), false)
 })
