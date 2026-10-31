@@ -1652,16 +1652,26 @@ export function install(rt) {
       const sizes = { home: homeFiles[0].content.length, team: teamFiles[0].content.length }
       const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
       const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
-      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
-      const changes = parseReview(reply)
-      if (changes === undefined) throw new Error(`the model's answer is not a list of changes: ${clip(reply.replace(/\s+/g, ' '), 120)}`)
-      const unknown = changes.find(change => change.op !== 'add' && numbered[Number(change.entry) - 1] === undefined)
-      if (unknown !== undefined) throw new Error(`the model's answer names entry ${unknown.entry}, which is not listed`)
-      // A secret is left out for good; any other entry memory cannot keep (one too
-      // long, say) fails the answer, so the next review reads the lines again.
-      const applied = changes.slice(0, REVIEW_CHANGES_MAX)
-      const unfit = applied.filter(change => change.op !== 'remove').map(change => cleanEntry(change.text)).find(text => !secretEntry(text) && entryProblem(text) !== undefined)
-      if (unfit !== undefined) throw new Error(`the model's answer holds an entry memory cannot keep: ${entryProblem(unfit)}`)
+      const system = reviewSystem({ teamWrites: teamWrites(), group })
+      let request = reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language })
+      let changes
+      let applied
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const reply = await botShot(keeper, system, request, tag)
+        changes = parseReview(reply)
+        if (changes === undefined) throw new Error(`the model's answer is not a list of changes: ${clip(reply.replace(/\s+/g, ' '), 120)}`)
+        const unknown = changes.find(change => change.op !== 'add' && numbered[Number(change.entry) - 1] === undefined)
+        if (unknown !== undefined) throw new Error(`the model's answer names entry ${unknown.entry}, which is not listed`)
+        applied = changes.slice(0, REVIEW_CHANGES_MAX)
+        const unfit = applied.filter(change => change.op !== 'remove').map(change => cleanEntry(change.text)).find(text => !secretEntry(text) && entryProblem(text) !== undefined)
+        if (unfit === undefined) break
+        const problem = entryProblem(unfit)
+        if (attempt > 0 || unfit.length <= MEMORY_LIMITS.entry) throw new Error(`the model's answer holds an entry memory cannot keep: ${problem}`)
+        if (!alive()) return
+        // A rejected answer is never partly saved or echoed back: it may hold
+        // secrets. Retry once with the size feedback, then keep the cursor on failure.
+        request += `\n\nThe previous answer was not saved: ${problem}\nWrite the whole JSON object with all intended changes again. Shorten the wording without changing the facts, keeping each entry within ${MEMORY_LIMITS.entry} characters and in the requested language.`
+      }
       const badTopic = applied.find(change => change.op === 'add' && typeof change.topic === 'string' && change.topic.trim() !== '' && cleanTopic(change.topic) === undefined)
       if (badTopic !== undefined) throw new Error(`the model's answer names the topic "${clip(badTopic.topic, 60)}", which cannot be a topic name`)
       if (!alive()) return

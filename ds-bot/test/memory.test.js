@@ -715,18 +715,17 @@ test('an answer that is no list of changes keeps the review\'s place, and the ne
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
 })
 
-test('an answer with a malformed change, an unlisted entry, an entry too long, or a bad topic changes nothing and keeps the review\'s place', async (t) => {
+test('an answer with a malformed change, an unlisted entry, or a bad topic changes nothing and keeps the review\'s place', async (t) => {
   const replies = [
     JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add' }] }),
     JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'remove', entry: 7 }] }),
-    JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: `The user tells ${'a long story '.repeat(30)}` }] }),
     JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: 'The user writes C++', topic: 'C++' }] }),
     JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: 'I use hunter2 as my password' }] }),
   ]
   const { ctx, call, read, requests, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
   t.after(() => stop())
   await call('state', {})
-  for (let tries = 0; tries < 4; tries += 1) {
+  for (let tries = 0; tries < 3; tries += 1) {
     ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
     await reviewed(call)
     assert.throws(() => read('bots', 'b2', 'MEMORY.md'), { code: 'ENOENT' })
@@ -735,7 +734,91 @@ test('an answer with a malformed change, an unlisted entry, an entry too long, o
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
   // A password is only left out: the rest is written and the place moves on.
-  assert.equal(requests.length, 5)
+  assert.equal(requests.length, 4)
+  assert.deepEqual(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.map(entry => entry.text), ['The user likes tea'])
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+})
+
+test('a review with an entry too long asks once for a complete shorter answer, in the same scope', async (t) => {
+  for (const group of [false, true]) await t.test(group ? 'group' : 'own chat', async (t) => {
+    const long = `Пользователь предпочитает ${'подробные объяснения '.repeat(20)}`.trim()
+    const secret = `The root password is ${'synthetic-only-'.repeat(30)}`
+    const short = 'Пользователь предпочитает подробные объяснения.'
+    const replies = [
+      JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'edit', entry: 1, text: long }, { op: 'add', text: secret }] }),
+      JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'edit', entry: 1, text: short }, { op: 'add', text: secret }] }),
+    ]
+    const { ctx, call, tool, read, journal, requests, home, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+    t.after(() => stop())
+    await tool('remember', { text: 'The user likes short replies' }, group ? 'g3' : 'b2')
+    const path = group ? ['groups', 'r1'] : ['bots', 'b2']
+    ctx.emit('agent/status', { agent: { id: group ? 'g3' : 'b2' }, status: 'idle' })
+    await reviewed(call)
+    assert.equal(requests.length, 2)
+    assert.equal(requests[1].system, requests[0].system)
+    assert.equal(requests[1].sessionId, group ? 'r1' : 'b2')
+    const first = requests[0].messages[0].content[0].text
+    const retry = requests[1].messages[0].content[0].text
+    assert.ok(retry.startsWith(first))
+    assert.match(retry, new RegExp(`at most 300 characters; this one has ${long.length}`))
+    assert.match(retry, /whole.*changes/i)
+    assert.ok(!retry.includes(long))
+    assert.ok(!retry.includes(secret))
+    assert.deepEqual(parseMemory(read(...path, 'MEMORY.md')).entries.map(entry => entry.text), [short, 'The user likes tea'])
+    assert.deepEqual(journal().slice(1).map(record => [record.op, record.auto]), [['add', true], ['replace', true]])
+    assert.equal(existsSync(join(home, 'memory', 'team', 'MEMORY.md')), false)
+    assert.deepEqual(JSON.parse(read('reviewed.json')), group ? { 'group:r1': 3 } : { 'chat:b2': 11 })
+  })
+})
+
+test('a second long answer saves nothing and keeps the review\'s place until a later turn', async (t) => {
+  const long = JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: `The user tells ${'a long story '.repeat(30)}` }] })
+  const replies = [long, long, JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: 'The user likes detailed explanations' }] })]
+  const { ctx, call, read, requests, home, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 2)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
+  assert.equal(existsSync(join(home, 'memory', 'journal.jsonl')), false)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 3)
+  assert.equal(requests[2].messages[0].content[0].text, requests[0].messages[0].content[0].text)
+  assert.deepEqual(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.map(entry => entry.text), ['The user likes tea', 'The user likes detailed explanations'])
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+})
+
+test('the shorter answer still has to pass the whole review validation before anything is saved', async (t) => {
+  for (const [name, reply] of [
+    ['malformed', '{"changes":[{"op":"add"}]}'],
+    ['unlisted entry', JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'remove', entry: 7 }] })],
+    ['bad topic', JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: 'The user writes C++', topic: 'C++' }] })],
+    ['model failure', new Error('synthetic model failure')],
+  ]) await t.test(name, async (t) => {
+    const replies = [JSON.stringify({ changes: [{ op: 'add', text: 'x'.repeat(MEMORY_LIMITS.entry + 1) }] }), reply]
+    const { ctx, call, read, requests, home, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+    t.after(() => stop())
+    await call('state', {})
+    ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+    await reviewed(call)
+    assert.equal(requests.length, 2)
+    assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
+    assert.equal(existsSync(join(home, 'memory', 'journal.jsonl')), false)
+    assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
+  })
+})
+
+test('a secret longer than the entry limit is omitted without asking for another review', async (t) => {
+  const replies = [JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add', text: `The root password is ${'synthetic-only-'.repeat(30)}` }] })]
+  const { ctx, call, read, requests, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
   assert.deepEqual(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.map(entry => entry.text), ['The user likes tea'])
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
 })
