@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
+import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { answerSender, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
 
@@ -41,6 +41,10 @@ export function turnsOf(events) {
       continue
     }
     if (current === undefined) continue
+    if (event.type === 'step/start') {
+      current.stepFrom = current.texts.length
+      continue
+    }
     if (event.type === 'user/message') {
       const source = event.data?.source
       if (source?.exchangeId !== undefined) current.took.push(source)
@@ -56,11 +60,29 @@ export function turnsOf(events) {
   return turns
 }
 
-// The last turn that took up an exchange: what it said and how it ended.
+// The last turn that took up an exchange: what it said and how it ended. A turn cut
+// by a user steer keeps going in the turn that starts right after it, so the reason
+// that counts is the continuation's.
 export function turnOf(events, exchangeId) {
   const turns = turnsOf(events)
+  const steerCut = turn => turn?.reason?.kind === 'aborted'
+    && turn.reason.reason?.kind === 'hook'
+    && turn.reason.reason?.reason === STEER_CUT
   for (let at = turns.length - 1; at >= 0; at -= 1) {
-    if (turns[at].took.some(source => source.exchangeId === exchangeId)) return turns[at]
+    if (!turns[at].took.some(source => source.exchangeId === exchangeId)) continue
+    let found = turns[at]
+    let next = at + 1
+    // A steer cut lands inside a step's model call, so the cut turn's last step left
+    // an interrupted draft: texts before the last step/start stay, the rest is a
+    // fragment the continuation replaces.
+    const finished = turn => turn.texts.slice(0, turn.stepFrom ?? turn.texts.length)
+    while (steerCut(found) && next < turns.length) {
+      const follow = turns[next]
+      const kept = finished(found)
+      found = { ...follow, took: [...found.took, ...follow.took], texts: [...kept, ...follow.texts], stepFrom: kept.length + (follow.stepFrom ?? follow.texts.length) }
+      next += 1
+    }
+    return steerCut(found) ? { ...found, texts: finished(found), reason: undefined } : found
   }
   return undefined
 }
@@ -191,7 +213,9 @@ export function install(rt) {
       case 'turn/start': {
         const owner = rt.groupOwners.get(id)
         const botId = owner?.botId ?? rt.chatOwners.get(id)
-        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now() }))
+        // turns.js runs first and has already claimed or restored the trigger.
+        const info = rt.live.get(id)?.info
+        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now(), ...(info !== undefined ? { trigger: triggerOf(info) } : {}) }))
         break
       }
       case 'user/message': {

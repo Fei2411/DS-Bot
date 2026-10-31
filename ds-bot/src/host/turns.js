@@ -2,7 +2,7 @@
 // triggered, the waiters and inboxes of group rounds, and routing a finished turn's reply.
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
-import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
@@ -89,7 +89,7 @@ export function install(rt) {
     })
   }
 
-  /** @type {Map<string, {turn?:number, pending?:any, info?:any, texts:string[], opened?:boolean, joined?:{info:any, from:number}[]}>} */
+  /** @type {Map<string, {turn?:number, pending?:any, pendingText?:string, info?:any, texts:string[], opened?:boolean, joined?:{info:any, from:number}[]}>} */
   const live = new Map()
   /** @type {Map<string, {sessionId:string, resolve:(text:string|null)=>void, fail:(failure:any)=>void, touch:()=>void, approval:()=>void}>} member turn waiters keyed by exchange id */
   const roomWaiters = new Map()
@@ -408,9 +408,35 @@ export function install(rt) {
         entry.joined = []
         entry.later = []
         entry.steeredAt = undefined
+        entry.carried = false
+        let claimedPending
+        let claimedPendingText
         if (entry.pending !== undefined) {
-          claimTrigger(id, entry, entry.pending)
+          claimedPending = entry.pending
+          claimedPendingText = entry.pendingText
+          claimTrigger(id, entry, claimedPending)
           entry.pending = undefined
+          entry.pendingText = undefined
+        }
+        if (entry.carry !== undefined) {
+          const carry = entry.carry
+          entry.carry = undefined
+          entry.texts = carry.texts
+          entry.shown = carry.shown
+          entry.answers = carry.answers
+          entry.joined = carry.joined
+          entry.later = carry.later
+          entry.opened = true
+          entry.carried = true
+          if (carry.info !== undefined) claimTrigger(id, entry, carry.info)
+          entry.joined = carry.joined
+          // A request the carry displaced as this turn's trigger keeps its deferred
+          // place, the same as a request that joins a running turn.
+          if (carry.info !== undefined && claimedPending !== undefined
+            && claimedPending.exchangeId !== carry.info.exchangeId
+            && (expectsReply(claimedPending) || claimedPending.role === 'room') && !answersUser(claimedPending)) {
+            entry.joined = [...carry.joined, { info: claimedPending, text: claimedPendingText }]
+          }
         }
         break
       case 'user/message': {
@@ -468,7 +494,10 @@ export function install(rt) {
         } else if (source?.kind === SOURCE_KIND && source.role === 'resume' && rt.roomOf(id)) {
           queueRoomMessage(id, { text: '', resume: true })
         } else if (source?.kind === SOURCE_KIND) {
-          if (entry.turn === undefined) entry.pending = source
+          if (entry.turn === undefined) {
+            entry.pending = source
+            entry.pendingText = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+          }
           else if (!opened) claimTrigger(id, entry, source)
           else if (source.work !== undefined && source.work !== rt.workOf?.(entry.info) && !expectsReply(source)) {
             // A result for other work than this turn's informs it, and comes back in a
@@ -538,6 +567,15 @@ export function install(rt) {
       }
       case 'turn/end': {
         setActivity(id, undefined)
+        // A steer cut leaves the turn's routing state for the fresh turn that
+        // claims the steer: nothing is answered or delivered for the cut one.
+        const cut = entry.cut
+        entry.cut = undefined
+        const steerCut = cut !== undefined && event.data?.reason?.kind === 'aborted'
+          && event.data.reason.reason?.kind === 'hook' && event.data.reason.reason.reason === STEER_CUT
+        if (steerCut) {
+          entry.carry = { info: entry.info, joined: entry.joined ?? [], later: entry.later ?? [], texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers }
+        }
         const info = entry.info
         const joined = entry.joined ?? []
         // What the group already saw of the turn is not posted again.
@@ -561,6 +599,7 @@ export function install(rt) {
         entry.lastCalled = undefined
         const later = entry.later ?? []
         entry.later = []
+        if (steerCut) break
         for (const result of later) {
           void rt.deliver({
             fromId: result.info.senderSessionId,
@@ -670,5 +709,10 @@ export function install(rt) {
     }
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot })
+  const markSteerCut = (id) => {
+    const entry = live.get(id)
+    if (entry?.turn !== undefined) entry.cut = { texts: entry.texts.length }
+  }
+
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, markSteerCut })
 }
