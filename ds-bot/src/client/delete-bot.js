@@ -154,5 +154,4 @@ export const DELETE_BOT_CSS = `
 .bt-delete-backdrop[data-leaving]{pointer-events:none;animation:bt-veil-out .16s ease-out forwards}.bt-delete-backdrop[data-leaving] .bt-delete-dialog{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @media(max-width:520px){.bt-delete-backdrop{padding:12px}.bt-delete-head{padding:20px 16px 16px}.bt-delete-body{padding:0 16px 20px}.bt-delete-actions{padding:14px 16px}.bt-delete-facts>div{grid-template-columns:96px minmax(0,1fr);gap:12px}}
 @media(prefers-reduced-motion:reduce){.bt-delete-dialog,.bt-delete-backdrop[data-leaving],.bt-delete-backdrop[data-leaving] .bt-delete-dialog{animation-duration:.01s}}
-.bt-automation-results{display:flex;flex-direction:column;gap:12px}.bt-monitor-result .bt-set-row{gap:12px}.bt-monitor-result time{font-size:12px;color:var(--bt-ink-3)}
 `

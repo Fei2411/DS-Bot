@@ -156,6 +156,38 @@ test('a failed conversion removes its new monitor and leaves the normal task int
   assert.equal(Object.values(b.rt.state.automations)[0].disabled, true)
 })
 
+test('a silent monitor converts back to a normal task and forgets its baseline', async t => {
+  const b = await bench(t)
+  await b.rt.createMonitor({ target: 'writer', title: 'Inbox', prompt: 'Watch', when: { kind: 'every', minutes: 1 } })
+  const task = Object.values(b.rt.state.automations)[0]
+  task.seen = ['old']; task.baselined = true
+  task.runs.push({ id: 'run', at: Date.now(), status: 'no_change' })
+  const entry = (await b.rt.schedulesView()).tasks.find(item => item.automationId === task.id)
+  const view = (await b.call('schedule-normal', { id: entry.id, sessionId: entry.sessionId })).value
+  const normal = view.tasks.find(item => item.mode === 'normal')
+  assert.equal(view.tasks.length, 1)
+  assert.equal(normal.sessionId, 'writer'); assert.equal(normal.title, 'Inbox')
+  assert.equal(Object.keys(b.rt.state.automations).length, 0)
+  assert.equal(b.rt.automationOwners.has(task.sessionId), false)
+  assert.ok(b.archived.includes(task.sessionId))
+  assert.equal(b.tasks.size, 1); assert.ok(!b.tasks.has(entry.id))
+  await assert.rejects(() => b.rt.convertNormal({ id: normal.id, sessionId: normal.sessionId }), /silent monitor/)
+})
+
+test('a failed conversion back removes its new task and leaves the monitor intact', async t => {
+  const b = await bench(t)
+  await b.rt.createMonitor({ target: 'writer', title: 'Inbox', prompt: 'Watch', when: { kind: 'every', minutes: 1 } })
+  const task = Object.values(b.rt.state.automations)[0]
+  const entry = (await b.rt.schedulesView()).tasks.find(item => item.automationId === task.id)
+  const remove = b.schedule.delete
+  b.schedule.delete = request => request.id === entry.id ? Promise.reject(new Error('Monitor locked')) : remove(request)
+  await assert.rejects(() => b.rt.convertNormal({ id: entry.id, sessionId: entry.sessionId }), /Monitor locked/)
+  assert.equal(b.tasks.size, 1); assert.ok(b.tasks.has(entry.id))
+  assert.equal(Object.keys(b.rt.state.automations).length, 1)
+  assert.equal(b.rt.state.automations[task.id].disabled, undefined)
+  assert.equal(b.archived.length, 0)
+})
+
 test('cancelled and timed-out checks fail without advancing the baseline', async t => {
   const b = await bench(t, { monitorTimeoutMs: 10 })
   await b.rt.createMonitor({ target: 'writer', title: 'Inbox', prompt: 'Watch', when: { kind: 'every', minutes: 1 } })

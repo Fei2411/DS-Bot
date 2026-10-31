@@ -106,6 +106,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     monitorRuns: id => call('monitor-runs', { id }),
     monitorRunLog: (id, runId) => call('monitor-run-log', { id, runId }),
     convertMonitor: task => call('schedule-monitor', { id: task.id, sessionId: task.sessionId }),
+    convertNormal: task => call('schedule-normal', { id: task.id, sessionId: task.sessionId }),
     releasePrivate: id => after(call('private-release', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),

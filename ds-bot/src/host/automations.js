@@ -95,7 +95,7 @@ export function install(rt) {
   }
 
   async function finish(task, run, reason) {
-    if (task.disabled || rt.deletingBots?.has(task.botId)) return
+    if (task.disabled || !state.automations[task.id] || rt.deletingBots?.has(task.botId)) return
     const decision = reason?.kind === 'completed' && run.report
       ? run.report : { status: 'failed', error: run.timedOut ? 'Check timed out' : 'Check ended without a successful structured result' }
     const record = { id: run.id, at: run.at, endedAt: Date.now(), status: decision.status, sessionId: task.sessionId, turn: run.turn,
@@ -113,6 +113,8 @@ export function install(rt) {
           if (event.type === 'turn/end') { anchorTurn = event.data.turn ?? null; break }
         }
       } catch (error) { rt.warn('ds-bot: monitor chat anchor not read: %s', error) }
+      // 转换或删除可能发生在读取锚点期间：任务已不属于任何监视时不要再发布。
+      if (task.disabled || !state.automations[task.id]) return
       state.monitorResults.push({ id: run.id, botId: task.botId, taskId: task.id, title: task.title, time: record.endedAt,
         sessionId, anchorTurn, text: rt.redactSecrets(decision.matches.map(item => item.text).join('\n\n')), itemIds: decision.matches.map(item => item.id) })
     }
@@ -127,7 +129,7 @@ export function install(rt) {
       const task = taskOf(context?.agent?.id)
       return task ? [
         '## Background monitor check', task.prompt,
-        'Read the source with your tools, then call report_monitor once and end your turn. Your ordinary replies are private run logs, never user messages.',
+        'Read the source with your tools, then call report_monitor once and end your turn. Your ordinary replies stay in this check\'s run log and are never posted to chat; only report_monitor reaches the user.',
         'Submit the checked items with stable source message ids, exact useful text, and whether each matches the user condition. Never invent ids or infer that a failed query means no changes.',
         task.baselined ? 'Report only newly observed matches. Previously seen source ids remain known by DS Bot.' : 'This is the first successful check: establish a baseline of existing messages; do not announce existing matches.',
         'Use status failed with the reason when the source is unavailable or has no reliable message identities. Do not message other Bots or post to a group.',
@@ -209,6 +211,11 @@ export function install(rt) {
     }
   })
   ctx.effect(() => () => { for (const run of running.values()) clearTimeout(run.timer) }, 'ds-bot: monitor timers')
+  // The timing of an existing task, in the shape createMonitor and schedule-create take.
+  const whenOf = entry => entry.kind === 'every' ? { kind: 'every', minutes: entry.everySeconds / 60 }
+    : entry.kind === 'at' || entry.kind === 'after' ? { kind: 'at', at: entry.scheduledAt }
+      : { kind: entry.kind, time: entry.time?.slice(0, 5), timeZone: entry.timeZone, weekdays: entry.weekdays }
+
   Object.assign(rt, { createMonitor, dropMonitor, monitorTasksOf: tasksOf,
     async monitorRuns(id) {
       const task = rt.own(state.automations, id)
@@ -231,10 +238,7 @@ export function install(rt) {
       if (!entry || entry.mode === 'monitor' || !entry.botId || entry.roomId) throw invalid('Choose a normal Bot task')
       const request = requestOf(entry)
       if (!request || entry.status !== 'active') throw invalid('Only active tasks can be converted')
-      const when = entry.kind === 'every' ? { kind: 'every', minutes: entry.everySeconds / 60 }
-        : entry.kind === 'at' || entry.kind === 'after' ? { kind: 'at', at: entry.scheduledAt }
-          : { kind: entry.kind, time: entry.time?.slice(0, 5), timeZone: entry.timeZone, weekdays: entry.weekdays }
-      const monitor = await createMonitor({ target: entry.botId, title: entry.title, prompt: entry.prompt, when }, { returnTask: true })
+      const monitor = await createMonitor({ target: entry.botId, title: entry.title, prompt: entry.prompt, when: whenOf(entry) }, { returnTask: true })
       try {
         await rt.scheduleService().delete({ sessionId: entry.sessionId, id: entry.id })
       } catch (error) {
@@ -245,6 +249,40 @@ export function install(rt) {
           throw invalid(`Conversion failed: ${error.message}. The new monitor could not be removed: ${cleanup.message}. Inspect both task lists before retrying.`)
         }
         throw error
+      }
+      return rt.schedulesView()
+    },
+    // 监视转回普通任务：先在 Bot 聊天建好新任务，再移除监视任务和它的独立会话。
+    // 基线、已见 id 和运行记录不随转换保留，历史命中卡片留在聊天里。
+    async convertNormal(body) {
+      writable()
+      const service = rt.scheduleService()
+      if (!service) throw invalid('Automation tasks are off in DSH')
+      const entry = (await rt.schedulesView()).tasks.find(task => task.id === body.id && task.sessionId === body.sessionId)
+      if (!entry || entry.mode !== 'monitor' || !entry.botId || entry.roomId) throw invalid('Choose a silent monitor')
+      const request = requestOf(entry)
+      if (!request || entry.status !== 'active') throw invalid('Only active tasks can be converted')
+      const bot = rt.botOf(entry.botId)
+      const task = taskOf(entry.sessionId)
+      if (!bot || !task || rt.deletingBots?.has(bot.id)) throw invalid('Choose an available Bot for the task')
+      const chat = rt.chatOf(bot.id)
+      const record = await service.create(chat, { title: entry.title, prompt: entry.prompt, ...rt.scheduleSelector(whenOf(entry)) })
+      try {
+        await service.delete({ sessionId: entry.sessionId, id: entry.id })
+      } catch (error) {
+        try {
+          await service.delete({ sessionId: chat, id: record.id })
+        } catch (cleanup) {
+          throw invalid(`Conversion failed: ${error.message}. The new task could not be removed: ${cleanup.message}. Inspect both task lists before retrying.`)
+        }
+        throw error
+      }
+      delete state.automations[task.id]
+      task.disabled = true
+      rt.indexSessions()
+      await persist()
+      if (!rt.deletionArchived?.has(entry.sessionId)) {
+        try { await ctx.workspaceRegistry.archiveSession(entry.sessionId, { stopActivity: true }) } catch (error) { rt.warn('ds-bot: monitor session not archived: %s', error) }
       }
       return rt.schedulesView()
     },

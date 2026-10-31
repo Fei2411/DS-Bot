@@ -46,7 +46,7 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
 import { noticeCompletions } from './completion-notices.js'
-import { AutomationResults } from './automation-results.js'
+import { AUTOMATION_CSS, AutomationResults } from './automation-results.js'
 import { DELETE_BOT_CSS } from './delete-bot.js'
 import { listedOpener } from './open-listed.js'
 
@@ -896,6 +896,7 @@ export function apply(ctx) {
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
   ]
   const installConversation = () => [
+    () => installCompiledStyles(AUTOMATION_CSS, 'automations'),
     () => shadow('conversation.chat.turnTail', { id: 'bot-monitor-results', order: 900, inject: face }, AutomationResults),
     () => shadow('conversation.input.dock', { id: 'bot-monitor-unanchored', order: 900, inject: face }, props => AutomationResults({ ...props, unanchored: true })),
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),

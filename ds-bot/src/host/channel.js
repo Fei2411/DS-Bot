@@ -260,6 +260,8 @@ export function install(rt) {
           return ok(await rt.monitorRunLog(String(body.id ?? ''), String(body.runId ?? '')))
         case 'schedule-monitor':
           return ok(await rt.convertMonitor(body))
+        case 'schedule-normal':
+          return ok(await rt.convertNormal(body))
         case 'completion-claim': {
           const entry = state.completions.find(item => item.id === body.id)
           if (!entry || rt.botOf(entry.botId)?.notifyCompletion === false || typeof body.clientId !== 'string' || body.clientId.length > 100) return ok(false)

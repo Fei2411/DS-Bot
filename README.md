@@ -112,7 +112,7 @@ Each Bot has a **Task completion notifications** switch, enabled by default. Not
 
 ### Silent monitors
 
-Choose **Silent monitor** when creating a scheduled task, or ask a Bot to use `create_automation` in monitor mode. The first successful check establishes a baseline; later checks publish only new matching message IDs. Empty checks remain in the run records, not in chat. The Host must stay running. Existing normal tasks can be converted explicitly.
+Choose **Silent monitor** when creating a scheduled task, or ask a Bot to use `create_automation` in monitor mode. The first successful check establishes a baseline; later checks publish only new matching message IDs. Empty checks remain in the run records, not in chat. The Host must stay running. Normal tasks and silent monitors convert explicitly between each other.
 
 ### Deleting a Bot
 
