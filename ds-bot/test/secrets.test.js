@@ -354,6 +354,19 @@ test('tool results and model requests lose the values', async (t) => {
   assert.equal(passed.length, 2)
 })
 
+test('a restarted host resolves its team Sessions and their keys before the first shell call', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-'))
+  const value = fresh()
+  writeFileSync(join(home, 'secrets.json'), JSON.stringify({ version: 1, secrets: [{ name: 'DEMO_TOKEN', value, purpose: 'p', scope: 'all', requestedBy: 'b2', createdAt: 1, updatedAt: 1 }] }))
+  const bench = start({ home })
+  t.after(bench.stop)
+  // apply() has just returned: no endpoint or tool has run yet, but a restored
+  // Session's first shell call already resolves its Bot and its variables.
+  assert.deepEqual(bench.env('b2'), { DSH_SECRET_DEMO_TOKEN: value })
+  assert.deepEqual(bench.env('g-b2'), { DSH_SECRET_DEMO_TOKEN: value })
+  assert.deepEqual(bench.env('elsewhere'), {})
+})
+
 test('a secrets file that cannot be read blocks every write instead of being overwritten', async (t) => {
   // A directory reads as EISDIR on every platform; no chmod games needed. It has to
   // exist before the plugin loads, or the first read has already found the file empty.

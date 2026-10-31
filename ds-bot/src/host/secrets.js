@@ -3,7 +3,8 @@
 // their shell, tool results lose it before they are saved, and every model request
 // has it replaced by [secret:<NAME>] before it leaves.
 import { randomUUID } from 'node:crypto'
-import { chmod, copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { chmodSync, copyFileSync, readFileSync } from 'node:fs'
+import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
@@ -118,11 +119,13 @@ export function install(rt) {
     if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
     return loaded ??= readSecrets()
   }
+  // Synchronous on purpose: a shell resolves its environment without an await, so the
+  // map must be full before the first resolve after a start reads it.
   const readSecrets = async () => {
     loadedReadOnly = rt.readOnly() !== undefined
     let contents
     try {
-      contents = await readFile(path, 'utf8')
+      contents = readFileSync(path, 'utf8')
     } catch (error) {
       if (error?.code === 'ENOENT') {
         blocked = undefined
@@ -145,7 +148,7 @@ export function install(rt) {
       // the store goes on with an empty one.
       const backup = `${path}.broken-${Date.now()}`
       try {
-        await copyFile(path, backup)
+        copyFileSync(path, backup)
         blocked = undefined
         secrets.clear()
         rt.warn('ds-bot: unreadable secrets file %s; backed up as %s', path, backup)
@@ -171,7 +174,7 @@ export function install(rt) {
         ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
       })
     }
-    if (!loadedReadOnly) await chmod(path, 0o600).catch(() => {})
+    if (!loadedReadOnly) try { chmodSync(path, 0o600) } catch {}
     changed()
   }
 
