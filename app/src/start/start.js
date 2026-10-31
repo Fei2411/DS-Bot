@@ -232,7 +232,7 @@ function shift(up, jump) {
   for (const a of [...stage.getAnimations(), ...pond.getAnimations(), ...rises(voiceEl)]) a.cancel()
   root.toggleAttribute('data-up', up)
   if (jump || reduced()) return
-  play(stage, [{ translate: from }, { translate: up ? '0px 0px' : '0px 80px' }], { ...spring('shape'), fill: 'none' })
+  play(stage, [{ translate: from }, { translate: up ? '0px 0px' : '0px 45px' }], { ...spring('shape'), fill: 'none' })
   play(pond, [pondFrom, { scale: up ? '.62' : '1', translate: up ? '0px -60px' : '0px 0px' }], { ...spring('shape'), fill: 'none' })
   play(voiceEl, [{ translate: voiceFrom }, { translate: up ? '0px -108px' : '0px 0px' }], { ...spring('shape'), fill: 'none' })
 }

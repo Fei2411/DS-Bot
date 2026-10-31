@@ -530,7 +530,7 @@ function handleIpc() {
   // A throwaway run (DS_BOT_HOME) keeps its folders where it was told.
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
-  ipcMain.on(IPC.ready, (event) => { if (fromWindow(event)) startWindow.ready() })
+  ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // The start window takes the app's theme and the Bot animation tier at the next start, before
   // the team view has loaded; Mica and the caption buttons follow the theme at once.
   ipcMain.on(IPC.nativeTheme, (event, source) => {

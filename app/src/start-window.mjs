@@ -127,6 +127,26 @@ export function rectAt(from, to, progress) {
   return { x: at('x'), y: at('y'), width: at('width'), height: at('height') }
 }
 
+/**
+ * Where the start page's whale lands at the hand-off (start-window §8): the Main Bot's avatar as
+ * the team view reported it, in CSS px of that page, turned into DIP and then into the start
+ * page's own coordinates once the start window has grown onto the team window's rect. The team
+ * page may be zoomed, so its viewport's width gives the scale. Undefined unless the report is a
+ * plausible box inside the team view.
+ * @param {unknown} report { x, y, width, height, viewportWidth, viewportHeight }
+ * @param {{ team: { x: number, y: number, width: number }, start: { x: number, y: number } }} content
+ *   the team window's content rect, and the start window's content origin once it has grown
+ */
+export function landingOf(report, { team, start }) {
+  if (report === null || typeof report !== 'object') return undefined
+  const [x, y, width, height, viewportWidth, viewportHeight] = ['x', 'y', 'width', 'height', 'viewportWidth', 'viewportHeight'].map(key => Number(report[key]))
+  if (![x, y, width, height, viewportWidth, viewportHeight].every(Number.isFinite) || viewportWidth <= 0 || viewportHeight <= 0) return undefined
+  if (width < 16 || height < 16 || x < 0 || y < 0 || x + width > viewportWidth || y + height > viewportHeight) return undefined
+  const scale = team.width / viewportWidth
+  const round = value => Math.round(value * 2) / 2
+  return { x: round(team.x + x * scale - start.x), y: round(team.y + y * scale - start.y), size: round(((width + height) / 2) * scale) }
+}
+
 /** The rects of the growth, one per step; the last one is the target at the full duration. */
 export function growthSteps(from, to, { duration, step } = GROWTH) {
   const steps = []
@@ -215,6 +235,7 @@ export function startSnapshot(state, now) {
   if (state.place !== undefined) snapshot.place = { ...state.place }
   if (state.card !== undefined) snapshot.card = { ...state.card }
   if (state.failure !== undefined) snapshot.failure = { reason: state.failure.reason, log: [...state.failure.log] }
+  if (state.landing !== undefined) snapshot.landing = { ...state.landing }
   return snapshot
 }
 
@@ -246,6 +267,8 @@ export class StartWindow {
   // What a dialog of the window (the folder picker) or a card keeps waiting: the hand-off, which
   // would take the window and the dialog's owner away, and the 20 s check's verdict.
   #readyHeld = false
+  // The Main Bot avatar's place that came with ready(), kept while the hand-off is held.
+  #readyReport
   #heldAt = 0
   #viewLate = false
   #teamShown
@@ -435,7 +458,7 @@ export class StartWindow {
     if (this.#readyHeld) {
       this.#readyHeld = false
       note(`the hand-off waited ${String(Date.now() - this.#heldAt)} ms for the answer`)
-      this.ready()
+      this.ready(this.#readyReport)
     } else if (this.#viewLate) {
       this.#viewLate = false
       this.#teamViewLate()
@@ -445,6 +468,7 @@ export class StartWindow {
   #holdsOff() {
     if (this.#readyHeld) note(`the held hand-off is dropped after ${String(Date.now() - this.#heldAt)} ms: the start goes on elsewhere`)
     this.#readyHeld = false
+    this.#readyReport = undefined
     this.#viewLate = false
   }
 
@@ -479,9 +503,10 @@ export class StartWindow {
    * a card is up (the folder picker, 「会放在…」), it waits: the hand-off would take the window,
    * and with it the dialog's owner, away while the user is still choosing where the data goes.
    */
-  ready() {
+  ready(report) {
     if (!this.#open() || !['boot', 'card', 'viewFailed'].includes(this.#state.view) || !this.#engineUp) return
     this.#clear('teamView')
+    this.#readyReport = report
     if (this.#asks > 0 || this.#state.view === 'card') {
       if (!this.#readyHeld) {
         note('the team view is ready; the hand-off waits for the answer')
@@ -496,7 +521,7 @@ export class StartWindow {
     this.#readyAt = now
     // A team view that loads after its 20 s goes in without a celebration (§7).
     const celebrate = this.#state.celebrate && this.#state.view !== 'viewFailed'
-    this.#update({ view: 'handoff', done: [...PHASES], celebrate, failure: undefined })
+    this.#update({ view: 'handoff', done: [...PHASES], celebrate, failure: undefined, landing: this.#landing(report) })
     this.#later('fallback', fallbackMs(this.#state), () => {
       note('the page did not send handoffShow')
       this.#handoffShow({ grow: false })
@@ -532,6 +557,31 @@ export class StartWindow {
     if (!this.#open()) return centred(clampInto({ x: 0, y: 0, ...MAIN_SIZE }, screen.getPrimaryDisplay().workArea), screen.getPrimaryDisplay().workArea)
     const start = this.#window.getNormalBounds()
     return mainRect(start, screen.getDisplayMatching(start).workArea)
+  }
+
+  // The whale's landing for this hand-off: the team window goes on its rect now (handoffShow
+  // places it again, in case the start window is dragged meanwhile), and the start window's frame
+  // offset carries over to the rect it grows to. The team page measured itself at the size the
+  // window had before that. The landing is optional: anything odd, and the whale dives. A
+  // minimized start window does not grow, and its bounds would not say where it is.
+  #landing(report) {
+    const main = this.#o.mainWindow()
+    if (main === undefined || main.isDestroyed() || this.#window.isMinimized()) return undefined
+    if (report === undefined) { note('no place to land: the whale dives'); return undefined }
+    try {
+      const measured = main.getContentBounds()
+      const rect = this.placeMain(main)
+      const team = main.getContentBounds()
+      const outer = this.#window.getBounds()
+      const inner = this.#window.getContentBounds()
+      const landing = landingOf(report, { team: { x: team.x, y: team.y, width: measured.width }, start: { x: rect.x + inner.x - outer.x, y: rect.y + inner.y - outer.y } })
+      const inside = landing !== undefined && landing.x >= 0 && landing.y >= 0 && landing.x + landing.size <= rect.width && landing.y + landing.size <= rect.height
+      note(inside ? `the whale lands at ${String(landing.x)}, ${String(landing.y)} (${String(landing.size)} px)` : 'no place to land: the whale dives')
+      return inside ? landing : undefined
+    } catch (error) {
+      note(`no place to land (${error instanceof Error ? error.message : String(error)}): the whale dives`)
+      return undefined
+    }
   }
 
   /**

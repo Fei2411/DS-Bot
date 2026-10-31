@@ -9603,7 +9603,7 @@ function TeamSidebar(props) {
   const main = roster.byId[roster.mainBotId];
   useListGlide(listRef, wideContent, order.map((entry) => entry.item.id).join(","));
   useLandOnMainBot(roster, useSessions, actions);
-  useReportReady(roster.ready);
+  useReportReady(roster.ready, roster);
   const openWidth = drag?.width ?? frameSnap.sidebarWidth;
   const ourWidth = mode === "rail" ? RAIL_WIDTH : openWidth;
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
@@ -10139,12 +10139,34 @@ function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboardi
   );
 }
 var readyReported = false;
-function useReportReady(drawn) {
+function useReportReady(drawn, roster) {
   (0, import_react18.useEffect)(() => {
     if (!drawn || readyReported) return;
     readyReported = true;
-    void Promise.resolve().then(() => globalThis.dsBotApp?.ready?.()).catch(quietly("app ready"));
+    void Promise.resolve().then(() => {
+      const ready = globalThis.dsBotApp?.ready;
+      if (typeof ready !== "function") return void 0;
+      let place;
+      try {
+        place = mainAvatarPlace(roster);
+      } catch {
+        place = void 0;
+      }
+      return place === void 0 ? ready() : ready(place);
+    }).catch(quietly("app ready"));
   }, [drawn]);
+}
+function mainAvatarPlace(roster) {
+  const main = roster?.byId?.[roster.mainBotId];
+  if (main === void 0 || main.avatar?.image || typeof document === "undefined") return void 0;
+  const look = lookOf(main);
+  if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return void 0;
+  const id = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(main.id) : main.id;
+  const mark = document.querySelector(`.bt-side [data-bot-id="${id}"] .bt-mark`);
+  if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return void 0;
+  const box = mark.getBoundingClientRect();
+  const view = document.documentElement;
+  return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight };
 }
 function useLandOnMainBot(roster, useSessions, actions) {
   const mainView = useSessions((list) => {

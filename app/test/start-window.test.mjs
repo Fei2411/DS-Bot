@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { readStartFrame, writeStartFrame } from '../src/start-frame.mjs'
 import {
   acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, GROWTH, GROWTH_EASING,
-  growthSteps, isStartPage, MAIN_SIZE, mainRect, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
+  growthSteps, isStartPage, landingOf, MAIN_SIZE, mainRect, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
   TEAM_VIEW_MS, WATCHDOG_MS,
 } from '../src/start-window.mjs'
 
@@ -277,6 +277,7 @@ function fakeElectron() {
     setContentBounds(rect) { this.bounds = { ...rect } }
     setBounds(rect) { this.bounds = { ...rect }; this.calls.push('setBounds') }
     getBounds() { return { ...this.bounds } }
+    getContentBounds() { return { ...this.bounds } }
     getNormalBounds() { return { ...this.bounds } }
     isDestroyed() { return this.destroyed }
     destroy() { if (!this.destroyed) { this.destroyed = true; this.emit('closed') } }
@@ -505,6 +506,65 @@ test('closing the start window before the hand-off quits, and its timers go with
   s.tick(WATCHDOG_MS + TEAM_VIEW_MS)
   assert.equal(s.win().webContents.sent.length, sent)
   assert.equal(s.start.owner(), undefined)
+})
+
+test('the whale lands on the avatar the team view reported, in the start page\'s own coordinates', () => {
+  const team = { x: 300, y: 90, width: 1280, height: 860 }
+  const avatar = { x: 98, y: 70, width: 60, height: 60, viewportWidth: 1280, viewportHeight: 860 }
+  // Both windows frameless: the grown start page shares the team page\'s origin.
+  assert.deepEqual(landingOf(avatar, { team, start: { x: 300, y: 90 } }), { x: 98, y: 70, size: 60 })
+  // A team page zoomed to 125 %: its CSS px are larger than DIP.
+  assert.deepEqual(landingOf({ x: 80, y: 56, width: 48, height: 48, viewportWidth: 1024, viewportHeight: 688 }, { team, start: { x: 300, y: 90 } }), { x: 100, y: 70, size: 60 })
+  // A system title bar on the start window only: its content starts 32 px lower.
+  assert.deepEqual(landingOf(avatar, { team, start: { x: 300, y: 122 } }), { x: 98, y: 38, size: 60 })
+  // Nothing to land on: no box, a tiny one, one outside the page, or not numbers.
+  for (const report of [undefined, null, 'avatar', { x: 1 }, { ...avatar, width: 8, height: 8 }, { ...avatar, x: 1250 }, { ...avatar, y: -4 }, { ...avatar, x: Number.NaN }, { ...avatar, viewportWidth: 0 }]) {
+    assert.equal(landingOf(report, { team, start: { x: 300, y: 90 } }), undefined, JSON.stringify(report))
+  }
+})
+
+const AVATAR = { x: 98, y: 70, width: 60, height: 60, viewportWidth: MAIN_SIZE.width, viewportHeight: MAIN_SIZE.height }
+test('ready() with the avatar\'s place puts the landing in the hand-off snapshot; without one there is none', (t) => {
+  for (const [report, landing] of [[AVATAR, { x: 98, y: 70, size: 60 }], [undefined, undefined], [{ ...AVATAR, x: MAIN_SIZE.width - 10 }, undefined]]) {
+    const s = startWindow(t)
+    s.start.open('first')
+    // As in the app: the team window is made on its rect, and the page measures it there.
+    s.start.placeMain()
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.ready(report)
+    assert.equal(s.state().view, 'handoff')
+    assert.deepEqual(s.state().landing, landing)
+    t.mock.timers.reset()
+  }
+})
+
+test('the landing takes the start window\'s title bar into account, and waits with a held hand-off', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  // macOS and Linux: a system title bar puts the start page 32 px below the window's top.
+  const win = s.win()
+  win.getContentBounds = () => ({ ...win.bounds, y: win.bounds.y + 32, height: win.bounds.height - 32 })
+  s.start.placeMain()
+  s.start.done('data')
+  s.start.done('engine')
+  s.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  s.start.ready(AVATAR)
+  assert.equal(s.state().view, 'card')
+  s.start.card(undefined)
+  assert.equal(s.state().view, 'handoff')
+  assert.deepEqual(s.state().landing, { x: 98, y: 38, size: 60 })
+})
+
+test('a minimized start window gets no landing', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.done('data')
+  s.start.done('engine')
+  s.win().minimized = true
+  s.start.ready(AVATAR)
+  assert.equal(s.state().view, 'handoff')
+  assert.equal(s.state().landing, undefined)
 })
 
 test('a failure during the hand-off draws the failure page on a fresh page', (t) => {

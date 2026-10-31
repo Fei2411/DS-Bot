@@ -23,7 +23,7 @@
 
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;background:transparent}
-/* The stage hangs 80 px below the window until a card needs the sheet; body clips it rather
+/* The stage hangs 45 px below the window until a card needs the sheet; body clips it rather
    than scrolls, so no focus, scroll anchoring or restored scroll position can shift the page. */
 html{overflow:hidden}
 html[data-frame=system]{background:var(--bt-main)}
@@ -38,9 +38,9 @@ html[data-frame=system] .band{display:none}
 /* stage: everything that moves when a card needs the sheet */
 .stage{position:absolute;left:calc(50% - 360px);top:0;width:720px;height:100%}
 html[data-frame=system] .stage{top:-24px}
-/* Until a card needs the sheet, the whale, its ring and its line sit 80 px lower, at the
-   window's visual centre (an integer translation, so the text stays on whole pixels). */
-html:not([data-up]) .stage{translate:0 80px}
+/* Until a card needs the sheet, the whale, its ring and its line sit 45 px lower, a little above
+   the window's visual centre (an integer translation, so the text stays on whole pixels). */
+html:not([data-up]) .stage{translate:0 45px}
 /* The whale's line: one centred line under the ring, the only voice on the page, and only when
    the user is needed. Every line of text rests on whole pixels (integer translations only) and
    never wraps (the copy is written to fit; the ellipsis is a last resort). When a card needs the
@@ -59,6 +59,9 @@ html[data-up] .voice{translate:0 -108px}
 html[data-up] .pond{translate:0 -60px;scale:.62}
 .lane{position:absolute;left:48px;top:102px;width:624px;height:140px;overflow:clip;pointer-events:none}
 .whale-x{position:absolute;left:256px;top:43px;width:112px;height:112px}
+/* The whale's flight to the Main Bot at the hand-off (whale.js leap): window-wide and above the
+   stage, so neither the lane's clip at the waterline nor the stage holds it. */
+.flight{position:fixed;inset:0;overflow:visible;pointer-events:none}
 .whale-gaze,.whale,.whale-move,.whale-loop{width:100%;height:100%}
 /* .whale-gaze scales only for the breath at rest (whale.js), around the same pivot. */
 .whale-gaze,.whale,.whale-move,.whale-loop{transform-origin:49.95% 79%}

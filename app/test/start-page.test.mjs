@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { START_ACTS } from '../src/start-window.mjs'
+import { GROWTH, START_ACTS } from '../src/start-window.mjs'
 import { langOf, TEXT, t } from '../src/start/text.mjs'
 
 const dir = new URL('../src/start/', import.meta.url)
@@ -93,6 +93,10 @@ test('the start page draws the progress as a ring of three arcs and a closing ci
   // The ring, the water, the whale and its hit box move as one block when a card comes.
   assert.match(html, /<div class="pond">\r?\n<svg class="ring"[\s\S]*?<div class="water"[\s\S]*?<div class="lane">[\s\S]*?<span class="spout"><svg class="plume"[^>]*\shidden>[\s\S]*?<div class="whale-hit"[\s\S]*?<div class="fx" aria-hidden="true"><span class="ripple"><\/span><\/div>\r?\n<\/div>/u)
   assert.doesNotMatch(html, /class="(?:trace|elapsed)"/u)
+  // The layer the whale flies in to the Main Bot's avatar at the hand-off (whale.js leap), and
+  // the flight's end tied to when the main process shows the team window.
+  assert.match(html, /<\/main>\r?\n<div class="flight" aria-hidden="true"><\/div>/u)
+  assert.match(code['whale.js'], new RegExp(`const SHOWN_AFTER = ${String(GROWTH.delay + GROWTH.duration)}\\b`, 'u'))
   assert.doesNotMatch(read('start.css'), /\.(?:trace|elapsed)\b/u)
 })
 

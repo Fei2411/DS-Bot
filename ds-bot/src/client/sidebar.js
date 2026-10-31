@@ -4,7 +4,7 @@ import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon } from './icons.js'
-import { MAIN_LOOK } from './characters.js'
+import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
@@ -323,7 +323,7 @@ export function TeamSidebar(props) {
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, wideContent, order.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions)
-  useReportReady(roster.ready)
+  useReportReady(roster.ready, roster)
 
   // Our column pushes the conversation over by what it takes beyond the shell's
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
@@ -814,14 +814,39 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
 }
 
 // The desktop app keeps its main window hidden until the team interface has drawn
-// the first state, and shows its failure page when that never comes.
+// the first state, and shows its failure page when that never comes. The report
+// says where the Main Bot's avatar is when it wears the start window's whale: the
+// whale there jumps onto it as the team window takes over.
 let readyReported = false
-function useReportReady(drawn) {
+function useReportReady(drawn, roster) {
   useEffect(() => {
     if (!drawn || readyReported) return
     readyReported = true
-    void Promise.resolve().then(() => globalThis.dsBotApp?.ready?.()).catch(quietly('app ready'))
+    void Promise.resolve().then(() => {
+      const ready = globalThis.dsBotApp?.ready
+      if (typeof ready !== 'function') return undefined
+      // The place is a nicety: whatever goes wrong measuring it, the report still goes.
+      let place
+      try { place = mainAvatarPlace(roster) } catch { place = undefined }
+      return place === undefined ? ready() : ready(place)
+    }).catch(quietly('app ready'))
   }, [drawn])
+}
+
+// The Main Bot's avatar in the team column, in CSS px of the page, with the page's size.
+// Only the default look: a photo or another character would not match the start window's whale.
+function mainAvatarPlace(roster) {
+  const main = roster?.byId?.[roster.mainBotId]
+  if (main === undefined || main.avatar?.image || typeof document === 'undefined') return undefined
+  const look = lookOf(main)
+  if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return undefined
+  const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(main.id) : main.id
+  const mark = document.querySelector(`.bt-side [data-bot-id="${id}"] .bt-mark`)
+  // Not the opacity: the column fades in as it first draws, which is when this is measured.
+  if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return undefined
+  const box = mark.getBoundingClientRect()
+  const view = document.documentElement
+  return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
 }
 
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way

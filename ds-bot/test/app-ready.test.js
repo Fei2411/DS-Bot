@@ -50,13 +50,13 @@ function mount(component) {
 }
 
 // One page load: a fresh copy of the client modules, under the app bridge it was given.
-function page(dsBotApp) {
+function page(dsBotApp, documentStub = {}) {
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
     module, exports: module.exports,
     require: name => (name === 'react' ? react : {}),
     window: { innerWidth: 1280, addEventListener() {}, removeEventListener() {} },
-    document: { addEventListener() {}, removeEventListener() {}, querySelector: () => null, documentElement: { setAttribute() {}, removeAttribute() {} } },
+    document: { addEventListener() {}, removeEventListener() {}, querySelector: () => null, documentElement: { setAttribute() {}, removeAttribute() {} }, ...documentStub },
     setTimeout: () => 0, clearTimeout() {},
     ...(dsBotApp === undefined ? {} : { dsBotApp }),
   })
@@ -97,6 +97,31 @@ test('the desktop app hears once that the team sidebar drew the first state', as
   mount(TeamSidebar)(sidebarProps(TEAM))
   await setImmediate()
   assert.deepEqual(calls, [[]], 'later states and a second mount report nothing more')
+})
+
+// The Main Bot in the start window's whale: the report says where its avatar is drawn, so the
+// desktop app's whale can land on it.
+const whaleTeam = { ...TEAM, byId: { main: { ...main, color: 'deepseek', avatar: { shape: 'whale' } } } }
+const avatarPage = app => page(app, {
+  querySelector: selector => (selector === '.bt-side [data-bot-id="main"] .bt-mark' ? { checkVisibility: () => true, getBoundingClientRect: () => ({ left: 98, top: 70, width: 60, height: 60 }) } : null),
+  documentElement: { clientWidth: 1280, clientHeight: 800, setAttribute() {}, removeAttribute() {} },
+})
+
+test('the report says where the Main Bot\'s whale is drawn', async () => {
+  const { calls, app } = readyCalls()
+  mount(avatarPage(app).TeamSidebar)(sidebarProps(whaleTeam))
+  await setImmediate()
+  // The place was made in the page's own realm: compared by value.
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [[{ x: 98, y: 70, width: 60, height: 60, viewportWidth: 1280, viewportHeight: 800 }]])
+})
+
+test('a Main Bot in another look or a photo reports no place', async () => {
+  for (const avatar of [{ shape: 'star' }, { shape: 'whale', image: 'data:image/png;base64,AA' }]) {
+    const { calls, app } = readyCalls()
+    mount(avatarPage(app).TeamSidebar)(sidebarProps({ ...whaleTeam, byId: { main: { ...main, color: 'deepseek', avatar } } }))
+    await setImmediate()
+    assert.deepEqual(calls, [[]], JSON.stringify(avatar))
+  }
 })
 
 test('in Agent mode the return button reports what the team sidebar would', async () => {
