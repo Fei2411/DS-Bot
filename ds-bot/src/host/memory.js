@@ -254,6 +254,17 @@ const wordsOf = (text) => {
   return words
 }
 
+// Recall terms: the query split on spaces, as before. A query that is one
+// continuous run of Han characters substring-matches almost nothing, so it
+// falls back to the house wordsOf() segmentation instead. Its pairs are left
+// uncut — they number at most the query's 120 characters, and cutting them at
+// QUERY_TERMS_MAX would drop what the tail of a long question asked about.
+export function recallTerms(query) {
+  const spaced = [...new Set(squash(query).split(' ').filter(Boolean))]
+  if (spaced.length !== 1 || !/[\u4e00-\u9fff]{2}/.test(spaced[0])) return spaced.slice(0, QUERY_TERMS_MAX)
+  return [...wordsOf(query)]
+}
+
 // What the review shows of memory: both MEMORY.md files whole, then topic entries
 // while they fit, those sharing words with `about` (the user's new lines) first so
 // the model can correct them, then the newest. Topics can hold far more than a
@@ -1186,7 +1197,7 @@ export function install(rt) {
     name: 'recall',
     description: 'Search your memory, the team memory, and in a group chat the group memory, or read one topic whole. It also finds entries saved after this conversation began. With no arguments, lists what is saved where.',
     parameters: {
-      query: { type: 'string', description: 'Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown' },
+      query: { type: 'string', description: 'Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown. A run of Chinese without spaces is matched by character pairs' },
       topic: { type: 'string', description: 'A topic to read whole, as listed with [[topic]]' },
       scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name (Main Bots; private Bots may read public Bots)' },
     },
@@ -1224,7 +1235,7 @@ export function install(rt) {
           ].join('\n')
         }).join('\n\n')
       }
-      const terms = [...new Set(squash(query).split(' ').filter(Boolean))].slice(0, QUERY_TERMS_MAX)
+      const terms = recallTerms(query)
       const scored = loaded.flatMap(({ tag, files }) => allEntries(files).map((entry) => {
         const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
