@@ -67,6 +67,8 @@ const REVIEW_USER_LINE_MAX = 3_000
 const REVIEW_OTHER_LINE_MAX = 800
 const REVIEW_CHANGES_MAX = 8
 const REVIEW_PASSES_MAX = 4
+// A review batch that fails repeatedly advances its cursor after this many attempts to prevent loops.
+const REVIEW_FAILURES_MAX = 5
 // A change whose entry is gone; any other failure keeps the review's place.
 const NO_MATCH = 'memory/no-match'
 const GONE = 'memory/bot-gone'
@@ -1645,38 +1647,50 @@ export function install(rt) {
     }
     // Only the user's words are kept, so lines without any need no model call.
     if (read.some(line => line.who === 'user')) {
-      const { homeFiles, teamFiles } = await settled(() => ({ homeFiles: loadScope(home), teamFiles: loadScope(TEAM) }))
-      const said = read.filter(line => line.who === 'user').map(line => line.text).join('\n')
-      const tagged = group ? 'group' : 'own'
-      const { numbered, left } = reviewEntries(homeFiles, teamFiles, REVIEW_MEMORY_MAX, said, tagged)
-      const sizes = { home: homeFiles[0].content.length, team: teamFiles[0].content.length }
-      const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
-      const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
-      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
-      const changes = parseReview(reply)
-      if (changes === undefined) throw new Error(`the model's answer is not a list of changes: ${clip(reply.replace(/\s+/g, ' '), 120)}`)
-      const unknown = changes.find(change => change.op !== 'add' && numbered[Number(change.entry) - 1] === undefined)
-      if (unknown !== undefined) throw new Error(`the model's answer names entry ${unknown.entry}, which is not listed`)
-      // A secret is left out for good; any other entry memory cannot keep (one too
-      // long, say) fails the answer, so the next review reads the lines again.
-      const applied = changes.slice(0, REVIEW_CHANGES_MAX)
-      const unfit = applied.filter(change => change.op !== 'remove').map(change => cleanEntry(change.text)).find(text => !secretEntry(text) && entryProblem(text) !== undefined)
-      if (unfit !== undefined) throw new Error(`the model's answer holds an entry memory cannot keep: ${entryProblem(unfit)}`)
-      const badTopic = applied.find(change => change.op === 'add' && typeof change.topic === 'string' && change.topic.trim() !== '' && cleanTopic(change.topic) === undefined)
-      if (badTopic !== undefined) throw new Error(`the model's answer names the topic "${clip(badTopic.topic, 60)}", which cannot be a topic name`)
-      if (!alive()) return
-      const changed = await applyReview({ keeper, name, home, numbered, changes: applied, source: batch.source(read), teamWrites })
-      if (!alive()) return
-      // An answer at the limit may have left some out, so the same lines are read
-      // again, a few times at most, while each pass still changes something.
-      const prior = overflowed.get(key)
-      const passes = prior !== undefined && prior.since === since ? prior.passes : 0
-      if (changes.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
-        overflowed.set(key, { since, passes: passes + 1 })
-        through = since
-        again = true
-      } else {
-        overflowed.delete(key)
+      try {
+        const { homeFiles, teamFiles } = await settled(() => ({ homeFiles: loadScope(home), teamFiles: loadScope(TEAM) }))
+        const said = read.filter(line => line.who === 'user').map(line => line.text).join('\n')
+        const tagged = group ? 'group' : 'own'
+        const { numbered, left } = reviewEntries(homeFiles, teamFiles, REVIEW_MEMORY_MAX, said, tagged)
+        const sizes = { home: homeFiles[0].content.length, team: teamFiles[0].content.length }
+        const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
+        const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
+        const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
+        const changes = parseReview(reply)
+        if (changes === undefined) throw new Error(`the model's answer is not a list of changes: ${clip(reply.replace(/\s+/g, ' '), 120)}`)
+        const unknown = changes.find(change => change.op !== 'add' && numbered[Number(change.entry) - 1] === undefined)
+        if (unknown !== undefined) throw new Error(`the model's answer names entry ${unknown.entry}, which is not listed`)
+        // A secret is left out for good; any other entry memory cannot keep (one too
+        // long, say) fails the answer, so the next review reads the lines again.
+        const applied = changes.slice(0, REVIEW_CHANGES_MAX)
+        const unfit = applied.filter(change => change.op !== 'remove').map(change => cleanEntry(change.text)).find(text => !secretEntry(text) && entryProblem(text) !== undefined)
+        if (unfit !== undefined) throw new Error(`the model's answer holds an entry memory cannot keep: ${entryProblem(unfit)}`)
+        const badTopic = applied.find(change => change.op === 'add' && typeof change.topic === 'string' && change.topic.trim() !== '' && cleanTopic(change.topic) === undefined)
+        if (badTopic !== undefined) throw new Error(`the model's answer names the topic "${clip(badTopic.topic, 60)}", which cannot be a topic name`)
+        if (!alive()) return
+        const changed = await applyReview({ keeper, name, home, numbered, changes: applied, source: batch.source(read), teamWrites })
+        if (!alive()) return
+        reviewFailures.delete(key)
+        // An answer at the limit may have left some out, so the same lines are read
+        // again, a few times at most, while each pass still changes something.
+        const prior = overflowed.get(key)
+        const passes = prior !== undefined && prior.since === since ? prior.passes : 0
+        if (changes.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
+          overflowed.set(key, { since, passes: passes + 1 })
+          through = since
+          again = true
+        } else {
+          overflowed.delete(key)
+        }
+      } catch (error) {
+        const anchor = since ?? (read.length > 0 ? read[0].seq - 1 : undefined)
+        const failure = reviewFailures.get(key)
+        const count = failure !== undefined && failure.anchor === anchor ? failure.count + 1 : 1
+        reviewFailures.set(key, { anchor, count })
+        if (count < REVIEW_FAILURES_MAX) throw error
+        rt.warn('ds-bot: memory review of %s reached max retries (%d) at %s; advancing cursor to prevent loop: %s', key, REVIEW_FAILURES_MAX, through, error?.message ?? error)
+        reviewFailures.delete(key)
+        again = false
       }
     }
     const now = cursorsNow()[key]
@@ -1688,6 +1702,8 @@ export function install(rt) {
   }
   /** @type {Map<string, {since: number | undefined, passes: number}>} */
   const overflowed = new Map()
+  /** @type {Map<string, {since: number | undefined, count: number}>} */
+  const reviewFailures = new Map()
 
   /** @type {Map<string, ReturnType<typeof setTimeout>>} */
   const reviewTimers = new Map()
