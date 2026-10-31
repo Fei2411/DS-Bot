@@ -2551,6 +2551,9 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
+/* During a snap only the surface resizes; the new list stays at its final size. */
+.bt-leftcol[style*="--bt-resize-content"]{overflow:hidden}
+.bt-leftcol[style*="--bt-resize-content"]>.bt-side{flex:0 0 auto;width:var(--bt-resize-content);overflow:hidden}
 .bt-leftcol-foot{display:flex;align-items:center;gap:9px;padding-top:8px;flex:none}
 .bt-rail{align-items:center;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
@@ -7860,20 +7863,20 @@ function ThinkingRow({ text, live, at, ms, viewKey }) {
   const atEnd = (0, import_react16.useRef)(view.current?.atEnd ?? true);
   const [open, setOpen] = (0, import_react16.useState)(view.current?.open ?? false);
   const [fade, setFade] = (0, import_react16.useState)(void 0);
-  const remember = (patch) => {
+  const remember2 = (patch) => {
     if (viewKey !== void 0) rowViews.set(viewKey, { ...rowViews.get(viewKey), ...patch });
   };
   const measure = () => {
     const el = box.current;
     atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
-    remember({ atEnd: atEnd.current, top: el.scrollTop });
+    remember2({ atEnd: atEnd.current, top: el.scrollTop });
     const above = el.scrollTop > 0;
     setFade(above && !atEnd.current ? "both" : above ? "top" : !atEnd.current ? "bottom" : void 0);
   };
   const toggle = (event) => {
     const next = event.currentTarget.open;
     if (next) atEnd.current = true;
-    remember({ open: next });
+    remember2({ open: next });
     setOpen(next);
   };
   (0, import_react16.useLayoutEffect)(() => {
@@ -9188,6 +9191,110 @@ function installFrameWatch(frame) {
   };
 }
 
+// src/client/sidebar-resize.js
+var remember = (style, name) => {
+  const value = style.getPropertyValue(name), priority = style.getPropertyPriority(name);
+  return () => {
+    if (value) style.setProperty(name, value, priority);
+    else style.removeProperty(name);
+  };
+};
+function startSidebarResize(event, { mode, width, collapsedWidth = 0, onPreview, onCommit, onDone }) {
+  if (event.button !== 0) return void 0;
+  event.preventDefault();
+  const grip = event.currentTarget;
+  const column = grip.closest(".bt-leftcol");
+  const columns2 = chatRoom.columns();
+  const restore = columns2.flatMap((node) => [remember(node.style, "margin-left"), remember(node.style, "transition")]);
+  const restoreWidth = remember(column.style, "width");
+  const restoreContent = remember(column.style, "--bt-resize-content");
+  collapsedWidth = sidebarTrackWidth() ?? collapsedWidth;
+  column.style.width = `${width}px`;
+  let shown = { left: mode, width };
+  let last = null;
+  let ended = false, disposed = false, animation = null;
+  const pushed = (next) => Math.max(0, (next.left === "open" ? next.width : RAIL_WIDTH) - collapsedWidth);
+  const placeChat = (next) => {
+    for (const node of columns2) node.style.setProperty("margin-left", `${pushed(next)}px`, "important");
+  };
+  for (const node of columns2) node.style.setProperty("transition", "none", "important");
+  placeChat(shown);
+  chatRoom.hold(true);
+  grip.setPointerCapture?.(event.pointerId);
+  const clearSnap = () => {
+    const old = animation;
+    animation = null;
+    old?.cancel();
+    restoreContent();
+  };
+  const cleanup = () => {
+    disposed = true;
+    clearSnap();
+    for (const reset of restore) reset();
+    chatRoom.hold(false);
+  };
+  const finish = () => {
+    chatRoom.setLeft(pushed(shown));
+    cleanup();
+    onDone();
+  };
+  const show2 = (next) => {
+    const changed = next.left !== shown.left;
+    const resized = next.width !== shown.width;
+    if (!changed && !resized) return;
+    const from = changed ? column.getBoundingClientRect().width : 0;
+    const before = shown;
+    shown = next;
+    clearSnap();
+    column.style.width = `${next.width}px`;
+    if (changed) onPreview(next);
+    if (changed && from !== next.width && !reducedMotion()) {
+      column.style.setProperty("--bt-resize-content", `${column.firstElementChild.getBoundingClientRect().width}px`);
+      if (pushed(next) >= pushed(before)) placeChat(next);
+      const snap = column.animate([{ width: `${from}px` }, { width: `${next.width}px` }], {
+        duration: SPRING_SHAPE.duration,
+        easing: SPRING_SHAPE.easing
+      });
+      animation = snap;
+      void snap.finished.then(() => {
+        if (disposed || animation !== snap) return;
+        clearSnap();
+        placeChat(shown);
+        if (ended) finish();
+      }, () => {
+      });
+    } else placeChat(next);
+  };
+  const move = (move2) => {
+    if (move2.pointerId !== event.pointerId) return;
+    last = dragColumn(move2.clientX, window.innerWidth);
+    show2(last);
+  };
+  const ends = ["pointerup", "pointercancel", "lostpointercapture"];
+  const detach = () => {
+    grip.removeEventListener("pointermove", move);
+    for (const name of ends) grip.removeEventListener(name, end);
+    if (grip.hasPointerCapture?.(event.pointerId)) grip.releasePointerCapture(event.pointerId);
+  };
+  const end = (end2) => {
+    if (ended || end2.pointerId !== event.pointerId) return;
+    if (end2.type === "pointerup") move(end2);
+    ended = true;
+    detach();
+    if (last) onCommit(last);
+    if (!animation) finish();
+  };
+  grip.addEventListener("pointermove", move);
+  for (const name of ends) grip.addEventListener(name, end);
+  return () => {
+    if (disposed) return;
+    ended = true;
+    detach();
+    cleanup();
+    restoreWidth();
+  };
+}
+
 // src/client/sidebar.js
 var import_react18 = require("react");
 var import_react_dom3 = require("react-dom");
@@ -9523,6 +9630,16 @@ function TeamSidebar(props) {
     panel: uiNow.details ? { view: uiNow.view, yielded: uiNow.panelYield === true } : null
   });
   const [drag, setDrag] = (0, import_react18.useState)(null);
+  const resize = (0, import_react18.useRef)(null);
+  (0, import_react18.useLayoutEffect)(() => () => {
+    resize.current?.();
+  }, []);
+  (0, import_react18.useLayoutEffect)(() => {
+    if (layout.left !== "hidden" || !resize.current) return;
+    resize.current();
+    resize.current = null;
+    setDrag(null);
+  }, [layout.left]);
   const mode = drag?.left ?? layout.left;
   const wideContent = mode !== "rail";
   const updated = useSessions((list) => {
@@ -9547,46 +9664,37 @@ function TeamSidebar(props) {
   const ourWidth = mode === "rail" ? RAIL_WIDTH : openWidth;
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
   (0, import_react18.useLayoutEffect)(() => {
-    if (typeof document === "undefined") return;
+    if (typeof document === "undefined" || resize.current) return;
     chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [pushed, frameSnap.collapsedWidth]);
+  }, [pushed, frameSnap.collapsedWidth, drag]);
   (0, import_react18.useEffect)(() => () => {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
   const startDrag = (event) => {
     if (event.button !== 0) return;
-    event.preventDefault();
-    const grip = event.currentTarget;
-    grip.setPointerCapture?.(event.pointerId);
-    chatRoom.hold(true);
-    let last = null;
-    let done = false;
-    const onMove = (move) => {
-      last = dragColumn(move.clientX, window.innerWidth);
-      setDrag(last);
-    };
-    const ends = ["pointerup", "pointercancel", "lostpointercapture"];
-    const onEnd = (end) => {
-      if (done) return;
-      done = true;
-      if (end.type === "pointerup") last = dragColumn(end.clientX, window.innerWidth);
-      grip.removeEventListener("pointermove", onMove);
-      for (const name of ends) grip.removeEventListener(name, onEnd);
-      setDrag(null);
-      chatRoom.hold(false);
-      if (last === null) return;
-      actions.setPanelYield?.(false);
-      if (last.left === "rail") {
-        actions.setLeftDrawer?.(false);
-        actions.setSidebarPref?.("rail");
-        return;
+    resize.current?.();
+    resize.current = startSidebarResize(event, {
+      mode,
+      width: ourWidth,
+      collapsedWidth: frameSnap.collapsedWidth ?? 0,
+      onPreview: (next) => (0, import_react_dom3.flushSync)(() => setDrag(next)),
+      onCommit: (last) => {
+        setDrag(last);
+        actions.setPanelYield?.(false);
+        if (last.left === "rail") {
+          actions.setLeftDrawer?.(false);
+          actions.setSidebarPref?.("rail");
+          return;
+        }
+        actions.setSidebarWidth?.(last.width);
+        actions.setSidebarPref?.("open");
+        actions.setLeftDrawer?.(last.left === "drawer");
+      },
+      onDone: () => {
+        resize.current = null;
+        setDrag(null);
       }
-      actions.setSidebarWidth?.(last.width);
-      actions.setSidebarPref?.("open");
-      actions.setLeftDrawer?.(last.left === "drawer");
-    };
-    grip.addEventListener("pointermove", onMove);
-    for (const name of ends) grip.addEventListener(name, onEnd);
+    });
   };
   const dsh = (0, import_react18.useRef)(null);
   const requested = (0, import_react18.useRef)(false);

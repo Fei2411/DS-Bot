@@ -1,5 +1,5 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
@@ -11,8 +11,9 @@ import { Shimmer, workPhrase } from './cells.js'
 import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { showsDshRow } from './dsh-offer.js'
-import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
+import { frameLayout, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
+import { startSidebarResize } from './sidebar-resize.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -302,6 +303,14 @@ export function TeamSidebar(props) {
   })
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
+  const resize = useRef(null)
+  useLayoutEffect(() => () => { resize.current?.() }, [])
+  useLayoutEffect(() => {
+    if (layout.left !== 'hidden' || !resize.current) return
+    resize.current()
+    resize.current = null
+    setDrag(null)
+  }, [layout.left])
   const mode = drag?.left ?? layout.left
   const wideContent = mode !== 'rail'
   const updated = useSessions(list => {
@@ -330,40 +339,28 @@ export function TeamSidebar(props) {
   const ourWidth = mode === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
-    if (typeof document === 'undefined') return
+    if (typeof document === 'undefined' || resize.current) return
     chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [pushed, frameSnap.collapsedWidth])
+  }, [pushed, frameSnap.collapsedWidth, drag])
   useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
 
-  // The edge drag: live while the pointer moves, the column's new state on release.
   const startDrag = (event) => {
     if (event.button !== 0) return
-    event.preventDefault()
-    const grip = event.currentTarget
-    grip.setPointerCapture?.(event.pointerId)
-    chatRoom.hold(true)
-    let last = null
-    let done = false
-    const onMove = (move) => { last = dragColumn(move.clientX, window.innerWidth); setDrag(last) }
-    const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
-    const onEnd = (end) => {
-      if (done) return
-      done = true
-      if (end.type === 'pointerup') last = dragColumn(end.clientX, window.innerWidth)
-      grip.removeEventListener('pointermove', onMove)
-      for (const name of ends) grip.removeEventListener(name, onEnd)
-      setDrag(null)
-      chatRoom.hold(false)
-      if (last === null) return
-      // The drag is the latest explicit gesture: it takes back a yielded panel's room.
-      actions.setPanelYield?.(false)
-      if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail'); return }
-      actions.setSidebarWidth?.(last.width)
-      actions.setSidebarPref?.('open')
-      actions.setLeftDrawer?.(last.left === 'drawer')
-    }
-    grip.addEventListener('pointermove', onMove)
-    for (const name of ends) grip.addEventListener(name, onEnd)
+    resize.current?.()
+    resize.current = startSidebarResize(event, {
+      mode, width: ourWidth, collapsedWidth: frameSnap.collapsedWidth ?? 0,
+      onPreview: next => flushSync(() => setDrag(next)),
+      onCommit: (last) => {
+        setDrag(last)
+        // The latest explicit gesture takes back a yielded panel's room.
+        actions.setPanelYield?.(false)
+        if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail'); return }
+        actions.setSidebarWidth?.(last.width)
+        actions.setSidebarPref?.('open')
+        actions.setLeftDrawer?.(last.left === 'drawer')
+      },
+      onDone: () => { resize.current = null; setDrag(null) },
+    })
   }
 
   // In the Bot view the shell's own sidebar stays collapsed under our column. A

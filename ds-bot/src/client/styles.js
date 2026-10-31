@@ -161,6 +161,9 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
+/* During a snap only the surface resizes; the new list stays at its final size. */
+.bt-leftcol[style*="--bt-resize-content"]{overflow:hidden}
+.bt-leftcol[style*="--bt-resize-content"]>.bt-side{flex:0 0 auto;width:var(--bt-resize-content);overflow:hidden}
 .bt-leftcol-foot{display:flex;align-items:center;gap:9px;padding-top:8px;flex:none}
 .bt-rail{align-items:center;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
