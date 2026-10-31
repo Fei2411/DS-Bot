@@ -208,12 +208,34 @@ export function install(rt) {
     }
   }
   const clock = createClock(config.timeZone)
-  // A fresh part has only its handoff and perhaps our synthetic acknowledgement.
-  // Replacing it again cannot make room until the model has added real work.
-  const canMakeRoom = (session) => {
+  // Replacing a handoff must shrink the request, not just create another Session.
+  async function canMakeRoom(agent, carry = []) {
+    const session = agent.session
     const messages = session.deriveMessages()
-    return !messages.some(message => message.source?.handoff === true)
-      || messages.some(message => message.role === 'assistant' && textOf(message.content) !== HANDOFF_ACK)
+    if (!messages.some(message => message.source?.handoff === true)) return true
+    const place = placeOf(agent.id)
+    const room = rt.roomOf(place.roomId)
+    const parts = partsOf(place.botId, place.roomId)
+    const previous = parts.at(-2)
+    const lines = await contextLines(session).catch(() => undefined)
+    const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    const text = handoffPackage({
+      room,
+      segment: { fallback: 'overflow', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) },
+      lines: await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length }),
+      number: parts.length + 1,
+      resume: true,
+      overflow: true,
+    })
+    const meter = ctx.get('tokenMeter')
+    const size = message => meter?.estimateMessage(message) ?? estimateTokens(textOf(message.content))
+    const history = messages.filter(message => message.role !== 'system').reduce((total, message) => total + size(message), 0)
+    const pending = carry.reduce((total, message) => total + size(message), 0)
+    const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
+    const tokens = tokensOf(session)
+    // The system prompt and tool definitions stay; pending input is forwarded whole.
+    return replacement < history + pending
+      && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)
   }
 
   // Lines for the model the Session last routed to; undefined while it has not
@@ -1039,8 +1061,9 @@ export function install(rt) {
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
-    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly() || !canMakeRoom(agent.session)) return next()
+    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
+    if (!await canMakeRoom(agent, payload.messages)) return next()
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
 
@@ -1135,7 +1158,7 @@ export function install(rt) {
     if (payload.failure?.code !== OVERFLOW || payload.signal?.aborted) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !canMakeRoom(agent.session)) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await canMakeRoom(agent)) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -1150,7 +1173,7 @@ export function install(rt) {
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
-    if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines) || !canMakeRoom(agent.session)) return
+    if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
@@ -1160,6 +1183,7 @@ export function install(rt) {
         if (condensed !== false) return
       }
       if (switches.has(agent.id)) return
+      if (!await canMakeRoom(agent)) return
       startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
     } finally {
       checking.delete(agent.id)
