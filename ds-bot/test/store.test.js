@@ -120,7 +120,7 @@ test('malformed state is backed up before a later save', async (t) => {
 test('malformed state stays read-only when its backup cannot be copied', async (t) => {
   const original = '{"version":1,'
   const { rt, statePath } = runtime(t, original)
-  const restore = patch('copyFile', () => async () => {
+  const restore = patchSync('copyFileSync', () => () => {
     throw Object.assign(new Error('synthetic copy failure'), { code: 'EACCES' })
   })
   try {
@@ -148,7 +148,7 @@ test('a state from a newer version remains untouched', async (t) => {
 test('a read error keeps the existing state read-only', async (t) => {
   const original = JSON.stringify({ version: 1, revision: 77, recoveryMarker: 'keep' })
   const { rt, statePath } = runtime(t, original)
-  const restore = patch('readFile', originalRead => async (path, ...args) => {
+  const restore = patchSync('readFileSync', originalRead => (path, ...args) => {
     if (path === statePath) throw Object.assign(new Error('synthetic read failure'), { code: 'EACCES' })
     return originalRead(path, ...args)
   })
