@@ -740,6 +740,25 @@ test('an answer with a malformed change, an unlisted entry, an entry too long, o
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
 })
 
+test('a memory review failing repeatedly reaches max retries and advances the cursor to prevent loop (#740)', async (t) => {
+  const replies = Array(5).fill('I am an AI assistant and here is some conversation analysis without JSON.')
+  const { ctx, call, read, requests, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  // First 4 tries: keeps place
+  for (let tries = 0; tries < 4; tries += 1) {
+    ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+    await reviewed(call)
+    assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
+  }
+  // 5th try: hits REVIEW_FAILURES_MAX, cursor advances to through
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 5)
+  const cursor = JSON.parse(read('reviewed.json'))['chat:b2']
+  assert.ok(cursor > 9, `cursor ${cursor} should be greater than 9`)
+})
+
 test('a backlog past the text limit is reviewed in passes, oldest first', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   mkdirSync(join(home, 'memory'), { recursive: true })
