@@ -231,7 +231,8 @@ export function install(rt) {
     delete room.seen[member.id]
     const ref = await rt.desiredModel(member)
     if (ref !== undefined) {
-      await rt.selectSessionModel(id, splitRef(ref))
+      const effort = await rt.desiredEffort(member, ref)
+      await rt.selectSessionModel(id, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
         .catch(error => rt.warn('ds-bot: model for %s in %s not applied: %s', member.name, room.name, error))
     }
     await rt.applyPermission(member, id, room)

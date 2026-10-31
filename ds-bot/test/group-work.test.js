@@ -8,13 +8,13 @@ import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
-const seed = (room = {}, extraRooms = {}) => ({
+const seed = (room = {}, extraRooms = {}, bots = {}) => ({
   version: 1,
   mainBotIds: ['a'],
   bots: {
-    a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 },
-    b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
-    c: { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 },
+    a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1, ...bots.a },
+    b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2, ...bots.b },
+    c: { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3, ...bots.c },
   },
   rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b', 'c'], mode: 'admin', admin: 'a', named: true, sessions: { a: 'ga', b: 'gb', c: 'gc' }, log: [], seq: 0, seen: {}, ...room }, ...extraRooms },
   agents: {},
@@ -25,9 +25,10 @@ const seed = (room = {}, extraRooms = {}) => ({
   revision: 0,
 })
 
-async function start(t, room, services, extraRooms) {
+async function start(t, room, services, extraRooms, bots, llm) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms)))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots)))
+  const selected = []
   const ctx = fakeContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
@@ -53,9 +54,9 @@ async function start(t, room, services, extraRooms) {
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: llm ?? { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
-    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async () => {} },
+    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async (request) => { selected.push(request) } },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
@@ -108,7 +109,7 @@ async function start(t, room, services, extraRooms) {
     return { content: post.content, source: post.source }
   }
   await tool('list_bots', {}, 'a')
-  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost }
+  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost, selected }
 }
 
 const settle = async (check) => {
@@ -170,6 +171,22 @@ test('message_bot from a group to one of its members calls it there, as "@Name" 
   await settle(() => first() !== undefined)
   assert.deepEqual(kinds(first()), [['message', 'Chief'], ['message', 'Chief'], ['message', 'Writer']])
   assert.deepEqual([host.agentOf('b').calls, host.agentOf('gc').calls], [[], []])
+})
+
+test('a member\'s group Session runs on the member\'s model and thinking level', async (t) => {
+  const llm = {
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+    listModels: async () => [{ id: 'v4-flash', name: 'v4-flash', inputModalities: ['text'] }],
+    resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' } }),
+  }
+  const host = await start(t, { members: ['a', 'b'], sessions: { a: 'ga' } }, undefined, undefined, { b: { model: 'deepseek/v4-flash', effort: 'low' } }, llm)
+  const first = host.round('c1', host.say('@Writer 看一下'))
+  await settle(() => host.agentOf('s1').calls.length === 1)
+  // The group Session was made for the turn: it got the member's route, level and all.
+  assert.deepEqual(host.selected.at(-1), { sessionId: 's1', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' })
+  host.begin('s1')
+  host.finish('s1', '看过了。')
+  await settle(() => first() !== undefined)
 })
 
 test('message_bot from a member the round moved on from calls the other member in a round of its own', async (t) => {
