@@ -589,7 +589,9 @@ export function install(rt) {
       const sub = work === undefined ? undefined : randomUUID()
       if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, parent: work })
       try {
-        await rt.postToRoom(room, sender, long.text, { ...(reportBack ? { reportBack: true } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        // A post that wants the replies names the conversation it was written
+        // from, so the report comes back there instead of the own chat.
+        await rt.postToRoom(room, sender, long.text, { ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`
