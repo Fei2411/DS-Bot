@@ -40,6 +40,7 @@ export const TEXT = {
     'say.inUse': 'DeepSeek Harness 还在用这个团队',
     'say.newer': '这些对话比我新',
     'say.copying': '正在搬过来',
+    'say.move': '搬到这个文件夹？',
     // hint
     'hint.space': '{drive} 盘只剩 {free}',
     // card
@@ -47,6 +48,7 @@ export const TEXT = {
     'card.missing.lead': '找不到数据文件夹 {path}。可能是移动硬盘没插上，或者文件夹被移走、删除了。旧数据不会被改动。',
     'card.missing.retryMissed': '还是找不到这个文件夹。',
     'card.picked.lead': '会放在 {path}。',
+    'card.move.lead': '会把数据复制到 {path}，然后重新启动。原来的 {dataDir} 原样留着，确认没问题后可以自己删掉。',
     'card.import.lead': 'DeepSeek Harness 里有 {bots} 个 Bot 和 {groups} 个群聊（对话 {chats}，工作文件 {work}）。复制过来？',
     'card.import.extra': '复制后会多占 {total}，DeepSeek Harness 里的原件不动。',
     'card.import.found': '在 {path} 里找到 {bots} 个 Bot（{names}等）和 {groups} 个群聊，{sessions} 段对话。',
@@ -78,6 +80,8 @@ export const TEXT = {
     'reason.place.dsh': '{path} 是 DeepSeek Harness 的数据。',
     'reason.place.program': '{path} 在程序文件夹里，卸载时会删掉。',
     'reason.place.nested': '{path} 和现在放数据的位置重叠。',
+    'reason.place.drive': '{path} 是整块磁盘，要选它里面的一个文件夹。',
+    'reason.place.workspace': '{path} 和总工作区互相包含。',
     'reason.start.permission': '没有写入权限。',
     'reason.start.space': '磁盘空间不够。',
     'reason.start.files': '程序文件不完整，可能被杀毒软件拦掉了一部分。',
@@ -125,7 +129,6 @@ export const TEXT = {
     'note.copyLater': '也可以在 设置 → 通用 → 位置 里复制。',
     'note.copyAgain': '以后可以在 设置 → 通用 → 位置 里复制。',
     // foot
-    'foot.community': '社区开源项目，不是 DeepSeek 官方产品',
     'foot.place.drive': '数据放在 {drive} 盘（剩 {free}）',
     'foot.place.driveOnly': '数据放在 {drive} 盘',
     'foot.place.path': '数据放在 {path}（剩 {free}）',
@@ -186,6 +189,7 @@ export const TEXT = {
     'say.inUse': 'DeepSeek Harness is still using this team',
     'say.newer': 'These chats are newer than me',
     'say.copying': 'Moving your team in',
+    'say.move': 'Move the data here?',
     // hint
     'hint.space': 'Only {free} left on drive {drive}',
     // card
@@ -193,6 +197,7 @@ export const TEXT = {
     'card.missing.lead': 'Can’t find the data folder {path}. The external drive may be unplugged, or the folder was moved or deleted. The old data won’t be changed.',
     'card.missing.retryMissed': 'Still can’t find this folder.',
     'card.picked.lead': 'It will go in {path}.',
+    'card.move.lead': 'DeepSeek Bot copies its data to {path} and starts again. {dataDir} stays as it is; once all is well you can delete it yourself.',
     'card.import.lead': 'DeepSeek Harness has {bots|Bot|Bots} and {groups|group chat|group chats} (chats {chats}, work files {work}). Copy them over?',
     'card.import.extra': 'The copy takes another {total}; the originals in DeepSeek Harness stay untouched.',
     'card.import.found': 'Found {bots|Bot|Bots} ({names} and others), {groups|group chat|group chats} and {sessions|chat|chats} in {path}.',
@@ -224,6 +229,8 @@ export const TEXT = {
     'reason.place.dsh': '{path} is DeepSeek Harness’s data.',
     'reason.place.program': '{path} is in the program folder, which uninstalling removes.',
     'reason.place.nested': '{path} overlaps where the data is now.',
+    'reason.place.drive': '{path} is a whole drive; choose a folder on it.',
+    'reason.place.workspace': '{path} and the team workspace contain each other.',
     'reason.start.permission': 'No permission to write.',
     'reason.start.space': 'Not enough disk space.',
     'reason.start.files': 'Program files are incomplete; antivirus software may have blocked some of them.',
@@ -271,7 +278,6 @@ export const TEXT = {
     'note.copyLater': 'You can also copy the team in Settings → General → Location.',
     'note.copyAgain': 'You can copy the team later in Settings → General → Location.',
     // foot
-    'foot.community': 'A community open-source project, not an official DeepSeek product',
     'foot.place.drive': 'Data on drive {drive}, {free} free',
     'foot.place.driveOnly': 'Data on drive {drive}',
     'foot.place.path': 'Data in {path}, {free} free',

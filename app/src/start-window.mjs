@@ -286,7 +286,8 @@ export class StartWindow {
    * }} options `lang` is asked at each open; `program` names the folders of the app's own files;
    *   `onClose` runs when the user closes the start window before the hand-off; `onPick` when
    *   the page asks for the folder picker ('changePlace' from its place line, nothing from a
-   *   card's 〔重新选〕), `onAnswer` with a card's answer ('use' for 〔继续〕 on 「会放在…」).
+   *   card's 〔重新选〕; on a later start the line's button moves the data), `onAnswer` with a
+   *   card's answer ('use' for 〔继续〕 on 「会放在…」).
    */
   constructor(options) {
     this.#o = options
@@ -394,8 +395,9 @@ export class StartWindow {
   }
 
   /**
-   * The line that says where the data goes, with 「换个位置…」 (start-window §2): the drive and its
-   * free space, or the folder. Undefined takes the line away.
+   * The line that says where the data goes, with 「换个位置…」 (start-window §2; a first start, or a
+   * later one whose drive runs low, §5): the drive and its free space, or the folder. Undefined
+   * takes the line away.
    * @param {{ drive?: string, path?: string, free?: string } | undefined} place
    */
   place(place) {
@@ -409,8 +411,9 @@ export class StartWindow {
 
   /**
    * A card on the sheet while the start boots (the clock stands still), or none: back to the
-   * boot. Only the cards of a place: 「会放在…」 and a place that cannot be used.
-   * @param {{ kind: 'picked' | 'rejected', path: string, reason?: string } | undefined} card
+   * boot. Only the cards of a place: 「会放在…」, a place that cannot be used, and a later start's
+   * 「搬到这个文件夹？」.
+   * @param {{ kind: 'picked' | 'rejected' | 'move', path: string, reason?: string, dataDir?: string } | undefined} card
    */
   card(card) {
     if (!this.#open() || !['boot', 'card', 'watchdog'].includes(this.#state.view)) return
@@ -434,6 +437,18 @@ export class StartWindow {
     this.#phaseAt = Date.now()
     this.#clear('teamView')
     this.#update({ view: 'boot', done: [], card: undefined, failure: undefined, celebrate: true, clock: { base: 0, from: Date.now(), running: true } })
+  }
+
+  /**
+   * The data moves in the middle of a later start (「换个位置…」 on its place line, §5): the page
+   * loads again as the move's start, and a hand-off that waited goes with the start it was for.
+   */
+  moving() {
+    if (!this.#open()) return
+    note('the data moves: the start window becomes the move\'s')
+    this.#url = startUrl(this.#o.page, 'moving')
+    this.#reset('moving')
+    void this.#window.loadURL(this.#url).catch((error) => { note(`the start page did not load: ${error instanceof Error ? error.message : String(error)}`) })
   }
 
   /**

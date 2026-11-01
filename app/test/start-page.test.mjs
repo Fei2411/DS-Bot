@@ -135,6 +135,19 @@ test('an empty or hidden arc leaves no dot: no dash touches its path', () => {
   assert.equal(touches(dashes(base), offsetOf(base)), true)
 })
 
+test('the footer is the place line alone, centred with a grey button, on first and later starts', () => {
+  assert.match(html, /<footer class="footrow"><p class="place" hidden><span class="place-text"><\/span><button class="btn" data-look="small" data-act="pick" data-detail="changePlace" data-t="btn.changePlace"><\/button><\/p><\/footer>/u)
+  assert.ok(!('foot.community' in TEXT.zh), 'the community note is back')
+  const css = read('start.css')
+  assert.match(css, /\.footrow\{[^}]*justify-content:center/u)
+  assert.match(css, /html\[data-start=moving\] \.footrow\{display:none\}/u)
+  assert.doesNotMatch(css, /data-start=later[^{]*\.footrow/u)
+  assert.doesNotMatch(css, /\.note\b/u)
+  assert.match(code['start.js'], /const on = START !== 'moving' && place !== null/u)
+  // A later start's move asks on a card: 〔移动并重启〕, 〔重新选…〕 and 〔取消〕.
+  assert.match(html, /<section class="card" data-kind="move" hidden>.*?data-t="say\.move".*?data-t="card\.move\.lead".*?data-detail="move" data-t="btn\.move".*?data-act="pick" data-t="btn\.repick".*?data-detail="cancel" data-t="btn\.cancel".*?<\/section>/u)
+})
+
 // docs/plans/2026-10-29-start-copy.md §2: the first part of a key says where the line is.
 const LAYERS = ['voice', 'say', 'hint', 'card', 'reason', 'btn', 'note', 'foot', 'status', 'dialog']
 const layerOf = key => key.split('.')[0]
@@ -248,7 +261,7 @@ test('every text key that the page uses exists', () => {
   // Keys the page builds from the snapshot's views, the stages and the failure reasons.
   for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'voice.moving', 'voice.slow45', 'voice.slowLater', 'status.phase.data', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
   assert.deepEqual(matching('reason.start.{reason}').sort(), ['reason.start.engine', 'reason.start.files', 'reason.start.other', 'reason.start.permission', 'reason.start.space'])
-  assert.deepEqual(matching('reason.place.{reason}').sort(), ['reason.place.dsh', 'reason.place.foreign', 'reason.place.nested', 'reason.place.onedrive', 'reason.place.permission', 'reason.place.program', 'reason.place.space'])
+  assert.deepEqual(matching('reason.place.{reason}').sort(), ['reason.place.drive', 'reason.place.dsh', 'reason.place.foreign', 'reason.place.nested', 'reason.place.onedrive', 'reason.place.permission', 'reason.place.program', 'reason.place.space', 'reason.place.workspace'])
   assert.deepEqual(matching('reason.copy.{reason}').sort(), ['reason.copy.full', 'reason.copy.inUse', 'reason.copy.permission'])
 })
 

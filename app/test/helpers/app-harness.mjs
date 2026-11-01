@@ -20,14 +20,15 @@ export const waitFor = async (check, what, timeout = 10_000) => {
 /**
  * Start the app on throwaway folders: the places are chosen already and the one-time notice
  * is answered, so that the app asks nothing. The Host answers when the test lets it.
- * @param {{ packaged?: boolean }} options whether the app is a packaged one, with an updater
+ * @param {{ packaged?: boolean, saved?: object }} options whether the app is a packaged one, with
+ *   an updater; what else locations.json keeps beside the places
  */
-export const startApp = async ({ packaged = true } = {}) => {
+export const startApp = async ({ packaged = true, saved = {} } = {}) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-main-home-'))
   const workspace = join(home, 'workspace')
   mkdirSync(workspace, { recursive: true })
   mkdirSync(paths.userData, { recursive: true })
-  writeFileSync(join(paths.userData, 'locations.json'), JSON.stringify({ dataDir: home, workspace }))
+  writeFileSync(join(paths.userData, 'locations.json'), JSON.stringify({ dataDir: home, workspace, ...saved }))
   writeFileSync(join(paths.userData, 'tray-close-acknowledged'), '')
   hold()
   await import('../../src/main.mjs')
@@ -43,6 +44,9 @@ export const startApp = async ({ packaged = true } = {}) => {
 
 // The start window, which shows while the Host boots and hands over to the team window.
 const isStart = win => (win.options.webPreferences?.additionalArguments ?? []).some(arg => arg.startsWith('--ds-bot-start='))
+
+/** The start windows the app opened. */
+export const startWindows = () => state.windows.filter(isStart)
 
 /** The team windows the app built, the start window left out. */
 export const teamWindows = () => state.windows.filter(win => !isStart(win))

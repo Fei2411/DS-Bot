@@ -713,6 +713,31 @@ test('a start over in another folder drops the old engine\'s held ready', (t) =>
   assert.equal(o.state().view, 'handoff')
 })
 
+test('a move from a later start turns the start window into the move\'s and drops the held hand-off', async (t) => {
+  const m = startWindow(t)
+  m.start.open('later')
+  m.start.done('data')
+  m.start.place({ drive: 'C', free: '30 GB' })
+  assert.deepEqual(m.state().place, { drive: 'C', free: '30 GB' })
+  // The folder picker and the question: a team view that is ready meanwhile waits for them.
+  let answer
+  const asked = m.start.asking(new Promise((resolve) => { answer = resolve }))
+  m.start.done('engine')
+  m.start.ready()
+  assert.equal(m.state().view, 'boot')
+  m.start.moving()
+  answer('D:\\Data')
+  await asked
+  assert.equal(m.start.kind, 'moving')
+  assert.equal(m.state().view, 'moving')
+  assert.equal('place' in m.state(), false)
+  assert.match(m.win().webContents.mainFrame.url, /\?start=moving$/u)
+  assert.equal(m.act('pick', { value: 'changePlace' }), false)
+  assert.equal(m.act('openLogs'), true)
+  m.tick(WATCHDOG_MS)
+  assert.equal(m.state().view, 'moving')
+})
+
 test('the 20 s check\'s verdict waits for a card\'s answer instead of being lost', (t) => {
   const v = startWindow(t)
   v.start.open('first')

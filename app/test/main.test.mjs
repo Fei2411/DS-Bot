@@ -2,10 +2,12 @@
 // back to it, and a window that is gone for good is built anew and talks to the Host that
 // runs. The Electron parts are test doubles: no display, no DSH, no data of the user.
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { before, test } from 'node:test'
-import { state } from './helpers/fake-electron.mjs'
+import { paths, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
-import { handOff, startApp, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
+import { handOff, startApp, startWindows, teamWindows, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -17,6 +19,13 @@ test('the app starts with a window and a tray', async () => {
   await waitFor(() => state.tray !== undefined, 'build the tray')
   assert.equal(state.tray.tooltip, 'DeepSeek Bot')
   assert.equal(state.quits, 0, 'the app goes on')
+})
+
+test('places saved before the free space at the start was kept keep it from this start on', async () => {
+  const saved = () => JSON.parse(readFileSync(join(paths.userData, 'locations.json'), 'utf8'))
+  await waitFor(() => saved().freeAtStart > 0, 'keep the free space of the data\'s drive')
+  // Kept from now on: this start shows no place line.
+  assert.ok(startWindows()[0].webContents.sent.every(([channel, snapshot]) => channel !== 'ds-bot:start-state' || snapshot.place === undefined))
 })
 
 test('the first window trades the launch URL for the Host\'s cookie', async () => {

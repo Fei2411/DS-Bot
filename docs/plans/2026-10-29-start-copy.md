@@ -31,10 +31,10 @@
 | `say.*` | 卡片的第一行（15/20、600） | 鲸鱼 | 最多 12 字；不加句号 |
 | `hint.*` | 提示行，只有盘不够时前 10 秒的那一句 | 应用，中性 | 只写一件用户现在要知道的事，最多 22 字；不加句号 |
 | `card.*` | 卡片正文 | 应用 | 整句，以 。？ 结尾；说出了什么事，怎么办交给按钮；路径放 `code`；`card.<卡>.<部分>`，几张卡共用的放 `card.update.*` |
-| `reason.*` | 卡片正文里复用的原因 | 应用 | 整句的以 。 结尾（`reason.place.*` 位置不能用的七个原因、`reason.start.*` 启动失败的五个）；嵌进句子的片段不带标点（`reason.copy.*` 复制失败的三个） |
+| `reason.*` | 卡片正文里复用的原因 | 应用 | 整句的以 。 结尾（`reason.place.*` 位置不能用的九个原因、`reason.start.*` 启动失败的五个）；嵌进句子的片段不带标点（`reason.copy.*` 复制失败的三个） |
 | `btn.*` | 按钮 | 用户的动作 | 最多 10 字，动词或动作短语开头；打开系统选择框或离开这张卡的以 … 结尾；不加句号；链接样式的小按钮可以是名词短语（「其他位置…」「详细」） |
 | `note.*` | 卡片脚注 | 应用 | 一句，以 。 结尾，说以后在哪里改 |
-| `foot.*` | 底注行 | 应用 | 不加句号（「社区开源项目，不是 DeepSeek 官方产品」、位置行） |
+| `foot.*` | 页脚的位置行 | 应用 | 不加句号（「数据放在 C 盘（剩 412 GB）」） |
 | `status.*` | 只给读屏 | 应用 | 不加句号：隐藏列表「启动进度」、三个阶段名、四个状态词、朗读句 |
 | `dialog.*` | 系统对话框的正文和标题 | 应用 | 正文整句以 。？ 结尾，可以两段（`\n\n`）；选择框标题不加句号；按钮用 `btn.*` |
 
@@ -83,6 +83,7 @@
 | `reason.place.permission` | DeepSeek Bot 没有权限在 {path} 里写文件。 | `card.reason.permission` 和 `card.rejected.permission` 合一 |
 | `reason.place.onedrive` | {path} 在 OneDrive 里，同步会打断正在写入的对话。 | `card.rejected.onedrive`（聊天记录 → 对话） |
 | `reason.place.foreign / dsh / program / nested` | 照旧 | `card.rejected.*` |
+| `reason.place.drive / workspace` | {path} 是整块磁盘，要选它里面的一个文件夹。／{path} 和总工作区互相包含。 | 新（2026-10-31）：以后的启动搬数据时的「这里放不了」，意思同 `dialog.move.drive / workspace` |
 | `reason.start.permission / space / files / engine / other` | 照旧，带句号 | `failed.reason.*` |
 | `reason.copy.inUse / permission / full` | 照旧，片段 | `importFailed.*` |
 
@@ -110,7 +111,7 @@
 
 脚注 `note.*`：`card.footnote` → `note.changeLater`「以后可以在 设置 → 通用 → 位置 里改。」；`import.footnote` → `note.copyLater`「也可以在 设置 → 通用 → 位置 里复制。」；`newer.footnote` → `note.copyAgain`「以后可以在 设置 → 通用 → 位置 里复制。」（和 `note.changeLater` 同一个句式）。
 
-底注 `foot.*`：`footer` → `foot.community`；`place.drive / driveOnly / path / pathOnly` → `foot.place.drive / driveOnly / path / pathOnly`。
+页脚 `foot.*`：`place.drive / driveOnly / path / pathOnly` → `foot.place.drive / driveOnly / path / pathOnly`。`footer`（「社区开源项目，不是 DeepSeek 官方产品」）没有键：启动页 2026-10-31 起没有底注。
 
 状态 `status.*`：`track.label` → `status.track`；`phase.*` → `status.phase.*`；`state.*` → `status.state.*`；`sr.*` → `status.sr.*`。`elapsed`（「已用 N 秒」）没有新键：启动页不显示已用秒数。
 
@@ -172,6 +173,7 @@
 | 本文第 3 节：`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready` 不动，`title.later` → `voice.opening`；`hint.model / preview / reinstall` 不动；`elapsed` → `status.elapsed`；第 2 节「「待会儿要接一个模型」……留着」 | 这 14 个键都没有了（`voice` 十个、`hint` 三个、`status` 一个），那句说明也去掉 | 启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md)「改动的已定设计」里 2026-10-30 的几行）：顺利时不说话，不显示已用秒数，不提前说进门以后的事。维护者 2026-10-30 转来的讨论：「现在这版有点噪了」「其实我觉得可能就放一个鲸鱼就够，然后可以做交互动画，文字什么的不太需要」 |
 | 本文第 3 节：`slow.45.later` → `hint.slowLater`「比平时慢，请再等一会儿」，在提示行 | `voice.slowLater`，同一句 | 以后的启动和搬数据时，45 秒起这一句由鲸鱼说，和首次启动的 `voice.slow45` 在同一行；提示行只留〔打开日志文件夹〕 |
 | 本文第 2 节 `status.*`「只给读屏和计数」 | 只给读屏 | 启动页不显示已用秒数 |
+| 本文第 2、3 节：`foot.*` 是底注行，`footer` → `foot.community`「社区开源项目，不是 DeepSeek 官方产品」 | `foot.*` 只剩位置行，没有这个键 | 维护者 2026-10-31：「移除左下角的社区非官方声明」（[启动窗口](2026-10-26-start-window.md) 「改动的已定设计」最后一行） |
 
 ## 不做什么
 
@@ -191,3 +193,4 @@
 
 - 2026-10-29 首稿：十层、一张表、键的对照、测试；对应 `text.mjs` 重排、`first-run.mjs` 和 `updates.mjs` 的表并入、`start.html` 和 `start.js` 改键。依据：2026-10-29 对三张表的审读（30 个对话框键和 11 个更新键都在用，没有死键；页面表和两份设计稿逐句对照只有 `failed.reason.*` 的句号一处不同；风格问题 30 条，全部复核过）。
 - 2026-10-30：启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：鲸鱼的话只剩用户要知道或回答时的几句，表里去掉 14 个键（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready / opening`、`hint.model / preview / reinstall`、`status.elapsed`），`hint.slowLater` 改名 `voice.slowLater`（同一句，以后的启动和搬数据时 45 秒起由鲸鱼说）；第 2 节 `voice`、`hint`、`status` 三层的说明、第 3 节的对照和第 4 节单复数的例子跟着改，第 5 节加一条测试。依据：维护者 2026-10-30 转来的讨论（「现在这版有点噪了」）和维护者选定的圆环原型。
+- 2026-10-31：启动页的底注去掉（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `foot.community`；`foot` 层只剩位置行，第 2、3 节跟着改，「改动的已定设计」加一行。以后的启动搬数据改在卡片上问，加 `say.move`「搬到这个文件夹？」、`card.move.lead`、`reason.place.drive / workspace`（第 3 节对照表加一行，第 2 节 `reason.*` 改成九个原因）；按钮用已有的 `btn.move / repick / cancel`。依据：维护者「移除左下角的社区非官方声明」「让我们尽可能避免系统中出现任何这样的默认弹窗」。

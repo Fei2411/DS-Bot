@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join, parse, resolve, sep } from 'node:path'
 import { test } from 'node:test'
-import { currentRootOf, DATA_DIR, driveOf, formatBytes, freeSpace, isEmptyTree, LAYER, pickFrom, placeOf, rootOf, shortPath, WORKSPACE_DIR } from '../src/place.mjs'
+import { currentRootOf, DATA_DIR, driveOf, formatBytes, freeSpace, isEmptyTree, LAYER, LOW_SHARE, pickFrom, placeOf, rootOf, runningLow, shortPath, WORKSPACE_DIR } from '../src/place.mjs'
 
 const win32 = process.platform === 'win32'
 const temp = (t) => {
@@ -53,6 +53,16 @@ test('the place line names the drive and its free space, or the folder', () => {
   } else {
     assert.deepEqual(placeOf('/home/user/.ds-bot', { home: '/home/user', free: 1.5 * 2 ** 30 }), { path: `~${sep}.ds-bot`, free: '1.5 GB' })
   }
+})
+
+test('a drive runs low at a fifth of the free space it had when the data went there', () => {
+  assert.equal(LOW_SHARE, 0.2)
+  // 412 GB at the start: the line comes back at 82.4 GB.
+  assert.equal(runningLow(82 * 2 ** 30, 412 * 2 ** 30), true)
+  assert.equal(runningLow(83 * 2 ** 30, 412 * 2 ** 30), false)
+  assert.equal(runningLow(20, 100), true)
+  assert.equal(runningLow(21, 100), false)
+  for (const [free, freeAtStart] of [[undefined, 100], [10, undefined], [10, 0], [Number.NaN, 100], [10, Number.POSITIVE_INFINITY]]) assert.equal(runningLow(free, freeAtStart), false)
 })
 
 test('the picker opens in the data folder\'s parent', (t) => {

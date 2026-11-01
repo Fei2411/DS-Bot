@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { canonicalExecPath } from './canonical-path.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
-import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf } from './place.mjs'
+import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
 import { readStartFrame, writeStartFrame } from './start-frame.mjs'
 import { explainOf, StartWindow } from './start-window.mjs'
@@ -43,6 +43,8 @@ const IPC = {
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
 const MOVE_PROBLEMS = { drive: 'dialog.move.drive', nested: 'dialog.move.nested', workspace: 'dialog.move.workspace', program: 'dialog.move.inProgram', notEmpty: 'dialog.move.notEmpty' }
+// The same problems as the start page's 「这里放不了」 reasons (reason.place.*).
+const MOVE_REASONS = { drive: 'drive', nested: 'nested', workspace: 'workspace', dsh: 'dsh', program: 'program', notEmpty: 'foreign' }
 const UPDATE_CHECK_WAIT_MS = 15_000
 const UPDATE_DOWNLOAD_WAIT_MS = 15 * 60_000
 // Under this, the start page notes the drive's free space for the first 10 s (onboarding §3).
@@ -89,6 +91,8 @@ let made = { dataDir: false, workspace: false, root: false }
 // The folder picker of 「换个位置…」 is open, and the root it proposed on the 「会放在…」 card.
 let picking = false
 let proposed
+// The folder a later start's move card asks about.
+let moveTo
 // A retry or a start over is stopping the old engine: no second one starts meanwhile.
 let restarting = false
 // The first run's answer to the import; only the first boot copies.
@@ -171,8 +175,9 @@ if (canonical !== undefined) {
     // Closing the start window before the hand-off quits: there is no team window yet to stay in
     // the tray with.
     onClose: () => { app.quit() },
-    onPick: () => { changePlace().catch(fail) },
-    onAnswer: (value) => { placeAnswer(value).catch(fail) },
+    // 「换个位置…」: a first start picks the place again; a later start moves the data there.
+    onPick: () => { (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail) },
+    onAnswer: (value) => { (startWindow.kind === 'later' ? moveAnswer(value) : placeAnswer(value)).catch(fail) },
   })
   // A second launch shows the window that is showing: the start window until the hand-off
   // (also after a failed start), then the team window, built anew when it is gone.
@@ -331,6 +336,7 @@ async function boot(mine) {
     setPlaces({ dataDir: where.dataDir, workspace: where.workspace })
     pendingImport = where.import
     if (first) startWindow.explain(explainOf({ offered: where.offered === true, team: teamIn(where.dataDir) }))
+    else tellLowSpace(where.freeAtStart)
   }
   // Also the check that the data folder can be written.
   mkdirSync(profileDir(), { recursive: true })
@@ -367,6 +373,23 @@ function tellPlace(dataDir) {
   startWindow.place(placeOf(dataDir, { free }))
   const drive = driveOf(dataDir)
   startWindow.hint(drive !== undefined && free !== undefined && free < SHORT_DRIVE_BYTES ? { drive, free: formatBytes(free) } : undefined)
+}
+
+// A later start shows the line again once the drive is down to a fifth of the free space it had
+// when the data went there (start-window §5). Places saved before that was kept keep it from
+// now on; a failed write costs only the line.
+function tellLowSpace(freeAtStart) {
+  if (process.env.DS_BOT_HOME) return
+  if (freeAtStart === undefined) {
+    try {
+      saveLocations(places)
+    } catch (error) {
+      console.error(error)
+    }
+    return
+  }
+  const free = freeSpace(places.dataDir)
+  if (runningLow(free, freeAtStart)) startWindow.place(placeOf(places.dataDir, { free }))
 }
 
 // 「换个位置…」 on the start page and 〔重新选〕 on its cards: the system picker, then the root rule
@@ -746,23 +769,110 @@ async function checkTeam(where, signal) {
 // folder; after a failed copy it starts again on the old one. The old folder stays.
 async function moveData(workspace) {
   if (copying !== undefined || stopping || mainWindow === undefined) return false
-  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
-  if (canceled || filePaths[0] === undefined) return false
-  const to = resolve(filePaths[0])
-  const dshHome = userDshHome()
-  // The team workspace can move while a dialog is open; the window tells the latest one.
-  const refused = async () => {
-    for (const current of new Set([workspace, places.workspace])) {
-      const problem = moveProblem({ from: places.dataDir, to, workspace: current, dshHome, program: app.isPackaged ? programFolder() : undefined })
-      if (problem === undefined) continue
-      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: problem === 'dsh' ? tx('dialog.move.inDsh', { home: dshHome }) : tx(MOVE_PROBLEMS[problem]), buttons: [tx('btn.ok')] })
-      return true
-    }
-    return false
+  const to = await askMove(workspace)
+  if (to === undefined) return false
+  await runMove(to, workspace)
+  return true
+}
+
+// 〔换个位置…〕 on a later start's place line (start-window §5): the same move, asked on the start
+// page's cards instead of message boxes. Only the folder picker is a system window; while it or
+// a card is open, the clock stands still and the hand-off waits.
+async function moveFromStart() {
+  if (startWindow.kind !== 'later' || places === undefined || copying !== undefined || picking || restarting || stopping || failed) return
+  picking = true
+  try {
+    await startWindow.asking(pickMove())
+  } finally {
+    picking = false
   }
-  if (await refused()) return false
+}
+
+// 「这里放不了」 with the reason, or 「搬到这个文件夹？」. A cancelled picker is no change: the card
+// that led here goes, and the start goes on.
+async function pickMove() {
+  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
+  if (stopping || startWindow.owner() === undefined) return
+  moveTo = undefined
+  if (canceled || filePaths[0] === undefined) {
+    startWindow.card(undefined)
+    return
+  }
+  moveCard(resolve(filePaths[0]))
+}
+
+function moveCard(to) {
+  const reason = moveReason(to)
+  if (reason !== undefined) {
+    console.log(`DeepSeek Bot: the data cannot move to ${to} (${reason})`)
+    startWindow.card({ kind: 'rejected', reason, path: to })
+    return
+  }
+  moveTo = to
+  startWindow.card({ kind: 'move', path: to, dataDir: places.dataDir })
+}
+
+// A folder the checks cannot read counts as one without permission, as on a first start.
+function moveReason(to) {
+  try {
+    const problem = moveProblemOf(to, places.workspace)
+    return problem === undefined ? undefined : MOVE_REASONS[problem]
+  } catch (error) {
+    console.error(error)
+    return 'permission'
+  }
+}
+
+// 〔移动并重启〕 checks the folder again (the team workspace can move while the card is open);
+// then the start window becomes the move's before a hand-off that waited can go, and the boot it
+// showed gives way. 〔取消〕 goes back to the start.
+async function moveAnswer(value) {
+  if (startWindow.kind !== 'later' || moveTo === undefined || picking || copying !== undefined || stopping || failed) return
+  const to = moveTo
+  moveTo = undefined
+  if (value !== 'move') {
+    startWindow.card(undefined)
+    return
+  }
+  if (moveReason(to) !== undefined) {
+    moveCard(to)
+    return
+  }
+  attempt += 1
+  forgetHost()
+  startWindow.moving()
+  await runMove(to, places.workspace)
+}
+
+// The folder picker, the checks and the question of a move from Settings: the folder, or none.
+async function askMove(workspace) {
+  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
+  if (canceled || filePaths[0] === undefined) return undefined
+  const to = resolve(filePaths[0])
+  if (await moveRefused(to, workspace)) return undefined
   const { response } = await dialog.showMessageBox(owner(), { type: 'question', title: 'DeepSeek Bot', noLink: true, message: tx('dialog.move.confirm', { to }), detail: tx('dialog.move.detail', { from: places.dataDir }), buttons: [tx('btn.move'), tx('btn.cancel')], defaultId: 0, cancelId: 1 })
-  if (response !== 0 || stopping || await refused()) return false
+  if (response !== 0 || stopping || await moveRefused(to, workspace)) return undefined
+  return to
+}
+
+// The team workspace can move while a dialog is open; the window tells the latest one.
+function moveProblemOf(to, workspace) {
+  const dshHome = userDshHome()
+  for (const current of new Set([workspace, places.workspace])) {
+    const problem = moveProblem({ from: places.dataDir, to, workspace: current, dshHome, program: app.isPackaged ? programFolder() : undefined })
+    if (problem !== undefined) return problem
+  }
+  return undefined
+}
+
+async function moveRefused(to, workspace) {
+  const problem = moveProblemOf(to, workspace)
+  if (problem === undefined) return false
+  await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: problem === 'dsh' ? tx('dialog.move.inDsh', { home: userDshHome() }) : tx(MOVE_PROBLEMS[problem]), buttons: [tx('btn.ok')] })
+  return true
+}
+
+async function runMove(to, workspace) {
   const signal = copyAbort.signal
   copying = (async () => {
     // The settings go away first, so that nothing moves the team workspace from here on; the
@@ -772,7 +882,7 @@ async function moveData(workspace) {
     startWindow.open('moving')
     await stopHost()
     // The app may have heard of a team workspace change while the Host stopped.
-    if (await refused()) {
+    if (await moveRefused(to, workspace)) {
       app.relaunch()
       return
     }
@@ -804,7 +914,6 @@ async function moveData(workspace) {
   await copying
   copying = undefined
   app.quit()
-  return true
 }
 
 // Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new

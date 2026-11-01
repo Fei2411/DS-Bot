@@ -54,12 +54,13 @@ function renderStatic() {
   for (const st of document.querySelectorAll('.station')) st.querySelector('.sr').textContent = say(`status.state.${st.dataset.state}`)
   if (s) { fillBlock(shown); placeUI(s.place); timeUI() }
 }
-// Where the data goes, at the footer's right end with 「换个位置…」 (first starts; the main
-// process sends no place on a reinstall or once a copied team lives there). The drive and its
-// free space on Windows, the folder elsewhere.
+// Where the data goes, centred in the footer with a grey 〔换个位置…〕: on a first start (the main
+// process sends no place on a reinstall or once a copied team lives there), and on a later start
+// whose drive is down to a fifth of its room at the start. The drive and its free space on
+// Windows, the folder elsewhere.
 function placeUI(place) {
   // The failure page has its own buttons; the 180 s question still lets the place change.
-  const on = first && place !== null && typeof place === 'object' && !['failed', 'viewFailed'].includes(s?.view)
+  const on = START !== 'moving' && place !== null && typeof place === 'object' && !['failed', 'viewFailed'].includes(s?.view)
   placeEl.hidden = !on
   if (!on) return
   const key = place.drive ? (place.free ? 'foot.place.drive' : 'foot.place.driveOnly') : place.free ? 'foot.place.path' : 'foot.place.pathOnly'
