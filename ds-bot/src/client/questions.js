@@ -1,5 +1,6 @@
 import { createElement as h, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { CloseIcon, CheckIcon } from './icons.js'
+import { CellEmpty } from './cell-empty.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
 import { createSource, heldCardKey } from './sources.js'
@@ -183,7 +184,7 @@ export function PendingQuestion({ sessionId, question, actions, inline }) {
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const hold = useDockHold(sessionId, 'question', question.id, actions, inline)
-  if (answered === question.id) return null
+  if (answered === question.id) return h(CellEmpty)
   const run = (make) => {
     if (busyRef.current) return
     hold()
@@ -219,7 +220,7 @@ export function AnsweredCell({ node }) {
   const data = node.data ?? {}
   const questions = Array.isArray(data.questions) ? data.questions : []
   if (questions.length === 0) {
-    return data.text ? h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble' }, data.text)) : null
+    return data.text ? h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble' }, data.text)) : h(CellEmpty)
   }
   const answers = Array.isArray(data.answers) ? data.answers : []
   return h('div', { className: 'bt-q-inline' }, questions.map(question => h(SettledQuestion, {
