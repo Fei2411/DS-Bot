@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const LEDGER_VERSION = 2
+const LEDGER_VERSION = 3
 const PAGE_MESSAGES = 400
 const PAGE_TIMEOUT_MS = 20_000
 const SCAN_TIMEOUT_MS = 180_000
@@ -105,6 +105,11 @@ function addTo(groups, row) {
   groups.set(id, group)
 }
 
+// A Session's seal, as the marks keep it. `seal` is undefined while the Session can
+// still grow; `{listed: null}` for an ended part; `{listed}` for a cold Session, at
+// the checkpoint watermark its listing showed.
+const sealFields = seal => ({ sealed: seal !== undefined, listed: seal?.listed ?? null })
+
 function memoryLedger() {
   const calls = new Map()
   const marks = new Map()
@@ -138,7 +143,22 @@ function sqliteLedger(DatabaseSync, path) {
     // briefly, and the timeout must be armed before the WAL pragma can block.
     db.exec('PRAGMA busy_timeout = 5000')
     db.exec('PRAGMA journal_mode = WAL')
-    if (db.prepare('PRAGMA user_version').get().user_version !== LEDGER_VERSION) {
+    const version = db.prepare('PRAGMA user_version').get().user_version
+    // Version 2 lacks only the seal's watermark, so its rows are kept and gain the column.
+    // Desktop and Web may open it at once: the version is read again under the write lock.
+    if (version === 2) {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        if (db.prepare('PRAGMA user_version').get().user_version === 2) {
+          db.exec(`ALTER TABLE marks ADD COLUMN listed INTEGER;
+            PRAGMA user_version = ${LEDGER_VERSION};`)
+        }
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+    } else if (version !== LEDGER_VERSION) {
       db.exec(`
         DROP TABLE IF EXISTS calls;
         DROP TABLE IF EXISTS marks;
@@ -146,15 +166,15 @@ function sqliteLedger(DatabaseSync, path) {
         DROP TABLE IF EXISTS kinds;
         CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL);
         CREATE INDEX calls_session ON calls (session);
-        CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL);
+        CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
         CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);
         PRAGMA user_version = ${LEDGER_VERSION};`)
     }
     const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const dropLogged = db.prepare('DELETE FROM calls WHERE session = ? AND live = 0')
-    const getMark = db.prepare('SELECT through, fold, sealed FROM marks WHERE session = ?')
-    const setMark = db.prepare('INSERT OR REPLACE INTO marks (session, through, fold, sealed) VALUES (?, ?, ?, ?)')
+    const getMark = db.prepare('SELECT through, fold, sealed, listed FROM marks WHERE session = ?')
+    const setMark = db.prepare('INSERT OR REPLACE INTO marks (session, through, fold, sealed, listed) VALUES (?, ?, ?, ?, ?)')
     const allOwners = db.prepare('SELECT session, owner, name FROM owners')
     const putOwner = db.prepare('INSERT OR REPLACE INTO owners (session, owner, name) VALUES (?, ?, ?)')
     const allKinds = db.prepare('SELECT session, kind FROM kinds')
@@ -164,14 +184,14 @@ function sqliteLedger(DatabaseSync, path) {
     return {
       mark(session) {
         const row = getMark.get(session)
-        return row === undefined ? undefined : { through: row.through, fold: JSON.parse(row.fold), sealed: row.sealed === 1 }
+        return row === undefined ? undefined : { through: row.through, fold: JSON.parse(row.fold), sealed: row.sealed === 1, listed: row.listed ?? null }
       },
       commit(session, { rows, reset, mark }) {
         db.exec('BEGIN')
         try {
           if (reset) dropLogged.run(session)
           for (const row of rows) insert(row, false)
-          setMark.run(session, mark.through, JSON.stringify(mark.fold), mark.sealed ? 1 : 0)
+          setMark.run(session, mark.through, JSON.stringify(mark.fold), mark.sealed ? 1 : 0, mark.listed ?? null)
           db.exec('COMMIT')
         } catch (error) {
           db.exec('ROLLBACK')
@@ -330,10 +350,12 @@ export function install(rt) {
   // Sessions that already failed to read, so each one warns once, not every scan.
   const unreadable = new Set()
 
-  async function scanSession(ledger, address, asOfSeq, sealable, signal) {
+  async function scanSession(ledger, address, asOfSeq, seal, signal) {
     const sessionId = address.kind === 'session' ? address.sessionId : address.childSessionId
     const mark = ledger.mark(sessionId)
-    if (mark?.sealed) return
+    // A seal stands only while the listing shows the watermark it was sealed at, so a
+    // cold Session whose log grew since is read again.
+    if (mark?.sealed && seal !== undefined && mark.listed === seal.listed) return
     let through = asOfSeq
     if (through === undefined) {
       const projections = await ctx.sessionController.projections({ sessionId }, signal)
@@ -342,7 +364,8 @@ export function install(rt) {
     }
     const from = mark?.through ?? -1
     if (!Number.isSafeInteger(through) || through <= from) {
-      if (mark !== undefined && sealable) ledger.commit(sessionId, { rows: [], reset: false, mark: { ...mark, sealed: true } })
+      // Nothing new to read: a warm Session's seal is cleared, and a cold one is sealed again at its watermark.
+      if (mark !== undefined && (seal !== undefined || mark.sealed)) ledger.commit(sessionId, { rows: [], reset: false, mark: { ...mark, ...sealFields(seal) } })
       return
     }
     const events = []
@@ -371,7 +394,7 @@ export function install(rt) {
     ledger.commit(sessionId, {
       rows: fold.rows.map(row => ({ ...row, key: `${sessionId}#${row.key}`, session: sessionId, kind: 'turn' })),
       reset: fold.reset,
-      mark: { through, fold: fold.state, sealed: sealable },
+      mark: { through, fold: fold.state, ...sealFields(seal) },
     })
   }
 
@@ -410,22 +433,50 @@ export function install(rt) {
       // the persisted cache's own watermark, so it must not cut a page. The
       // Session's exact cursor is read below when no hint is usable.
       const listedCursor = item => (item.projections?.kind === 'sequenced' ? item.projections.asOfSeq : undefined)
+      // A Session with no Agent attached is cold. Its listing carries the watermark of its
+      // checkpoint, which DSH rewrites at each turn end and when the Session is detached, so
+      // the watermark moves when the log does. A cold Session seals at that watermark only:
+      // the watermark is compared with an earlier listing, never with a log sequence.
+      const coldWatermarks = new Map(listed
+        .filter(item => item.agentAvailable !== true && item.running !== true && item.projections?.kind === 'cached' && Number.isSafeInteger(item.projections.asOfSeq))
+        .map(item => [item.sessionId, item.projections.asOfSeq]))
+      // An ended part is complete, so it seals for good.
+      const sealOf = sessionId => (ended.has(sessionId) ? { listed: null } : coldWatermarks.has(sessionId) ? { listed: coldWatermarks.get(sessionId) } : undefined)
       const targets = new Map()
       for (const item of listed) if (item.blank !== true) targets.set(item.sessionId, listedCursor(item))
       for (const sessionId of owners.keys()) if (!targets.has(sessionId)) targets.set(sessionId, undefined)
       const addresses = new Map(listed.map(item => [item.sessionId, addressOf(item)]))
+      let cut = 0
+      const failed = []
       await eachLimited([...targets], SCAN_PARALLEL, async ([sessionId, asOfSeq]) => {
+        if (signal.aborted) {
+          cut += 1
+          return
+        }
         const address = addresses.has(sessionId) ? addresses.get(sessionId) : { kind: 'session', sessionId }
         if (address === undefined) return
         try {
-          await scanSession(ledger, address, asOfSeq, ended.has(sessionId), signal)
+          await scanSession(ledger, address, asOfSeq, sealOf(sessionId), signal)
           unreadable.delete(sessionId)
         } catch (error) {
+          // The scan timeout cancels the reads still open. Those Sessions are not broken,
+          // so they are counted with the ones it never reached, not remembered as unreadable.
+          if (signal.aborted) {
+            cut += 1
+            return
+          }
           if (unreadable.has(sessionId)) return
           unreadable.add(sessionId)
-          rt.warn('ds-bot: usage could not read %s: %s', sessionId, error)
+          failed.push([sessionId, error])
         }
       })
+      // One line for the whole scan, not one per Session it could not read.
+      const missed = failed.length + cut
+      if (missed > 0) {
+        rt.warn('ds-bot: usage could not read %d Session%s%s%s', missed, missed === 1 ? '' : 's',
+          cut > 0 ? ' before the scan ran out of time' : '',
+          failed.length > 0 ? `: ${failed.map(([sessionId]) => sessionId).join(', ')} (first error: ${failed[0][1]})` : '')
+      }
     })().finally(() => {
       scannedAt = Date.now()
       scanning = undefined

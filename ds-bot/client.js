@@ -2567,6 +2567,11 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
    edge need room beside the 56px rows, or the list scrolls sideways. */
 .bt-leftcol[data-left=rail]{padding:calc(var(--bt-lc-clear) + 8px) 0 8px}
 .bt-leftcol-foot-rail{flex-direction:column;gap:6px}
+/* A drag that crosses the rail's snap line rides the spring to its target: the
+   content is pinned at the target size so only the column's edge moves. */
+.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
+.bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-dot-wait{background:var(--bt-star)}
 .bt-side-foot{display:flex;padding-top:8px}
@@ -3373,6 +3378,13 @@ header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+/* On macOS the shell's header row is the window's drag strip (data-window-drag
+   becomes -webkit-app-region:drag). The floating header stays click-through, so
+   the transcript under it still takes links and the wheel. Only the 40px .bt-head
+   bar the pill sits in is hit again and carries the drag mark; controls inside
+   keep no-drag. The data-slot anchor must not take no-drag, or the bar inherits it. */
+html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
+html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
 [class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
 /* The shell writes the column's width on the conversation root at every resize, only to
    derive the content width that the rule above replaces. Inherited, each write restyled
@@ -9657,37 +9669,88 @@ function TeamSidebar(props) {
   (0, import_react19.useEffect)(() => () => {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
+  const settleTimer = (0, import_react18.useRef)(0);
+  const springTimer = (0, import_react18.useRef)(0);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    clearTimeout(settleTimer.current);
+    clearTimeout(springTimer.current);
     const grip = event.currentTarget;
+    const column = grip.parentElement;
+    delete column.dataset.folding;
     grip.setPointerCapture?.(event.pointerId);
     chatRoom.hold(true);
+    const columns2 = chatRoom.columns();
+    for (const col of columns2) col.style.setProperty("transition", "none", "important");
+    const offLeft = frameSnap.collapsedWidth ?? 0;
     let last = null;
+    let liveLeft = mode;
     let done = false;
-    const onMove = (move) => {
-      last = dragColumn(move.clientX, window.innerWidth);
-      setDrag(last);
+    const write = (at) => {
+      const width = at.left === "rail" ? RAIL_WIDTH : at.width;
+      column.style.width = `${width}px`;
+      column.style.setProperty("--bt-lc-w", `${width}px`);
+      const push = Math.max(0, (at.left === "open" ? width : RAIL_WIDTH) - offLeft);
+      for (const col of columns2) col.style.setProperty("margin-left", `${push}px`, "important");
+    };
+    let springUntil = 0;
+    const springOff = () => {
+      springUntil = 0;
+      delete column.dataset.folding;
+      for (const col of columns2) col.style.setProperty("transition", "none", "important");
+    };
+    const springOn = () => {
+      column.dataset.folding = "";
+      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
+      springUntil = performance.now() + SPRING_SHAPE.duration;
+      clearTimeout(springTimer.current);
+      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration);
+    };
+    const track = (x) => {
+      last = dragColumn(x, window.innerWidth);
+      if (last.left !== liveLeft) {
+        liveLeft = last.left;
+        if (!reducedMotion()) springOn();
+        setDrag(last);
+      }
+      write(last);
+    };
+    const onMove = (move) => track(move.clientX);
+    const finish = () => {
+      clearTimeout(springTimer.current);
+      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === "open" ? last.width : RAIL_WIDTH) - offLeft));
+      for (const col of columns2) {
+        col.style.removeProperty("margin-left");
+        col.style.removeProperty("transition");
+      }
+      column.style.removeProperty("--bt-lc-w");
+      delete column.dataset.folding;
+      chatRoom.hold(false);
     };
     const ends = ["pointerup", "pointercancel", "lostpointercapture"];
     const onEnd = (end) => {
       if (done) return;
       done = true;
-      if (end.type === "pointerup") last = dragColumn(end.clientX, window.innerWidth);
+      if (end.type === "pointerup") track(end.clientX);
       grip.removeEventListener("pointermove", onMove);
       for (const name of ends) grip.removeEventListener(name, onEnd);
       setDrag(null);
-      chatRoom.hold(false);
-      if (last === null) return;
+      if (last === null) {
+        finish();
+        return;
+      }
       actions.setPanelYield?.(false);
       if (last.left === "rail") {
         actions.setLeftDrawer?.(false);
         actions.setSidebarPref?.("rail");
-        return;
+      } else {
+        actions.setSidebarWidth?.(last.width);
+        actions.setSidebarPref?.("open");
+        actions.setLeftDrawer?.(last.left === "drawer");
       }
-      actions.setSidebarWidth?.(last.width);
-      actions.setSidebarPref?.("open");
-      actions.setLeftDrawer?.(last.left === "drawer");
+      if (springUntil === 0) finish();
+      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60);
     };
     grip.addEventListener("pointermove", onMove);
     for (const name of ends) grip.addEventListener(name, onEnd);
@@ -11944,7 +12007,8 @@ var MODEL_CSS = `
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+/* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
+.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 .bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:30px;max-width:min(560px,calc(100% - 30px));max-height:min(240px,36vh);max-height:min(240px,36dvh);overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
