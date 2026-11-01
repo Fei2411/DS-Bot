@@ -32,9 +32,16 @@ const TEAM = {
 }
 
 let rt
-const start = (team = TEAM, services = {}, globals = []) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-scoped-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+const start = (team = TEAM, services = {}, globals = [], shared = {}) => {
+  const home = shared.home ?? mkdtempSync(join(tmpdir(), 'ds-bot-scoped-'))
+  if (shared.home === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  // `scoped` and `restricted` model each Session's own tool layer, and
+  // `liveAgents` the DSH registry: shared across two runtimes they keep a
+  // Session's Agent alive through a disable and re-enable.
+  const scoped = shared.scoped ?? []
+  const restricted = shared.restricted ?? []
+  const liveAgents = shared.liveAgents ?? new Map()
+  services.agents ??= { list: () => [...liveAgents.values()], get: id => liveAgents.get(id) }
   const ctx = fakeContext({ services })
   // Another plugin's global show_view, in place before ds-bot loads.
   ctx.tools.register({ name: 'show_view', description: 'global', execute: async () => 'global' })
@@ -46,13 +53,13 @@ const start = (team = TEAM, services = {}, globals = []) => {
     if (ctx.registeredTools.has(tool.name)) throw new Error(`tool "${tool.name}" is already registered`)
     return plainRegister(tool)
   }
-  const scoped = []
-  const restricted = []
   let sessions = 0
   const agentOf = (sessionId) => {
+    const held = liveAgents.get(sessionId)
+    if (held !== undefined) return held
     const nextStep = []
     const nextTurn = []
-    return {
+    const agent = {
       id: sessionId,
       session: { id: sessionId, header: { cwd: '/team' }, requestHeader: () => undefined, deriveMessages: () => [] },
       ctx: {
@@ -96,6 +103,8 @@ const start = (team = TEAM, services = {}, globals = []) => {
         },
       },
     }
+    liveAgents.set(sessionId, agent)
+    return agent
   }
   // ask_user_question is served, so the deny list is not empty in a Bot scope.
   ctx.tools.schemas = () => [{ name: 'ask_user_question' }, { name: 'show_view' }]
@@ -134,11 +143,12 @@ const start = (team = TEAM, services = {}, globals = []) => {
   }
   const tool = (name, args, sessionId, exec = {}) =>
     rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1', ...exec })
+  const unload = () => ctx.dispose()
   const stop = async () => {
-    await ctx.dispose()
+    await unload()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, call, tool, emit, agentCreated, agentOf, scoped, restricted, stop }
+  return { ctx, call, tool, emit, agentCreated, agentOf, scoped, restricted, home, unload, stop }
 }
 
 const until = async (check, ms = 3000) => {
@@ -314,4 +324,26 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
   await rt.save()
   await host.agentCreated('b')
   assert.ok(hasShowView(host, 'b'))
+})
+
+test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {
+  // A hot reload lifts the scope of Agents that are still live, and
+  // agent/created does not fire again: the sync at the next load must scope
+  // them before their next request.
+  const shared = { scoped: [], restricted: [], liveAgents: new Map() }
+  const first = start(TEAM, {}, [], shared)
+  shared.home = first.home
+  t.after(first.unload)
+  await first.call('state', {})
+  await first.agentCreated('a')
+  assert.ok(hasShowView(first, 'a'))
+  assert.ok(denied(first, 'a'))
+  await first.unload()
+  assert.deepEqual(scopedNames(first, 'a'), [])
+  assert.equal(denied(first, 'a'), false)
+  const second = start(TEAM, {}, [], shared)
+  t.after(second.stop)
+  await second.call('state', {})
+  assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
+  assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })

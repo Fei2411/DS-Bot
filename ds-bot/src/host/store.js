@@ -374,8 +374,9 @@ export function install(rt) {
       }
       for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) groupOwners.set(sessionId, { botId, roomId: room.id })
     }
-    // The agents module owns the DSH Agent session index, and tools.js drops the
-    // scoped tools of Sessions that left the team; both install after this.
+    // The agents module owns the DSH Agent session index, and tools.js re-syncs
+    // the scoped tools with this ownership (drops Sessions that left, scopes
+    // live Agents that joined); both install after this.
     rt.indexAgents?.()
     rt.syncScopedTools?.()
   }

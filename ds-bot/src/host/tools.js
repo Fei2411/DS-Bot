@@ -711,7 +711,10 @@ export function install(rt) {
   // disposers and goes with the ownership: indexSessions (store.js) runs
   // syncScopedTools on every save and adopt, so a deleted Bot's adopted
   // Session, a member who left, or a deleted group shows the plain dsh surface
-  // again — and the unload effect lifts whatever is left.
+  // again — and the unload effect lifts whatever is left. The same sync scopes
+  // the live Agents back: a reload lifts their scope while they are still
+  // live, and agent/created does not fire for them again, so without the walk
+  // their next request would come without the team tools.
   /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>}>} */
   const scoped = new Map()
   const unscope = (id) => {
@@ -731,6 +734,11 @@ export function install(rt) {
     for (const id of scoped.keys()) {
       if (!rt.isBotSession(id) && rt.roomOf(id) === undefined) unscope(id)
     }
+    // A reload lifts the scope of Agents that are still live, and an adopted
+    // file can newly own one that already runs: scope each live Agent the team
+    // owns before its next request. hideBotUnusedTools does nothing for a
+    // Session that stays unowned, and nothing twice for one already scoped.
+    for (const agent of ctx.get?.('agents')?.list?.() ?? []) hideBotUnusedTools(agent)
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
@@ -777,8 +785,16 @@ export function install(rt) {
   // goal tools. The restrict is kept with the Session's scope, so it lifts with it.
   const hideBotUnusedTools = (agent) => {
     shareBotTools(agent)
-    rt.shadowShells?.(agent)
     const id = agent?.session?.id
+    // The shell shadows go with the scope, so a reload or a Session that leaves
+    // the team lifts them like the rest, and the Agent can be scoped again.
+    const shadows = rt.shadowShells?.(agent) ?? []
+    if (shadows.length > 0) {
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [] }
+      held.agent = agent
+      held.disposers.push(...shadows)
+      scoped.set(id, held)
+    }
     if (agent === undefined || !rt.isBotSession(id) || scoped.get(id)?.restricted === true) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {
