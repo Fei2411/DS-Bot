@@ -4,11 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { Session } from '@deepseek-ai/dsh-session'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installParts } from '../src/host/parts.js'
-import { SOURCE_KIND } from '../src/host/constants.js'
+import { HANDOFF_ACK, SOURCE_KIND } from '../src/host/constants.js'
+import { estimateTokens } from '../src/host/text.js'
 
 let rt
 
@@ -41,8 +45,9 @@ async function start(seed) {
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
       const calls = []
+      const messages = []
       agents.set(sessionId, {
-        session: { id: sessionId, requestHeader: () => undefined },
+        session: { id: sessionId, requestHeader: () => undefined, deriveMessages: () => messages },
         id: sessionId,
         calls,
         status: 'idle',
@@ -82,7 +87,7 @@ async function start(seed) {
       page: async () => ({ records: [], hasMore: false }),
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: async () => {}, messageProjections: [] },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -93,6 +98,8 @@ async function start(seed) {
   rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data, extra) => {
+    if (type === 'user/message') agentOf(id).session.deriveMessages().push({ role: 'user', content: data.content, source: data.source })
+    if (type === 'assistant/message') agentOf(id).session.deriveMessages().push({ ...data.message, role: 'assistant' })
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data, ...extra })
     }
@@ -881,7 +888,7 @@ test('one turn keeps its identity across two earlier pages', async (t) => {
   assert.equal(older.items.some(item => item.seq === 2 && item.turn === 6), true)
 })
 
-test('a request the model keeps turning down moves the Bot on, without its latest messages the second time; a connection failure does not', async (t) => {
+test('an image offload failure moves the Bot on, without its latest messages the second time; other request failures do not', async (t) => {
   const { ctx, agents, agentOf, emit, fire, stop } = await start(team())
   t.after(stop)
   let made = 0
@@ -905,31 +912,232 @@ test('a request the model keeps turning down moves the Bot on, without its lates
   }
 
   await failTurn('b', 'TRANSPORT')
-  // One turned-down request may be the provider's own hiccup.
+  endedWith('b', 'INVALID_REQUEST')
   await failTurn('b', 'INVALID_REQUEST')
+  for (const code of ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH']) await failTurn('b', code)
   await delay(30)
   assert.equal(made, 0)
 
-  endedWith('b', 'INVALID_REQUEST')
-  await failTurn('b', 'INVALID_REQUEST')
+  await failTurn('b', 'IMAGE_OFFLOAD_REQUIRED')
   await waitFor(() => handoffIn('s1') !== undefined)
   const first = textOf(handoffIn('s1').content)
-  assert.match(first, /because a request in the previous part kept failing \(INVALID_REQUEST\)/)
+  assert.match(first, /because a request in the previous part kept failing \(IMAGE_OFFLOAD_REQUIRED\)/)
   assert.match(first, /first tell the user in one short sentence that the last message could not be sent as it was/)
 
-  endedWith('s1', 'INVALID_REQUEST')
-  await failTurn('s1', 'INVALID_REQUEST')
+  endedWith('s1', 'IMAGE_OFFLOAD_REQUIRED')
+  await failTurn('s1', 'IMAGE_OFFLOAD_REQUIRED')
   await waitFor(() => handoffIn('s2') !== undefined)
   const second = textOf(handoffIn('s2').content)
   assert.match(second, /so they are left out this time\. First tell the user/)
   assert.match(second, /## Latest messages[^#]*\(none\)/)
 
   // A part that already left the messages out stays where it is.
-  endedWith('s2', 'INVALID_REQUEST')
-  await failTurn('s2', 'INVALID_REQUEST')
+  endedWith('s2', 'IMAGE_OFFLOAD_REQUIRED')
+  await failTurn('s2', 'IMAGE_OFFLOAD_REQUIRED')
   await delay(30)
   assert.equal(made, 2)
 })
+
+test('a failed turn past the hard line keeps the real error instead of switching in the background', async (t) => {
+  const { ctx, agentOf, emit, stop } = await start(team())
+  t.after(stop)
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  const get = ctx.get
+  ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: 120_000 }) } : get(name)
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 } })
+  const agent = agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+  emit('b', 'assistant/message', assistantText('Earlier work'))
+  const error = { code: 'MISSING_CREDENTIAL', message: 'No API key' }
+  agent.session.seq = 2
+  agent.session.eventAt = () => ({ type: 'turn/end', data: { reason: { kind: 'error', error } } })
+  ctx.emit('agent/status', { agent, status: 'idle' })
+  await delay(50)
+  assert.equal(made, 0)
+  assert.equal(agent.session.eventAt(1).data.reason.error, error)
+})
+
+for (const id of ['b', 'gb']) {
+  test(`model-priced images after a handoff can make room by switching (${id})`, async (t) => {
+    const seed = team({ group: true })
+    const segment = { sessionId: 'old', note: 'Keep working on the request.', endedAt: 1 }
+    if (id === 'gb') seed.rooms.r1.segments = { b: [segment] }
+    else seed.bots.b.segments = [segment]
+    const { ctx, agentOf, emit, fire, stop } = await start(seed)
+    t.after(stop)
+    const meterCtx = new Context()
+    meterCtx.provide('sessionProjections', { register() {} })
+    meterCtx.provide('llm', {
+      imageRequestPricing: () => ({ priceImages: images => images.map(() => ({ visualTokens: 2_000, text: '' })) }),
+    })
+    await meterCtx.plugin(TokenMeter)
+    t.after(() => meterCtx.fiber.dispose())
+    const meter = meterCtx.tokenMeter
+    const get = ctx.get
+    ctx.get = name => name === 'tokenMeter' ? meter : get(name)
+    ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 50_000 } })
+    let made = 0
+    ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+    const agent = agentOf(id)
+    const session = Session.create(id)
+    agent.session = session
+    const events = []
+    const record = (type, data, surface) => {
+      events.push(session.append(type, data, surface ? { surfaceOp: 'append' } : undefined))
+      emit(id, type, data)
+    }
+    ctx.sessionController.page = async ({ address, beforeSeq }) => ({
+      records: address.sessionId === id ? events.filter(event => beforeSeq === undefined || event.seq < beforeSeq).map(event => ({ event })) : [],
+      hasMore: false,
+    })
+    const header = { config: { provider: 'custom', model: 'image-model' } }
+    const system = { role: 'system', content: textBlock('System instructions. '.padEnd(36_000, 's')) }
+    record('request/header', { header })
+    record('system/message', { turn: 1, step: 1, message: system }, true)
+    record('user/message', { source: { kind: SOURCE_KIND, handoff: true }, content: textBlock('Earlier context. '.padEnd(12_000, 'x')) }, true)
+    record('step/start', { turn: 1, step: 1 })
+    record('assistant/message', { turn: 1, step: 1, ...assistantText('Ready to work with the images.'), stream: [] }, true)
+    record('step/end', { turn: 1, step: 1 })
+    record('user/message', {
+      source: { kind: 'user' },
+      content: [
+        ...textBlock('Inspect these images.'),
+        ...Array.from({ length: 30 }, () => ({ type: 'image', attachment: { attachmentId: `sha256:${'1'.repeat(64)}`, mediaType: 'image/png', bytes: 100, width: 1600, height: 1600 } })),
+      ],
+    }, true)
+    const before = meter.measure(session)
+    const history = before.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
+    const heuristic = session.deriveMessages().filter(message => message.role !== 'system').reduce((total, message) => total + meter.estimateMessage(message), 0)
+    assert.ok(before.totalTokens > 50_000)
+    assert.ok(history > 60_000)
+    assert.ok(before.totalTokens - heuristic > 50_000, 'structural image references cannot stand in for the removed visual tokens')
+
+    await fire('agent/request-error', { agent, failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000) })
+    for (let count = 0; count < 200 && !agentOf('s1').calls.some(([, message]) => message.source?.handoff); count += 1) await delay(5)
+    const handoff = agentOf('s1').calls.find(([, message]) => message.source?.handoff)?.[1]
+    assert.ok(handoff, 'the shorter part can replace the model-priced images')
+    assert.equal(made, 1)
+    const replacement = Session.create('replacement')
+    replacement.append('request/header', { header })
+    replacement.append('system/message', { turn: 1, step: 1, message: system }, { surfaceOp: 'append' })
+    replacement.append('user/message', handoff, { surfaceOp: 'append' })
+    const after = meter.measure(replacement).totalTokens
+    assert.ok(after < 50_000, 'the same system prompt and the real handoff fit')
+    assert.ok(after < before.totalTokens)
+    t.diagnostic(`pressure ${before.totalTokens} -> ${after}; replaced history ${history} (heuristic ${heuristic}); new parts ${made}`)
+  })
+
+  test(`a fresh part with oversized tools stops until the replacement context can fit (${id})`, async (t) => {
+    const { ctx, agentOf, emit, fire, stop } = await start(team({ group: true }))
+    t.after(stop)
+    let made = 0
+    let tokens = 272_000
+    ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+    const get = ctx.get
+    ctx.get = name => name === 'tokenMeter' ? {
+      measure: () => ({ totalTokens: tokens }),
+      estimateMessage: message => estimateTokens(textOf(message.content)),
+    } : get(name)
+    ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 192_000 } })
+    const preStep = async (agent) => {
+      agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+      return ctx.listeners.get('agent/pre-step').at(-1)({ agent, messages: [], step: 1, signal: AbortSignal.timeout(60_000) }, async () => 'next')
+    }
+    const overflow = agent => fire('agent/request-error', { agent, failure: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Tools exceed the context window' }, signal: AbortSignal.timeout(60_000) })
+    const waitForHandoff = async (sessionId) => {
+      for (let count = 0; count < 200 && !agentOf(sessionId).calls.some(([, message]) => message.source?.handoff); count += 1) await delay(5)
+      const handoff = agentOf(sessionId).calls.find(([, message]) => message.source?.handoff)?.[1]
+      assert.ok(handoff)
+      emit(sessionId, 'user/message', handoff)
+    }
+
+    // A grown conversation still gets its normal overflow recovery.
+    emit(id, 'assistant/message', assistantText('Earlier work'))
+    await overflow(agentOf(id))
+    await waitForHandoff('s1')
+    assert.equal(await preStep(agentOf('s1')), 'next')
+    // A larger tool set can cross the growth line without adding any conversation.
+    tokens += 192_000
+    assert.equal(await preStep(agentOf('s1')), 'next')
+    await overflow(agentOf('s1'))
+    await delay(30)
+    assert.equal(made, 1, 'replacing an unchanged handoff cannot make room')
+
+    // An idle handoff acknowledgement is synthetic, not evidence the model works.
+    emit('s1', 'assistant/message', assistantText(HANDOFF_ACK))
+    ctx.emit('agent/status', { agent: agentOf('s1'), status: 'idle' })
+    await delay(30)
+    assert.equal(made, 1)
+
+    // A model reply alone does not fix a tool set that still exceeds the window.
+    emit('s1', 'assistant/message', assistantText('A short reply'))
+    await overflow(agentOf('s1'))
+    await delay(30)
+    assert.equal(made, 1)
+
+    // Once the tool set fits, shortening the conversation can help again.
+    tokens = 1_000
+    await overflow(agentOf('s1'))
+    await waitForHandoff('s2')
+    assert.equal(made, 2)
+  })
+
+  for (const pending of [false, true]) {
+    test(`a long ${pending ? 'pending' : 'admitted'} request after a handoff can recover without a model reply (${id})`, async (t) => {
+      const seed = team({ group: true })
+      const segment = { sessionId: 'old', note: 'Keep working on the request.', endedAt: 1 }
+      if (id === 'gb') seed.rooms.r1.segments = { b: [segment] }
+      else seed.bots.b.segments = [segment]
+      const { ctx, agentOf, emit, fire, stop } = await start(seed)
+      t.after(stop)
+      let made = 0
+      ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+      const get = ctx.get
+      ctx.get = name => name === 'tokenMeter' ? {
+        measure: session => ({ totalTokens: 9_000 + estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n')) }),
+        estimateMessage: message => estimateTokens(textOf(message.content)),
+      } : get(name)
+      ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 50_000 } })
+      ctx.llm.stream = async function* () {
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Context window exceeded' } } }
+      }
+      const agent = agentOf(id)
+      agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+      agent.session.toolHistory = () => []
+      const events = []
+      const record = (type, data) => {
+        events.push({ type, data, seq: events.length, time: 1 })
+        agent.session.seq = events.length
+        emit(id, type, data)
+      }
+      ctx.sessionController.page = async ({ address, beforeSeq }) => ({
+        records: address.sessionId === id ? events.filter(event => beforeSeq === undefined || event.seq < beforeSeq).map(event => ({ event })) : [],
+        hasMore: false,
+      })
+      record('user/message', { source: { kind: SOURCE_KIND, handoff: true }, content: textBlock('Earlier context. '.padEnd(120_000, 'x')) })
+      record('assistant/message', assistantText(HANDOFF_ACK))
+      const input = { role: 'user', source: { kind: 'user' }, content: textBlock('New request. '.padEnd(20_000, 'y')) }
+      assert.ok(estimateTokens(textOf(input.content)) < 50_000, 'the new request fits on its own')
+      assert.ok(ctx.get('tokenMeter').measure(agent.session).totalTokens + estimateTokens(textOf(input.content)) > 50_000, 'it overflows together with the handoff')
+
+      if (pending) {
+        const decision = await ctx.listeners.get('agent/pre-step').at(-1)({ agent, messages: [input], step: 1, signal: AbortSignal.timeout(60_000) }, async () => 'next')
+        assert.deepEqual(decision, { kind: 'reject' })
+      } else {
+        record('user/message', input)
+        await fire('agent/request-error', { agent, failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000) })
+      }
+      const ready = () => agentOf('s1').calls.some(([, message]) => message.source?.handoff)
+        && (!pending || agentOf('s1').calls.some(([, message]) => textOf(message.content) === textOf(input.content)))
+      for (let count = 0; count < 200 && !ready(); count += 1) await delay(5)
+      assert.ok(ready(), 'the shorter part gets the handoff and any still-pending input')
+      assert.equal(made, 1)
+      const handoff = agentOf('s1').calls.find(([, message]) => message.source?.handoff)[1]
+      assert.ok(textOf(handoff.content).length < 10_000, 'the handoff replaces the 140k-character context')
+    })
+  }
+}
 
 // #206: a message between Bots used to go whole into state.json, which is written whole
 // on every save; an empty one started a turn on nothing.
