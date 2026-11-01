@@ -36,10 +36,10 @@
       ${AndIf} $0 == $INSTDIR
         Return
       ${EndIf}
-      ${StrContains} $0 "${APP_FILENAME}" $INSTDIR
-      ${If} $0 == ""
-        StrCpy $dsbCheckTarget "$INSTDIR\${APP_FILENAME}"
-      ${EndIf}
+      Push $INSTDIR
+      Call instFilesPre
+      StrCpy $dsbCheckTarget $INSTDIR
+      Pop $INSTDIR
     FunctionEnd
 
     Function dsbInstFilesPre
