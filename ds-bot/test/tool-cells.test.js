@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, TriggerCell, callTree, stackReplies } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty } from './src/client/cells.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -36,10 +36,17 @@ const react = {
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
 }
 const timers = new Set()
+// The observers CellEmpty sets on its slot, so a test can deliver a mutation.
+const observers = []
+class FakeObserver {
+  constructor(fn) { this.fn = fn; this.off = false; observers.push(this) }
+  observe() {}
+  disconnect() { this.off = true }
+}
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
-  document: { hidden: false }, TextEncoder,
+  document: { hidden: false }, TextEncoder, MutationObserver: FakeObserver,
   setTimeout: (fn) => { const timer = { fn }; timers.add(timer); return timer },
   clearTimeout: timer => timers.delete(timer),
   require: (name) => {
@@ -49,7 +56,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, QuestionDock, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, QuestionDock, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -330,6 +337,84 @@ test('every call that draws nothing leaves only the empty mark, so its seat can 
     assert.ok(onlyMarks(ToolCell(props(root, { roster, held }))), `${root.name} leaves only marks`)
     effects = []
   }
+})
+
+// #667: the slot a node's cell renders into counts as emptied only while every
+// child in it is an empty mark — a row or seat hides on that mark, so a node
+// holding anything else must not be taken for empty. `slotOf` builds the slot
+// the way the DOM would: one child per rendered part, mark or not.
+const slotOf = (out) => {
+  const slot = { childNodes: [], dataset: {} }
+  const lift = (node) => {
+    if (Array.isArray(node)) return node.forEach(lift)
+    if (node === null || node === undefined || typeof node === 'boolean') return
+    if (typeof node !== 'object') return slot.childNodes.push({ nodeType: 3, hasAttribute: () => false })
+    if (node.type === Fragment) return lift(node.props.children)
+    const dom = { nodeType: 1, hasAttribute: name => node.props?.[name] !== undefined, closest: () => slot }
+    if (node.props?.ref) node.props.ref.current = dom
+    slot.childNodes.push(dom)
+  }
+  lift(expand(out))
+  return slot
+}
+
+test('a node holding a visible event next to a mark is not emptied', () => {
+  const actions = { noteLive() {}, noteCards() {} }
+  // Marks alone: emptied, so the row or seat wrapping the slot may hide.
+  const alone = slotOf(ToolCell(props(call('ask_user', 'direct'), { actions })))
+  mount()
+  assert.equal(alone.dataset.btEmptied, '')
+
+  // A run_code node holding "Messaged Writer" and an answered question's mark:
+  // the event stays, so the node is not emptied.
+  const mixed = slotOf(ToolCell(props(program([
+    call('message_bot', 'program:ptc:1', { args: { to: 'Writer' } }),
+    call('ask_user', 'program:ptc:2'),
+  ]), { actions })))
+  mount()
+  assert.ok(mixed.childNodes.some(kid => kid.hasAttribute('data-bt-empty')), 'the answered question marks itself')
+  assert.ok(mixed.childNodes.some(kid => !kid.hasAttribute('data-bt-empty')), 'the event shows')
+  assert.ok(!('btEmptied' in mixed.dataset))
+  effects = []
+})
+
+test('a slot keeps its emptied state in step with what it holds', () => {
+  observers.length = 0
+  const slot = { childNodes: [], dataset: {} }
+  const mark = () => ({ nodeType: 1, hasAttribute: name => name === 'data-bt-empty', closest: () => slot })
+  const event = () => ({ nodeType: 1, hasAttribute: () => false, closest: () => slot })
+  const text = () => ({ nodeType: 3, hasAttribute: () => false })
+  // Mounts one CellEmpty into the slot beside `siblings`; returns its unmount.
+  const draw = (...siblings) => {
+    const self = mark()
+    CellEmpty({}).props.ref.current = self
+    slot.childNodes = [...siblings, self]
+    return mount()
+  }
+  const changed = () => observers.filter(observer => !observer.off).forEach(observer => observer.fn())
+
+  // A mark mounted beside a visible part, or beside plain text another
+  // renderer left, does not empty the slot.
+  draw(event(), mark())
+  assert.ok(!('btEmptied' in slot.dataset))
+  draw(text(), mark())
+  assert.ok(!('btEmptied' in slot.dataset))
+
+  // A mark alone empties the slot; a visible part landing later takes the mark
+  // back, and that part leaving empties the slot again.
+  const unmount = draw()
+  assert.equal(slot.dataset.btEmptied, '')
+  slot.childNodes = [...slot.childNodes, event()]
+  changed()
+  assert.ok(!('btEmptied' in slot.dataset))
+  slot.childNodes = slot.childNodes.slice(0, 1)
+  changed()
+  assert.equal(slot.dataset.btEmptied, '')
+
+  // The last mark leaving takes the emptied state with it.
+  unmount()
+  assert.ok(!('btEmptied' in slot.dataset))
+  effects = []
 })
 
 test('a hidden Bot-to-Bot turn draws none of its sub-calls', () => {

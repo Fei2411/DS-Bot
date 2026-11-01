@@ -3938,14 +3938,28 @@ var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, u
 
 // src/client/cell-empty.js
 var import_react4 = require("react");
+var emptied = (slot, gone) => {
+  let marks = 0;
+  for (const node of slot.childNodes) {
+    if (node === gone) continue;
+    if (node.nodeType !== 1 || !node.hasAttribute("data-bt-empty")) return false;
+    marks += 1;
+  }
+  return marks > 0;
+};
 function CellEmpty({ className }) {
   const ref = (0, import_react4.useRef)(null);
   (0, import_react4.useLayoutEffect)(() => {
-    const slot = ref.current?.closest("[data-slot]");
+    const marker = ref.current;
+    const slot = marker?.closest("[data-slot]");
     if (!slot) return void 0;
-    slot.dataset.btEmptied = "";
+    const sync = (gone) => emptied(slot, gone) ? slot.dataset.btEmptied = "" : delete slot.dataset.btEmptied;
+    sync();
+    const observer = typeof MutationObserver === "function" ? new MutationObserver(() => sync()) : null;
+    observer?.observe(slot, { childList: true });
     return () => {
-      if (slot.querySelectorAll("[data-bt-empty]").length <= 1) delete slot.dataset.btEmptied;
+      observer?.disconnect();
+      sync(marker);
     };
   }, []);
   return (0, import_react4.createElement)("span", { ref, className, hidden: true, "data-bt-empty": true });
