@@ -1541,7 +1541,9 @@ function indexRoster(value) {
     for (const id of [...bot.parts ?? [], bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
   }
   const roomsById = {};
-  for (const room2 of value.rooms) roomsById[room2.id] = room2;
+  for (const room2 of value.rooms) {
+    for (const id of [room2.id, room2.sessionId, ...room2.ownParts ?? []]) roomsById[id] = room2;
+  }
   const agentsById = {};
   const agentOf = {};
   for (const agent of value.agents ?? []) {
@@ -7339,6 +7341,69 @@ var thinkingLive = (step) => step.status === "running" && texts(step).length ===
 var texts = (step) => step.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "");
 var stepReasoning = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => block.text).join("\n").trim();
 
+// src/shared/group-replies.js
+var RELAY_LIST = /"replies"\s*:\s*\[/;
+var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
+function parseReplies(text) {
+  try {
+    return { replies: JSON.parse(text).replies ?? [], broken: false };
+  } catch {
+  }
+  const replies = [];
+  const head = RELAY_LIST.exec(text);
+  if (head) {
+    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
+      const first = piece.indexOf('{"');
+      if (first !== -1) scanReplies(piece, first, replies);
+    }
+  }
+  return { replies, broken: true };
+}
+function scanReplies(text, start, replies) {
+  let depth = 0;
+  let from = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) from = i;
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0 && from >= 0) {
+        try {
+          replies.push(JSON.parse(text.slice(from, i + 1)));
+        } catch {
+        }
+        from = -1;
+      }
+    } else if (ch === "]" && depth === 0) break;
+  }
+}
+function stackReplies(replies) {
+  const items = [];
+  replies.forEach((reply, index) => {
+    const last = items.at(-1);
+    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
+      last.texts.push(reply.text);
+      last.time = reply.time;
+      last.duration = reply.duration;
+    } else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [], time: reply.time, duration: reply.duration });
+  });
+  return items;
+}
+
 // src/client/fold.js
 var import_react15 = require("react");
 var FOLD_AT = { chars: 1500, lines: 25 };
@@ -8124,18 +8189,6 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
     (0, import_react17.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
   );
 }
-function stackReplies(replies) {
-  const items = [];
-  replies.forEach((reply, index) => {
-    const last = items.at(-1);
-    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
-      last.texts.push(reply.text);
-      last.time = reply.time;
-      last.duration = reply.duration;
-    } else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [], time: reply.time, duration: reply.duration });
-  });
-  return items;
-}
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
   return (0, import_react17.createElement)(
     "div",
@@ -8228,7 +8281,9 @@ function EarlierParts({ sessionId, roster, actions }) {
   const load = (cursor) => {
     if (busy.current) return;
     const mine = generation.current;
-    const partIndex = partIndexOf(roster.byId[sessionId], sessionId, cursor);
+    const room2 = roster.roomsById[sessionId];
+    const owner = roster.byId[sessionId] ?? (room2 === void 0 ? void 0 : { parts: room2.ownParts, sessionId: room2.sessionId });
+    const partIndex = partIndexOf(owner, sessionId, cursor);
     busy.current = true;
     setView((current) => ({ ...current, loading: true, failed: false }));
     actions.earlier(sessionId, cursor).then((page) => {
@@ -8334,6 +8389,27 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     }
     case "btw":
       return (0, import_react17.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
+    case "post": {
+      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
+      return (0, import_react17.createElement)(GroupMessage, {
+        key,
+        bot: poster,
+        text: row.file ? stripLongNote(row.text) : row.text,
+        texts: row.texts,
+        room: roster.roomsById[sessionId],
+        roster,
+        actions,
+        msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
+        time: row.time,
+        duration: row.duration,
+        whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
+      });
+    }
+    case "relay": {
+      const reply = row.reply;
+      const speaker = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name ?? t("a Bot"), color: reply.color ?? "gray" };
+      return (0, import_react17.createElement)(RelayEvent, { key, reply, bot: speaker, sessionId, actions });
+    }
     case "event": {
       if (row.role === "report") return (0, import_react17.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
@@ -8376,7 +8452,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   return unreadOpening ? (0, import_react17.createElement)(import_react17.Fragment, null, (0, import_react17.createElement)("div", { className: "bt-open-new" }, (0, import_react17.createElement)(NewDivider), (0, import_react17.createElement)("div", { className: "bt-time-sep", role: "separator" }, unreadOpening)), body) : body ?? (0, import_react17.createElement)(CellEmpty);
   function triggerBody() {
     if (source.kind === "bot") {
-      if (source.handoff === true) return roster.roomsById[sessionId] ? null : (0, import_react17.createElement)(EarlierParts, { sessionId, roster, actions });
+      if (source.handoff === true) return (0, import_react17.createElement)(EarlierParts, { sessionId, roster, actions });
       if (source.role === "kickoff" || source.role === "room") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react17.createElement)("div", { className: "bt-event" }, t("Profile updated"));
@@ -8591,54 +8667,66 @@ function useLiveNote(actions, sessionId, id, entry) {
     return () => actions.noteLive(sessionId, id, null);
   }, [sessionId, id, key]);
 }
-var RELAY_LIST = /"replies"\s*:\s*\[/;
-var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
-function parseReplies(text) {
-  try {
-    return { replies: JSON.parse(text).replies ?? [], broken: false };
-  } catch {
+function RelayEvent({ reply, bot, sessionId, actions }) {
+  if (reply.kind === "failed") {
+    return (0, import_react17.createElement)(
+      "div",
+      { className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
+      t("{name} could not answer: {reason}", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
+    );
   }
-  const replies = [];
-  const head = RELAY_LIST.exec(text);
-  if (head) {
-    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
-      const first = piece.indexOf('{"');
-      if (first !== -1) scanReplies(piece, first, replies);
-    }
+  if (reply.kind === "lookup") {
+    return (0, import_react17.createElement)(
+      "div",
+      { className: "bt-event" },
+      reply.text ? t("{name} looked up its own chat for “{text}”", { name: bot.name, text: reply.text }) : t("{name} looked up its own chat", { name: bot.name })
+    );
   }
-  return { replies, broken: true };
-}
-function scanReplies(text, start, replies) {
-  let depth = 0;
-  let from = -1;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i += 1) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") {
-      if (depth === 0) from = i;
-      depth += 1;
-    } else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0 && from >= 0) {
-        try {
-          replies.push(JSON.parse(text.slice(from, i + 1)));
-        } catch {
-        }
-        from = -1;
-      }
-    } else if (ch === "]" && depth === 0) break;
+  if (reply.kind === "missed") {
+    return (0, import_react17.createElement)("div", { className: "bt-event" }, t("{name} didn't answer in time", { name: bot.name }));
   }
+  if (reply.kind === "admin-passed") {
+    return (0, import_react17.createElement)(
+      "div",
+      { className: "bt-event" },
+      t("{name} did not answer or call anyone; call a member with @Name", { name: bot.name })
+    );
+  }
+  if (reply.kind === "paused") {
+    return (0, import_react17.createElement)(
+      "div",
+      { className: "bt-event" },
+      t("Paused after {count} Bot relays. Waiting: {names}", { count: reply.count, names: (reply.names ?? []).join(t(" and ")) })
+    );
+  }
+  if (reply.kind === "resumed") {
+    return (0, import_react17.createElement)("div", { className: "bt-event" }, t("{name} was cut off by a restart and picked its work back up", { name: bot.name }));
+  }
+  if (reply.kind === "cut") {
+    return (0, import_react17.createElement)("div", { className: "bt-event" }, t("{name} was cut off by a restart again and stopped", { name: bot.name }));
+  }
+  if (reply.kind === "approval" || reply.kind === "working") {
+    return (0, import_react17.createElement)(
+      "div",
+      { className: "bt-event" },
+      (0, import_react17.createElement)(
+        "button",
+        { type: "button", className: "bt-event-whole", onClick: () => actions.showDetails(sessionId) },
+        (0, import_react17.createElement)(BotMark, { bot, size: 16 }),
+        (0, import_react17.createElement)("span", { className: "bt-event-name" }, t(reply.kind === "working" ? "{name} started on it" : "{name} paused for your approval", { name: bot.name }))
+      )
+    );
+  }
+  if (reply.kind === "folder") {
+    return (0, import_react17.createElement)("div", { className: "bt-event" }, reply.text);
+  }
+  if (reply.kind === "stopped") {
+    return (0, import_react17.createElement)("div", { className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
+  }
+  if (reply.kind === "done") {
+    return (0, import_react17.createElement)("div", { className: "bt-event" }, t("{name} finished its work", { name: bot.name }));
+  }
+  return null;
 }
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = (0, import_react17.useState)({ replies: [], speaking: [] });
@@ -8693,63 +8781,8 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           Number.isFinite(time) ? (0, import_react17.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, messageClock(time)) : null
         ));
       }
-      if (reply.kind === "failed") {
-        return (0, import_react17.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
-          t("{name} could not answer: {reason}", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
-        );
-      }
-      if (reply.kind === "lookup") {
-        return (0, import_react17.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event" },
-          reply.text ? t("{name} looked up its own chat for “{text}”", { name: bot.name, text: reply.text }) : t("{name} looked up its own chat", { name: bot.name })
-        );
-      }
-      if (reply.kind === "missed") {
-        return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} didn't answer in time", { name: bot.name }));
-      }
-      if (reply.kind === "admin-passed") {
-        return (0, import_react17.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event" },
-          t("{name} did not answer or call anyone; call a member with @Name", { name: bot.name })
-        );
-      }
-      if (reply.kind === "paused") {
-        return (0, import_react17.createElement)(
-          "div",
-          { key: `paused-${index}`, className: "bt-event" },
-          t("Paused after {count} Bot relays. Waiting: {names}", { count: reply.count, names: (reply.names ?? []).join(t(" and ")) })
-        );
-      }
-      if (reply.kind === "resumed") {
-        return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} was cut off by a restart and picked its work back up", { name: bot.name }));
-      }
-      if (reply.kind === "cut") {
-        return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} was cut off by a restart again and stopped", { name: bot.name }));
-      }
-      if (reply.kind === "approval" || reply.kind === "working") {
-        return (0, import_react17.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event" },
-          (0, import_react17.createElement)(
-            "button",
-            { type: "button", className: "bt-event-whole", onClick: () => actions.showDetails(sessionId) },
-            (0, import_react17.createElement)(BotMark, { bot, size: 16 }),
-            (0, import_react17.createElement)("span", { className: "bt-event-name" }, t(reply.kind === "working" ? "{name} started on it" : "{name} paused for your approval", { name: bot.name }))
-          )
-        );
-      }
-      if (reply.kind === "folder") {
-        return (0, import_react17.createElement)("div", { key: `folder-${index}`, className: "bt-event" }, reply.text);
-      }
-      if (reply.kind === "stopped") {
-        return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
-      }
-      if (reply.kind === "done") {
-        return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} finished its work", { name: bot.name }));
+      if (reply.kind !== void 0) {
+        return (0, import_react17.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions });
       }
       return (0, import_react17.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
     }),
@@ -8997,7 +9030,7 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const moveAt = useWork?.((work) => {
-    const entry = bot === void 0 ? void 0 : work.bots?.[bot.id];
+    const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
   }) ?? 0;
   const entries2 = (0, import_react18.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
@@ -9397,13 +9430,14 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
 }
 function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
   const id = room2.id;
-  const fallback = useSessions((list) => previewOf(list, id));
+  const sessionId = room2.sessionId ?? id;
+  const fallback = useSessions((list) => previewOf(list, sessionId));
   const preview = room2.preview?.replace(/\s+/g, " ").trim() || fallback;
-  const active = useSessionRetainInfo(id, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
-  const unread = useSessionStatus((map) => map.get(id)?.completionUnread === true) || marked && !active;
+  const active = useSessionRetainInfo(sessionId, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
+  const unread = useSessionStatus((map) => map.get(sessionId)?.completionUnread === true) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const approval = useApproval(useWork, (entry) => entry.roomId === id);
-  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
+  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).filter((entry) => entry.botId !== void 0).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
   const first = roster.byId[members[0]?.id];
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
   if (room2.hidden && !active) return null;
@@ -10244,7 +10278,13 @@ function useLandOnMainBot(roster, useSessions, actions) {
       if (currentPart(bot) !== id) actions.landOn(bot.id);
       return void 0;
     }
-    if (id !== "" && (roster.roomsById[id] || (actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
+    const room2 = id === "" ? void 0 : roster.roomsById[id];
+    if (room2 !== void 0) {
+      lastBot.current = null;
+      if ((room2.sessionId ?? room2.id) !== id) actions.openSession(room2.id);
+      return void 0;
+    }
+    if (id !== "" && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
       lastBot.current = null;
       return void 0;
     }
@@ -10815,7 +10855,7 @@ function chatRows(roster, list, sessionId) {
   });
   const team = /* @__PURE__ */ new Set([
     ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...bot.parts ?? []]),
-    ...roster.rooms.flatMap((room2) => [room2.id, ...room2.parts ?? []])
+    ...roster.rooms.flatMap((room2) => [room2.id, room2.sessionId, ...room2.ownParts ?? [], ...room2.parts ?? []].filter((id) => id !== void 0))
   ]);
   const others = (list?.ids ?? []).map((id) => byId[id]).filter((row) => row !== void 0 && row.id !== sessionId && !team.has(row.id) && row.origin !== "subagent" && row.blank !== true).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, OTHER_CHATS_MAX).map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }));
   return [...bots, ...others];
@@ -20538,7 +20578,7 @@ function apply(ctx) {
   let expected2 = null;
   const setPlain = (plain) => surface.set((state) => state.plain === plain ? state : { ...state, plain });
   const dropPanels = () => ui2.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
-  const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? id;
+  const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id;
   const leaveVisits = (ids) => {
     seenAt = seenStore.update((seen) => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt);
   };
@@ -20635,7 +20675,7 @@ function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== void 0 || listed[id] === void 0) pendingAdopt.delete(id);
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.id)]) {
+    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
@@ -20862,8 +20902,11 @@ function apply(ctx) {
     return value;
   });
   const partFor = (id) => {
-    const bot = roster.getSnapshot().byId[id];
-    return bot ? currentPart(bot) : id;
+    const snapshot = roster.getSnapshot();
+    const bot = snapshot.byId[id];
+    if (bot !== void 0) return currentPart(bot);
+    const room2 = snapshot.roomsById[id];
+    return room2 === void 0 ? id : room2.sessionId ?? room2.id;
   };
   const agentSessions = (agentId) => {
     const ids = [...roster.getSnapshot().agentsById[agentId]?.sessions ?? []];

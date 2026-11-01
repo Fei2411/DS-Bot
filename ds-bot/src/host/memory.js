@@ -888,7 +888,7 @@ export function install(rt) {
   // A deleted group chat's memory moves to the archive, whole. Called before the
   // group's Sessions leave the state, whose snapshots go with them.
   function archiveGroupMemory(room) {
-    for (const sessionId of [...Object.values(room.sessions ?? {}), ...Object.values(room.segments ?? {}).flat().map(segment => segment.sessionId)]) renewMemory(sessionId)
+    for (const sessionId of [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId), ...Object.values(room.sessions ?? {}), ...Object.values(room.segments ?? {}).flat().map(segment => segment.sessionId)].filter(Boolean)) renewMemory(sessionId)
     summaries.delete(room.id)
     summaryFailures.delete(room.id)
     news.delete(room.id)
@@ -1354,7 +1354,7 @@ export function install(rt) {
     if (body.roomId !== undefined && body.roomId !== null) {
       const room = rt.roomOf(String(body.roomId))
       if (room === undefined) throw new Error('Unknown group chat')
-      return { id: room.id, name: room.name, group: true, keeper: keeperOf(room), tag: { sessionId: room.id, kind: 'memory' }, scopes: { group: groupScope(room.id) } }
+      return { id: room.id, name: room.name, group: true, keeper: keeperOf(room), tag: { sessionId: rt.sessionOfRoom(room), kind: 'memory' }, scopes: { group: groupScope(room.id) } }
     }
     const bot = rt.botOf(String(body.botId ?? ''))
     if (bot === undefined) throw new Error('Unknown Bot')
