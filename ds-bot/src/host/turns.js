@@ -692,7 +692,6 @@ export function install(rt) {
             text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
-            ...(source.goal === 'draft' ? { user: true } : {}),
           })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
