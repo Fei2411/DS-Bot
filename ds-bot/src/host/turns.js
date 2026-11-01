@@ -65,6 +65,11 @@ const PROGRAM_TOOL = 'run_code'
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 
+// What a hand-back carries in place of the body. The Bot already read that message in
+// this Session, so sending it again makes the model read one message twice; the pointer
+// is enough to say the work is over and this one is now due an answer.
+export const HANDED_BACK = 'You read its text during that task; it is above in this session. Answer it now.'
+
 export function install(rt) {
   const { ctx, state } = rt
 
@@ -565,13 +570,14 @@ export function install(rt) {
           void rt.deliver({
             fromId: result.info.senderSessionId,
             toId: rt.selfOf(id),
-            text: result.text,
+            text: HANDED_BACK,
             role: result.info.role,
             exchangeId: result.info.exchangeId,
             replyTo: result.info.replyTo,
             work: result.info.work,
             ...(result.info.roomId ? { roomId: result.info.roomId } : {}),
             deferred: true,
+            handedBack: true,
           }).catch(error => rt.warn('ds-bot: handing back a result failed: %s', error))
         }
         const reason = event.data?.reason
@@ -657,12 +663,13 @@ export function install(rt) {
             fromId: request.info.senderSessionId,
             toId: rt.selfOf(id),
             sessionId: id,
-            text: request.text,
+            text: HANDED_BACK,
             role: request.info.role,
             exchangeId: request.info.exchangeId,
             ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
             deferred: true,
+            handedBack: true,
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
         break

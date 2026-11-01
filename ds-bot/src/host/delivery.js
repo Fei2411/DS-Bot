@@ -51,7 +51,10 @@ export function install(rt) {
   // `length`: the whole message's length when it went as a file (attachLong). `work`:
   // the work (handoffs.js) a result that came back goes on with. `merged`: a request
   // that takes in an earlier one its recipient had not read, under that one's exchange.
-  async function deliver({ fromId, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, askedBy, fromRoomId, files = [], length, work }) {
+  // `handedBack`: this delivery is a pointer to a message the recipient already read in
+  // this Session, not the message itself (turns.js), so the dialogs read the body from
+  // the delivery that carried it.
+  async function deliver({ fromId, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, handedBack = false, askedBy, fromRoomId, files = [], length, work }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
@@ -71,6 +74,7 @@ export function install(rt) {
       ...(roomId ? { roomId } : {}),
       ...(audience === 'user' ? { audience } : {}),
       ...(deferred ? { deferred: true } : {}),
+      ...(handedBack ? { handedBack: true } : {}),
       ...(resumed ? { resumed: true } : {}),
       ...(retried ? { retried: true } : {}),
       ...(askedBy ? { askedBy } : {}),
@@ -114,6 +118,9 @@ export function install(rt) {
     try {
       for await (const event of rt.eventsBackwards(entry.sessionId ?? rt.chatOf(entry.to), AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
         if (event.type !== 'user/message' || event.data?.source?.exchangeId !== entry.id) continue
+        // A hand-back carries a pointer, not the message; the delivery that brought it is
+        // further back and is what the dialog shows.
+        if (event.data.source.handedBack === true) continue
         const delivered = textOf(event.data.content)
         const text = delivered.slice(delivered.indexOf('\n') + 1)
         return { text: headOf(text, TEXT_SHOW_MAX), whole: text.length <= TEXT_SHOW_MAX }

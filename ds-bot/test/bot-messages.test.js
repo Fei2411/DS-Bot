@@ -181,7 +181,7 @@ test('a request steered into a running turn is recorded once and answered in a t
   assert.equal(agents.get('a')?.calls.length ?? 0, 0)
   const [kind, again] = agents.get('b').calls[1]
   assert.equal(kind, 'followup')
-  assert.equal(textOf(again.content), '[Message from Chief · you read it during your last task; answer it now]\nwhich year is the data?')
+  assert.equal(textOf(again.content), `[Message from Chief · you read it during your last task; answer it now]\n${HANDED_BACK}`)
   assert.equal(again.source.deferred, true)
   assert.equal(again.source.exchangeId, steered.source.exchangeId)
   assert.deepEqual((await exchanges()).map(entry => entry.role), ['request'])
@@ -226,7 +226,7 @@ test('a user message steered into the running steps marks when it landed', async
   assert.deepEqual(await steered(), {})
 })
 
-test('a request from a name with brackets keeps its body when replayed after the current work', async (t) => {
+test('a request from a name with brackets is handed back under a well-formed header', async (t) => {
   const seed = team()
   seed.bots.a.name = 'R]2'
   const { agents, emit, tool, stop } = await start(seed)
@@ -244,7 +244,10 @@ test('a request from a name with brackets keeps its body when replayed after the
   const [kind, again] = agents.get('b').calls[1]
   assert.equal(kind, 'followup')
   assert.equal(again.source.exchangeId, steered.source.exchangeId)
-  assert.equal(textOf(again.content), `[Message from R]2 · you read it during your last task; answer it now]\n${body}`)
+  // The bracket in the sender's name leaves the header one pair of brackets, and the
+  // hand-back points at the body it already read instead of replaying it.
+  assert.equal(textOf(again.content), `[Message from R]2 · you read it during your last task; answer it now]\n${HANDED_BACK}`)
+  assert.doesNotMatch(textOf(again.content), /Keep this line/)
 })
 
 test('a message its recipient has not read yet takes in the next one, however many come', async (t) => {
@@ -365,6 +368,8 @@ function turnsHost() {
 const replySource = (role, extra = {}) => ({ kind: SOURCE_KIND, role, senderSessionId: 'a', senderName: 'Chief', exchangeId: 'x1', ...extra })
 const textBlock = (content) => [{ type: 'text', text: content }]
 const assistantText = text => ({ message: { content: textBlock(text) } })
+// What a hand-back carries instead of the body it already read (turns.js HANDED_BACK).
+const HANDED_BACK = 'You read its text during that task; it is above in this session. Answer it now.'
 
 test('a stopped notice routes the acknowledgement back like a request', () => {
   const { rt, emit, delivered } = turnsHost()
@@ -391,7 +396,8 @@ test('a request that joins a user-started turn is handed back, not answered with
   emit('b', 'user/message', { content: textBlock('[Message from Chief]\nmake it shorter'), source: replySource('request', { exchangeId: 'e1' }) })
   emit('b', 'assistant/message', assistantText('second half'))
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  assert.deepEqual(delivered.map(deferredOf), [['a', 'b', 'b', 'request', 'e1', true, 'make it shorter']])
+  assert.deepEqual(delivered.map(deferredOf), [['a', 'b', 'b', 'request', 'e1', true, HANDED_BACK]])
+  assert.equal(delivered[0].handedBack, true)
   assert.deepEqual(rt.state.exchangeTurns, {})
 
   // The handed-back request opens a hidden turn whose text is the reply.
@@ -412,7 +418,7 @@ test('a request that joins a Bot-triggered turn is handed back; the trigger gets
   emit('b', 'assistant/message', assistantText('second half'))
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   assert.deepEqual(rt.state.exchangeTurns.b, [1])
-  assert.deepEqual(delivered.map(job => [job.role, job.replyTo ?? job.exchangeId, job.text]), [['reply', 'e0', 'first half\n\nsecond half'], ['request', 'e1', 'more']])
+  assert.deepEqual(delivered.map(job => [job.role, job.replyTo ?? job.exchangeId, job.text]), [['reply', 'e0', 'first half\n\nsecond half'], ['request', 'e1', HANDED_BACK]])
 })
 
 test('a joined request in a stopped turn tells its sender, and is not handed back', () => {
@@ -464,7 +470,7 @@ test('a schedule-started turn stays visible when a request joins', () => {
   emit('b', 'user/message', { content: textBlock('[Message from Chief]\nmore'), source: replySource('request', { exchangeId: 'e1' }) })
   emit('b', 'assistant/message', assistantText('after'))
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  assert.deepEqual(delivered.map(job => [job.role, job.exchangeId, job.text]), [['request', 'e1', 'more']])
+  assert.deepEqual(delivered.map(job => [job.role, job.exchangeId, job.text]), [['request', 'e1', HANDED_BACK]])
   assert.deepEqual(rt.state.exchangeTurns, {})
 })
 
@@ -509,7 +515,7 @@ test('a joined request crosses a part switch and is handed back in the new part'
   assert.equal(textOf(replies[0][1].content), '[Reply from Writer]\ndone')
   assert.equal(handedBack()[0], 'followup')
   assert.equal(handedBack()[1].source.exchangeId, 'e1')
-  assert.equal(textOf(handedBack()[1].content), '[Message from Chief · you read it during your last task; answer it now]\nmore')
+  assert.equal(textOf(handedBack()[1].content), `[Message from Chief · you read it during your last task; answer it now]\n${HANDED_BACK}`)
 })
 
 // Each Session takes up the newest message it was sent as its next turn.
@@ -657,7 +663,7 @@ test('a result read during other work comes back in a turn of its own and goes o
   await settled(() => callsOf(agents, 'b').length === 3)
   const [kind, again] = callsOf(agents, 'b')[2]
   assert.equal(kind, 'followup')
-  assert.equal(textOf(again.content), '[Reply from Tester · you read it during your last task; go on with the work it is for now · for the work Chief [ops] asked you for; your answer goes to Chief [ops] once everything you handed on is back]\nreviewed')
+  assert.equal(textOf(again.content), `[Reply from Tester · you read it during your last task; go on with the work it is for now · for the work Chief [ops] asked you for; your answer goes to Chief [ops] once everything you handed on is back]\n${HANDED_BACK}`)
   assert.deepEqual(callsOf(agents, 'a'), [])
   take('b')
   end('b', 'done after the review')
