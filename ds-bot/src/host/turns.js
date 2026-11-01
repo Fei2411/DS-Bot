@@ -2,6 +2,8 @@
 // triggered, the waiters and inboxes of group rounds, and routing a finished turn's reply.
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
+import { randomUUID } from 'node:crypto'
+import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
@@ -27,7 +29,9 @@ export const failureLine = failure => `${failure.code}${failure.status ? ` ${fai
 // answer comes from; `source` is the trigger the turn answered.
 export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
-  const work = rt.closeWork?.(source.exchangeId, rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot', text)
+  const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
+  const work = rt.closeWork?.(source.exchangeId, name, text)
+  const exchangeId = randomUUID()
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
@@ -36,8 +40,28 @@ export function answerSender(rt, id, source, text, long) {
     ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
     role: 'reply',
     replyTo: source.exchangeId,
+    exchangeId,
     ...(work ? { work } : {}),
-  }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
+  }).catch((error) => {
+    rt.warn('ds-bot: reply delivery failed: %s', error)
+    // The reply never reached the asker: its note goes — the notice below carries
+    // what it answered — the result kept with the work is marked, and the failure
+    // reaches the asker the way the reply would have, so the work goes on and its
+    // answer names it.
+    rt.forgetDelivery?.(exchangeId)
+    rt.answerMissed?.(source.exchangeId)
+    const said = `${name} could not send its reply to you (${failureLine(turnFailure(error))}); what it had answered:\n`
+    void rt.deliver({
+      fromId: rt.selfOf(id),
+      toId: source.senderSessionId,
+      ...(back ? { sessionId: back } : {}),
+      text: `${said}${long?.text ?? text}`,
+      ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
+      role: 'reply',
+      replyTo: source.exchangeId,
+      ...(work ? { work } : {}),
+    }).catch(again => rt.warn('ds-bot: reply failure notice not delivered: %s', again))
+  })
 }
 
 // A group's own Session never reaches a model, so the snapshot DSH prepared there
@@ -62,6 +86,17 @@ export const stripWrittenCalls = text => text
 // Under DSH's PTC presentation the model calls only this tool; the program's sub-calls
 // are the tools it really runs.
 const PROGRAM_TOOL = 'run_code'
+// DSH's delegation tools, named by the tool instance: a spawn child and a fork.
+const SUBAGENT_TOOLS = new Set(['subagent', 'subagent_fork'])
+// A settled child's closing text, or why it ended without one. A child that did
+// not finish says so: output it left behind can be partial, so the reason it
+// ended is part of its result.
+const subEndText = (data) => {
+  const text = textOf(data?.lastAssistantMessage)
+  const reason = typeof data?.stopReason === 'string' ? data.stopReason : ''
+  if (text === '') return `subagent ended${reason === '' ? '' : ` (${reason})`} without a closing message.`
+  return reason === '' || reason === 'completed' ? text : `subagent ended (${reason}) before it finished. What it had written:\n${text}`
+}
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 
@@ -520,6 +555,26 @@ export function install(rt) {
           queueRoomMessage(id, { text: reminderText(textOf(event.data.content)) })
         } else if (source?.kind === REFERENCE_KIND && rt.roomOf(id)) {
           attachReference(roomInbox.get(id), source, textOf(event.data.content))
+        } else if (source?.kind === 'subagent-settled') {
+          // A settled sub-run's notice: the work it hung under goes on once a turn
+          // reads it, like a reply that came back. The notice names only the child;
+          // its run is the earliest of the child's not read yet. One read while a
+          // turn does other work comes back in a turn of its own, like any
+          // handed-back result.
+          const run = rt.subWorkRun?.(source.senderSessionId)
+          if (run !== undefined) {
+            rt.takenWork?.(run.parent, run.id)
+            const info = { kind: SOURCE_KIND, role: 'reply', work: run.parent, replyTo: run.id, exchangeId: run.id, senderSessionId: source.senderSessionId }
+            if (entry.turn === undefined) entry.pending = info
+            else if (entry.info === undefined && !opened) {
+              // DSH opens the turn before it records the message that filled its
+              // inbox: a notice that opened the turn claims it, like the first
+              // relay of a turn.
+              entry.opened = true
+              entry.answers = true
+              claimTrigger(id, entry, info)
+            } else if (rt.workOf?.(entry.info) !== run.parent) entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+          }
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
           if (rt.roomOf(id) && source.kind === 'user') {
             const content = Array.isArray(event.data.content) ? event.data.content : []
@@ -616,6 +671,13 @@ export function install(rt) {
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
         if (failure !== undefined) noteTurnFailure(id, failure)
+        // A route that is not a model endpoint refuses every generation; the failed
+        // Session's own request names it, so it is refused everywhere from now on.
+        if (failure?.code === 'HOSTED_ENGINE_ROUTE') {
+          const config = session.requestHeader?.()?.config
+          const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
+          if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
+        }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) break
         // A model that writes its tool call as text ends the turn as if it were done,
@@ -707,6 +769,33 @@ export function install(rt) {
         break
       }
     }
+  })
+
+  // A subagent a Bot's turn delegates to is work handed on, like message_bot: each
+  // run of the child hangs under the work the turn answers until its settlement
+  // notice comes back, and its closing message joins that work's results. A child
+  // can be sent more to do once it settled, and that is a fresh run on the same
+  // child id, so the run — not the child — is the sub-work. These are Cordis
+  // events, not Session events: the dispatch keys `this` by the delegating parent
+  // Agent, which `carrierKeyOf` hands back.
+  ctx.on('subagent/start', function (info) {
+    const id = carrierKeyOf(this)?.session?.id
+    const entry = id === undefined ? undefined : live.get(id)
+    const work = rt.workOf?.(entry?.info)
+    const self = id === undefined ? undefined : rt.selfOf(id)
+    if (work === undefined || self === undefined || !rt.chatOwners.has(id) || typeof info?.id !== 'string' || typeof info?.runId !== 'string' || !rt.ownsWork?.(self, work)) return
+    rt.openWork?.(info.runId, { from: self, parent: work, name: 'subagent', child: info.id })
+  })
+  // A settled run closes its sub-work: its closing text joins the results of
+  // the work it hung under.
+  ctx.on('subagent/end', (info) => {
+    if (typeof info?.id !== 'string') return
+    rt.settleSubWork?.(typeof info.runId === 'string' ? info.runId : info.id, subEndText(info), info.id)
+  })
+  ctx.on('tools/result', (exec, result) => {
+    if (!SUBAGENT_TOOLS.has(exec?.name) || result?.isError || typeof result?.value?.subagentId !== 'string') return
+    const description = exec.arguments?.description
+    rt.nameSubWork?.(result.value.subagentId, `subagent${typeof description === 'string' && description.trim() !== '' ? ` ${description.trim()}` : ''}`)
   })
 
   const markSteerCut = (id) => {

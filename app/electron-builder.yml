@@ -50,6 +50,10 @@ mac:
   hardenedRuntime: false
   icon: assets/icon.png
   category: public.app-category.productivity
+  # Without this key macOS registers no Local Network entry for the app and
+  # blocks LAN connections from tool processes outright ("No route to host").
+  extendInfo:
+    NSLocalNetworkUsageDescription: DeepSeek Bot runs commands that connect to devices on your local network.
 linux:
   # The Linux Host uses the payload's plain Node, which cannot read asar archives.
   asar: false

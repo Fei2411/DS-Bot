@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
 
+let rt
+
 // A Bot's id is a Session id, which a path may hold.
 const P = 'd1a40000-1111-4222-8333-444444444444'
 
@@ -65,6 +67,7 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
     return agents.get(sessionId)
   }
   const registry = new Map([['w1', { id: 'w1', path: team, title: 'DS Bot' }]])
+  let created = 0
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
@@ -79,7 +82,8 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
       archiveSession: async () => {},
     },
     sessionController: {
-      create: async () => ({ sessionId: 's1' }),
+      // Ids shaped like real Session ids: a short one would match any path it lands in.
+      create: async () => ({ sessionId: `0000000${++created}-1111-4222-8333-444444444444` }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
@@ -93,12 +97,12 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
+  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   // The privacy listener alone, which runs first; the last step stands for the tool.
   const guard = ctx.listeners.get('tools/execute')[0]
   const run = async (name, args, sessionId, agent = agentOf(sessionId)) => {

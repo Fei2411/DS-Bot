@@ -47,3 +47,11 @@ test('the app has the version of ds-bot', () => {
   const version = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8')).version
   assert.equal(version('../package.json'), version('../../ds-bot/package.json'))
 })
+
+// Tool processes (bash, scripts a Bot runs) connect to devices on the local network;
+// macOS blocks them outright when Info.plist has no NSLocalNetworkUsageDescription.
+test('the mac package asks macOS for local network access', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(typeof config.mac?.extendInfo?.NSLocalNetworkUsageDescription, 'string')
+  assert.notEqual(config.mac.extendInfo.NSLocalNetworkUsageDescription.trim(), '')
+})

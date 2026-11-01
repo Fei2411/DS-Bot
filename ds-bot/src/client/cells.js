@@ -1,10 +1,11 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { MarkdownText } from './dsh-primitives.js'
+import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
+import { CellEmpty } from './cell-empty.js'
 import { SettledQuestion, PendingQuestion } from './questions.js'
 import { AnsweredReply, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
@@ -53,10 +54,35 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     }))
 }
 
+// A folded message's last code block shows only its start; DS Bot draws its own
+// copy control for it, bound to the whole block. DSH's and the app's copy
+// buttons live in the block's banner and their markup differs, so none of
+// theirs is intercepted or cloned.
+function FoldCodeCopy({ code, actions }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    void writeClipboard(code).then((ok) => {
+      if (!ok) { actions?.reportError?.(new Error('Could not copy the code block'), 'copy'); return }
+      setCopied(true); setTimeout(() => setCopied(false), 1000)
+    }, () => actions?.reportError?.(new Error('Could not copy the code block'), 'copy'))
+  }
+  return h('button', { type: 'button', className: 'bt-tool bt-fold-copy', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
+}
+
+// A folded message's last code block shows only its start. The start is not
+// given to the host's Markdown — its block would carry a copy bound to the
+// part shown — so DS Bot draws the part itself, with a copy bound to the
+// whole block. `body` renders the markdown before the block.
+const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
+  : h('div', { className: 'bt-fold-code' },
+    body,
+    h('pre', { className: 'bt-fold-pre' }, h('code', null, codeHead)),
+    h(FoldCodeCopy, { code, actions })))
+
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
-  const { shown, folded, control } = useFold(text, { limit: fold, whole, live })
+  const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  const body = h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
+  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
   // closes them. Interactive targets keep their own meaning.
@@ -66,11 +92,12 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
     if (!noHover() || event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]')) return
     setToolsOpen(value => !value)
   }
+  const area = foldArea(body, code, codeHead, actions)
   return h('div', { ref: row, className: 'bt-msg', onClick: tapTools },
     h('div', { className: 'bt-msg-line' },
       lead,
       h('div', { className: 'bt-bubble', 'data-folded': folded || undefined },
-        control ? h('div', { className: 'bt-fold-body' }, body) : body,
+        control ? h('div', { className: 'bt-fold-body' }, area) : area,
         control),
       live ? null : h(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions, open: toolsOpen })),
     picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
@@ -235,12 +262,12 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter(step => step.status !== 'running').length, skip: hidden || reasoning === '' })
   // A streaming reply stands in for the activity row.
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
-  if (hidden) return null
+  if (hidden) return h(CellEmpty)
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
   // DSH 0.2; the step that answers it shows the event line where it was read,
   // once, in the step's first cell.
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : []
-  if (texts.length === 0 && !reasoning && relays.length === 0) return null
+  if (texts.length === 0 && !reasoning && relays.length === 0) return h(CellEmpty)
   const selfId = roster.byId[sessionId]?.id ?? sessionId
   // The flat layout heads a reply with who speaks, once per Turn: in the step that opens
   // it, in that step's reasoning part when the reasoning shows there.
@@ -379,7 +406,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
       panel === undefined ? h('span', null, h(MemoryIcon), t('Already saved')) : h('button', { type: 'button', onClick: () => actions.openMemory(panel) }, h(MemoryIcon), t('Already saved')))
   }
   if (!failed && MEMORY_SAVED.test(result)) {
-    if (!target) return null
+    if (!target) return h(CellEmpty)
     const label = team ? t('Team memory updated') : target === self ? t('Memory updated') : t("Updated {name}'s memory", { name: target.name })
     return h('div', { className: 'bt-event' },
       h('button', { type: 'button', title: result, onClick: () => actions.openMemory(target.id) }, h(MemoryIcon), label))
@@ -407,11 +434,12 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row }) {
-  const { shown, folded, control } = useFold(row.text ?? '')
-  const body = row.text ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+function EarlierUser({ row, actions }) {
+  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
+  const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+  const area = foldArea(body, code, codeHead, actions)
   return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
-    control ? h('div', { className: 'bt-fold-body' }, body) : body,
+    control ? h('div', { className: 'bt-fold-body' }, area) : area,
     control,
     row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null))
 }
@@ -525,7 +553,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row })
+    case 'user': return h(EarlierUser, { key, row, actions })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })
@@ -581,7 +609,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
   const body = triggerBody()
   return unreadOpening
     ? h(Fragment, null, h('div', { className: 'bt-open-new' }, h(NewDivider), h('div', { className: 'bt-time-sep', role: 'separator' }, unreadOpening)), body)
-    : body
+    : (body ?? h(CellEmpty))
 
   function triggerBody() {
     if (source.kind === 'bot') {
@@ -671,10 +699,12 @@ export function TurnProcessCell({ node, sessionId, turnProcess, useRoster, useUi
     return !hidden && typeof visit?.seen === 'number' && own?.first !== undefined && own.first <= visit.seen
       && own.end !== undefined && own.end > visit.seen && own.end <= visit.entered
   })
-  return fresh ? h(NewDivider) : null
+  return fresh ? h(NewDivider) : h(CellEmpty)
 }
 
 export function Nothing() { return null }
+
+export { CellEmpty }
 
 // A pause longer than this splits the transcript with a time separator.
 const SEPARATOR_GAP_MS = 30 * 60 * 1000
@@ -901,7 +931,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   if (replies.length === 0 && pending.length === 0) {
     // A pruned tool result left nothing to draw; keep a marker row instead of an
     // empty turn, which reads as a blank gap on a narrow first paint.
-    return broken ? h('div', { className: 'bt-group-replies' }, h('div', { className: 'bt-event' }, t('The group replies could not be shown'))) : null
+    return broken ? h('div', { className: 'bt-group-replies' }, h('div', { className: 'bt-event' }, t('The group replies could not be shown'))) : h(CellEmpty)
   }
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
@@ -1011,12 +1041,12 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     }
     case 'create_bot': {
       const created = findBot(arg('name'))
-      if (!done || created === undefined) return null
+      if (!done || created === undefined) return h(CellEmpty)
       return h(EventLine, { prefix: t('Created'), bots: [created], onOpen: bot => actions.openSession(bot.id) })
     }
     case 'update_bot': {
       const target = findBot(arg('name')) ?? findBot(arg('bot')) ?? (arg('bot') ? undefined : self)
-      return done && target ? h(EventLine, { prefix: t('Updated'), bots: [target], onOpen: bot => actions.openSession(bot.id) }) : null
+      return done && target ? h(EventLine, { prefix: t('Updated'), bots: [target], onOpen: bot => actions.openSession(bot.id) }) : h(CellEmpty)
     }
     case 'group_relay':
       return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useUi, useWork })
@@ -1030,7 +1060,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
         delete_group: ['Deleted group', "Couldn't delete the group"],
         post_to_group: ['Posted in', "Couldn't post in the group"],
       }[tool]
-      if (!done) return null
+      if (!done) return h(CellEmpty)
       // Tool results quote the group's name; anything else is a refusal.
       const result = contentText(call.content)
       const named = /^(Created group|Updated|Nothing changed in|Deleted|Posted in) "([^"]+)"/.exec(result)
@@ -1042,8 +1072,8 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     case 'ask_user': {
       const question = roster.questions?.[sessionId]
       // Answered or closed: the card leaves no gap where it was.
-      if (!question || question.callId !== call.callId) return h('span', { className: 'bt-q-gone', hidden: true })
-      if (heldCards?.[heldCardKey('question', question.id)] > 0) return null
+      if (!question || question.callId !== call.callId) return h(CellEmpty, { className: 'bt-q-gone' })
+      if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
       return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true })
     }
     case 'show_view':
@@ -1053,24 +1083,24 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     case 'browser_handoff':
       return h(HandoffCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
     case 'ask_user_question': {
-      if (!done) return null
+      if (!done) return h(CellEmpty)
       let parsed = null
       try { parsed = JSON.parse(contentText(call.content)) } catch { parsed = null }
       const answer = parsed?.answers?.[0]
       const question = argValue('questions')?.[0]
-      if (!answer) return null
+      if (!answer) return h(CellEmpty)
       return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question, answer }))
     }
     case 'read_group_chat': {
-      if (!done) return null
+      if (!done) return h(CellEmpty)
       const room = roster.rooms.find(entry => entry.name === arg('group'))
-      return room ? h(GroupEvent, { prefix: t('Read'), room, roster, actions }) : null
+      return room ? h(GroupEvent, { prefix: t('Read'), room, roster, actions }) : h(CellEmpty)
     }
     case 'remember':
     case 'forget':
-      return done ? h(MemoryEvent, { sessionId, scope: arg('scope'), tool, result: contentText(call.content), failed: call.isError === true, code: call.error?.code, roster, actions, findBot }) : null
+      return done ? h(MemoryEvent, { sessionId, scope: arg('scope'), tool, result: contentText(call.content), failed: call.isError === true, code: call.error?.code, roster, actions, findBot }) : h(CellEmpty)
     default:
-      return null
+      return h(CellEmpty)
   }
 }
 
@@ -1089,7 +1119,7 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   // A running tool shows only as the activity row's phrase.
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
   useShownCards(actions, sessionId, drawn.filter(call => CARDS.has(toolName(call)) && call.callId).map(call => call.callId))
-  if (drawn.length === 0) return null
+  if (drawn.length === 0) return h(CellEmpty)
   const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages } }
   return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }
