@@ -9616,8 +9616,8 @@ function TeamSidebar(props) {
   (0, import_react19.useEffect)(() => () => {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
-  const settleTimer = (0, import_react18.useRef)(0);
-  const springTimer = (0, import_react18.useRef)(0);
+  const settleTimer = (0, import_react19.useRef)(0);
+  const springTimer = (0, import_react19.useRef)(0);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -10668,6 +10668,11 @@ function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  const place = (0, import_react21.useMemo)(() => {
+    if (!shown || !button.current) return null;
+    const rect = button.current.getBoundingClientRect();
+    return { left: rect.left, bottom: viewBottom() - rect.top + 8 };
+  }, [shown, open, tick]);
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id;
   if (sessionId === void 0 || target === void 0) return null;
   const fileInput = () => button.current?.closest("[data-composer-card]")?.querySelector("input[type=file]");
@@ -10691,11 +10696,6 @@ function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     actions.referenceChat(sessionId, inputActions?.captureInsertion?.());
   };
   const canReference = typeof inputActions?.captureInsertion === "function" && actions.canReferenceChat();
-  const place = (0, import_react21.useMemo)(() => {
-    if (!shown || !button.current) return null;
-    const rect = button.current.getBoundingClientRect();
-    return { left: rect.left, bottom: viewBottom() - rect.top + 8 };
-  }, [shown, open, tick]);
   return (0, import_react21.createElement)(
     import_react21.Fragment,
     null,
