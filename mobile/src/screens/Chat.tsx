@@ -24,6 +24,7 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const [older, setOlder] = useState<ChatItem[]>([])
   const cursor = useRef<unknown>(undefined)
   const [gone, setGone] = useState(false)
+  const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const stopped = useRef(false)
@@ -161,7 +162,7 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => <Item key={itemKey(item, index)} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} />)}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
               {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} /> : null}
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}

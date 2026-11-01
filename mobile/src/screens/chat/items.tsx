@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { t, dateLocale } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
@@ -28,8 +27,8 @@ export const itemKey = (item: ChatItem, index: number) => `${item.kind}-${item.s
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export function Item({ item, p, flat, maxWidth, inRoom }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean }) {
-  if (item.kind === 'steps') return <Steps item={item} p={p} />
+export function Item({ item, p, flat, maxWidth, inRoom, open, onToggle }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; open?: boolean; onToggle?: () => void }) {
+  if (item.kind === 'steps') return <Steps item={item} p={p} open={open === true} onToggle={onToggle ?? (() => {})} />
   if (item.kind === 'divider') {
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? new Date(item.time).toLocaleDateString(dateLocale(), { month: 'long', day: 'numeric' }) : ''}</Text>
   }
@@ -81,13 +80,12 @@ export function Item({ item, p, flat, maxWidth, inRoom }: { item: ChatItem; p: P
 
 const type = typeScale
 // One folded caption row per turn: a tap lists what the tools did.
-function Steps({ item, p }: { item: ChatItem; p: Palette }) {
-  const [open, setOpen] = useState(false)
+function Steps({ item, p, open, onToggle }: { item: ChatItem; p: Palette; open: boolean; onToggle: () => void }) {
   const tools = item.tools ?? []
   const seconds = typeof item.ms === 'number' ? Math.round(item.ms / 1000) : undefined
   return (
     <View style={{ alignSelf: 'center', marginVertical: 4, maxWidth: '92%' }}>
-      <Pressable accessibilityRole="button" onPress={() => setOpen(!open)} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+      <Pressable accessibilityRole="button" onPress={onToggle} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
         <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>
           {t('Used {count} tools', { count: tools.length })}{seconds !== undefined && seconds > 0 ? t(' · thought for {seconds}s', { seconds }) : ''}
         </Text>
