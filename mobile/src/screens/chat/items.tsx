@@ -23,7 +23,7 @@ export const itemKey = (item: ChatItem, index: number) => `${item.kind}-${item.s
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export function Item({ item, p, flat, maxWidth, inRoom }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: string; inRoom: boolean }) {
+export function Item({ item, p, flat, maxWidth, inRoom }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean }) {
   if (item.kind === 'divider') {
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? new Date(item.time).toLocaleDateString(dateLocale(), { month: 'long', day: 'numeric' }) : ''}</Text>
   }

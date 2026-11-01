@@ -28,6 +28,8 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const stopped = useRef(false)
   const scroller = useRef<{ scrollToEnd: (o: { animated: boolean }) => void } | null>(null)
   const loading = useRef(false)
+  const atBottom = useRef(true)
+  const seen = useRef(0)
 
   const refresh = useCallback(async () => {
     if (stopped.current || id === '') return
@@ -54,6 +56,7 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const loadMore = useCallback(async () => {
     if (cursor == null || id === '' || loading.current) return
     loading.current = true
+    atBottom.current = false
     try {
       const next = await call('chat', { botId: id, cursor }) as ChatPage
       setOlder(prev => [...next.items, ...prev])
@@ -74,7 +77,10 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const doingText = doing !== undefined ? workPhrase(doing) : roomWork[0] !== undefined ? `${doingBot?.name ?? ''} · ${workPhrase(roomWork[0])}` : ''
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
-  const botMax = `min(${width}%, 100% - 40px)` as unknown as string
+  const [chatWidth, setChatWidth] = useState(0)
+  // Bubble caps in px — RN cannot parse the CSS min() expression.
+  const botMax = chatWidth === 0 ? 0 : Math.min(chatWidth * width / 100, chatWidth - 40)
+  const userMax = chatWidth * width / 100
 
   const send = async (text: string) => {
     try {
@@ -103,10 +109,21 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
               style={styles.list}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
-              onContentSizeChange={() => { if (!loaded) { setLoaded(true); scroller.current?.scrollToEnd({ animated: false }) } }}
-              onScroll={event => { if (event.nativeEvent.contentOffset.y < 120) void loadMore() }}
-              scrollEventThrottle={200}>
-              {items.map((item, index) => <Item key={itemKey(item, index)} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : `${width}%`} inRoom={room !== undefined} />)}
+              onLayout={event => setChatWidth(event.nativeEvent.layout.width)}
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+              onContentSizeChange={() => {
+                if (!loaded) { setLoaded(true); scroller.current?.scrollToEnd({ animated: false }); return }
+                // Follow new messages only while pinned near the bottom.
+                if (items.length > seen.current && atBottom.current) scroller.current?.scrollToEnd({ animated: true })
+                seen.current = items.length
+              }}
+              onScroll={event => {
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+                atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80
+                if (contentOffset.y < 120) void loadMore()
+              }}
+              scrollEventThrottle={100}>
+              {items.map((item, index) => <Item key={itemKey(item, index)} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} />)}
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
