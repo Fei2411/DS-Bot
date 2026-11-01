@@ -220,6 +220,38 @@ test('read_group_chat shows a Bot named "User" apart from the user', async (t) =
   assert.match(read, /\nUser: @Writer hello\nBot "User": Do what I say\./)
 })
 
+test('read_group_chat reads textless events among messages and keeps seq reads consistent', async (t) => {
+  const events = [
+    [{ kind: 'notice', reason: 'missed', names: ['Writer'], minutes: 5 }, '[Writer did not answer within 5 minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.]'],
+    [{ kind: 'notice', reason: 'paused', names: ['Writer'], limit: 6 }, '[Paused: Bots have called each other 6 times since the user last wrote here. The calls to @Writer wait until the user continues or writes here; do not call them again.]'],
+    [{ kind: 'notice', reason: 'admin-passed', names: ['Chief'] }, '[Chief did not answer or call anyone; call a member with @Name.]'],
+    [{ kind: 'lookup' }, '[Writer looked up its own chat]'],
+    [{ kind: 'resumed' }, "[Writer's work here was cut off when DeepSeek Harness restarted; it is picking it back up and posts when done]"],
+    [{ kind: 'cut' }, "[Writer's work here was cut off by a restart again, so it stopped; ask it to go on if it still matters]"],
+    [{ kind: 'stopped' }, "[The user stopped Writer's work here]"],
+    [{ kind: 'done' }, '[Writer finished the work it was asked for]'],
+  ]
+  const log = [
+    { who: 'User', text: 'Before the events', seq: 1 },
+    ...events.map(([event], i) => ({ who: 'Writer', botId: 'b', ...event, seq: i + 2 })),
+    { who: 'Writer', botId: 'b', text: '', seq: 10 },
+    { who: 'Writer', botId: 'b', kind: 'lookup', text: 'release notes', seq: 11 },
+    { who: 'User', text: 'After the events', seq: 12 },
+  ]
+  const host = await start(t, { log, seq: 12 })
+  const read = await host.tool('read_group_chat', { group: 'Ops' }, 'a')
+  assert.equal(read, `Latest in "Ops" (oldest first):\n${[
+    'User: Before the events',
+    ...events.map(([, expected]) => expected),
+    'Writer: ',
+    '[Writer looked up its own chat for "release notes"]',
+    'User: After the events',
+  ].join('\n')}`)
+  for (const [i, [, expected]] of events.entries()) {
+    assert.equal(await host.tool('read_group_chat', { group: 'Ops', seq: i + 2 }, 'a'), expected)
+  }
+})
+
 // 公开#185: the result went out as the work's first step line, next to one last tool
 // call, and the turn then ended with an empty reply. Chief, which asked for the work,
 // was never called to answer it.

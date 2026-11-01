@@ -759,6 +759,7 @@ export function install(rt) {
       }
       // Thirty whole lines could fill the context, so a long one shows its start.
       const short = (line) => {
+        if (line.text === undefined) return ''
         const length = line.length ?? line.text.length
         return length <= TEXT_KEPT ? line.text : `${headOf(line.text, TEXT_KEPT)}… (cut; ${length} characters in all; read_group_chat with seq ${line.seq} reads it whole)`
       }

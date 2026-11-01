@@ -724,6 +724,7 @@ export function install(rt) {
   const hiddenTools = new WeakSet()
   const hideBotUnusedTools = (agent) => {
     shareBotTools(agent)
+    rt.shadowShells?.(agent)
     if (agent === undefined || hiddenTools.has(agent) || !rt.isBotSession(agent.session?.id)) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {

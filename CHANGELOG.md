@@ -4,6 +4,28 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-29
+
+### Added
+
+- A Bot can be marked private: other Bots cannot read its folder, memory or chats, and sharing anything with the team needs your approval. A private Bot you delete stays protected until you release it entry by entry. ([#597](https://github.com/Fei2411/DS-Bot/issues/597), [#602](https://github.com/Fei2411/DS-Bot/pull/602))
+- Bots can read, check and edit Word, PowerPoint and Excel documents; the desktop app ships the Office runtime they need. ([#613](https://github.com/Fei2411/DS-Bot/issues/613), [#624](https://github.com/Fei2411/DS-Bot/pull/624))
+- After long work a Bot can propose a new skill, applied only when you approve. ([#628](https://github.com/Fei2411/DS-Bot/pull/628))
+- A Bot working on a project can propose updates to its AGENTS.md, written only when you approve. ([#629](https://github.com/Fei2411/DS-Bot/pull/629))
+- All work in a group can be stopped at once from its details, beside the member list; each working member keeps its own Stop. ([#592](https://github.com/Fei2411/DS-Bot/issues/592), [#616](https://github.com/Fei2411/DS-Bot/pull/616))
+- Bot views run on the shared Deep View package, so DS Bot can be installed together with the Deep View plugin. ([#635](https://github.com/Fei2411/DS-Bot/pull/635))
+
+### Changed
+
+- The sidebar edge can be dragged to resize it or folded to an avatar rail, and on a narrow window the Bot panel folds first. ([#612](https://github.com/Fei2411/DS-Bot/issues/612), [#617](https://github.com/Fei2411/DS-Bot/pull/617))
+- DS Bot tracks DeepSeek Harness 0.2.1-rc.4. ([#625](https://github.com/Fei2411/DS-Bot/pull/625))
+
+### Fixed
+
+- The full group name shows on hover when the sidebar truncates it, in both the wide sidebar and the avatar rail. ([#593](https://github.com/Fei2411/DS-Bot/issues/593), [#615](https://github.com/Fei2411/DS-Bot/pull/615))
+- Reading a group chat no longer fails on rows without text, such as member notices. ([#618](https://github.com/Fei2411/DS-Bot/issues/618), [#671](https://github.com/Fei2411/DS-Bot/pull/671))
+- The Windows installer checks the chosen folder can be written to and lets you pick another instead of failing midway. ([#626](https://github.com/Fei2411/DS-Bot/issues/626), [#630](https://github.com/Fei2411/DS-Bot/pull/630))
+
 ## [0.2.3] - 2026-10-27
 
 ### Added
