@@ -3,7 +3,8 @@
 // their shell, tool results lose it before they are saved, and every model request
 // has it replaced by [secret:<NAME>] before it leaves.
 import { randomUUID } from 'node:crypto'
-import { chmod, copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { chmodSync, copyFileSync, readFileSync } from 'node:fs'
+import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
@@ -118,11 +119,13 @@ export function install(rt) {
     if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
     return loaded ??= readSecrets()
   }
+  // Synchronous on purpose: a shell resolves its environment without an await, so the
+  // map must be full before the first resolve after a start reads it.
   const readSecrets = async () => {
     loadedReadOnly = rt.readOnly() !== undefined
     let contents
     try {
-      contents = await readFile(path, 'utf8')
+      contents = readFileSync(path, 'utf8')
     } catch (error) {
       if (error?.code === 'ENOENT') {
         blocked = undefined
@@ -145,7 +148,7 @@ export function install(rt) {
       // the store goes on with an empty one.
       const backup = `${path}.broken-${Date.now()}`
       try {
-        await copyFile(path, backup)
+        copyFileSync(path, backup)
         blocked = undefined
         secrets.clear()
         rt.warn('ds-bot: unreadable secrets file %s; backed up as %s', path, backup)
@@ -171,7 +174,7 @@ export function install(rt) {
         ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
       })
     }
-    if (!loadedReadOnly) await chmod(path, 0o600).catch(() => {})
+    if (!loadedReadOnly) try { chmodSync(path, 0o600) } catch {}
     changed()
   }
 
@@ -416,7 +419,7 @@ export function install(rt) {
 
   const callerOf = exec => rt.selfOf(exec.agent?.session?.header?.id ?? exec.agent?.id)
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'request_secret',
     description: 'Ask the user for a key, token, or password through a secure card in your own chat. The user types it into the card; you never see the value. It reaches your shell as an environment variable. When the key is already saved for you, this only tells you its variable. Showing a card ends your turn; a note arrives when the user saves or cancels.',
     parameters: {
@@ -465,7 +468,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'list_secrets',
     description: 'List the keys the user saved for the team: name, purpose, which Bots may use them, and whether you may. Values are never shown.',
     parameters: {},
@@ -483,22 +486,14 @@ export function install(rt) {
     },
   }))
 
-  // Tool results lose the values before the registry renders and saves them: a fresh
-  // result object is re-rendered from its value, so the model content, the saved
-  // `tool/result`, and the tool card's presentation all come from the redacted value.
+  // Tool results lose the values before the registry renders and saves them. Every
+  // field is redacted — a wrapper further out in the pipeline still sees a whole
+  // result (its `content`, `meta`, and `additionalContexts` too), and the registry
+  // re-renders a changed success result from its redacted value.
   ctx.on('tools/execute', async (exec, next) => {
     const result = await next()
     if (secrets.size === 0 || result === null || typeof result !== 'object') return result
-    if (result.isError) {
-      const content = redactDeep(result.content, redact)
-      const meta = redactDeep(result.meta, redact)
-      const error = redactDeep(result.error, redact)
-      if (content === result.content && meta === result.meta && error === result.error) return result
-      return { ...result, content, error, ...(meta !== undefined ? { meta } : {}) }
-    }
-    const value = redactDeep(result.value, redact)
-    if (value === result.value) return result
-    return { isError: false, value, ...(result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {}) }
+    return redactDeep(result, redact)
   })
 
   // Anything that still carries a value (the user pasted it, an earlier part kept it)
