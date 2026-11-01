@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
+import { markSeen } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { useTheme } from '../ui/tokens.ts'
 import { workPhrase } from '../ui/phrases.ts'
@@ -34,7 +35,9 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const refresh = useCallback(async () => {
     if (stopped.current || id === '') return
     try {
-      const next = await call('chat', { botId: id }) as ChatPage
+      const next = (room !== undefined
+        ? await call('room-chat', { roomId: room.id, steps: true })
+        : await call('chat', { botId: id, steps: true })) as ChatPage
       if (!stopped.current) setPage(next)
     } catch (failure) {
       const code = (failure as { code?: string })?.code
@@ -61,7 +64,9 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
     loading.current = true
     atBottom.current = false
     try {
-      const next = await call('chat', { botId: id, cursor: cursor.current }) as ChatPage
+      const next = (room !== undefined
+        ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true })
+        : await call('chat', { botId: id, cursor: cursor.current, steps: true })) as ChatPage
       cursor.current = next.cursor
       setOlder(prev => [...next.items, ...prev])
     } catch { /* keep the page we have */ }
@@ -81,6 +86,35 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
   const [chatWidth, setChatWidth] = useState(0)
+  // The turn being streamed by the model, per attempt id; the real item lands
+  // with the 'message' event when the turn's text is saved.
+  const [streamText, setStreamText] = useState('')
+  const streamAttempts = useRef(new Map<string, string>())
+  const { onFeed } = useTeam()
+  useEffect(() => { markSeen(id) }, [id])
+  useEffect(() => {
+    if (onFeed === undefined) return
+    return onFeed((event, data) => {
+      if (stopped.current) return
+      if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh()
+      if (event === 'message' && data?.sessionId === sessionId) {
+        const item = data.item
+        if (item !== undefined) setPage(prev => prev === null || prev.items.some(it => it.seq !== undefined && it.seq === item.seq) ? prev : { ...prev, items: [...prev.items, item] })
+        markSeen(id)
+        void refresh()
+      }
+      if (event === 'stream' && data?.sessionId === sessionId) {
+        if (data.phase === 'start') streamAttempts.current.set(data.attemptId, '')
+        else if (typeof data.text === 'string') {
+          streamAttempts.current.set(data.attemptId, (streamAttempts.current.get(data.attemptId) ?? '') + data.text)
+          setStreamText([...streamAttempts.current.values()].join(''))
+        } else if (data.phase === 'end') {
+          streamAttempts.current.delete(data.attemptId)
+          setStreamText([...streamAttempts.current.values()].join(''))
+        }
+      }
+    })
+  }, [onFeed, room, sessionId, refresh, id])
   // Bubble caps in px — RN cannot parse the CSS min() expression.
   const botMax = chatWidth === 0 ? 0 : Math.min(chatWidth * width / 100, chatWidth - 40)
   const userMax = chatWidth * width / 100
@@ -93,12 +127,13 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   }
   const stop = () => {
     if (room !== undefined) void call('stop-room-work', { roomId: room.id }).catch(() => {})
+    else if (bot !== undefined) void call('stop-chat', { botId: bot.id }).catch(() => {})
   }
 
   // Inverted list: index 0 sits at the bottom, so newest items come first.
   // Chronological order (oldest first); the list starts scrolled to the newest item.
   const items = useMemo(() => [...older, ...(page?.items ?? [])], [page, older])
-  const canStop = room !== undefined && roomWork.length > 0
+  const canStop = room !== undefined ? roomWork.length > 0 : running
 
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} style={[styles.screen, { backgroundColor: p.main }]}>
@@ -127,6 +162,7 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
               }}
               scrollEventThrottle={100}>
               {items.map((item, index) => <Item key={itemKey(item, index)} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} />)}
+              {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} /> : null}
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}

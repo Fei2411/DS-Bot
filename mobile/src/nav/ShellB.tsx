@@ -122,9 +122,39 @@ function SettingsScreenB({ onForget, navigation }: any) {
   )
 }
 
+// A question or approval that lands while the app is open shows as a banner at
+// the top; a tap opens the chat it belongs to.
+function NoticeBanner() {
+  const { p } = useTheme()
+  const { onFeed } = useTeam()
+  const navigation = useNavigation<any>()
+  const insets = useSafeAreaInsets()
+  const [notice, setNotice] = useState<{ text: string; target: ChatTarget } | null>(null)
+  useEffect(() => {
+    if (onFeed === undefined) return
+    return onFeed((event, data) => {
+      if (event !== 'notice' || (data?.kind !== 'question' && data?.kind !== 'approval')) return
+      const target: ChatTarget = data.roomId !== undefined && data.roomId !== null
+        ? { kind: 'room', id: data.roomId }
+        : { kind: 'bot', id: data.botId ?? '' }
+      setNotice({ text: data.title !== undefined ? `${data.title}：${data.text ?? ''}` : (data.text ?? ''), target })
+      setTimeout(() => setNotice(current => current), 8000)
+    })
+  }, [onFeed])
+  if (notice === null) return null
+  return (
+    <Pressable accessibilityRole="button" onPress={() => { navigation.navigate('Chat', notice.target); setNotice(null) }}
+      style={[{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, zIndex: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: p.card, borderColor: p.accent, borderWidth: 1 }, shadow(2)]}>
+      <Text style={[typeScale.small, { color: p.ink }]} numberOfLines={2}>{notice.text}</Text>
+    </Pressable>
+  )
+}
+
 function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: () => void }) {
   const { p } = useTheme()
   return (
+    <View style={{ flex: 1 }}>
+    <NoticeBanner />
     <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="Chat" component={ChatScreenB} initialParams={initial ?? undefined} />
       <Stack.Screen name="Needs">{(props: any) => <NeedsScreenB {...props} />}</Stack.Screen>
@@ -132,6 +162,7 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       {/* Home is only a background color while Chat resolves the first Main Bot. */}
       <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
     </Stack.Navigator>
+    </View>
   )
 }
 

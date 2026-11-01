@@ -12,16 +12,16 @@ const T = 1_762_000_000_000 // fixed demo clock
 const seq = () => { let n = 0; return () => { n += 1; return n } }
 
 const BOTS: Bot[] = [
-  { id: 'b-chief', name: 'Chief', role: 'Main Bot', color: 'deepseek', avatar: { shape: 'whale' }, sessionId: 's-chief', parts: ['s-chief-0'], createdAt: T - 90 * 86400e3 },
-  { id: 'b-writer', name: 'Writer', role: 'Words and docs', color: 'violet', avatar: { shape: 'moon' }, sessionId: 's-writer', createdAt: T - 60 * 86400e3 },
+  { id: 'b-chief', name: 'Chief', role: 'Main Bot', color: 'deepseek', avatar: { shape: 'whale' }, sessionId: 's-chief', parts: ['s-chief-0'], createdAt: T - 90 * 86400e3, lastAt: T - 600e3, preview: 'Here is the plan, in order' },
+  { id: 'b-writer', name: 'Writer', role: 'Words and docs', color: 'violet', avatar: { shape: 'moon' }, sessionId: 's-writer', createdAt: T - 60 * 86400e3, lastAt: T - 2400e3, preview: 'Draft is attached for review' },
   { id: 'b-coder', name: 'Coder', role: 'Builds and fixes', color: 'cyan', avatar: { shape: 'hex' }, sessionId: 's-coder', createdAt: T - 55 * 86400e3 },
   { id: 'b-researcher', name: 'Researcher', role: 'Reads and compares', color: 'green', avatar: { shape: 'pebbles' }, sessionId: 's-researcher', createdAt: T - 50 * 86400e3 },
-  { id: 'b-designer', name: 'Designer', role: 'Interface and brand', color: 'magenta', avatar: { shape: 'star' }, sessionId: 's-designer', pinned: true, createdAt: T - 45 * 86400e3 },
+  { id: 'b-designer', name: 'Designer', role: 'Interface and brand', color: 'magenta', avatar: { shape: 'star' }, sessionId: 's-designer', pinned: true, createdAt: T - 45 * 86400e3, lastAt: T - 7200e3, preview: 'New avatar set is in' },
 ]
 
 const ROOMS: Room[] = [
-  { id: 'r-launch', name: 'Launch plan', members: ['b-chief', 'b-coder', 'b-writer'], preview: 'Coder：Landing page draft is up', createdAt: T - 20 * 86400e3 },
-  { id: 'r-weekly', name: 'Weekly review', members: ['b-researcher', 'b-designer'], preview: 'Researcher：Notes for Friday', createdAt: T - 30 * 86400e3 },
+  { id: 'r-launch', name: 'Launch plan', members: ['b-chief', 'b-coder', 'b-writer'], preview: 'Coder：Landing page draft is up', lastAt: T - 900e3, createdAt: T - 20 * 86400e3 },
+  { id: 'r-weekly', name: 'Weekly review', members: ['b-researcher', 'b-designer'], preview: 'Researcher：Notes for Friday', lastAt: T - 86400e3, createdAt: T - 30 * 86400e3 },
 ]
 
 const QUESTIONS: Record<string, Question> = {
@@ -88,6 +88,11 @@ export function demoData(): DemoData {
         { kind: 'bot', text: md, time: T - 1900e3, seq: s(), turn: 5 },
         { kind: 'event', role: 'request', name: 'Coder', time: T - 1850e3, seq: s() },
         { kind: 'bot', text: 'Release notes are in. I am holding the tag until the screenshots land.', time: T - 1800e3, seq: s(), turn: 5 },
+        { kind: 'steps', turn: 5, ms: 12400, tools: [
+          { name: 'read_file', label: 'Opening a file', ok: true },
+          { name: 'run_command', label: 'Running shell commands', ok: true },
+          { name: 'remember', label: 'Saving to memory', ok: true },
+        ], time: T - 1700e3, seq: s() },
       ] },
       { sessionId: 's-chief-0', cursor: null, items: [
         { kind: 'divider', time: T - 8 * 86400e3, seq: s() },

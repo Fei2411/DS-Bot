@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View, SectionList } from 'react-native'
 import type { Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
+import { seenAt } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
@@ -34,7 +35,7 @@ export function TeamList({ onOpen, largeTitle = false }: { onOpen: (target: Chat
     ]
     return list
       .filter(entry => query.trim() === '' || entry.item.name.toLowerCase().includes(query.trim().toLowerCase()))
-      .sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || (b.item.createdAt ?? 0) - (a.item.createdAt ?? 0))
+      .sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || (b.item.lastAt ?? b.item.createdAt ?? 0) - (a.item.lastAt ?? a.item.createdAt ?? 0))
   }, [bots, team?.rooms, main?.id, query])
 
   const preview = (bot: Bot): string | undefined => {
@@ -50,7 +51,7 @@ export function TeamList({ onOpen, largeTitle = false }: { onOpen: (target: Chat
     }
     const waits = waiting[bot.id]
     if (waits !== undefined && (waits.bots?.length || waits.rooms?.length)) return t('Waiting for your answer')
-    return bot.role
+    return bot.preview ?? bot.role
   }
   const roomPreview = (room: Room): string | undefined => {
     if (approvals.some(a => a.roomId === room.id)) return t('Waiting for your approval')
@@ -86,9 +87,9 @@ export function TeamList({ onOpen, largeTitle = false }: { onOpen: (target: Chat
           </Pressable>
         ) : <></>}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} questions={questions} approvals={approvals} workBots={workBots} preview={preview(entry.item)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} questions={questions} approvals={approvals} workBots={workBots} preview={preview(entry.item)} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
-          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} approvals={approvals} preview={roomPreview(entry.item)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
+          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} approvals={approvals} preview={roomPreview(entry.item)} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
         ListEmptyComponent={<Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]}>{team === null ? t('Connecting…') : ''}</Text>}
       />
@@ -96,9 +97,9 @@ export function TeamList({ onOpen, largeTitle = false }: { onOpen: (target: Chat
   )
 }
 
-function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, onPress }: {
+function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, unread, onPress }: {
   bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
-  questions: Record<string, unknown>; approvals: { botId: string }[]; workBots: Record<string, unknown>; preview?: string; onPress: () => void
+  questions: Record<string, unknown>; approvals: { botId: string }[]; workBots: Record<string, unknown>; preview?: string; unread?: boolean; onPress: () => void
 }) {
   const waiting = questions[bot.sessionId ?? bot.id] !== undefined || approvals.some(a => a.botId === bot.id)
   return (
@@ -108,6 +109,7 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{bot.name}</Text>
           {bot.pinned === true ? <PinMarkIcon size={12} /> : null}
+          {unread === true ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
         </View>
         {preview ? <Text style={[typeScale.rowPreview, { color: p.ink2 }]} numberOfLines={1}>{preview}</Text> : null}
       </View>
@@ -115,9 +117,9 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
   )
 }
 
-function RoomRow({ room, bots, p, dark, approvals, preview, working, onPress }: {
+function RoomRow({ room, bots, p, dark, approvals, preview, unread, working, onPress }: {
   room: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean
-  approvals: { roomId?: string }[]; preview?: string; working: boolean; onPress: () => void
+  approvals: { roomId?: string }[]; preview?: string; unread?: boolean; working: boolean; onPress: () => void
 }) {
   const waiting = approvals.some(a => a.roomId === room.id)
   return (
@@ -132,6 +134,7 @@ function RoomRow({ room, bots, p, dark, approvals, preview, working, onPress }: 
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{room.name}</Text>
           {room.pinned === true ? <PinMarkIcon size={12} /> : null}
+          {unread === true ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
         </View>
         {preview ? <Text style={[typeScale.rowPreview, { color: p.ink2 }]} numberOfLines={1}>{preview}</Text> : null}
       </View>

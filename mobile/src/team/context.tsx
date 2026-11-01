@@ -12,6 +12,8 @@ export interface TeamCtx {
   error: string | null
   call: (endpoint: string, payload?: unknown) => Promise<unknown>
   computer: SavedComputer | null
+  hello?: { api: number | null; capabilities: string[]; boot: string; seq: number } | null
+  onFeed?: (handler: (event: string, data: any) => void) => () => void
 }
 
 const Ctx = createContext<TeamCtx>({ team: null, online: false, error: null, call: async () => { throw new Error('Not connected to the computer yet.') }, computer: null })
@@ -19,7 +21,7 @@ export const useTeam = () => useContext(Ctx)
 
 export function TeamProvider({ computer, identity, children }: { computer: SavedComputer; identity: PhoneIdentity; children: ReactNode }) {
   const link = useTeamLink(computer, identity)
-  const value = useMemo<TeamCtx>(() => ({ team: link.team, online: link.online, error: link.error, call: link.call, computer }), [link.team, link.online, link.error, link.call, computer])
+  const value = useMemo<TeamCtx>(() => ({ team: link.team, online: link.online, error: link.error, call: link.call, computer, hello: link.hello, onFeed: link.onFeed }), [link.team, link.online, link.error, link.call, link.hello, link.onFeed, computer])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

@@ -16,12 +16,15 @@ export interface Bot {
   pinned?: boolean
   hidden?: boolean
   createdAt?: number
+  lastAt?: number
+  preview?: string
 }
 
 export interface Room {
   id: string
   name: string
   preview?: string
+  lastAt?: number
   members?: string[]
   pinned?: boolean
   hidden?: boolean

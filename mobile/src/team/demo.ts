@@ -22,6 +22,21 @@ export function demoLink() {
     const touch = () => { state.revision += 1; bump() }
 
     switch (endpoint) {
+      case 'hello':
+        return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed'], boot: 'demo', seq: 0 }
+      case 'notices':
+        return { boot: 'demo', seq: 0, notices: [], reset: false }
+      case 'room-chat': {
+        const pages = chatsRef.current[String(body.roomId ?? '')] ?? []
+        const page = pages[0] ?? { items: [], cursor: null }
+        return { roomId: String(body.roomId ?? ''), items: page.items, cursor: page.cursor, running: false, speaking: null }
+      }
+      case 'stop-chat': {
+        const id = sessionOf(String(body.botId ?? ''))
+        if (state.work?.bots?.[id] !== undefined) delete state.work.bots[id]
+        touch()
+        return true
+      }
       case 'state':
         if (body.since === state.revision) return { revision: state.revision, unchanged: true, work: state.work, activity: state.activity }
         return state
