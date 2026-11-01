@@ -966,7 +966,13 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 [data-step-process]>div:first-child{display:none!important}
 [data-step-process]>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 :is([data-step-process],[data-turn-process-hidden])[hidden]{content-visibility:visible!important}
-[class*="_flowItem"]:has(> [data-slot="conversation.chat.node"]:empty){display:none!important}
+[class*="_flowItem"]:has(> [data-slot="conversation.chat.node"]:empty, > [data-slot="conversation.chat.node"][data-bt-emptied]){display:none!important}
+/* A turn's process seat is a flow child of its own, not a flowItem: a seat whose
+   member cells all emptied themselves (a hidden exchange turn, a turn whose
+   calls draw nothing) still kept its margin, stacking a blank band per hidden
+   call. Only the slot a DS Bot cell marked counts, so a seat another renderer
+   fills — even with plain text and no element child — is never taken for empty. */
+[data-step-process]:has(> [data-step-process-body] [data-slot="conversation.chat.node"][data-bt-emptied]):not(:has(> [data-step-process-body] [data-slot="conversation.chat.node"]:not([data-bt-emptied]))){display:none!important}
 [class*="_header"]:has(.bt-head){border-bottom-color:transparent!important;box-shadow:none!important}
 /* The transcript runs under a floating header pill. */
 header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;right:0;z-index:8;display:flex!important;padding:10px 0 0!important;background:transparent!important;pointer-events:none;justify-content:center}
@@ -1148,6 +1154,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-open-new .bt-time-sep{height:16px;margin:32px 0 2px}
 .bt-earlier{display:flex;flex-direction:column;gap:6px}
 .bt-earlier-top{display:flex;justify-content:center;align-items:center;height:34px;flex:none}
+.bt-earlier-top:empty{display:none}
 .bt-earlier-top .bt-soft{height:28px;font-size:12px;padding:0 12px}
 .bt-urow{display:flex;justify-content:flex-end}
 .bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:14px;line-height:24px;box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
