@@ -26,14 +26,16 @@ export function install(rt) {
     const agent = await rt.resolveAgent(sessionId)
     const wanted = typeof name === 'function' ? name() : name
     if (wanted) presets().set(agent.session, wanted)
+    return wanted
   }
 
   // Sets the preset on one of the Bot's Sessions: its group's there, else its own; a Bot
   // without one keeps DSH's default. `room` is for a group Session not indexed yet.
+  // Returns the preset it set, or undefined when it set none.
   async function applyPermission(bot, sessionId, room = roomOfSession(sessionId)) {
     const name = () => room?.permission ?? bot.permission
     if (presets() === undefined || !name()) return
-    await setPreset(sessionId, name)
+    return setPreset(sessionId, name)
   }
 
   function checkPreset(name, whose) {
@@ -45,18 +47,26 @@ export function install(rt) {
     return wanted
   }
 
+  // Per Bot, requests are numbered and the last preset an apply actually set is
+  // tracked: only the newest request may roll the field back, and then to that
+  // applied value, never to a value a request had only asked for.
+  const requests = new Map()
+
   async function setPermission(bot, name) {
     const wanted = checkPreset(name, 'a Bot\'s')
+    const request = requests.get(bot.id) ?? { seq: 0, applied: bot.permission }
+    const mine = ++request.seq
+    requests.set(bot.id, request)
     // The preset is written before its first await: a request still being applied
     // then reads the one asked for last.
-    const previous = bot.permission
     bot.permission = wanted
     try {
-      await applyPermission(bot, rt.chatOf(bot.id))
+      const applied = await applyPermission(bot, rt.chatOf(bot.id))
+      if (applied !== undefined) request.applied = applied
     } catch (error) {
-      if (bot.permission === wanted) {
-        if (previous === undefined) delete bot.permission
-        else bot.permission = previous
+      if (request.seq === mine) {
+        if (request.applied === undefined) delete bot.permission
+        else bot.permission = request.applied
       }
       throw error
     }

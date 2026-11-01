@@ -9,10 +9,11 @@ function runtime({ presets = true, auto = false, fail = false, hold = false } = 
   const writes = []
   const releases = []
   const bots = {}
+  const control = { fail }
   const service = {
     catalog: () => ({ options: [...Object.keys(PRESETS), ...(auto ? SESSION_ONLY : [])].map(value => ({ value, name: value })), defaultOptions: [], defaultPreset: 'workspace-write' }),
     resolve: (name) => { if (!(name in PRESETS) && !(auto && SESSION_ONLY.includes(name))) throw new Error(`permission: unknown preset "${name}"`); return PRESETS[name] },
-    set: (session, name) => { if (fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
+    set: (session, name) => { if (control.fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
   }
   const ctx = { get: name => (presets && name === 'permissionPresets' ? service : undefined) }
   const rt = {
@@ -33,7 +34,7 @@ function runtime({ presets = true, auto = false, fail = false, hold = false } = 
     resolve({ session: sessionId })
     await new Promise(done => setImmediate(done))
   }
-  return { rt, writes, releases, bots, settle }
+  return { rt, writes, releases, bots, settle, control }
 }
 
 test('a Bot\'s preset is set on its chat and its group Sessions', async () => {
@@ -95,6 +96,37 @@ test('the last preset asked for wins when two Bot changes overlap', async () => 
   assert.equal(bot.permission, 'danger-full-access')
   assert.equal(writes.length, 4)
   assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
+})
+
+test('a failed change does not roll back a newer one that already applied', async () => {
+  const { rt, releases, settle, control } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  // Two windows ask for the same preset; the newer applies everywhere first.
+  const first = rt.setPermission(bot, 'danger-full-access')
+  const second = rt.setPermission(bot, 'danger-full-access')
+  assert.equal(releases.length, 2)
+  await settle(1) // the newer request applies to the chat, then to the group Session
+  await settle(1)
+  await second
+  control.fail = true
+  const refused = assert.rejects(first, /rejected/)
+  await settle(0) // the older request's chat apply fails now
+  await refused
+  assert.equal(bot.permission, 'danger-full-access')
+})
+
+test('a failed change rolls back to the last applied preset, not to a failed request', async () => {
+  const { rt, settle } = runtime({ hold: true, fail: true })
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  const first = rt.setPermission(bot, 'danger-full-access')
+  const second = rt.setPermission(bot, 'workspace-write')
+  const firstFails = assert.rejects(first, /rejected/)
+  await settle(0) // the first request fails and leaves the field to the newer one
+  await firstFails
+  const secondFails = assert.rejects(second, /rejected/)
+  await settle(0) // the second fails too: the field goes back to what applied before
+  await secondFails
+  assert.equal(bot.permission, 'workspace-write')
 })
 
 test('the last preset asked for wins when two group changes overlap', async () => {
