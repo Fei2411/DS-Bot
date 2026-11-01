@@ -16,8 +16,17 @@ export const GROUP_REF = { type: 'string', required: true, description: 'Exact g
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
 // DS Bot carries no goal across conversation parts, so Bot Sessions do not run DSH goals.
 const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
-const HIDDEN_TOOLS = [BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS]
+// DSH's delegation tools start child agents the user cannot watch or stop, and they
+// end with the conversation part that started them; Bots hand work to other Bots.
+const DELEGATION_TOOLS = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph']
+// restrict() refuses a whole list when one name is registered in the Agent's own
+// scope, so each group is masked on its own.
+const HIDDEN_TOOL_GROUPS = [[BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS], DELEGATION_TOOLS]
+const HIDDEN_TOOLS = HIDDEN_TOOL_GROUPS.flat()
+// The guidance DSH writes into the prompt for the hidden tools.
+const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal'])
 const GOAL_REFUSAL = 'DS Bot does not run goals. Ask the Bot in a message instead.'
+const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
   enum: ROOM_MODES,
@@ -720,7 +729,7 @@ export function install(rt) {
   // the live Agents back: a reload lifts their scope while they are still
   // live, and agent/created does not fire for them again, so without the walk
   // their next request would come without the team tools.
-  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>}>} */
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>}>} */
   const scoped = new Map()
   const unscope = (id) => {
     const held = scoped.get(id)
@@ -775,7 +784,7 @@ export function install(rt) {
         failed.push(`${def.name}: ${error.message ?? error}`)
       }
     }
-    held ??= { relay: relayOnly, tools: false, restricted: false, disposers: [] }
+    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [] }
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
@@ -784,10 +793,59 @@ export function install(rt) {
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
   }
 
+  // The standard preset registers `subagent` (model selection) in each Agent's own
+  // scope, where restrict() and a same-name section cannot reach it, so the Bot's
+  // assembly drops the hidden tools and their guidance instead. restrict still
+  // masks what it can, so lookup and execution stay aligned, and the guard
+  // refuses calls. The assembly filter goes on every Bot Session whether or not
+  // the tools are served yet: subagent's own agent/created listener can run
+  // after this one.
+  const filterBotAssembly = (agent, held) => {
+    if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
+    const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembled = await next()
+      return {
+        ...assembled,
+        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+      }
+    })
+    held.filtered = true
+    if (typeof dispose === 'function') held.disposers.push(dispose)
+  }
+
+  // restrict() throws on a name this profile does not serve.
+  const maskHiddenTools = (agent, held, served) => {
+    const groups = HIDDEN_TOOL_GROUPS.map(group => group.filter(name => served.has(name))).filter(group => group.length > 0)
+    if (groups.length === 0) return
+    // Marked after one attempt even when a group fails, so a profile that can
+    // never mask it is not re-masked on every resolve.
+    held.restricted = true
+    for (const deny of groups) {
+      try {
+        const lift = agent.ctx.tools.restrict({ deny })
+        if (typeof lift === 'function') held.disposers.push(lift)
+      } catch {
+        // A name in the Agent's own scope fails the whole list (restrict() masks
+        // inherited tools only), so mask the rest one at a time; what stays is
+        // covered by the assembly filter and the guard.
+        for (const name of deny) {
+          try {
+            const lift = agent.ctx.tools.restrict({ deny: [name] })
+            if (typeof lift === 'function') held.disposers.push(lift)
+          } catch {
+            // Expected for names in the Agent's own scope.
+          }
+        }
+      }
+    }
+  }
+
   // dsh's own question tool holds the turn open until the user answers, and every
   // message from another Bot or a group round queues behind it. Bot Sessions ask
-  // through ask_user instead, so the tool is taken out of their tool list, as are the
-  // goal tools. The restrict is kept with the Session's scope, so it lifts with it.
+  // through ask_user instead, so it is taken out of their tool list, as are the goal
+  // and delegation tools. The restricts are kept with the Session's scope, so they
+  // lift with it.
   const hideBotUnusedTools = (agent) => {
     shareBotTools(agent)
     const id = agent?.session?.id
@@ -795,35 +853,28 @@ export function install(rt) {
     // the team lifts them like the rest, and the Agent can be scoped again.
     const shadows = rt.shadowShells?.(agent) ?? []
     if (shadows.length > 0) {
-      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [] }
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
       held.agent = agent
       held.disposers.push(...shadows)
       scoped.set(id, held)
     }
-    if (agent === undefined || !rt.isBotSession(id) || scoped.get(id)?.restricted === true) return
-    if (typeof agent.ctx?.tools?.restrict !== 'function') return
-    try {
-      // restrict() throws on a name this profile does not serve.
-      const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
-      const deny = HIDDEN_TOOLS.filter(name => served.has(name))
-      if (deny.length === 0) return
-      const lift = agent.ctx.tools.restrict({ deny })
-      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [] }
-      held.agent = agent
-      if (typeof lift === 'function') held.disposers.push(lift)
-      held.restricted = true
-      scoped.set(id, held)
-    } catch (error) {
-      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), id, error)
-    }
+    if (agent === undefined || !rt.isBotSession(id)) return
+    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
+    held.agent = agent
+    scoped.set(id, held)
+    filterBotAssembly(agent, held)
+    if (held.restricted === true || typeof agent.ctx?.tools?.restrict !== 'function') return
+    maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
   }
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // recording path resolves it again once the session is known as a Bot's; meanwhile
-  // the guard refuses the question tool in any Bot Session, and a goal made there is
-  // blocked.
-  ctx.tools.guard(exec => (exec.name === BLOCKING_QUESTION_TOOL && rt.isBotSession(exec.agent?.id)
-    ? `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
-    : undefined))
+  // the guard refuses the question and delegation tools in any Bot Session, and a
+  // goal made there is blocked.
+  ctx.tools.guard((exec) => {
+    if (!rt.isBotSession(exec.agent?.id)) return undefined
+    if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined
+  })
   // Creation waits for this listener, so the Agent's first step already lacks the tool.
   ctx.on('agent/created', async ({ agent }) => {
     try {
