@@ -7285,6 +7285,69 @@ var thinkingLive = (step) => step.status === "running" && texts(step).length ===
 var texts = (step) => step.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "");
 var stepReasoning = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => block.text).join("\n").trim();
 
+// src/shared/group-replies.js
+var RELAY_LIST = /"replies"\s*:\s*\[/;
+var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
+function parseReplies(text) {
+  try {
+    return { replies: JSON.parse(text).replies ?? [], broken: false };
+  } catch {
+  }
+  const replies = [];
+  const head = RELAY_LIST.exec(text);
+  if (head) {
+    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
+      const first = piece.indexOf('{"');
+      if (first !== -1) scanReplies(piece, first, replies);
+    }
+  }
+  return { replies, broken: true };
+}
+function scanReplies(text, start, replies) {
+  let depth = 0;
+  let from = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) from = i;
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0 && from >= 0) {
+        try {
+          replies.push(JSON.parse(text.slice(from, i + 1)));
+        } catch {
+        }
+        from = -1;
+      }
+    } else if (ch === "]" && depth === 0) break;
+  }
+}
+function stackReplies(replies) {
+  const items = [];
+  replies.forEach((reply, index) => {
+    const last = items.at(-1);
+    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
+      last.texts.push(reply.text);
+      last.time = reply.time;
+      last.duration = reply.duration;
+    } else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [], time: reply.time, duration: reply.duration });
+  });
+  return items;
+}
+
 // src/client/fold.js
 var import_react14 = require("react");
 var FOLD_AT = { chars: 1500, lines: 25 };
@@ -8026,18 +8089,6 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
     (0, import_react16.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
   );
 }
-function stackReplies(replies) {
-  const items = [];
-  replies.forEach((reply, index) => {
-    const last = items.at(-1);
-    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
-      last.texts.push(reply.text);
-      last.time = reply.time;
-      last.duration = reply.duration;
-    } else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [], time: reply.time, duration: reply.duration });
-  });
-  return items;
-}
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
   return (0, import_react16.createElement)(
     "div",
@@ -8243,13 +8294,20 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         key,
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
+        texts: row.texts,
         room: roster.roomsById[sessionId],
         roster,
         actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
         time: row.time,
+        duration: row.duration,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
       });
+    }
+    case "relay": {
+      const reply = row.reply;
+      const speaker = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name ?? t("a Bot"), color: reply.color ?? "gray" };
+      return (0, import_react16.createElement)(RelayEvent, { key, reply, bot: speaker, sessionId, actions });
     }
     case "event": {
       if (row.role === "report") return (0, import_react16.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
@@ -8508,54 +8566,63 @@ function useLiveNote(actions, sessionId, id, entry) {
     return () => actions.noteLive(sessionId, id, null);
   }, [sessionId, id, key]);
 }
-var RELAY_LIST = /"replies"\s*:\s*\[/;
-var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
-function parseReplies(text) {
-  try {
-    return { replies: JSON.parse(text).replies ?? [], broken: false };
-  } catch {
+function RelayEvent({ reply, bot, sessionId, actions }) {
+  if (reply.kind === "failed") {
+    return (0, import_react16.createElement)(
+      "div",
+      { className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
+      t("{name} could not answer: {reason}", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
+    );
   }
-  const replies = [];
-  const head = RELAY_LIST.exec(text);
-  if (head) {
-    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
-      const first = piece.indexOf('{"');
-      if (first !== -1) scanReplies(piece, first, replies);
-    }
+  if (reply.kind === "lookup") {
+    return (0, import_react16.createElement)(
+      "div",
+      { className: "bt-event" },
+      reply.text ? t("{name} looked up its own chat for “{text}”", { name: bot.name, text: reply.text }) : t("{name} looked up its own chat", { name: bot.name })
+    );
   }
-  return { replies, broken: true };
-}
-function scanReplies(text, start, replies) {
-  let depth = 0;
-  let from = -1;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i += 1) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") {
-      if (depth === 0) from = i;
-      depth += 1;
-    } else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0 && from >= 0) {
-        try {
-          replies.push(JSON.parse(text.slice(from, i + 1)));
-        } catch {
-        }
-        from = -1;
-      }
-    } else if (ch === "]" && depth === 0) break;
+  if (reply.kind === "missed") {
+    return (0, import_react16.createElement)("div", { className: "bt-event" }, t("{name} didn't answer in time", { name: bot.name }));
   }
+  if (reply.kind === "admin-passed") {
+    return (0, import_react16.createElement)(
+      "div",
+      { className: "bt-event" },
+      t("{name} did not answer or call anyone; call a member with @Name", { name: bot.name })
+    );
+  }
+  if (reply.kind === "paused") {
+    return (0, import_react16.createElement)(
+      "div",
+      { className: "bt-event" },
+      t("Paused after {count} Bot relays. Waiting: {names}", { count: reply.count, names: (reply.names ?? []).join(t(" and ")) })
+    );
+  }
+  if (reply.kind === "resumed") {
+    return (0, import_react16.createElement)("div", { className: "bt-event" }, t("{name} was cut off by a restart and picked its work back up", { name: bot.name }));
+  }
+  if (reply.kind === "cut") {
+    return (0, import_react16.createElement)("div", { className: "bt-event" }, t("{name} was cut off by a restart again and stopped", { name: bot.name }));
+  }
+  if (reply.kind === "approval" || reply.kind === "working") {
+    return (0, import_react16.createElement)(
+      "div",
+      { className: "bt-event" },
+      (0, import_react16.createElement)(
+        "button",
+        { type: "button", className: "bt-event-whole", onClick: () => actions.showDetails(sessionId) },
+        (0, import_react16.createElement)(BotMark, { bot, size: 16 }),
+        (0, import_react16.createElement)("span", { className: "bt-event-name" }, t(reply.kind === "working" ? "{name} started on it" : "{name} paused for your approval", { name: bot.name }))
+      )
+    );
+  }
+  if (reply.kind === "stopped") {
+    return (0, import_react16.createElement)("div", { className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
+  }
+  if (reply.kind === "done") {
+    return (0, import_react16.createElement)("div", { className: "bt-event" }, t("{name} finished its work", { name: bot.name }));
+  }
+  return null;
 }
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = (0, import_react16.useState)({ replies: [], speaking: [] });
@@ -8610,60 +8677,8 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           Number.isFinite(time) ? (0, import_react16.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, messageClock(time)) : null
         ));
       }
-      if (reply.kind === "failed") {
-        return (0, import_react16.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
-          t("{name} could not answer: {reason}", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
-        );
-      }
-      if (reply.kind === "lookup") {
-        return (0, import_react16.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event" },
-          reply.text ? t("{name} looked up its own chat for “{text}”", { name: bot.name, text: reply.text }) : t("{name} looked up its own chat", { name: bot.name })
-        );
-      }
-      if (reply.kind === "missed") {
-        return (0, import_react16.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} didn't answer in time", { name: bot.name }));
-      }
-      if (reply.kind === "admin-passed") {
-        return (0, import_react16.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event" },
-          t("{name} did not answer or call anyone; call a member with @Name", { name: bot.name })
-        );
-      }
-      if (reply.kind === "paused") {
-        return (0, import_react16.createElement)(
-          "div",
-          { key: `paused-${index}`, className: "bt-event" },
-          t("Paused after {count} Bot relays. Waiting: {names}", { count: reply.count, names: (reply.names ?? []).join(t(" and ")) })
-        );
-      }
-      if (reply.kind === "resumed") {
-        return (0, import_react16.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} was cut off by a restart and picked its work back up", { name: bot.name }));
-      }
-      if (reply.kind === "cut") {
-        return (0, import_react16.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} was cut off by a restart again and stopped", { name: bot.name }));
-      }
-      if (reply.kind === "approval" || reply.kind === "working") {
-        return (0, import_react16.createElement)(
-          "div",
-          { key: `${reply.botId}-${index}`, className: "bt-event" },
-          (0, import_react16.createElement)(
-            "button",
-            { type: "button", className: "bt-event-whole", onClick: () => actions.showDetails(sessionId) },
-            (0, import_react16.createElement)(BotMark, { bot, size: 16 }),
-            (0, import_react16.createElement)("span", { className: "bt-event-name" }, t(reply.kind === "working" ? "{name} started on it" : "{name} paused for your approval", { name: bot.name }))
-          )
-        );
-      }
-      if (reply.kind === "stopped") {
-        return (0, import_react16.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
-      }
-      if (reply.kind === "done") {
-        return (0, import_react16.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("{name} finished its work", { name: bot.name }));
+      if (reply.kind !== void 0) {
+        return (0, import_react16.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions });
       }
       return (0, import_react16.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
     }),

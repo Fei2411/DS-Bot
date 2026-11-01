@@ -3,7 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { homedir, hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
+import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { Session } from '@deepseek-ai/dsh-session'
 import { apply } from '../index.js'
+import { SOURCE_KIND } from '../src/host/constants.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
@@ -1042,24 +1045,54 @@ test('a group folder change moves the group\'s own Session to a part in the fold
 test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   const { ctx, call, project, state, stop } = await start()
   t.after(stop)
-  // The earlier part's record carries the group's posts as user/message events.
-  // A real group round's events: the user's question, a member's posted line, and
-  // the synthesized group_relay result holding its replies.
+  // The earlier part's record is a real group round the way DSH logs it on the
+  // group's own Session (rc.4): the user's question and a member's posted line as
+  // user/message events, then the synthesized group_relay tool/call paired by call
+  // id with a tool/result whose message holds the round's replies — the tool name
+  // is on the call, never on the result.
+  const session = Session.create('r1')
+  const events = []
+  const record = (type, data, opts) => {
+    const event = session.append(type, data, opts)
+    events.push(event)
+    return event
+  }
+  record('user/message', createUserMessage({
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: '@Writer 文档在哪' }],
+  }), { surfaceOp: 'append' })
+  record('user/message', createUserMessage({
+    source: { kind: SOURCE_KIND, form: 'relay', role: 'post', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }],
+  }), { surfaceOp: 'append' })
+  const relay = record('tool/call', { turn: 1, step: 1, callId: 'toolu_relay_1', name: 'group_relay', arguments: '{}' })
+  record('tool/result', {
+    turn: 1, step: 1,
+    message: createToolResultMessage({
+      callId: 'toolu_relay_1',
+      isError: false,
+      content: [{ type: 'text', text: JSON.stringify({ replies: [{ botId: 'b', name: 'Writer', color: 'blue', text: '在 docs/ 下面', time: 1000 }, { kind: 'missed', botId: 'a', name: 'Chief', color: 'gray', time: 2000 }] }) }],
+    }),
+  }, { surfaceOp: 'append', sourceEventSeqs: [relay.seq] })
+  // A result whose call named another tool is not the group's conversation.
+  const other = record('tool/call', { turn: 1, step: 2, callId: 'toolu_2', name: 'remember', arguments: '{}' })
+  record('tool/result', {
+    turn: 1, step: 2,
+    message: createToolResultMessage({ callId: 'toolu_2', isError: false, content: [{ type: 'text', text: 'Saved to memory' }] }),
+  }, { surfaceOp: 'append', sourceEventSeqs: [other.seq] })
   ctx.sessionController.page = async ({ address }) => (address?.sessionId === 'r1'
-    ? {
-        records: [
-          { event: { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: '@Writer 文档在哪' }], source: { kind: 'user' } } } },
-          { event: { type: 'user/message', seq: 2, time: 2, data: { content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }], source: { kind: 'bot', role: 'post', senderSessionId: 'gb', senderName: 'Writer' } } } },
-          { event: { type: 'tool/result', seq: 3, time: 3, data: { callId: 'c1', name: 'group_relay', result: '{"replies":[{"botId":"gb","name":"Writer","text":"在 docs/ 下面"}]}' } } },
-        ],
-        hasMore: false,
-      }
+    ? { records: events.map(event => ({ event })), hasMore: false }
     : { records: [], hasMore: false })
   assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
   await until(() => state().rooms.r1.sessionId === 's1')
   // The current part's earlier page reads the part it moved on from.
   const page = (await call('earlier', { sessionId: 's1' })).value
-  assert.deepEqual(page.items.map(item => [item.kind, item.name ?? null, item.text]), [['user', null, '@Writer 文档在哪'], ['post', 'Writer', 'Done.'], ['post', 'Writer', '在 docs/ 下面']])
+  assert.deepEqual(page.items.map(item => [item.kind, item.name ?? item.reply?.kind ?? null, item.text ?? item.texts?.[0] ?? null]), [
+    ['user', null, '@Writer 文档在哪'],
+    ['post', 'Writer', 'Done.'],
+    ['post', 'Writer', '在 docs/ 下面'],
+    ['relay', 'missed', null],
+  ])
   assert.equal(page.cursor, null)
   assert.equal(typeof page.startedAt, 'number')
   // The first part itself has nothing before it.

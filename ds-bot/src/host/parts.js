@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { parseReplies, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
@@ -1276,6 +1277,10 @@ export function install(rt) {
   const EARLIER_PAGE = 60
   function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    // Call ids of the page's group_relay calls; their tool/result events carry the
+    // round's replies. A result without its call on the page (the page cut between
+    // them) draws nothing rather than guessing.
+    const relayCalls = new Set()
     const items = []
     // The turn/start still in effect. A steered or queued user message stays in
     // it; only another turn/start moves on. A later page does not repeat the
@@ -1302,6 +1307,9 @@ export function install(rt) {
         continue
       }
       if (event.type === 'tool/call') {
+        // A group_relay call's result is paired back to it by call id — the tool
+        // name is on the call, never on the result.
+        if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
         // Hidden turns and refused calls never showed a display card. Interactive
         // cards live in the pending dock or on their answer message instead.
         if (event.data?.name === 'show_view' && !hidden.has(event.data?.turn)) {
@@ -1317,16 +1325,19 @@ export function install(rt) {
       }
       if (event.type === 'tool/result') {
         // A group's own Session runs no model; its turns are synthesized group_relay
-        // calls whose results hold the members' replies — the group's conversation,
-        // the same rows the live chat draws from the settled call.
-        if (event.data?.name !== 'group_relay' && event.data?.toolName !== 'group_relay') continue
-        const raw = event.data?.result ?? event.data?.content
-        const text = typeof raw === 'string' ? raw : textOf(raw)
-        let replies = []
-        try { replies = JSON.parse(text)?.replies ?? [] } catch { /* a pruned result draws nothing */ }
-        for (const reply of replies) {
-          if (reply.kind === 'user') stamp(event, { kind: 'user', text: reply.text, time: event.time })
-          else stamp(event, { kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, text: reply.text, time: event.time })
+        // calls whose results hold the round's replies — the group's conversation,
+        // read the way the live chat reads a settled call (shared/group-replies.js).
+        const message = event.data?.message
+        if (!relayCalls.has(message?.toolCallId)) continue
+        const { replies } = parseReplies(textOf(message?.content))
+        for (const { reply, texts, time, duration } of stackReplies(replies)) {
+          // Reply rows take the reply's own time, and no seq: several rows share
+          // the result event's seq, which the chat keys a post's anchor by.
+          const item = { time: time ?? reply.time ?? event.time }
+          if (turn !== undefined) item.turn = turn
+          if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...item })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else items.push({ kind: 'relay', reply, ...item })
         }
         continue
       }
