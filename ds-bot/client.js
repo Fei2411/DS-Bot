@@ -8742,6 +8742,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           )
         );
       }
+      if (reply.kind === "folder") {
+        return (0, import_react17.createElement)("div", { key: `folder-${index}`, className: "bt-event" }, reply.text);
+      }
       if (reply.kind === "stopped") {
         return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
       }
