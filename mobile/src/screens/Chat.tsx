@@ -21,7 +21,7 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
   const id = bot?.id ?? room?.id ?? ''
   const [page, setPage] = useState<ChatPage | null>(null)
   const [older, setOlder] = useState<ChatItem[]>([])
-  const [cursor, setCursor] = useState<unknown>(undefined)
+  const cursor = useRef<unknown>(undefined)
   const [gone, setGone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -44,7 +44,7 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
 
   useEffect(() => {
     stopped.current = false
-    setPage(null); setOlder([]); setCursor(undefined); setGone(false); setLoaded(false)
+    setPage(null); setOlder([]); cursor.current = undefined; setGone(false); setLoaded(false)
     const loop = async () => {
       await refresh()
       if (!stopped.current) setTimeout(() => void loop(), POLL_MS)
@@ -53,19 +53,22 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
     return () => { stopped.current = true }
   }, [refresh])
 
+  // cursor lives in a ref: onScroll can fire again before the setState from
+  // the previous load commits, and a stale closure would re-request the same
+  // page forever at the top.
   const loadMore = useCallback(async () => {
-    if (cursor == null || id === '' || loading.current) return
+    if (cursor.current == null || id === '' || loading.current) return
     loading.current = true
     atBottom.current = false
     try {
-      const next = await call('chat', { botId: id, cursor }) as ChatPage
+      const next = await call('chat', { botId: id, cursor: cursor.current }) as ChatPage
+      cursor.current = next.cursor
       setOlder(prev => [...next.items, ...prev])
-      setCursor(next.cursor)
     } catch { /* keep the page we have */ }
     finally { loading.current = false }
-  }, [call, cursor, id])
+  }, [call, id])
 
-  useEffect(() => { if (page !== null) setCursor(page.cursor) }, [page?.sessionId])
+  useEffect(() => { if (page !== null) cursor.current = page.cursor }, [page?.sessionId])
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? id
   const question: Question | undefined = team?.questions?.[sessionId]
