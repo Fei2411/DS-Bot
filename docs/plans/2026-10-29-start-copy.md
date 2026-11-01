@@ -27,7 +27,7 @@
 
 | 层 | 在哪里 | 谁在说 | 规则 |
 |---|---|---|---|
-| `voice.*` | 鲸鱼下面那一行，只在用户要知道或回答时有字：45 秒、180 秒、失败、搬数据 | 鲸鱼，第一人称、口语 | 一行，不折行，最多 16 字；不加句号，可以问号；可以用口语的动词（「搬过来」） |
+| `voice.*` | 鲸鱼下面那一行，只在出错时有字：180 秒、失败 | 鲸鱼，第一人称、口语 | 一行，不折行，最多 16 字；不加句号，可以问号；可以用口语的动词（「搬过来」） |
 | `say.*` | 卡片的第一行（15/20、600） | 鲸鱼 | 最多 12 字；不加句号 |
 | `hint.*` | 提示行，只有盘不够时前 10 秒的那一句 | 应用，中性 | 只写一件用户现在要知道的事，最多 22 字；不加句号 |
 | `card.*` | 卡片正文 | 应用 | 整句，以 。？ 结尾；说出了什么事，怎么办交给按钮；路径放 `code`；`card.<卡>.<部分>`，几张卡共用的放 `card.update.*` |
@@ -155,7 +155,7 @@
   - `start.html` 里 `data-act="pick"` 的按钮，键的中文以 … 结尾。
   - 主进程三个文件里 `tx('…')` 用到的键都在表里；`first-run.mjs` 和 `updates.mjs` 里没有自己的字符串表。
   - `t()` 的单复数：`{bots|Bot|Bots}` 在 1 和 6 上各填对。
-  - `voice` 层只有六个键（`voice.failed / moving / slow45 / slowLater / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
+  - `voice` 层只有三个键（`voice.failed / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
 
 ## 改动的已定设计
 
@@ -194,3 +194,4 @@
 - 2026-10-29 首稿：十层、一张表、键的对照、测试；对应 `text.mjs` 重排、`first-run.mjs` 和 `updates.mjs` 的表并入、`start.html` 和 `start.js` 改键。依据：2026-10-29 对三张表的审读（30 个对话框键和 11 个更新键都在用，没有死键；页面表和两份设计稿逐句对照只有 `failed.reason.*` 的句号一处不同；风格问题 30 条，全部复核过）。
 - 2026-10-30：启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：鲸鱼的话只剩用户要知道或回答时的几句，表里去掉 14 个键（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready / opening`、`hint.model / preview / reinstall`、`status.elapsed`），`hint.slowLater` 改名 `voice.slowLater`（同一句，以后的启动和搬数据时 45 秒起由鲸鱼说）；第 2 节 `voice`、`hint`、`status` 三层的说明、第 3 节的对照和第 4 节单复数的例子跟着改，第 5 节加一条测试。依据：维护者 2026-10-30 转来的讨论（「现在这版有点噪了」）和维护者选定的圆环原型。
 - 2026-10-31：启动页的底注去掉（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `foot.community`；`foot` 层只剩位置行，第 2、3 节跟着改，「改动的已定设计」加一行。以后的启动搬数据改在卡片上问，加 `say.move`「搬到这个文件夹？」、`card.move.lead`、`reason.place.drive / workspace`（第 3 节对照表加一行，第 2 节 `reason.*` 改成九个原因）；按钮用已有的 `btn.move / repick / cancel`。依据：维护者「移除左下角的社区非官方声明」「让我们尽可能避免系统中出现任何这样的默认弹窗」。
+- 2026-11-01：启动页轻易不写字（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `voice.slow45 / slowLater / moving` 和 `btn.openLogs`，加 `btn.saveLog`「保存日志…」（打开系统保存框，所以以 … 结尾）；`voice` 层只剩出错时的三句。第 3 节的旧键对照是当时的记录，不改。
