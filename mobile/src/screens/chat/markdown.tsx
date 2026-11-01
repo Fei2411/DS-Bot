@@ -30,12 +30,14 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
     }
     case 'list': {
       const list = token as Tokens.List
+      const depth = (token as Tokens.List & { depth?: number }).depth ?? 0
+      // A list item's tokens are block tokens (text/paragraph, code, nested list).
       return (
-        <View style={{ marginVertical: 4 }}>
+        <View style={{ marginVertical: 4, marginLeft: depth * 14 }}>
           {list.items.map((item, index) => (
             <View key={index} style={{ flexDirection: 'row', marginVertical: 2 }}>
               <Text style={[base, { color: p.ink3, width: 22 }]}>{list.ordered ? `${(list.start as number) + index}.` : '•'}</Text>
-              <Text selectable style={[base, { flex: 1 }]}><Inlines tokens={item.tokens ?? []} p={p} color={textColor} /></Text>
+              <View style={{ flex: 1 }}>{item.tokens?.map((inner, bi) => <Block key={bi} token={inner} p={p} textColor={textColor} fs={fs} lh={lh} />)}</View>
             </View>
           ))}
         </View>
@@ -67,6 +69,12 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
       return <View style={{ height: 1, backgroundColor: p.line, marginVertical: 8 }} />
     case 'space':
       return <View style={{ height: 6 }} />
+    case 'text': {
+      const text = token as Tokens.Text
+      return Array.isArray(text.tokens) && text.tokens.length > 0
+        ? <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} /></Text>
+        : <Text selectable style={base}>{text.text}</Text>
+    }
     default:
       return 'raw' in token && typeof token.raw === 'string' && token.raw.trim() !== ''
         ? <Text selectable style={base}>{token.raw}</Text> : null
@@ -87,9 +95,13 @@ function Inline({ token, p, color }: { token: Token; p: Palette; color: string }
       return <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: 14, backgroundColor: p.hover }}>{(token as Tokens.Codespan).text}</Text>
     case 'link': {
       const link = token as Tokens.Link
+      // Bot text is untrusted: only web and mail links open; other schemes drop
+      // to plain text so a crafted intent:/file: URL can never fire.
+      const safe = /^https?:/i.test(link.href) || /^mailto:/i.test(link.href)
+      if (!safe) return <Inlines tokens={link.tokens ?? []} p={p} color={color} />
       return (
         <Text style={{ color: p.accent, textDecorationLine: 'underline' }}
-          onPress={() => { if (link.href) void Linking.openURL(link.href).catch(() => {}) }}
+          onPress={() => void Linking.openURL(link.href).catch(() => {})}
           suppressHighlighting>
           <Inlines tokens={link.tokens ?? []} p={p} color={color} />
         </Text>
@@ -102,6 +114,9 @@ function Inline({ token, p, color }: { token: Token; p: Palette; color: string }
     case 'image':
       return <Text style={{ color: p.ink3 }}>{(token as Tokens.Image).text || 'image'}</Text>
     default:
+      if ('tokens' in token && Array.isArray((token as { tokens?: Token[] }).tokens)) {
+        return <Inlines tokens={(token as { tokens: Token[] }).tokens} p={p} color={color} />
+      }
       return 'text' in token ? String(token.text) : ('raw' in token ? String(token.raw) : null)
   }
 }
