@@ -57,8 +57,17 @@ const start = (team = TEAM, services = {}, globals = []) => {
       session: { id: sessionId, header: { cwd: '/team' }, requestHeader: () => undefined, deriveMessages: () => [] },
       ctx: {
         tools: {
-          register: (tool) => { scoped.push({ sessionId, name: tool.name, tool }); return () => {} },
-          restrict: (filter) => { restricted.push({ sessionId, deny: filter.deny ?? [] }); return () => {} },
+          register: (tool) => {
+            const entry = { sessionId, name: tool.name, tool }
+            scoped.push(entry)
+            // DSH's disposer unregisters; the fake drops the record.
+            return () => { const at = scoped.indexOf(entry); if (at !== -1) scoped.splice(at, 1) }
+          },
+          restrict: (filter) => {
+            const entry = { sessionId, deny: filter.deny ?? [] }
+            restricted.push(entry)
+            return () => { const at = restricted.indexOf(entry); if (at !== -1) restricted.splice(at, 1) }
+          },
         },
         effect: execute => (typeof execute === 'function' ? execute() : undefined),
         on: () => () => {},
@@ -241,4 +250,68 @@ test('a Session ds-bot does not own keeps only the global show_view', async (t) 
   await host.agentCreated('plain1')
   assert.ok(!hasShowView(host, 'plain1'), 'no scoped show_view shadows the global one')
   assert.ok(!host.restricted.some(entry => entry.sessionId === 'plain1'), 'no restrict applies outside the team')
+})
+
+test("a deleted Bot's Session keeps none of the scope when it is adopted as a plain one", async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('b')
+  assert.ok(hasShowView(host, 'b'))
+  assert.ok(denied(host, 'b'))
+  assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
+  assert.deepEqual(scopedNames(host, 'b'), [])
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'b'), false)
+  // The Session lives on unowned: adopting it into the DSH Agent must not bring
+  // the team tools back.
+  const agent = (await host.call('add-agent', {})).value
+  assert.equal((await host.call('agent-adopt', { agentId: agent.id, sessionId: 'b' })).ok, true)
+  assert.deepEqual(scopedNames(host, 'b'), [])
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'b'), false)
+})
+
+test('a member who leaves the group loses the scoped tools', async (t) => {
+  const team = {
+    ...TEAM,
+    bots: { ...TEAM.bots, c: { id: 'c', name: 'Scout', role: 'Scout', sessionId: 'c', createdAt: 3 } },
+    rooms: { r1: { ...TEAM.rooms.r1, members: ['a', 'b', 'c'], sessions: { b: 'sb' } } },
+  }
+  const host = start(team)
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('sb')
+  assert.ok(hasShowView(host, 'sb'))
+  assert.ok(denied(host, 'sb'))
+  assert.equal((await host.call('update-room', { id: 'r1', remove: ['b'] })).ok, true)
+  assert.deepEqual(scopedNames(host, 'sb'), [])
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'sb'), false)
+  // Resolving the archived Session again does not bring the tools back.
+  await host.agentCreated('sb')
+  assert.deepEqual(scopedNames(host, 'sb'), [])
+})
+
+test('a deleted group loses its relay scope', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('r1')
+  assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
+  assert.equal((await host.call('delete-room', { id: 'r1' })).ok, true)
+  assert.deepEqual(scopedNames(host, 'r1'), [])
+})
+
+test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('b')
+  assert.ok(hasShowView(host, 'b'))
+  assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
+  assert.deepEqual(scopedNames(host, 'b'), [])
+  // A Bot record naming the Session again — here written directly, the way an
+  // adopted state could carry it — serves the tools again.
+  rt.state.bots.b = { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 }
+  await rt.save()
+  await host.agentCreated('b')
+  assert.ok(hasShowView(host, 'b'))
 })

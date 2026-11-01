@@ -6,8 +6,6 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
-let rt
-
 // #200, #205: a group change read the team, waited (for a Session or a folder check), and
 // then wrote what it had read. A Bot deleted, or another change made, in that wait was undone.
 const TEAM = {
@@ -62,7 +60,7 @@ async function start(team = TEAM) {
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
-  rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   await rt.load()
   const held = () => {
     let release

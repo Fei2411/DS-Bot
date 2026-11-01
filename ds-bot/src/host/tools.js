@@ -707,48 +707,93 @@ export function install(rt) {
   // Session gets only its relay, and a Session ds-bot does not own gets none —
   // so they never appear in a plain dsh conversation, and another plugin's
   // same-named global tool can neither collide with them at boot nor shadow
-  // them inside these Sessions. Once per agent; the agent ctx carries the session.
-  const scopedTools = new WeakSet()
+  // them inside these Sessions. What is scoped onto a Session is kept by its
+  // disposers and goes with the ownership: indexSessions (store.js) runs
+  // syncScopedTools on every save and adopt, so a deleted Bot's adopted
+  // Session, a member who left, or a deleted group shows the plain dsh surface
+  // again — and the unload effect lifts whatever is left.
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>}>} */
+  const scoped = new Map()
+  const unscope = (id) => {
+    const held = scoped.get(id)
+    if (held === undefined) return
+    scoped.delete(id)
+    for (const dispose of held.disposers) {
+      try {
+        dispose()
+      } catch (error) {
+        rt.warn('ds-bot: a scoped tool of %s was not removed: %s', id, error)
+      }
+    }
+  }
+  const syncScopedTools = () => {
+    // unscope() deletes as it goes, which a Map keys iterator takes in stride.
+    for (const id of scoped.keys()) {
+      if (!rt.isBotSession(id) && rt.roomOf(id) === undefined) unscope(id)
+    }
+  }
+  ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
+
   const shareBotTools = (agent) => {
-    if (agent === undefined || scopedTools.has(agent)) return
+    if (agent === undefined) return
     const id = agent.session?.id
-    const relayOnly = !rt.isBotSession(id) && rt.roomOf(id) !== undefined
-    if (!rt.isBotSession(id) && !relayOnly) return
+    const owns = rt.isBotSession(id)
+    const relayOnly = !owns && rt.roomOf(id) !== undefined
+    const wanted = owns || relayOnly
+    let held = scoped.get(id)
+    // A Session that left the team, a scope of the wrong kind, or a fresh Agent
+    // for one Session all start over; a wanted scope is registered again below.
+    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly)) {
+      unscope(id)
+      held = undefined
+    }
+    if (!wanted || held?.tools === true) return
     if (typeof agent.ctx?.tools?.register !== 'function') return
+    const disposers = []
     const failed = []
     for (const def of rt.teamTools) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
-        agent.ctx.tools.register(def)
+        const dispose = agent.ctx.tools.register(def)
+        if (typeof dispose === 'function') disposers.push(dispose)
       } catch (error) {
         // A tool another plugin already scoped onto this agent stays missing
         // rather than stopping the team; the rest still land.
         failed.push(`${def.name}: ${error.message ?? error}`)
       }
     }
-    scopedTools.add(agent)
-    if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', agent.session?.id, failed.join('; '))
+    held ??= { relay: relayOnly, tools: false, restricted: false, disposers: [] }
+    held.agent = agent
+    held.relay = relayOnly
+    held.tools = true
+    held.disposers.push(...disposers)
+    scoped.set(id, held)
+    if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
   }
 
   // dsh's own question tool holds the turn open until the user answers, and every
   // message from another Bot or a group round queues behind it. Bot Sessions ask
   // through ask_user instead, so the tool is taken out of their tool list, as are the
-  // goal tools.
-  const hiddenTools = new WeakSet()
+  // goal tools. The restrict is kept with the Session's scope, so it lifts with it.
   const hideBotUnusedTools = (agent) => {
     shareBotTools(agent)
     rt.shadowShells?.(agent)
-    if (agent === undefined || hiddenTools.has(agent) || !rt.isBotSession(agent.session?.id)) return
+    const id = agent?.session?.id
+    if (agent === undefined || !rt.isBotSession(id) || scoped.get(id)?.restricted === true) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {
       // restrict() throws on a name this profile does not serve.
       const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
       const deny = HIDDEN_TOOLS.filter(name => served.has(name))
       if (deny.length === 0) return
-      agent.ctx.tools.restrict({ deny })
-      hiddenTools.add(agent)
+      const lift = agent.ctx.tools.restrict({ deny })
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [] }
+      held.agent = agent
+      if (typeof lift === 'function') held.disposers.push(lift)
+      held.restricted = true
+      scoped.set(id, held)
     } catch (error) {
-      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), agent.session?.id, error)
+      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), id, error)
     }
   }
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
@@ -896,5 +941,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools })
 }

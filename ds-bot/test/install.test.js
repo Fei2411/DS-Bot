@@ -47,6 +47,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'prompt bot-identity 640',
     'on agent/pre-step (prepend)',
     'on tools/execute',
+    'effect ds-bot: scoped team tools',
     'tools guard',
     'on agent/created',
     'on session/event',

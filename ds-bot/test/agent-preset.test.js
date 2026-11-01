@@ -22,7 +22,6 @@ const TEAM = {
   questions: {},
 }
 
-let rt
 function start({ presets } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-agent-preset-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
@@ -45,7 +44,7 @@ function start({ presets } = {}) {
     },
     sessionTitle: { rename: async () => {} },
   })
-  rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
   const relay = ctx.listeners.get('llm/stream').find(listener => /relayOrPass/.test(String(listener)))
   const stop = async () => {
     await ctx.dispose()

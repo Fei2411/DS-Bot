@@ -28,7 +28,6 @@ const TEAM = {
   questions: {},
 }
 
-let rt
 function start() {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-handoff-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
@@ -43,7 +42,7 @@ function start() {
     route = options
     return register(options)
   }
-  rt = createRuntime(ctx, { home, browser: true })
+  const rt = createRuntime(ctx, { home, browser: true })
   rt.ensureCapabilities = async sessionId => { ensured.push(sessionId) }
   rt.resolveAgent = async sessionId => ({
     session: { id: sessionId },
