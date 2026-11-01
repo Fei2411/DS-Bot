@@ -112,6 +112,7 @@ class FakeWebContents extends EventEmitter {
     this.mainFrame = {}
     this.isDestroyed = () => this.win.destroyed
     this.getURL = () => this.win.url
+    this.isLoading = () => false
     this.getTitle = () => 'DeepSeek Bot'
     this.sent = []
     this.send = (...args) => { this.sent.push(args) }

@@ -20,16 +20,17 @@ export const waitFor = async (check, what, timeout = 10_000) => {
 /**
  * Start the app on throwaway folders: the places are chosen already and the one-time notice
  * is answered, so that the app asks nothing. The Host answers when the test lets it.
- * @param {{ packaged?: boolean, saved?: object }} options whether the app is a packaged one, with
- *   an updater; what else locations.json keeps beside the places
+ * @param {{ packaged?: boolean, saved?: object, acknowledged?: boolean }} options whether the app
+ *   is a packaged one, with an updater; what else locations.json keeps beside the places; whether
+ *   the tray notice was answered already
  */
-export const startApp = async ({ packaged = true, saved = {} } = {}) => {
+export const startApp = async ({ packaged = true, saved = {}, acknowledged = true } = {}) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-main-home-'))
   const workspace = join(home, 'workspace')
   mkdirSync(workspace, { recursive: true })
   mkdirSync(paths.userData, { recursive: true })
   writeFileSync(join(paths.userData, 'locations.json'), JSON.stringify({ dataDir: home, workspace, ...saved }))
-  writeFileSync(join(paths.userData, 'tray-close-acknowledged'), '')
+  if (acknowledged) writeFileSync(join(paths.userData, 'tray-close-acknowledged'), '')
   hold()
   await import('../../src/main.mjs')
   // The app is a packaged one, so that it has an updater. The flag comes after the start,
@@ -77,6 +78,22 @@ export const startAct = async (name, value, start = startWindows().at(-1)) => {
   await new Promise((resolve) => { setImmediate(resolve) })
   start.webContents.mainFrame.url = start.url
   return state.ipc.get('ds-bot:start-act')({ sender: start.webContents, senderFrame: start.webContents.mainFrame }, name, value === undefined ? undefined : { value })
+}
+
+/** The cards the app sent the team window in place of message boxes (preload.cjs showCard). */
+export const windowCards = (win = window()) => win.webContents.sent.filter(([channel]) => channel === 'ds-bot:app-card').map(([, card]) => card)
+
+/**
+ * The team window's page shows its last card and the user clicks the button `index` on it, as
+ * preload.cjs reports both.
+ */
+export const answerCard = (index, win = window()) => {
+  const card = windowCards(win).at(-1)
+  win.webContents.mainFrame.url = win.url
+  const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
+  state.ipc.get('ds-bot:app-card-shown')(event, card.id)
+  state.ipc.get('ds-bot:app-card-answer')(event, card.id, index)
+  return card
 }
 
 /** The message boxes the app showed; the pickers have no message. */

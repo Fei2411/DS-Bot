@@ -116,7 +116,12 @@ test('only a missing file of the app\'s own says that the install is incomplete'
 })
 
 test('the main process takes only its own acts, each in its own views', () => {
-  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'installUpdate', 'manualDownload', 'pick', 'reloadView', 'retry', 'saveLog', 'wait'])
+  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
+  // The import card's model and options and the copying card's stop, on a card only.
+  for (const name of ['importModel', 'importOption', 'stopCopy', 'keepCopying']) {
+    assert.equal(acceptsAct(name, 'card'), true, name)
+    for (const view of ['boot', 'failed', 'watchdog', 'handoff', 'moving']) assert.equal(acceptsAct(name, view), false, `${name} in ${view}`)
+  }
   assert.equal(acceptsAct('handoffShow', 'handoff'), true)
   // 「换个位置…」 while the start boots and 〔重新选〕 on its cards; a card's answer only on a card.
   assert.equal(acceptsAct('pick', 'boot'), true)

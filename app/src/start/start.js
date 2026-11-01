@@ -360,6 +360,8 @@ function copying(el) {
   const card = s.card
   el.toggleAttribute('data-confirm', card.kind === 'stopCopy')
   el.querySelector('.confirm').hidden = card.kind !== 'stopCopy'
+  // Once the team starts, the copy is done and there is nothing left to stop.
+  el.querySelector('.btn.stop').hidden = card.step >= 3
   el.style.setProperty('--step', String(Math.max(0, card.step - 1)))
   ;[...el.querySelectorAll('.steps li')].forEach((li, k) => {
     const n = k + 1

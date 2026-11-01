@@ -48,6 +48,8 @@ if (startPage !== undefined) {
     else run()
   }
   loaded(reportLook)
+  // The app's own questions (the tray notice, an update, a data move), on a card over the page.
+  ipcRenderer.on('ds-bot:app-card', (_event, card) => { loaded(() => { showCard(card) }) })
   const caption = process.argv.find(value => value.startsWith('--ds-bot-caption='))
   if (caption !== undefined) {
     ipcRenderer.on('ds-bot:fullscreen', (_event, fullscreen) => {
@@ -58,6 +60,80 @@ if (startPage !== undefined) {
     })
     loaded(() => { frameless(caption.slice('--ds-bot-caption='.length), process.argv.includes('--ds-bot-mica')) })
   }
+}
+
+// The card that the team window shows in place of a message box (main.mjs askInWindow): a line,
+// an optional detail and the buttons, styled by page-card.css, which the main process inserts.
+// The answer is the index of the button; -1 when a newer card takes its place. Enter is the
+// focused button; Escape is `cancel`, when the card has one; Tab stays on the card's buttons.
+let openCard
+function showCard(card) {
+  if (card === null || typeof card !== 'object' || !Number.isInteger(card.id) || !Array.isArray(card.buttons)) return
+  openCard?.close(-1)
+  const make = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text === undefined ? {} : { textContent: String(text) }) })
+  const layer = make('div', 'dsb-card-layer')
+  const box = make('section', 'dsb-card')
+  box.setAttribute('role', 'alertdialog')
+  box.setAttribute('aria-modal', 'true')
+  const title = make('h2', 'dsb-card-title', card.message ?? '')
+  title.id = `dsb-card-title-${String(card.id)}`
+  box.setAttribute('aria-labelledby', title.id)
+  box.append(title)
+  if (typeof card.detail === 'string' && card.detail !== '') {
+    const detail = make('p', 'dsb-card-detail', card.detail)
+    detail.id = `dsb-card-detail-${String(card.id)}`
+    box.setAttribute('aria-describedby', detail.id)
+    box.append(detail)
+  }
+  const actions = make('div', 'dsb-card-actions')
+  const buttons = card.buttons.map((entry, index) => {
+    const button = make('button', 'dsb-card-btn', entry?.label ?? '')
+    button.type = 'button'
+    button.dataset.look = entry?.primary ? 'primary' : 'soft'
+    button.addEventListener('click', () => { close(index) })
+    return button
+  })
+  actions.append(...buttons)
+  box.append(actions)
+  layer.append(box)
+  const before = document.activeElement
+  let done = false
+  const keys = (event) => {
+    if (event.key === 'Escape' && Number.isInteger(card.cancel) && card.cancel >= 0) {
+      event.preventDefault()
+      close(card.cancel)
+    } else if (event.key === 'Tab' && buttons.length > 0) {
+      const at = buttons.indexOf(document.activeElement)
+      event.preventDefault()
+      buttons[(at + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus()
+    }
+    // The page's own shortcuts wait while the card is up.
+    event.stopPropagation()
+  }
+  // Focus that leaves for the page comes back to the card.
+  const keep = (event) => { if (!layer.contains(event.target)) (buttons.find(button => button.dataset.look === 'primary') ?? buttons[0])?.focus() }
+  function close(index) {
+    if (done) return
+    done = true
+    if (openCard?.close === close) openCard = undefined
+    document.removeEventListener('keydown', keys, true)
+    document.removeEventListener('focusin', keep, true)
+    ipcRenderer.send('ds-bot:app-card-answer', card.id, index)
+    delete layer.dataset.open
+    layer.dataset.leaving = ''
+    layer.inert = true
+    setTimeout(() => { layer.remove() }, 220)
+    if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
+  }
+  document.addEventListener('keydown', keys, true)
+  document.addEventListener('focusin', keep, true)
+  ;(document.body ?? document.documentElement).append(layer)
+  // The layer is laid out once before it opens, so that the opening transitions run.
+  void layer.offsetWidth
+  layer.dataset.open = ''
+  ;(buttons.find(button => button.dataset.look === 'primary') ?? buttons[0])?.focus({ preventScroll: true })
+  openCard = { close }
+  ipcRenderer.send('ds-bot:app-card-shown', card.id)
 }
 
 // The app's theme (DSH's) and the Bot animation tier (ds-bot's), which the start window takes

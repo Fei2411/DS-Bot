@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { paths, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
-import { handOff, startApp, startWindows, waitFor, window } from './helpers/app-harness.mjs'
+import { answerCard, handOff, messageBoxes, startApp, startWindows, waitFor, window, windowCards } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -36,11 +36,15 @@ test('a later start with room to spare shows no place line; Settings still moves
   state.ipc.get('ds-bot:team-workspace')(event, workspace)
   assert.deepEqual({ workspace: saved().workspace, freeAtStart: saved().freeAtStart }, { workspace, freeAtStart: 1 })
 
-  // The move from Settings: its picker and its question.
+  // The move from Settings: its picker, and its question on a card in the team window.
   const to = join(mkdtempSync(join(tmpdir(), 'ds-bot-move-')), 'data')
   state.openAnswer = { canceled: false, filePaths: [to] }
-  state.dialogAnswer = { response: 0 }
-  assert.equal(await state.ipc.get('ds-bot:move-data')(event, workspace), true)
+  const moved = state.ipc.get('ds-bot:move-data')(event, workspace)
+  await waitFor(() => windowCards(win).length === 1, 'ask about the move on a card')
+  assert.match(windowCards(win)[0].message, /data/u)
+  answerCard(0, win)
+  assert.equal(await moved, true)
+  assert.deepEqual(messageBoxes(), [], 'no message box')
   assert.equal(state.relaunches.length, 1)
   assert.ok(existsSync(to), 'the data was copied')
   assert.equal(saved().dataDir, to)

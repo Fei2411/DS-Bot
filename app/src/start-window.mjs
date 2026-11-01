@@ -44,6 +44,11 @@ const ACT_VIEWS = {
   // (「会放在…」, a place that cannot be used).
   pick: ['boot', 'card', 'watchdog'],
   answer: ['card'],
+  // The import card's model and options, and the copying card's stop (windows-onboarding §4).
+  importModel: ['card'],
+  importOption: ['card'],
+  stopCopy: ['card'],
+  keepCopying: ['card'],
   // The failure page's update banner: 〔下载〕 or 〔重试〕 on it, and 「手动下载」.
   installUpdate: ['failed'],
   manualDownload: ['failed'],
@@ -251,6 +256,8 @@ export const detailsText = ({ version, platform, arch, reason, lines }) => [`Dee
 const note = message => { console.log(`DeepSeek Bot: start window: ${message}`) }
 // The page sends a button's detail as { value }; anything else counts as none.
 const valueOf = payload => (payload !== null && typeof payload === 'object' && typeof payload.value === 'string' ? payload.value.slice(0, 40) : undefined)
+// An option of the import card: its name and whether it is ticked.
+const optionOf = payload => (payload !== null && typeof payload === 'object' && typeof payload.option === 'string' ? { option: payload.option.slice(0, 40), value: payload.value === true } : undefined)
 
 export class StartWindow {
   #o
@@ -291,12 +298,14 @@ export class StartWindow {
    *   onRetry: () => void, onReload: () => void, onClose: () => void,
    *   onPick?: (value?: string) => void, onAnswer?: (value?: string) => void,
    *   onUpdate?: (name: 'installUpdate' | 'manualDownload') => void,
+   *   onImport?: (name: 'importModel' | 'importOption' | 'stopCopy' | 'keepCopying', value: unknown) => void,
    * }} options `lang` is asked at each open; `program` names the folders of the app's own files;
    *   `onClose` runs when the user closes the start window before the hand-off; `onPick` when
    *   the page asks for the folder picker ('changePlace' from its place line, nothing from a
    *   card's 〔重新选〕; on a later start the line's button moves the data), `onAnswer` with a
    *   card's answer ('use' for 〔继续〕 on 「会放在…」), `onUpdate` with a button of the failure
-   *   page's update banner.
+   *   page's update banner, `onImport` with the import card's model and options and the copying
+   *   card's stop.
    */
   constructor(options) {
     this.#o = options
@@ -705,6 +714,8 @@ export class StartWindow {
     else if (name === 'pick') this.#o.onPick?.(valueOf(payload))
     else if (name === 'answer') this.#o.onAnswer?.(valueOf(payload))
     else if (name === 'installUpdate' || name === 'manualDownload') this.#o.onUpdate?.(name)
+    else if (name === 'importOption') this.#o.onImport?.(name, optionOf(payload))
+    else if (name === 'importModel' || name === 'stopCopy' || name === 'keepCopying') this.#o.onImport?.(name, valueOf(payload))
     return true
   }
 
