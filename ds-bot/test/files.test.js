@@ -39,7 +39,7 @@ test('stops trying when the check before a new try throws, and leaves the file a
 
 test('gives up at once on an error that waiting does not fix', async (t) => {
   const dir = folder(t)
-  const started = Date.now()
+  const wait = t.mock.method(globalThis, 'setTimeout')
   await assert.rejects(replaceFile(join(dir, 'missing.tmp'), join(dir, 'state.json')), { code: 'ENOENT' })
-  assert.ok(Date.now() - started < 40)
+  assert.equal(wait.mock.callCount(), 0)
 })

@@ -28,7 +28,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { AssistantCell, TurnTailCell, ThinkingRow } = module.exports
+const { AssistantCell, TurnTailCell, ThinkingRow, CellEmpty } = module.exports
 
 // Renders the named components of an element tree, leaving the rest as elements.
 const expand = (node, names) => {
@@ -132,9 +132,9 @@ test('the thinking row shows only with its switch on, and the activity row is ne
   }
   const reason = [{ kind: 'reasoning', text: 'Weighing it' }]
   const thinking = { turn: 3, step: 1, status: 'running', blocks: reason }
-  // Off: a thinking step draws nothing and notes nothing.
+  // Off: a thinking step draws nothing — the empty mark — and notes nothing.
   const off = cell({}, reason, [thinking])
-  assert.equal(off.out, null)
+  assert.equal(off.out?.type, CellEmpty)
   assert.deepEqual(off.noted, [])
   // On: the live row shows — and still notes nothing, so the activity row stays.
   const on = cell({ thinking: true }, reason, [thinking])
