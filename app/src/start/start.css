@@ -105,6 +105,43 @@ html[data-ring=closed] .ring{animation:bt-ring-pulse .5s cubic-bezier(.3,.7,.4,1
 @keyframes bt-ring-pulse{0%,100%{scale:1}40%{scale:1.035}}
 html[data-resume] :is(.arc-fill,.ring-full){transition:none}
 .water{position:absolute;left:260px;top:242px;width:200px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2) 18% 82%,transparent)}
+/* Stage props: in front of the whale, on the waterline, the work of the stage that is running:
+   a folder whose pages riffle (data), two gears turning on a pulse (engine), the team popping up
+   (team). Each shows only while its arc is active, so a stage done before it turns active shows
+   none. Rotations keep the gears meshed: 9 and 6 teeth, so the small one turns 1.5 times as fast. */
+.props{position:absolute;left:413px;top:195px;width:46px;height:46px;overflow:visible}
+.props>g{opacity:0;scale:.6;transform-origin:20px 36px;transition:opacity .16s ease-in,scale .16s ease-in}
+.props *{transform-box:fill-box}
+.props>g{transform-box:view-box}
+.pond:has(.arc:nth-of-type(1)[data-state=active]) [data-p=data],.pond:has(.arc:nth-of-type(2)[data-state=active]) [data-p=engine],.pond:has(.arc:nth-of-type(3)[data-state=active]) [data-p=team]{opacity:1;scale:1;transition:opacity .2s ease-out,scale var(--spring-pop-ms) var(--spring-pop)}
+.folder-back{fill:color-mix(in srgb,var(--bt-ink-deepseek) 40%,transparent)}
+.folder-front{fill:var(--bt-ink-deepseek)}
+.page rect{fill:var(--bt-card);stroke:var(--bt-line-2);stroke-width:1}
+.page path{fill:none;stroke:var(--bt-line-2);stroke-width:1.2;stroke-linecap:round}
+.page{transform-origin:0 100%;animation:bt-riffle 1.5s cubic-bezier(.4,0,.2,1) infinite}
+.page:nth-of-type(2){animation-delay:-.5s}
+.page:nth-of-type(3){animation-delay:-1s}
+@keyframes bt-riffle{0%,100%{transform:translateY(5px)}35%{transform:translateY(-3px) rotate(-14deg)}60%{transform:translateY(5px) rotate(0)}}
+.gear{transform-box:view-box}
+.gear-big{transform-origin:15px 24px}
+.gear-small{transform-origin:28.5px 14.8px}
+.gear-big{fill:var(--bt-ink-deepseek);animation:bt-turn 2.7s linear infinite}
+.gear-small{fill:color-mix(in srgb,var(--bt-ink-deepseek) 55%,transparent);animation:bt-turn 1.8s linear infinite reverse}
+[data-p=engine]{animation:bt-pulse 1.35s ease-in-out infinite}
+.pond:not(:has(.arc:nth-of-type(2)[data-state=active])) [data-p=engine]{animation:none}
+@keyframes bt-turn{to{rotate:360deg}}
+@keyframes bt-pulse{0%,100%{transform:none}15%{transform:scale(1.07)}35%{transform:none}}
+.mate circle{fill:var(--bt-ink-deepseek)}
+.mate rect{fill:var(--bt-card)}
+.mate{transform-origin:50% 100%;animation:bt-mate 1.8s cubic-bezier(.3,.7,.4,1) infinite}
+[data-p=team]>g:nth-child(1) .mate{opacity:.55}
+[data-p=team]>g:nth-child(2) .mate{animation-delay:.2s}
+[data-p=team]>g:nth-child(3) .mate{opacity:.75;animation-delay:.4s}
+@keyframes bt-mate{0%,40%,100%{transform:none}15%{transform:translateY(-4px) scale(1.05,.95)}}
+html[data-whale=pondering] :is(.page,.mate,[data-p=engine]){animation-duration:2.6s}
+html[data-whale=pondering] .gear-big{animation-duration:4s}
+html[data-whale=pondering] .gear-small{animation-duration:2.667s}
+
 .track{list-style:none}
 /* step marks of the copying card */
 .mark{position:relative;flex:none;width:16px;height:16px;border-radius:50%;box-sizing:border-box;border:1.5px solid var(--bt-line-2);transition:border-color .12s}
@@ -261,7 +298,7 @@ html[data-tail=dash]:not([data-tier=quiet]) #tail{animation:bt-tail-dash .55s ea
 @keyframes bt-tail-dash{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}
 
 /* hand-off: window-level content fades */
-html[data-exit~=caption] .caption,html[data-exit~=all] :is(.voice,.water,.ring,.spout,.sheet,.place){opacity:0;transition:opacity .16s}
+html[data-exit~=caption] .caption,html[data-exit~=all] :is(.voice,.water,.ring,.props,.spout,.sheet,.place){opacity:0;transition:opacity .16s}
 html[data-hidden] *{animation-play-state:paused!important}
 
 /* reduced motion (ui-standard 9.6, styles.js:106): static whale, fades only */
@@ -271,7 +308,8 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-eyes=happy] .bt-eye-happy{opacity:1}
 @media (prefers-reduced-motion:reduce){
 :root :is(.whale-x,.whale-gaze,.whale,.whale-move,.whale-loop,#tail,#gaze,#eye-pair,.bt-eye,.bt-eye-happy,.ripple,.stage){animation:none!important;transition:none!important}
-:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring){animation:none!important}
+:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *){animation:none!important}
+:root .props>g{scale:none!important;transition:opacity .12s!important}
 :root :is(.arc-fill,.ring-full){transition-duration:.12s!important}
 :root .voice>span{animation:none!important;background:none!important;color:var(--bt-ink)!important}
 :root :is(.voice,.caption>*,.card,.miss,.banner,.log,.confirm,.models,[data-u]){filter:none!important;scale:none!important;transition-property:opacity!important;transition-duration:.12s!important;transition-delay:0s!important}
@@ -279,4 +317,4 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-exit~=lane] .lane{opacity:0;transition:opacity .12s}
 }
 
-@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.drop{forced-color-adjust:none;background:Highlight}}
+@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle){fill:CanvasText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}
