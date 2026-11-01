@@ -11,13 +11,21 @@ export interface Bot {
   color?: string
   avatar?: { shape?: string; image?: string }
   sessionId?: string
+  parts?: string[]
   waiting?: boolean
+  pinned?: boolean
+  hidden?: boolean
+  createdAt?: number
 }
 
 export interface Room {
   id: string
   name: string
   preview?: string
+  members?: string[]
+  pinned?: boolean
+  hidden?: boolean
+  createdAt?: number
 }
 
 export interface Question {
@@ -32,10 +40,19 @@ export interface Approval {
   id: string
   sessionId: string
   botId: string
+  roomId?: string
+  at?: number
   tool: string
   reason: string
   detail?: { text?: string; code?: string }
   answerable?: boolean
+}
+
+export interface SecretRequest {
+  id: string
+  name?: string
+  scope?: string | string[]
+  status?: string
 }
 
 export interface TeamState {
@@ -43,14 +60,20 @@ export interface TeamState {
   unchanged?: boolean
   bots: Bot[]
   rooms?: Room[]
+  mainBotId?: string | null
   mainBotIds?: string[]
   questions?: Record<string, Question>
+  secretRequests?: Record<string, SecretRequest[]>
   work?: {
-    bots?: Record<string, { tool?: string }>
+    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
+    waiting?: Record<string, { bots?: string[]; rooms?: string[] }>
     turns?: Record<string, number>
   }
-  prefs?: { theme?: string; accent?: string }
+  activity?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean }>
+  exchangeTurns?: Record<string, number[]>
+  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number }
 }
 
 function phoneName(): string {
