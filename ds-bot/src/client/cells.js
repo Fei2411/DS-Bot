@@ -320,8 +320,8 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
-function syncGroupChains(flow) {
+const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
+export function syncGroupChains(flow) {
   const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)]
   for (let i = 0; i < items.length; i += 1) {
     const curr = items[i]
@@ -341,6 +341,16 @@ function syncGroupChains(flow) {
   }
 }
 
+const pendingFlows = new WeakSet()
+function scheduleGroupChains(flow) {
+  if (!flow || pendingFlows.has(flow)) return
+  pendingFlows.add(flow)
+  queueMicrotask(() => {
+    pendingFlows.delete(flow)
+    if (flow.isConnected !== false) syncGroupChains(flow)
+  })
+}
+
 // One Bot message inside a group chat: avatar, name (with its group role), when it ran
 // and how long it took, bubble. The flat layout moves the avatar from beside the last
 // bubble to the head of the name row, so the text below runs the whole width.
@@ -351,9 +361,9 @@ function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey
     if (!el?.closest) return undefined
     const flow = el.closest('[data-chat-flow]')
     if (!flow) return undefined
-    syncGroupChains(flow)
-    return () => syncGroupChains(flow)
-  })
+    scheduleGroupChains(flow)
+    return () => scheduleGroupChains(flow)
+  }, [bot.id])
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   const flat = layoutOf(roster.prefs) === 'flat'
