@@ -71,7 +71,7 @@ function varsOf(snap) {
   const update = snap.update ?? {}
   const vars = { ...card }
   if (snap.view === 'failed' || snap.view === 'viewFailed') vars.reason = snap.failure?.reason ?? 'other'
-  if (card.kind === 'importFailed') vars.reason = say(`reason.copy.${card.reason}`)
+  if ((card.kind === 'importFailed' || card.kind === 'moveFailed') && card.reason) vars.reason = say(`reason.copy.${card.reason}`)
   if (card.kind === 'newerUpdating') vars.p = card.percent ?? 0
   if (update.version) Object.assign(vars, { version: update.version, p: update.percent ?? 0, a: update.received ?? 0, b: update.total ?? 0 })
   return vars
@@ -285,12 +285,19 @@ function fillBlock(name) {
   const el = blockEl(name)
   if (!el || !s) return
   const vars = varsOf(s)
-  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.steps, .copied')) render(node, vars)
+  // A card with variants shows the parts of its own (data-why) only; the others stay empty, so
+  // that a screen reader does not read them.
+  for (const node of el.querySelectorAll('[data-why]')) {
+    node.hidden = node.dataset.why !== s.card?.why
+    if (node.hidden && node.dataset.t) { node.textContent = ''; sigs.delete(node) }
+  }
+  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.steps, .copied, [data-why][hidden]')) render(node, vars)
   if (name === 'missing') missing(el)
   if (name === 'recommend' || name === 'rejected') recommend(el)
   if (name === 'import') importCard(el)
   if (name === 'copying') copying(el)
   if (name === 'failed') failed(el)
+  if (name === 'moveFailed') el.querySelector('[data-old]').dataset.look = s.card?.why === 'copy' ? 'soft' : 'primary'
 }
 let missSeen = 0
 let missTimer = 0

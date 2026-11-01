@@ -8,6 +8,19 @@ export const within = (inner, outer) => {
   return path === '' || (!path.startsWith('..') && !path.startsWith(sep) && !/^[a-z]:/iu.test(path))
 }
 
+/**
+ * Why a copy failed, in the words of the start page's cards (reason.copy.*); the rest goes into
+ * the details.
+ * @returns {'inUse' | 'permission' | 'full' | 'other'}
+ */
+export function copyReason(error) {
+  const code = typeof error?.code === 'string' ? error.code : ''
+  if (code === 'EBUSY') return 'inUse'
+  if (code === 'EACCES' || code === 'EPERM') return 'permission'
+  if (code === 'ENOSPC' || code === 'EDQUOT') return 'full'
+  return 'other'
+}
+
 // The path as the file system has it: through links and junctions, from the deepest part that
 // exists. A link can make a path that looks apart from a folder lead into it.
 export function real(path) {

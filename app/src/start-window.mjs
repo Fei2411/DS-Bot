@@ -410,17 +410,21 @@ export class StartWindow {
   }
 
   /**
-   * A card on the sheet while the start boots (the clock stands still), or none: back to the
-   * boot. Only the cards of a place: 「会放在…」, a place that cannot be used, and a later start's
-   * 「搬到这个文件夹？」.
-   * @param {{ kind: 'picked' | 'rejected' | 'move', path: string, reason?: string, dataDir?: string } | undefined} card
+   * A card on the sheet while the start boots or the data moves (the clock stands still), or
+   * none: back to the boot or the move. The cards of a place (「会放在…」, a place that cannot be
+   * used, a later start's 「搬到这个文件夹？」), of the first run's import and of a move that did
+   * not go through.
+   * @param {{ kind: string, [field: string]: unknown } | undefined} card
+   * @returns {boolean} whether the window shows it: not on the failure page or at the hand-off
    */
   card(card) {
-    if (!this.#open() || !['boot', 'card', 'watchdog'].includes(this.#state.view)) return
-    if (card === undefined && this.#state.view !== 'card') return
+    if (!this.#open() || !['boot', 'card', 'watchdog', 'moving'].includes(this.#state.view)) return false
+    if (card === undefined && this.#state.view !== 'card') return false
     // Back in the boot, a 180 s question that the card replaced comes straight back.
-    this.#update(card === undefined ? { view: 'boot', card: undefined } : { view: 'card', card: { ...card } })
+    const back = this.#state.start === 'moving' ? 'moving' : 'boot'
+    this.#update(card === undefined ? { view: back, card: undefined } : { view: 'card', card: { ...card } })
     if (card === undefined) this.#resume()
+    return true
   }
 
   /**

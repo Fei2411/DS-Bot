@@ -6,6 +6,8 @@ import { mkdir, rename, rm, rmdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { copyTree, real, within } from './copy-tree.mjs'
 
+export { copyReason } from './copy-tree.mjs'
+
 // The engine's lock on the team belongs to the old folder; the first-run copy and its check
 // leave their temporary folders only when they were cut short.
 const LEFT_BEHIND = [/^bot[\\/]state\.lock$/u, /^\.import(-check)?-\d+$/u]

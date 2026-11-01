@@ -68,3 +68,33 @@ export const handOff = async () => {
 
 /** The entries of the tray's menu: Open, a line, Quit. */
 export const trayMenu = () => state.tray.menu.template
+
+/** The last state the start window sent its page. */
+export const startState = (start = startWindows().at(-1)) => start?.webContents.sent.filter(([channel]) => channel === 'ds-bot:start-state').at(-1)?.[1]
+
+/** A click on the start page: the act with its button's detail, on a later task, as a click is. */
+export const startAct = async (name, value, start = startWindows().at(-1)) => {
+  await new Promise((resolve) => { setImmediate(resolve) })
+  start.webContents.mainFrame.url = start.url
+  return state.ipc.get('ds-bot:start-act')({ sender: start.webContents, senderFrame: start.webContents.mainFrame }, name, value === undefined ? undefined : { value })
+}
+
+/** The message boxes the app showed; the pickers have no message. */
+export const messageBoxes = () => state.dialogs.filter(options => 'message' in options)
+
+/**
+ * A later start whose drive runs low, and its place line's 〔换个位置…〕 to `to`, answered with
+ * 〔移动并重启〕: the start window becomes the move's.
+ * @returns {Promise<{ home: string, workspace: string }>}
+ */
+export const moveFromStart = async (to, { before = () => {} } = {}) => {
+  const places = await startApp({ saved: { freeAtStart: Number.MAX_SAFE_INTEGER } })
+  before(places)
+  await waitFor(() => startState()?.place !== undefined, 'show the place line')
+  state.openAnswer = { canceled: false, filePaths: [to] }
+  await startAct('pick', 'changePlace')
+  await waitFor(() => startState().card?.kind === 'move', 'ask about the move')
+  await startAct('answer', 'move')
+  await waitFor(() => startWindows()[0].url.endsWith('?start=moving'), 'turn the start window into the move\'s')
+  return places
+}

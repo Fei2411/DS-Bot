@@ -65,7 +65,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, teamInUse, userDshHome, copyData, moveProblem, CHECK_PROFILE, PROFILE
+let copySessions, findTeam, importTeam, teamInUse, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE
 let watchReleases, watchUpdates, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -93,6 +93,8 @@ let picking = false
 let proposed
 // The folder a later start's move card asks about.
 let moveTo
+// Takes the answer of the card that askCard() put up.
+let answering
 // A retry or a start over is stopping the old engine: no second one starts meanwhile.
 let restarting = false
 // The first run's answer to the import; only the first boot copies.
@@ -177,7 +179,10 @@ if (canonical !== undefined) {
     onClose: () => { app.quit() },
     // 「换个位置…」: a first start picks the place again; a later start moves the data there.
     onPick: () => { (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail) },
-    onAnswer: (value) => { (startWindow.kind === 'later' ? moveAnswer(value) : placeAnswer(value)).catch(fail) },
+    onAnswer: (value) => {
+      if (answering !== undefined) { answering(value); return }
+      (startWindow.kind === 'later' ? moveAnswer(value) : placeAnswer(value)).catch(fail)
+    },
   })
   // A second launch shows the window that is showing: the start window until the hand-off
   // (also after a failed start), then the team window, built anew when it is gone.
@@ -262,7 +267,7 @@ async function loadModules() {
   ;({ chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
   ;({ HostProcess } = hostProcess)
   ;({ copySessions, findTeam, importTeam, teamInUse, userDshHome } = imports)
-  ;({ copyData, moveProblem } = moves)
+  ;({ copyData, copyReason, moveProblem } = moves)
   ;({ CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates } = updatesModule)
   ;({ getDshRuntimeVersion } = boot)
@@ -318,6 +323,37 @@ async function stopOld(options) {
 
 // The dialogs of the first run belong to the start window and stop its clock.
 const ui = () => ({ owner: () => startWindow.owner(), asking: answer => startWindow.asking(answer) })
+
+/**
+ * A card on the start page that waits for the user, in place of a message box: the value of the
+ * button they click. 'settled' when `settle` comes first (what the card waited for happened by
+ * itself); undefined when the card cannot show, the app quits, or the failure page takes its
+ * place. The card stays up for the caller to replace or take away.
+ * @param {{ kind: string }} card @param {{ signal?: AbortSignal, settle?: Promise<unknown> }} [options]
+ * @returns {Promise<string | undefined>}
+ */
+function askCard(card, { signal, settle } = {}) {
+  answering?.(undefined)
+  return new Promise((resolve) => {
+    const done = (value) => {
+      if (answering !== done) return
+      answering = undefined
+      signal?.removeEventListener('abort', gone)
+      resolve(value)
+    }
+    const gone = () => { done(undefined) }
+    answering = done
+    if (signal?.aborted || !startWindow.card(card)) { gone(); return }
+    signal?.addEventListener('abort', gone, { once: true })
+    void settle?.then(() => { done('settled') }, gone)
+  })
+}
+
+/** Resolves once `check` holds, looking every 2 s, or never once `signal` stops it. */
+async function until(check, signal) {
+  while (!signal.aborted && !check()) await sleep(2000, undefined, { signal }).catch(() => {})
+  if (signal.aborted) await new Promise(() => {})
+}
 
 // The data folder (with the first run's question on a first start), the engine, then the team
 // view in the hidden team window.
@@ -813,9 +849,9 @@ function moveCard(to) {
 }
 
 // A folder the checks cannot read counts as one without permission, as on a first start.
-function moveReason(to) {
+function moveReason(to, workspace = places.workspace) {
   try {
-    const problem = moveProblemOf(to, places.workspace)
+    const problem = moveProblemOf(to, workspace)
     return problem === undefined ? undefined : MOVE_REASONS[problem]
   } catch (error) {
     console.error(error)
@@ -872,6 +908,10 @@ async function moveRefused(to, workspace) {
   return true
 }
 
+// The move itself, on the start window's moving page. What keeps it from going through is said on
+// a card there, 「没有搬成」, and the app starts again on the old folder: a folder that cannot be
+// used after all, another DSH on the data (the move goes on by itself once it is closed), a copy
+// that failed (〔重试〕 copies again). Quitting meanwhile stops it without a new start.
 async function runMove(to, workspace) {
   const signal = copyAbort.signal
   copying = (async () => {
@@ -881,33 +921,50 @@ async function runMove(to, workspace) {
     mainWindow?.hide()
     startWindow.open('moving')
     await stopHost()
+    const from = places.dataDir
+    const stay = { kind: 'moveFailed', dataDir: from }
     // The app may have heard of a team workspace change while the Host stopped.
-    if (await moveRefused(to, workspace)) {
-      app.relaunch()
+    const reason = moveReason(to, workspace)
+    if (reason !== undefined) {
+      await askCard({ ...stay, why: 'place', place: reason, path: to }, { signal })
+      if (!signal.aborted) app.relaunch()
       return
     }
     // Another DSH on the same data would go on writing while the copy is made.
-    if (teamInUse(places.dataDir)) {
-      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: tx('dialog.move.inUse') })
-      app.relaunch()
-      return
-    }
-    setProgress(2)
-    try {
-      await copyData(places.dataDir, to, signal)
-      try {
-        saveLocations({ dataDir: to, workspace: places.workspace ?? workspace })
-      } catch (error) {
-        // Unused, the copy would only keep the folder from being chosen again.
-        await rm(to, { recursive: true, force: true, maxRetries: 5 }).catch((failure) => { console.error(failure) })
-        throw error
+    if (teamInUse(from)) {
+      const free = new AbortController()
+      const answer = await askCard({ ...stay, why: 'inUse' }, { signal, settle: until(() => !teamInUse(from), free.signal) })
+      free.abort()
+      if (answer !== 'settled') {
+        if (!signal.aborted) app.relaunch()
+        return
       }
-    } catch (error) {
-      if (signal.aborted) return
-      console.error(error)
-      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: tx('dialog.move.failed', { message: error instanceof Error ? error.message : String(error) }) })
-    } finally {
-      setProgress(-1)
+      startWindow.card(undefined)
+    }
+    for (;;) {
+      setProgress(2)
+      try {
+        await copyData(from, to, signal)
+        try {
+          saveLocations({ dataDir: to, workspace: places.workspace ?? workspace })
+        } catch (error) {
+          // Unused, the copy would only keep the folder from being chosen again.
+          await rm(to, { recursive: true, force: true, maxRetries: 5 }).catch((failure) => { console.error(failure) })
+          throw error
+        }
+        break
+      } catch (error) {
+        if (signal.aborted) return
+        console.error(error)
+        setProgress(-1)
+        const message = error instanceof Error ? error.message : String(error)
+        const answer = await askCard({ ...stay, why: 'copy', reason: copyReason(error), log: message.split('\n') }, { signal })
+        if (signal.aborted) return
+        if (answer !== 'retry') break
+        startWindow.card(undefined)
+      } finally {
+        setProgress(-1)
+      }
     }
     app.relaunch()
   })()
@@ -1193,6 +1250,8 @@ async function fail(error) {
   failed = true
   const mine = attempt
   startWindow.fail(error, startKind())
+  // The failure page takes the place of a card that waited.
+  answering?.(undefined)
   const found = await Promise.race([updates?.latest() ?? null, sleep(UPDATE_CHECK_WAIT_MS).then(() => null)])
   if (!found || mine !== attempt) return
   await dialog.showMessageBox(owner(), { type: 'info', title: 'DeepSeek Bot', message: tx(found.page ? 'dialog.update.onFailurePage' : 'dialog.update.onFailure', { version: found.version }) })

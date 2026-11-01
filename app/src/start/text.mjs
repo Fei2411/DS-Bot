@@ -41,6 +41,7 @@ export const TEXT = {
     'say.newer': '这些对话比我新',
     'say.copying': '正在搬过来',
     'say.move': '搬到这个文件夹？',
+    'say.moveFailed': '没有搬成',
     // hint
     'hint.space': '{drive} 盘只剩 {free}',
     // card
@@ -49,6 +50,9 @@ export const TEXT = {
     'card.missing.retryMissed': '还是找不到这个文件夹。',
     'card.picked.lead': '会放在 {path}。',
     'card.move.lead': '会把数据复制到 {path}，然后重新启动。原来的 {dataDir} 原样留着，确认没问题后可以自己删掉。',
+    'card.moveFailed.inUse': '另一个 DeepSeek Harness 正在使用这份数据。关掉它以后，这里会自动接着搬。',
+    'card.moveFailed.copy': '数据没有复制完：{reason}。',
+    'card.moveFailed.stay': '原来的 {dataDir} 没有变化。',
     'card.import.lead': 'DeepSeek Harness 里有 {bots} 个 Bot 和 {groups} 个群聊（对话 {chats}，工作文件 {work}）。复制过来？',
     'card.import.extra': '复制后会多占 {total}，DeepSeek Harness 里的原件不动。',
     'card.import.found': '在 {path} 里找到 {bots} 个 Bot（{names}等）和 {groups} 个群聊，{sessions} 段对话。',
@@ -90,6 +94,7 @@ export const TEXT = {
     'reason.copy.inUse': '文件被别的程序占用',
     'reason.copy.permission': '没有权限读取',
     'reason.copy.full': '磁盘满了',
+    'reason.copy.other': '出了点意外',
     // btn
     'btn.retry': '重试',
     'btn.wait': '继续等待',
@@ -117,6 +122,7 @@ export const TEXT = {
     'btn.manualDownload': '手动下载',
     'btn.reload': '重新载入',
     'btn.move': '移动并重启',
+    'btn.startOld': '用原来的位置启动',
     'btn.cancel': '取消',
     'btn.quit': '退出',
     'btn.restart': '立即重启',
@@ -190,6 +196,7 @@ export const TEXT = {
     'say.newer': 'These chats are newer than me',
     'say.copying': 'Moving your team in',
     'say.move': 'Move the data here?',
+    'say.moveFailed': 'The data didn’t move',
     // hint
     'hint.space': 'Only {free} left on drive {drive}',
     // card
@@ -198,6 +205,9 @@ export const TEXT = {
     'card.missing.retryMissed': 'Still can’t find this folder.',
     'card.picked.lead': 'It will go in {path}.',
     'card.move.lead': 'DeepSeek Bot copies its data to {path} and starts again. {dataDir} stays as it is; once all is well you can delete it yourself.',
+    'card.moveFailed.inUse': 'Another DeepSeek Harness is using this data. Once it is closed, the move goes on by itself.',
+    'card.moveFailed.copy': 'The data wasn’t fully copied: {reason}.',
+    'card.moveFailed.stay': '{dataDir} is unchanged.',
     'card.import.lead': 'DeepSeek Harness has {bots|Bot|Bots} and {groups|group chat|group chats} (chats {chats}, work files {work}). Copy them over?',
     'card.import.extra': 'The copy takes another {total}; the originals in DeepSeek Harness stay untouched.',
     'card.import.found': 'Found {bots|Bot|Bots} ({names} and others), {groups|group chat|group chats} and {sessions|chat|chats} in {path}.',
@@ -239,6 +249,7 @@ export const TEXT = {
     'reason.copy.inUse': 'a file is in use by another program',
     'reason.copy.permission': 'no permission to read',
     'reason.copy.full': 'the disk is full',
+    'reason.copy.other': 'something unexpected happened',
     // btn
     'btn.retry': 'Try again',
     'btn.wait': 'Keep waiting',
@@ -266,6 +277,7 @@ export const TEXT = {
     'btn.manualDownload': 'Download manually',
     'btn.reload': 'Reload',
     'btn.move': 'Move and restart',
+    'btn.startOld': 'Start in the old folder',
     'btn.cancel': 'Cancel',
     'btn.quit': 'Quit',
     'btn.restart': 'Restart now',

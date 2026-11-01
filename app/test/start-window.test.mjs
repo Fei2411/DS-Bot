@@ -736,6 +736,26 @@ test('a move from a later start turns the start window into the move\'s and drop
   assert.equal(m.act('openLogs'), true)
   m.tick(WATCHDOG_MS)
   assert.equal(m.state().view, 'moving')
+  // A move that does not go through asks on a card of the moving page; the clock stands still
+  // meanwhile, and taking the card away goes back to the move, not to a boot.
+  assert.equal(m.start.card({ kind: 'moveFailed', why: 'inUse', dataDir: 'C:\\Data' }), true)
+  assert.equal(m.state().view, 'card')
+  assert.equal(m.state().clock.running, false)
+  assert.equal(m.act('answer', { value: 'old' }), true)
+  assert.deepEqual(m.calls.answer, ['old'])
+  assert.equal(m.start.card(undefined), true)
+  assert.equal(m.state().view, 'moving')
+  assert.equal(m.state().clock.running, true)
+  assert.equal('card' in m.state(), false)
+})
+
+test('a card shows only while the start boots or the data moves', (t) => {
+  const c = startWindow(t)
+  c.start.open('first')
+  c.start.fail(new Error('the Host did not start'), 'first')
+  assert.equal(c.start.card({ kind: 'importFailed', reason: 'other' }), false)
+  assert.equal(c.state().view, 'failed')
+  assert.equal(c.start.card(undefined), false)
 })
 
 test('the 20 s check\'s verdict waits for a card\'s answer instead of being lost', (t) => {
