@@ -1542,10 +1542,11 @@ export function install(rt) {
   async function applyReview({ keeper, name, home, numbered, changes, source, teamWrites }) {
     const actor = { id: keeper.id, name: keeper.name, auto: true }
     const done = []
+    const counts = () => ({ kept: done.length, changed: done.filter(result => result.changed).length })
     let failed
     for (const change of changes) {
       // A keeper deleted mid-review keeps no more changes, its team ones included.
-      if (rt.botOf(keeper.id) === undefined) return 0
+      if (rt.botOf(keeper.id) === undefined) return counts()
       // Its role may change mid-review too, so each change asks again.
       const team = teamWrites()
       const op = String(change?.op ?? '')
@@ -1576,7 +1577,7 @@ export function install(rt) {
         else if (op === 'edit') done.push(await replaceEntry({ scope, topic: target.file.topic, match: target.text, text, meta, actor, label }))
         else if (op === 'remove') done.push(await removeEntry({ scope, topic: target.file.topic, match: target.text, actor, label }))
       } catch (failure) {
-        if (failure?.code === GONE) return 0
+        if (failure?.code === GONE) return counts()
         // The change is named by its text and where it was headed, so the
         // diagnostics say what was not kept, not only why.
         const held = op === 'remove' ? `the removal of "${clip(target.text, 160)}"` : `the entry "${clip(text, 160)}"`
@@ -1588,7 +1589,7 @@ export function install(rt) {
     // A write that broke keeps the review's place: it may work when the lines are
     // next read. What memory could not keep was set aside above, said already.
     if (failed !== undefined) throw failed
-    return done.filter(result => result.changed).length
+    return counts()
   }
 
   const roomCopy = room => ({ id: room.id, name: room.name, seq: room.seq, log: [...room.log ?? []] })
@@ -1690,13 +1691,15 @@ export function install(rt) {
           const shown = clip(JSON.stringify(change), 160)
           rt.warn('ds-bot: memory review of %s left out a change: %s', name, secretEntry(shown) ? 'it looks like a key, token, password, or ID number, which memory never keeps' : `it is not a well-formed change: ${shown}`)
         }
-        const changed = await applyReview({ keeper, name, home, numbered, changes: changes.slice(0, REVIEW_CHANGES_MAX), source: batch.source(read), teamWrites })
+        const { kept, changed } = await applyReview({ keeper, name, home, numbered, changes: changes.slice(0, REVIEW_CHANGES_MAX), source: batch.source(read), teamWrites })
         if (!alive()) return
-        // An answer at the limit may have left some out, so the same lines are read
-        // again, a few times at most, while each pass still changes something.
+        // An answer that kept all one answer may hold may have left some out, so
+        // the same lines are read again, a few times at most, while each pass
+        // still changes something. What was set aside is no part of the limit: it
+        // was handled, and the same lines read again would meet it the same way.
         const prior = overflowed.get(key)
         const passes = prior !== undefined && prior.since === since ? prior.passes : 0
-        if (changes.length + leftOut.length >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
+        if (kept >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
           overflowed.set(key, { since, passes: passes + 1 })
           through = since
           again = true

@@ -841,6 +841,34 @@ test('an answer that reaches the change limit exactly is followed by another pas
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
 })
 
+test('a change set aside is no part of the change limit, so the same lines are not read again for it', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  for (let at = 1; at <= MEMORY_LIMITS.topics; at += 1) writeFileSync(join(dir, `topic-${at}.md`), `# topic-${at}\n\n- fact ${at}\n`)
+  writeFileSync(join(dir, 'MEMORY.md'), '# Memory\n\n## Index\n')
+  // Seven changes land; two more reach the limit only by counting what was set
+  // aside: an add that names a 41st topic the memory has no room for, and a
+  // change that is not well formed. Neither makes the review ask again.
+  const replies = [JSON.stringify({
+    changes: [
+      ...Array.from({ length: 7 }, (_, at) => ({ op: 'add', text: `The user likes thing ${at + 1}` })),
+      { op: 'add', text: 'The user likes oolong', topic: 'tea' },
+      { op: 'add' },
+    ],
+  })]
+  const { ctx, call, read, requests, warnings, stop } = start({ home, replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1, 'a change set aside made the review read the same lines again')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 7)
+  assert.ok(warnings.some(line => line.includes('left out a change') && line.includes('the most it holds')), warnings.join('\n'))
+  assert.ok(warnings.some(line => line.includes('left out a change') && line.includes('not a well-formed change')), warnings.join('\n'))
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+})
+
 test('a full MEMORY.md sets an add aside, says so, and an add with a topic still lands', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
