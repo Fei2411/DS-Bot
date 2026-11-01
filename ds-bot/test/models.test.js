@@ -230,8 +230,10 @@ test('a Session\'s projected selection routes its live Agent\'s requests', async
 })
 
 test('a Bot whose model is not served falls back to the default, never to another Bot\'s model', async () => {
-  // #385: another Bot's model once landed in a Session — the only path was the
-  // profile default polluted by that Bot's own selection. It is never written now.
+  // Refs #385: a Session once carried another Bot's `model/selection`. This covers
+  // the plugin side only — no Bot selection reaches `selectModel`, so a fallback
+  // reads the user's default, never a polluted one. What wrote the seen event is
+  // not shown.
   const { rt, selected, saved } = bench({ fallback: {} })
   await rt.applyModel({ id: 'b2', model: 'stepfun/step-5' })
   assert.deepEqual(saved, [])
