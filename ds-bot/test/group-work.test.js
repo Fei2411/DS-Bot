@@ -369,7 +369,10 @@ test('a steered group call keeps the later caller when the earlier work ends', a
   assert.equal(deferred.source.role, 'room')
   assert.equal(deferred.source.askedBy, 'a')
   assert.equal(deferred.source.roomId, 'r1')
-  assert.match(text(deferred), /改用新模板/)
+  // The later call is the one handed back, and it points at what the member already read.
+  assert.equal(deferred.source.exchangeId, correction.source.exchangeId)
+  assert.match(text(deferred), /you read this call during your last task; answer it now/)
+  assert.doesNotMatch(text(deferred), /改用新模板/)
   host.finish('gb', '已换成新模板。')
   await settle(() => host.agentOf('r1').calls.some(message => message.source.askedBy === 'a'))
   const report = host.agentOf('r1').calls.find(message => message.source.askedBy === 'a')
