@@ -46,7 +46,7 @@ test('watchReply waits for the reply, speaks it once, then stops', () => {
     (value) => { calls.push('consume'); consumed.push(value) })
   assert.deepEqual(consumed, [])
   text = 'first'
-  for (const listener of [...listeners]) listener()
+  for (const listener of listeners) listener()
   assert.deepEqual(consumed, ['first'])
   assert.equal(listeners.size, 0)
   // A later publish must not speak the same reply again.
