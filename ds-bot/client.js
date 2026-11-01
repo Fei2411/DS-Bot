@@ -18753,12 +18753,14 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const beginSwitch = (next) => {
     if (reducedMotion2()) return;
     const panel = root.current;
+    const source = next === "details" ? panel?.querySelector(".bt-ptab-bot .bt-mark") : panel?.querySelector(".bt-drawer-id .bt-mark");
     const outgoing = panel?.querySelector(".bt-panel-view");
     if (outgoing) {
       const ghostEl = document.createElement("div");
       ghostEl.className = "bt-panel-ghost";
       ghostEl.style.width = `${outgoing.offsetWidth}px`;
       ghostEl.append(outgoing.cloneNode(true));
+      if (source && next !== "details") for (const mark of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark")) mark.style.visibility = "hidden";
       outgoing.parentElement.append(ghostEl);
       void ghostEl.animate([
         { opacity: 1, transform: "scale(1)" },
@@ -18766,7 +18768,6 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       ], { duration: 160, easing: "ease-out", fill: "forwards" }).finished.catch(() => {
       }).finally(() => ghostEl.remove());
     }
-    const source = next === "browser" ? panel?.querySelector(".bt-drawer-id .bt-mark") : panel?.querySelector(".bt-ptab-bot .bt-mark");
     if (source) fly.current = { node: source.cloneNode(true), from: source.getBoundingClientRect() };
   };
   const switchView = (next) => {
@@ -18791,7 +18792,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     const move = fly.current;
     if (!move) return;
     fly.current = null;
-    const target = view === "browser" ? root.current?.querySelector(".bt-ptab-bot .bt-mark") : root.current?.querySelector(".bt-drawer-id .bt-mark");
+    const target = view === "details" ? root.current?.querySelector(".bt-drawer-id .bt-mark") : root.current?.querySelector(".bt-ptab-bot .bt-mark");
     if (!target || move.from.width === 0) return;
     const growing = root.current.getAnimations({ subtree: true }).filter((animation) => animation.animationName === "bt-strip-in");
     const at = growing.map((animation) => animation.currentTime);
