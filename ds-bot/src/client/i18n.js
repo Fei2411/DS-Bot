@@ -60,6 +60,8 @@ const ZH = {
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
   'Setting up your Main Bot…': '正在设置你的主 Bot…',
+  'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
+  'The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
   'Automation tasks': '自动化任务',
   Connectors: '连接器',
   'Search connectors': '搜索连接器',
@@ -859,6 +861,9 @@ const ZH = {
   'Recognizing…': '识别中…',
   'Voice input needs its speech model': '语音输入还没有语音模型',
   'Set up voice input': '设置语音输入',
+  'Preparing voice input…': '正在准备语音输入…',
+  'Downloading the speech model… {pct}%': '正在下载语音模型… {pct}%',
+  "Couldn't prepare voice input": '语音输入准备失败',
   'That was too long to recognize': '这段太长了，识别不了',
 
   // Usage page

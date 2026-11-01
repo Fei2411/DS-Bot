@@ -2,6 +2,7 @@
 // triggered, the waiters and inboxes of group rounds, and routing a finished turn's reply.
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
+import { randomUUID } from 'node:crypto'
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
@@ -35,7 +36,9 @@ export const failureLine = failure => `${failure.code}${failure.status ? ` ${fai
 // answer comes from; `source` is the trigger the turn answered.
 export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
-  const work = rt.closeWork?.(source.exchangeId, rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot', text)
+  const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
+  const work = rt.closeWork?.(source.exchangeId, name, text)
+  const exchangeId = randomUUID()
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
@@ -44,8 +47,28 @@ export function answerSender(rt, id, source, text, long) {
     ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
     role: 'reply',
     replyTo: source.exchangeId,
+    exchangeId,
     ...(work ? { work } : {}),
-  }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
+  }).catch((error) => {
+    rt.warn('ds-bot: reply delivery failed: %s', error)
+    // The reply never reached the asker: its note goes — the notice below carries
+    // what it answered — the result kept with the work is marked, and the failure
+    // reaches the asker the way the reply would have, so the work goes on and its
+    // answer names it.
+    rt.forgetDelivery?.(exchangeId)
+    rt.answerMissed?.(source.exchangeId)
+    const said = `${name} could not send its reply to you (${failureLine(turnFailure(error))}); what it had answered:\n`
+    void rt.deliver({
+      fromId: rt.selfOf(id),
+      toId: source.senderSessionId,
+      ...(back ? { sessionId: back } : {}),
+      text: `${said}${long?.text ?? text}`,
+      ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
+      role: 'reply',
+      replyTo: source.exchangeId,
+      ...(work ? { work } : {}),
+    }).catch(again => rt.warn('ds-bot: reply failure notice not delivered: %s', again))
+  })
 }
 
 // A group's own Session never reaches a model, so the snapshot DSH prepared there

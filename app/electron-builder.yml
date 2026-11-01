@@ -50,6 +50,10 @@ mac:
   hardenedRuntime: false
   icon: assets/icon.png
   category: public.app-category.productivity
+  # Without this key macOS registers no Local Network entry for the app and
+  # blocks LAN connections from tool processes outright ("No route to host").
+  extendInfo:
+    NSLocalNetworkUsageDescription: DeepSeek Bot runs commands that connect to devices on your local network.
 linux:
   # One AppImage runs on every distribution and updates itself; the deb is for Debian/Ubuntu,
   # where it avoids Ubuntu 24.04's AppArmor question of an AppImage and adds a menu entry.

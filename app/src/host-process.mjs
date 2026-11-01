@@ -7,6 +7,13 @@ const STDERR_TAIL_CHARS = 8 * 1024
 // The web server prints its launch URL, and the launch token in it opens the Host.
 const redact = (text) => text.replace(/([?&]token=)[^&\s]+/gu, '$1<hidden>')
 
+// The engine's own report of a failure is on the Host's stderr; the error box
+// gets its tail with the message so the real cause reaches the user.
+export const withLogTail = (message, stderr) => {
+  const tail = redact(stderr.trim())
+  return tail === '' ? message : `${message}:\n${tail}`
+}
+
 const settlesWithin = (promise, ms) => new Promise((resolve) => {
   const timer = setTimeout(() => { resolve(false) }, ms)
   void promise.then(() => { clearTimeout(timer); resolve(true) })
@@ -51,13 +58,12 @@ export class HostProcess {
         for (const listener of this.#messageListeners) listener(message)
         if (message?.type === 'ready') resolve({ url: message.url, injections: message.injections })
         else if (message?.type === 'checked') resolve({ unreadable: message.unreadable })
-        else if (message?.type === 'fatal') this.#fail(new Error(message.message), reject)
+        else if (message?.type === 'fatal') this.#fail(new Error(withLogTail(message.message, this.#stderr)), reject)
       })
       child.once('error', (error) => { this.#fail(error, reject) })
       this.#exit = new Promise((done) => {
         child.once('close', (code) => {
-          const tail = redact(this.#stderr.trim())
-          this.#fail(new Error(`The DSH Host stopped (exit ${String(code)})${tail === '' ? '' : `:\n${tail}`}`), reject)
+          this.#fail(new Error(withLogTail(`The DSH Host stopped (exit ${String(code)})`, this.#stderr)), reject)
           done()
         })
       })
