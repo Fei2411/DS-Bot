@@ -17,8 +17,26 @@ const PKG = JSON.parse(readFileSync(new URL('../../package.json', import.meta.ur
 export const API_VERSION = 1
 export const API_MIN = 1
 export const CAPABILITIES = [
-  'state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'send', 'feed', 'feed-room', 'notices',
-  'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary',
+  'state',
+  'state-avatar-refs',
+  'avatar',
+  'chat',
+  'room-chat',
+  'send',
+  'feed',
+  'feed-room',
+  'notices',
+  'questions',
+  'views',
+  'approvals',
+  'stop-member-work',
+  'memory',
+  'memory-edit',
+  'usage-summary',
+  'stop-chat',
+  'row-meta',
+  'chat-steps',
+  'link-feed',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -251,6 +269,7 @@ export function install(rt) {
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events)
+    if (body.steps === true) await rt.applySteps?.(items, events, room.id)
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
     if (cursor === undefined) {
@@ -267,7 +286,7 @@ export function install(rt) {
       items,
       cursor: more ? { beforeSeq: events[0].seq } : null,
       running: running.length > 0,
-      speaking: running.map(([, round]) => round.speaking).find(Boolean) ?? null,
+      speaking: running.map(([, round]) => round.slots?.find(slot => slot.status === 'speaking')?.id ?? round.speaking).find(Boolean) ?? null,
     }
   }
 

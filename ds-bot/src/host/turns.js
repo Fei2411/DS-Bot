@@ -250,6 +250,23 @@ export function install(rt) {
     }
   }
 
+  // The phone's Stop for a Bot's own-chat turn: the same cancel the group's
+  // member stop uses — end the running turn and any subagents it spawned.
+  async function stopChat(botId) {
+    await rt.load()
+    const sessionId = rt.chatOf(botId)
+    if (sessionId === undefined) return false
+    const turnRunning = live.get(sessionId)?.turn !== undefined
+    const subRunning = hasSubagents?.(sessionId) === true
+    if (!turnRunning && !subRunning) return false
+    await stopSubagents(sessionId)
+    if (turnRunning) {
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      agent?.cancel?.({ kind: 'user' })
+    }
+    return true
+  }
+
   const liveOf = id => {
     let entry = live.get(id)
     if (entry === undefined) live.set(id, entry = { texts: [], shown: 0 })
@@ -1026,5 +1043,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, markSteerCut, hasSubagents, stopSubagents })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, markSteerCut, hasSubagents, stopSubagents })
 }
