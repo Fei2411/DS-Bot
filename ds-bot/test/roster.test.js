@@ -318,7 +318,7 @@ test('an unchanged state answer skips the live fields a window already holds', a
 test('a window holding live state gets fresh fields after the host restarts at the same revision', async (t) => {
   const first = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief' } } })
   t.after(first.stop)
-  await first.ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
   // Start working before the first poll, so both runs' first live answer would
   // have counter 1 even though one is working and the other is idle.
   for (const listener of first.ctx.listeners.get('session/event') ?? []) {
