@@ -7738,6 +7738,7 @@ var HostLink = class {
       if (!allowed) throw new TunnelError("NOT_PAIRED", "The phone is not paired.");
       const reply = tunnel.noise.writeHandshake(encodeHandshakeHello(this.options.name === void 0 ? {} : { name: this.options.name }));
       tunnel.stage = "ready";
+      this.options.onReadyCount?.(this.connectedDevices().length);
       this.sendControl("secure.handshake", {
         connectionId: tunnel.connectionId,
         targetDeviceId: tunnel.deviceId,
@@ -7805,6 +7806,7 @@ var HostLink = class {
   dropTunnel(tunnel, code) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel) return;
     this.tunnels.delete(tunnel.connectionId);
+    if (tunnel.stage === "ready") this.options.onReadyCount?.(this.connectedDevices().length);
     for (const controller of tunnel.calls.values()) controller.abort(new Error("The phone link closed."));
     tunnel.calls.clear();
     tunnel.noise.destroy();

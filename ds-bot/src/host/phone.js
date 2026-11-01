@@ -83,11 +83,19 @@ export function install(rt) {
       admits: (deviceId, key) => registry.admits(deviceId, key),
       authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
       handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
+      // Feed events ride the link instead of SSE, but only while a phone is
+      // actually ready to hear them — no tunnel, no feed work on the host.
+      onReadyCount: count => {
+        if (count > 0 && feedUntap === null) {
+          const running = link
+          feedUntap = rt.feedTap((event, data) => running.emit(event, data))
+        } else if (count === 0 && feedUntap !== null) {
+          feedUntap()
+          feedUntap = null
+        }
+      },
     })
     linkServer = data.server
-    // Feed events ride the link instead of SSE while the link is up.
-    const running = link
-    feedUntap = rt.feedTap((event, data) => running.emit(event, data))
     link.start()
   }
 
