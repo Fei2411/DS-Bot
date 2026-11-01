@@ -76,6 +76,7 @@ const noticeText = (line) => {
   if (line.reason === 'missed') return `${(line.names ?? []).join(' and ')} did not answer within ${line.minutes} minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.`
   if (line.reason === 'paused') return `Paused: Bots have called each other ${line.limit} times since the user last wrote here. The calls to @${(line.names ?? []).join(' and @')} wait until the user continues or writes here; do not call them again.`
   if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
+  if (line.reason === 'folder') return `The group's folder ${line.path} is gone, so its members work in the team workspace; set the group's folder again in the group's settings.`
   return line.text ?? ''
 }
 // `text` is what to show of a message line, by default what the log keeps of it.
@@ -223,6 +224,23 @@ export function install(rt) {
     room.log = log.slice(-ROOM_LOG_MAX)
   }
   Object.assign(rt, { keepGroupLine, dropGroupLines })
+
+  // The folder a group was set to work in is gone: its members' Sessions move on in
+  // the team workspace (parts.js), and the group is told once per folder, so a later
+  // round does not say it again. Changing the folder clears the mark (updateRoom).
+  async function roomFolderNotice(roomId, folder) {
+    const room = rt.roomOf(roomId)
+    if (room === undefined || folder === undefined || room.workDir !== folder || room.folderNotice === folder) return
+    ensureRoomLog(room)
+    room.folderNotice = folder
+    appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'folder', path: folder })
+    const text = noticeText({ reason: 'folder', path: folder })
+    for (const round of rt.roomProgress.values()) {
+      if (round.roomId === room.id) round.replies.push({ kind: 'folder', text, time: Date.now() })
+    }
+    await rt.save()
+  }
+  rt.roomFolderNotice = roomFolderNotice
 
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
@@ -1070,7 +1088,7 @@ export function install(rt) {
     callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered })
     callIn(round, rest, note, undefined, { ordered })
     if (extra.reportBack) {
-      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
+      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}), ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
     }
     return true
   }
@@ -1310,7 +1328,10 @@ export function install(rt) {
     ].filter(Boolean).join('\n\n')
     // Replies the poster waited for go on with the work it posted for.
     const work = post.sub === undefined ? undefined : rt.closeWork(post.sub, `Group "${room.name}"`, text)
-    await rt.deliver({ toId: post.botId, role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
+    // The report goes back to the conversation the post was written from: its
+    // Session in that group when the post came from one, else the own chat.
+    const back = rt.roomOf(post.fromRoomId)?.sessions?.[post.botId]
+    await rt.deliver({ toId: post.botId, ...(back ? { sessionId: back } : {}), role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
       .catch(error => rt.warn('ds-bot: group report to %s failed: %s', post.name, error))
   }
 

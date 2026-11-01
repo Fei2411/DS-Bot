@@ -8742,6 +8742,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           )
         );
       }
+      if (reply.kind === "folder") {
+        return (0, import_react17.createElement)("div", { key: `folder-${index}`, className: "bt-event" }, reply.text);
+      }
       if (reply.kind === "stopped") {
         return (0, import_react17.createElement)("div", { key: `${reply.botId}-${index}`, className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
       }
@@ -17320,7 +17323,7 @@ function memberWork(room2, work = NO_WORK) {
   return room2.members.map((id) => {
     const approvals = (work.approvals ?? []).filter((entry) => entry.botId === id);
     const local = here.find((entry) => entry.botId === id);
-    const doing = local ? { ...local, roomId: room2.id } : work.bots?.[id];
+    const doing = local ? { ...local, roomId: room2.id } : void 0;
     return { id, approvals, doing, here: local !== void 0, state: approvals.length > 0 ? "ask" : doing ? "work" : "idle" };
   });
 }
@@ -17449,11 +17452,10 @@ function ApprovalCard({ approval, bot, actions }) {
     )
   );
 }
-function MemberState({ entry, bot, room: room2, roster }) {
+function MemberState({ entry, bot }) {
   if (entry?.state === "ask") return stateLine("bt-member-state bt-mw-ask", entry.approvals[0].at, t("Waiting for your approval"));
   if (entry?.state !== "work") return bot.role ? stateLine("bt-member-state", void 0, bot.role) : null;
-  const where = entry.doing.roomId === room2.id ? "" : entry.doing.roomId ? t("in {name}", { name: roster.roomsById[entry.doing.roomId]?.name ?? t("a group chat") }) : t("in its own chat");
-  return stateLine("bt-member-state", entry.doing.since, (0, import_react47.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : "");
+  return stateLine("bt-member-state", entry.doing.since, (0, import_react47.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`));
 }
 function StopMemberWork({ entry, bot, room: room2, actions }) {
   const [stopping, setStopping] = (0, import_react47.useState)(false);
