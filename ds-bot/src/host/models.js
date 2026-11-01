@@ -11,10 +11,29 @@ export function install(rt) {
 
   let modelsSynced = null
   let catalogCache = { at: 0, value: [] }
+  // Routes DSH serves that cannot answer a request at all — a hosted loop engine
+  // publishes one so its Sessions can be prompted. Once one refuses with
+  // HOSTED_ENGINE_ROUTE it is remembered with the models its provider served then,
+  // and nothing chooses it again until that provider serves different models.
+  const refused = new Map()
+  const answerable = entries => (refused.size === 0 ? entries : entries.filter(entry => !refused.has(entry.ref)))
+  // The models a ref's provider serves, as a string to compare; undefined when it
+  // cannot be listed, e.g. the provider is not registered.
+  async function servedModels(ref) {
+    try { return JSON.stringify(await ctx.llm.listModels(splitRef(ref).provider)) } catch { return undefined }
+  }
+  // An adapter update may have replaced a refused placeholder with a real route, which
+  // serves other models; the same models again are the same route, still refused.
+  async function forgetChangedRefusals() {
+    for (const [ref, served] of refused) {
+      const now = await servedModels(ref)
+      if (now !== undefined && now !== served) refused.delete(ref)
+    }
+  }
   // A model's thinking levels, resolved once and kept for a short while: they change
   // only with the provider, which also drops the catalog cache.
   const reasoningCache = new Map()
-  ctx.on?.('llm/adapters-updated', () => { catalogCache = { at: 0, value: [] }; reasoningCache.clear() })
+  ctx.on?.('llm/adapters-updated', () => { catalogCache = { at: 0, value: [] }; reasoningCache.clear(); return forgetChangedRefusals() })
   for (const name of ['credentials/reference-updated', 'settings/document-updated']) ctx.on?.(name, () => { catalogCache = { at: 0, value: [] } })
 
   // The thinking levels a model serves: `{efforts: [{id, name, description?}],
@@ -36,7 +55,7 @@ export function install(rt) {
   // that is about to be used asks for a `fresh` one. Entries for models a Bot uses
   // also carry their `reasoning`, so the picker can offer thinking levels.
   async function catalog({ fresh = false } = {}) {
-    if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.value.length > 0) return catalogCache.value
+    if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.value.length > 0) return answerable(catalogCache.value)
     const entries = []
     for (const provider of ctx.llm.listProviders()) {
       let models = []
@@ -62,18 +81,21 @@ export function install(rt) {
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
     catalogCache = { at: Date.now(), value: entries }
-    return entries
+    return answerable(entries)
   }
 
-  // The profile default model of DSH as set, served or not.
+  // The profile default model of DSH as set, served or not, and able to answer.
   const defaultRef = () => {
     const selection = ctx.get?.('agentDefaultModel')?.currentSelection?.()
-    return selection?.provider && selection?.model ? `${selection.provider}/${selection.model}` : undefined
+    if (!selection?.provider || !selection?.model) return undefined
+    const ref = `${selection.provider}/${selection.model}`
+    return refused.has(ref) ? undefined : ref
   }
   // The profile default model of DSH, when it is served; else the first served model.
   function pickDefault(entries) {
     const ref = defaultRef()
-    return entries.find(entry => entry.ref === ref)?.ref ?? entries[0]?.ref
+    const list = answerable(entries)
+    return list.find(entry => entry.ref === ref)?.ref ?? list[0]?.ref
   }
   const defaultModel = async () => pickDefault(await catalog())
 
@@ -194,11 +216,11 @@ export function install(rt) {
     }
   }
 
-  // Sequential, and again whenever the served models change: a provider that
-  // registers late still gets its Bots' models selected.
+  // Sequential, and again whenever the answerable models change (a refused route is
+  // not one of them): a provider that registers late still gets its Bots' models selected.
   let syncedKey
   const syncModels = () => {
-    const key = catalogCache.value.map(entry => entry.ref).join(',')
+    const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
     return modelsSynced
   }
@@ -208,10 +230,33 @@ export function install(rt) {
     }
   }
 
+  // A route that refused a request for not being a model endpoint: it stays out of
+  // the catalog from now on, the Bots pinned to it move to what they would be given
+  // today, and each of them re-selects even when its record looks applied (`force`):
+  // its Session may still be on the route, or on another Bot's route in a group.
+  async function routeRefused(ref, bot) {
+    const served = await servedModels(ref)
+    if (!refused.has(ref)) {
+      refused.set(ref, served)
+      rt.warn('ds-bot: %s is not a model endpoint, so it is not chosen again', ref)
+      const entries = await catalog()
+      const pinned = Object.values(state.bots).filter(other => other.model === ref || other.appliedModel === ref)
+      for (const other of pinned) {
+        if (other.model === ref) other.model = pickDefault(entries)
+        if (other.appliedModel === ref) delete other.appliedModel
+      }
+      await rt.save()
+      for (const other of pinned) {
+        if (other !== bot) await applyModel(other, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', other.name, error))
+      }
+    }
+    if (bot !== undefined) await applyModel(bot, { force: true })
+  }
+
   Object.assign(rt, {
-    catalog, cachedCatalog: () => catalogCache.value, cachedDefault: () => pickDefault(catalogCache.value),
+    catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultEffort, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, waitForModel, syncModels,
+    selectSessionModel, applyModel, waitForModel, syncModels, routeRefused,
     dropCatalog: () => { catalogCache = { at: 0, value: [] } },
   })
 }

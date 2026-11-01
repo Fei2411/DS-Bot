@@ -7,6 +7,8 @@ import { createRuntime } from '../index.js'
 import { expandCapabilityNames, validateCapabilityName } from '../src/host/capabilities.js'
 import { fakeContext } from './fake-ctx.js'
 
+let rt
+
 const makeHome = state => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-capabilities-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(state))
@@ -67,7 +69,7 @@ async function setup({ state = team(), secret, beforeLoad } = {}) {
   const mcpPlugin = { name: 'mcp-client', apply() {} }
   const loader = { import: async () => ({ default: mcpPlugin }), unwrapExports: exports => exports.default }
   const ctx = fakeContext({ services: { loader } })
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
   ctx.sessionTitle = { rename: async () => {} }
   rt.resolveAgent = async sessionId => ({ session: { id: sessionId } })
   beforeLoad?.({ ctx, rt, mounts, skills, mcpPlugin })
@@ -147,7 +149,7 @@ test('Bot saves enforce approval and ownership, and deletion cascades', async t 
 test('capability Bot tools refuse DSH Agent sessions', async t => {
   const env = await setup()
   t.after(() => env.dispose())
-  const list = env.ctx.registeredTools.get('list_capabilities')
+  const list = env.rt.teamTools.find(d => d.name === 'list_capabilities')
   assert.ok(list)
   assert.match(await list.execute({}, { agent: { id: 'outside' } }), /Only Bots on the team/)
 })
@@ -155,7 +157,7 @@ test('capability Bot tools refuse DSH Agent sessions', async t => {
 test('capability tool descriptions and attach results explain approval', async t => {
   const env = await setup()
   t.after(() => env.dispose())
-  const parameters = env.ctx.registeredTools.get('save_capability').parameters.properties
+  const parameters = env.rt.teamTools.find(d => d.name === 'save_capability').parameters.properties
   assert.deepEqual(
     Object.fromEntries(['transport', 'command', 'args', 'env', 'url', 'headers', 'content'].map(name => [name, parameters[name].description])),
     {
@@ -169,11 +171,61 @@ test('capability tool descriptions and attach results explain approval', async t
     },
   )
   await env.rt.capabilitySave(mcp('blocked'), { botId: 'worker' })
-  const attached = await env.ctx.registeredTools.get('attach_capability').execute(
+  const attached = await env.rt.teamTools.find(d => d.name === 'attach_capability').execute(
     { name: 'blocked' },
     { agent: { id: 'worker' } },
   )
   assert.ok(attached.endsWith(' The user must allow blocked in DS Bot settings before it can work.'))
+})
+
+test('a deleted Bot drops only a pending local MCP it alone asked for', async t => {
+  const env = await setup({
+    beforeLoad: ({ ctx }) => { ctx.workspaceRegistry = { archiveSession: async () => {} } },
+  })
+  t.after(() => env.dispose())
+  const { rt } = env
+  const { items } = rt.state.capabilities
+  // A local MCP the Bot asked for and nobody approved has no requester left.
+  await rt.capabilitySave(mcp('pending-mine'), { botId: 'worker' })
+  // Everything else stays: an approved one it asked for, a pending one the Main
+  // Bot asked for, one the user saved in settings, and a skill.
+  await rt.capabilitySave(mcp('approved-mine'), { botId: 'worker' })
+  await rt.capabilityEndpoint('capability-approve', { name: 'approved-mine' })
+  await rt.capabilitySave(mcp('pending-chief'), { botId: 'chief' })
+  await rt.capabilitySave(mcp('shared'), { ui: true })
+  await rt.capabilitySave({ name: 'guide', kind: 'skill', description: 'Guide', content: 'Do the work.' }, { botId: 'worker' })
+  rt.state.bots.worker.capabilities = ['pending-mine', 'approved-mine', 'pending-chief', 'shared', 'guide']
+  await rt.deleteBot('worker')
+  assert.equal(items['pending-mine'], undefined)
+  assert.deepEqual(
+    Object.keys(items).sort(),
+    ['approved-mine', 'guide', 'pending-chief', 'shared'],
+  )
+  // The kept pending request can still be approved.
+  await rt.capabilityEndpoint('capability-approve', { name: 'pending-chief' })
+  assert.equal(items['pending-chief'].approved, true)
+  const saved = JSON.parse(await (await import('node:fs/promises')).readFile(join(env.home, 'state.json'), 'utf8'))
+  assert.equal(saved.capabilities.items['pending-mine'], undefined)
+})
+
+test('a deleted Bot leaves pack members and other packs untouched', async t => {
+  const env = await setup({
+    beforeLoad: ({ ctx }) => { ctx.workspaceRegistry = { archiveSession: async () => {} } },
+  })
+  t.after(() => env.dispose())
+  const { rt } = env
+  const { items } = rt.state.capabilities
+  await rt.capabilitySave(mcp('pending-pack'), { botId: 'worker' })
+  await rt.capabilitySave({ name: 'guide', kind: 'skill', description: 'Guide', content: 'Do the work.' }, { botId: 'worker' })
+  // Two packs share the skill; only one was on the deleted Bot. The pending MCP
+  // the Bot asked for also sits in its pack, so it belongs to the pack.
+  await rt.capabilitySave({ name: 'pack-p', kind: 'pack', items: ['guide', 'pending-pack'] }, { botId: 'worker' })
+  await rt.capabilitySave({ name: 'pack-q', kind: 'pack', items: ['guide'] }, { botId: 'chief' })
+  rt.state.bots.worker.capabilities = ['pack-p', 'pending-pack']
+  await rt.deleteBot('worker')
+  assert.deepEqual(Object.keys(items).sort(), ['guide', 'pack-p', 'pack-q', 'pending-pack'])
+  assert.deepEqual(items['pack-q'].items, ['guide'])
+  assert.deepEqual(items['pack-p'].items, ['guide', 'pending-pack'])
 })
 
 test('read-only secret reload does not requeue capability reconciliation', async t => {
@@ -360,14 +412,14 @@ test('unloading the plugin disposes every capability mount', async t => {
 test('unset capability statuses are omitted from the view and tool listing', async t => {
   const env = await setup()
   t.after(() => env.dispose())
-  const { rt, ctx } = env
+  const { rt } = env
   await rt.capabilitySave({ ...mcp('echo'), approved: true }, { botId: 'chief' })
   await rt.capabilitySave({ name: 'guide', kind: 'skill', description: 'Guide', content: 'Instructions' }, { botId: 'chief' })
   await rt.capabilitySave({ name: 'team', kind: 'pack', items: ['echo', 'guide'] }, { botId: 'chief' })
   rt.state.bots.chief.capabilities = ['echo', 'team']
   await rt.save()
   assert.deepEqual(rt.capabilityStatusesView().chief, {})
-  const listed = await ctx.registeredTools.get('list_capabilities').execute({}, { agent: { id: 'chief' } })
+  const listed = await rt.teamTools.find(d => d.name === 'list_capabilities').execute({}, { agent: { id: 'chief' } })
   assert.match(listed, /echo \(mcp\).*; attached to you(?:\n|$)/)
   assert.doesNotMatch(listed, /attached to you \(connecting\)/)
 })
