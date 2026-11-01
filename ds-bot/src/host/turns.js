@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
@@ -976,6 +977,47 @@ export function install(rt) {
   const markSteerCut = (id) => {
     const entry = live.get(id)
     if (entry?.turn !== undefined) entry.cut = { texts: entry.texts.length }
+  }
+
+  // DSH's prompt admission wraps any unexpected failure as 'session/agent-busy' and
+  // keeps the real cause in details.reason, which the window never shows and the log
+  // never saw (#424). For a Session this team owns, the reason is written to the
+  // diagnostics and put into the error the user reads.
+  const prompt = ctx.sessionController?.prompt
+  if (typeof prompt === 'function') {
+    const controller = ctx.sessionController
+    const admitted = async function (request, ...rest) {
+      try {
+        return await prompt.call(this, request, ...rest)
+      } catch (error) {
+        const id = request?.sessionId
+        if (id === undefined || (rt.roomOf(id) === undefined && !rt.isBotSession(id))) throw error
+        // The reason can name local paths or carry tokens, so the same cleaning the
+        // diagnostics get applies before it reaches the client.
+        const reason = typeof error?.details?.reason === 'string' && error.details.reason !== ''
+          ? cleanText(error.details.reason, { redact: rt.redactSecrets })
+          : undefined
+        rt.noteFailure({
+          source: 'prompt',
+          text: `prompt rejected for ${placeOf(id)}${reason === undefined ? '' : `: ${reason}`}`,
+          code: error?.code,
+          where: placeOf(id),
+          sessionId: id,
+        })
+        // The gateway passes a RemoteError's code and details on as they are, but
+        // wraps a fresh plain Error as 'gateway/internal': the reason is written on
+        // the rejection itself, keeping its identity.
+        if (reason !== undefined) {
+          error.message = `${error?.message ?? 'prompt rejected'} — ${reason}`
+          error.details = { ...error.details, reason }
+        }
+        throw error
+      }
+    }
+    ctx.effect(() => {
+      controller.prompt = admitted
+      return () => { if (controller.prompt === admitted) controller.prompt = prompt }
+    }, 'ds-bot: prompt rejection reasons')
   }
 
   Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, markSteerCut, hasSubagents, stopSubagents })
