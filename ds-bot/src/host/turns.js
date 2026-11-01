@@ -661,6 +661,8 @@ export function install(rt) {
             name: source.senderName,
             reportBack: source.reportBack === true,
             ...(source.member ? { member: true } : {}),
+            // Who the whole post called. `text` may be only its opening (attachLong).
+            ...(source.mentions ? { mentions: source.mentions } : {}),
             ...(source.sub ? { sub: source.sub } : {}),
             ...(source.late ? { late: true } : {}),
             ...(source.progress ? { progress: true } : {}),
