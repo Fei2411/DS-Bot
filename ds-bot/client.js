@@ -9616,8 +9616,8 @@ function TeamSidebar(props) {
   (0, import_react19.useEffect)(() => () => {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
-  const settleTimer = (0, import_react18.useRef)(0);
-  const springTimer = (0, import_react18.useRef)(0);
+  const settleTimer = (0, import_react19.useRef)(0);
+  const springTimer = (0, import_react19.useRef)(0);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
