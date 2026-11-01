@@ -96,6 +96,8 @@ var ZH = {
   // Sidebar and account menu
   "Bot list": "Bot 列表",
   "Setting up your Main Bot…": "正在设置你的主 Bot…",
+  "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
+  "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
   "Automation tasks": "自动化任务",
   Connectors: "连接器",
   "Search connectors": "搜索连接器",
@@ -870,6 +872,9 @@ var ZH = {
   "Recognizing…": "识别中…",
   "Voice input needs its speech model": "语音输入还没有语音模型",
   "Set up voice input": "设置语音输入",
+  "Preparing voice input…": "正在准备语音输入…",
+  "Downloading the speech model… {pct}%": "正在下载语音模型… {pct}%",
+  "Couldn't prepare voice input": "语音输入准备失败",
   "That was too long to recognize": "这段太长了，识别不了",
   // Usage page
   "24 hours": "24 小时",
@@ -2605,6 +2610,7 @@ body{--bt-msg-w:.8;--bt-flat-w:1}
 .bt-bubble [class*="_markdown"] li::marker{color:var(--bt-ink-2)}
 /* line-height:1 keeps the monospace line box from making an inline code line taller. */
 .bt-bubble [class*="_markdown"] :not(pre)>code{line-height:1;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.bt-bubble :is(img,video),.bt-ububble :is(img,video),[data-chat-flow] [class*="_bubble"] :is(img,video){max-width:100%;height:auto}
 .bt-bubble a[href^="${MENTION_ORIGIN}"]{text-decoration:none;font-weight:400;cursor:pointer;white-space:nowrap}
 .bt-bubble a[href^="${MENTION_ORIGIN}"]::before{content:"";display:inline-block;width:16px;height:16px;margin-right:3px;vertical-align:-3px;background:currentColor;-webkit-mask:${DEFAULT_MASK} center/contain no-repeat;mask:${DEFAULT_MASK} center/contain no-repeat}
 .bt-group-msg{display:flex;flex-direction:column;gap:4px;margin:16px 0 0}
@@ -6831,6 +6837,11 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+/* A row of segmented options is only as wide as its labels; at phone widths a
+   few longer ones would spill past the card. Let them wrap and let a label wrap
+   inside its own button instead. */
+.dv-seg.dv-view-seg{flex-wrap:wrap}
+.dv-seg.dv-view-seg button{flex:0 1 auto;height:auto;min-height:30px;min-width:0;padding-block:5px;white-space:normal;overflow-wrap:anywhere}
 `;
 
 // src/client/secret-card.js
@@ -9528,6 +9539,10 @@ function TitleToggle({ hidden, onToggle }) {
     onClick: onToggle
   }, (0, import_react19.createElement)(SidebarIcon)), document.body);
 }
+var bootHint = () => {
+  const last = clientErrors().at(-1)?.text;
+  return last === void 0 ? t("The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.") : t("The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.", { error: last });
+};
 function TeamSidebar(props) {
   const { wide, useRoster, useUi, useSessions, actions } = props;
   const listRef = (0, import_react19.useRef)(null);
@@ -9722,7 +9737,7 @@ function TeamSidebar(props) {
     { className: "bt-rail-top" },
     (0, import_react19.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     (0, import_react19.createElement)("button", { type: "button", className: "bt-round bt-side-collapse", "aria-label": t("Collapse sidebar"), title: t("Collapse sidebar"), onClick: onToggle }, (0, import_react19.createElement)(SidebarIcon)),
-    main ? (0, import_react19.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react19.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
+    main ? (0, import_react19.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react19.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react19.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
   const foot = wideContent ? (0, import_react19.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react19.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react19.createElement)(
@@ -9739,7 +9754,7 @@ function TeamSidebar(props) {
     (0, import_react19.createElement)(
       "div",
       { ref: listRef, className: "bt-list", role: "region", "aria-label": t("Bot list") },
-      wideContent ? main ? (0, import_react19.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react19.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")) : null,
+      wideContent ? main ? (0, import_react19.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react19.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
       order.map((entry) => entry.kind === "bot" ? (0, import_react19.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react19.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : (0, import_react19.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))
     ),
     foot
@@ -11028,6 +11043,24 @@ async function speechCatalog(speech) {
   const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
   return { catalog, usable: USABLE.has(provider?.preparation?.phase) };
 }
+async function requestPreparation(speech, providerId) {
+  try {
+    const result = await speech.prepare(providerId);
+    return result?.ok !== false;
+  } catch {
+    return false;
+  }
+}
+function preparationStep(catalog) {
+  const preparation = catalog.providers.find((item) => item.id === catalog.selection.providerId)?.preparation;
+  if (preparation === void 0) return { state: "done", failed: false };
+  if (USABLE.has(preparation.phase)) return { state: "usable" };
+  if (preparation.phase === "failed" || preparation.phase === "cancelled" || preparation.phase === "unprepared") {
+    return { state: "done", failed: preparation.phase === "failed" };
+  }
+  const pct = preparation.phase === "downloading" && preparation.totalBytes ? Math.floor(preparation.completedBytes / preparation.totalBytes * 100) : void 0;
+  return { state: "waiting", pct };
+}
 function waveBytes(samples, rate = 16e3) {
   const bytes = new Uint8Array(44 + samples.length * 2);
   const view = new DataView(bytes.buffer);
@@ -11128,6 +11161,14 @@ async function transcribeWave(speech, catalog, wave, signal) {
   const result = await speech.transcribe({ audioBase64: base64Of(wave), ...catalog.selection }, signal);
   if (!result?.ok) throw Object.assign(new Error(result?.error?.message ?? "Transcription failed"), { kind: "service" });
   return String(result.value?.text ?? "").trim();
+}
+function closingReplyText(chat, turn) {
+  const location2 = chat?.timeline?.turns?.get(turn);
+  if (location2 === void 0) return void 0;
+  const closing = location2.data?.get("turn-tail")?.closing;
+  if (closing === void 0) return void 0;
+  if (closing === null) return "";
+  return (closing.blocks ?? []).filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text).join("\n\n");
 }
 function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
   let spokeAt = 0;
@@ -14055,9 +14096,29 @@ var VOICE_LABELS = {
   speaking: "Speaking",
   paused: "Paused",
   setup: "Voice input needs its speech model",
+  preparing: "Preparing voice input…",
   unsupported: "Voice chat is not available in this browser"
 };
 var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize" };
+function watchReply(read, watch, consume) {
+  let off = () => {
+  };
+  let consumed = false;
+  const attempt = () => {
+    if (consumed) return;
+    const text = read();
+    if (text === void 0) return;
+    consumed = true;
+    off();
+    consume(text);
+  };
+  off = watch(attempt);
+  attempt();
+  return () => {
+    consumed = true;
+    off();
+  };
+}
 function useMicLevel(enabled) {
   const [level, setLevel] = (0, import_react35.useState)(0);
   (0, import_react35.useEffect)(() => {
@@ -14108,7 +14169,7 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
   const lastReply = useSessions((list) => {
     const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
     const entry = Array.isArray(outline) ? outline[outline.length - 1] : void 0;
-    return entry ? `${outline.length}|${entry.response ?? ""}` : "0|";
+    return entry ? `${outline.length}|${entry.turn}` : "0|";
   });
   const [speech] = (0, import_react35.useState)(() => actions.speech());
   const [phase, setPhase] = (0, import_react35.useState)(speech ? "starting" : speechApi() ? "listening" : "unsupported");
@@ -14233,30 +14294,45 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     };
   }, [speech, catalog, listen, cycle]);
   (0, import_react35.useEffect)(() => {
-    if (phase !== "thinking" || running || waiting.current === null) return;
-    const [count, text] = [lastReply.slice(0, lastReply.indexOf("|")), lastReply.slice(lastReply.indexOf("|") + 1)];
-    if (count === waiting.current || !text.trim()) return;
-    waiting.current = null;
-    const spoken = plainSpeech(text);
-    setSaid(spoken);
-    setHeard("");
-    if (!window.speechSynthesis || !spoken) {
-      setPhase("listening");
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(spoken);
-    utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
-    utterance.onend = () => setPhase((current) => current === "speaking" ? "listening" : current);
-    utterance.onerror = utterance.onend;
-    setPhase("speaking");
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    if (phase !== "thinking" || running || waiting.current === null) return void 0;
+    const count = lastReply.slice(0, lastReply.indexOf("|"));
+    const turn2 = Number(lastReply.slice(lastReply.indexOf("|") + 1));
+    if (count === waiting.current) return void 0;
+    const speak = (text) => {
+      waiting.current = null;
+      const spoken = plainSpeech(text);
+      setSaid(spoken);
+      setHeard("");
+      if (!window.speechSynthesis || !spoken) {
+        setPhase("listening");
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(spoken);
+      utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
+      utterance.onend = () => setPhase((current) => current === "speaking" ? "listening" : current);
+      utterance.onerror = utterance.onend;
+      setPhase("speaking");
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    };
+    return watchReply(
+      () => actions.closingReply(sessionId, turn2),
+      (listener) => actions.watchTurns(sessionId, listener),
+      (text) => {
+        if (text === null) {
+          waiting.current = null;
+          setPhase("listening");
+          return;
+        }
+        speak(text);
+      }
+    );
   }, [phase, running, lastReply]);
   (0, import_react35.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
   const micLevel = useMicLevel(!speech && phase === "listening" && dictation.listening);
   const level = speech ? serviceLevel : micLevel;
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
-  const blocked = phase === "unsupported" || phase === "setup" || phase === "starting";
+  const blocked = phase === "unsupported" || phase === "setup" || phase === "starting" || phase === "preparing";
   const togglePause = () => {
     if (phase === "paused") {
       setPhase("listening");
@@ -14266,7 +14342,56 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     window.speechSynthesis?.cancel();
     setPhase("paused");
   };
-  const openSetup = phase === "setup" ? actions.voiceSetup() : null;
+  (0, import_react35.useEffect)(() => {
+    if (phase !== "preparing" || !speech) return void 0;
+    let stopped = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const { catalog: next } = await speechCatalog(speech);
+        if (stopped) return;
+        setCatalog(next);
+        const step = preparationStep(next);
+        if (step.state === "usable") {
+          setPhase("listening");
+          return;
+        }
+        if (step.state === "done") {
+          setPhase("setup");
+          if (step.failed) setNote(t("Couldn't prepare voice input"));
+          return;
+        }
+        setNote(step.pct === void 0 ? "" : t("Downloading the speech model… {pct}%", { pct: step.pct }));
+      } catch {
+        if (!stopped) {
+          setPhase("setup");
+          return;
+        }
+      }
+      timer = setTimeout(tick, 1500);
+    };
+    timer = setTimeout(tick, 800);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [phase, speech]);
+  const openSetup = phase === "setup" ? actions.voiceSetup(catalog?.selection?.providerId) : null;
+  const startSetup = () => {
+    if (openSetup?.navigate) {
+      close();
+      openSetup.navigate();
+      return;
+    }
+    turn.current += 1;
+    setPhase("preparing");
+    void Promise.resolve(openSetup.prepare()).then((started) => {
+      if (started === false) {
+        setPhase("setup");
+        setNote(t("Couldn't prepare voice input"));
+      }
+    });
+  };
   const caption = phase === "speaking" ? said : heard;
   const shownNote = note || dictation.note;
   return (0, import_react35.createElement)(
@@ -14289,10 +14414,7 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
         phase === "thinking" ? (0, import_react35.createElement)(Shimmer, null, t("Thinking…")) : phase === "transcribing" ? (0, import_react35.createElement)(Shimmer, null, t("Recognizing…")) : VOICE_LABELS[phase] ? t(VOICE_LABELS[phase]) : ""
       ),
       (0, import_react35.createElement)("div", { className: "bt-voice-caption", key: `${phase}:${caption.slice(0, 12)}` }, caption),
-      openSetup ? (0, import_react35.createElement)("button", { type: "button", className: "bt-voice-setup", onClick: () => {
-        close();
-        openSetup();
-      } }, t("Set up voice input")) : null,
+      openSetup ? (0, import_react35.createElement)("button", { type: "button", className: "bt-voice-setup", onClick: startSetup }, t("Set up voice input")) : null,
       shownNote ? (0, import_react35.createElement)("div", { className: "bt-voice-note" }, shownNote) : null
     ),
     (0, import_react35.createElement)(
@@ -16040,7 +16162,7 @@ function FeedbackPage({ actions, run: run2, Section, Row: Row3 }) {
     setNote(t("Downloaded the log. Keys, tokens, and your home folder are hidden in it."));
   }));
   const clearLog = () => run2(actions.diagnosticsClear().then(clearClientErrors).then(load).then(() => setNote(t("Cleared the error log."))));
-  const browserErrors = report ? clientErrors().map((entry) => ({ ...entry, source: "browser" })) : [];
+  const browserErrors = clientErrors().map((entry) => ({ ...entry, source: "browser" }));
   const entries2 = [...report?.entries ?? [], ...browserErrors].sort((a, b) => new Date(b.time) - new Date(a.time));
   const total = (report?.total ?? 0) + browserErrors.length;
   const shown = entries2.slice(0, 8);
@@ -20303,7 +20425,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false });
+  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -20426,14 +20548,23 @@ function apply(ctx) {
     let stopped = false;
     let running = false;
     let timer;
+    let misses = 0;
     const loop = async () => {
       clearTimeout(timer);
       if (running || stopped) return;
       running = true;
       try {
         await pull();
+        misses = 0;
+        ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
-        if (!stopped) console.warn("[ds-bot] state", error);
+        if (!stopped) {
+          console.warn("[ds-bot] state", error);
+          if (error?.code === "HTTP_404") {
+            misses += 1;
+            if (misses >= 10 && !roster.getSnapshot().ready) ui2.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
+          }
+        }
       } finally {
         running = false;
       }
@@ -20881,9 +21012,20 @@ function apply(ctx) {
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
   actions.openHarnessSettings = openHarnessSettings;
   actions.openHarnessOnboarding = openHarnessOnboarding;
-  actions.voiceSetup = () => {
+  actions.voiceSetup = (providerId) => {
     const navigation = ctx.get("pluginNavigation");
-    return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null;
+    if (navigation !== void 0) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) };
+    const speech = ctx.get("remote.speech");
+    return speech === void 0 || providerId === void 0 ? null : { prepare: () => requestPreparation(speech, providerId) };
+  };
+  actions.closingReply = (sessionId, turn) => {
+    try {
+      const binding = ctx.sessions.binding(sessionId);
+      if (binding === void 0) return null;
+      return closingReplyText(ctx.uiConversation.binding(binding).target("chat").getSnapshot(), turn);
+    } catch {
+      return null;
+    }
   };
   actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async () => {
