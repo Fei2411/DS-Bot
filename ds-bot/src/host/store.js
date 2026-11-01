@@ -386,8 +386,11 @@ export function install(rt) {
       }
       for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) groupOwners.set(sessionId, { botId, roomId: room.id })
     }
-    // The agents module owns the DSH Agent session index; it installs after this.
+    // The agents module owns the DSH Agent session index, and tools.js re-syncs
+    // the scoped tools with this ownership (drops Sessions that left, scopes
+    // live Agents that joined); both install after this.
     rt.indexAgents?.()
+    rt.syncScopedTools?.()
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
   // earlier segment of either.
