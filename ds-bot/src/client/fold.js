@@ -94,7 +94,15 @@ export function foldView(text, limit = FOLD_AT, markdown = true) {
   // expansion remounts its subtree looking like a no-op.
   const lines = head.split('\n')
   lines[opened.line] = opened.marker
-  return { head: `${lines.join('\n')}\n${opened.marker}`, code: blockCode(body, opened.line, opened.marker) }
+  return {
+    head: `${lines.join('\n')}\n${opened.marker}`,
+    // The markdown before the block and the part of the block the preview
+    // keeps: the half block is drawn outside the host's Markdown, whose own
+    // copy control would hold only the part shown.
+    prose: lines.slice(0, opened.line).join('\n'),
+    codeHead: lines.slice(opened.line + 1).join('\n'),
+    code: blockCode(body, opened.line, opened.marker),
+  }
 }
 
 export function foldPreview(text, limit = FOLD_AT, markdown = true) {
@@ -118,8 +126,11 @@ export function useFold(text, { limit = FOLD_AT, whole, live = false, markdown =
   if (view === null) return { shown: text, control: null }
   // `code` is the whole block the preview's last code fence opens, for a copy
   // that must not stop at the fold; only the full text can supply it, so a
-  // message kept only in part has none.
+  // message kept only in part has none. When there is one, `shown` holds just
+  // the markdown before the block and `codeHead` the part of it the preview
+  // keeps, so the cell draws the half block itself.
   const code = cut ? undefined : view.code
+  const shown = code === undefined ? view.head : view.prose
   const count = (cut ? whole.length : text.length).toLocaleString()
   if (!open) {
     const show = async () => {
@@ -128,7 +139,7 @@ export function useFold(text, { limit = FOLD_AT, whole, live = false, markdown =
       setRead('loading')
       setRead(await whole.load() ?? { whole: false })
     }
-    return { shown: view.head, folded: true, code, control: h('span', { className: 'bt-fold' }, h('button', { type: 'button', className: 'bt-more', onClick: show }, t('Show all · {count} characters', { count }))) }
+    return { shown, folded: true, code, codeHead: view.codeHead, control: h('span', { className: 'bt-fold' }, h('button', { type: 'button', className: 'bt-more', onClick: show }, t('Show all · {count} characters', { count }))) }
   }
   const loaded = typeof read?.text === 'string' ? read : undefined
   const note = !cut || read === undefined || read === 'loading' || loaded?.whole ? null

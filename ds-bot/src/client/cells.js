@@ -68,10 +68,20 @@ function FoldCodeCopy({ code, actions }) {
   return h('button', { type: 'button', className: 'bt-tool bt-fold-copy', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
 }
 
+// A folded message's last code block shows only its start. The start is not
+// given to the host's Markdown — its block would carry a copy bound to the
+// part shown — so DS Bot draws the part itself, with a copy bound to the
+// whole block. `body` renders the markdown before the block.
+const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
+  : h('div', { className: 'bt-fold-code' },
+    body,
+    h('pre', { className: 'bt-fold-pre' }, h('code', null, codeHead)),
+    h(FoldCodeCopy, { code, actions })))
+
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
-  const { shown, folded, control, code } = useFold(text, { limit: fold, whole, live })
+  const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  const body = h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
+  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
   // closes them. Interactive targets keep their own meaning.
@@ -81,11 +91,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
     if (!noHover() || event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]')) return
     setToolsOpen(value => !value)
   }
-  // A folded message's last code block shows only its start; DS Bot draws its own
-  // copy control for it, bound to the whole block. DSH's and the app's copy
-  // buttons live in the block's banner and their markup differs, so none of
-  // theirs is intercepted or cloned.
-  const area = code === undefined ? body : h('div', { className: 'bt-fold-code' }, body, h(FoldCodeCopy, { code, actions }))
+  const area = foldArea(body, code, codeHead, actions)
   return h('div', { ref: row, className: 'bt-msg', onClick: tapTools },
     h('div', { className: 'bt-msg-line' },
       lead,
@@ -428,9 +434,9 @@ const scrollParent = (node) => {
 }
 
 function EarlierUser({ row, actions }) {
-  const { shown, folded, control, code } = useFold(row.text ?? '')
-  const body = row.text ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
-  const area = code === undefined ? body : h('div', { className: 'bt-fold-code' }, body, h(FoldCodeCopy, { code, actions }))
+  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
+  const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+  const area = foldArea(body, code, codeHead, actions)
   return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
     control ? h('div', { className: 'bt-fold-body' }, area) : area,
     control,

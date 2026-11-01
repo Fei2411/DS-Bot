@@ -152,6 +152,10 @@ test('a folded preview also yields the whole code block it cut', () => {
   const view = foldView(`Here:\n\`\`\`js\n${inner}\n\`\`\`\nafter`)
   assert.equal(view.head, `Here:\n\`\`\`\n${lines(8)}\n\`\`\``)
   assert.equal(view.code, inner)
+  // The markdown before the block, and the part of the block the preview keeps:
+  // the half block is drawn by DS Bot, so the host's copy control never sees it.
+  assert.equal(view.prose, 'Here:')
+  assert.equal(view.codeHead, lines(8))
   // A block that never closes yields to the end of the text.
   assert.equal(foldView(`\`\`\`js\n${inner}`).code, inner)
   // No fence is cut: nothing extra to copy.
@@ -160,7 +164,10 @@ test('a folded preview also yields the whole code block it cut', () => {
   assert.equal(closed.code, undefined)
   // The folded state hands the code to the caller; a cut message cannot.
   fresh()
-  assert.equal(render(`Here:\n\`\`\`js\n${inner}\n\`\`\``, {}).code, inner)
+  const folded = render(`Here:\n\`\`\`js\n${inner}\n\`\`\``, {})
+  assert.equal(folded.code, inner)
+  assert.equal(folded.shown, 'Here:')
+  assert.equal(folded.codeHead, lines(8))
   fresh()
   assert.equal(render('short', { whole: { length: 300_000 } }).code, undefined)
 })

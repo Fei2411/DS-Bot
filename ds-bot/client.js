@@ -2759,6 +2759,10 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-fold{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:4px;white-space:normal}
 .bt-fold-code{position:relative}
 .bt-fold-code>.bt-tool{position:absolute;right:6px;bottom:6px}
+/* The part of a cut code block the preview keeps, drawn by DS Bot so the host's
+   Markdown draws no copy control of its own for it. */
+.bt-fold-code>.bt-fold-pre{margin:0;padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-ink) 5%,transparent);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:20px;overflow-x:auto}
+.bt-fold-code>*+.bt-fold-pre{margin-top:6px}
 .bt-fold-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 [data-folded] .bt-fold-body{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent)}
 .bt-ubody .bt-fold .bt-more,.bt-ububble .bt-fold .bt-more,.bt-ubody .bt-fold-note,.bt-ububble .bt-fold-note{color:inherit;opacity:.7}
@@ -7344,8 +7348,16 @@ function foldView(text, limit = FOLD_AT, markdown = true) {
   if (opened === null) return { head };
   const lines = head.split("\n");
   lines[opened.line] = opened.marker;
-  return { head: `${lines.join("\n")}
-${opened.marker}`, code: blockCode(body, opened.line, opened.marker) };
+  return {
+    head: `${lines.join("\n")}
+${opened.marker}`,
+    // The markdown before the block and the part of the block the preview
+    // keeps: the half block is drawn outside the host's Markdown, whose own
+    // copy control would hold only the part shown.
+    prose: lines.slice(0, opened.line).join("\n"),
+    codeHead: lines.slice(opened.line + 1).join("\n"),
+    code: blockCode(body, opened.line, opened.marker)
+  };
 }
 function foldPreview(text, limit = FOLD_AT, markdown = true) {
   return foldView(text, limit, markdown)?.head ?? null;
@@ -7358,6 +7370,7 @@ function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true }
   const view = (0, import_react14.useMemo)(() => live ? null : foldView(text, cut ? ALWAYS : limit, markdown), [text, live, limit, markdown, cut]);
   if (view === null) return { shown: text, control: null };
   const code = cut ? void 0 : view.code;
+  const shown = code === void 0 ? view.head : view.prose;
   const count = (cut ? whole.length : text.length).toLocaleString();
   if (!open) {
     const show2 = async () => {
@@ -7366,7 +7379,7 @@ function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true }
       setRead("loading");
       setRead(await whole.load() ?? { whole: false });
     };
-    return { shown: view.head, folded: true, code, control: (0, import_react14.createElement)("span", { className: "bt-fold" }, (0, import_react14.createElement)("button", { type: "button", className: "bt-more", onClick: show2 }, t("Show all · {count} characters", { count }))) };
+    return { shown, folded: true, code, codeHead: view.codeHead, control: (0, import_react14.createElement)("span", { className: "bt-fold" }, (0, import_react14.createElement)("button", { type: "button", className: "bt-more", onClick: show2 }, t("Show all · {count} characters", { count }))) };
   }
   const loaded = typeof read?.text === "string" ? read : void 0;
   const note = !cut || read === void 0 || read === "loading" || loaded?.whole ? null : loaded !== void 0 && loaded.text.length > text.length ? t("Showing the first {count} characters", { count: loaded.text.length.toLocaleString() }) : t("Only the start of this message is kept here");
@@ -7744,10 +7757,17 @@ function FoldCodeCopy({ code, actions }) {
   };
   return (0, import_react16.createElement)("button", { type: "button", className: "bt-tool bt-fold-copy", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react16.createElement)(CheckIcon) : (0, import_react16.createElement)(CopyIcon));
 }
+var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, import_react16.createElement)(
+  "div",
+  { className: "bt-fold-code" },
+  body,
+  (0, import_react16.createElement)("pre", { className: "bt-fold-pre" }, (0, import_react16.createElement)("code", null, codeHead)),
+  (0, import_react16.createElement)(FoldCodeCopy, { code, actions })
+);
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
-  const { shown, folded, control, code } = useFold(text, { limit: fold, whole, live });
+  const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const body = (0, import_react16.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels3(), variant: "compact", fileMentions: mentions });
+  const body = shown === "" ? null : (0, import_react16.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels3(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react16.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react16.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
@@ -7755,7 +7775,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
     if (!noHover() || event.target instanceof Element && event.target.closest("a,button,input,textarea,select,pre,code,[role=button],[role=link]")) return;
     setToolsOpen((value) => !value);
   };
-  const area = code === void 0 ? body : (0, import_react16.createElement)("div", { className: "bt-fold-code" }, body, (0, import_react16.createElement)(FoldCodeCopy, { code, actions }));
+  const area = foldArea(body, code, codeHead, actions);
   return (0, import_react16.createElement)(
     "div",
     { ref: row, className: "bt-msg", onClick: tapTools },
@@ -8131,9 +8151,9 @@ var scrollParent = (node) => {
   return null;
 };
 function EarlierUser({ row, actions }) {
-  const { shown, folded, control, code } = useFold(row.text ?? "");
-  const body = row.text ? (0, import_react16.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels3(), variant: "compact" }) : null;
-  const area = code === void 0 ? body : (0, import_react16.createElement)("div", { className: "bt-fold-code" }, body, (0, import_react16.createElement)(FoldCodeCopy, { code, actions }));
+  const { shown, folded, control, code, codeHead } = useFold(row.text ?? "");
+  const body = row.text && shown !== "" ? (0, import_react16.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels3(), variant: "compact" }) : null;
+  const area = foldArea(body, code, codeHead, actions);
   return (0, import_react16.createElement)("div", { className: "bt-urow" }, (0, import_react16.createElement)(
     "div",
     { className: "bt-ububble", "data-folded": folded || void 0 },
