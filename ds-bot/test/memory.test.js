@@ -813,7 +813,7 @@ test('a backlog past the text limit is reviewed in passes, oldest first', async 
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 27 })
 })
 
-test('an answer past the change limit is applied in part, and the same lines are read once more', async (t) => {
+test('an answer past the change limit is kept whole, and the same lines are read once more', async (t) => {
   const many = Array.from({ length: 9 }, (_, at) => ({ op: 'add', text: `The user likes thing ${at + 1}` }))
   const replies = [JSON.stringify({ changes: many }), JSON.stringify({ changes: [many[8]] })]
   const { ctx, call, read, requests, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
@@ -821,6 +821,9 @@ test('an answer past the change limit is applied in part, and the same lines are
   await call('state', {})
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
+  // All nine changes of the first answer were kept, and a full answer still
+  // re-read the same lines once: the repeat of an entry it holds changed
+  // nothing, and the passes ended there.
   assert.equal(requests.length, 2)
   assert.match(requests[0].system, /At most 8 changes in one answer/)
   assert.match(requests[1].messages[0].content[0].text, /\[8\] \(own\) The user likes thing 8\n/)
@@ -838,6 +841,34 @@ test('an answer that reaches the change limit exactly is followed by another pas
   await reviewed(call)
   assert.equal(requests.length, 2)
   assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 9)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+})
+
+test('a change set aside inside a full answer does not take the ones after it with it', async (t) => {
+  const replies = [
+    JSON.stringify({ changes: [
+      ...Array.from({ length: 7 }, (_, at) => ({ op: 'add', text: `The user likes thing ${at + 1}` })),
+      { op: 'add', text: `The user tells ${'a long story '.repeat(30)}` },
+      { op: 'add', text: 'The user likes thing 9' },
+    ] }),
+    JSON.stringify({ changes: [] }),
+  ]
+  const { ctx, call, read, requests, warnings, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  // Nine changes came in one answer: the long one was set aside and said, and
+  // every other — the ninth included — was kept. A full answer was kept, so the
+  // same lines were read once more.
+  assert.equal(requests.length, 2)
+  assert.deepEqual(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.map(entry => entry.text), [
+    ...Array.from({ length: 7 }, (_, at) => `The user likes thing ${at + 1}`),
+    'The user likes thing 9',
+  ])
+  const dropped = warnings.filter(line => line.includes('left out a change'))
+  assert.equal(dropped.length, 1, warnings.join('\n'))
+  assert.ok(dropped[0].includes('a long story'), warnings.join('\n'))
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
 })
 

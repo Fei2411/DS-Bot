@@ -1691,7 +1691,9 @@ export function install(rt) {
           const shown = clip(JSON.stringify(change), 160)
           rt.warn('ds-bot: memory review of %s left out a change: %s', name, secretEntry(shown) ? 'it looks like a key, token, password, or ID number, which memory never keeps' : `it is not a well-formed change: ${shown}`)
         }
-        const { kept, changed } = await applyReview({ keeper, name, home, numbered, changes: changes.slice(0, REVIEW_CHANGES_MAX), source: batch.source(read), teamWrites })
+        // The limit is what one answer may hold, not a cut of the one the model
+        // gave: every change in it is kept or set aside, none is dropped.
+        const { kept, changed } = await applyReview({ keeper, name, home, numbered, changes, source: batch.source(read), teamWrites })
         if (!alive()) return
         // An answer that kept all one answer may hold may have left some out, so
         // the same lines are read again, a few times at most, while each pass
