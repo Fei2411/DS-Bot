@@ -64,6 +64,8 @@ export function demoData(): DemoData {
     '',
     '- Pairing moved to the **Settings → Phone** card',
     '- The team list now polls `state` every three seconds',
+    '- Writer runs on deepseek-official/deepseek-flash for drafts and summaries',
+    '- Launch plan seats Chief (admin, you) and Writer together for the release checklist',
     '',
     '```ts',
     'const page = await call(\'chat\', { botId, cursor })',

@@ -97,6 +97,21 @@ export function RoomAvatar({ room, bots, dark, size = 44, ring }: { room: Room; 
   if (members.length === 0) {
     return <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: ring }} />
   }
+  // Below ~32px a cluster reads as a crop; the members line up overlapped like
+  // the desktop's bt-stack instead.
+  if (size <= 32 && members.length > 1) {
+    const overlap = size * 0.35
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {members.slice(0, 3).map((bot, index) => (
+          <View key={bot.id} style={{ marginLeft: index === 0 ? 0 : -overlap, zIndex: members.length - index }}>
+            <BotMark bot={bot} dark={dark} size={size} />
+          </View>
+        ))}
+        {members.length > 3 ? <Text style={{ fontSize: Math.max(9, Math.round(size * 0.4)), color: "#888", marginLeft: -overlap * 0.4 }}>{`+${members.length - 3}`}</Text> : null}
+      </View>
+    )
+  }
   const seats = clusterSeats(Math.min(members.length, 4), size)
   const overflow = members.length > 4 ? members.length - 3 : 0
   const gap = size / 14
