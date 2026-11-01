@@ -66,7 +66,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, teamInUse, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE
-let watchReleases, watchUpdates, getDshRuntimeVersion, electronUpdater
+let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
 // Settles once the hidden team window exists.
@@ -95,6 +95,8 @@ let proposed
 let moveTo
 // Takes the answer of the card that askCard() put up.
 let answering
+// The new version that the failure page's update banner offers.
+let offered
 // A retry or a start over is stopping the old engine: no second one starts meanwhile.
 let restarting = false
 // The first run's answer to the import; only the first boot copies.
@@ -183,6 +185,7 @@ if (canonical !== undefined) {
       if (answering !== undefined) { answering(value); return }
       (startWindow.kind === 'later' ? moveAnswer(value) : placeAnswer(value)).catch(fail)
     },
+    onUpdate: (name) => { updateAct(name) },
   })
   // A second launch shows the window that is showing: the start window until the hand-off
   // (also after a failed start), then the team window, built anew when it is gone.
@@ -269,7 +272,7 @@ async function loadModules() {
   ;({ copySessions, findTeam, importTeam, teamInUse, userDshHome } = imports)
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ CHECK_PROFILE, PROFILE } = profile)
-  ;({ watchReleases, watchUpdates } = updatesModule)
+  ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
   browserGuests = new BotBrowserGuests({ session, origin: () => origin, devTools: !app.isPackaged })
@@ -1241,9 +1244,7 @@ function openOutside(url) {
 }
 
 // The start window shows the failure page and stays. A new version may fix what keeps this one
-// from starting; until the page has its update row, a box on it says what comes: the release
-// page opens (macOS, a Linux deb), or the version that installs itself does so once it is
-// downloaded, unless the user has tried again meanwhile.
+// from starting: the page's update banner offers it.
 async function fail(error) {
   console.error(error)
   if (failed || stopping) return
@@ -1252,12 +1253,41 @@ async function fail(error) {
   startWindow.fail(error, startKind())
   // The failure page takes the place of a card that waited.
   answering?.(undefined)
+  await offerUpdate(mine).catch((failure) => { console.error(failure) })
+}
+
+// The update banner of the failure page (start-window §7): 〔下载〕 opens the release page of a
+// version that cannot install itself (macOS, a Linux deb); one that can is downloading already,
+// and installs once it is downloaded, unless the user has tried again meanwhile.
+async function offerUpdate(mine) {
   const found = await Promise.race([updates?.latest() ?? null, sleep(UPDATE_CHECK_WAIT_MS).then(() => null)])
-  if (!found || mine !== attempt) return
-  await dialog.showMessageBox(owner(), { type: 'info', title: 'DeepSeek Bot', message: tx(found.page ? 'dialog.update.onFailurePage' : 'dialog.update.onFailure', { version: found.version }) })
-  if (found.page) {
-    if (!process.env.DS_BOT_HOME) await electronShell.openExternal(found.page)
+  const still = () => failed && mine === attempt
+  offered = found ?? undefined
+  if (!found || !still()) return
+  const { version } = found
+  if (found.page) { startWindow.update({ state: 'available', version, page: true }); return }
+  const progress = (state) => {
+    if (still() && state.phase === 'downloading') startWindow.update({ state: 'downloading', version, percent: state.percent ?? 0, received: state.received ?? 0, total: state.total ?? 0 })
+  }
+  progress(updates.state())
+  const unsubscribe = updates.subscribe(progress)
+  const downloaded = await Promise.race([found.downloaded, sleep(UPDATE_DOWNLOAD_WAIT_MS).then(() => false)]).finally(unsubscribe)
+  if (!still()) return
+  if (!downloaded) { startWindow.update({ state: 'failed', version }); return }
+  startWindow.update({ state: 'installing', version })
+  await updates.install()
+}
+
+// The banner's buttons: 〔下载〕 and 「手动下载」 open the release page; 〔重试〕 after a failed
+// download checks again.
+function updateAct(name) {
+  if (!failed) return
+  if (name === 'manualDownload' || offered?.page) {
+    const page = offered?.page ?? RELEASE_PAGE
+    if (!process.env.DS_BOT_HOME) void electronShell.openExternal(page)
     return
   }
-  if (await Promise.race([found.downloaded, sleep(UPDATE_DOWNLOAD_WAIT_MS).then(() => false)]) && failed && mine === attempt) await updates.install()
+  if (updates === undefined || updates.state().phase !== 'failed') return
+  updates.check()
+  void offerUpdate(attempt).catch((error) => { console.error(error) })
 }

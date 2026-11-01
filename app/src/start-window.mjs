@@ -41,6 +41,9 @@ const ACT_VIEWS = {
   // (「会放在…」, a place that cannot be used).
   pick: ['boot', 'card', 'watchdog'],
   answer: ['card'],
+  // The failure page's update banner: 〔下载〕 or 〔重试〕 on it, and 「手动下载」.
+  installUpdate: ['failed'],
+  manualDownload: ['failed'],
   openLogs: null,
   copyDetails: null,
 }
@@ -236,6 +239,7 @@ export function startSnapshot(state, now) {
   if (state.card !== undefined) snapshot.card = { ...state.card }
   if (state.failure !== undefined) snapshot.failure = { reason: state.failure.reason, log: [...state.failure.log] }
   if (state.landing !== undefined) snapshot.landing = { ...state.landing }
+  if (state.update !== undefined) snapshot.update = { ...state.update }
   return snapshot
 }
 
@@ -283,11 +287,13 @@ export class StartWindow {
    *   mainWindow: () => any,
    *   onRetry: () => void, onReload: () => void, onClose: () => void,
    *   onPick?: (value?: string) => void, onAnswer?: (value?: string) => void,
+   *   onUpdate?: (name: 'installUpdate' | 'manualDownload') => void,
    * }} options `lang` is asked at each open; `program` names the folders of the app's own files;
    *   `onClose` runs when the user closes the start window before the hand-off; `onPick` when
    *   the page asks for the folder picker ('changePlace' from its place line, nothing from a
    *   card's 〔重新选〕; on a later start the line's button moves the data), `onAnswer` with a
-   *   card's answer ('use' for 〔继续〕 on 「会放在…」).
+   *   card's answer ('use' for 〔继续〕 on 「会放在…」), `onUpdate` with a button of the failure
+   *   page's update banner.
    */
   constructor(options) {
     this.#o = options
@@ -440,7 +446,7 @@ export class StartWindow {
     this.#watchAt = WATCHDOG_MS
     this.#phaseAt = Date.now()
     this.#clear('teamView')
-    this.#update({ view: 'boot', done: [], card: undefined, failure: undefined, celebrate: true, clock: { base: 0, from: Date.now(), running: true } })
+    this.#update({ view: 'boot', done: [], card: undefined, failure: undefined, update: undefined, celebrate: true, clock: { base: 0, from: Date.now(), running: true } })
   }
 
   /**
@@ -570,6 +576,17 @@ export class StartWindow {
     if (emptied) this.#window.webContents.reload()
   }
 
+  /**
+   * The failure page's update banner (start-window §7), or none: a new version that may fix what
+   * keeps this one from starting. A retry takes it away.
+   * @param {{ state: 'available' | 'downloading' | 'installing' | 'failed', version: string, page?: boolean, percent?: number, received?: number, total?: number } | undefined} update
+   *   `page`: the version installs from its release page, not by itself; `received` and `total` in MB
+   */
+  update(update) {
+    if (!this.#open() || this.#state.view !== 'failed') return
+    this.#update({ update: update === undefined ? undefined : { ...update } })
+  }
+
   /** The team window's rect: centred on the start window, inside that display's work area. */
   mainBounds() {
     const { screen } = this.#o.electron
@@ -632,7 +649,7 @@ export class StartWindow {
       view: start === 'moving' ? 'moving' : 'boot',
       done: [], explain: this.#explain, celebrate: start === 'first',
       clock: { base: 0, from: now, running: true },
-      hint: undefined, place: undefined, card: undefined, failure: undefined,
+      hint: undefined, place: undefined, card: undefined, failure: undefined, update: undefined,
     }
     this.#refresh()
   }
@@ -684,6 +701,7 @@ export class StartWindow {
     else if (name === 'copyDetails') this.#copyDetails()
     else if (name === 'pick') this.#o.onPick?.(valueOf(payload))
     else if (name === 'answer') this.#o.onAnswer?.(valueOf(payload))
+    else if (name === 'installUpdate' || name === 'manualDownload') this.#o.onUpdate?.(name)
     return true
   }
 
@@ -696,7 +714,7 @@ export class StartWindow {
     this.#holdsOff()
     this.#watchAt = WATCHDOG_MS
     this.#phaseAt = Date.now()
-    this.#update({ view: 'boot', failure: undefined, celebrate: true, done: this.#state.done.filter(phase => phase !== 'team'), clock: { base: 0, from: Date.now(), running: true } })
+    this.#update({ view: 'boot', failure: undefined, update: undefined, celebrate: true, done: this.#state.done.filter(phase => phase !== 'team'), clock: { base: 0, from: Date.now(), running: true } })
     this.#o.onRetry()
   }
 

@@ -116,7 +116,7 @@ test('only a missing file of the app\'s own says that the install is incomplete'
 })
 
 test('the main process takes only its own acts, each in its own views', () => {
-  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'openLogs', 'pick', 'reloadView', 'retry', 'wait'])
+  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'installUpdate', 'manualDownload', 'openLogs', 'pick', 'reloadView', 'retry', 'wait'])
   assert.equal(acceptsAct('handoffShow', 'handoff'), true)
   // 「换个位置…」 while the start boots and 〔重新选〕 on its cards; a card's answer only on a card.
   assert.equal(acceptsAct('pick', 'boot'), true)
@@ -136,12 +136,17 @@ test('the main process takes only its own acts, each in its own views', () => {
   assert.equal(acceptsAct('wait', 'failed'), false)
   assert.equal(acceptsAct('reloadView', 'viewFailed'), true)
   assert.equal(acceptsAct('reloadView', 'failed'), false)
+  // The failure page's update banner.
+  for (const name of ['installUpdate', 'manualDownload']) {
+    assert.equal(acceptsAct(name, 'failed'), true)
+    for (const view of ['boot', 'card', 'viewFailed', 'watchdog', 'handoff', 'moving']) assert.equal(acceptsAct(name, view), false, `${name} in ${view}`)
+  }
   for (const view of ['boot', 'failed', 'viewFailed', 'watchdog', 'handoff', 'moving']) {
     assert.equal(acceptsAct('openLogs', view), true)
     assert.equal(acceptsAct('copyDetails', view), true)
   }
   // The cards of later pull requests, and names that are not acts at all.
-  for (const name of ['reload', 'toggleDetails', 'freshStart', 'installUpdate', 'manualDownload', 'stopCopy', 'keepCopying', 'importModel', 'importOption', '__proto__', 'constructor', 'toString', '']) {
+  for (const name of ['reload', 'toggleDetails', 'freshStart', 'stopCopy', 'keepCopying', 'importModel', 'importOption', '__proto__', 'constructor', 'toString', '']) {
     assert.equal(acceptsAct(name, 'failed'), false, name)
   }
   assert.equal(acceptsAct(undefined, 'failed'), false)
@@ -314,13 +319,13 @@ function startWindow(t) {
   t.mock.method(console, 'log', () => {})
   const fake = fakeElectron()
   const main = new fake.electron.BrowserWindow({ show: false })
-  const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [] }
+  const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [] }
   const start = new StartWindow({
     electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', mica: false, devTools: false,
     lang: () => 'en', motion: 'normal', version: '0.0.0', program: [], log: { dir: 'logs', tail: () => ['a log line'] },
     mainWindow: () => main,
     onRetry: () => { calls.retry += 1 }, onReload: () => { calls.reload += 1 }, onClose: () => { calls.close += 1 },
-    onPick: (value) => { calls.pick.push(value) }, onAnswer: (value) => { calls.answer.push(value) },
+    onPick: (value) => { calls.pick.push(value) }, onAnswer: (value) => { calls.answer.push(value) }, onUpdate: (name) => { calls.update.push(name) },
   })
   const win = () => fake.windows.at(-1)
   const page = () => ({ sender: win().webContents, senderFrame: win().webContents.mainFrame })
@@ -747,6 +752,27 @@ test('a move from a later start turns the start window into the move\'s and drop
   assert.equal(m.state().view, 'moving')
   assert.equal(m.state().clock.running, true)
   assert.equal('card' in m.state(), false)
+})
+
+test('the failure page carries the update banner until a retry', (t) => {
+  const u = startWindow(t)
+  u.start.open('first')
+  // Not before the failure page.
+  u.start.done('data')
+  u.start.update({ state: 'available', version: '9.9.9', page: true })
+  assert.equal('update' in u.state(), false)
+  u.start.fail(new Error('the Host did not start'), 'first')
+  u.start.update({ state: 'downloading', version: '9.9.9', percent: 37, received: 78, total: 212 })
+  assert.deepEqual(u.state().update, { state: 'downloading', version: '9.9.9', percent: 37, received: 78, total: 212 })
+  u.start.update({ state: 'installing', version: '9.9.9' })
+  assert.deepEqual(u.state().update, { state: 'installing', version: '9.9.9' })
+  assert.equal(u.act('installUpdate'), true)
+  assert.equal(u.act('manualDownload'), true)
+  assert.deepEqual(u.calls.update, ['installUpdate', 'manualDownload'])
+  assert.equal(u.act('retry'), true)
+  assert.equal('update' in u.state(), false)
+  assert.equal(u.act('manualDownload'), false)
+  assert.deepEqual(u.calls.update, ['installUpdate', 'manualDownload'])
 })
 
 test('a card shows only while the start boots or the data moves', (t) => {
