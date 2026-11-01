@@ -371,6 +371,46 @@ test('a save queued before the lock was lost does not write over an outside edit
   }
 })
 
+test('a save paused while another host held the team does not overwrite its final state', async (t) => {
+  const { rt, home, statePath } = runtime(t)
+  await rt.load()
+  rt.state.prefs.marker = 'ours'
+  await rt.save()
+  let entered
+  let unblock
+  const atMkdir = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { unblock = resolve })
+  const restore = patch('mkdir', originalMkdir => async (path, ...args) => {
+    if (path === home) {
+      entered()
+      await gate
+    }
+    return originalMkdir(path, ...args)
+  })
+  try {
+    rt.state.prefs.after = 'stale snapshot'
+    const saving = rt.save()
+    await atMkdir
+    // Another dsh takes the lock and writes; this host turns read-only and adopts.
+    fs.writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: process.ppid, host: hostname(), token: 'other-host', since: Date.now() }))
+    fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'other write' } }))
+    await rt.refresh()
+    assert.match(rt.readOnly(), /another dsh/)
+    // The other dsh writes its final state and exits; this host takes over.
+    fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 901, prefs: { marker: 'final' } }))
+    fs.rmSync(join(home, 'state.lock'))
+    const refreshing = rt.refresh()
+    unblock()
+    await assert.rejects(saving, { code: 'ELOCKLOST' })
+    await refreshing
+    assert.equal(rt.state.prefs.marker, 'final')
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'final')
+  } finally {
+    unblock()
+    restore()
+  }
+})
+
 test('a changed file is adopted when another host left its lock behind', async (t) => {
   const { rt, home, statePath } = runtime(t)
   await rt.load()

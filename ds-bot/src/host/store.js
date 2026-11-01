@@ -34,6 +34,9 @@ export function install(rt) {
   let stopped = false
   // mtime and size of the state.json this host last read or wrote.
   let seen = ''
+  // Bumped each time the in-memory state is replaced from the file, so a queued
+  // save cannot write a snapshot taken of the state it replaced.
+  let lockEpoch = 0
   const stamp = () => {
     try {
       const { mtimeMs, size } = statSync(statePath)
@@ -106,6 +109,7 @@ export function install(rt) {
   // Fill `state` from the saved file and bring an older team up to date. Returns the
   // groups whose Session titles still need the new name.
   const adopt = (parsed) => {
+    lockEpoch += 1
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
@@ -350,6 +354,7 @@ export function install(rt) {
       }
       // The snapshot is taken here, so a save made while an adopt was pending
       // writes the adopted state, not the stale one it had.
+      const epoch = lockEpoch
       state.revision += 1
       state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
@@ -363,7 +368,9 @@ export function install(rt) {
           // instead of being written over; a removed file is just written again.
           const changed = owned && stamp() !== '' && stamp() !== seen
           if (changed) void adoptAfterReclaim().catch(() => {})
-          if (!owned || changed) {
+          // A different epoch means an adopt replaced the state this snapshot was
+          // taken from — another host's writes, or an outside edit it adopted.
+          if (!owned || changed || lockEpoch !== epoch) {
             const error = new Error(changed ? 'ds-bot: the Bot team file changed under this host\'s lock' : 'ds-bot lost the state lock to another dsh')
             error.code = 'ELOCKLOST'
             throw error
