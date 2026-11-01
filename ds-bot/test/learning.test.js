@@ -567,9 +567,18 @@ test('long turns ending during review remain pending for the next pass', async t
     config: { learningTimes: { tickMs: 100_000 } },
   })
   t.after(() => runtime.stop())
+  // chatOwners is a derived index: load() and save() rebuild it from the saved
+  // team, so the extra Session standing in for a second chat of b2 goes back on
+  // after each rebuild.
   const load = runtime.rt.load
   runtime.rt.load = async (...args) => {
     const result = await load(...args)
+    runtime.rt.chatOwners.set('b3', 'b2')
+    return result
+  }
+  const save = runtime.rt.save
+  runtime.rt.save = (...args) => {
+    const result = save(...args)
     runtime.rt.chatOwners.set('b3', 'b2')
     return result
   }
