@@ -6,7 +6,7 @@ export default function App() {
   const color = dark ? '#f2f2f2' : '#1a1a1a';
   return (
     <View style={[styles.screen, { backgroundColor: dark ? '#111' : '#fff' }]}>
-      <Text style={[styles.title, { color }]}>DeepSeek Bot</Text>
+      <Text style={[styles.title, { color }]}>DS Bot</Text>
       <Text style={[styles.hint, { color }]}>Pair with your computer to reach your Bot team.</Text>
       <StatusBar style="auto" />
     </View>

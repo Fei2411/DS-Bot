@@ -34,9 +34,24 @@ test('sharp native modules and versioned libvips libraries are unpacked together
   assert.equal(filter(join(root, 'node_modules/yaml/dist/index.js'), stat), false)
 })
 
+test('Linux leaves the Host and its dependencies readable by plain Node', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(config.linux.asar, false)
+  assert.notEqual(config.mac.asar, false)
+  assert.notEqual(config.win.asar, false)
+})
+
 // A release is tagged with the version of ds-bot, and the installed apps compare their own
 // version with the one in the release's latest.yml.
 test('the app has the version of ds-bot', () => {
   const version = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8')).version
   assert.equal(version('../package.json'), version('../../ds-bot/package.json'))
+})
+
+// Tool processes (bash, scripts a Bot runs) connect to devices on the local network;
+// macOS blocks them outright when Info.plist has no NSLocalNetworkUsageDescription.
+test('the mac package asks macOS for local network access', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(typeof config.mac?.extendInfo?.NSLocalNetworkUsageDescription, 'string')
+  assert.notEqual(config.mac.extendInfo.NSLocalNetworkUsageDescription.trim(), '')
 })
