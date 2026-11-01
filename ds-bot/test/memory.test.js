@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import {
   MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey,
   looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
@@ -121,6 +121,7 @@ const ownChat = [
 // of a Session, oldest first; each own chat has one user message, at seq 10, unless
 // it says otherwise. `requireSession` turns down a request without a Session, as
 // some routes do.
+let rt
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const services = defaultModel === undefined ? {} : { agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: defaultModel }) } }
@@ -159,12 +160,12 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     route = options
     return register(options)
   }
-  apply(ctx, { home, ...config })
+  rt = createRuntime(ctx, { home, ...config })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
   }
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId } })
+  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
   const section = sessionId => ctx.sections.get('bot-memory').text({ agent: { id: sessionId } })
   const read = (...path) => readFileSync(join(home, 'memory', ...path), 'utf8')
   const journal = () => read('journal.jsonl').trim().split('\n').map(line => JSON.parse(line))
@@ -231,6 +232,63 @@ test('topics hold details, linked from MEMORY.md, and go when their last entry d
   assert.match(await tool('forget', { entry: 'window', topic: 'travel' }, 'b2'), /The topic \[\[travel\]\] was empty, so it is gone too\./)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'travel.md')), false)
   assert.equal(read('bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n')
+})
+
+test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '女友小李的生日是 10 月 22 日' }, 'b2')
+  await tool('remember', { text: 'The user likes green tea' }, 'b2')
+  // The phrase is not a substring of the entry: its character pairs find it.
+  assert.match(await tool('recall', { query: '小李生日' }, 'b2'), /女友小李的生日是 10 月 22 日/)
+  // An entry holding the whole phrase still matches every term.
+  await tool('remember', { text: '小李生日会定在周六' }, 'b2')
+  assert.match(await tool('recall', { query: '小李生日' }, 'b2'), /^Entries with "小李生日" in your memory and the team memory:\n\[yours · MEMORY\.md\] 小李生日会定在周六/)
+  // Space-separated terms and Latin words match as they did.
+  assert.match(await tool('recall', { query: '小李 生日' }, 'b2'), /女友小李的生日/)
+  assert.match(await tool('recall', { query: 'green tea' }, 'b2'), /likes green tea/)
+  assert.match(await tool('recall', { query: 'green 生日' }, 'b2'), /No entry has all of "green 生日"/)
+})
+
+test('recall caps the user\'s words, not their pairs, and a whole phrase outranks pair matches', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '周末上海出差安排住外滩的酒店' }, 'b2')
+  // The word after the phrase still counts: with 生日 missing, the hotel entry
+  // is not a full match, only the closest.
+  const trip = await tool('recall', { query: '周末上海出差安排 生日' }, 'b2')
+  assert.match(trip, /No entry has all of "周末上海出差安排 生日"/)
+  assert.match(trip, /周末上海出差安排住外滩的酒店/)
+  // Of many entries that share the pairs and the one that holds the phrase
+  // whole, only that one is a full match.
+  for (let at = 1; at <= 30; at += 1) await tool('remember', { text: `周末上海出差安全事项第${at}条` }, 'b2')
+  await tool('remember', { text: '周末上海出差安排在周五确认' }, 'b2')
+  const hits = await tool('recall', { query: '周末上海出差安排' }, 'b2')
+  assert.match(hits, /^Entries with "周末上海出差安排"/)
+  assert.match(hits, /周末上海出差安排在周五确认/)
+  assert.doesNotMatch(hits, /安全事项/)
+})
+
+test('a repeated word in a recall query is counted once, so a later word still reaches the cut', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '周末上海出差安排住外滩的酒店' }, 'b2')
+  await tool('remember', { text: '女友小李的生日是 10 月 22 日' }, 'b2')
+  // 上海 said six times is one word: 生日 still counts, so the entry that holds
+  // only 上海 is the closest, not a full match.
+  const hits = await tool('recall', { query: '上海 上海 上海 上海 上海 上海 生日' }, 'b2')
+  assert.match(hits, /No entry has all of "上海 上海 上海 上海 上海 上海 生日"/)
+  assert.match(hits, /周末上海出差安排住外滩的酒店/)
+  assert.match(hits, /女友小李的生日是 10 月 22 日/)
+})
+
+test('a mixed word keeps its Latin part in recall', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '中文资料保存在文档中' }, 'b2')
+  await tool('remember', { text: 'AI中文教程在书架上' }, 'b2')
+  // "AI中文" is more than 中文: only the entry that holds the phrase is a full match.
+  assert.match(await tool('recall', { query: 'AI中文' }, 'b2'), /^Entries with "AI中文" in your memory and the team memory:\n\[yours · MEMORY\.md\] AI中文教程在书架上 \[source: /)
 })
 
 test('Main Bots and group admins write the team memory; only Main Bots touch another Bot\'s', async (t) => {
@@ -940,7 +998,7 @@ const postToGroup = async (ctx, texts) => {
     const event = { type: 'user/message', data: { source: { kind: 'bot', role: 'post', senderSessionId: 'b3', senderName: 'Coder' }, content: [{ type: 'text', text }] } }
     for (const listener of ctx.listeners.get('session/event')) listener({ id: 'r1' }, event)
   }
-  await ctx.registeredTools.get('group_relay').execute({}, { agent: { id: 'r1' }, callId: 'relay', signal: AbortSignal.abort() })
+  await rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: 'r1' }, callId: 'relay', signal: AbortSignal.abort() })
 }
 
 test('a queued review keeps the group lines that leave the log while it waits', async (t) => {
