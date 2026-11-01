@@ -67,6 +67,7 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
     return agents.get(sessionId)
   }
   const registry = new Map([['w1', { id: 'w1', path: team, title: 'DS Bot' }]])
+  let created = 0
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
@@ -81,7 +82,8 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
       archiveSession: async () => {},
     },
     sessionController: {
-      create: async () => ({ sessionId: 's1' }),
+      // Ids shaped like real Session ids: a short one would match any path it lands in.
+      create: async () => ({ sessionId: `0000000${++created}-1111-4222-8333-444444444444` }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
