@@ -10,6 +10,13 @@ const ALWAYS = { chars: -1, lines: 0 }
 const PREVIEW_LINES = 10
 const PREVIEW_CHARS = 600
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
+// A closing fence is bare: a marker line carrying an info string (` ```js `) inside
+// an open block is content, never a close.
+const CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/
+const closes = (line, open) => {
+  const marker = CLOSE.exec(line)?.[1]
+  return marker !== undefined && marker[0] === open[0] && marker.length >= open.length
+}
 
 // Cuts `text` at `end` code units, backing up one when the last character is a
 // high surrogate so an emoji is not split in half.
@@ -38,21 +45,22 @@ function openedFence(lines) {
     const marker = FENCE.exec(lines[i])?.[1]
     if (marker === undefined) continue
     if (open === null) { open = marker; openLine = i }
-    else if (marker[0] === open[0] && marker.length >= open.length) open = null
+    else if (closes(lines[i], open)) open = null
   }
   return open === null ? null : { marker: open, line: openLine }
 }
 
 // The block a preview's cut fence opens, read whole from the unfolded text: the
 // lines between the fence and its close (or the end when it never closes), so a
-// copy of the partly shown block does not stop at the fold.
+// copy of the partly shown block does not stop at the fold. An indented opening
+// fence indents its content the same way, and that indent is not the block's.
 function blockCode(body, fenceLine, open) {
   const lines = body.split('\n')
+  const indent = /^ */.exec(lines[fenceLine])[0].length
   const code = []
   for (let i = fenceLine + 1; i < lines.length; i += 1) {
-    const marker = FENCE.exec(lines[i])?.[1]
-    if (marker !== undefined && marker[0] === open[0] && marker.length >= open.length) break
-    code.push(lines[i])
+    if (closes(lines[i], open)) break
+    code.push(lines[i].replace(new RegExp(`^ {0,${indent}}`), ''))
   }
   return code.join('\n')
 }

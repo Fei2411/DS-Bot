@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { MarkdownText } from './dsh-primitives.js'
+import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
@@ -53,6 +53,21 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     }))
 }
 
+// A folded message's last code block shows only its start; DS Bot draws its own
+// copy control for it, bound to the whole block. DSH's and the app's copy
+// buttons live in the block's banner and their markup differs, so none of
+// theirs is intercepted or cloned.
+function FoldCodeCopy({ code, actions }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    void writeClipboard(code).then((ok) => {
+      if (!ok) { actions?.reportError?.(new Error('Could not copy the code block'), 'copy'); return }
+      setCopied(true); setTimeout(() => setCopied(false), 1000)
+    }, () => actions?.reportError?.(new Error('Could not copy the code block'), 'copy'))
+  }
+  return h('button', { type: 'button', className: 'bt-tool bt-fold-copy', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
+}
+
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
   const { shown, folded, control, code } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
@@ -66,32 +81,16 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
     if (!noHover() || event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]')) return
     setToolsOpen(value => !value)
   }
-  // The copy button inside a folded message's last code block would copy only
-  // the part the preview kept; write the whole block instead. On capture, so
-  // the Markdown's own copy handler never sees the click.
-  const copyFolded = (event) => {
-    if (code === undefined || !(event.target instanceof Element)) return
-    const button = event.target.closest('button')
-    // The code block's copy control is the copyButton in its banner; its label
-    // varies by the DSH version, so match the class, with the label as a spare.
-    const label = button?.getAttribute('aria-label')
-    if (!button || (!/copyButton/i.test(button.className ?? '') && label !== t('Copy') && label !== t('Copied'))) return
-    // The copy control may sit inside the `pre` or in the chrome wrapping it:
-    // the nearest ancestor of the button that holds a `pre` is its block, and
-    // only the last block in a folded preview is the cut one.
-    let holder = button.parentElement
-    while (holder !== null && holder !== row.current && holder.querySelector('pre') === null) holder = holder.parentElement
-    const pres = row.current?.querySelectorAll('pre') ?? []
-    if (holder?.querySelector('pre') !== pres[pres.length - 1] || pres.length === 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    void navigator.clipboard?.writeText(code)
-  }
-  return h('div', { ref: row, className: 'bt-msg', onClick: tapTools, onClickCapture: copyFolded },
+  // A folded message's last code block shows only its start; DS Bot draws its own
+  // copy control for it, bound to the whole block. DSH's and the app's copy
+  // buttons live in the block's banner and their markup differs, so none of
+  // theirs is intercepted or cloned.
+  const area = code === undefined ? body : h('div', { className: 'bt-fold-code' }, body, h(FoldCodeCopy, { code, actions }))
+  return h('div', { ref: row, className: 'bt-msg', onClick: tapTools },
     h('div', { className: 'bt-msg-line' },
       lead,
       h('div', { className: 'bt-bubble', 'data-folded': folded || undefined },
-        control ? h('div', { className: 'bt-fold-body' }, body) : body,
+        control ? h('div', { className: 'bt-fold-body' }, area) : area,
         control),
       live ? null : h(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions, open: toolsOpen })),
     picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
@@ -428,25 +427,12 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row }) {
+function EarlierUser({ row, actions }) {
   const { shown, folded, control, code } = useFold(row.text ?? '')
   const body = row.text ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
-  const box = useRef(null)
-  const copyFolded = (event) => {
-    if (code === undefined || !(event.target instanceof Element)) return
-    const button = event.target.closest('button')
-    const label = button?.getAttribute('aria-label')
-    if (!button || (!/copyButton/i.test(button.className ?? '') && label !== t('Copy') && label !== t('Copied'))) return
-    let holder = button.parentElement
-    while (holder !== null && holder !== box.current && holder.querySelector('pre') === null) holder = holder.parentElement
-    const pres = box.current?.querySelectorAll('pre') ?? []
-    if (holder?.querySelector('pre') !== pres[pres.length - 1] || pres.length === 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    void navigator.clipboard?.writeText(code)
-  }
-  return h('div', { className: 'bt-urow', ref: box, onClickCapture: copyFolded }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
-    control ? h('div', { className: 'bt-fold-body' }, body) : body,
+  const area = code === undefined ? body : h('div', { className: 'bt-fold-code' }, body, h(FoldCodeCopy, { code, actions }))
+  return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
+    control ? h('div', { className: 'bt-fold-body' }, area) : area,
     control,
     row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null))
 }
@@ -560,7 +546,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row })
+    case 'user': return h(EarlierUser, { key, row, actions })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })

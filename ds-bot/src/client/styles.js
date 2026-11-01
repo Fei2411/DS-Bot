@@ -367,6 +367,8 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - 960px)/2)) 116px;scrollbar-width:thin}
 .bt-exchange .bt-tools{display:none}
 .bt-fold{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:4px;white-space:normal}
+.bt-fold-code{position:relative}
+.bt-fold-code>.bt-tool{position:absolute;right:6px;bottom:6px}
 .bt-fold-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 [data-folded] .bt-fold-body{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent)}
 .bt-ubody .bt-fold .bt-more,.bt-ububble .bt-fold .bt-more,.bt-ubody .bt-fold-note,.bt-ububble .bt-fold-note{color:inherit;opacity:.7}

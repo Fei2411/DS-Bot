@@ -2757,6 +2757,8 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - 960px)/2)) 116px;scrollbar-width:thin}
 .bt-exchange .bt-tools{display:none}
 .bt-fold{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:4px;white-space:normal}
+.bt-fold-code{position:relative}
+.bt-fold-code>.bt-tool{position:absolute;right:6px;bottom:6px}
 .bt-fold-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 [data-folded] .bt-fold-body{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent)}
 .bt-ubody .bt-fold .bt-more,.bt-ububble .bt-fold .bt-more,.bt-ubody .bt-fold-note,.bt-ububble .bt-fold-note{color:inherit;opacity:.7}
@@ -7284,6 +7286,11 @@ var ALWAYS = { chars: -1, lines: 0 };
 var PREVIEW_LINES = 10;
 var PREVIEW_CHARS = 600;
 var FENCE = /^ {0,3}(`{3,}|~{3,})/;
+var CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
+var closes = (line, open) => {
+  const marker = CLOSE.exec(line)?.[1];
+  return marker !== void 0 && marker[0] === open[0] && marker.length >= open.length;
+};
 function cutAt(text, end) {
   const code = text.charCodeAt(end - 1);
   return text.slice(0, code >= 55296 && code <= 56319 ? end - 1 : end);
@@ -7304,17 +7311,17 @@ function openedFence(lines) {
     if (open === null) {
       open = marker;
       openLine = i;
-    } else if (marker[0] === open[0] && marker.length >= open.length) open = null;
+    } else if (closes(lines[i], open)) open = null;
   }
   return open === null ? null : { marker: open, line: openLine };
 }
 function blockCode(body, fenceLine, open) {
   const lines = body.split("\n");
+  const indent = /^ */.exec(lines[fenceLine])[0].length;
   const code = [];
   for (let i = fenceLine + 1; i < lines.length; i += 1) {
-    const marker = FENCE.exec(lines[i])?.[1];
-    if (marker !== void 0 && marker[0] === open[0] && marker.length >= open.length) break;
-    code.push(lines[i]);
+    if (closes(lines[i], open)) break;
+    code.push(lines[i].replace(new RegExp(`^ {0,${indent}}`), ""));
   }
   return code.join("\n");
 }
@@ -7723,6 +7730,20 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
     })
   );
 }
+function FoldCodeCopy({ code, actions }) {
+  const [copied, setCopied] = (0, import_react16.useState)(false);
+  const copy2 = () => {
+    void (0, import_dsh_client_ui_primitives.writeClipboard)(code).then((ok) => {
+      if (!ok) {
+        actions?.reportError?.(new Error("Could not copy the code block"), "copy");
+        return;
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1e3);
+    }, () => actions?.reportError?.(new Error("Could not copy the code block"), "copy"));
+  };
+  return (0, import_react16.createElement)("button", { type: "button", className: "bt-tool bt-fold-copy", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react16.createElement)(CheckIcon) : (0, import_react16.createElement)(CopyIcon));
+}
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
   const { shown, folded, control, code } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
@@ -7734,22 +7755,10 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
     if (!noHover() || event.target instanceof Element && event.target.closest("a,button,input,textarea,select,pre,code,[role=button],[role=link]")) return;
     setToolsOpen((value) => !value);
   };
-  const copyFolded = (event) => {
-    if (code === void 0 || !(event.target instanceof Element)) return;
-    const button = event.target.closest("button");
-    const label = button?.getAttribute("aria-label");
-    if (!button || !/copyButton/i.test(button.className ?? "") && label !== t("Copy") && label !== t("Copied")) return;
-    let holder = button.parentElement;
-    while (holder !== null && holder !== row.current && holder.querySelector("pre") === null) holder = holder.parentElement;
-    const pres = row.current?.querySelectorAll("pre") ?? [];
-    if (holder?.querySelector("pre") !== pres[pres.length - 1] || pres.length === 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    void navigator.clipboard?.writeText(code);
-  };
+  const area = code === void 0 ? body : (0, import_react16.createElement)("div", { className: "bt-fold-code" }, body, (0, import_react16.createElement)(FoldCodeCopy, { code, actions }));
   return (0, import_react16.createElement)(
     "div",
-    { ref: row, className: "bt-msg", onClick: tapTools, onClickCapture: copyFolded },
+    { ref: row, className: "bt-msg", onClick: tapTools },
     (0, import_react16.createElement)(
       "div",
       { className: "bt-msg-line" },
@@ -7757,7 +7766,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
       (0, import_react16.createElement)(
         "div",
         { className: "bt-bubble", "data-folded": folded || void 0 },
-        control ? (0, import_react16.createElement)("div", { className: "bt-fold-body" }, body) : body,
+        control ? (0, import_react16.createElement)("div", { className: "bt-fold-body" }, area) : area,
         control
       ),
       live ? null : (0, import_react16.createElement)(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t("Bot"), sessionId, react: key ? (emoji) => actions.toggleReaction(msgKey, index, emoji) : void 0, actions, open: toolsOpen })
@@ -8121,27 +8130,14 @@ var scrollParent = (node) => {
   }
   return null;
 };
-function EarlierUser({ row }) {
+function EarlierUser({ row, actions }) {
   const { shown, folded, control, code } = useFold(row.text ?? "");
   const body = row.text ? (0, import_react16.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels3(), variant: "compact" }) : null;
-  const box = (0, import_react16.useRef)(null);
-  const copyFolded = (event) => {
-    if (code === void 0 || !(event.target instanceof Element)) return;
-    const button = event.target.closest("button");
-    const label = button?.getAttribute("aria-label");
-    if (!button || !/copyButton/i.test(button.className ?? "") && label !== t("Copy") && label !== t("Copied")) return;
-    let holder = button.parentElement;
-    while (holder !== null && holder !== box.current && holder.querySelector("pre") === null) holder = holder.parentElement;
-    const pres = box.current?.querySelectorAll("pre") ?? [];
-    if (holder?.querySelector("pre") !== pres[pres.length - 1] || pres.length === 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    void navigator.clipboard?.writeText(code);
-  };
-  return (0, import_react16.createElement)("div", { className: "bt-urow", ref: box, onClickCapture: copyFolded }, (0, import_react16.createElement)(
+  const area = code === void 0 ? body : (0, import_react16.createElement)("div", { className: "bt-fold-code" }, body, (0, import_react16.createElement)(FoldCodeCopy, { code, actions }));
+  return (0, import_react16.createElement)("div", { className: "bt-urow" }, (0, import_react16.createElement)(
     "div",
     { className: "bt-ububble", "data-folded": folded || void 0 },
-    control ? (0, import_react16.createElement)("div", { className: "bt-fold-body" }, body) : body,
+    control ? (0, import_react16.createElement)("div", { className: "bt-fold-body" }, area) : area,
     control,
     row.images ? (0, import_react16.createElement)("span", { className: "bt-uimages" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
   ));
@@ -8248,7 +8244,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case "divider":
       return (0, import_react16.createElement)(PartLine, { key, time: row.time });
     case "user":
-      return (0, import_react16.createElement)(EarlierUser, { key, row });
+      return (0, import_react16.createElement)(EarlierUser, { key, row, actions });
     case "answer":
       return (0, import_react16.createElement)(AnsweredReply, { key, node: { data: row } });
     // A display-only view replays from the blueprint the host kept on the call.

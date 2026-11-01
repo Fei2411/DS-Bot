@@ -165,6 +165,19 @@ test('a folded preview also yields the whole code block it cut', () => {
   assert.equal(render('short', { whole: { length: 300_000 } }).code, undefined)
 })
 
+// #718: a close is bare — a marker line with an info string inside a block is
+// content — and an indented fence's indent is not part of the block's code.
+test('the copied block follows Markdown fence rules', () => {
+  const inner = `${lines(15)}\n\`\`\`literal\n${lines(15)}`
+  assert.equal(foldView(`\`\`\`js\n${inner}\n\`\`\`\nafter`).code, inner)
+  // Indent the opening fence up to three spaces: the same indent leaves the code.
+  const padded = lines(30).split('\n').map(line => `  ${line}`).join('\n')
+  assert.equal(foldView(`  \`\`\`\n${padded}\n  \`\`\``).code, lines(30))
+  // A close padded with trailing spaces still closes; a longer marker does too.
+  assert.equal(foldView(`\`\`\`\n${lines(30)}\n\`\`\`  \nafter`).code, lines(30))
+  assert.equal(foldView(`\`\`\`\n${lines(30)}\n\`\`\`\`\nafter`).code, lines(30))
+})
+
 test('a streaming text never folds', () => {
   fresh()
   assert.equal(render(lines(40), { live: true }).control, null)
