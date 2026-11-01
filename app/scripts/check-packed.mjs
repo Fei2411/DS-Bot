@@ -18,11 +18,11 @@ const executable = given || packedExecutable()
 
 function packedExecutable() {
   const out = join(root, 'dist-pack')
-  if (process.platform === 'win32') return join(out, 'win-unpacked', 'DeepSeek Bot.exe')
+  if (process.platform === 'win32') return join(out, 'win-unpacked', 'DS Bot.exe')
   // executableName in electron-builder.yml.
-  if (process.platform === 'linux') return join(out, 'linux-unpacked', 'deepseek-bot')
+  if (process.platform === 'linux') return join(out, 'linux-unpacked', 'dsbot')
   const dir = ['mac-arm64', 'mac'].find(name => existsSync(join(out, name))) ?? 'mac'
-  return join(out, dir, 'DeepSeek Bot.app', 'Contents', 'MacOS', 'DeepSeek Bot')
+  return join(out, dir, 'DS Bot.app', 'Contents', 'MacOS', 'DS Bot')
 }
 
 if (!existsSync(executable)) {
