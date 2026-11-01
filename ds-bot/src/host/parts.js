@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { parseReplies, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
@@ -318,12 +319,21 @@ export function install(rt) {
   }, 'ds-bot: Bot compaction')
   ctx.on('agent/created', ({ agent }) => { adoptCompaction(agent) })
 
-  // A Bot's own chat, or its Session in one group, as numbered parts, oldest first;
-  // the last one is current.
+  // A Bot's own chat, or its Session in one group, or the group's own Session
+  // (`botId === undefined`), as numbered parts, oldest first; the last one is
+  // current.
   function partsOf(botId, roomId) {
+    const room = rt.roomOf(roomId)
+    if (botId === undefined) {
+      if (room === undefined) return []
+      const earlier = room.parts ?? []
+      const parts = earlier.map((segment, index) => ({ ...segment, number: index + 1, startedAt: earlier[index - 1]?.endedAt ?? room.createdAt }))
+      const current = rt.sessionOfRoom(room)
+      if (current !== undefined) parts.push({ sessionId: current, number: parts.length + 1, startedAt: earlier.at(-1)?.endedAt ?? room.createdAt })
+      return parts
+    }
     const bot = rt.botOf(botId)
     if (bot === undefined) return []
-    const room = rt.roomOf(roomId)
     const earlier = (room ? room.segments?.[botId] : bot.segments) ?? []
     const current = room ? room.sessions?.[botId] : rt.chatOf(botId)
     const parts = earlier.map((segment, index) => ({ ...segment, number: index + 1, startedAt: earlier[index - 1]?.endedAt ?? bot.createdAt }))
@@ -644,14 +654,16 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, segment, lines, number, resume, overflow, failed, bare, folder }) {
-    const where = room ? `your conversation in the group chat "${room.name}"` : 'your own chat with the user'
-    const lookup = room
-      ? 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat.'
-      : 'read_own_chat searches every part, reads around an anchor such as [part 2 #1234 · …], and shows the note that closed any earlier part.'
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder }) {
+    const where = room === undefined ? 'your own chat with the user'
+      : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
+    const lookup = room === undefined
+      ? 'read_own_chat searches every part, reads around an anchor such as [part 2 #1234 · …], and shows the note that closed any earlier part.'
+      : self ? 'the earlier part stays in the group\'s saved record.'
+        : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat.'
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
       : overflow ? 'the previous part overflowed the model\'s window'
-        : folder !== undefined ? `your working folder changed to ${folder}` : 'the previous part grew long'
+        : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}` : 'the previous part grew long'
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -722,9 +734,13 @@ export function install(rt) {
     const botId = rt.chatOwners.get(sessionId)
     if (botId !== undefined) return { botId }
     const owner = rt.groupOwners.get(sessionId)
-    return owner && { botId: owner.botId, roomId: owner.roomId }
+    if (owner !== undefined) return { botId: owner.botId, roomId: owner.roomId }
+    const roomId = rt.roomOwners.get(sessionId)
+    return roomId === undefined ? undefined : { roomId }
   }
-  const currentOf = owner => (owner.roomId === undefined ? rt.chatOf(owner.botId) : rt.roomOf(owner.roomId)?.sessions?.[owner.botId])
+  const currentOf = owner => (owner.roomId === undefined ? rt.chatOf(owner.botId)
+    : owner.botId === undefined ? rt.sessionOfRoom(rt.roomOf(owner.roomId))
+      : rt.roomOf(owner.roomId)?.sessions?.[owner.botId])
   const grown = (sessionId, tokens, lines) => tokens >= (partBase.get(sessionId) ?? 0) + lines.check / 4
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
@@ -824,8 +840,9 @@ export function install(rt) {
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
-        if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', rt.botOf(job.botId)?.name ?? agent.id, agent.id)
-        rt.warn('ds-bot: %s did not move on to a fresh part: %s', rt.botOf(job.botId)?.name ?? agent.id, error)
+        const name = rt.botOf(job.botId)?.name ?? rt.roomOf(job.roomId)?.name ?? agent.id
+        if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', name, agent.id)
+        rt.warn('ds-bot: %s did not move on to a fresh part: %s', name, error)
       })
       .finally(async () => {
         switches.delete(agent.id)
@@ -838,7 +855,7 @@ export function install(rt) {
           noteFailures.delete(agent.id)
           folderRetry.delete(agent.id)
           // The folder may have changed again while the switch ran.
-          if (job.roomId === undefined) void followFolder(job.botId)
+          void followFolder(job)
           return
         }
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
@@ -902,27 +919,30 @@ export function install(rt) {
     }
   }
 
-  // A fresh part runs on the Bot's model. The earlier part's route is what its last
-  // request used, which misses a model the user picked since, so it counts only for a
-  // Bot without a model of its own.
+  // A fresh part runs on the Bot's model; the group's own Session, which has no Bot,
+  // keeps the earlier part's route. That route is what its last request used, which
+  // misses a model the user picked since, so it counts only for a conversation
+  // without a model of its own.
   async function freshRoute(bot, session) {
-    const ref = await rt.desiredModel(bot)
+    const ref = bot === undefined ? undefined : await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
     const route = session.requestHeader()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
   }
-  const selectRoute = (bot, sessionId, { ref, effort }) => rt.selectSessionModel(sessionId, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
-    .catch(error => rt.warn('ds-bot: model for the fresh part of %s not applied: %s', bot.name, error))
+  const selectRoute = (named, sessionId, { ref, effort }) => rt.selectSessionModel(sessionId, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
+    .catch(error => rt.warn('ds-bot: model for the fresh part of %s not applied: %s', named.name, error))
 
   async function moveOn(agent, job, signal) {
     job.started = true
-    const bot = rt.botOf(job.botId)
+    const bot = job.botId === undefined ? undefined : rt.botOf(job.botId)
     const room = rt.roomOf(job.roomId)
-    if (bot === undefined || (job.roomId !== undefined && room === undefined)) return
+    if (bot === undefined ? room === undefined
+      : job.roomId !== undefined && (room === undefined || !room.members.includes(bot.id))) return
+    const name = bot?.name ?? room?.name ?? agent.id
     const session = agent.session
     const tokens = tokensOf(session)
     const lines = await contextLines(session).catch(() => undefined)
-    const parts = partsOf(bot.id, room?.id)
+    const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id)
     const number = parts.length
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
@@ -931,7 +951,8 @@ export function install(rt) {
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
     let written
     let failure
-    if (!job.overflow && job.failed === undefined && !whole) {
+    // The group's own Session only relays; it has no route a note could be written with.
+    if (!job.overflow && job.failed === undefined && !whole && bot !== undefined) {
       try {
         written = await writeNote(agent, AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)]), { folder: job.folder })
       } catch (error) {
@@ -946,10 +967,10 @@ export function install(rt) {
       const wait = NOTE_COOLDOWN_MS[Math.min(count, NOTE_COOLDOWN_MS.length) - 1]
       noteFailures.set(agent.id, { count, until: Date.now() + wait })
       job.noteFailed = true
-      rt.warn('ds-bot: handoff note for %s failed (%d in a row); part %d goes on, next try in %ds: %s', bot.name, count, number, wait / 1000, failure)
+      rt.warn('ds-bot: handoff note for %s failed (%d in a row); part %d goes on, next try in %ds: %s', name, count, number, wait / 1000, failure)
       return
     }
-    if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', bot.name, failure)
+    if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
     const previous = parts.at(-2)
     const noted = written !== undefined ? { note: written.note }
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : 'failed', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) }
@@ -957,22 +978,26 @@ export function install(rt) {
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(room ? `${bot.name} · ${room.name}` : bot.name, { dir })
+    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
     const picked = await freshRoute(bot, session)
-    if (picked !== undefined) await selectRoute(bot, freshId, picked)
-    await rt.applyPermission(bot, freshId, room)
-      .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', bot.name, error))
+    if (picked !== undefined) await selectRoute({ name }, freshId, picked)
+    if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
+      .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
     // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
     // left, or a part that is no longer the current one gets no fresh part.
-    const current = room !== undefined ? room.sessions?.[bot.id] : rt.chatOf(bot.id)
-    const gone = rt.botOf(bot.id) === undefined || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))
+    const current = bot === undefined ? rt.sessionOfRoom(room) : room === undefined ? rt.chatOf(bot.id) : room.sessions?.[bot.id]
+    const gone = bot === undefined ? rt.roomOf(room.id) !== room
+      : rt.botOf(bot.id) === undefined || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))
     if (gone || current !== agent.id) {
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
+        .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
       return
     }
     const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted }
-    if (room !== undefined) {
+    if (bot === undefined) {
+      ;(room.parts ??= []).push(segment)
+      room.sessionId = freshId
+    } else if (room !== undefined) {
       room.segments ??= {}
       ;(room.segments[bot.id] ??= []).push(segment)
       room.sessions[bot.id] = freshId
@@ -996,7 +1021,7 @@ export function install(rt) {
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
     const now = await freshRoute(bot, session)
-    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute(bot, freshId, now)
+    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
     const resume = job.resume || job.overflow
@@ -1013,9 +1038,9 @@ export function install(rt) {
       // A fresh part that is not where it was made for would move on at every step.
       if (intended !== undefined && cwd !== undefined && cwd !== intended) {
         folderRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
-        rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', bot.name, intended, cwd)
+        rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
-      const text = handoffPackage({ room, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder })
+      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1035,7 +1060,7 @@ export function install(rt) {
         throw error
       })
     }
-    ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', bot.name, room ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
+    ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', name, bot !== undefined && room !== undefined ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
       written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noted.note ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
@@ -1059,7 +1084,8 @@ export function install(rt) {
       await forward(past, payload.messages).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
       return takeOverStep(agent, payload)
     }
-    if (!rt.isBotSession(agent.id)) return next()
+    const place = placeOf(agent.id)
+    if (place === undefined) return next()
     adoptCompaction(agent)
     const job = switches.get(agent.id)
     if (job !== undefined) {
@@ -1072,6 +1098,9 @@ export function install(rt) {
       partBase.set(agent.id, (tokensOf(agent.session) ?? 0) + fresh)
     }
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
+    // The group's own Session moves only for its folder, never for its size: its turns
+    // are synthesized relay calls, so the steward's lines do not apply to it.
+    if (place.botId === undefined) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
@@ -1161,15 +1190,16 @@ export function install(rt) {
   }, { prepend: true })
 
   // A Bot's own chat moves to its new folder now when it is idle; a running turn
-  // moves at its next step, and each group conversation at its next turn there.
-  async function followFolder(botId) {
-    const sessionId = rt.chatOf(botId)
+  // moves at its next step, and each group conversation at its next turn there. The
+  // group's own Session follows the same way when the group's folder changes.
+  async function followFolder(owner) {
+    const sessionId = currentOf(owner)
     if (sessionId === undefined || switches.has(sessionId) || readOnly()) return
     try {
       const agent = await rt.resolveAgent(sessionId)
       if (agent.status === 'idle' && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true })
     } catch (error) {
-      rt.warn('ds-bot: %s did not move to its working folder: %s', rt.botOf(botId)?.name ?? botId, error)
+      rt.warn('ds-bot: %s did not move to its working folder: %s', owner.botId === undefined ? rt.roomOf(owner.roomId)?.name ?? owner.roomId : rt.botOf(owner.botId)?.name ?? owner.botId, error)
     }
   }
 
@@ -1276,6 +1306,10 @@ export function install(rt) {
   const EARLIER_PAGE = 60
   function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    // Call ids of the page's group_relay calls; their tool/result events carry the
+    // round's replies. A result without its call on the page (the page cut between
+    // them) draws nothing rather than guessing.
+    const relayCalls = new Set()
     const items = []
     // The turn/start still in effect. A steered or queued user message stays in
     // it; only another turn/start moves on. A later page does not repeat the
@@ -1302,6 +1336,9 @@ export function install(rt) {
         continue
       }
       if (event.type === 'tool/call') {
+        // A group_relay call's result is paired back to it by call id — the tool
+        // name is on the call, never on the result.
+        if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
         // Hidden turns and refused calls never showed a display card. Interactive
         // cards live in the pending dock or on their answer message instead.
         if (event.data?.name === 'show_view' && !hidden.has(event.data?.turn)) {
@@ -1312,6 +1349,24 @@ export function install(rt) {
           if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
             items.push({ kind: 'view', title: shown.title, view, callId: event.data?.callId ?? null, time: event.time })
           }
+        }
+        continue
+      }
+      if (event.type === 'tool/result') {
+        // A group's own Session runs no model; its turns are synthesized group_relay
+        // calls whose results hold the round's replies — the group's conversation,
+        // read the way the live chat reads a settled call (shared/group-replies.js).
+        const message = event.data?.message
+        if (!relayCalls.has(message?.toolCallId)) continue
+        const { replies } = parseReplies(textOf(message?.content))
+        for (const { reply, texts, time, duration } of stackReplies(replies)) {
+          // Reply rows take the reply's own time, and no seq: several rows share
+          // the result event's seq, which the chat keys a post's anchor by.
+          const item = { time: time ?? reply.time ?? event.time }
+          if (turn !== undefined) item.turn = turn
+          if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...item })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else items.push({ kind: 'relay', reply, ...item })
         }
         continue
       }
@@ -1327,6 +1382,19 @@ export function install(rt) {
         if (reply?.questions !== undefined) stamp(event, { kind: 'answer', questions: reply.questions, answers: reply.answers, time: event.time })
         else if (reply?.handoff !== undefined) stamp(event, { kind: 'answer', text: replyText(text), handoff: reply.handoff, time: event.time })
         else if (reply?.views !== undefined) stamp(event, { kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
+      } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+        // A group's own Session reads as one conversation: member posts are its
+        // messages. A post past what a message holds came as a file, with its start.
+        const content = Array.isArray(event.data.content) ? event.data.content : []
+        const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        stamp(event, {
+          kind: 'post',
+          botId: source.senderSessionId ?? null,
+          name: source.senderName ?? null,
+          text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
+          ...(file ? { file, length: source.length } : {}),
+          time: event.time,
+        })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }
@@ -1377,14 +1445,17 @@ export function install(rt) {
 
   async function earlierPage(sessionId, cursor) {
     const past = rt.pastOwners.get(sessionId)
-    const botId = rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined)
-    const parts = botId === undefined ? [] : partsOf(botId)
+    // A group's own Session is its own chain of parts like a Bot's own chat: its
+    // current Session and every earlier `room.parts` page the same "Load earlier".
+    const roomId = rt.roomOwners?.get(sessionId) ?? (past?.botId === undefined ? past?.roomId : undefined)
+    const botId = roomId === undefined ? rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined) : undefined
+    const parts = roomId === undefined ? (botId === undefined ? [] : partsOf(botId)) : partsOf(undefined, roomId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
     if (at <= 0 || index < 0 || index >= at) return { items: [], cursor: null, startedAt: parts[at]?.startedAt ?? null }
     // Aside cards belong to the part that was current when they were asked, so
     // they ride along with that part's history instead of the team view.
-    const btw = (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
+    const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
     return { ...(await partPage(parts, index, cursor)), btw, startedAt: parts[at].startedAt }
   }
 

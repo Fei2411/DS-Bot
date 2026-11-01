@@ -159,6 +159,9 @@ export function install(rt) {
   // it. Selections run one at a time and wait for the write-back: profile writes land in
   // submission order, so the next one reads the user's default, not a Bot's.
   let selecting = Promise.resolve()
+  // Recheck group Sessions after every restart: Bot-level applied fields cannot
+  // prove that an older group Session received the member's thinking level.
+  const sessionSelections = new Map()
   function selectSessionModel(sessionId, { provider, model, reasoningEffort }) {
     const run = selecting.then(async () => {
       const defaults = ctx.get?.('agentDefaultModel')
@@ -171,6 +174,7 @@ export function install(rt) {
       if (before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
       }
+      sessionSelections.set(sessionId, { provider, model, reasoningEffort })
       return result
     })
     selecting = run.catch(() => {})
@@ -185,13 +189,16 @@ export function install(rt) {
     const ref = await desiredModel(bot)
     if (ref === undefined) return ref
     const effort = await desiredEffort(bot, ref)
-    if (!force && bot.appliedModel === ref && (bot.appliedEffort ?? undefined) === effort) return ref
+    const ownChanged = force || bot.appliedModel !== ref || (bot.appliedEffort ?? undefined) !== effort
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
-    await selectSessionModel(rt.chatOf(bot.id), route)
+    if (ownChanged) await selectSessionModel(rt.chatOf(bot.id), route)
     for (const sessionId of rt.groupSessionsOf(bot.id)) {
+      const applied = sessionSelections.get(sessionId)
+      if (!force && applied !== undefined && sameSelection(applied, route)) continue
       await selectSessionModel(sessionId, route)
         .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
     }
+    if (!ownChanged) return ref
     bot.appliedModel = ref
     if (effort === undefined) delete bot.appliedEffort
     else bot.appliedEffort = effort
