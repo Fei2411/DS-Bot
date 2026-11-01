@@ -194,6 +194,54 @@ test('a Bot on a clean record but a poisoned Session re-selects its own model', 
   assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
 })
 
+// Every Bot the route was pinned to may have its Session still on it, even one whose
+// record already names the replacement; re-pinning the record alone leaves that
+// Session failing on every turn.
+test('every Bot re-pinned off a refused route re-selects its Session', async () => {
+  const { rt, selected } = bench({ providers: { external: ['default'], deepseek: ['v4-flash'] }, fallback: { provider: 'external', model: 'default' } })
+  const failed = { id: 'b1', model: 'external/default', appliedModel: 'external/default' }
+  const alsoPinned = { id: 'b2', model: 'external/default', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: failed, b2: alsoPinned }
+  await rt.routeRefused('external/default', failed)
+  assert.equal(alsoPinned.model, 'deepseek/v4-flash')
+  assert.equal(alsoPinned.appliedModel, 'deepseek/v4-flash')
+  assert.deepEqual([...selected].sort(), ['b1:deepseek/v4-flash', 'b2:deepseek/v4-flash'])
+})
+
+// The sync key must see the filtered catalog: the catalog itself does not change
+// on a refusal, so an unfiltered key would never run the sync again.
+test('a refusal changes the sync key, so the next sync applies what the records say', async () => {
+  const { rt, selected } = bench({ providers: { external: ['default'], deepseek: ['v4-flash'] } })
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  await rt.syncModels()
+  await rt.routeRefused('external/default')
+  // The Session drifted meanwhile — its own picker can move it without telling us.
+  delete bot.appliedModel
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+// A refused route is chosen again only once its provider serves other models: the same
+// placeholder registered again, even after it was unregistered, is still not an endpoint.
+test('an adapter update ends a refusal only when its provider serves other models', async () => {
+  const { rt, providers, listeners } = bench({ providers: { external: ['default'], deepseek: ['v4-flash'] }, fallback: { provider: 'external', model: 'default' } })
+  const adaptersUpdated = () => listeners.get('llm/adapters-updated')()
+  await rt.routeRefused('external/default')
+  await adaptersUpdated()
+  assert.equal(rt.defaultRef(), undefined)
+  delete providers.external
+  await adaptersUpdated()
+  providers.external = ['default']
+  await adaptersUpdated()
+  assert.equal(rt.defaultRef(), undefined)
+  providers.external = ['default', 'real']
+  await adaptersUpdated()
+  assert.equal(rt.defaultRef(), 'external/default')
+  assert.ok((await rt.catalog()).some(entry => entry.ref === 'external/default'))
+})
+
 test('a greeting waits for the provider of its Bot model to register', async () => {
   const { rt, providers, listeners } = bench({ providers: {} })
   const waiting = rt.waitForModel({ model: 'stepfun/step-5' }, 5000)
