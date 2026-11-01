@@ -1315,6 +1315,21 @@ export function install(rt) {
         }
         continue
       }
+      if (event.type === 'tool/result') {
+        // A group's own Session runs no model; its turns are synthesized group_relay
+        // calls whose results hold the members' replies — the group's conversation,
+        // the same rows the live chat draws from the settled call.
+        if (event.data?.name !== 'group_relay' && event.data?.toolName !== 'group_relay') continue
+        const raw = event.data?.result ?? event.data?.content
+        const text = typeof raw === 'string' ? raw : textOf(raw)
+        let replies = []
+        try { replies = JSON.parse(text)?.replies ?? [] } catch { /* a pruned result draws nothing */ }
+        for (const reply of replies) {
+          if (reply.kind === 'user') stamp(event, { kind: 'user', text: reply.text, time: event.time })
+          else stamp(event, { kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, text: reply.text, time: event.time })
+        }
+        continue
+      }
       if (event.type !== 'user/message') continue
       const source = event.data?.source
       if (source?.kind === 'user') {

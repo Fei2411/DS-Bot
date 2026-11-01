@@ -1043,14 +1043,23 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   const { ctx, call, project, state, stop } = await start()
   t.after(stop)
   // The earlier part's record carries the group's posts as user/message events.
+  // A real group round's events: the user's question, a member's posted line, and
+  // the synthesized group_relay result holding its replies.
   ctx.sessionController.page = async ({ address }) => (address?.sessionId === 'r1'
-    ? { records: [{ event: { type: 'user/message', seq: 2, time: 2, data: { content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }], source: { kind: 'bot', role: 'post', senderSessionId: 'gb', senderName: 'Writer' } } } }], hasMore: false }
+    ? {
+        records: [
+          { event: { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: '@Writer 文档在哪' }], source: { kind: 'user' } } } },
+          { event: { type: 'user/message', seq: 2, time: 2, data: { content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }], source: { kind: 'bot', role: 'post', senderSessionId: 'gb', senderName: 'Writer' } } } },
+          { event: { type: 'tool/result', seq: 3, time: 3, data: { callId: 'c1', name: 'group_relay', result: '{"replies":[{"botId":"gb","name":"Writer","text":"在 docs/ 下面"}]}' } } },
+        ],
+        hasMore: false,
+      }
     : { records: [], hasMore: false })
   assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
   await until(() => state().rooms.r1.sessionId === 's1')
   // The current part's earlier page reads the part it moved on from.
   const page = (await call('earlier', { sessionId: 's1' })).value
-  assert.deepEqual(page.items.map(item => [item.kind, item.name, item.text]), [['post', 'Writer', 'Done.']])
+  assert.deepEqual(page.items.map(item => [item.kind, item.name ?? null, item.text]), [['user', null, '@Writer 文档在哪'], ['post', 'Writer', 'Done.'], ['post', 'Writer', '在 docs/ 下面']])
   assert.equal(page.cursor, null)
   assert.equal(typeof page.startedAt, 'number')
   // The first part itself has nothing before it.
