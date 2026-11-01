@@ -7496,6 +7496,7 @@ async function waitForRelayCapacity(socket) {
 // src/host.ts
 var RELAY_CAPABILITY = "transport.relay";
 var MAX_CALLS_PER_TUNNEL = 32;
+var MAX_EMIT_PENDING = 64;
 var SERVER_SILENCE_MS = 75e3;
 var TunnelError = class extends Error {
   code;
@@ -7562,7 +7563,15 @@ var HostLink = class {
   emit(event, data) {
     const message = encodeMessage(createMessage("event", { event, data }));
     for (const tunnel of this.tunnels.values()) {
-      if (tunnel.stage === "ready") void this.sendSecure(tunnel, message).catch(() => this.dropTunnel(tunnel, "SEND_FAILED"));
+      if (tunnel.stage !== "ready") continue;
+      if ((tunnel.emitPending ?? 0) >= MAX_EMIT_PENDING) {
+        this.dropTunnel(tunnel, "SEND_FAILED");
+        continue;
+      }
+      tunnel.emitPending = (tunnel.emitPending ?? 0) + 1;
+      void this.sendSecure(tunnel, message).catch(() => this.dropTunnel(tunnel, "SEND_FAILED")).finally(() => {
+        if (tunnel.emitPending !== void 0) tunnel.emitPending -= 1;
+      });
     }
   }
   setStatus(status) {
