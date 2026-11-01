@@ -348,31 +348,96 @@ export function TeamSidebar(props) {
   useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
 
   // The edge drag: live while the pointer moves, the column's new state on release.
+  // Per frame the drag writes the column's own inline style and each conversation
+  // column's inline margin — the same path the panel's resize takes — so nothing
+  // re-renders or restyles the chat while the pointer moves. A render only happens
+  // when the drag crosses the rail's snap line, and the spring (`data-folding`)
+  // rides that switch alone: it comes off when the switch settles, so a drag that
+  // keeps going afterwards follows the cursor frame by frame again.
+  const settleTimer = useRef(0)
+  const springTimer = useRef(0)
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
+    clearTimeout(settleTimer.current)
+    clearTimeout(springTimer.current)
     const grip = event.currentTarget
+    const column = grip.parentElement
+    // A re-grab can land while a previous spring still stands: the new drag owns
+    // the column from here, so its fold state starts clean.
+    delete column.dataset.folding
     grip.setPointerCapture?.(event.pointerId)
     chatRoom.hold(true)
+    const columns = chatRoom.columns()
+    for (const col of columns) col.style.setProperty('transition', 'none', 'important')
+    const offLeft = frameSnap.collapsedWidth ?? 0
     let last = null
+    let liveLeft = mode
     let done = false
-    const onMove = (move) => { last = dragColumn(move.clientX, window.innerWidth); setDrag(last) }
+    const write = (at) => {
+      const width = at.left === 'rail' ? RAIL_WIDTH : at.width
+      column.style.width = `${width}px`
+      column.style.setProperty('--bt-lc-w', `${width}px`)
+      const push = Math.max(0, (at.left === 'open' ? width : RAIL_WIDTH) - offLeft)
+      for (const col of columns) col.style.setProperty('margin-left', `${push}px`, 'important')
+    }
+    // A snap crossing arms the spring for the switch's glide; the timer takes it
+    // back off once the switch has had its duration.
+    let springUntil = 0
+    const springOff = () => {
+      springUntil = 0
+      delete column.dataset.folding
+      for (const col of columns) col.style.setProperty('transition', 'none', 'important')
+    }
+    const springOn = () => {
+      column.dataset.folding = ''
+      for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, 'important')
+      springUntil = performance.now() + SPRING_SHAPE.duration
+      clearTimeout(springTimer.current)
+      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
+    }
+    const track = (x) => {
+      last = dragColumn(x, window.innerWidth)
+      if (last.left !== liveLeft) {
+        liveLeft = last.left
+        if (!reducedMotion()) springOn()
+        setDrag(last)
+      }
+      write(last)
+    }
+    const onMove = (move) => track(move.clientX)
+    // The rules and props take the landed geometry back over; while the fold's
+    // spring still runs this waits it out so the landing does not snap. The
+    // inline `width` stays: it is the landed geometry, and React writes its width
+    // prop only when the value changes, so removing it would leave the edge at
+    // its CSS fallback (57px on the rail).
+    const finish = () => {
+      clearTimeout(springTimer.current)
+      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === 'open' ? last.width : RAIL_WIDTH) - offLeft))
+      for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
+      column.style.removeProperty('--bt-lc-w')
+      delete column.dataset.folding
+      chatRoom.hold(false)
+    }
     const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
     const onEnd = (end) => {
       if (done) return
       done = true
-      if (end.type === 'pointerup') last = dragColumn(end.clientX, window.innerWidth)
+      if (end.type === 'pointerup') track(end.clientX)
       grip.removeEventListener('pointermove', onMove)
       for (const name of ends) grip.removeEventListener(name, onEnd)
       setDrag(null)
-      chatRoom.hold(false)
-      if (last === null) return
+      if (last === null) { finish(); return }
       // The drag is the latest explicit gesture: it takes back a yielded panel's room.
       actions.setPanelYield?.(false)
-      if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail'); return }
-      actions.setSidebarWidth?.(last.width)
-      actions.setSidebarPref?.('open')
-      actions.setLeftDrawer?.(last.left === 'drawer')
+      if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail') }
+      else {
+        actions.setSidebarWidth?.(last.width)
+        actions.setSidebarPref?.('open')
+        actions.setLeftDrawer?.(last.left === 'drawer')
+      }
+      if (springUntil === 0) finish()
+      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60)
     }
     grip.addEventListener('pointermove', onMove)
     for (const name of ends) grip.addEventListener(name, onEnd)
