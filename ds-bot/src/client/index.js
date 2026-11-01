@@ -60,7 +60,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -197,11 +197,28 @@ export function apply(ctx) {
     let stopped = false
     let running = false
     let timer
+    let misses = 0
     const loop = async () => {
       clearTimeout(timer)
       if (running || stopped) return
       running = true
-      try { await pull() } catch (error) { if (!stopped) console.warn('[ds-bot] state', error) } finally { running = false }
+      try {
+        await pull()
+        misses = 0
+        // A late-arriving API clears the failure the misses reported.
+        ui.set(state => (state.bootFailed ? { ...state, bootFailed: false } : state))
+      } catch (error) {
+        if (!stopped) {
+          console.warn('[ds-bot] state', error)
+          // Only a missing Bot API counts toward a failed start: while the
+          // host plugin stays unmounted the route answers 404. A network miss
+          // is the host reconnecting, not a start-up failure (#516).
+          if (error?.code === 'HTTP_404') {
+            misses += 1
+            if (misses >= 10 && !roster.getSnapshot().ready) ui.set(state => (state.bootFailed ? state : { ...state, bootFailed: true }))
+          }
+        }
+      } finally { running = false }
       if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
     }
     const wake = () => { if (!document.hidden) void loop() }

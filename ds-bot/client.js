@@ -96,6 +96,8 @@ var ZH = {
   // Sidebar and account menu
   "Bot list": "Bot 列表",
   "Setting up your Main Bot…": "正在设置你的主 Bot…",
+  "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
+  "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
   "Automation tasks": "自动化任务",
   Connectors: "连接器",
   "Search connectors": "搜索连接器",
@@ -9512,6 +9514,10 @@ function TitleToggle({ hidden, onToggle }) {
     onClick: onToggle
   }, (0, import_react18.createElement)(SidebarIcon)), document.body);
 }
+var bootHint = () => {
+  const last = clientErrors().at(-1)?.text;
+  return last === void 0 ? t("The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.") : t("The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.", { error: last });
+};
 function TeamSidebar(props) {
   const { wide, useRoster, useUi, useSessions, actions } = props;
   const listRef = (0, import_react18.useRef)(null);
@@ -9706,7 +9712,7 @@ function TeamSidebar(props) {
     { className: "bt-rail-top" },
     (0, import_react18.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     (0, import_react18.createElement)("button", { type: "button", className: "bt-round bt-side-collapse", "aria-label": t("Collapse sidebar"), title: t("Collapse sidebar"), onClick: onToggle }, (0, import_react18.createElement)(SidebarIcon)),
-    main ? (0, import_react18.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react18.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
+    main ? (0, import_react18.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react18.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react18.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
   const foot = wideContent ? (0, import_react18.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react18.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react18.createElement)(
@@ -9723,7 +9729,7 @@ function TeamSidebar(props) {
     (0, import_react18.createElement)(
       "div",
       { ref: listRef, className: "bt-list", role: "region", "aria-label": t("Bot list") },
-      wideContent ? main ? (0, import_react18.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react18.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")) : null,
+      wideContent ? main ? (0, import_react18.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react18.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
       order.map((entry) => entry.kind === "bot" ? (0, import_react18.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react18.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : (0, import_react18.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))
     ),
     foot
@@ -16024,7 +16030,7 @@ function FeedbackPage({ actions, run: run2, Section, Row: Row3 }) {
     setNote(t("Downloaded the log. Keys, tokens, and your home folder are hidden in it."));
   }));
   const clearLog = () => run2(actions.diagnosticsClear().then(clearClientErrors).then(load).then(() => setNote(t("Cleared the error log."))));
-  const browserErrors = report ? clientErrors().map((entry) => ({ ...entry, source: "browser" })) : [];
+  const browserErrors = clientErrors().map((entry) => ({ ...entry, source: "browser" }));
   const entries2 = [...report?.entries ?? [], ...browserErrors].sort((a, b) => new Date(b.time) - new Date(a.time));
   const total = (report?.total ?? 0) + browserErrors.length;
   const shown = entries2.slice(0, 8);
@@ -20287,7 +20293,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false });
+  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -20410,14 +20416,23 @@ function apply(ctx) {
     let stopped = false;
     let running = false;
     let timer;
+    let misses = 0;
     const loop = async () => {
       clearTimeout(timer);
       if (running || stopped) return;
       running = true;
       try {
         await pull();
+        misses = 0;
+        ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
-        if (!stopped) console.warn("[ds-bot] state", error);
+        if (!stopped) {
+          console.warn("[ds-bot] state", error);
+          if (error?.code === "HTTP_404") {
+            misses += 1;
+            if (misses >= 10 && !roster.getSnapshot().ready) ui2.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
+          }
+        }
       } finally {
         running = false;
       }
