@@ -155,13 +155,13 @@ export function install(rt) {
     save()
   }
 
-  // The reply carrying a result never reached the asker: the result is already
-  // kept with the work it was for, so the wait for the message to be read ends
-  // here and the asker's next answer names the failure.
+  // The reply carrying a result never reached the asker: the failure reaches it
+  // as an input instead (turns.js), which ends the wait when it is read like any
+  // reply. The result kept with the work it was for is marked, so the answer
+  // that goes up names it.
   function answerMissed(id) {
     for (const work of Object.values(works())) {
       if (!work.open.includes(id)) continue
-      work.open = work.open.filter(other => other !== id)
       const result = (work.results ?? []).find(item => item.id === id)
       if (result !== undefined) result.failed = true
       save()

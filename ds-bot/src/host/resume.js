@@ -120,8 +120,9 @@ export function install(rt) {
 
   /** @type {Record<string, {botId:string, roomId?:string, since:number, trigger?:any, approval?:{tool:string, reason:string}, resumed?:boolean}>} */
   let turns = {}
+  // A new delivery can persist before recovery runs; it must keep the old queue.
   /** @type {Record<string, {at:number, args:any}[]>} deliveries no turn has taken up, by Session */
-  let queued = {}
+  let queued = interrupted.queued
   let writing = Promise.resolve()
   let stopped = false
   let latest
@@ -265,26 +266,33 @@ export function install(rt) {
     await rt.deliver({ toId: bot.id, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}) })
   }
 
+  // Where a queued note goes now: its Session if it still is one, else the
+  // current Session of its Bot, or of its group when the message went to one.
+  const sessionFor = (sessionId, args) => (rt.isBotSession(sessionId) ? sessionId
+    : args?.roomId === undefined ? rt.chatOf(args?.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
+
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
-  // cancelled is sent again.
+  // cancelled is sent again. The notes stay queued until a turn takes the messages
+  // up, so a send that fails here, or a Session that cannot be opened, leaves them
+  // for the next start instead of losing them.
   async function resendQueued(sessionId, list) {
-    // A Session that moved on to a new part since is reached at its current one.
-    const current = (args) => {
-      if (rt.isBotSession(sessionId)) return sessionId
-      return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
-    }
     const fresh = list.filter(item => rt.botOf(item.args?.toId) !== undefined
-      && current(item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
+      && sessionFor(sessionId, item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
     if (fresh.length === 0) return
-    const target = current(fresh[0].args)
+    const target = sessionFor(sessionId, fresh[0].args)
     const agent = await rt.resolveAgent(target)
     const waiting = new Set([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].map(message => message.source?.exchangeId))
     for (const { args } of fresh) {
-      if (waiting.has(args.exchangeId) || taken?.has(args.exchangeId) === true) continue
+      if (waiting.has(args.exchangeId)) continue
+      if (taken?.has(args.exchangeId) === true) {
+        forgetQueued(args.exchangeId)
+        continue
+      }
       // A request that waited through a restart reaches its target late: the work
       // it is for is marked, so the answer that comes back says so.
       if (args.role === 'request' || args.role === 'stopped') rt.lateWork?.(args.exchangeId)
-      await rt.deliver({ ...args, sessionId: current(args), steer: false, resent: true })
+      await deliver({ ...args, sessionId: sessionFor(sessionId, args), steer: false, resent: true })
+        .catch(error => rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error))
     }
   }
 
@@ -383,7 +391,20 @@ export function install(rt) {
     if (rt.readOnly() !== undefined) return
     const { turns: noted, queued: dropped } = interrupted
     interrupted = { turns: {}, queued: {} }
-    // Taken up now, so another restart does not pick them up twice.
+    // What the last run still had on the way is noted again first, under the
+    // Session it would go to now: nothing is cleared before it is handed over.
+    // A Bot that is gone takes its notes with it; what a turn already read here
+    // is done with.
+    const pending = queued
+    queued = {}
+    for (const [oldId, list] of Object.entries(pending)) {
+      if (!Array.isArray(list)) continue
+      for (const item of list) {
+        if (item?.args?.exchangeId === undefined || taken?.has(item.args.exchangeId) === true || rt.botOf(item.args.toId) === undefined) continue
+        const key = sessionFor(oldId, item.args) ?? oldId
+        queued = { ...queued, [key]: [...(queued[key] ?? []), item] }
+      }
+    }
     persist()
     // Agents and inboxes are read before anything wakes their Sessions.
     const cut = []
