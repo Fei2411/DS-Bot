@@ -1,5 +1,5 @@
 {
-  "name": "deepseek-bot-mobile",
+  "name": "dsbot-mobile",
   "version": "0.1.0",
   "main": "index.ts",
   "dependencies": {

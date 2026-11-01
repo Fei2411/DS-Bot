@@ -1,4 +1,5 @@
 import { rename } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 
 // On Windows a file cannot be replaced while another program has it open: another DSH
 // reading the team's state, the search indexer, a virus scanner, a sync client. Those
@@ -18,7 +19,8 @@ export async function replaceFile(temp, path, check = () => {}) {
       return await rename(temp, path)
     } catch (error) {
       if (process.platform !== 'win32' || attempt >= TRIES || !BUSY.has(error?.code)) throw error
-      await new Promise(resolve => setTimeout(resolve, WAIT_MS * attempt))
+      // Real filesystem contention must clear even while tests freeze application timers.
+      await delay(WAIT_MS * attempt)
       check()
     }
   }

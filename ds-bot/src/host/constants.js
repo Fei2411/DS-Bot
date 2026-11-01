@@ -59,8 +59,9 @@ export const ROOM_MAX_MEMBERS = 12
 // are ordinary root Sessions, so the team tools must not be offered to them.
 export const AGENT_NAME = 'DSH Agent'
 export const AGENT_SESSION_TITLE_MAX = 80
-// Every tool this plugin registers for Bots. `read_browser` only exists in the
-// Desktop profile, so a restriction filters this list down to registered names.
+// Every tool this plugin defines for Bot Sessions; tools.js registers them in
+// each Bot session's own scope. `read_browser` only exists in the Desktop
+// profile, so the list served to one session can be shorter.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'show_view',
@@ -72,6 +73,9 @@ export const TEAM_TOOLS = [
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000
+// Consecutive Bot-to-Bot relays with no tool call and only repetitive or ack text
+// before the round parks the remaining calls and asks the user before continuing.
+export const ROOM_IDLE_RELAY_LIMIT = 6
 
 export const OWN_CHAT_LINE_MAX = 400
 // The message an anchor points at is shown whole (up to this), so a long draft takes
@@ -85,3 +89,5 @@ export const HISTORY_PAGES_MAX = 50
 export const HISTORY_TIMEOUT_MS = 20_000
 // Shown when an aside stops at the route's own output limit. The partial answer stays.
 export const ASIDE_LIMIT = 'Answer cut off at the output limit.'
+
+export const STEER_CUT = 'ds-bot/steer'

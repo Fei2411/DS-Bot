@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { hostExecutable } from '../src/host-process.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const [given, shotFile] = process.argv.slice(2)
@@ -18,11 +19,11 @@ const executable = given || packedExecutable()
 
 function packedExecutable() {
   const out = join(root, 'dist-pack')
-  if (process.platform === 'win32') return join(out, 'win-unpacked', 'DeepSeek Bot.exe')
+  if (process.platform === 'win32') return join(out, 'win-unpacked', 'DS Bot.exe')
   // executableName in electron-builder.yml.
-  if (process.platform === 'linux') return join(out, 'linux-unpacked', 'deepseek-bot')
+  if (process.platform === 'linux') return join(out, 'linux-unpacked', 'dsbot')
   const dir = ['mac-arm64', 'mac'].find(name => existsSync(join(out, name))) ?? 'mac'
-  return join(out, dir, 'DeepSeek Bot.app', 'Contents', 'MacOS', 'DeepSeek Bot')
+  return join(out, dir, 'DS Bot.app', 'Contents', 'MacOS', 'DS Bot')
 }
 
 if (!existsSync(executable)) {
@@ -35,13 +36,14 @@ if (!existsSync(executable)) {
 {
   const resources = process.platform === 'darwin' ? join(dirname(executable), '..', 'Resources') : join(dirname(executable), 'resources')
   const windows = process.platform === 'win32'
+  const unpacked = process.platform === 'linux' ? 'app' : 'app.asar.unpacked'
   const required = [
     'primary-runtime/runtime.json',
     join('primary-runtime', 'dependencies', 'python', ...(windows ? ['python.exe'] : ['bin', 'python3'])),
     join('primary-runtime', 'dependencies', 'node', 'bin', windows ? 'node.exe' : 'node'),
     join('office-skills', 'office', 'SKILL.md'),
-    join('app.asar.unpacked', 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'cli.js'),
-    join('app.asar.unpacked', 'node_modules', 'ds-bot', 'office.js'),
+    join(unpacked, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'cli.js'),
+    join(unpacked, 'node_modules', 'ds-bot', 'office.js'),
   ]
   const missing = required.filter((entry) => !existsSync(join(resources, entry)))
   if (missing.length > 0) {
@@ -88,10 +90,12 @@ function outsideCheckout(file) {
 
 function checkSharp(app) {
   const resources = process.platform === 'darwin' ? resolve(app, '..', '..', 'Resources') : join(dirname(app), 'resources')
+  const linux = process.platform === 'linux'
   const script = `
     const assert = require('node:assert/strict')
     const { createRequire } = require('node:module')
-    const appRequire = createRequire(${JSON.stringify(join(resources, 'app.asar', 'package.json'))})
+    ${linux ? "assert.equal(process.versions.electron, undefined, 'Linux image processing must not run in Electron')" : ''}
+    const appRequire = createRequire(${JSON.stringify(join(resources, linux ? 'app' : 'app.asar', 'package.json'))})
     const sharp = appRequire('sharp')
     ;(async () => {
       const image = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#ff0000' } }).png().toBuffer()
@@ -102,8 +106,8 @@ function checkSharp(app) {
       console.log('check-packed: sharp image processing passed (libvips ' + sharp.versions.vips + ')')
     })().catch(error => { console.error(error); process.exitCode = 1 })
   `
-  // Use the shipped Electron and dependencies outside the checkout, just like the Host.
-  const result = spawnSync(app, ['-e', script], {
+  // Use the Host's runtime and dependencies outside the checkout, not the CI runner's Node.
+  const result = spawnSync(linux ? hostExecutable(resources) : app, ['-e', script], {
     cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' },
     encoding: 'utf8', timeout: 30_000,
   })
