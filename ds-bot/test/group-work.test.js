@@ -173,6 +173,22 @@ test('message_bot from a group to one of its members calls it there, as "@Name" 
   assert.deepEqual([host.agentOf('b').calls, host.agentOf('gc').calls], [[], []])
 })
 
+test('a group Session made before the member\'s level applied gets it on the next sync', async (t) => {
+  const llm = {
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+    listModels: async () => [{ id: 'v4-flash', name: 'v4-flash', inputModalities: ['text'] }],
+    resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' } }),
+  }
+  // Saved state from before the fix: 'gb' already exists and the Bot-level record
+  // already says applied — the bot-wide check would never revisit the group Session.
+  const host = await start(t, { members: ['a', 'b'], sessions: { a: 'ga', b: 'gb' } }, undefined, undefined,
+    { b: { model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' } }, llm)
+  await host.call('state', {})
+  // The group Session gets the member's level once; the own chat is not re-selected.
+  await settle(() => host.selected.length === 1)
+  assert.deepEqual(host.selected, [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
+})
+
 test('a member\'s group Session runs on the member\'s model and thinking level', async (t) => {
   const llm = {
     listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
