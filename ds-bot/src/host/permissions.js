@@ -60,21 +60,35 @@ export function install(rt) {
     // The preset is written before its first await: a request still being applied
     // then reads the one asked for last.
     bot.permission = wanted
+    // The preset for one Session is read once its agent resolves: undefined once a
+    // newer request exists, so a superseded request writes no more Sessions — every
+    // Session the Bot has ends at the value the newest request actually applied.
+    const applyTo = (sessionId, room = roomOfSession(sessionId)) =>
+      setPreset(sessionId, () => (request.seq === mine ? room?.permission ?? bot.permission : undefined))
+    const groups = async (warnFail) => {
+      for (const sessionId of rt.groupSessionsOf(bot.id)) {
+        if (request.seq !== mine) break
+        if (roomOfSession(sessionId)?.permission) continue
+        await applyTo(sessionId).catch(warnFail)
+      }
+    }
     try {
-      const applied = await applyPermission(bot, rt.chatOf(bot.id))
+      const applied = await applyTo(rt.chatOf(bot.id))
       if (applied !== undefined) request.applied = applied
     } catch (error) {
       if (request.seq === mine) {
         if (request.applied === undefined) delete bot.permission
-        else bot.permission = request.applied
+        else {
+          bot.permission = request.applied
+          // The restored preset goes back on every Session the change left behind.
+          const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
+          await applyTo(rt.chatOf(bot.id)).catch(warnFail)
+          await groups(warnFail)
+        }
       }
       throw error
     }
-    for (const sessionId of rt.groupSessionsOf(bot.id)) {
-      if (roomOfSession(sessionId)?.permission) continue
-      await applyPermission(bot, sessionId)
-        .catch(error => rt.warn('ds-bot: permission for %s in a group not applied: %s', bot.name, error))
-    }
+    await groups(error => rt.warn('ds-bot: permission for %s in a group not applied: %s', bot.name, error))
   }
 
   // A group's preset, or null when each member uses its own.
