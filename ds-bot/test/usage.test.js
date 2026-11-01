@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -125,6 +125,20 @@ const totals = (view) => {
   return sums
 }
 
+// Sessions whose owner the ledger holds; none until the ledger has its table.
+async function journaledSessions(home) {
+  const path = join(home, 'usage.sqlite')
+  if (!existsSync(path)) return []
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(path)
+  try {
+    if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'owners'").all().length === 0) return []
+    return db.prepare('SELECT session FROM owners').all().map(row => row.session)
+  } finally {
+    db.close()
+  }
+}
+
 async function drain(stream) {
   const chunks = []
   for await (const chunk of stream) chunks.push(chunk)
@@ -181,8 +195,12 @@ test('a plain chat journals its owner before the first scan, so a deleted Bot ke
   // through, but the Session's owner lands in the ledger on its own.
   const passed = (async function* () { yield { type: 'text', text: 'hi' } })()
   assert.equal(first.meter({ sessionId: 'b2', messages: [] }, () => passed), passed)
-  // The ledger opens behind the meter; give it a moment before the shutdown.
-  await new Promise(resolve => setTimeout(resolve, 300))
+  // The owner is written once the team and the ledger have loaded behind the meter:
+  // wait for its row, not for a fixed time, before the shutdown closes the ledger.
+  for (let tries = 0; !(await journaledSessions(home)).includes('b2'); tries += 1) {
+    assert.ok(tries < 200, 'the owner of b2 was never journaled')
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
   await first.ctx.dispose()
 
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
@@ -207,6 +225,7 @@ test('a subagent Session is read through its parent, even a parent that is gone;
       { sessionId: 's-orphan', parentSessionId: 's-gone', origin: 'subagent', projections: { kind: 'cached', asOfSeq: 1, values: {} } },
       { sessionId: 's-lost', origin: 'subagent', projections: { kind: 'cached', asOfSeq: 1, values: {} } },
       { sessionId: 's-broken', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
+      { sessionId: 's-broken2', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
     ],
     logsExtra: {
       's-orphan': [header('deepseek', 'v4-flash'), message(1, 0, usage(8, 1), HOUR)],
@@ -220,16 +239,88 @@ test('a subagent Session is read through its parent, even a parent that is gone;
   assert.equal(totals(view)['other/chat'], 44 + 9)
   // No parent on record: it cannot be addressed, so it is not asked for.
   assert.ok(!pages.includes('s-lost'))
+  // A scan reports one summarized line, not one per Session it could not read.
   const unread = () => warnings
     .map(([template, ...args]) => template === '%s' ? args[0] : template)
     .filter(line => line.includes('usage could not read'))
-    .map(line => line.match(/usage could not read (\S+):/)?.[1])
-  assert.deepEqual(unread(), ['s-broken'])
+  assert.equal(unread().length, 1)
+  assert.match(unread()[0], /usage could not read 2 Sessions: s-broken, s-broken2 \(first error: /)
 
   t.mock.timers.tick(60_000)
   await call('usage', { timeZone: 'Asia/Shanghai' })
   assert.equal(pages.filter(sessionId => sessionId === 's-orphan').length, 1)
-  assert.deepEqual(unread(), ['s-broken'])
+  assert.equal(unread().length, 1)
+})
+
+// #654: a Session with no Agent attached seals once read to its tip, at the checkpoint
+// watermark its listing shows. Later scans skip it without a read while that watermark
+// stands; a warm scan clears the seal, and a moved watermark means the log grew.
+test('a cold Session seals at its checkpoint watermark and is read again once it warms or the watermark moves', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 10 * HOUR })
+  const logX = [header('kimi', 'k3'), message(1, 0, usage(40, 4), 2 * HOUR)]
+  const { call, ctx, stop } = start(undefined, { logsExtra: { 's-x': logX } })
+  t.after(stop)
+  let reads = 0
+  const projections = ctx.sessionController.projections
+  ctx.sessionController.projections = async (request) => {
+    if (request.sessionId === 's-x') reads += 1
+    return projections(request)
+  }
+  let agentAvailable = false
+  let watermark = 1
+  ctx.sessionController.list = async () => ({
+    items: [{ sessionId: 's-x', agentAvailable, running: false, projections: { kind: 'cached', asOfSeq: watermark, values: {} } }],
+  })
+  const scan = async () => {
+    t.mock.timers.tick(60_000)
+    return (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  }
+  // First scan: cold but never read, so read once and sealed.
+  await call('usage', { timeZone: 'Asia/Shanghai' })
+  assert.equal(reads, 1)
+  // Still cold at the same watermark: the seal skips it without any read.
+  await scan()
+  assert.equal(reads, 1)
+  // Listed warm, a scan reads it and clears the seal, since it may run.
+  agentAvailable = true
+  await scan()
+  assert.equal(reads, 2)
+  // Cold again: read once more, then sealed at the watermark and skipped.
+  agentAvailable = false
+  await scan()
+  assert.equal(reads, 3)
+  await scan()
+  assert.equal(reads, 3)
+  // The log grew and its checkpoint moved on: read again, and the new calls count.
+  logX.push({ ...message(2, 0, usage(7, 7)), seq: 2 })
+  watermark = 2
+  const view = await scan()
+  assert.equal(reads, 4)
+  assert.equal(totals(view)['other/chat'], 44 + 14)
+  await scan()
+  assert.equal(reads, 4)
+})
+
+// The ledger of the previous version has no seal watermark; it is kept, not rebuilt.
+test('a ledger from the previous version keeps its metered calls and gains the seal watermark', async (t) => {
+  const first = start()
+  const { home } = first
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const chunk = { type: 'usage', usage: usage(1000, 100) }
+  await drain(first.meter({ sessionId: 's-b1', purpose: 'compaction', provider: 'deepseek', model: 'v4-flash', messages: [] }, async function* () { yield chunk }))
+  await first.call('usage', { timeZone: 'Asia/Shanghai' })
+  await first.ctx.dispose()
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(join(home, 'usage.sqlite'))
+  db.exec('ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
+  db.close()
+
+  const second = start(home)
+  const view = (await second.call('usage', { timeZone: 'Asia/Shanghai' })).value
+  await second.ctx.dispose()
+  assert.equal(totals(view)['Chief/compaction'], 1100)
+  assert.equal(totals(view)['Chief/chat'], 160 + 220 + 10)
+  assert.deepEqual(second.warnings, [])
 })
 
 test('a cached projection watermark beyond the log is not used as a page cursor', async (t) => {

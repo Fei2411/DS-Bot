@@ -1040,6 +1040,14 @@ export function install(rt) {
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
+  // Ends a step DS Bot takes over. Before a turn's first step an empty batch ends the
+  // turn as completed, where a reject ends it as blocked, which other listeners read as
+  // a failure. Later in a turn an empty batch would run another model step, and a turn
+  // carried through a steer cut keeps its reject, since a completed turn reads as answered.
+  const takeOverStep = (agent, payload) => (payload.step === 1 && rt.live.get(agent.id)?.carried !== true
+    ? { kind: 'enter', messages: [] }
+    : { kind: 'reject' })
+
   // Runs first: an earlier part hands its input on, a part past the hard line makes
   // room before the step (condensed in place, or it stops and goes on in a fresh
   // part), and the backend's own pre-step listener sees the wrapper.
@@ -1049,14 +1057,14 @@ export function install(rt) {
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
       await forward(past, payload.messages).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
-      return { kind: 'reject' }
+      return takeOverStep(agent, payload)
     }
     if (!rt.isBotSession(agent.id)) return next()
     adoptCompaction(agent)
     const job = switches.get(agent.id)
     if (job !== undefined) {
       job.carry.push(...payload.messages)
-      return { kind: 'reject' }
+      return takeOverStep(agent, payload)
     }
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {
@@ -1078,7 +1086,7 @@ export function install(rt) {
     const running = switches.get(agent.id)
     if (running !== undefined) {
       running.carry.push(...payload.messages)
-      return { kind: 'reject' }
+      return takeOverStep(agent, payload)
     }
     const entry = rt.liveOf(agent.id)
     // A turn carried through a steer cut keeps its trigger and joined work, so
@@ -1086,7 +1094,7 @@ export function install(rt) {
     const midTurn = payload.step > 1 || entry.carried === true
     entry.switched = true
     startSwitch(agent, { resume: midTurn, carry: payload.messages, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
-    return { kind: 'reject' }
+    return takeOverStep(agent, payload)
   }
 
   // The folder a part should move to, when it is not the one the part was made in. A

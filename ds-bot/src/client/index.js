@@ -21,7 +21,7 @@ import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
 import { installHeaderNavigation } from './header-navigation.js'
-import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, TurnTailCell, ToolCell } from './cells.js'
+import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { Overlays } from './overlays.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
 import { BROWSER_CSS } from './browser-pane.js'
@@ -117,6 +117,9 @@ export function apply(ctx) {
   // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
   const work = createSource({ bots: {}, approvals: [] })
   let workKey = ''
+  // The version of the live fields this window last got; while it still names the
+  // host's answer, the poll leaves those fields out.
+  let liveKey
   // Per Session, what its transcript has in flight (running tools, a streaming reply).
   const live = createSource({})
   // Per Session, the ask_user and request_secret calls its transcript draws; the
@@ -155,14 +158,19 @@ export function apply(ctx) {
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', locale: language() })
+    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
-    const nextActivity = JSON.stringify(value.activity ?? {})
-    if (nextActivity !== activityKey) { activityKey = nextActivity; activity.set(value.activity ?? {}) }
-    const nextWork = JSON.stringify(value.work ?? null)
-    if (nextWork !== workKey) { workKey = nextWork; work.set(value.work ?? { bots: {}, approvals: [] }) }
-    noteMemoryNews(value.memoryNews ?? {})
+    if (value.liveKey !== undefined) liveKey = value.liveKey
+    if (value.activity !== undefined) {
+      const nextActivity = JSON.stringify(value.activity)
+      if (nextActivity !== activityKey) { activityKey = nextActivity; activity.set(value.activity) }
+    }
+    if (value.work !== undefined) {
+      const nextWork = JSON.stringify(value.work)
+      if (nextWork !== workKey) { workKey = nextWork; work.set(value.work) }
+    }
+    if (value.memoryNews !== undefined) noteMemoryNews(value.memoryNews)
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
     const live = {}
@@ -939,10 +947,10 @@ export function apply(ctx) {
     // A Bot condenses its conversation without telling anyone; the chat keeps showing
     // every message.
     () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredReply),
-    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
-    () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
