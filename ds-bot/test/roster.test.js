@@ -280,6 +280,67 @@ test('the state reports a changed model list without a new revision', async (t) 
   assert.equal((await call('state', { since: first.revision, models: 'stale' })).value.unchanged, undefined)
 })
 
+test('an unchanged state answer skips the live fields a window already holds', async (t) => {
+  const { call, stop, ctx } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const first = (await call('state', {})).value
+  assert.equal(typeof first.liveKey, 'string')
+  // The window echoes the live key it holds; while it still names the answer,
+  // the live fields stay out.
+  const quiet = (await call('state', { since: first.revision, models: first.modelsKey, live: first.liveKey })).value
+  assert.equal(quiet.unchanged, true)
+  assert.equal(quiet.liveKey, first.liveKey)
+  assert.equal(quiet.activity, undefined)
+  assert.equal(quiet.work, undefined)
+  assert.equal(quiet.connectors, undefined)
+  // A key that names an older answer still gets the fields with the current one.
+  const stale = (await call('state', { since: first.revision, models: first.modelsKey, live: 'an older answer' })).value
+  assert.equal(stale.unchanged, true)
+  assert.equal(stale.liveKey, first.liveKey)
+  assert.equal(typeof stale.activity, 'object')
+  assert.equal(typeof stale.work, 'object')
+  // Live state that changes without a new revision moves the key.
+  const chief = first.bots.find(bot => bot.id === first.mainBotId)
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    listener({ id: chief.sessionId ?? chief.id }, { type: 'turn/start', data: { turn: 1 }, time: Date.now() })
+  }
+  const working = (await call('state', { since: first.revision, models: first.modelsKey, live: first.liveKey })).value
+  assert.equal(working.unchanged, true)
+  assert.notEqual(working.liveKey, first.liveKey)
+  assert.equal(Object.keys(working.work?.bots ?? {}).length, 1)
+  // And once it holds that answer, the next poll is small again.
+  const again = (await call('state', { since: first.revision, models: first.modelsKey, live: working.liveKey })).value
+  assert.equal(again.unchanged, true)
+  assert.equal(again.activity, undefined)
+})
+
+test('a window holding live state gets fresh fields after the host restarts at the same revision', async (t) => {
+  const first = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief' } } })
+  t.after(first.stop)
+  await first.ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
+  // Start working before the first poll, so both runs' first live answer would
+  // have counter 1 even though one is working and the other is idle.
+  for (const listener of first.ctx.listeners.get('session/event') ?? []) {
+    listener({ id: 'chief' }, { type: 'turn/start', data: { turn: 1 }, time: Date.now() })
+  }
+  const held = (await first.call('state', {})).value
+  assert.equal(Object.keys(held.work.bots).length, 1)
+  await first.ctx.dispose()
+  const saved = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  const second = start(saved)
+  t.after(second.stop)
+  const now = (await second.call('state', { since: held.revision, models: held.modelsKey, live: held.liveKey })).value
+  assert.equal(now.unchanged, true)
+  assert.equal(now.revision, held.revision)
+  assert.deepEqual(now.work?.bots, {})
+  assert.deepEqual(now.activity, {})
+  assert.notEqual(now.liveKey, held.liveKey)
+  const quiet = (await second.call('state', { since: now.revision, models: held.modelsKey, live: now.liveKey })).value
+  assert.equal(quiet.liveKey, now.liveKey)
+  assert.equal(quiet.work, undefined)
+  assert.equal(quiet.activity, undefined)
+})
+
 test('a new team starts with a DeepSeek-blue whale as its Main Bot', async (t) => {
   const { call, stop } = start()
   t.after(stop)
