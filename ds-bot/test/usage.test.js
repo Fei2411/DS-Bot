@@ -298,8 +298,8 @@ test('a ledger from the previous version keeps its metered calls and gains the s
   db.close()
 
   const second = start(home)
-  t.after(() => second.ctx.dispose())
   const view = (await second.call('usage', { timeZone: 'Asia/Shanghai' })).value
+  await second.ctx.dispose()
   assert.equal(totals(view)['Chief/compaction'], 1100)
   assert.equal(totals(view)['Chief/chat'], 160 + 220 + 10)
   assert.deepEqual(second.warnings, [])
