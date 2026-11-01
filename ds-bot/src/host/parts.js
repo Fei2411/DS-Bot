@@ -1510,7 +1510,7 @@ export function install(rt) {
         if (entry !== undefined && typeof event.data?.message?.ok === 'boolean') entry.ok = event.data.message.ok
       }
     }
-    for (const [key, tools] of byTurn) for (const tool of tools) delete tool.callId
+    for (const tools of byTurn.values()) for (const tool of tools) delete tool.callId
     return byTurn
   }
 
