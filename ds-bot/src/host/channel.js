@@ -99,13 +99,17 @@ export function install(rt) {
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
-  // still names it gets only the key back, not the fields again.
+  // still names it gets only the key back, not the fields again. The key carries
+  // a per-run prefix: a window can outlive the host, and a counter that restarts
+  // at 1 would let its stale key name a different answer.
+  const liveRun = randomUUID()
+  let liveSeq = 0
   let liveCache = null
   const liveAnswer = () => {
     const value = live()
     const json = JSON.stringify(value)
     if (liveCache?.json === json) return liveCache
-    return liveCache = { key: (liveCache?.key ?? 0) + 1, value, json }
+    return liveCache = { key: `${liveRun}:${++liveSeq}`, value, json }
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
