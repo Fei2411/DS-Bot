@@ -21,7 +21,7 @@ import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
 import { installHeaderNavigation } from './header-navigation.js'
-import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, TurnTailCell, ToolCell } from './cells.js'
+import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { Overlays } from './overlays.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
 import { BROWSER_CSS } from './browser-pane.js'
@@ -92,7 +92,7 @@ export function apply(ctx) {
   // panels would follow it and report it is not on the team, so they close.
   const dropPanels = () => ui.set(state => (state.details || state.renaming ? { ...state, details: null, view: 'details', renaming: false, tab: null } : state))
   // A Bot's chat spans several parts, so when it was last left is kept per Bot.
-  const seenKey = id => roster.getSnapshot().byId?.[id]?.id ?? id
+  const seenKey = id => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id
   const leaveVisits = (ids) => {
     seenAt = seenStore.update(seen => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt)
   }
@@ -194,7 +194,7 @@ export function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.id)]) {
+    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
       if (refreshed.has(id)) continue
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
@@ -399,10 +399,13 @@ export function apply(ctx) {
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
 
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
-  // A Bot id, or any part of its chat, opens the Bot's current part.
+  // A Bot id or a group chat id, or any part of either's chat, opens the current part.
   const partFor = (id) => {
-    const bot = roster.getSnapshot().byId[id]
-    return bot ? currentPart(bot) : id
+    const snapshot = roster.getSnapshot()
+    const bot = snapshot.byId[id]
+    if (bot !== undefined) return currentPart(bot)
+    const room = snapshot.roomsById[id]
+    return room === undefined ? id : (room.sessionId ?? room.id)
   }
   // Sessions owned by an Agent, including ones adopted before the roster caught up.
   const agentSessions = (agentId) => {
@@ -947,10 +950,10 @@ export function apply(ctx) {
     // A Bot condenses its conversation without telling anyone; the chat keeps showing
     // every message.
     () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredReply),
-    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
-    () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),

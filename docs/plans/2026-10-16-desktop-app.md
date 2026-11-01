@@ -19,7 +19,7 @@
 | 部分 | 做什么 |
 |---|---|
 | 壳 | Electron 主进程。只开一个实例；窗口加载引擎自己的本机地址（`http://127.0.0.1:端口`），和 DSH Web 一样由引擎提供网页前端；管引擎进程的启动和退出。窗口见下面「窗口」一节 |
-| 引擎 | 子进程，用 Electron 自带的 Node 运行。通过 `@deepseek-ai/dsh/profile-boot` 的 `runProfile()` 启动 profile `ds-bot`，只监听 `127.0.0.1`。端口第一次启动时选一个空闲的，之后一直用它：页面的本地存储（未读标记、布局、偏好）跟着地址走。端口被占用时换一个新的。环境变量 `DS_BOT_APP=1` 告诉 ds-bot 它跑在桌面应用里 |
+| 引擎 | 子进程，Linux 用随包独立 Node，避免 sharp 的 libvips 与 Electron 的系统 glib 冲突；macOS 和 Windows 用 Electron 自带的 Node。通过 `@deepseek-ai/dsh/profile-boot` 的 `runProfile()` 启动 profile `ds-bot`，只监听 `127.0.0.1`。端口第一次启动时选一个空闲的，之后一直用它：页面的本地存储（未读标记、布局、偏好）跟着地址走。端口被占用时换一个新的。环境变量 `DS_BOT_APP=1` 告诉 ds-bot 它跑在桌面应用里 |
 | 界面 | DSH 的网页前端加上 `ds-bot` 插件，和插件版一样 |
 
 - 插件版和桌面应用用同一份 `ds-bot`，插件版不变。

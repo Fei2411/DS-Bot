@@ -7,6 +7,8 @@ import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 const QUESTION = 'ask_user_question'
+const DELEGATION = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph']
+const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 
 const team = () => ({
   version: 1,
@@ -24,14 +26,17 @@ const team = () => ({
 })
 
 // dsh keeps one Agent per Session and fires agent/created, waiting for its listeners,
-// the first time a Session resolves one. restrict() calls are recorded per Session.
-async function setup({ served = ['read', 'ask_user', QUESTION], goals } = {}) {
+// the first time a Session resolves one. restrict() calls are recorded per Session and
+// throw when deny holds throwOn (a name in the Agent's own scope fails the whole list);
+// ctx.on() listeners are recorded per Session too, with their disposal.
+async function setup({ served = ['read', 'ask_user', QUESTION], goals, throwOn } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-blocking-question-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(team()))
   const ctx = fakeContext({ services: goals === undefined ? {} : { goals } })
   const agents = new Map()
   const hidden = []
   const sent = []
+  const scopedListeners = []
   let sessions = 0
   const created = agent => Promise.all((ctx.listeners.get('agent/created') ?? []).map(listener => listener({ agent })))
   const agentFor = async (id) => {
@@ -40,7 +45,18 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals } = {}) {
       id,
       session: { id },
       ctx: {
-        tools: { restrict: (filter) => { hidden.push([id, [...filter.deny]]); return () => {} } },
+        tools: {
+          restrict: (filter) => {
+            if (throwOn !== undefined && filter.deny.includes(throwOn)) throw new Error(`"${throwOn}" is registered in this scope`)
+            hidden.push([id, [...filter.deny]])
+            return () => {}
+          },
+        },
+        on: (event, listener) => {
+          const record = { sessionId: id, event, listener, disposed: false }
+          scopedListeners.push(record)
+          return () => { record.disposed = true }
+        },
         effect: execute => execute(),
       },
       followup: message => sent.push({ sessionId: id, message }),
@@ -78,7 +94,7 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, rt, agentFor, hidden, hiddenIn, guard, sent, stop }
+  return { ctx, rt, agentFor, hidden, hiddenIn, guard, sent, scopedListeners, stop }
 }
 
 // DSH's goal service, holding one goal per Session; block() records what was asked.
@@ -208,4 +224,69 @@ test('without DSH\'s goal service a goal change is left alone', async (t) => {
   startGoal(ctx, undefined, 'writer')
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(warnings, [])
+})
+
+// Fei2411/DS-Bot#798: a Bot could call dsh's delegation tools; the child agents they
+// start run out of the user's sight and die with the part that started them.
+test('a Bot\'s chat and its group Sessions lose the delegation tools; other Sessions keep them', async (t) => {
+  const servedDelegation = ['subagent', 'subagent_fork', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow']
+  const { agentFor, hidden, stop } = await setup({ served: ['read', 'ask_user', QUESTION, ...servedDelegation] })
+  t.after(stop)
+  for (const id of ['chief', 'writer', 'room-writer', 'plain', 'elsewhere']) await agentFor(id)
+  for (const id of ['chief', 'writer', 'room-writer']) assert.deepEqual(hidden.filter(([sessionId]) => sessionId === id), [[id, [QUESTION]], [id, servedDelegation]])
+  assert.deepEqual(hidden.filter(([sessionId]) => sessionId === 'plain' || sessionId === 'elsewhere'), [])
+})
+
+test('the guard refuses the delegation tools in Bot Sessions only', async (t) => {
+  const { guard, stop } = await setup()
+  t.after(stop)
+  for (const name of DELEGATION) {
+    for (const sessionId of ['chief', 'writer', 'room-writer']) assert.equal(guard(name, sessionId), DELEGATION_REFUSAL)
+    for (const sessionId of ['plain', 'elsewhere', undefined]) assert.equal(guard(name, sessionId), undefined)
+  }
+  assert.equal(guard('read', 'writer'), undefined)
+  assert.equal(guard('message_bot', 'writer'), undefined)
+})
+
+// restrict() throws away the whole list when one name sits in the Agent's own scope,
+// so each name is masked on its own after the group fails; what stays is covered by
+// the assembly filter and the guard.
+test('a delegation name restrict() cannot mask keeps the other masks and stays refused', async (t) => {
+  const { rt, agentFor, hidden, guard, stop } = await setup({ served: ['read', 'ask_user', QUESTION, 'subagent', 'send_message'], throwOn: 'send_message' })
+  t.after(stop)
+  const warnings = []
+  rt.warn = (...args) => warnings.push(args)
+  await agentFor('chief')
+  assert.deepEqual(hidden, [['chief', [QUESTION]], ['chief', ['subagent']]])
+  assert.deepEqual(warnings, [])
+  // The Session is marked anyway, so resolving it again adds no restrict entries.
+  await rt.resolveAgent('chief')
+  assert.deepEqual(hidden, [['chief', [QUESTION]], ['chief', ['subagent']]])
+  assert.equal(guard('send_message', 'chief'), DELEGATION_REFUSAL)
+})
+
+// The standard preset registers subagent (model selection) in the Agent's own scope,
+// which restrict() and a same-name section cannot reach, so Bot Sessions filter the
+// hidden tools and their guidance sections out of the assembled prompt instead.
+test('Bot Sessions filter the hidden tools and their guidance out of the prompt assembly', async (t) => {
+  const { rt, agentFor, scopedListeners, stop } = await setup({ served: ['read'] })
+  t.after(stop)
+  for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
+  const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
+  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'room-writer'])
+  // Resolving the same Agent again adds no listener.
+  await rt.resolveAgent('chief')
+  assert.equal(scopedListeners.length, 2)
+  const filtered = await filters[0].listener({}, {}, async () => ({
+    sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
+    contexts: [{ name: 'x' }],
+    tools: [{ name: 'read' }, { name: 'subagent' }, { name: 'workflow' }, { name: 'send_message' }, { name: 'message_bot' }, { name: 'ask_user_question' }],
+    variables: { a: 1 },
+  }))
+  assert.deepEqual(filtered.sections.map(section => section.name), ['bot-identity', 'tool:bash'])
+  assert.deepEqual(filtered.tools.map(tool => tool.name), ['read', 'message_bot'])
+  assert.deepEqual(filtered.contexts, [{ name: 'x' }])
+  assert.deepEqual(filtered.variables, { a: 1 })
+  await stop()
+  for (const record of scopedListeners) assert.equal(record.disposed, true)
 })

@@ -12,7 +12,7 @@ let rt
 const P = 'd1a40000-1111-4222-8333-444444444444'
 
 // Chief (Main), Writer in the group Ops, and Diary, a Bot with a folder of its own.
-function seed({ diary, privateBot, archives = [] }) {
+function seed({ diary, privateBot, archives = [], picked }) {
   return {
     version: 1,
     mainBotIds: ['a'],
@@ -23,7 +23,7 @@ function seed({ diary, privateBot, archives = [] }) {
       b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
       [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}) },
     },
-    rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' } } },
+    rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' }, ...(picked === undefined ? {} : { memberDirs: { b: picked } }) } },
     agents: {},
     exchanges: [],
     exchangeTurns: {},
@@ -33,7 +33,7 @@ function seed({ diary, privateBot, archives = [] }) {
   }
 }
 
-async function start({ services = {}, privateBot = true, archives } = {}) {
+async function start({ services = {}, privateBot = true, archives, memberPick = false } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-privacy-')))
   const dsh = join(root, 'dsh')
@@ -41,9 +41,10 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   const diary = join(root, 'diary')
-  for (const dir of [team, project, diary]) mkdirSync(dir, { recursive: true })
+  const picked = join(root, 'picked')
+  for (const dir of [team, project, diary, ...(memberPick ? [picked] : [])]) mkdirSync(dir, { recursive: true })
   writeFileSync(join(diary, 'notes.txt'), 'secret')
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives })))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives, picked: memberPick ? picked : undefined })))
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
@@ -67,6 +68,7 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
     return agents.get(sessionId)
   }
   const registry = new Map([['w1', { id: 'w1', path: team, title: 'DS Bot' }]])
+  let created = 0
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
@@ -81,7 +83,8 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
       archiveSession: async () => {},
     },
     sessionController: {
-      create: async () => ({ sessionId: 's1' }),
+      // Ids shaped like real Session ids: a short one would match any path it lands in.
+      create: async () => ({ sessionId: `0000000${++created}-1111-4222-8333-444444444444` }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
@@ -121,7 +124,7 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
   }
   // Loading once fills the Session-owner indexes.
   await tool('list_bots', {}, 'a')
-  return { rt, ctx, root, dsh, home, team, project, diary, agentOf, call, tool, run, state, stop }
+  return { rt, ctx, root, dsh, home, team, project, diary, picked, agentOf, call, tool, run, state, stop }
 }
 
 const CLOSED = /private Bot/
@@ -174,6 +177,22 @@ test('a private Bot has a folder that no other folder is in or around', async (t
   await assert.rejects(rt.setTeamWorkspace(diary), CLOSED)
   await assert.rejects(rt.updateBot(P, { workDir: project }), /folder of Writer/)
   assert.equal(state().bots.b.workDir, project)
+})
+
+test('a member\'s folder pick in a group counts as that member\'s folder for a private Bot', async (t) => {
+  const { rt, picked, diary, run, state, stop } = await start({ privateBot: false, memberPick: true })
+  t.after(stop)
+  mkdirSync(join(picked, 'inside'))
+  // Writer picked this folder for its conversation in Ops, so it is closed to Diary too.
+  await assert.rejects(rt.updateBot(P, { private: true, workDir: picked }), /folder of Writer in "Ops"/)
+  await assert.rejects(rt.updateBot(P, { private: true, workDir: join(picked, 'inside') }), /folder of Writer in "Ops"/)
+  await rt.updateBot(P, { private: true, workDir: diary })
+  assert.equal(state().bots[P].private, true)
+  // The other way around too: the member cannot move that conversation into a
+  // private Bot's folder.
+  const moved = await run('working_directory', { cd: diary }, 'gb')
+  assert.equal(moved.ran, false)
+  assert.match(moved.error, CLOSED)
 })
 
 test('a private Bot is no Main Bot, no member of a group and no copy', async (t) => {

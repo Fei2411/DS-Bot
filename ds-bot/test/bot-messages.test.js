@@ -1123,7 +1123,7 @@ for (const id of ['b', 'gb']) {
 
       if (pending) {
         const decision = await ctx.listeners.get('agent/pre-step').at(-1)({ agent, messages: [input], step: 1, signal: AbortSignal.timeout(60_000) }, async () => 'next')
-        assert.deepEqual(decision, { kind: 'reject' })
+        assert.deepEqual(decision, { kind: 'enter', messages: [] })
       } else {
         record('user/message', input)
         await fire('agent/request-error', { agent, failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000) })

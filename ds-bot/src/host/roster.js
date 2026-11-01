@@ -75,7 +75,8 @@ export function install(rt) {
   }
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
-  // alone, so it joins no DSH workspace and the user's own project lists stay as they are.
+  // alone, so it joins no DSH workspace and the user's own project lists stay as they are —
+  // unless the folder is already registered as a workspace, which it then joins (#710).
   async function createSession(title, { dir } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
@@ -83,7 +84,8 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
-    const place = usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
+    const known = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
+    const place = known !== undefined ? { workspaceId: known.id } : usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
     const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
@@ -352,7 +354,7 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
-    if (moved) void rt.followFolder(bot.id)
+    if (moved) void rt.followFolder({ botId: bot.id })
     if (bot.model && bot.kickoff !== undefined) {
       const held = bot.kickoff
       delete bot.kickoff
@@ -377,7 +379,12 @@ export function install(rt) {
 
   const roomBusy = id => [...rt.roomProgress.values()].some(round => round.roomId === id)
   const autoRoomName = members => ['You', ...members.map(id => rt.botOf(id)?.name).filter(Boolean)].join(', ')
-  const cleanNotice = text => String(text ?? '').trim().slice(0, ROOM_NOTICE_MAX)
+  // A notice past the limit is refused rather than silently cut (#710).
+  const cleanNotice = (text) => {
+    const notice = String(text ?? '').trim()
+    if (notice.length > ROOM_NOTICE_MAX) throw new Error(`A group's notice can hold at most ${ROOM_NOTICE_MAX} characters; this one has ${notice.length}`)
+    return notice
+  }
 
   function cleanRoomName(text, selfId) {
     const next = unquote(text).replace(/\s+/g, ' ').slice(0, ROOM_NAME_MAX)
@@ -387,7 +394,7 @@ export function install(rt) {
 
   async function retitleRoom(room) {
     try {
-      const agent = await rt.resolveAgent(room.id)
+      const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
       await ctx.sessionTitle.rename(agent.session, room.name)
     } catch (error) {
       rt.warn('ds-bot: group title for %s not updated: %s', room.name, error)
@@ -427,8 +434,8 @@ export function install(rt) {
 
   async function buildRoom({ members, custom, notice, mode, adminId, createdBy }) {
     const title = custom || autoRoomName(members)
-    // The group's own Session only relays, so it stays in the team workspace; the
-    // group's folder is for its members' Sessions.
+    // The group's own Session only relays; like a member's it moves to a fresh part
+    // in the group's folder once the group has one (parts.js).
     const id = await createSession(title)
     try {
       // A member deleted while the Session was made stays out, and the group is checked
@@ -494,19 +501,10 @@ export function install(rt) {
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
-    // The relay limit is the user's guard against a group that never stops; it is
-    // not a member's to move, whatever its role.
-    if (patch.relayLimit !== undefined && actorId !== undefined) throw new Error(`Only the user can set the relay limit of "${room.name}"`)
-    let relayLimit
-    if (patch.relayLimit === null) relayLimit = null
-    else if (patch.relayLimit !== undefined) {
-      if (!Number.isInteger(patch.relayLimit) || patch.relayLimit < 1 || patch.relayLimit > 200) throw new Error('Relay limit must be a whole number from 1 to 200')
-      relayLimit = patch.relayLimit
-    }
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
     const name = patch.name === undefined ? undefined : cleanRoomName(patch.name, room.id)
-    return { members, admin, name, notice, permission, relayLimit }
+    return { members, admin, name, notice, permission }
   }
 
   // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
@@ -521,7 +519,7 @@ export function install(rt) {
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
-    const { members, admin, name, notice, permission, relayLimit } = planRoomChange(room, patch, actorId)
+    const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
@@ -542,20 +540,21 @@ export function install(rt) {
       room.mode = patch.mode
       changes.push(patch.mode === 'admin' ? 'plain messages now go to the admin first' : 'every member now replies in turn')
     }
-    if (relayLimit !== undefined && relayLimit !== (room.relayLimit ?? null)) {
-      if (relayLimit === null) delete room.relayLimit
-      else room.relayLimit = relayLimit
-      changes.push(relayLimit === null ? 'Bots pause at the default relay count again' : `Bots now pause after ${relayLimit} relays`)
-    }
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
     }
-    // Members' group conversations move on to the folder at their next turn there.
+    // Members' group conversations move on to the folder at their next turn there;
+    // the group's own Session moves the same way, now when it is idle.
     if (moving && workDir !== room.workDir) {
+      delete room.folderNotice
       if (workDir === undefined) delete room.workDir
       else room.workDir = workDir
+      // A member's own pick for this group gives way to the group's folder, and a
+      // cleared one does not bring it back.
+      delete room.memberDirs
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
+      void rt.followFolder({ roomId: room.id })
     }
     const before = room.name
     if (name !== undefined) {
@@ -585,6 +584,8 @@ export function install(rt) {
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
+    for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
+    delete state.switching[rt.sessionOfRoom(room)]
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
@@ -592,7 +593,7 @@ export function install(rt) {
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
-    await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+    await ctx.workspaceRegistry.archiveSession(rt.sessionOfRoom(room), { stopActivity: true })
       .catch(error => rt.warn('ds-bot: group chat %s not archived: %s', room.name, error))
     if (failed !== undefined) throw failed
   }
@@ -650,6 +651,9 @@ export function install(rt) {
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
     if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
     delete state.bots[id]
+    // The shared capability list is the user's and keeps its items; only a
+    // still-unapproved local MCP this Bot alone asked for leaves with it.
+    rt.dropOrphanCapabilities?.(bot)
     for (const part of parts) {
       delete state.questions[part]
       if (state.views !== undefined) delete state.views[part]

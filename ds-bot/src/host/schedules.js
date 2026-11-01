@@ -85,7 +85,8 @@ export function install(rt) {
   const ownerOf = (sessionId) => {
     const chat = rt.chatOwners.get(sessionId)
     if (chat !== undefined) return { botId: chat }
-    if (rt.roomOf(sessionId) !== undefined) return { roomId: sessionId }
+    const room = rt.roomOf(sessionId)
+    if (room !== undefined) return { roomId: room.id }
     return rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
   }
   const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
@@ -113,7 +114,7 @@ export function install(rt) {
       if (title === '') throw invalid('Give the task a name')
       if (title.length > MAX_TITLE) throw invalid(`Keep the name under ${MAX_TITLE} characters`)
       if (prompt === '') throw invalid('Say what the Bot should do')
-      await service.create(bot ? rt.chatOf(bot.id) : room.id, { title, prompt, ...selectorOf(body.when) })
+      await service.create(bot ? rt.chatOf(bot.id) : rt.sessionOfRoom(room), { title, prompt, ...selectorOf(body.when) })
       return schedulesView()
     },
     async 'schedule-delete'(body) {
