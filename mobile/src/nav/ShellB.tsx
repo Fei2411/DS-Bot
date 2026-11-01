@@ -95,9 +95,18 @@ function ChatScreenB({ route, navigation }: any) {
   const id = params?.id ?? fallback?.id ?? ''
   const bot = kind === 'bot' ? team?.bots?.find(b => b.id === id) : undefined
   const room = kind === 'room' ? team?.rooms?.find(r => r.id === id) : undefined
+  // A saved chat that the team no longer has is dropped and falls back to the
+  // first Main Bot instead of opening an empty screen.
+  const missing = team !== null && params !== undefined && ((kind === 'bot' && bot === undefined) || (kind === 'room' && room === undefined))
+  useEffect(() => {
+    if (!missing) return
+    void SecureStore.deleteItemAsync(LAST_KEY)
+    if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id })
+  }, [missing])
   const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} />
   if (team === null) return <View style={{ flex: 1, backgroundColor: p.main }}>{header}</View>
-  return <ChatView bot={bot} room={room} header={header} />
+  const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id }) }
+  return <ChatView bot={bot} room={room} header={header} onMissing={onMissing} />
 }
 
 function NeedsScreenB({ navigation }: any) {

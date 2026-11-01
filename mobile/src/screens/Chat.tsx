@@ -16,7 +16,7 @@ interface ChatPage { sessionId: string; items: ChatItem[]; cursor: unknown }
 
 // The shared chat body for both shells: inverted list, older pages on top,
 // pending dock and composer. `header` is the shell's own (back row or pill).
-export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header: React.ReactNode }) {
+export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
   const { team, call } = useTeam()
   const { p, dark } = useTheme()
   const id = bot?.id ?? room?.id ?? ''
@@ -42,7 +42,8 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
       if (!stopped.current) setPage(next)
     } catch (failure) {
       const code = (failure as { code?: string })?.code
-      if (code === 'bot/not-found') setGone(true)
+      if (code === 'bot/not-found') { setGone(true); onMissing?.() }
+      else if (!stopped.current) setError(failure instanceof Error ? failure.message : String(failure))
     }
   }, [call, id])
 
@@ -141,6 +142,11 @@ export function ChatView({ bot, room, header }: { bot?: Bot; room?: Room; header
       {header}
       {gone
         ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
+        : page === null && error !== null
+          ? <View style={{ alignItems: 'center', marginTop: 24 }}>
+              <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{error}</Text>
+              <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setError(null); void refresh() }}>{t('Retry')}</Text>
+            </View>
         : page === null
           ? <ActivityIndicator style={styles.loading} color={p.accent} />
           : <ScrollView
