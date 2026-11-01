@@ -25,6 +25,28 @@
   !ifdef allowToChangeInstallationDirectory
     Var /GLOBAL dsbCheckTarget
 
+    ; The builder's default instFilesPre appends APP_FILENAME when the chosen path
+    ; lacks the new product name. An upgrade must keep the registered folder instead.
+    !define /redef MUI_PAGE_CUSTOMFUNCTION_PRE dsbInstFilesPre
+
+    Function dsbResolveInstDir
+      StrCpy $dsbCheckTarget $INSTDIR
+      ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+      ${If} $0 != ""
+      ${AndIf} $0 == $INSTDIR
+        Return
+      ${EndIf}
+      Push $INSTDIR
+      Call instFilesPre
+      StrCpy $dsbCheckTarget $INSTDIR
+      Pop $INSTDIR
+    FunctionEnd
+
+    Function dsbInstFilesPre
+      Call dsbResolveInstDir
+      StrCpy $INSTDIR $dsbCheckTarget
+    FunctionEnd
+
     Page custom dsbCheckInstDir
 
     Function dsbCheckInstDir
@@ -32,14 +54,8 @@
         Abort
       ${endif}
 
-      ; instFilesPre appends ${APP_FILENAME} to $INSTDIR only after this page,
-      ; so the same rule is applied here on a copy and $INSTDIR stays untouched.
-      ${StrContains} $0 "${APP_FILENAME}" $INSTDIR
-      ${if} $0 == ""
-        StrCpy $dsbCheckTarget "$INSTDIR\${APP_FILENAME}"
-      ${else}
-        StrCpy $dsbCheckTarget $INSTDIR
-      ${endif}
+      ; Probe the same destination that the install page will use.
+      Call dsbResolveInstDir
 
       ; $R1: the nearest ancestor that exists. Folders this check creates are
       ; removed again below, and only as far up as this ancestor.

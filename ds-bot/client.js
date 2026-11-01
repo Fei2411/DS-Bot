@@ -295,7 +295,7 @@ var ZH = {
   Rename: "重命名",
   "Add instructions in Bot settings": "在 Bot 设置里添加说明",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。",
-  "The browser is in DSH Desktop and the DeepSeek Bot app.": "浏览器在 DSH 桌面版和 DeepSeek Bot 应用里。",
+  "The browser is in DSH Desktop and the DS Bot app.": "浏览器在 DSH 桌面版和 DS Bot 应用里。",
   "New tab": "新标签页",
   "Close tab": "关闭标签页",
   "Open {title}": "打开 {title}",
@@ -972,7 +972,7 @@ var ZH = {
   "{version} is available": "{version} 已发布",
   "Installed from a local folder; update it there.": "从本地文件夹安装，请在那里更新。",
   "Updates are not offered for this install.": "这种安装方式不提供更新。",
-  "Updates come with the DeepSeek Bot app.": "随 DeepSeek Bot 应用一起更新。",
+  "Updates come with the DS Bot app.": "随 DS Bot 应用一起更新。",
   Links: "链接",
   "Source code": "源代码",
   "Release notes": "发布说明",
@@ -16426,7 +16426,7 @@ function botHint(update) {
   if (update.phase === "updated") return t("DS Bot {version} is installed.", { version: update.installed ?? update.latest });
   if (update.phase === "failed") return t("The update did not finish: {reason}", { reason: hostText(update.error ?? "") });
   if (update.available) return t("DS Bot {version} is available", { version: update.latest });
-  if (update.source === "app") return t("Updates come with the DeepSeek Bot app.");
+  if (update.source === "app") return t("Updates come with the DS Bot app.");
   if (update.enabled === false) return t("Update checks are off.");
   if (update.source === "path") return t("Installed from a local folder; update it there.");
   if (!update.checkedAt) return null;
@@ -17658,7 +17658,7 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     actions.browserEnsure?.(bot.id);
   }, [bot.id]);
   if (roster.browser !== true || !actions.browserShow) {
-    return (0, import_react48.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DeepSeek Bot app."));
+    return (0, import_react48.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DS Bot app."));
   }
   if (state.ids.length === 0) {
     return (0, import_react48.createElement)(
