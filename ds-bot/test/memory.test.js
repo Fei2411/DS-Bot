@@ -268,6 +268,19 @@ test('recall caps the user\'s words, not their pairs, and a whole phrase outrank
   assert.doesNotMatch(hits, /安全事项/)
 })
 
+test('a repeated word in a recall query is counted once, so a later word still reaches the cut', async (t) => {
+  const { tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '周末上海出差安排住外滩的酒店' }, 'b2')
+  await tool('remember', { text: '女友小李的生日是 10 月 22 日' }, 'b2')
+  // 上海 said six times is one word: 生日 still counts, so the entry that holds
+  // only 上海 is the closest, not a full match.
+  const hits = await tool('recall', { query: '上海 上海 上海 上海 上海 上海 生日' }, 'b2')
+  assert.match(hits, /No entry has all of "上海 上海 上海 上海 上海 上海 生日"/)
+  assert.match(hits, /周末上海出差安排住外滩的酒店/)
+  assert.match(hits, /女友小李的生日是 10 月 22 日/)
+})
+
 test('a mixed word keeps its Latin part in recall', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())

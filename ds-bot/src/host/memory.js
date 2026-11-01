@@ -1224,12 +1224,13 @@ export function install(rt) {
           ].join('\n')
         }).join('\n\n')
       }
-      // The cap is on the user's own words, so a long phrase's pairs do not push
-      // its end or later words out. A run of Han characters has no spaces to
-      // split on: the word itself is a term, so an entry holding the whole
-      // phrase outranks one holding only its parts; its character pairs stand
-      // for the words inside it, and a Latin part of a mixed word is a term too.
-      const words = squash(query).split(' ').filter(Boolean).slice(0, QUERY_TERMS_MAX)
+      // The cap is on the user's own words, each counted once, so a long phrase's
+      // pairs do not push its end or later words out. A run of Han characters has
+      // no spaces to split on: the word itself is a term, so an entry holding the
+      // whole phrase outranks one holding only its parts; its character pairs
+      // stand for the words inside it, and a Latin part of a mixed word is a
+      // term too.
+      const words = [...new Set(squash(query).split(' ').filter(Boolean))].slice(0, QUERY_TERMS_MAX)
       const terms = [...new Set(words.flatMap((word) => {
         if (!/[\u4e00-\u9fff]/.test(word)) return [word]
         const parts = new Set(word.match(/[a-z0-9]+/g) ?? [])
