@@ -1,4 +1,4 @@
-// Check a packaged app: process an image with its sharp, then start it on throwaway folders with the ds-bot mock model, choose a model,
+// Check a packaged app: process an image with its sharp, convert a Word document with its LibreOffice engine, then start it on throwaway folders with the ds-bot mock model, choose a model,
 // send a message, wait for the reply, then close the window the way a user does: the window hides
 // and the app goes on. The window comes back when the app is started again, and the app ends the
 // way the tray's Quit ends it. Fails on a page error or a non-zero exit.
@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { crc32 } from 'node:zlib'
 import { hostExecutable } from '../src/host-process.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -88,14 +89,27 @@ function outsideCheckout(file) {
   return join(copy, relative(appDir, file))
 }
 
-function checkSharp(app) {
+// Run a script with the Host's runtime and the app's dependencies as the Host loads them,
+// outside the checkout and not with the CI runner's Node.
+function runInHost(app, what, script, timeout) {
   const resources = process.platform === 'darwin' ? resolve(app, '..', '..', 'Resources') : join(dirname(app), 'resources')
   const linux = process.platform === 'linux'
-  const script = `
+  const prelude = `
     const assert = require('node:assert/strict')
     const { createRequire } = require('node:module')
-    ${linux ? "assert.equal(process.versions.electron, undefined, 'Linux image processing must not run in Electron')" : ''}
+    ${linux ? "assert.equal(process.versions.electron, undefined, 'the Linux Host must not run in Electron')" : ''}
     const appRequire = createRequire(${JSON.stringify(join(resources, linux ? 'app' : 'app.asar', 'package.json'))})
+  `
+  const result = spawnSync(linux ? hostExecutable(resources) : app, ['-e', prelude + script], {
+    cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' },
+    encoding: 'utf8', timeout,
+  })
+  if (result.error || result.status !== 0) throw new Error(`packaged ${what} failed (exit ${String(result.status)}, signal ${String(result.signal)}): ${result.error?.message ?? ''}\n${result.stderr ?? ''}`)
+  console.log(result.stdout.trim())
+}
+
+function checkSharp(app) {
+  runInHost(app, 'sharp', `
     const sharp = appRequire('sharp')
     ;(async () => {
       const image = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#ff0000' } }).png().toBuffer()
@@ -105,14 +119,78 @@ function checkSharp(app) {
       assert.deepEqual([...data], Array.from({ length: 4 }, () => [255, 0, 0]).flat())
       console.log('check-packed: sharp image processing passed (libvips ' + sharp.versions.vips + ')')
     })().catch(error => { console.error(error); process.exitCode = 1 })
-  `
-  // Use the Host's runtime and dependencies outside the checkout, not the CI runner's Node.
-  const result = spawnSync(linux ? hostExecutable(resources) : app, ['-e', script], {
-    cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' },
-    encoding: 'utf8', timeout: 30_000,
+  `, 30_000)
+}
+
+// A zip archive of stored (uncompressed) files.
+function zip(files) {
+  const records = []
+  const directory = []
+  let offset = 0
+  for (const [path, text] of Object.entries(files)) {
+    const name = Buffer.from(path)
+    const data = Buffer.from(text)
+    // The fields that the local header and the directory entry share: zip 2.0, stored, dated 1980-01-01.
+    const shared = Buffer.alloc(26)
+    shared.writeUInt16LE(20, 0)
+    shared.writeUInt16LE(0x21, 8)
+    shared.writeUInt32LE(crc32(data), 10)
+    shared.writeUInt32LE(data.length, 14)
+    shared.writeUInt32LE(data.length, 18)
+    shared.writeUInt16LE(name.length, 22)
+    const local = Buffer.alloc(4)
+    local.writeUInt32LE(0x04034b50)
+    const entry = Buffer.alloc(6)
+    entry.writeUInt32LE(0x02014b50)
+    entry.writeUInt16LE(20, 4)
+    const entryEnd = Buffer.alloc(14)
+    entryEnd.writeUInt32LE(offset, 10)
+    records.push(local, shared, name, data)
+    directory.push(entry, shared, entryEnd, name)
+    offset += local.length + shared.length + name.length + data.length
+  }
+  const listing = Buffer.concat(directory)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50)
+  end.writeUInt16LE(Object.keys(files).length, 8)
+  end.writeUInt16LE(Object.keys(files).length, 10)
+  end.writeUInt32LE(listing.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...records, listing, end])
+}
+
+function wordDocument(text) {
+  return zip({
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`,
   })
-  if (result.error || result.status !== 0) throw new Error(`packaged sharp failed (exit ${String(result.status)}, signal ${String(result.signal)}): ${result.error?.message ?? ''}\n${result.stderr ?? ''}`)
-  console.log(result.stdout.trim())
+}
+
+// File previews convert Office files with the LibreOffice engine, a program that the kit
+// resolves and starts. From inside the asar it cannot start, and every preview fails (#679).
+function checkOffice(app) {
+  const folder = join(work, 'office')
+  mkdirSync(folder)
+  const input = join(folder, 'check.docx')
+  const output = join(folder, 'check.pdf')
+  writeFileSync(input, wordDocument('packaged app check'))
+  runInHost(app, 'Office conversion', `
+    const { readFileSync } = require('node:fs')
+    const { pathToFileURL } = require('node:url')
+    ;(async () => {
+      const kit = await import(pathToFileURL(appRequire.resolve('@deepseek-ai/libreoffice-kit')).href)
+      const { backend } = await kit.discoverRuntime()
+      const converter = await kit.createConverter({ fontMetadataCacheDirectory: ${JSON.stringify(join(folder, 'fonts'))} })
+      try {
+        await converter.render({ inputPath: ${JSON.stringify(input)}, outputPath: ${JSON.stringify(output)} })
+      } finally {
+        await converter.dispose()
+      }
+      assert.equal(readFileSync(${JSON.stringify(output)}).subarray(0, 5).toString('latin1'), '%PDF-')
+      console.log('check-packed: Office conversion passed (' + backend + ' engine)')
+    })().catch(error => { console.error(error); process.exitCode = 1 })
+  `, 180_000)
 }
 
 function startMock() {
@@ -317,6 +395,7 @@ const problems = []
 try {
   const packedApp = outsideCheckout(resolve(executable))
   checkSharp(packedApp)
+  checkOffice(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
   const mainPort = await freePort()
