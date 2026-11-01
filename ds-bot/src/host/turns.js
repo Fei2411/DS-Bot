@@ -556,13 +556,15 @@ export function install(rt) {
         } else if (source?.kind === REFERENCE_KIND && rt.roomOf(id)) {
           attachReference(roomInbox.get(id), source, textOf(event.data.content))
         } else if (source?.kind === 'subagent-settled') {
-          // A settled sub-work's notice: the work it hung under goes on once a turn
-          // reads it, like a reply that came back. One read while a turn does other
-          // work comes back in a turn of its own, like any handed-back result.
-          const parent = rt.subWorkParent?.(source.senderSessionId)
-          if (parent !== undefined) {
-            rt.takenWork?.(parent, source.senderSessionId)
-            const info = { kind: SOURCE_KIND, role: 'reply', work: parent, replyTo: source.senderSessionId, exchangeId: source.senderSessionId, senderSessionId: source.senderSessionId }
+          // A settled sub-run's notice: the work it hung under goes on once a turn
+          // reads it, like a reply that came back. The notice names only the child;
+          // its run is the earliest of the child's not read yet. One read while a
+          // turn does other work comes back in a turn of its own, like any
+          // handed-back result.
+          const run = rt.subWorkRun?.(source.senderSessionId)
+          if (run !== undefined) {
+            rt.takenWork?.(run.parent, run.id)
+            const info = { kind: SOURCE_KIND, role: 'reply', work: run.parent, replyTo: run.id, exchangeId: run.id, senderSessionId: source.senderSessionId }
             if (entry.turn === undefined) entry.pending = info
             else if (entry.info === undefined && !opened) {
               // DSH opens the turn before it records the message that filled its
@@ -571,7 +573,7 @@ export function install(rt) {
               entry.opened = true
               entry.answers = true
               claimTrigger(id, entry, info)
-            } else if (rt.workOf?.(entry.info) !== parent) entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+            } else if (rt.workOf?.(entry.info) !== run.parent) entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
           }
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
           if (rt.roomOf(id) && source.kind === 'user') {
@@ -762,9 +764,11 @@ export function install(rt) {
     }
   })
 
-  // A subagent a Bot's turn delegates to is work handed on, like message_bot: the
-  // child hangs under the work the turn answers until its settlement notice comes
-  // back, and its closing message joins that work's results. These are Cordis
+  // A subagent a Bot's turn delegates to is work handed on, like message_bot: each
+  // run of the child hangs under the work the turn answers until its settlement
+  // notice comes back, and its closing message joins that work's results. A child
+  // can be sent more to do once it settled, and that is a fresh run on the same
+  // child id, so the run — not the child — is the sub-work. These are Cordis
   // events, not Session events: the dispatch keys `this` by the delegating parent
   // Agent, which `carrierKeyOf` hands back.
   ctx.on('subagent/start', function (info) {
@@ -772,13 +776,14 @@ export function install(rt) {
     const entry = id === undefined ? undefined : live.get(id)
     const work = rt.workOf?.(entry?.info)
     const self = id === undefined ? undefined : rt.selfOf(id)
-    if (work === undefined || self === undefined || !rt.chatOwners.has(id) || typeof info?.id !== 'string' || !rt.ownsWork?.(self, work)) return
-    rt.openWork?.(info.id, { from: self, parent: work, name: 'subagent' })
+    if (work === undefined || self === undefined || !rt.chatOwners.has(id) || typeof info?.id !== 'string' || typeof info?.runId !== 'string' || !rt.ownsWork?.(self, work)) return
+    rt.openWork?.(info.runId, { from: self, parent: work, name: 'subagent', child: info.id })
   })
-  // A settled child closes its sub-work: its closing text joins the results of
+  // A settled run closes its sub-work: its closing text joins the results of
   // the work it hung under.
   ctx.on('subagent/end', (info) => {
-    if (typeof info?.id === 'string') rt.settleSubWork?.(info.id, subEndText(info))
+    if (typeof info?.id !== 'string') return
+    rt.settleSubWork?.(typeof info.runId === 'string' ? info.runId : info.id, subEndText(info), info.id)
   })
   ctx.on('tools/result', (exec, result) => {
     if (!SUBAGENT_TOOLS.has(exec?.name) || result?.isError || typeof result?.value?.subagentId !== 'string') return

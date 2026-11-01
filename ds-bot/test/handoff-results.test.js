@@ -402,7 +402,7 @@ test('a subagent a Bot delegated to hands its result into the work the turn answ
   assert.equal(callsOf(agents, 'a').length, 0)
   const works = await worksIn(first)
   const [work] = Object.values(works).filter(entry => entry.to === 'b')
-  assert.deepEqual(work.open, ['sub1'])
+  assert.deepEqual(work.open, ['r1'])
   // The child settles; its closing message is the sub-work's result. DSH opens
   // the turn first, then records the notice that filled its inbox.
   emitScoped('b', 'subagent/end', { runId: 'r1', provider: 'spawn', id: 'sub1', local: true, stopReason: 'completed', lastAssistantMessage: textBlock('reviewed: three findings') })
@@ -481,8 +481,8 @@ test('parallel delegations get each call\'s own description for its child', asyn
   emit('b', 'tool/result', { callId: 'call2', message: { callId: 'call2', content: textBlock('started subagent sub2'), isError: false } })
   turns.end('b', 'subagents are on it')
   const works = await worksIn(first)
-  assert.equal(works.sub1.name, 'subagent deep review')
-  assert.equal(Object.values(works).find(work => work.to === 'b').results.find(result => result.id === 'sub2').name, 'subagent draft summary')
+  assert.equal(Object.values(works).find(work => work.child === 'sub1').name, 'subagent deep review')
+  assert.equal(Object.values(works).find(work => work.to === 'b').results.find(result => result.child === 'sub2').name, 'subagent draft summary')
   emit('b', 'turn/start', { turn: 2 })
   emit('b', 'user/message', { content: textBlock('Background subagent sub2 finished.\nIts closing message:\na summary'), source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub2 finished.', senderSessionId: 'sub2' } })
   emit('b', 'assistant/message', assistantText('summary back, review still out'))
@@ -498,4 +498,44 @@ test('parallel delegations get each call\'s own description for its child', asyn
   const answer = textOf(callsOf(agents, 'a')[0][1].content)
   assert.ok(answer.includes('subagent draft summary:\na summary'), `first child's own name: ${answer}`)
   assert.ok(answer.includes('subagent deep review:\nthree findings'), `second child's own name: ${answer}`)
+})
+
+// A child that finished can be sent more to do: DSH starts a fresh run on the
+// same child id, with a new runId. Each run's result is its own, so the first
+// one's is not lost to the second's.
+test('a continued subagent hands up each run\'s own result', async (t) => {
+  const { start } = bench(t)
+  const first = await start(seed())
+  const { agents, emit, emitScoped, tool } = first
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'carry out the plan' }, 'a')
+  turns.end('a', 'asked Writer')
+  turns.take('b')
+  emit('b', 'tool/call', { callId: 'call1', name: 'subagent', arguments: JSON.stringify({ description: 'checks', prompt: 'check the plan' }) })
+  emitScoped('b', 'subagent/start', { runId: 'r1', provider: 'spawn', id: 'sub1', local: true })
+  emitScoped('b', 'tools/result', { callId: 'call1', name: 'subagent', arguments: { description: 'checks', prompt: 'check the plan' }, agent: agents.get('b') }, { isError: false, value: { kind: 'activation', subagentId: 'sub1' } })
+  emit('b', 'tool/result', { callId: 'call1', message: { callId: 'call1', content: textBlock('started subagent sub1'), isError: false } })
+  turns.end('b', 'subagent is on it')
+  // The first run settles and the Bot reads its notice, then sends the same
+  // child more work: DSH opens a second run on the same child id.
+  emitScoped('b', 'subagent/end', { runId: 'r1', provider: 'spawn', id: 'sub1', local: true, stopReason: 'completed', lastAssistantMessage: textBlock('COST: 42') })
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: textBlock('Background subagent sub1 finished.\nIts closing message:\nCOST: 42'), source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub1 finished.', senderSessionId: 'sub1' } })
+  emitScoped('b', 'subagent/start', { runId: 'r2', provider: 'spawn', id: 'sub1', local: true })
+  emit('b', 'assistant/message', assistantText('sent it the schedule too'))
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  // The answer still waits while the second run is out.
+  await delay(50)
+  assert.equal(callsOf(agents, 'a').length, 0)
+  emitScoped('b', 'subagent/end', { runId: 'r2', provider: 'spawn', id: 'sub1', local: true, stopReason: 'completed', lastAssistantMessage: textBlock('SCHEDULE: Monday') })
+  emit('b', 'turn/start', { turn: 3 })
+  emit('b', 'user/message', { content: textBlock('Background subagent sub1 finished.\nIts closing message:\nSCHEDULE: Monday'), source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub1 finished.', senderSessionId: 'sub1' } })
+  emit('b', 'assistant/message', assistantText('all back'))
+  emit('b', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await settled(() => callsOf(agents, 'a').length === 1)
+  const answer = textOf(callsOf(agents, 'a')[0][1].content)
+  assert.ok(answer.includes('COST: 42'), `the first run's result goes up: ${answer}`)
+  assert.ok(answer.includes('SCHEDULE: Monday'), `the second run's result goes up: ${answer}`)
+  assert.ok(answer.indexOf('COST: 42') < answer.indexOf('SCHEDULE: Monday'), `in run order: ${answer}`)
 })
