@@ -75,6 +75,8 @@ const find = (node, match) => {
   return match(node) ? node : find(node.props.children, match)
 }
 const count = (haystack, needle) => haystack.split(needle).length - 1
+// A cell that draws nothing leaves its empty mark (cells.js CellEmpty).
+const emptied = node => find(expand(node), each => each.props?.['data-bt-empty'] === true) !== undefined
 
 const writer = { id: 'writer', name: 'Writer', color: 'blue' }
 const chief = { id: 'chief', name: 'Chief', color: 'green' }
@@ -291,10 +293,43 @@ test('each sub-call shows its own state, not its program\'s', () => {
 })
 
 test('a program with no known sub-call draws nothing, as before', () => {
-  assert.equal(ToolCell(props(program([]))), null)
-  assert.equal(ToolCell(props(program([call('bash', 'program:ptc:1'), call('read_file', 'program:ptc:2')]))), null)
-  assert.equal(ToolCell(props(call('bash', 'direct'))), null)
+  assert.ok(emptied(ToolCell(props(program([])))))
+  assert.ok(emptied(ToolCell(props(program([call('bash', 'program:ptc:1'), call('read_file', 'program:ptc:2')])))))
+  assert.ok(emptied(ToolCell(props(call('bash', 'direct')))))
   effects = []
+})
+
+test('every call that draws nothing leaves only the empty mark, so its seat can hide', () => {
+  const roster = team({
+    questions: { chief: question('q-call') },
+    secretRequests: { chief: [request('s-call')] },
+    views: { chief: { id: 'view-1', callId: 'v-call', title: 'Card', view: { type: 'metric', label: 'Done', value: '3' } } },
+  })
+  const held = {
+    chief: {
+      [JSON.stringify(['question', 'question'])]: 1,
+      [JSON.stringify(['secret', 'request'])]: 1,
+      [JSON.stringify(['view', 'view-1'])]: 1,
+    },
+  }
+  const onlyMarks = (node) => {
+    const elements = findAll(expand(node), each => typeof each.type === 'string' && each.type !== 'fragment')
+    return elements.length > 0 && elements.every(each => each.props?.['data-bt-empty'] === true && each.props.hidden === true)
+  }
+  // A card the user is holding in the dock, an unfinished call, a name that
+  // resolves to nobody, an answerless reply: each marks itself, at any depth.
+  for (const root of [
+    call('ask_user', 'q-call'),
+    call('show_view', 'v-call'),
+    call('request_secret', 's-call', { args: { name: 'DEMO_TOKEN' } }),
+    call('browser_handoff', 'h-call'),
+    call('create_bot', 'c-call', { args: { name: 'Nobody' } }),
+    call('ask_user_question', 'aq-call', { args: { questions: [{ question: 'Ship it?' }] }, running: true }),
+    call('remember', 'm-call', { running: true }),
+  ]) {
+    assert.ok(onlyMarks(ToolCell(props(root, { roster, held }))), `${root.name} leaves only marks`)
+    effects = []
+  }
 })
 
 test('a hidden Bot-to-Bot turn draws none of its sub-calls', () => {
@@ -693,7 +728,7 @@ test('a goal round draws nothing, while another unknown trigger keeps its event 
     useUi: select => select({ visits: {} }),
     actions: {},
   }))
-  assert.equal(trigger({ kind: 'goal', goalId: 'goal-1', revision: 1, round: 1 }), null)
+  assert.ok(emptied(trigger({ kind: 'goal', goalId: 'goal-1', revision: 1, round: 1 })))
   assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
 })
 
