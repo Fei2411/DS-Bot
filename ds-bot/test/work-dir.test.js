@@ -94,6 +94,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
         cwds.set(sessionId, options.cwd ?? registry.get(options.workspaceId)?.path)
         return { sessionId }
       },
+      prompt: async () => { if (ctx.__promptError !== undefined) throw ctx.__promptError; return { accepted: true } },
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
@@ -619,6 +620,137 @@ test('the user moves the team workspace, and Bots without a folder of their own 
   assert.deepEqual(created.at(-1), { workspaceId: 'w-new' })
   // A Bot with a folder of its own stays where it works.
   assert.equal(state().bots.a.workDir, project)
+})
+
+// #424: DSH's prompt admission wraps any unexpected failure as 'session/agent-busy'
+// with the cause in details.reason. For a Session this team owns the reason reaches
+// the user and the diagnostics log — on the same error, so the gateway still sees a
+// RemoteError and passes its code and details on instead of 'gateway/internal'.
+test('a prompt rejected with a hidden reason shows the reason and logs it', async (t) => {
+  const { ctx, call, stop } = await start()
+  t.after(stop)
+  ctx.__promptError = Object.assign(new Error('prompt rejected'), {
+    code: 'session/agent-busy',
+    isDSHRemoteError: true,
+    details: { reason: 'Error: Could not load the "sharp" module', rest: 1 },
+  })
+  const failure = await ctx.sessionController.prompt({ sessionId: 'r1', content: [] }).then(() => undefined, error => error)
+  assert.equal(failure, ctx.__promptError)
+  assert.match(failure.message, /prompt rejected — Error: Could not load the "sharp" module/)
+  assert.equal(failure.code, 'session/agent-busy')
+  assert.deepEqual(failure.details, { reason: 'Error: Could not load the "sharp" module', rest: 1 })
+  const log = (await call('diagnostics-log', {})).value
+  assert.match(log, /sharp/)
+})
+
+// #424: the hidden reason can name a local path or carry a token; what reaches the
+// user is cleaned like the diagnostics, not the raw reason.
+test('a rejected prompt reason reaches the user cleaned of paths and tokens', async (t) => {
+  const { ctx, call, stop } = await start()
+  t.after(stop)
+  ctx.__promptError = Object.assign(new Error('prompt rejected'), {
+    code: 'session/attachment-invalid',
+    isDSHRemoteError: true,
+    details: { reason: `Cannot read ${join(homedir(), 'key.pem')} or https://hook.example/in?token=t0ken123` },
+  })
+  const failure = await ctx.sessionController.prompt({ sessionId: 'r1', content: [] }).then(() => undefined, error => error)
+  assert.equal(failure.code, 'session/attachment-invalid')
+  assert.ok(!failure.message.includes('t0ken123'), failure.message)
+  assert.ok(!failure.message.includes(homedir()), failure.message)
+  assert.match(failure.message, /token=\[hidden\]/)
+  assert.equal(failure.details.reason, `Cannot read ~${join(homedir(), 'key.pem').slice(homedir().length)} or https://hook.example/in?token=[hidden]`)
+  const log = (await call('diagnostics-log', {})).value
+  assert.ok(!log.includes('t0ken123'), log)
+})
+
+// #710: the group's own Session only relays and has no fresh part to move to; it
+// follows the team workspace in place, so a moved and deleted workspace no longer
+// fails every round.
+test("a group chat's own Session follows the team workspace it was made in", async (t) => {
+  const { sets, service } = folderService()
+  const { ctx, root, call, agentOf, team, stop } = await start({ services: { workingDirectory: service } })
+  t.after(stop)
+  const moved = join(root, 'moved')
+  assert.deepEqual((await call('team-workspace', { path: moved })).value, { team: moved })
+  rmSync(team, { recursive: true, force: true })
+  assert.equal(await assemble(ctx, agentOf('r1')), true)
+  assert.deepEqual(sets, [['r1', moved]])
+  // Already in the current team workspace: nothing changes.
+  assert.equal(await assemble(ctx, agentOf('r1')), true)
+  assert.deepEqual(sets, [['r1', moved]])
+})
+
+// #710: the group's own Session sits in the team workspace; when that folder itself is
+// deleted it is made again, as for any other Session.
+test("a group chat's own Session makes a deleted team workspace again", async (t) => {
+  const { sets, service } = folderService()
+  const { ctx, agentOf, team, stop } = await start({ services: { workingDirectory: service } })
+  t.after(stop)
+  rmSync(team, { recursive: true, force: true })
+  assert.equal(await assemble(ctx, agentOf('r1')), true)
+  assert.equal(existsSync(team), true)
+  assert.deepEqual(sets, [])
+})
+
+// #710: a member whose group's folder went away works on in the team workspace, and
+// the group is told once, not on every round.
+test('a group whose folder is gone works on in the team workspace and is told once', async (t) => {
+  const { sets, service } = folderService()
+  const { ctx, call, agentOf, team, project, state, stop } = await start({ services: { workingDirectory: service } })
+  t.after(stop)
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  agentOf('gb').session.header.cwd = project
+  rmSync(project, { recursive: true, force: true })
+  assert.equal(await assemble(ctx, agentOf('gb')), true)
+  assert.deepEqual(sets, [['gb', team]])
+  const notice = () => (state().rooms.r1.log ?? []).filter(line => line.kind === 'notice' && line.reason === 'folder')
+  assert.equal(notice().length, 1)
+  assert.equal(notice()[0].path, project)
+  assert.equal(await assemble(ctx, agentOf('gb')), true)
+  assert.equal(notice().length, 1)
+  // Clearing or setting the folder clears the mark.
+  assert.equal((await call('update-room', { id: 'r1', workDir: '' })).ok, true)
+  assert.equal(state().rooms.r1.folderNotice, undefined)
+})
+
+// #710: a member still in the team workspace when the group's folder went away needs
+// no correction, but the group is still told once.
+test("a member that never reached the group's folder still brings the one-time notice", async (t) => {
+  const { sets, service } = folderService()
+  const { ctx, call, agentOf, project, state, stop } = await start({ services: { workingDirectory: service } })
+  t.after(stop)
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  rmSync(project, { recursive: true, force: true })
+  // 'gb' was made in the team workspace and never moved to the group's folder.
+  assert.equal(await assemble(ctx, agentOf('gb')), true)
+  assert.deepEqual(sets, [])
+  const notice = () => (state().rooms.r1.log ?? []).filter(line => line.kind === 'notice' && line.reason === 'folder')
+  assert.equal(notice().length, 1)
+  assert.equal(notice()[0].path, project)
+  assert.equal(await assemble(ctx, agentOf('gb')), true)
+  assert.equal(notice().length, 1)
+})
+
+// #710: a Session made for a folder that is registered as a workspace joins it, so it
+// does not stay ungrouped.
+test('a Bot whose working folder is a registered workspace joins it', async (t) => {
+  const { ctx, call, project, state, created, stop } = await start()
+  t.after(stop)
+  await ctx.workspaceRegistry.create(project)
+  assert.equal((await call('update-bot', { id: 'b', workDir: project })).ok, true)
+  await until(() => state().bots.b.sessionId === 's1')
+  assert.deepEqual(created.at(-1), { workspaceId: 'w-new' })
+})
+
+// #710: a notice past the limit is refused, not silently cut.
+test('a group notice past the limit is refused, not cut', async (t) => {
+  const { call, tool, state, stop } = await start()
+  t.after(stop)
+  const long = 'x'.repeat(2001)
+  assert.match((await call('update-room', { id: 'r1', notice: long })).error?.message, /at most 2000 characters/)
+  assert.match(await tool('update_group', { group: 'r1', notice: long }, 'a'), /at most 2000 characters/)
+  assert.match(await tool('create_group', { members: ['Writer'], notice: long }, 'a'), /at most 2000 characters/)
+  assert.equal(state().rooms.r1.notice ?? '', '')
 })
 
 // The handoff note takes a while; the move waits in `runMaintenance` until the test releases it.

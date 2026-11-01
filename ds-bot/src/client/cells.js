@@ -889,6 +889,9 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
       h('button', { type: 'button', className: 'bt-event-whole', onClick: () => actions.showDetails(sessionId) },
         h(BotMark, { bot, size: 16 }), h('span', { className: 'bt-event-name' }, t(reply.kind === 'working' ? '{name} started on it' : '{name} paused for your approval', { name: bot.name }))))
   }
+  if (reply.kind === 'folder') {
+    return h('div', { className: 'bt-event' }, reply.text)
+  }
   if (reply.kind === 'stopped') {
     return h('div', { className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
   }
