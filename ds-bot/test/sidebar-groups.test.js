@@ -45,19 +45,55 @@ const named = (node, name) => node.type?.name === name
 // deeper components (BotRow, avatars) must survive as element nodes.
 const unwrapRoom = node => node.type(node.props)
 
-function sidebar({ activeId = null, roster }) {
+// Read text from a row by running the components it renders, as the sidebar-switch
+// tests do: a row's own preview sits in the button, member rows below have their own.
+const expand = (node) => {
+  if (Array.isArray(node)) return node.map(expand)
+  if (!node || typeof node !== 'object') return node
+  if (typeof node.type === 'function') return expand(node.type(node.props))
+  return { ...node, props: { ...node.props, children: expand(node.props.children) } }
+}
+const textOf = (node) => {
+  if (node === null || node === undefined || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  return textOf(node.props?.children)
+}
+const textIn = (node, className) => {
+  const found = []
+  walk(expand(node), inner => { if (inner.props?.className === className) found.push(textOf(inner)) })
+  return found.join('|')
+}
+const ariaLabel = (node) => {
+  let label = ''
+  walk(expand(node), inner => { if (inner.type === 'button' && label === '') label = inner.props?.['aria-label'] ?? '' })
+  return label
+}
+
+function sidebar({ activeId = null, roster, statuses = {}, activity = {}, work = { waiting: {}, rooms: {}, approvals: [] } }) {
   const calls = []
   const actions = Object.fromEntries(['openSession', 'openAgent', 'openAgentSession', 'newAgentSession'].map(name => [name, id => { calls.push([name, id]); return id }]))
   for (const name of ['openMenu', 'openPalette', 'openNewChat', 'toggleSidebar', 'clearUnread', 'landOn']) actions[name] = () => {}
-  const statusMap = new Map()
+  const statusMap = new Map(Object.entries(statuses))
   const retain = (id, pick) => pick(id === activeId ? { retainedBy: { mainView: 1 } } : null)
   const tree = TeamSidebar({
     wide: true, actions,
     useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
     useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
     useSessionStatus: pick => pick(statusMap), useSessionRetainInfo: retain,
-    useActivity: pick => pick({}), useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
+    useActivity: pick => pick(activity), useWork: pick => pick(work),
   })
+  const rowOf = (roomId) => {
+    let row = null
+    walk(tree, (node) => { if (named(node, 'RoomRow') && node.props.room.id === roomId) row = node })
+    return row
+  }
+  const buttonOf = (roomId) => unwrapRoom(rowOf(roomId)).props.children[0]
+  const memberRowOf = (roomId, botId) => {
+    let row = null
+    walk(unwrapRoom(rowOf(roomId)), (inner) => { if (named(inner, 'BotRow') && inner.props.bot.id === botId) row = inner })
+    return row
+  }
   return {
     calls,
     // The top of the list, as row ids: bots by id, rooms by "room:<id>". Rows are
@@ -76,22 +112,17 @@ function sidebar({ activeId = null, roster }) {
     // The member BotRows an open group row carries.
     membersOf: (roomId) => {
       const found = []
-      walk(tree, (node) => {
-        if (!named(node, 'RoomRow') || node.props.room.id !== roomId) return
-        walk(unwrapRoom(node), inner => {
-          if (named(inner, 'BotRow')) found.push(inner.props.bot.id)
-        })
+      walk(unwrapRoom(rowOf(roomId)), inner => {
+        if (named(inner, 'BotRow')) found.push(inner.props.bot.id)
       })
       return found
     },
-    memberRow: (roomId, botId) => {
-      let row = null
-      walk(tree, (node) => {
-        if (!named(node, 'RoomRow') || node.props.room.id !== roomId) return
-        walk(unwrapRoom(node), inner => { if (named(inner, 'BotRow') && inner.props.bot.id === botId) row = inner })
-      })
-      return row
-    },
+    memberRow: (roomId, botId) => memberRowOf(roomId, botId),
+    // A group row's own preview, read from its button — never from a member row.
+    roomPreview: (roomId) => textIn(buttonOf(roomId), 'bt-row-preview'),
+    roomLabel: (roomId) => ariaLabel(buttonOf(roomId)),
+    memberPreview: (roomId, botId) => textIn(memberRowOf(roomId, botId), 'bt-row-preview'),
+    memberLabel: (roomId, botId) => ariaLabel(memberRowOf(roomId, botId)),
   }
 }
 
@@ -175,4 +206,68 @@ test('a member who is gone from the roster is not listed, and a stale membership
   const side = sidebar({ activeId: 'room', roster: rosterWith([{ id: 'room', name: 'Team', members: ['writer', 'gone'], createdAt: 2 }], [writerBot]) })
   assert.deepEqual(side.membersOf('room'), ['writer'])
   assert.deepEqual(side.top(), ['room:room'])
+})
+
+test('a folded group says how many Bots it holds', () => {
+  const side = sidebar({ roster: rosterWith([{ id: 'room', name: 'Team', members: ['writer', 'painter'], createdAt: 2 }]) })
+  assert.equal(side.roomPreview('room'), '2 members')
+})
+
+test('a folded group keeps the count beside its last message', () => {
+  const side = sidebar({ roster: rosterWith([{ id: 'room', name: 'Team', members: ['writer', 'painter'], preview: '  On   it ', createdAt: 2 }]) })
+  assert.equal(side.roomPreview('room'), '2 members · On it')
+})
+
+test('an open group leaves the member list to name its members', () => {
+  const side = sidebar({ activeId: 'room', roster: rosterWith([{ id: 'room', name: 'Team', members: ['writer', 'painter'], preview: 'On it', createdAt: 2 }]) })
+  assert.equal(side.roomPreview('room'), 'On it')
+})
+
+test('a member row follows its own chat, not work in another group', () => {
+  const rooms = [
+    { id: 'room', name: 'Team', members: ['writer'], createdAt: 2 },
+    { id: 'room2', name: 'Ops', members: ['writer'], createdAt: 3 },
+  ]
+  const side = sidebar({
+    activeId: 'room',
+    roster: rosterWith(rooms),
+    work: { waiting: {}, approvals: [], rooms: { room2: [{ botId: 'writer', tool: 'grep' }] } },
+  })
+  // Writer works in Ops: the Ops row names it, and the member row under Team stays
+  // quiet instead of claiming the Bot runs here.
+  assert.match(side.roomPreview('room2'), /^Writer · /)
+  assert.equal(side.memberPreview('room', 'writer'), '')
+  assert.doesNotMatch(side.memberLabel('room', 'writer'), /Working/)
+})
+
+test('a member row still shows the Bot working in its own chat', () => {
+  const side = sidebar({
+    activeId: 'room',
+    roster: rosterWith([{ id: 'room', name: 'Team', members: ['writer'], createdAt: 2 }]),
+    statuses: { writer: { running: true } },
+    activity: { writer: 'working' },
+  })
+  assert.match(side.memberPreview('room', 'writer'), /^.+…$/)
+  assert.match(side.memberLabel('room', 'writer'), /Working/)
+})
+
+test('a group approval stays on its group row, while the own chat approval shows on the member row', () => {
+  const rooms = [
+    { id: 'room', name: 'Team', members: ['writer'], createdAt: 2 },
+    { id: 'room2', name: 'Ops', members: ['writer'], createdAt: 3 },
+  ]
+  const inGroup = sidebar({
+    activeId: 'room',
+    roster: rosterWith(rooms),
+    work: { waiting: {}, rooms: {}, approvals: [{ botId: 'writer', roomId: 'room2', tool: 'shell', reason: 'x' }] },
+  })
+  assert.match(inGroup.roomLabel('room2'), /Waiting for your approval/)
+  assert.doesNotMatch(inGroup.memberLabel('room', 'writer'), /Waiting for your approval/)
+
+  const ownChat = sidebar({
+    activeId: 'room',
+    roster: rosterWith(rooms),
+    work: { waiting: {}, rooms: {}, approvals: [{ botId: 'writer', tool: 'shell', reason: 'x' }] },
+  })
+  assert.match(ownChat.memberLabel('room', 'writer'), /Waiting for your approval/)
 })

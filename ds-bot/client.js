@@ -9221,7 +9221,7 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, own }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
@@ -9231,10 +9231,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   useMarkedUnread(id, active, marked, actions);
   const main = isMainOf(roster, id);
   const tile = roster.mainBotId === id;
-  const approval = useApproval(useWork, (entry) => entry.botId === id);
+  const approval = useApproval(useWork, own ? (entry) => entry.botId === id && entry.roomId === void 0 : (entry) => entry.botId === id);
   const alert = roster.questions?.[part] !== void 0 || approval;
   const doing = useActivity((map) => map[id]);
-  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
+  const groups = workKeys(useGroupWork(useWork, (rooms) => own ? [] : Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
   const runningLine = running && doing ? doingLine(doing) : null;
@@ -9304,7 +9304,9 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
   const markedUnread = useUi((value) => value.unread);
   if (room2.hidden && !active) return null;
   const shown = active && wide ? (room2.members ?? []).map((member) => roster.byId[member]).filter((bot) => bot && bot.id !== roster.mainBotId && bot.pinned !== true) : [];
-  const label = [room2.name, room2.pinned === true ? t("Pinned") : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
+  const memberCount = (room2.members ?? []).length;
+  const foldedHint = !active && memberCount > 0 ? t("{count} members", { count: memberCount }) : "";
+  const label = [room2.name, room2.pinned === true ? t("Pinned") : "", memberCount > 0 ? t("{count} members", { count: memberCount }) : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
   return (0, import_react18.createElement)(
     "div",
     { className: "bt-room" },
@@ -9330,7 +9332,7 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
         "span",
         { className: "bt-row-body" },
         (0, import_react18.createElement)("span", { className: "bt-row-name" }, (0, import_react18.createElement)("span", { className: "bt-row-title" }, room2.name), room2.pinned === true ? (0, import_react18.createElement)(PinMark) : null),
-        workingLine ? (0, import_react18.createElement)("span", { className: "bt-row-preview" }, workingLine) : preview ? (0, import_react18.createElement)("span", { className: "bt-row-preview" }, preview) : null
+        workingLine ? (0, import_react18.createElement)("span", { className: "bt-row-preview" }, workingLine) : foldedHint ? (0, import_react18.createElement)("span", { className: "bt-row-preview" }, preview ? `${foldedHint} · ${preview}` : foldedHint) : preview ? (0, import_react18.createElement)("span", { className: "bt-row-preview" }, preview) : null
       ) : null,
       wide && approval && !active ? (0, import_react18.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react18.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (approval || unread) ? (0, import_react18.createElement)("span", { className: `bt-dot${approval ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
     ),
@@ -9340,7 +9342,7 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
       (0, import_react18.createElement)(
         "div",
         { className: "bt-agent-sub-in" },
-        shown.map((bot) => (0, import_react18.createElement)(BotRow, { key: bot.id, bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide: true, marked: markedUnread[bot.id] === true }))
+        shown.map((bot) => (0, import_react18.createElement)(BotRow, { key: bot.id, bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide: true, own: true, marked: markedUnread[bot.id] === true }))
       )
     )
   );

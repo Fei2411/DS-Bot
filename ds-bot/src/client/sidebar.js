@@ -55,7 +55,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, own }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -65,11 +65,16 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const approval = useApproval(useWork, entry => entry.botId === id)
+  // A group's member row stands for the Bot's own chat: what is said or waits there
+  // shows on it, while work in a group stays on the group's row. A pending approval
+  // carries the room it belongs to; only its own chat's approval has none.
+  const approval = useApproval(useWork, own
+    ? entry => entry.botId === id && entry.roomId === undefined
+    : entry => entry.botId === id)
   const alert = roster.questions?.[part] !== undefined || approval
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
-  const groups = workKeys(useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
+  const groups = workKeys(useGroupWork(useWork, rooms => own ? [] : Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
   const away = !running && groups.length > 0
   const state = botState(running || away, doing, alert)
   // A Bot running in its own chat previews what it is doing, like a group's row.
@@ -127,7 +132,10 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   const shown = active && wide
     ? (room.members ?? []).map(member => roster.byId[member]).filter(bot => bot && bot.id !== roster.mainBotId && bot.pinned !== true)
     : []
-  const label = [room.name, room.pinned === true ? t('Pinned') : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
+  // Folded, the row is all a group shows, so it says how many Bots live inside.
+  const memberCount = (room.members ?? []).length
+  const foldedHint = !active && memberCount > 0 ? t('{count} members', { count: memberCount }) : ''
+  const label = [room.name, room.pinned === true ? t('Pinned') : '', memberCount > 0 ? t('{count} members', { count: memberCount }) : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
   return h('div', { className: 'bt-room' },
     h('button', {
       type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
@@ -138,13 +146,15 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
     room.pinned === true && !wide ? h(PinMark) : null,
     wide ? h('span', { className: 'bt-row-body' },
       h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), room.pinned === true ? h(PinMark) : null),
-      workingLine ? h('span', { className: 'bt-row-preview' }, workingLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
+      workingLine ? h('span', { className: 'bt-row-preview' }, workingLine)
+        : foldedHint ? h('span', { className: 'bt-row-preview' }, preview ? `${foldedHint} · ${preview}` : foldedHint)
+          : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
     wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
       : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
         : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
     h('div', { className: 'bt-agent-sub', 'data-open': shown.length > 0 || undefined },
       h('div', { className: 'bt-agent-sub-in' },
-        shown.map(bot => h(BotRow, { key: bot.id, bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide: true, marked: markedUnread[bot.id] === true })))))
+        shown.map(bot => h(BotRow, { key: bot.id, bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide: true, own: true, marked: markedUnread[bot.id] === true })))))
 }
 
 // One expanded DSH Agent Session row: title, relative stamp, rename field, and a
