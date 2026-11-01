@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -125,6 +125,20 @@ const totals = (view) => {
   return sums
 }
 
+// Sessions whose owner the ledger holds; none until the ledger has its table.
+async function journaledSessions(home) {
+  const path = join(home, 'usage.sqlite')
+  if (!existsSync(path)) return []
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(path)
+  try {
+    if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'owners'").all().length === 0) return []
+    return db.prepare('SELECT session FROM owners').all().map(row => row.session)
+  } finally {
+    db.close()
+  }
+}
+
 async function drain(stream) {
   const chunks = []
   for await (const chunk of stream) chunks.push(chunk)
@@ -181,8 +195,12 @@ test('a plain chat journals its owner before the first scan, so a deleted Bot ke
   // through, but the Session's owner lands in the ledger on its own.
   const passed = (async function* () { yield { type: 'text', text: 'hi' } })()
   assert.equal(first.meter({ sessionId: 'b2', messages: [] }, () => passed), passed)
-  // The ledger opens behind the meter; give it a moment before the shutdown.
-  await new Promise(resolve => setTimeout(resolve, 300))
+  // The owner is written once the team and the ledger have loaded behind the meter:
+  // wait for its row, not for a fixed time, before the shutdown closes the ledger.
+  for (let tries = 0; !(await journaledSessions(home)).includes('b2'); tries += 1) {
+    assert.ok(tries < 200, 'the owner of b2 was never journaled')
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
   await first.ctx.dispose()
 
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
