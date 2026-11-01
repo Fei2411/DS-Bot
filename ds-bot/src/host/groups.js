@@ -109,6 +109,24 @@ export const mentionsIn = (text, members, references = []) => {
   return { all, found }
 }
 
+// post_to_group resolves "@" on the whole message and stores it on the post. A post
+// past MESSAGE_INLINE_MAX keeps only its first LONG_HEAD characters in `text`, so
+// reading "@" there would miss anyone named further on. Undefined for a user's
+// message, a late reply, or a step line, which were not sent that way.
+// A saved list ignores opener.references. post_to_group posts carry none today; if
+// they gain references, handle them together with this list.
+function mentionsOf(opener, everyone) {
+  const saved = opener?.mentions
+  if (saved === undefined || !Array.isArray(saved.ids)) return undefined
+  const byId = new Map(everyone.map(bot => [bot.id, bot]))
+  const found = []
+  for (const id of saved.ids) {
+    const bot = byId.get(id)
+    if (bot !== undefined && !found.includes(bot)) found.push(bot)
+  }
+  return { all: saved.all === true, found }
+}
+
 // What the user referenced in this round, for a member that has not been shown it yet.
 export const referenceNote = references => (references?.length
   ? `Conversations the user referenced in this round:\n\n${references.map(reference => reference.text).join('\n\n')}`
@@ -855,8 +873,10 @@ export function install(rt) {
       const open = posts.filter(post => post.called !== true)
       const opener = open.findLast(post => !event(post) && !callsNobody(post)) ?? open.findLast(post => !event(post)) ?? open.at(-1) ?? { text: '', quiet: true }
       const references = posts.flatMap(post => post.references ?? [])
-      // A member a Bot's post calls by name works for that Bot.
-      const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
+      // A member a Bot's post calls by name works for that Bot. The saved list is the
+      // whole message; the text may be only its opening.
+      const everyone = room.members.map(rt.botOf).filter(Boolean)
+      const named = opener.botId === undefined ? [] : (mentionsOf(opener, everyone) ?? mentionsIn(opener.text ?? '', everyone)).found
       const { speakers, ordered } = openingCall(room, opener)
       const calledByOpener = speakers.filter(member => named.includes(member))
       const openingBatchKey = opener.botId !== undefined && calledByOpener.length > 0 ? registerBatch(room.id, opener.botId, calledByOpener) : undefined
@@ -1032,7 +1052,7 @@ export function install(rt) {
     if (opener.kickoff) return at(admin ? [admin] : [])
     if (opener.quiet) return at([])
     if (opener.done) return at(members.filter(bot => bot.id === opener.askedBy))
-    const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
+    const { all, found: named } = mentionsOf(opener, everyone) ?? mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
     if (opener.progress) return at(found)
     if (opener.late) {
@@ -1060,7 +1080,8 @@ export function install(rt) {
     const post = { ...extra, botId: sender.id, name: sender.name, text }
     const { speakers, ordered } = openingCall(room, post)
     if (speakers.length === 0) return false
-    const named = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const named = (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).found
     const by = speakers.filter(peer => named.includes(peer))
     const rest = speakers.filter(peer => !named.includes(peer))
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
