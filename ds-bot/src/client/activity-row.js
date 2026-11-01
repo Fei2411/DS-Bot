@@ -120,7 +120,8 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   // The one switch the row names: a working-folder move jumps the chat to a fresh
   // part while a turn is not running, so without it the conversation just empties.
   const moveAt = useWork?.((work) => {
-    const entry = bot === undefined ? undefined : work.bots?.[bot.id]
+    const entry = bot !== undefined ? work.bots?.[bot.id]
+      : room !== undefined ? work.rooms?.[room.id]?.find(item => item.self === true) : undefined
     return entry?.switching === true && entry.folder === true && entry.roomId === undefined ? entry.since : 0
   }) ?? 0
   const entries = useMemo(() => Object.values(JSON.parse(liveKey)), [liveKey])

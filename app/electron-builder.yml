@@ -1,21 +1,24 @@
-appId: io.github.fei2411.deepseekbot
-productName: DeepSeek Bot
+appId: io.github.fei2411.dsbot
+productName: DS Bot
 copyright: Copyright 2026 Fei2411 and the DS Bot contributors
-artifactName: DeepSeek-Bot-${version}-${os}-${arch}.${ext}
+artifactName: DS-Bot-${version}-${os}-${arch}.${ext}
 directories:
   output: dist-pack
 files:
   - package.json
   - src/**
   - assets/**
-# No asar archive: the app stays plain files. Packages start programs that they ship by paths
-# next to their own files: the Host runs pnpm to install plugins, and file previews run the
-# LibreOffice engine. Electron cannot start a program by a path inside an archive, even when
-# the program itself is unpacked (#679). The Office payload's plain Node also reads the
-# LibreOffice Kit CLI and ds-bot's office.js from here, which it could not do through an archive.
-asar: false
+# The Host runs pnpm as a separate Node process to install plugins, and the Office payload's
+# plain Node runs the LibreOffice Kit CLI: both must be plain files outside the asar.
+asarUnpack:
+  - node_modules/pnpm/**
+  - node_modules/@deepseek-ai/libreoffice-kit/**
+  # The payload Node cannot read office.js through the asar.
+  - node_modules/ds-bot/office.js
+  # Automatic unpacking misses versioned Linux libraries such as libvips-cpp.so.8.18.7.
+  - node_modules/@img/sharp*/**
 # The Office payload that scripts/prepare-runtime.mjs writes in beforePack (see package.json's
-# `runtime` script). build/ is not in `files`, so none of it lands in the app's own folder.
+# `runtime` script). build/ is not in `files`, so nothing of it lands inside the asar.
 extraResources:
   - from: build/runtime/primary-runtime
     to: primary-runtime
@@ -32,6 +35,8 @@ win:
       arch: [x64]
   icon: assets/icon.ico
 nsis:
+  # Preserve the GUID derived from the legacy appId so installed copies upgrade in place.
+  guid: 32c46dfc-ed78-5d41-85a4-a3c7f083f2e0
   oneClick: false
   perMachine: false
   allowElevation: false
@@ -47,7 +52,13 @@ mac:
   hardenedRuntime: false
   icon: assets/icon.png
   category: public.app-category.productivity
+  # Without this key macOS registers no Local Network entry for the app and
+  # blocks LAN connections from tool processes outright ("No route to host").
+  extendInfo:
+    NSLocalNetworkUsageDescription: DS Bot runs commands that connect to devices on your local network.
 linux:
+  # The Linux Host uses the payload's plain Node, which cannot read asar archives.
+  asar: false
   # One AppImage runs on every distribution and updates itself; the deb is for Debian/Ubuntu,
   # where it avoids Ubuntu 24.04's AppArmor question of an AppImage and adds a menu entry.
   target:
@@ -57,13 +68,16 @@ linux:
       arch: [x64]
   # The binary and the deb's menu entry take this name; productName has a space, which a
   # terminal command should not have.
-  executableName: deepseek-bot
+  executableName: dsbot
   # A deb needs a maintainer; package.json's author has no email, so it goes here.
   maintainer: Fei2411 <https://github.com/Fei2411>
   # Links the running window to the menu entry (WM_CLASS = app id).
   syncDesktopName: true
   icon: assets/icon.png
   category: Utility
+# Let apt replace the legacy deb instead of leaving two installed applications.
+deb:
+  fpm: ['--replaces', 'deepseek-bot', '--conflicts', 'deepseek-bot'] # legacy package
 # Where the installed app looks for updates (app-update.yml in the package). The build writes
 # latest.yml beside the installer; the release workflow attaches both to the GitHub release,
 # so the build itself never publishes (--publish never).
