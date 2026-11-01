@@ -241,7 +241,10 @@ export function install(rt) {
         try {
           await rt.deliver({ fromId: sender.id, toId: target.id, text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
         } catch (error) {
-          if (!joins) rt.dropWork(exchangeId)
+          // The delivery stays noted for the next start while its Bot exists
+          // (resume.js), and the resent request still answers up the tree, so the
+          // work it opened stays too. Only a target that is gone drops the work.
+          if (!joins && rt.botOf(target.id) === undefined) rt.dropWork(exchangeId)
           throw error
         }
         const sent = toUser
