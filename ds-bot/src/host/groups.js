@@ -1067,7 +1067,7 @@ export function install(rt) {
     callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered })
     callIn(round, rest, note, undefined, { ordered })
     if (extra.reportBack) {
-      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
+      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}), ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
     }
     return true
   }
@@ -1307,7 +1307,10 @@ export function install(rt) {
     ].filter(Boolean).join('\n\n')
     // Replies the poster waited for go on with the work it posted for.
     const work = post.sub === undefined ? undefined : rt.closeWork(post.sub, `Group "${room.name}"`, text)
-    await rt.deliver({ toId: post.botId, role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
+    // The report goes back to the conversation the post was written from: its
+    // Session in that group when the post came from one, else the own chat.
+    const back = rt.roomOf(post.fromRoomId)?.sessions?.[post.botId]
+    await rt.deliver({ toId: post.botId, ...(back ? { sessionId: back } : {}), role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
       .catch(error => rt.warn('ds-bot: group report to %s failed: %s', post.name, error))
   }
 

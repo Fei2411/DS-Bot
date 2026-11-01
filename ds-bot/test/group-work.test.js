@@ -95,12 +95,12 @@ async function start(t, room, services, extraRooms) {
   }
   // The user's message in the group, or a Bot's post the group Session took up, and the
   // round it starts.
-  const round = (callId, message) => {
-    emit('r1', 'user/message', message)
+  const round = (callId, message, sessionId = 'r1') => {
+    emit(sessionId, 'user/message', message)
     let result
     const stop = new AbortController()
     t.after(() => stop.abort())
-    void tool('group_relay', {}, 'r1', { callId, signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+    void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then((value) => { result = JSON.parse(value) })
     const read = () => result
     return read
   }
@@ -330,6 +330,25 @@ test('replies a post waits for are work handed on: the answer to the Bot that as
   host.finish('a', 'Writer 看过了，没问题。')
   await settle(() => host.agentOf('c').calls.length === 1)
   assert.equal(text(host.agentOf('c').calls[0]), '[Reply from Chief]\nWriter 看过了，没问题。\n\n[Handed back to Chief for this work]\n\nGroup "Ops":\nReplies to your post (oldest first):\nWriter: 文档没问题。')
+})
+
+// Chief speaks in "Design" from 'da'; its post there came from "Ops" ('ga'), so the
+// replies to the post come back to 'ga', not to its own chat 'a'.
+test('a report-back post a Bot wrote from another group comes back to that conversation', async (t) => {
+  const design = { id: 'r2', name: 'Design', members: ['a', 'b'], mode: 'admin', admin: 'b', named: true, sessions: { a: 'da', b: 'db' }, log: [], seq: 0, seen: {} }
+  const host = await start(t, {}, undefined, { r2: design })
+  const posted = await host.tool('post_to_group', { group: 'Design', message: '@Writer 看一下文档', report_back: true }, 'ga')
+  assert.match(posted, /Posted in "Design"/)
+  const post = host.agentOf('r2').calls.shift()
+  const done = host.round('d1', { content: post.content, source: post.source }, 'r2')
+  await settle(() => host.agentOf('db').calls.length === 1)
+  host.begin('db')
+  host.finish('db', '文档没问题。')
+  await settle(() => done() !== undefined)
+  // The report arrives in the "Ops" conversation the post was written from.
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  assert.equal(host.agentOf('a').calls.length, 0)
+  assert.match(text(host.agentOf('ga').calls[0]), /^\[Group chat "Design" · replies to your post\]/)
 })
 
 test('a member called while still at earlier work lets the round go on at once', async (t) => {
