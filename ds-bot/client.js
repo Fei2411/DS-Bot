@@ -1541,7 +1541,9 @@ function indexRoster(value) {
     for (const id of [...bot.parts ?? [], bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
   }
   const roomsById = {};
-  for (const room2 of value.rooms) roomsById[room2.id] = room2;
+  for (const room2 of value.rooms) {
+    for (const id of [room2.id, room2.sessionId, ...room2.ownParts ?? []]) roomsById[id] = room2;
+  }
   const agentsById = {};
   const agentOf = {};
   for (const agent of value.agents ?? []) {
@@ -8893,7 +8895,7 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const moveAt = useWork?.((work) => {
-    const entry = bot === void 0 ? void 0 : work.bots?.[bot.id];
+    const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
   }) ?? 0;
   const entries2 = (0, import_react17.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
@@ -9293,13 +9295,14 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
 }
 function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
   const id = room2.id;
-  const fallback = useSessions((list) => previewOf(list, id));
+  const sessionId = room2.sessionId ?? id;
+  const fallback = useSessions((list) => previewOf(list, sessionId));
   const preview = room2.preview?.replace(/\s+/g, " ").trim() || fallback;
-  const active = useSessionRetainInfo(id, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
-  const unread = useSessionStatus((map) => map.get(id)?.completionUnread === true) || marked && !active;
+  const active = useSessionRetainInfo(sessionId, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
+  const unread = useSessionStatus((map) => map.get(sessionId)?.completionUnread === true) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const approval = useApproval(useWork, (entry) => entry.roomId === id);
-  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
+  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).filter((entry) => entry.botId !== void 0).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
   const first = roster.byId[members[0]?.id];
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
   if (room2.hidden && !active) return null;
@@ -10089,7 +10092,13 @@ function useLandOnMainBot(roster, useSessions, actions) {
       if (currentPart(bot) !== id) actions.landOn(bot.id);
       return void 0;
     }
-    if (id !== "" && (roster.roomsById[id] || (actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
+    const room2 = id === "" ? void 0 : roster.roomsById[id];
+    if (room2 !== void 0) {
+      lastBot.current = null;
+      if ((room2.sessionId ?? room2.id) !== id) actions.openSession(room2.id);
+      return void 0;
+    }
+    if (id !== "" && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
       lastBot.current = null;
       return void 0;
     }
@@ -10660,7 +10669,7 @@ function chatRows(roster, list, sessionId) {
   });
   const team = /* @__PURE__ */ new Set([
     ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...bot.parts ?? []]),
-    ...roster.rooms.flatMap((room2) => [room2.id, ...room2.parts ?? []])
+    ...roster.rooms.flatMap((room2) => [room2.id, room2.sessionId, ...room2.ownParts ?? [], ...room2.parts ?? []].filter((id) => id !== void 0))
   ]);
   const others = (list?.ids ?? []).map((id) => byId[id]).filter((row) => row !== void 0 && row.id !== sessionId && !team.has(row.id) && row.origin !== "subagent" && row.blank !== true).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, OTHER_CHATS_MAX).map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }));
   return [...bots, ...others];
@@ -20383,7 +20392,7 @@ function apply(ctx) {
   let expected2 = null;
   const setPlain = (plain) => surface.set((state) => state.plain === plain ? state : { ...state, plain });
   const dropPanels = () => ui2.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
-  const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? id;
+  const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id;
   const leaveVisits = (ids) => {
     seenAt = seenStore.update((seen) => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt);
   };
@@ -20474,7 +20483,7 @@ function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== void 0 || listed[id] === void 0) pendingAdopt.delete(id);
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.id)]) {
+    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
@@ -20701,8 +20710,11 @@ function apply(ctx) {
     return value;
   });
   const partFor = (id) => {
-    const bot = roster.getSnapshot().byId[id];
-    return bot ? currentPart(bot) : id;
+    const snapshot = roster.getSnapshot();
+    const bot = snapshot.byId[id];
+    if (bot !== void 0) return currentPart(bot);
+    const room2 = snapshot.roomsById[id];
+    return room2 === void 0 ? id : room2.sessionId ?? room2.id;
   };
   const agentSessions = (agentId) => {
     const ids = [...roster.getSnapshot().agentsById[agentId]?.sessions ?? []];

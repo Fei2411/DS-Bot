@@ -379,10 +379,11 @@ export function install(rt) {
       const botId = owner?.botId ?? rt.chatOwners.get(id)
       if (botId !== undefined) merged[botId] ??= 'working'
     }
-    // A Bot writing its handoff note is thinking.
+    // A Bot writing its handoff note is thinking; a group's own Session that moves
+    // shows on the group's key.
     for (const job of rt.switchJobs()) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
-      else merged[job.botId] ??= 'thinking'
+      else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
     for (const approval of rt.approvalsView?.() ?? []) merged[approval.botId] = 'alert'
     // Waiting for work it handed on shows only while no turn of the Bot runs.
@@ -428,7 +429,9 @@ export function install(rt) {
       bots[botId] = { ...sub, ...(owner ? { roomId: owner.roomId } : {}) }
     }
     for (const job of rt.switchJobs()) {
-      // `folder` marks the switch the chat must name: the working folder changed.
+      // `folder` marks the switch the chat must name: the working folder changed. A
+      // group's own Session belongs to no Bot; the group's row shows it instead.
+      if (job.botId === undefined) continue
       const work = { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}), ...(job.roomId ? { roomId: job.roomId } : {}) }
       if (job.roomId === undefined) bots[job.botId] = work
       else bots[job.botId] ??= work
@@ -467,7 +470,8 @@ export function install(rt) {
       if (sub !== undefined) add(owner.roomId, owner.botId, sub)
     }
     for (const job of rt.switchJobs()) {
-      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}) })
+      // `self`: the group's own Session moves; the group's activity row names it.
+      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}), ...(job.botId === undefined ? { self: true } : {}) })
     }
     return rooms
   }
@@ -641,7 +645,7 @@ export function install(rt) {
         if (source?.kind === SOURCE_KIND && source.role === 'post' && rt.roomOf(id)) {
           // A long post comes as a file (attachLong), which stays with its line.
           const files = (Array.isArray(event.data.content) ? event.data.content : []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-          queueRoomMessage(id, {
+          queueRoomMessage(rt.roomOf(id).id, {
             text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
             botId: source.senderSessionId,
@@ -664,7 +668,7 @@ export function install(rt) {
             ...(source.called ? { called: true } : {}),
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
-          queueRoomMessage(id, { text: '', kickoff: true })
+          queueRoomMessage(rt.roomOf(id).id, { text: '', kickoff: true })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
             entry.pending = source
@@ -689,15 +693,15 @@ export function install(rt) {
           // claims the running turn nor queues as the next one's trigger.
         } else if (source?.kind === 'schedule' && rt.roomOf(id)) {
           // A group's scheduled task reaches the group as the user's message.
-          queueRoomMessage(id, { text: reminderText(textOf(event.data.content)) })
+          queueRoomMessage(rt.roomOf(id).id, { text: reminderText(textOf(event.data.content)) })
         } else if (source?.kind === REFERENCE_KIND && rt.roomOf(id)) {
-          attachReference(roomInbox.get(id), source, textOf(event.data.content))
+          attachReference(roomInbox.get(rt.roomOf(id).id), source, textOf(event.data.content))
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
           if (rt.roomOf(id) && source.kind === 'user') {
             const content = Array.isArray(event.data.content) ? event.data.content : []
             const images = content.filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
             const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-            queueRoomMessage(id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
+            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.dropKickoff(own)
@@ -717,7 +721,7 @@ export function install(rt) {
       }
       case 'agent/inbox/spliced':
         // A message the user sends to a group while its round runs joins that round.
-        if (rt.roomOf(id)) rt.nudgeRoom?.(id)
+        if (rt.roomOf(id)) rt.nudgeRoom?.(rt.roomOf(id).id)
         if (stoppedSubagentParents.has(id)) {
           for (const inserted of event.data?.inserted ?? []) {
             if (inserted?.source?.kind === 'subagent-settled' || stoppedSubagents.has(inserted?.source?.senderSessionId)) {

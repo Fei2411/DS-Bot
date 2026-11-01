@@ -344,7 +344,11 @@ export function install(rt) {
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
-  const roomOf = id => (id === undefined ? undefined : own(state.rooms, id))
+  // A group's own Session moves on to a fresh part when the group's folder no longer
+  // matches the one it was made in (parts.js), like a Bot's own chat: `room.id` stays
+  // the first Session's id and `room.sessionId` the current one, so the group keeps
+  // one identity while its Session moves. `roomOwners` maps the current Session.
+  const roomOf = id => (id === undefined ? undefined : own(state.rooms, id) ?? own(state.rooms, roomOwners.get(id)))
   const isMain = id => id !== undefined && state.mainBotIds.includes(id)
 
   // Group Sessions. A member speaks in each group from a hidden Session of its own,
@@ -353,26 +357,35 @@ export function install(rt) {
   // member's private context. Created on the member's first turn in the group.
   //
   // Segments. A long conversation moves to a fresh Session at a context line (see
-  // parts.js). A Bot's id is the Session id of its first own-chat segment and
-  // never changes; `bot.sessionId` is the current one. Earlier segments, of the own
-  // chat (`bot.segments`) and of each group Session (`room.segments[botId]`), are
+  // parts.js), and a group's own Session to a fresh part when the group's folder
+  // changes. A Bot's id is the Session id of its first own-chat segment and never
+  // changes; `bot.sessionId` is the current one, and `room.sessionId` the group's.
+  // Earlier segments, of the own chat (`bot.segments`), of each group Session
+  // (`room.segments[botId]`) and of the group's own Session (`room.parts`), are
   // archived and stay readable.
   /** @type {Map<string, string>} */
   const chatOwners = new Map()
   /** @type {Map<string, {botId:string, roomId:string}>} */
   const groupOwners = new Map()
-  /** @type {Map<string, {botId:string, roomId?:string}>} */
+  /** @type {Map<string, string>} */
+  const roomOwners = new Map()
+  /** @type {Map<string, {botId?:string, roomId?:string}>} */
   const pastOwners = new Map()
   const chatOf = botId => botOf(botId)?.sessionId ?? botId
+  const sessionOfRoom = room => (room === undefined ? undefined : room.sessionId ?? room.id)
   const indexSessions = () => {
     chatOwners.clear()
     groupOwners.clear()
+    roomOwners.clear()
     pastOwners.clear()
     for (const bot of Object.values(state.bots)) {
       for (const segment of bot.segments ?? []) pastOwners.set(segment.sessionId, { botId: bot.id })
       chatOwners.set(chatOf(bot.id), bot.id)
     }
     for (const room of Object.values(state.rooms)) {
+      const sessionId = sessionOfRoom(room)
+      if (sessionId !== undefined) roomOwners.set(sessionId, room.id)
+      for (const segment of room.parts ?? []) pastOwners.set(segment.sessionId, { roomId: room.id })
       for (const [botId, segments] of Object.entries(room.segments ?? {})) {
         for (const segment of segments) pastOwners.set(segment.sessionId, { botId, roomId: room.id })
       }
@@ -430,8 +443,8 @@ export function install(rt) {
 
   Object.assign(rt, {
     state, load, save, refresh, readOnly, own,
-    botOf, roomOf, isMain, chatOf, selfOf, isBotSession,
-    chatOwners, groupOwners, pastOwners,
+    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
+    chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }

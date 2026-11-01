@@ -57,29 +57,10 @@ export function install(rt) {
     const reported = session?.header === undefined ? undefined : ctx.get?.('workingDirectory')?.get?.(session) ?? session.header.cwd
     if (reported !== undefined) return reported
     const id = session?.id
+    const room = rt.roomOf(id)
+    if (room !== undefined) return workDirOf({ roomId: room.id }) ?? teamFolder()
     return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId }) ?? teamFolder()
   }
-
-  // The file panel lists a Session at its workspace root, which the workspaceFileScope
-  // lookup resolves from the header the Session was made with; a group's relay Session
-  // keeps that header after the group gets a folder. The declared resolver answers the
-  // group's folder for the group's own Session, and every other Session goes back to the
-  // provider's own resolution.
-  const lookups = ctx.get?.('typert')?.lookups
-  const files = lookups?.get?.('workspaceFileScope')
-  if (files !== undefined) {
-    try {
-      lookups.configure('workspaceFileScope', async (id) => {
-        await rt.load()
-        const dir = rt.roomOf(id)?.workDir
-        if (dir !== undefined && await isFolder(dir)) return { sessionId: id, workspaceRoot: dir }
-        return files.resolve(id)
-      })
-    } catch (error) {
-      rt.warn('ds-bot: group folders cannot be given to the file panel: %s', error)
-    }
-  }
-
   // The desktop app runs its own DSH and names the user's, which Bots must not write either.
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 

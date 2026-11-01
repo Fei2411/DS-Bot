@@ -352,7 +352,7 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
-    if (moved) void rt.followFolder(bot.id)
+    if (moved) void rt.followFolder({ botId: bot.id })
     if (bot.model && bot.kickoff !== undefined) {
       const held = bot.kickoff
       delete bot.kickoff
@@ -387,7 +387,7 @@ export function install(rt) {
 
   async function retitleRoom(room) {
     try {
-      const agent = await rt.resolveAgent(room.id)
+      const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
       await ctx.sessionTitle.rename(agent.session, room.name)
     } catch (error) {
       rt.warn('ds-bot: group title for %s not updated: %s', room.name, error)
@@ -427,8 +427,8 @@ export function install(rt) {
 
   async function buildRoom({ members, custom, notice, mode, adminId, createdBy }) {
     const title = custom || autoRoomName(members)
-    // The group's own Session only relays, so it stays in the team workspace; the
-    // group's folder is for its members' Sessions.
+    // The group's own Session only relays; like a member's it moves to a fresh part
+    // in the group's folder once the group has one (parts.js).
     const id = await createSession(title)
     try {
       // A member deleted while the Session was made stays out, and the group is checked
@@ -535,7 +535,8 @@ export function install(rt) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
     }
-    // Members' group conversations move on to the folder at their next turn there.
+    // Members' group conversations move on to the folder at their next turn there;
+    // the group's own Session moves the same way, now when it is idle.
     if (moving && workDir !== room.workDir) {
       if (workDir === undefined) delete room.workDir
       else room.workDir = workDir
@@ -543,6 +544,7 @@ export function install(rt) {
       // cleared one does not bring it back.
       delete room.memberDirs
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
+      void rt.followFolder({ roomId: room.id })
     }
     const before = room.name
     if (name !== undefined) {
@@ -572,6 +574,8 @@ export function install(rt) {
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
+    for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
+    delete state.switching[rt.sessionOfRoom(room)]
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
@@ -579,7 +583,7 @@ export function install(rt) {
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
-    await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+    await ctx.workspaceRegistry.archiveSession(rt.sessionOfRoom(room), { stopActivity: true })
       .catch(error => rt.warn('ds-bot: group chat %s not archived: %s', room.name, error))
     if (failed !== undefined) throw failed
   }
