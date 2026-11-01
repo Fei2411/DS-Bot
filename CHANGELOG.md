@@ -4,6 +4,55 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-01
+
+### Changed
+
+- Group chats no longer pause after Bots have called each other a set number of times. The "Pause Bot relays after" setting and the Continue button are gone; stop a group from its details instead. If Bots keep passing acknowledgement-only messages back and forth without using tools, the group pauses after 6 turns until you write. ([#634](https://github.com/Fei2411/DS-Bot/issues/634), [#655](https://github.com/Fei2411/DS-Bot/issues/655), [#725](https://github.com/Fei2411/DS-Bot/pull/725), [#746](https://github.com/Fei2411/DS-Bot/pull/746))
+- Members called by one group message now start at the same time, and a call takes effect as soon as the line that makes it is posted. ([#726](https://github.com/Fei2411/DS-Bot/issues/726), [#727](https://github.com/Fei2411/DS-Bot/pull/727))
+- A group member that only says it is starting work now goes on with its tools. When Bots call several members at once, the calling Bot is woken once, after the last of them finishes. ([#469](https://github.com/Fei2411/DS-Bot/issues/469), [#619](https://github.com/Fei2411/DS-Bot/issues/619), [#746](https://github.com/Fei2411/DS-Bot/pull/746))
+- The desktop app and its downloads are now named DS Bot. Existing teams, settings and browser data carry over. ([#793](https://github.com/Fei2411/DS-Bot/issues/793), [#794](https://github.com/Fei2411/DS-Bot/pull/794))
+- Bots no longer start subagents or workflows from DeepSeek Harness. To work in parallel, they hand work to other Bots. ([#798](https://github.com/Fei2411/DS-Bot/issues/798), [#800](https://github.com/Fei2411/DS-Bot/pull/800))
+- In a Bot's private chat, a message you steer into a running turn reaches the Bot at once. A running command moves to the background, and a running reply is cut short and continued with your message. ([#723](https://github.com/Fei2411/DS-Bot/issues/723), [#728](https://github.com/Fei2411/DS-Bot/pull/728))
+- A DS Bot window opened over remote access uses much less data while nothing changes. ([#532](https://github.com/Fei2411/DS-Bot/issues/532), [#766](https://github.com/Fei2411/DS-Bot/pull/766))
+
+### Fixed
+
+- The Linux desktop app no longer crashes when it reads or processes images. ([#662](https://github.com/Fei2411/DS-Bot/issues/662), [#747](https://github.com/Fei2411/DS-Bot/pull/747))
+- If the team's state file is changed from outside while DS Bot runs, DS Bot uses the changed file instead of overwriting it, keeps its own copy as `state.json.replaced-<time>`, and says so in the diagnostics. ([#513](https://github.com/Fei2411/DS-Bot/issues/513), [#774](https://github.com/Fei2411/DS-Bot/pull/774))
+- Bot-to-Bot messages that a restart or a failed delivery would have lost are kept and delivered later. The asking Bot is told when a message cannot be delivered, instead of waiting in silence. ([#506](https://github.com/Fei2411/DS-Bot/issues/506), [#668](https://github.com/Fei2411/DS-Bot/issues/668), [#752](https://github.com/Fei2411/DS-Bot/pull/752))
+- Bots no longer get access to DeepSeek Harness or DS Bot data folders that sit inside a team workspace. A Bot that works outside the workspace asks for approval, even when no sandbox policy is set up. ([#508](https://github.com/Fei2411/DS-Bot/issues/508), [#754](https://github.com/Fei2411/DS-Bot/pull/754))
+- Bots keep their `$DSH_SECRET_*` shell variables after the desktop app restarts, and the app no longer crashes when a tool result that carries a secret passes through the log. ([#669](https://github.com/Fei2411/DS-Bot/issues/669), [#670](https://github.com/Fei2411/DS-Bot/issues/670), [#761](https://github.com/Fei2411/DS-Bot/pull/761))
+- In a group chat without a folder of its own, a member that changes its working folder now affects only that conversation, not the Bot's other chats and groups. A group's file panel shows the group's own folder instead of the team workspace. ([#277](https://github.com/Fei2411/DS-Bot/issues/277), [#775](https://github.com/Fei2411/DS-Bot/pull/775))
+- Group chats keep working after the team workspace moves and its old folder is deleted. A group whose own folder is gone shows one warning instead of failing every round. ([#710](https://github.com/Fei2411/DS-Bot/issues/710), [#749](https://github.com/Fei2411/DS-Bot/pull/749))
+- A group notice over the length limit is refused and says what the limit is, instead of being cut without a word. ([#710](https://github.com/Fei2411/DS-Bot/issues/710), [#749](https://github.com/Fei2411/DS-Bot/pull/749))
+- A Bot whose own folder is a registered workspace no longer shows as ungrouped. ([#710](https://github.com/Fei2411/DS-Bot/issues/710), [#749](https://github.com/Fei2411/DS-Bot/pull/749))
+- A memory review no longer retries the same lines forever when the model's answer cannot be used. Lines that memory cannot keep are set aside and shown in the diagnostics, the rest is saved, and the review moves on. ([#454](https://github.com/Fei2411/DS-Bot/issues/454), [#672](https://github.com/Fei2411/DS-Bot/issues/672), [#740](https://github.com/Fei2411/DS-Bot/issues/740), [#750](https://github.com/Fei2411/DS-Bot/pull/750))
+- Bots stop starting fresh parts over and over when a new part cannot fix a model error. The error stays visible, so you can fix its cause and continue. ([#485](https://github.com/Fei2411/DS-Bot/issues/485), [#748](https://github.com/Fei2411/DS-Bot/pull/748))
+- Deleting a Bot also removes an unapproved local MCP server that only that Bot added, so it no longer waits in the shared list for approval. ([#631](https://github.com/Fei2411/DS-Bot/issues/631), [#777](https://github.com/Fei2411/DS-Bot/pull/777))
+- Bot chats no longer show large blank areas after folded Bot-to-Bot exchanges or when earlier history loads. ([#210](https://github.com/Fei2411/DS-Bot/issues/210), [#445](https://github.com/Fei2411/DS-Bot/issues/445), [#667](https://github.com/Fei2411/DS-Bot/issues/667), [#751](https://github.com/Fei2411/DS-Bot/pull/751))
+- Group chats show only the work running in that group. A rejected message shows its real cause instead of a generic busy error. ([#424](https://github.com/Fei2411/DS-Bot/issues/424), [#473](https://github.com/Fei2411/DS-Bot/issues/473), [#753](https://github.com/Fei2411/DS-Bot/pull/753))
+- A group post sent during a running round no longer leaves a stray entry in the message queue. ([#663](https://github.com/Fei2411/DS-Bot/issues/663), [#746](https://github.com/Fei2411/DS-Bot/pull/746))
+- Bot tools no longer appear in ordinary DeepSeek Harness chats, and DS Bot starts even when another plugin uses the same tool name. ([#521](https://github.com/Fei2411/DS-Bot/issues/521), [#703](https://github.com/Fei2411/DS-Bot/issues/703), [#779](https://github.com/Fei2411/DS-Bot/pull/779))
+- `recall` finds a continuous Chinese phrase such as 小李生日, not only words separated by spaces. ([#455](https://github.com/Fei2411/DS-Bot/issues/455), [#755](https://github.com/Fei2411/DS-Bot/pull/755))
+- A Bot posting to a group with `report_back` now gets the report in the conversation the post came from, not always in its own chat. ([#507](https://github.com/Fei2411/DS-Bot/issues/507), [#756](https://github.com/Fei2411/DS-Bot/pull/756))
+- A Bot name written in quotes now works in tools that take a Bot name, instead of failing with "No Bot named ...". ([#715](https://github.com/Fei2411/DS-Bot/issues/715), [#757](https://github.com/Fei2411/DS-Bot/pull/757))
+- Voice input works in the desktop app out of the box. You can set up the speech model from the voice pane. ([#739](https://github.com/Fei2411/DS-Bot/issues/739), [#758](https://github.com/Fei2411/DS-Bot/pull/758))
+- Voice chat reads the Bot's full answer instead of a short preview. ([#414](https://github.com/Fei2411/DS-Bot/issues/414), [#758](https://github.com/Fei2411/DS-Bot/pull/758))
+- On macOS, commands a Bot runs can reach devices on the local network. macOS asks for permission the first time. ([#504](https://github.com/Fei2411/DS-Bot/issues/504), [#759](https://github.com/Fei2411/DS-Bot/pull/759))
+- If the Bot team cannot start, the app shows the startup error instead of a setup screen that never ends. ([#516](https://github.com/Fei2411/DS-Bot/issues/516), [#760](https://github.com/Fei2411/DS-Bot/pull/760))
+- Copying a code block in a folded long message copies the whole block, not only the visible part. ([#718](https://github.com/Fei2411/DS-Bot/issues/718), [#762](https://github.com/Fei2411/DS-Bot/pull/762))
+- The + menu in a Bot's chat no longer disappears when the team loads after the chat opens. ([#665](https://github.com/Fei2411/DS-Bot/issues/665), [#764](https://github.com/Fei2411/DS-Bot/pull/764))
+- A Bot whose model route cannot answer is moved to a working model, instead of failing on every turn. ([#637](https://github.com/Fei2411/DS-Bot/issues/637), [#765](https://github.com/Fei2411/DS-Bot/pull/765))
+- The Usage panel finishes its scan on large stores instead of timing out and flooding the log. Chats that have not changed since the last scan are not read again. ([#654](https://github.com/Fei2411/DS-Bot/issues/654), [#767](https://github.com/Fei2411/DS-Bot/pull/767))
+- The "pick a model" card in a Bot's chat no longer lets messages show through at its edges while the conversation scrolls. ([#682](https://github.com/Fei2411/DS-Bot/issues/682), [#768](https://github.com/Fei2411/DS-Bot/pull/768))
+- Dragging the sidebar edge follows the cursor smoothly, and folding it into the avatar rail no longer jumps. ([#692](https://github.com/Fei2411/DS-Bot/issues/692), [#769](https://github.com/Fei2411/DS-Bot/pull/769))
+- On macOS, dragging the blank area beside the Bot name in the chat header moves the window again. ([#298](https://github.com/Fei2411/DS-Bot/issues/298), [#770](https://github.com/Fei2411/DS-Bot/pull/770))
+- Option cards and long content in chats fit the screen on narrow phone browsers. ([#666](https://github.com/Fei2411/DS-Bot/issues/666), [#771](https://github.com/Fei2411/DS-Bot/pull/771))
+- A Bot's thinking level now applies to its new and existing group chats after a restart. ([#706](https://github.com/Fei2411/DS-Bot/issues/706), [#772](https://github.com/Fei2411/DS-Bot/pull/772))
+- If you change a group's permission preset twice in quick succession, the group keeps the last one you chose. ([#509](https://github.com/Fei2411/DS-Bot/issues/509), [#773](https://github.com/Fei2411/DS-Bot/pull/773))
+- A member named with `@Name` anywhere in a long group post is now called, not only when the name is in the opening. ([#198](https://github.com/Fei2411/DS-Bot/issues/198), [#776](https://github.com/Fei2411/DS-Bot/pull/776))
+
 ## [0.2.4] - 2026-10-29
 
 ### Added
