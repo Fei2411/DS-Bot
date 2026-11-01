@@ -1,8 +1,8 @@
 // Store: the saved team (state.json), its migrations, the lock that keeps a second dsh
 // host on the same data from writing it, and the indexes that map a Session to the Bot
 // or group chat it belongs to.
-import { mkdirSync, statSync } from 'node:fs'
-import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
@@ -63,10 +63,12 @@ export function install(rt) {
     return `The Bot team in ${home} is open in another dsh (Web or Desktop, ${where}). This window shows the team but cannot change it; close the other one and reload.`
   }
 
-  const readFileState = async () => {
+  // Synchronous on purpose: the saved team and the session indexes built from it
+  // exist before the first tool or shell env call can resolve a Session.
+  const readFileState = () => {
     let contents
     try {
-      contents = await readFile(statePath, 'utf8')
+      contents = readFileSync(statePath, 'utf8')
     } catch (error) {
       seen = stamp()
       if (error?.code === 'ENOENT') {
@@ -84,7 +86,7 @@ export function install(rt) {
     } catch (error) {
       const backup = `${statePath}.broken-${Date.now()}`
       try {
-        await copyFile(statePath, backup)
+        copyFileSync(statePath, backup)
         stuck = undefined
         warn('ds-bot: unreadable state %s: %s; backed up as %s', statePath, error, backup)
       } catch (copyError) {
@@ -232,7 +234,7 @@ export function install(rt) {
   const load = () => loaded ??= (async () => {
     claimLock()
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
-    const { migrated, stale } = adopt(await readFileState())
+    const { migrated, stale } = adopt(readFileState())
     if (holder !== undefined) return
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
@@ -256,7 +258,7 @@ export function install(rt) {
       if (holder === undefined) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
-        adopt(await readFileState())
+        adopt(readFileState())
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -269,12 +271,12 @@ export function install(rt) {
         // The lock was free: still the writer, but the file may carry changes
         // written while no host held it.
         warnedReadOnly = false
-        adopt(await readFileState())
+        adopt(readFileState())
         return
       }
       warn('ds-bot: %s', readOnly())
     }
-    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(await readFileState())
+    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
   }
 
   const warnReadOnly = () => {
@@ -413,7 +415,7 @@ export function install(rt) {
     if (ref === undefined) return undefined
     const byId = own(state.bots, ref)
     if (byId) return byId
-    const wanted = normalize(ref).replace(/^@/, '')
+    const wanted = normalize(unquote(ref)).replace(/^@/, '')
     return Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
   }
   // Every group chat whose id or name matches; callers refuse an ambiguous name.
