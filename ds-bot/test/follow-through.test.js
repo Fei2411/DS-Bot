@@ -95,14 +95,9 @@ const settleState = async (t, home, check) => {
   }
   assert.ok(check(), 'condition not reached')
 }
-// Some waits in the product run on the clock the tests mock: driving it here, as
-// settleState does, keeps a busy wait from starving the work it waits for.
-const settle = async (t, check) => {
+const settle = async (check) => {
   const until = Date.now() + 3000
-  while (!check() && Date.now() < until) {
-    try { t.mock.timers.tick(100) } catch { /* the clock is not mocked in this test */ }
-    await new Promise(resolve => setImmediate(resolve))
-  }
+  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
   assert.ok(check(), 'condition not reached')
 }
 const text = message => message.content.map(block => block.text ?? '').join('\n')
@@ -122,7 +117,7 @@ async function openRoomTurn(t, host) {
   const stop = new AbortController()
   t.after(() => stop.abort())
   void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = JSON.parse(value) })
-  await settle(t, () => host.agentOf('gb').calls.length === 1)
+  await settle(() => host.agentOf('gb').calls.length === 1)
   run(host, 'gb', 1, host.agentOf('gb').calls[0])
   return () => result
 }
@@ -133,20 +128,20 @@ test('a group turn cut off by a restart is picked up once, and the group is told
   const first = await start(home)
   await openRoomTurn(t, first)
   void first.askApproval('gb')
-  await settle(t, () => inflight(home).gb?.approval !== undefined)
+  await settle(() => inflight(home).gb?.approval !== undefined)
   assert.deepEqual([inflight(home).gb.botId, inflight(home).gb.roomId, inflight(home).gb.trigger.role], ['b', 'r1', 'room'])
   await first.stop()
 
   const second = await start(home)
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('gb').calls.length === 1)
+  await settle(() => second.agentOf('gb').calls.length === 1)
   const post = second.agentOf('r1').calls[0]
   assert.deepEqual([post.source.role, post.source.resumed, post.source.quiet, post.source.senderSessionId], ['post', true, true, 'b'])
   const resumed = second.agentOf('gb').calls[0]
   assert.deepEqual([resumed.source.role, resumed.source.resumed, resumed.source.roomId], ['room', true, 'r1'])
   assert.match(text(resumed), /^\[Group chat "Ops" · picking up after a restart\]/)
   assert.match(text(resumed), /approval to run pwsh \(escalate sandbox\)/)
-  await settle(t, () => Object.keys(inflight(home)).length === 0)
+  await settle(() => Object.keys(inflight(home)).length === 0)
 
   // The group shows the event, and the admin reads it on its next turn.
   second.emit('r1', 'user/message', { content: post.content, source: post.source })
@@ -157,11 +152,11 @@ test('a group turn cut off by a restart is picked up once, and the group is told
 
   // Cut off again while picking it up: the group hears it, and the turn stays stopped.
   run(second, 'gb', 2, resumed)
-  await settle(t, () => inflight(home).gb?.resumed === true)
+  await settle(() => inflight(home).gb?.resumed === true)
   await second.stop()
   const third = await start(home)
   t.mock.timers.tick(3000)
-  await settle(t, () => third.agentOf('r1').calls.length === 1)
+  await settle(() => third.agentOf('r1').calls.length === 1)
   assert.equal(third.agentOf('r1').calls[0].source.again, true)
   assert.equal(third.agentOf('gb').calls.length, 0)
 })
@@ -172,12 +167,12 @@ test('a request cut off by a restart goes on under the same exchange; own-chat w
   const first = await start(home)
   run(first, 'b', 1, { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', hop: 0 } })
   run(first, 'a', 1, { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
-  await settle(t, () => inflight(home).b?.trigger !== undefined && inflight(home).a !== undefined)
+  await settle(() => inflight(home).b?.trigger !== undefined && inflight(home).a !== undefined)
   await first.stop()
 
   const second = await start(home)
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('b').calls.length === 1 && second.agentOf('a').calls.length === 1)
+  await settle(() => second.agentOf('b').calls.length === 1 && second.agentOf('a').calls.length === 1)
   const request = second.agentOf('b').calls[0]
   assert.deepEqual([request.source.role, request.source.exchangeId, request.source.senderSessionId, request.source.resumed], ['request', 'x1', 'a', true])
   assert.match(text(request), /^\[Message from Chief · DeepSeek Harness restarted while you were working on it\]/)
@@ -194,7 +189,7 @@ test('when only DS Bot restarts, a turn still running or finished meanwhile is n
   const first = await start(home)
   run(first, 'b', 1, { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', hop: 0 } })
   run(first, 'a', 1, { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
-  await settle(t, () => inflight(home).b?.trigger !== undefined && inflight(home).a !== undefined)
+  await settle(() => inflight(home).b?.trigger !== undefined && inflight(home).a !== undefined)
   await first.stop()
 
   // DSH went on: Writer is still at work, and Chief's turn ends before the pick-up.
@@ -203,7 +198,7 @@ test('when only DS Bot restarts, a turn still running or finished meanwhile is n
   second.emit('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   t.mock.timers.tick(3000)
   // One read per check: two reads can see the old notes and the cleared ones.
-  await settle(t, () => {
+  await settle(() => {
     const noted = inflight(home)
     return noted.b?.trigger?.exchangeId === 'x1' && noted.a === undefined
   })
@@ -215,16 +210,16 @@ test('when only DS Bot restarts, a turn still running or finished meanwhile is n
   await second.stop()
   const third = await start(home)
   t.mock.timers.tick(3000)
-  await settle(t, () => third.agentOf('b').calls.length === 1)
+  await settle(() => third.agentOf('b').calls.length === 1)
   assert.deepEqual([third.agentOf('b').calls[0].source.exchangeId, third.agentOf('a').calls.length], ['x1', 0])
 })
 
 // Chief asks Writer for the plan; Writer's turn takes it up and the work waits.
-const askWriter = async (t, host, home) => {
+const askWriter = async (host, home) => {
   await host.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a')
   const request = host.agentOf('b').calls[0]
   run(host, 'b', 1, request)
-  await settle(t, () => inflight(home).b?.trigger?.exchangeId === request.source.exchangeId)
+  await settle(() => inflight(home).b?.trigger?.exchangeId === request.source.exchangeId)
   return request
 }
 
@@ -247,13 +242,13 @@ for (const role of ['reply', 'report', 'resume']) {
     const first = await start(home, logs)
     const request = { content: [{ type: 'text', text: 'Go on with the plan.' }], source: { kind: 'bot', form: 'relay', role, exchangeId: 'continuation-1', work: 'x1', ...(role === 'reply' ? { senderSessionId: 'c', replyTo: 'y1' } : {}) } }
     run(first, 'b', 1, request)
-    await settle(t, () => inflight(home).b?.trigger?.work === 'x1')
+    await settle(() => inflight(home).b?.trigger?.work === 'x1')
     logs.set('b', writerLog(request, 'The final plan is ready.'))
     await first.stop()
     const second = await start(home, logs)
     second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
     t.mock.timers.tick(3000)
-    await settle(t, () => second.agentOf('a').calls.length === 1)
+    await settle(() => second.agentOf('a').calls.length === 1)
     const reply = second.agentOf('a').calls[0]
     assert.equal(reply.source.replyTo, 'x1')
     assert.match(text(reply), /The final plan is ready/)
@@ -268,7 +263,7 @@ test('an answer a turn produced while DS Bot was not watching goes to the Bot th
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
-  const request = await askWriter(t, first, home)
+  const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
   // Writer answers, and DS Bot restarts before it sees the end of that turn.
   logs.set('b', writerLog(request, 'The plan is ready.'))
@@ -277,7 +272,7 @@ test('an answer a turn produced while DS Bot was not watching goes to the Bot th
   const second = await start(home, logs)
   second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('a').calls.length === 1)
+  await settle(() => second.agentOf('a').calls.length === 1)
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /The plan is ready\./)
@@ -300,7 +295,7 @@ test('a turn whose record cannot be read says the result is unknown, and is not 
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
-  const request = await askWriter(t, first, home)
+  const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
   logs.set('b', writerLog(request, 'The plan is ready.'))
   await first.stop()
@@ -311,7 +306,7 @@ test('a turn whose record cannot be read says the result is unknown, and is not 
   const second = await start(home, logs, unreadable)
   second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('a').calls.length === 1)
+  await settle(() => second.agentOf('a').calls.length === 1)
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /what it did is unknown/)
@@ -334,7 +329,7 @@ test('a turn that ended without saying anything says it finished', async (t) => 
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
-  const request = await askWriter(t, first, home)
+  const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
   logs.set('b', writerLog(request, undefined))
   await first.stop()
@@ -342,7 +337,7 @@ test('a turn that ended without saying anything says it finished', async (t) => 
   const second = await start(home, logs)
   second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('a').calls.length === 1)
+  await settle(() => second.agentOf('a').calls.length === 1)
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /Writer finished without a reply\./)
@@ -356,7 +351,7 @@ test('a turn that ended on the token limit gives what it said', async (t) => {
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
-  const request = await askWriter(t, first, home)
+  const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
   logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', { kind: 'max-tokens' }))
   await first.stop()
@@ -364,7 +359,7 @@ test('a turn that ended on the token limit gives what it said', async (t) => {
   const second = await start(home, logs)
   second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('a').calls.length === 1)
+  await settle(() => second.agentOf('a').calls.length === 1)
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /The plan is ready, up to the limit\./)
@@ -383,14 +378,14 @@ test('the answer that goes up keeps what came back for the work', async (t) => {
   const first = await start(home, logs)
   const request = { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', hop: 0 } }
   run(first, 'b', 1, request)
-  await settle(t, () => inflight(home).b?.trigger?.exchangeId === 'x1')
+  await settle(() => inflight(home).b?.trigger?.exchangeId === 'x1')
   logs.set('b', writerLog(request, 'The plan is ready.'))
   await first.stop()
 
   const second = await start(home, logs)
   second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('a').calls.length === 1)
+  await settle(() => second.agentOf('a').calls.length === 1)
   const reply = text(second.agentOf('a').calls[0])
   assert.match(reply, /The plan is ready\./)
   assert.match(reply, /Reviewer:\nThe numbers check out\./)
@@ -404,7 +399,7 @@ test('an answer that already went up is not sent again', async (t) => {
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
-  const request = await askWriter(t, first, home)
+  const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
   logs.set('b', writerLog(request, 'The plan is ready.'))
   // Chief already has the answer: another run delivered it.
@@ -427,7 +422,7 @@ test('a work that still waits for what it handed on holds its text, and is not s
   const first = await start(home, logs)
   const request = { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', hop: 0 } }
   run(first, 'b', 1, request)
-  await settle(t, () => inflight(home).b?.trigger?.exchangeId === 'x1')
+  await settle(() => inflight(home).b?.trigger?.exchangeId === 'x1')
   logs.set('b', writerLog(request, 'The plan is ready.'))
   await first.stop()
 
@@ -449,7 +444,7 @@ test('a finished turn leaves nothing to pick up', async (t) => {
   const first = await start(home)
   run(first, 'a', 1, { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
   first.emit('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(t, () => Object.keys(inflight(home)).length === 0 && existsSync(join(home, 'inflight.json')))
+  await settle(() => Object.keys(inflight(home)).length === 0 && existsSync(join(home, 'inflight.json')))
   await first.stop()
   const second = await start(home)
   t.mock.timers.tick(3000)
@@ -464,7 +459,7 @@ test('a turn DSH stops as it shuts down stays noted; one the user stops does not
   run(host, 'b', 1, { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
   host.emit('a', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'disposed' } } })
   host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
-  await settle(t, () => inflight(home).a !== undefined && inflight(home).b === undefined)
+  await settle(() => inflight(home).a !== undefined && inflight(home).b === undefined)
 })
 
 test('a message a shutdown cancelled is sent again once; one still waiting, taken up or withdrawn is not', async (t) => {
@@ -479,7 +474,8 @@ test('a message a shutdown cancelled is sent again once; one still waiting, take
   // Taken up by a turn, or withdrawn while DS Bot runs (the user stopped the Bot).
   first.emit('b', 'user/message', { content: notesMessage.content, source: notesMessage.source })
   for (const listener of first.ctx.listeners.get('agent/inbox/discarded')) listener({ message: withdrawn })
-  await settle(t, () => (notes(home).queued.b ?? []).length === 2)
+  await settle(() => (notes(home).queued.b ?? []).length === 2)
+  const original = (await first.call('exchange', { a: 'a', b: 'b' })).value.find(entry => entry.id === plan.source.exchangeId)
   await first.stop()
 
   t.mock.timers.enable({ apis: ['setTimeout'] })
@@ -487,11 +483,282 @@ test('a message a shutdown cancelled is sent again once; one still waiting, take
   // A hard stop keeps the inbox: that message runs when the Session wakes.
   second.agentOf('b').inbox.nextTurn.push(numbers)
   t.mock.timers.tick(3000)
-  await settle(t, () => second.agentOf('b').calls.length === 1)
+  await settle(() => second.agentOf('b').calls.length === 1)
   const [again] = second.agentOf('b').calls
-  assert.deepEqual([again.source.exchangeId, again.source.role, text(again)], [plan.source.exchangeId, 'request', text(plan)])
+  assert.deepEqual([again.source.exchangeId, again.source.role], [plan.source.exchangeId, 'request'])
+  assert.match(text(again), /^\[Message from Chief · DeepSeek Harness restarted before it could reach you\]\nDraft the plan$/)
   // The resend is the same exchange, not a new one.
-  assert.equal((await second.call('exchange', { a: 'a', b: 'b' })).value.length, 4)
+  const exchanges = (await second.call('exchange', { a: 'a', b: 'b' })).value
+  assert.equal(exchanges.length, 4)
+  assert.deepEqual(exchanges.find(entry => entry.id === plan.source.exchangeId), original)
+  await second.stop()
+
+  // Neither the resend nor a message kept in the inbox is lost at another restart.
+  const third = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => third.agentOf('b').calls.length === 2)
+  assert.deepEqual(third.agentOf('b').calls.map(message => message.source.exchangeId), [plan, numbers].map(message => message.source.exchangeId))
+})
+
+test('a queued request kept over a restart is sent again however old, and the asker is told it was late', async (t) => {
+  const home = freshHome(t)
+  const first = await start(home)
+  await first.tool('message_bot', { to: 'Writer', message: 'Draft the plan', when: 'queue' }, 'a')
+  await settle(() => (notes(home).queued.b ?? []).length === 1)
+  const [plan] = first.agentOf('b').calls
+  await first.stop()
+
+  // The note waited through a long stop: it is still sent again, not dropped.
+  const file = join(home, 'inflight.json')
+  const noted = notes(home)
+  noted.queued.b[0].at = Date.now() - 25 * 60 * 60 * 1000
+  writeFileSync(file, JSON.stringify(noted))
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 1)
+  const [again] = second.agentOf('b').calls
+  assert.deepEqual([again.source.exchangeId, again.source.role], [plan.source.exchangeId, 'request'])
+  assert.match(text(again), /^\[Message from Chief · DeepSeek Harness restarted before it could reach you\]/)
+
+  // The work is marked, so the answer that goes up says the request arrived late.
+  await settleState(t, home, () => stateOf(home).works?.[plan.source.exchangeId]?.late === true)
+  run(second, 'b', 1, again)
+  second.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'The plan is ready.' }] } })
+  second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => second.agentOf('a').calls.length === 1)
+  const reply = text(second.agentOf('a').calls[0])
+  assert.match(reply, /^\[Reply from Writer\]\n\[This request reached Writer only after DeepSeek Harness restarted\.\]/)
+  assert.match(reply, /The plan is ready\./)
+})
+
+test('queued deliveries are kept whole, not cut at fifty', async (t) => {
+  const home = freshHome(t)
+  const first = await start(home)
+  for (let at = 1; at <= 55; at += 1) await first.tool('message_bot', { to: 'Writer', message: `Task ${at}`, when: 'queue' }, 'a')
+  await settle(() => (notes(home).queued.b ?? []).length === 55)
+  await first.stop()
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 55)
+})
+
+test('a delivery that fails is not recorded as delivered, and stays queued for the next start', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const first = await start(home)
+  const flushing = first.ctx.sessions.flush
+  first.ctx.sessions.flush = async (session) => {
+    if (session?.id === 'b') throw Object.assign(new Error('Session sess-b is gone'), { code: 'session/not-found' })
+    return flushing(session)
+  }
+  await assert.rejects(first.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a'), /sess-b is gone/)
+  // Nothing is shown as delivered; the delivery stays queued, and the work it
+  // opened stays with it.
+  await settleState(t, home, () => (stateOf(home).exchanges ?? []).length === 0 && Object.keys(stateOf(home).works ?? {}).length === 1)
+  await settle(() => (notes(home).queued.b ?? []).length === 1)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 1)
+  assert.equal(second.agentOf('b').calls[0].source.role, 'request')
+})
+
+test('a reply that fails to reach the asker reaches it as a failure notice carrying the answer', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const state = seed()
+  // Chief asked Writer; Writer handed part of it to Reviewer.
+  state.bots.c = { id: 'c', name: 'Reviewer', sessionId: 'c', createdAt: 3 }
+  state.works = {
+    x1: { from: 'a', to: 'b', open: ['y1'], results: [], at: 1 },
+    y1: { from: 'b', to: 'c', parent: 'x1', open: [], results: [], at: 2 },
+  }
+  const home = freshHome(t, state)
+  const host = await start(home)
+  // Reviewer finished; its reply to Writer fails once, so the failure reaches
+  // Writer as a notice instead, carrying what Reviewer answered.
+  let fails = 1
+  const resolving = host.ctx.sessionController.resolveAgent
+  host.ctx.sessionController.resolveAgent = async (sessionId) => {
+    if (sessionId === 'b' && fails > 0) {
+      fails -= 1
+      throw Object.assign(new Error('Session sess-b is gone'), { code: 'session/not-found' })
+    }
+    return resolving(sessionId)
+  }
+  run(host, 'c', 1, { content: [{ type: 'text', text: '[Message from Writer]\nCheck the numbers' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'y1', senderName: 'Writer', senderSessionId: 'b', hop: 0 } })
+  host.emit('c', 'assistant/message', { message: { content: [{ type: 'text', text: 'The numbers check out.' }] } })
+  host.emit('c', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('b').calls.length === 1)
+  const notice = host.agentOf('b').calls[0]
+  assert.deepEqual([notice.source.role, notice.source.replyTo, notice.source.work], ['reply', 'y1', 'x1'])
+  assert.match(text(notice), /^\[Reply from Reviewer · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back\]\nReviewer could not send its reply to you \(session\/not-found: Session sess-b is gone\); what it had answered:\nThe numbers check out\.$/)
+  // The wait stays until the notice is read; the kept result is marked.
+  await settleState(t, home, () => stateOf(home).works?.x1?.results[0]?.failed === true)
+  assert.deepEqual(stateOf(home).works.x1.open, ['y1'])
+
+  // Writer reads the notice, the wait ends, and the answer that goes up names it.
+  run(host, 'b', 2, notice)
+  host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'The plan is ready.' }] } })
+  host.emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const reply = text(host.agentOf('a').calls[0])
+  assert.match(reply, /The plan is ready\./)
+  assert.match(reply, /Reviewer could not send its reply to you; what it had answered:\nThe numbers check out\./)
+  // Nothing of the lost reply is sent again: the notice carried it.
+  await settle(() => (notes(home).queued.b ?? []).length === 0)
+})
+
+test('a failure notice that cannot reach the asker stays queued and wakes it after restart', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const state = seed()
+  state.bots.c = { id: 'c', name: 'Reviewer', sessionId: 'c', createdAt: 3 }
+  state.works = {
+    x1: { from: 'a', to: 'b', open: ['y1'], results: [], at: 1 },
+    y1: { from: 'b', to: 'c', parent: 'x1', open: [], results: [], at: 2 },
+  }
+  const home = freshHome(t, state)
+  const first = await start(home)
+  first.ctx.sessionController.resolveAgent = async sessionId => sessionId === 'b'
+    ? { error: { code: 'session/not-found', message: 'Session sess-b is gone' } }
+    : { agent: first.agentOf(sessionId) }
+  run(first, 'c', 1, { content: [{ type: 'text', text: '[Message from Writer]\nCheck the numbers' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'y1', senderName: 'Writer', senderSessionId: 'b' } })
+  first.emit('c', 'assistant/message', { message: { content: [{ type: 'text', text: 'The numbers check out.' }] } })
+  first.emit('c', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => {
+    const queued = notes(home).queued.b ?? []
+    return queued.length === 1 && /could not send its reply/.test(queued[0].args.text)
+  })
+  await settleState(t, home, () => stateOf(home).works?.x1?.results[0]?.failed === true)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 1)
+  const [notice] = second.agentOf('b').calls
+  assert.deepEqual([notice.source.role, notice.source.replyTo, notice.source.work], ['reply', 'y1', 'x1'])
+  assert.match(text(notice), /could not send its reply.*\nThe numbers check out\.$/)
+  run(second, 'b', 2, notice)
+  second.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'The plan is ready.' }] } })
+  second.emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => second.agentOf('a').calls.length === 1)
+  assert.match(text(second.agentOf('a').calls[0]), /Reviewer could not send its reply to you; what it had answered:\nThe numbers check out\./)
+})
+
+test('new deliveries before recovery do not overwrite the saved queue', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const first = await start(home)
+  await first.tool('message_bot', { to: 'Writer', message: 'Task before shutdown', when: 'queue' }, 'a')
+  await first.stop()
+
+  const second = await start(home)
+  await second.tool('message_bot', { to: 'Writer', message: 'Task before recovery', when: 'queue' }, 'a')
+  await second.stop()
+  assert.equal(notes(home).queued.b.length, 2)
+
+  const third = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => third.agentOf('b').calls.length === 2)
+  assert.match(text(third.agentOf('b').calls[0]), /Task before shutdown$/)
+  assert.match(text(third.agentOf('b').calls[1]), /Task before recovery$/)
+})
+
+test('a resend that cannot open the Session keeps the whole queue for the next start', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const first = await start(home)
+  for (const message of ['Task 1', 'Task 2', 'Task 3']) await first.tool('message_bot', { to: 'Writer', message, when: 'queue' }, 'a')
+  await settle(() => (notes(home).queued.b ?? []).length === 3)
+  await first.stop()
+
+  // The Session cannot be opened at this start: all three stay queued, none is
+  // silently dropped.
+  const warnings = []
+  const second = await start(home)
+  second.ctx.logger.warn = (...args) => warnings.push(args.join(' '))
+  second.ctx.sessionController.resolveAgent = async (sessionId) => {
+    if (sessionId === 'b') throw Object.assign(new Error('Session sess-b is gone'), { code: 'session/not-found' })
+    return { agent: second.agentOf(sessionId) }
+  }
+  t.mock.timers.tick(3000)
+  await settle(() => warnings.some(line => /sending again/.test(line)))
+  await second.stop()
+  assert.equal((notes(home).queued.b ?? []).length, 3)
+
+  // The next start delivers all three.
+  const third = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => third.agentOf('b').calls.length === 3)
+})
+
+test('a request kept for retry keeps its work, and the result flows up after the restart', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const state = seed()
+  state.bots.c = { id: 'c', name: 'Reviewer', sessionId: 'c', createdAt: 3 }
+  state.works = { x1: { from: 'a', to: 'b', open: [], results: [], at: 1 } }
+  const home = freshHome(t, state)
+  const first = await start(home)
+  // Writer is doing the work Chief gave it and hands part of it to Reviewer; the
+  // send fails before it reaches Reviewer, so it stays queued for the next start.
+  run(first, 'b', 1, { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', hop: 0 } })
+  const flushing = first.ctx.sessions.flush
+  first.ctx.sessions.flush = async (session) => {
+    if (session?.id === 'c') throw Object.assign(new Error('Session sess-c is gone'), { code: 'session/not-found' })
+    return flushing(session)
+  }
+  await assert.rejects(first.tool('message_bot', { to: 'Reviewer', message: 'Check the numbers' }, 'b'), /sess-c is gone/)
+  // Writer ends its turn waiting for what it handed on.
+  first.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Reviewer is on the numbers.' }] } })
+  first.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // The delivery stays queued, so the work it opened stays too.
+  await settleState(t, home, () => Object.values(stateOf(home).works ?? {}).some(work => work.to === 'c' && work.parent === 'x1'))
+  const handed = Object.entries(stateOf(home).works).find(([, work]) => work.to === 'c' && work.parent === 'x1')
+  await settle(() => (notes(home).queued.c ?? []).length === 1)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('c').calls.length === 1)
+  // Reviewer answers; the result goes back up the work tree to Writer.
+  run(second, 'c', 1, second.agentOf('c').calls[0])
+  second.emit('c', 'assistant/message', { message: { content: [{ type: 'text', text: 'The numbers check out.' }] } })
+  second.emit('c', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => second.agentOf('b').calls.length === 1)
+  const reply = second.agentOf('b').calls[0]
+  assert.deepEqual([reply.source.role, reply.source.work, reply.source.replyTo], ['reply', 'x1', handed[0]])
+  run(second, 'b', 2, reply)
+  second.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'The plan is ready.' }] } })
+  second.emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => second.agentOf('a').calls.length === 1)
+  assert.match(text(second.agentOf('a').calls[0]), /Reviewer.*numbers check out/s)
+})
+
+test('a resend whose first send never landed records the exchange once it arrives', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const first = await start(home)
+  const flushing = first.ctx.sessions.flush
+  first.ctx.sessions.flush = async (session) => {
+    if (session?.id === 'b') throw Object.assign(new Error('Session sess-b is gone'), { code: 'session/not-found' })
+    return flushing(session)
+  }
+  await assert.rejects(first.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a'), /sess-b is gone/)
+  await settle(() => (notes(home).queued.b ?? []).length === 1)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 1)
+  // The first send never reached the Session, so the resend records the exchange.
+  const [again] = second.agentOf('b').calls
+  await settleState(t, home, () => (stateOf(home).exchanges ?? []).length === 1)
+  const [entry] = stateOf(home).exchanges
+  assert.deepEqual([entry.id, entry.role, entry.from, entry.to], [again.source.exchangeId, 'request', 'a', 'b'])
 })
 
 const WRITTEN = 'Checking now.\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem E:\\\n</parameter>\n</function>\n</tool_call>'
@@ -502,7 +769,7 @@ test('a tool call written as text gets one more turn on the same round slot', as
   const result = await openRoomTurn(t, host)
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: WRITTEN }] } })
   host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(t, () => host.agentOf('gb').calls.length === 2)
+  await settle(() => host.agentOf('gb').calls.length === 2)
   const retry = host.agentOf('gb').calls[1]
   assert.deepEqual([retry.source.role, retry.source.retried, retry.source.exchangeId], ['room', true, host.agentOf('gb').calls[0].source.exchangeId])
   assert.match(text(retry), /^\[Group chat "Ops" · your tool call did not run\]/)
@@ -512,7 +779,7 @@ test('a tool call written as text gets one more turn on the same round slot', as
   run(host, 'gb', 2, retry)
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: WRITTEN }] } })
   host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(t, () => result() !== undefined)
+  await settle(() => result() !== undefined)
   assert.deepEqual(result().replies.map(reply => reply.text), ['Checking now.'])
   assert.equal(host.agentOf('gb').calls.length, 2)
 })
@@ -525,7 +792,7 @@ test('in its own chat, a Bot that wrote a tool call as text is asked to make it'
   host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'On it.' }, { type: 'tool-call', id: 'k1', name: 'pwsh', arguments: '{}' }] } })
   host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: WRITTEN }] } })
   host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(t, () => host.agentOf('b').calls.length === 1)
+  await settle(() => host.agentOf('b').calls.length === 1)
   const retry = host.agentOf('b').calls[0]
   assert.deepEqual([retry.source.role, retry.source.retried], ['retry', true])
   assert.match(text(retry), /^\[Your last reply wrote a tool call as text, so nothing ran\]/)
