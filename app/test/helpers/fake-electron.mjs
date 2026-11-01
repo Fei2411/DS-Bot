@@ -59,6 +59,7 @@ export class FakeWindow extends EventEmitter {
 
   isDestroyed() { return this.destroyed }
   isVisible() { return this.visible }
+  isFocused() { return this.focused > 0 }
   isMinimized() { return this.minimized }
   isFullScreen() { return this.fullScreen }
   setFullScreen(value) { this.fullScreen = value; if (!value) this.emit('leave-full-screen') }
@@ -141,6 +142,7 @@ class FakeApp extends EventEmitter {
 }
 
 export const app = new FakeApp()
+app.setAppUserModelId = () => {}
 
 export const BrowserWindow = FakeWindow
 
@@ -221,4 +223,9 @@ export const dialog = {
 
 export const shell = {
   openExternal: async (url) => { state.opened = (state.opened ?? []).concat(url) },
+}
+
+export class Notification extends EventEmitter {
+  static isSupported() { return true }
+  show() {}
 }
