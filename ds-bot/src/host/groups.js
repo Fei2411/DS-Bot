@@ -442,7 +442,10 @@ export function install(rt) {
     memberBatch.delete(mKey)
     batch.pending.delete(botId)
     pruneBatchPending(room, batch)
-    if (batch.pending.size === 0) roomBatches.delete(batch.key)
+    if (batch.pending.size === 0) {
+      roomBatches.delete(batch.key)
+      void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
+    }
     return batch
   }
 

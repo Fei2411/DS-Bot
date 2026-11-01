@@ -112,7 +112,7 @@ async function start(t, room, services, extraRooms) {
     return { content: post.content, source: post.source }
   }
   await tool('list_bots', {}, 'a')
-  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost, takeGoal }
+  return { home, ctx, rt, agentOf, emit, tool, call, begin, finish, round, say, takePost, takeGoal }
 }
 
 const settle = async (check) => {
@@ -669,4 +669,32 @@ test('a room on its second part relays on the current Session and blocks /goal t
   await settle(() => blocked.length === 1)
   assert.equal(blocked[0].sessionId, 'r1p2')
   assert.equal(blocked[0].reason.message, 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.')
+})
+
+test('a member still working at round end wakes the admin when its work settles', async (t) => {
+  const host = await start(t)
+  await startGoal(host)
+  // Member c's group turn is still running when the round ends — no check is queued.
+  host.emit('gc', 'turn/start', { turn: 1 })
+  const first = host.round('c1', host.say('@Chief go'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', 'on it')
+  await settle(() => first() !== undefined)
+  assert.equal(host.takeGoal(), undefined)
+  // The round is fully gone before c's work ends; the settle check then queues one goal check.
+  await settle(async () => (await host.call('room-progress', { roomId: 'r1' })).value?.length === 0)
+  host.emit('gc', 'assistant/message', { message: { content: [{ type: 'text', text: 'done' }] } })
+  host.emit('gc', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('r1').calls.some(call => call.source?.role === 'goal'))
+  const nudge = host.takeGoal()
+  assert.ok(nudge !== undefined)
+  assert.match(text(nudge), /^\[Goal check\]$/)
+  // A second settle with no new work queues nothing while a round is running.
+  host.emit('gc', 'turn/start', { turn: 2 })
+  host.emit('gc', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(async () => (await host.call('room-progress', { roomId: 'r1' })).value?.length === 0)
+  const left = host.agentOf('r1').calls.filter(call => call.source?.role === 'goal')
+  assert.ok(left.length <= 1, `settles queued ${left.length} extra checks`)
+  assert.equal(host.takeGoal(), undefined)
 })

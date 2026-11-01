@@ -627,6 +627,20 @@ export function install(rt) {
     await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot')
   }
 
+  // Member work can outlive the round it grew out of; the round-end check then
+  // skips the room, and nothing else would wake the admin when the last of it
+  // settles. Settle — no round running, nobody working, no call batch, an
+  // empty inbox — runs the same check once: the fake round's one worked slot
+  // only says progress happened (the work that just ended), so the check gets
+  // a fresh budget.
+  const SETTLE_ROUND = Object.freeze({ stoppedOnly: false, slots: Object.freeze([{ id: '', worked: true }]) })
+
+  async function goalSettled(room) {
+    if (room === undefined) return
+    if ([...rt.roomProgress.values()].some(round => round.roomId === room.id)) return
+    await goalDrive(room, SETTLE_ROUND)
+  }
+
   // The user pressed stop in the group: the goal waits for them instead of
   // waking the admin through the stop-notice round.
   const goalUserStopped = (roomId) => {
@@ -790,7 +804,7 @@ export function install(rt) {
   }))
 
   Object.assign(rt, {
-    goalBlock, goalLedger, goalDraft, goalControl, goalDrive, goalUserMessage, goalUserStopped,
+    goalBlock, goalLedger, goalDraft, goalControl, goalDrive, goalSettled, goalUserMessage, goalUserStopped,
     goalTaskWorking: (roomId, botId) => mark(roomId, botId, 'pending', 'working'),
     goalTaskReported: (roomId, botId) => mark(roomId, botId, 'working', 'reported'),
     goalTaskReset: (roomId, botId, note) => mark(roomId, botId, 'working', 'pending', note),
