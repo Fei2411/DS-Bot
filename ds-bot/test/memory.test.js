@@ -775,6 +775,19 @@ test('a review keeps what it can, sets aside what memory cannot keep, and says e
   assert.equal(requests.length, 1)
 })
 
+test('a malformed change whose secret sits before the words that give it away is not written to the log', async (t) => {
+  const text = 'This is a note about the staging system. '.repeat(3) + 'I use hunter2 as my password'
+  const replies = [JSON.stringify({ changes: [{ op: 'edit', text }] })]
+  const { ctx, call, requests, warnings, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.ok(warnings.some(line => line.includes('left out a change') && line.includes('looks like a key, token, password, or ID number')), warnings.join('\n'))
+  assert.ok(!warnings.some(line => line.includes('hunter2')), warnings.join('\n'))
+})
+
 test('a review saves the well-formed changes of a partly-malformed answer, and says the rest', async (t) => {
   const replies = [JSON.stringify({ changes: [{ op: 'add', text: 'The user likes tea' }, { op: 'add' }] })]
   const { ctx, call, read, requests, warnings, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })

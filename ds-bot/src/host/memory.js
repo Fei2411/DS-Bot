@@ -1688,8 +1688,8 @@ export function install(rt) {
       } else {
         const { changes, leftOut } = parsed
         for (const change of leftOut) {
-          const shown = clip(JSON.stringify(change), 160)
-          rt.warn('ds-bot: memory review of %s left out a change: %s', name, secretEntry(shown) ? 'it looks like a key, token, password, or ID number, which memory never keeps' : `it is not a well-formed change: ${shown}`)
+          const whole = JSON.stringify(change)
+          rt.warn('ds-bot: memory review of %s left out a change: %s', name, secretEntry(whole) ? 'it looks like a key, token, password, or ID number, which memory never keeps' : `it is not a well-formed change: ${clip(whole, 160)}`)
         }
         // The limit is what one answer may hold, not a cut of the one the model
         // gave: every change in it is kept or set aside, none is dropped.
