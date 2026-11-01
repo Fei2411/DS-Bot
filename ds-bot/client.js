@@ -7351,7 +7351,14 @@ function opensReply(steps, current, withReasoning = true) {
 var thinkingStep = (steps) => steps.find(thinkingLive);
 var thinkingLive = (step) => step.status === "running" && texts(step).length === 0 && step.blocks.some((block) => block.kind === "reasoning");
 var texts = (step) => step.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "");
-var stepReasoning = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => block.text).join("\n").trim();
+var visibleReasoning = (text) => {
+  if (text[0] !== "<") return text;
+  if ("<signature>".startsWith(text)) return "";
+  if (!text.startsWith("<signature>")) return text;
+  const end = text.indexOf("</signature>");
+  return end === -1 ? "" : text.slice(end + "</signature>".length).replace(/^(\r?\n)+/, "");
+};
+var stepReasoning = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => visibleReasoning(block.text)).join("\n").trim();
 
 // src/shared/group-replies.js
 var RELAY_LIST = /"replies"\s*:\s*\[/;
