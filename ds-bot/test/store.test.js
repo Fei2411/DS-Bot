@@ -176,24 +176,53 @@ test('refresh adopts a fixed state file and clears read-only mode', async (t) =>
   assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'saved after repair')
 })
 
-test('a state file changed while the lock was gone is set aside, not adopted', async (t) => {
+test('a state file changed while the lock was gone is adopted, this host\'s state kept aside', async (t) => {
   const { rt, home, statePath, warnings } = runtime(t)
   await rt.load()
-  rt.state.prefs.marker = 'kept'
+  rt.state.prefs.marker = 'ours'
   await rt.save()
+  // A lock that only went missing changes nothing: the file is still this host's.
+  fs.rmSync(join(home, 'state.lock'))
+  await rt.refresh()
+  assert.deepEqual(fs.readdirSync(home).filter(name => name.startsWith('state.json.replaced-')), [])
   // A tool with full file access can edit the team file and remove the lock.
   fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
   fs.rmSync(join(home, 'state.lock'))
   await rt.refresh()
-  assert.equal(rt.state.prefs.marker, 'kept')
+  assert.equal(rt.state.prefs.marker, 'outside edit')
   assert.equal(rt.readOnly(), undefined)
-  assert.ok(warnings.some(args => /not adopted/.test(String(args))))
-  const backups = fs.readdirSync(home).filter(name => name.startsWith('state.json.edited-'))
+  assert.ok(warnings.some(args => /adopted/.test(String(args)) && /kept as/.test(String(args))))
+  const backups = fs.readdirSync(home).filter(name => name.startsWith('state.json.replaced-'))
   assert.equal(backups.length, 1)
-  assert.equal(JSON.parse(fs.readFileSync(join(home, backups[0]), 'utf8')).prefs.marker, 'outside edit')
-  // The next save writes this host's own state over the outside file.
+  assert.equal(JSON.parse(fs.readFileSync(join(home, backups[0]), 'utf8')).prefs.marker, 'ours')
+  // The next save writes the adopted state, so the outside edit is not lost.
+  rt.state.prefs.after = 'saved'
   await rt.save()
-  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'kept')
+  const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+  assert.equal(saved.prefs.marker, 'outside edit')
+  assert.equal(saved.prefs.after, 'saved')
+})
+
+test('a changed file is still adopted when keeping this host\'s state aside fails', async (t) => {
+  const { rt, home, statePath, warnings } = runtime(t)
+  await rt.load()
+  rt.state.prefs.marker = 'ours'
+  await rt.save()
+  fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
+  fs.rmSync(join(home, 'state.lock'))
+  const restore = patch('writeFile', originalWrite => async (path, ...args) => {
+    if (String(path).startsWith(`${statePath}.replaced-`)) throw Object.assign(new Error('synthetic write failure'), { code: 'EACCES' })
+    return originalWrite(path, ...args)
+  })
+  try {
+    await rt.refresh()
+  } finally {
+    restore()
+  }
+  assert.equal(rt.state.prefs.marker, 'outside edit')
+  assert.ok(warnings.some(args => /is lost because/.test(String(args))))
+  await rt.save()
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'outside edit')
 })
 
 test('a changed file is adopted when another host left its lock behind', async (t) => {
@@ -207,6 +236,9 @@ test('a changed file is adopted when another host left its lock behind', async (
   await rt.refresh()
   assert.equal(rt.state.prefs.marker, 'taken over')
   assert.equal(rt.readOnly(), undefined)
+  const backups = fs.readdirSync(home).filter(name => name.startsWith('state.json.replaced-'))
+  assert.equal(backups.length, 1)
+  assert.equal(JSON.parse(fs.readFileSync(join(home, backups[0]), 'utf8')).prefs.marker, 'before')
   await rt.save()
   assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'taken over')
 })
