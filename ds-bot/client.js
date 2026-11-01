@@ -693,8 +693,10 @@ var ZH = {
   "Paused · {title}": "已暂停 · {title}",
   "Waiting for you · {title}": "等你 · {title}",
   "Checking · {title}": "验收中 · {title}",
-  "Sent back: {feedback}": "返工：{feedback}",
-  "Sent back ×{n}: {feedback}": "返工 ×{n}：{feedback}",
+  "Sent back by {admin}: {feedback}": "{admin} 打回重做：{feedback}",
+  "Sent back {n} times by {admin}. Last time: {feedback}": "{admin} 已打回 {n} 次，最近一次：{feedback}",
+  "Done when: {text}": "完成标准：{text}",
+  "Evidence: {text}": "通过的依据：{text}",
   "Back to current stage": "回到当前阶段",
   "Goal and checks": "目标与验收",
   Summary: "总结",
@@ -3971,7 +3973,7 @@ var MemoryIcon = lineIcon(["M5.5 3.5h8A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1
 var TerminalIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5v-9A1.5 1.5 0 0 1 4.5 4z", "M6.5 8l2.5 2.5L6.5 13", "M11 13h3.5"]);
 var FolderIcon = lineIcon(["M3 6A1.5 1.5 0 0 1 4.5 4.5h3.2l1.8 2h6A1.5 1.5 0 0 1 17 8v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z"]);
 var SideIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9L5.5 16v-3h-1A1.5 1.5 0 0 1 3 11.5v-6A1.5 1.5 0 0 1 4.5 4z", "M6.5 7h7", "M6.5 10h4.5"]);
-var GoalIcon = lineIcon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M10 6.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z", "M10 10h.01"]);
+var GoalIcon = lineIcon(["M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9", "M9 8a3 3 0 1 0 0 6 3 3 0 1 0 0-6", "M9 11l7.5-7.5", "M14.6 2.8v2.6h2.6"]);
 var ChatsIcon = lineIcon(["M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z", "M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13"]);
 var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, usage: GaugeIcon };
 
@@ -4130,7 +4132,7 @@ function TaskRow({ task, working }) {
   );
 }
 var STOP_ARM_MS = 3e3;
-function GoalPanel({ goal, view, room: room2, actions, working }) {
+function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
   const at = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
   const [selected, setSelected] = (0, import_react5.useState)(at);
   const [checks, setChecks] = (0, import_react5.useState)(false);
@@ -4160,6 +4162,7 @@ function GoalPanel({ goal, view, room: room2, actions, working }) {
     ...body.map((line, i) => (0, import_react5.createElement)("div", { key: i, className: "bt-goal-text" }, line))
   );
   const hasChecks = goal.objective !== void 0 || goal.acceptance !== void 0 || goal.constraints?.length > 0;
+  const admin = roster.byId?.[room2.admin]?.name ?? t("a Bot");
   const stopWork = () => void Promise.resolve(actions.stopRoomWork(room2.id)).catch((error) => actions.reportError(error, "stop"));
   return (0, import_react5.createElement)(
     "div",
@@ -4194,16 +4197,16 @@ function GoalPanel({ goal, view, room: room2, actions, working }) {
         ) : (0, import_react5.createElement)(
           import_react5.Fragment,
           null,
-          selected !== at ? (0, import_react5.createElement)(
+          (0, import_react5.createElement)(
             "div",
             { className: "bt-goal-bline" },
-            (0, import_react5.createElement)("span", { className: "bt-goal-btitle" }, t("Stage {n}: {title}", { n: stage.n, title: stage.title })),
-            at >= 0 ? (0, import_react5.createElement)("button", { type: "button", className: "bt-goal-back", onClick: () => setSelected(at) }, t("Back to current stage")) : null
-          ) : null,
-          stage.acceptance ? (0, import_react5.createElement)("div", { className: "bt-goal-line" }, (0, import_react5.createElement)("span", { className: "bt-goal-sub" }, t("Done when")), (0, import_react5.createElement)("span", { className: "bt-goal-acc" }, stage.acceptance)) : null,
-          selected === at && stage.reworks > 0 && stage.feedback ? (0, import_react5.createElement)("div", { className: "bt-goal-rw" }, stage.reworks > 1 ? t("Sent back ×{n}: {feedback}", { n: stage.reworks, feedback: stage.feedback }) : t("Sent back: {feedback}", { feedback: stage.feedback })) : null,
-          stage.evidence !== void 0 && stage.status === "passed" ? (0, import_react5.createElement)("div", { className: "bt-goal-evi" }, stage.evidence) : null,
-          stage.tasks.map((task, i) => (0, import_react5.createElement)(TaskRow, { key: i, task, working }))
+            (0, import_react5.createElement)("span", { className: "bt-goal-btitle" }, stage.title),
+            selected !== at && at >= 0 ? (0, import_react5.createElement)("button", { type: "button", className: "bt-goal-back", onClick: () => setSelected(at) }, t("Back to current stage")) : null
+          ),
+          stage.acceptance ? (0, import_react5.createElement)("div", { className: "bt-goal-line" }, t("Done when: {text}", { text: stage.acceptance })) : null,
+          selected === at && stage.reworks > 0 && stage.feedback ? (0, import_react5.createElement)("div", { className: "bt-goal-rw" }, stage.reworks > 1 ? t("Sent back {n} times by {admin}. Last time: {feedback}", { n: stage.reworks, admin, feedback: stage.feedback }) : t("Sent back by {admin}: {feedback}", { admin, feedback: stage.feedback })) : null,
+          stage.evidence !== void 0 && stage.status === "passed" ? (0, import_react5.createElement)("div", { className: "bt-goal-evi" }, t("Evidence: {text}", { text: stage.evidence })) : null,
+          stage.tasks.length > 0 ? (0, import_react5.createElement)("div", { className: "bt-goal-tasks" }, stage.tasks.map((task, i) => (0, import_react5.createElement)(TaskRow, { key: i, task, working }))) : null
         )
       ),
       checks && hasChecks ? (0, import_react5.createElement)(
@@ -4331,7 +4334,7 @@ function GoalIsland({ room: room2, goal, view, open, composing, roomWork, roster
         import_react5.Fragment,
         null,
         (0, import_react5.createElement)(GoalBar, { view, open, room: room2, actions }),
-        open ? (0, import_react5.createElement)(GoalPanel, { goal, view, room: room2, actions, working }) : null
+        open ? (0, import_react5.createElement)(GoalPanel, { goal, view, room: room2, roster, actions, working }) : null
       )
     )
   );
@@ -4404,19 +4407,19 @@ var GOAL_CSS = `
 .bt-goal-step[data-sel]:not([aria-current])>.bt-goal-node{box-shadow:0 0 0 1.5px var(--bt-ink)}
 .bt-goal-step.bt-goal-mini .bt-goal-node{font-size:0}
 /* The selected stage below the stepper. */
-.bt-goal-bstage{display:flex;flex-direction:column;gap:8px;padding:10px 14px;font-size:13px;line-height:18px;animation:bt-veil-in .22s ease-out backwards}
+.bt-goal-bstage{display:flex;flex-direction:column;padding:4px 14px 14px;font-size:13px;line-height:18px;animation:bt-veil-in .22s ease-out backwards}
 .bt-goal-bline{display:flex;align-items:baseline;gap:8px}
 .bt-goal-btitle{flex:1 1 auto;font-weight:600}
 .bt-goal-back{flex:none;border:0;background:none;padding:0;font:inherit;font-size:12px;line-height:16px;color:var(--bt-accent);cursor:pointer}
 .bt-goal-btext{overflow-wrap:anywhere}
-.bt-goal-line{display:flex;gap:6px;min-width:0;font-size:12px;line-height:16px}
+.bt-goal-line{margin-top:2px;min-width:0;font-size:12px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-goal-sec{display:flex;flex-direction:column;gap:4px;min-width:0}
 .bt-goal-sub{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--bt-ink-2)}
-.bt-goal-acc{color:var(--bt-ink-2);overflow-wrap:anywhere}
-.bt-goal-rw{font-size:12px;line-height:16px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-goal-rw{margin-top:8px;border-radius:8px;padding:6px 10px;background:color-mix(in srgb,var(--bt-star) 10%,transparent);font-size:12px;line-height:18px;color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-goal-text{overflow-wrap:anywhere}
 .bt-goal-rules{margin:0;padding-left:18px}
-.bt-goal-evi{font-size:12px;line-height:16px;color:var(--bt-ink-2);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bt-goal-evi{margin-top:8px;font-size:12px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bt-goal-tasks{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .bt-goal-task{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .bt-goal-task[data-task=pending]{opacity:.55}
 .bt-goal-tav{position:relative;flex:none;display:inline-flex;margin-top:1px}

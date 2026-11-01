@@ -146,7 +146,7 @@ const STOP_ARM_MS = 3000
 
 // The open pod focuses one stage: a stepper across the top, the selected
 // stage's checks and tasks under it, and a bottom row with the rest.
-function GoalPanel({ goal, view, room, actions, working }) {
+function GoalPanel({ goal, view, room, roster, actions, working }) {
   const at = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1
   const [selected, setSelected] = useState(at)
   const [checks, setChecks] = useState(false)
@@ -175,6 +175,7 @@ function GoalPanel({ goal, view, room, actions, working }) {
   const sec = (key, label, ...body) => h('div', { key, className: 'bt-goal-sec' },
     h('div', { className: 'bt-goal-sub' }, label), ...body.map((line, i) => h('div', { key: i, className: 'bt-goal-text' }, line)))
   const hasChecks = goal.objective !== undefined || goal.acceptance !== undefined || goal.constraints?.length > 0
+  const admin = roster.byId?.[room.admin]?.name ?? t('a Bot')
   const stopWork = () => void Promise.resolve(actions.stopRoomWork(room.id)).catch(error => actions.reportError(error, 'stop'))
   return h('div', { className: 'bt-goal-panel', role: 'region', 'aria-label': view.title },
     h('div', { className: 'bt-goal-body' },
@@ -196,14 +197,16 @@ function GoalPanel({ goal, view, room, actions, working }) {
             goal.evidence ? h('div', { className: 'bt-goal-evi' }, goal.evidence) : null,
             view.status === 'stopped' && goal.reason ? h('div', { className: 'bt-goal-evi' }, goal.reason) : null)
           : h(Fragment, null,
-            selected !== at ? h('div', { className: 'bt-goal-bline' },
-              h('span', { className: 'bt-goal-btitle' }, t('Stage {n}: {title}', { n: stage.n, title: stage.title })),
-              at >= 0 ? h('button', { type: 'button', className: 'bt-goal-back', onClick: () => setSelected(at) }, t('Back to current stage')) : null) : null,
-            stage.acceptance ? h('div', { className: 'bt-goal-line' }, h('span', { className: 'bt-goal-sub' }, t('Done when')), h('span', { className: 'bt-goal-acc' }, stage.acceptance)) : null,
+            h('div', { className: 'bt-goal-bline' },
+              h('span', { className: 'bt-goal-btitle' }, stage.title),
+              selected !== at && at >= 0 ? h('button', { type: 'button', className: 'bt-goal-back', onClick: () => setSelected(at) }, t('Back to current stage')) : null),
+            stage.acceptance ? h('div', { className: 'bt-goal-line' }, t('Done when: {text}', { text: stage.acceptance })) : null,
             selected === at && stage.reworks > 0 && stage.feedback
-              ? h('div', { className: 'bt-goal-rw' }, stage.reworks > 1 ? t('Sent back ×{n}: {feedback}', { n: stage.reworks, feedback: stage.feedback }) : t('Sent back: {feedback}', { feedback: stage.feedback })) : null,
-            stage.evidence !== undefined && stage.status === 'passed' ? h('div', { className: 'bt-goal-evi' }, stage.evidence) : null,
-            stage.tasks.map((task, i) => h(TaskRow, { key: i, task, working })))),
+              ? h('div', { className: 'bt-goal-rw' }, stage.reworks > 1
+                ? t('Sent back {n} times by {admin}. Last time: {feedback}', { n: stage.reworks, admin, feedback: stage.feedback })
+                : t('Sent back by {admin}: {feedback}', { admin, feedback: stage.feedback })) : null,
+            stage.evidence !== undefined && stage.status === 'passed' ? h('div', { className: 'bt-goal-evi' }, t('Evidence: {text}', { text: stage.evidence })) : null,
+            stage.tasks.length > 0 ? h('div', { className: 'bt-goal-tasks' }, stage.tasks.map((task, i) => h(TaskRow, { key: i, task, working }))) : null)),
     checks && hasChecks ? h('div', { className: 'bt-goal-ckbody' },
       goal.objective ? sec('objective', t('Objective'), goal.objective) : null,
       goal.acceptance ? sec('acceptance', t('Done when'), goal.acceptance) : null,
@@ -286,7 +289,7 @@ export function GoalIsland({ room, goal, view, open, composing, roomWork, roster
       : view === null ? null
         : h(Fragment, null,
           h(GoalBar, { view, open, room, actions }),
-          open ? h(GoalPanel, { goal, view, room, actions, working }) : null)))
+          open ? h(GoalPanel, { goal, view, room, roster, actions, working }) : null)))
 }
 
 export const GOAL_CSS = `
@@ -357,19 +360,19 @@ export const GOAL_CSS = `
 .bt-goal-step[data-sel]:not([aria-current])>.bt-goal-node{box-shadow:0 0 0 1.5px var(--bt-ink)}
 .bt-goal-step.bt-goal-mini .bt-goal-node{font-size:0}
 /* The selected stage below the stepper. */
-.bt-goal-bstage{display:flex;flex-direction:column;gap:8px;padding:10px 14px;font-size:13px;line-height:18px;animation:bt-veil-in .22s ease-out backwards}
+.bt-goal-bstage{display:flex;flex-direction:column;padding:4px 14px 14px;font-size:13px;line-height:18px;animation:bt-veil-in .22s ease-out backwards}
 .bt-goal-bline{display:flex;align-items:baseline;gap:8px}
 .bt-goal-btitle{flex:1 1 auto;font-weight:600}
 .bt-goal-back{flex:none;border:0;background:none;padding:0;font:inherit;font-size:12px;line-height:16px;color:var(--bt-accent);cursor:pointer}
 .bt-goal-btext{overflow-wrap:anywhere}
-.bt-goal-line{display:flex;gap:6px;min-width:0;font-size:12px;line-height:16px}
+.bt-goal-line{margin-top:2px;min-width:0;font-size:12px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-goal-sec{display:flex;flex-direction:column;gap:4px;min-width:0}
 .bt-goal-sub{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--bt-ink-2)}
-.bt-goal-acc{color:var(--bt-ink-2);overflow-wrap:anywhere}
-.bt-goal-rw{font-size:12px;line-height:16px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-goal-rw{margin-top:8px;border-radius:8px;padding:6px 10px;background:color-mix(in srgb,var(--bt-star) 10%,transparent);font-size:12px;line-height:18px;color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-goal-text{overflow-wrap:anywhere}
 .bt-goal-rules{margin:0;padding-left:18px}
-.bt-goal-evi{font-size:12px;line-height:16px;color:var(--bt-ink-2);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bt-goal-evi{margin-top:8px;font-size:12px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bt-goal-tasks{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .bt-goal-task{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .bt-goal-task[data-task=pending]{opacity:.55}
 .bt-goal-tav{position:relative;flex:none;display:inline-flex;margin-top:1px}

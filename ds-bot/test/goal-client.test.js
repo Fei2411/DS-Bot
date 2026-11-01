@@ -195,12 +195,28 @@ test('the open island draws a stepper, the current stage and the goal controls, 
   const content = text(panel)
   assert.equal(content.includes('Pause'), true)
   assert.equal(content.includes('Stop'), true)
-  // The selected (current) stage needs no title line or back button.
-  assert.equal(find(panel, 'bt-goal-btitle'), null)
-  assert.equal(content.includes('Sent back: tighten the scope'), true)
+  // The title line anchors the selected stage even when it is the current one.
+  assert.equal(text(find(panel, 'bt-goal-btitle')), 'Second')
+  assert.equal(find(panel, 'bt-goal-back'), null)
+  assert.equal(content.includes('Sent back by Chief: tighten the scope'), true)
   assert.equal(content.includes('do b'), true)
-  assert.equal(content.includes('Done when'), true)
+  assert.equal(content.includes('Done when: a2'), true)
   assert.equal(content.includes('Goal and checks'), true)
+})
+
+test('a passed stage shows its evidence and the rework line grows with the count', () => {
+  const node = renderHeader(team(running({ stages: stages({ reworks: 2, feedback: 'too wide' }) })), { goalOpen: 'r1' })
+  const panel = find(node, 'bt-goal-panel')
+  assert.equal(text(panel).includes('Sent back 2 times by Chief. Last time: too wide'), true)
+  // Stage 1 is passed: selecting it shows its evidence as a run of text.
+  const original = react.useState
+  react.useState = initial => [initial === 1 ? 0 : initial, () => {}]
+  try {
+    const passed = find(renderHeader(team(running()), { goalOpen: 'r1' }), 'bt-goal-panel')
+    assert.equal(text(find(passed, 'bt-goal-btitle')), 'First')
+    assert.equal(text(passed).includes('Evidence: first evidence'), true)
+    assert.equal(text(passed).includes('Back to current stage'), true)
+  } finally { react.useState = original }
 })
 
 test('a stage other than the current one gets a title line and a way back', () => {
@@ -211,7 +227,7 @@ test('a stage other than the current one gets a title line and a way back', () =
   try {
     const node = renderHeader(team(running()), { goalOpen: 'r1' })
     const panel = find(node, 'bt-goal-panel')
-    assert.equal(text(find(panel, 'bt-goal-btitle')), 'Stage 3: Third')
+    assert.equal(text(find(panel, 'bt-goal-btitle')), 'Third')
     assert.equal(text(find(panel, 'bt-goal-back')), 'Back to current stage')
     const rows = all(panel, 'bt-goal-task')
     assert.equal(rows.length, 1)
