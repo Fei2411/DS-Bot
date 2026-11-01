@@ -4,7 +4,7 @@ import { currentPart } from './text.js'
 import { CheckIcon, SlidersIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
-import { SPRING_POP, SPRING_SHAPE, spring, useLinger, useViewport, viewBottom } from './motion.js'
+import { SPRING_POP, SPRING_SHAPE, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 
 const MENU_EXIT_MS = 120
@@ -114,7 +114,10 @@ export function useAnchoredMenu() {
       if (menu.current?.contains(event.target) || button.current?.contains(event.target)) return
       close()
     }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); close(); button.current?.focus() } }
+    const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event)) return
+      if (event.key === 'Escape') { event.stopPropagation(); close(); button.current?.focus() }
+    }
     const onScroll = (event) => { if (!menu.current?.contains(event.target)) close() }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
