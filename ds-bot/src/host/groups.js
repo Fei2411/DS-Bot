@@ -192,6 +192,23 @@ export function install(rt) {
   }
   Object.assign(rt, { keepGroupLine, dropGroupLines })
 
+  async function syncGroupModel(room, member, sessionId) {
+    try {
+      const ref = await rt.desiredModel(member)
+      if (ref === undefined) return
+      const effort = await rt.desiredEffort(member, ref)
+      const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
+      const agent = await rt.resolveAgent(sessionId)
+      // Bot-global appliedEffort cannot tell whether this group's Session inherited
+      // it. Read the next selection, including a change not used by a request yet.
+      const selected = ctx.get?.('sessionProjections')?.snapshot(agent.session, ['modelSelection']).values.modelSelection?.next
+      if (selected?.provider === route.provider && selected.model === route.model && selected.reasoningEffort === effort) return
+      await rt.selectSessionModel(sessionId, route)
+    } catch (error) {
+      rt.warn('ds-bot: model for %s in %s not applied: %s', member.name, room.name, error)
+    }
+  }
+
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
   // first message, so it stays fixed and the prefix stays cacheable.
@@ -199,6 +216,7 @@ export function install(rt) {
     room.sessions ??= {}
     const known = room.sessions[member.id]
     if (known !== undefined) {
+      await syncGroupModel(room, member, known)
       await rt.ensureCapabilities(known)
       return { id: known, brief: undefined }
     }
@@ -215,11 +233,7 @@ export function install(rt) {
     room.sessions[member.id] = id
     rt.groupOwners.set(id, { botId: member.id, roomId: room.id })
     delete room.seen[member.id]
-    const ref = await rt.desiredModel(member)
-    if (ref !== undefined) {
-      await rt.selectSessionModel(id, splitRef(ref))
-        .catch(error => rt.warn('ds-bot: model for %s in %s not applied: %s', member.name, room.name, error))
-    }
+    await syncGroupModel(room, member, id)
     await rt.applyPermission(member, id, room)
       .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', member.name, room.name, error))
     await rt.save()

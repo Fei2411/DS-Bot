@@ -18,6 +18,8 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
   const ctx = fakeContext()
   const workspaces = new Map()
   const sent = []
+  const selections = new Map()
+  const selected = []
   const inboxes = new Map()
   const inboxOf = (sessionId) => {
     if (!inboxes.has(sessionId)) {
@@ -56,7 +58,10 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     sessionController: {
       create: async () => ({ sessionId: `s${++sessions}` }),
       resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
-      selectModel: async () => {},
+      selectModel: async ({ sessionId, ...route }) => {
+        selected.push({ sessionId, ...route })
+        selections.set(sessionId, route)
+      },
       prompt: async (request) => {
         const inbox = inboxOf(request.sessionId)
         inbox[request.mode === 'steer' ? 'nextStep' : 'nextTurn'].push({ id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: request.requestId }, content: request.content })
@@ -67,6 +72,10 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
+  const get = ctx.get
+  ctx.get = name => name === 'sessionProjections'
+    ? { snapshot: session => ({ values: { modelSelection: { next: selections.get(session.id) ?? null } } }) }
+    : get?.call(ctx, name)
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => {
@@ -103,7 +112,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     await ctx.dispose()
     if (!keep) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent, ctx, home, rt }
+  return { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent, ctx, home, rt, selected, selections }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -153,6 +162,82 @@ async function team(call, sent) {
   sent.length = 0
   return room
 }
+
+test('group turns inherit supported thinking levels and repair earlier Sessions without reselecting matching ones', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, ctx, rt, selected, selections } = start()
+  t.after(stop)
+  ctx.llm.resolveModelInfo = async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } })
+  const room = await team(call, sent)
+  const member = rt.botOf(room.members[0])
+  member.model = 'deepseek/deepseek-v4-flash'
+  member.effort = 'high'
+  await rt.applyModel(member)
+  await rt.save()
+  const route = { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'high' }
+  const round = async (tag) => {
+    sent.length = 0
+    await emit(room.id, userMessage(`@${member.name} ${tag}`))
+    const running = relay(room.id, tag)
+    const turn = await turnFor(sent)
+    assert.ok(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, 'Ready.', 1)
+    await running
+    return turn.sessionId
+  }
+  const sessionId = await round('new')
+  assert.deepEqual(selections.get(sessionId), route)
+  const count = selected.length
+  await round('unchanged')
+  assert.equal(selected.length, count)
+
+  // Before this fix a group could keep a model-only selection even though the
+  // Bot-global appliedEffort already claimed that high was applied.
+  selections.set(sessionId, { provider: route.provider, model: route.model })
+  await rt.applyModel(member)
+  assert.equal(selected.length, count)
+  assert.equal(await round('legacy'), sessionId)
+  assert.deepEqual(selections.get(sessionId), route)
+  assert.equal(selected.length, count + 1)
+
+  const selectModel = ctx.sessionController.selectModel
+  selections.set(sessionId, { provider: route.provider, model: 'older-model' })
+  ctx.sessionController.selectModel = async () => { throw new Error('temporarily unavailable') }
+  await round('unavailable')
+  assert.equal(selections.get(sessionId).model, 'older-model')
+  ctx.sessionController.selectModel = selectModel
+  await round('retry')
+  assert.deepEqual(selections.get(sessionId), route)
+  assert.deepEqual(selections.get(rt.chatOf(member.id)), route)
+})
+
+test('group turns omit unsupported thinking levels and clear an earlier explicit level', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, ctx, rt, selections } = start()
+  t.after(stop)
+  ctx.llm.resolveModelInfo = async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } })
+  const room = await team(call, sent)
+  const member = rt.botOf(room.members[0])
+  member.model = 'deepseek/deepseek-v4-flash'
+  member.effort = 'max'
+  await rt.save()
+  const round = async (tag) => {
+    sent.length = 0
+    await emit(room.id, userMessage(`@${member.name} ${tag}`))
+    const running = relay(room.id, tag)
+    const turn = await turnFor(sent)
+    assert.ok(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, 'Ready.', 1)
+    await running
+    return turn.sessionId
+  }
+  const sessionId = await round('unsupported')
+  const route = { provider: 'deepseek', model: 'deepseek-v4-flash' }
+  assert.deepEqual(selections.get(sessionId), route)
+  selections.set(sessionId, { ...route, reasoningEffort: 'high' })
+  delete member.effort
+  await rt.save()
+  await round('default')
+  assert.deepEqual(selections.get(sessionId), route)
+})
 
 test('a message the composer queues mid-round joins the round and leaves the Session\'s queue', async (t) => {
   const { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent } = start()
