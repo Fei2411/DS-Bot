@@ -170,7 +170,7 @@ test('the guard refuses the blocking question tool in Bot Sessions only', async 
   assert.equal(guard('read', 'writer'), undefined)
 })
 
-// FeiZhuLulu/DeepSeek-Bot#77: a new Bot told never to use a question tool was opened
+// FeiZhuLulu/DS-Bot#77: a new Bot told never to use a question tool was opened
 // with "use ask_user", and a model that picked dsh's ask_user_question for it held the
 // Bot until the card was answered, with other Bots' messages queued behind it.
 test('a new Bot that rules out question tools opens without one and cannot block on dsh\'s', async (t) => {

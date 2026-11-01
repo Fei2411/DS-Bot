@@ -57,7 +57,7 @@ export class BackgroundNotice {
   async #ask(hide) {
     try {
       const { response } = await this.#show({
-        type: 'info', title: 'DeepSeek Bot', message: this.#message,
+        type: 'info', title: 'DS Bot', message: this.#message,
         buttons: [this.#confirm], defaultId: 0, cancelId: -1, noLink: true,
       })
       // A cancelled box leaves the window where it is.
@@ -67,11 +67,11 @@ export class BackgroundNotice {
         mkdirSync(dirname(this.#marker), { recursive: true })
         writeFileSync(this.#marker, '')
       } catch (error) {
-        this.#log.warn(`DeepSeek Bot: the tray notice was not remembered: ${error instanceof Error ? error.message : String(error)}`)
+        this.#log.warn(`DS Bot: the tray notice was not remembered: ${error instanceof Error ? error.message : String(error)}`)
       }
       hide()
     } catch (error) {
-      this.#log.warn(`DeepSeek Bot: the tray notice could not be shown: ${error instanceof Error ? error.message : String(error)}`)
+      this.#log.warn(`DS Bot: the tray notice could not be shown: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       this.#pending = false
     }
