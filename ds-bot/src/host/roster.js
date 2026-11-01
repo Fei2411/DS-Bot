@@ -648,9 +648,9 @@ export function install(rt) {
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
     if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
     delete state.bots[id]
-    // Shared capabilities only this Bot held have no Bot left to serve; they leave
-    // the shared list with it instead of staying as approvable orphans.
-    rt.dropOrphanCapabilities?.(bot.capabilities)
+    // The shared capability list is the user's and keeps its items; only a
+    // still-unapproved local MCP this Bot alone asked for leaves with it.
+    rt.dropOrphanCapabilities?.(bot)
     for (const part of parts) {
       delete state.questions[part]
       if (state.views !== undefined) delete state.views[part]

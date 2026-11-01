@@ -152,19 +152,18 @@ export function install(rt) {
     await rt.save()
     return true
   }
-  // Called with the attachment list of a Bot being deleted, after it left the team:
-  // the items no remaining Bot uses leave the list with it instead of staying as
-  // orphans a later approval would start for nobody. Items never attached stay.
-  const dropOrphanCapabilities = (names) => {
+  // Called with the Bot being deleted, after it left the team. The shared list belongs to
+  // the user, so only a local MCP this Bot added, nobody approved and no other Bot or pack
+  // uses goes: no one is left to ask for it, and approving it would start a server for no one.
+  // Anything a pack lists stays.
+  const dropOrphanCapabilities = (bot) => {
     const items = library()
-    // Children of a held pack count too: a Set visit reaches entries added while it runs.
-    const held = new Set(names ?? [])
-    for (const name of held) for (const child of own(items, name)?.items ?? []) held.add(child)
-    for (const name of held) {
+    const packed = name => Object.values(items).some(item => item.kind === 'pack' && (item.items ?? []).includes(name))
+    for (const name of bot.capabilities ?? []) {
       const item = own(items, name)
-      if (item === undefined || usedByOthers(name)) continue
+      if (item === undefined || item.kind !== 'mcp' || item.transport !== 'stdio' || item.approved === true) continue
+      if (item.createdBy !== bot.id || usedByOthers(name, bot.id) || packed(name)) continue
       delete items[item.name]
-      for (const pack of Object.values(items)) if (pack.kind === 'pack') pack.items = (pack.items ?? []).filter(child => child !== item.name)
     }
   }
   const changeAttachment = async (endpoint, { name, bot: targetRef }, callerId) => {
