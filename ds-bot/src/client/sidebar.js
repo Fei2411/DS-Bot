@@ -8,7 +8,7 @@ import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
+import { springEasing, SPRING_SHAPE, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
@@ -269,8 +269,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, style: { width: `${width}px` } },
+function LeftColumn({ mode, width, onGrip, leaving, children }) {
+  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -317,7 +317,10 @@ export function TeamSidebar(props) {
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
   const mode = drag?.left ?? layout.left
-  const wideContent = mode !== 'rail'
+  // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
+  const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
+  const shown = held ?? mode
+  const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
@@ -341,7 +344,7 @@ export function TeamSidebar(props) {
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
   // as the rail and the chat stays put when it opens or closes.
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
-  const ourWidth = mode === 'rail' ? RAIL_WIDTH : openWidth
+  const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
@@ -584,7 +587,7 @@ export function TeamSidebar(props) {
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    mode === 'hidden' ? null : h(LeftColumn, { mode, width: ourWidth, onGrip: startDrag }, content))
+    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
