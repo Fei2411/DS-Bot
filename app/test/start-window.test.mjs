@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { readStartFrame, writeStartFrame } from '../src/start-frame.mjs'
 import {
-  acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, GROWTH, GROWTH_EASING,
+  acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, FADE, GROWTH, GROWTH_EASING, LANDING_WAIT,
   growthSteps, isStartPage, landingOf, MAIN_SIZE, mainRect, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
   TEAM_VIEW_MS, WATCHDOG_MS,
 } from '../src/start-window.mjs'
@@ -47,18 +47,20 @@ test('the easing is CSS cubic-bezier()', () => {
     assert.ok(value >= previous && value <= 1, `at ${String(step)}%`)
     previous = value
   }
-  // cubic-bezier(.2, .7, .2, 1) is quick at first: most of the way in the first half.
-  assert.ok(GROWTH_EASING(0.5) > 0.9)
+  // cubic-bezier(.45, 0, .25, 1) eases in and out: slow at both ends, not done early.
+  assert.ok(GROWTH_EASING(0.2) < 0.15)
+  assert.ok(GROWTH_EASING(0.5) > 0.6 && GROWTH_EASING(0.5) < 0.8)
+  assert.ok(GROWTH_EASING(0.8) > 0.95)
 })
 
-test('the start window grows into the team window in about 14 ms steps over 300 ms', () => {
+test('the start window grows into the team window in about 14 ms steps over 260 ms', () => {
   const from = centred(startSize(AREA), AREA)
   const to = mainRect(from, AREA)
   const steps = growthSteps(from, to)
-  assert.equal(GROWTH.duration, 300)
-  assert.equal(GROWTH.delay, 160)
-  assert.equal(steps.length, 22)
-  assert.deepEqual(steps.at(-1), { at: 300, rect: to })
+  assert.equal(GROWTH.duration, 260)
+  assert.equal(GROWTH.delay, 40)
+  assert.equal(steps.length, 19)
+  assert.deepEqual(steps.at(-1), { at: 260, rect: to })
   assert.ok(steps.every((step, index) => index === 0 || step.at > steps[index - 1].at))
   assert.ok(steps.slice(0, -1).every(step => step.at % 14 === 0))
   for (const key of ['x', 'y', 'width', 'height']) {
@@ -305,6 +307,8 @@ function fakeElectron() {
     setBackgroundColor() {}
     getMediaSourceId() { return 'window:1:0' }
     moveAbove() {}
+    moveTop() { this.calls.push('moveTop') }
+    setOpacity(value) { this.opacity = value; if (value === 0 || value === 1) this.calls.push(`opacity ${String(value)}`) }
   }
   const display = { workArea: AREA }
   const electron = {
@@ -470,14 +474,16 @@ for (const [kind, wait] of [['first', 2500], ['later', 800]]) {
     s.start.done('engine')
     s.start.ready()
     s.tick(wait - 1)
-    assert.equal(s.main.visible, false)
+    assert.equal(s.main.calls.includes('opacity 1'), false)
     s.tick(1)
-    assert.equal(s.main.visible, true)
-    assert.deepEqual(s.main.calls.slice(-2), ['show', 'focus'])
+    // It waited see-through under the start window, which fades out over it without growing.
+    assert.deepEqual(s.main.calls.slice(-2), ['opacity 1', 'skipTaskbar false'])
     assert.ok(s.win().calls.includes('skipTaskbar true'))
     await s.start.teamShown
-    s.tick(300)
-    assert.equal(s.win().destroyed, true)
+    const start = s.win()
+    for (let ms = 0; ms <= FADE.duration; ms += FADE.step) s.tick(FADE.step)
+    assert.equal(start.destroyed, true)
+    assert.equal(s.main.calls.at(-1), 'focus')
     // Gone after the hand-off, the start window does not quit the app.
     assert.equal(s.calls.close, 0)
   })
@@ -497,7 +503,7 @@ test('after handoffShow the start window grows into the team window\'s rect, and
   assert.deepEqual(s.win().bounds, from)
   s.tick(1)
   const widths = []
-  for (let step = 0; step < 40 && !s.main.visible; step += 1) {
+  for (let step = 0; step < 40 && !s.main.calls.includes('opacity 1'); step += 1) {
     s.tick(GROWTH.step)
     widths.push(s.win().bounds.width)
   }
@@ -506,7 +512,54 @@ test('after handoffShow the start window grows into the team window\'s rect, and
   assert.ok(widths.some(width => width > from.width && width < target.width), 'the start window jumps instead of growing')
   // A second handoffShow does nothing.
   assert.equal(s.act('handoffShow'), true)
-  assert.equal(s.main.calls.filter(call => call === 'show').length, 1)
+  assert.equal(s.main.calls.filter(call => call === 'showInactive').length, 1)
+})
+
+test('the team window shows once the whale has landed and the window has grown, or a while after', (t) => {
+  for (const landed of [true, false]) {
+    const s = startWindow(t)
+    s.start.open('later')
+    s.start.done('data')
+    s.start.done('engine')
+    s.start.ready()
+    s.act('handoffShow')
+    for (let ms = 0; ms <= GROWTH.delay + GROWTH.duration + GROWTH.step; ms += GROWTH.step) s.tick(GROWTH.step)
+    assert.deepEqual(s.win().bounds, s.main.bounds)
+    assert.equal(s.main.calls.includes('opacity 1'), false, 'it shows before the whale has landed')
+    if (landed) {
+      assert.equal(s.act('handoffDone'), true)
+      assert.equal(s.main.calls.includes('opacity 1'), true)
+    } else {
+      for (let ms = 0; ms < LANDING_WAIT; ms += GROWTH.step) s.tick(GROWTH.step)
+      assert.equal(s.main.calls.includes('opacity 1'), true)
+    }
+    t.mock.timers.reset()
+  }
+})
+
+test('the team window waits see-through under the growing start window, which then fades out over it', (t) => {
+  const s = startWindow(t)
+  s.start.open('later')
+  s.win().focused = true
+  s.start.done('data')
+  s.start.done('engine')
+  s.start.ready()
+  // Shown at ready(), so that Windows' opening transition runs before the reveal, but not seen.
+  assert.deepEqual(s.main.calls.slice(-3), ['skipTaskbar true', 'opacity 0', 'showInactive'])
+  assert.equal(s.win().calls.at(-1), 'moveTop')
+  s.act('handoffShow')
+  for (let step = 0; step < 60 && !s.main.calls.includes('opacity 1'); step += 1) s.tick(GROWTH.step)
+  assert.deepEqual(s.main.calls.slice(-2), ['opacity 1', 'skipTaskbar false'])
+  assert.deepEqual(s.win().bounds, s.main.bounds)
+  const start = s.win()
+  s.tick(FADE.duration / 2)
+  assert.ok(start.opacity > 0 && start.opacity < 1, 'the start window does not fade')
+  assert.equal(s.main.calls.includes('focus'), false)
+  s.tick(FADE.duration)
+  assert.equal(start.opacity, 0)
+  assert.equal(start.destroyed, true)
+  assert.equal(s.main.calls.at(-1), 'focus')
+  assert.equal(s.calls.close, 0)
 })
 
 for (const how of ['behind', 'minimized']) {
@@ -520,7 +573,8 @@ for (const how of ['behind', 'minimized']) {
     s.start.ready()
     s.act('handoffShow')
     for (let step = 0; step < 60 && !s.main.calls.includes('flash true'); step += 1) s.tick(GROWTH.step)
-    assert.deepEqual(s.main.calls.slice(-2), [how === 'behind' ? 'showInactive' : 'minimize', 'flash true'])
+    // Behind: it waited under the start window and is uncovered by the fade; minimized: no growth.
+    assert.deepEqual(s.main.calls.slice(-2), how === 'behind' ? ['skipTaskbar false', 'flash true'] : ['minimize', 'flash true'])
     assert.equal(s.main.calls.includes('focus'), false)
   })
 }

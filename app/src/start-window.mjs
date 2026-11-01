@@ -19,10 +19,14 @@ export const PHASES = ['data', 'engine', 'team']
 export const START_KINDS = ['first', 'later', 'moving']
 export const WATCHDOG_MS = 180_000
 export const TEAM_VIEW_MS = 20_000
-// handoffShow + 160 ms: the growth, 300 ms in steps of about 14 ms; the start window goes
-// 300 ms after the team window shows (§8).
-export const GROWTH = { delay: 160, duration: 300, step: 14 }
+// handoffShow + 40 ms: the growth, 260 ms in steps of about 14 ms (§8). The page's content has
+// faded by handoffShow, so the growth starts at once. The whale lands after the window has grown
+// (whale.js GROWN_AFTER, LAND_AFTER); the reveal waits for that, LANDING_WAIT at most.
+export const GROWTH = { delay: 40, duration: 260, step: 14 }
+export const LANDING_WAIT = 300
 export const DESTROY_AFTER_MS = 300
+// At the end of a growth the start window fades out over the team window under it.
+export const FADE = { duration: 180, step: 16 }
 export const FAILURE_LINES = 200
 // 〔保存日志…〕 saves this many of the latest log lines, after the same header as the copied details.
 export const SAVED_LINES = 5000
@@ -131,7 +135,9 @@ export function cubicBezier(x1, y1, x2, y2) {
     return y((low + high) / 2)
   }
 }
-export const GROWTH_EASING = cubicBezier(0.2, 0.7, 0.2, 1)
+// Ease in and out over the whole growth: a quick start with a long tail looks done early and
+// leaves the whale waiting in an empty window.
+export const GROWTH_EASING = cubicBezier(0.45, 0, 0.25, 1)
 
 export function rectAt(from, to, progress) {
   const at = key => Math.round(from[key] + (to[key] - from[key]) * progress)
@@ -274,6 +280,9 @@ export class StartWindow {
   #showAt = 0
   #from
   #handing = false
+  #under = false
+  #grown = false
+  #landed = false
   #revealed = false
   // Whether the engine of this attempt is up; the stages done say where the whale is, which a
   // retry never moves back.
@@ -564,6 +573,8 @@ export class StartWindow {
     // A team view that loads after its 20 s goes in without a celebration (§7).
     const celebrate = this.#state.celebrate && this.#state.view !== 'viewFailed'
     this.#update({ view: 'handoff', done: [...PHASES], celebrate, failure: undefined, landing: this.#landing(report) })
+    const main = this.#o.mainWindow()
+    if (main !== undefined && !main.isDestroyed() && !this.#window.isMinimized()) this.#underlay(main)
     this.#later('fallback', fallbackMs(this.#state), () => {
       note('the page did not send handoffShow')
       this.#handoffShow({ grow: false })
@@ -655,6 +666,7 @@ export class StartWindow {
   #reset(start) {
     this.#clearTimers()
     this.#handing = false
+    this.#under = false
     this.#revealed = false
     this.#engineUp = false
     this.#holdsOff()
@@ -710,7 +722,7 @@ export class StartWindow {
       return false
     }
     if (name === 'handoffShow') this.#handoffShow(payload)
-    else if (name === 'handoffDone') note(`handoffDone at handoffShow + ${String(Date.now() - this.#showAt)} ms`)
+    else if (name === 'handoffDone') this.#handoffDone()
     else if (name === 'retry') this.#retry()
     else if (name === 'wait') this.#wait()
     else if (name === 'reloadView') this.#reload()
@@ -787,7 +799,34 @@ export class StartWindow {
     const target = this.placeMain(main)
     const grow = !(payload !== null && typeof payload === 'object' && payload.grow === false) && !win.isMinimized() && !this.#reducedMotion()
     if (!grow) { this.#reveal(); return }
+    this.#grown = false
+    this.#landed = false
     this.#later('grow', GROWTH.delay, () => { this.#grow(this.#from, target) })
+  }
+
+  // At ready() the team window shows, see-through, out of the taskbar and under the start window,
+  // so that Windows' own opening transition has run by the reveal (shown at the reveal, it dims
+  // the page and doubles the whale over the start window for a few frames), and so that showing
+  // a window this large does not hold up the growth's first step.
+  #underlay(main) {
+    try {
+      main.setSkipTaskbar(true)
+      main.setOpacity(0)
+      main.showInactive()
+      this.#window.moveTop()
+      this.#under = true
+    } catch (error) {
+      note(`the team window did not go under the start window: ${error instanceof Error ? error.message : String(error)}`)
+      this.#unlay(main)
+    }
+  }
+
+  #unlay(main) {
+    this.#under = false
+    if (main.isDestroyed()) return
+    main.hide()
+    main.setOpacity(1)
+    main.setSkipTaskbar(false)
   }
 
   // Electron ignores setBounds' animate flag on Windows, so the growth is stepped here; each step
@@ -799,10 +838,19 @@ export class StartWindow {
       if (!this.#open()) return
       const time = Math.min(1, (Date.now() - began) / GROWTH.duration)
       this.#window.setBounds(rectAt(from, to, GROWTH_EASING(time)))
-      if (time < 1) this.#later('grow', GROWTH.step, step)
-      else this.#reveal()
+      if (time < 1) { this.#later('grow', GROWTH.step, step); return }
+      this.#grown = true
+      if (this.#landed) this.#reveal()
+      else this.#later('land', LANDING_WAIT, () => { note('the whale did not land in time'); this.#reveal() })
     }
     this.#later('grow', GROWTH.step, step)
+  }
+
+  // The whale has landed on the avatar (or dived): the team window shows once the growth is done.
+  #handoffDone() {
+    note(`handoffDone at handoffShow + ${String(Date.now() - this.#showAt)} ms`)
+    this.#landed = true
+    if (this.#handing && this.#grown) this.#reveal()
   }
 
   // The team window shows on its rect: with the focus when the start window had it; otherwise
@@ -815,8 +863,11 @@ export class StartWindow {
     this.#showTeam()
     this.#clear('fallback')
     this.#clear('grow')
+    this.#clear('land')
     const win = this.#window
     const how = win.isMinimized() ? 'minimized' : win.isFocused() ? 'focused' : 'behind'
+    if (this.#under && how !== 'minimized') { this.#crossfade(main, win, how); return }
+    if (this.#under) this.#unlay(main)
     if (how === 'focused') {
       main.show()
       main.focus()
@@ -836,9 +887,37 @@ export class StartWindow {
     this.#later('destroy', DESTROY_AFTER_MS, () => { this.#destroy() })
   }
 
+  // The team window, already drawn and the size of the start window, turns opaque under it, and
+  // the start window fades out over it: the whale on the start page dissolves into the avatar
+  // it landed on. Layered opacity is the compositor's, so the fade costs no layout.
+  #crossfade(main, win, how) {
+    main.setOpacity(1)
+    main.setSkipTaskbar(false)
+    win.setSkipTaskbar(true)
+    note(`team window under the start window at ready + ${String(Date.now() - this.#readyAt)} ms`)
+    const began = Date.now()
+    const step = () => {
+      if (!this.#open()) return
+      const time = Math.min(1, (Date.now() - began) / FADE.duration)
+      win.setOpacity(1 - time * time * (3 - 2 * time))
+      if (time < 1) { this.#later('fade', FADE.step, step); return }
+      if (how === 'focused') main.focus()
+      else {
+        main.flashFrame(true)
+        main.once('focus', () => { main.flashFrame(false) })
+      }
+      note(`team window shown (${how}) at ready + ${String(Date.now() - this.#readyAt)} ms`)
+      this.#destroy()
+    }
+    this.#later('fade', FADE.step, step)
+  }
+
   #cancelHandoff() {
+    const main = this.#o.mainWindow()
+    if (this.#under && !this.#revealed && main !== undefined) this.#unlay(main)
     if (!this.#handing || this.#revealed) return
     this.#clear('grow')
+    this.#clear('land')
     this.#handing = false
     if (this.#from !== undefined && this.#open()) this.#window.setBounds(this.#from)
   }

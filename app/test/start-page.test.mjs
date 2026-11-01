@@ -94,9 +94,9 @@ test('the start page draws the progress as a ring of three arcs and a closing ci
   assert.match(html, /<div class="pond">\r?\n<svg class="ring"[\s\S]*?<div class="water"[\s\S]*?<div class="lane">[\s\S]*?<span class="spout"><svg class="plume"[^>]*\shidden>[\s\S]*?<div class="whale-hit"[\s\S]*?<div class="fx" aria-hidden="true"><span class="ripple"><\/span><\/div>\r?\n<\/div>/u)
   assert.doesNotMatch(html, /class="(?:trace|elapsed)"/u)
   // The layer the whale flies in to the Main Bot's avatar at the hand-off (whale.js leap), and
-  // the flight's end tied to when the main process shows the team window.
+  // the flight tied to the end of the main process's growth.
   assert.match(html, /<\/main>\r?\n<div class="flight" aria-hidden="true"><\/div>/u)
-  assert.match(code['whale.js'], new RegExp(`const SHOWN_AFTER = ${String(GROWTH.delay + GROWTH.duration)}\\b`, 'u'))
+  assert.match(code['whale.js'], new RegExp(`const GROWN_AFTER = ${String(GROWTH.delay + GROWTH.duration)}\\b`, 'u'))
   assert.doesNotMatch(read('start.css'), /\.(?:trace|elapsed)\b/u)
 })
 

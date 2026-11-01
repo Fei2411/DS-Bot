@@ -712,7 +712,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     // A beat for the ring to close, then the dive or the jump: handoffShow at 220 ms.
     await at(100)
     root.dataset.exit = 'caption all'
-    const flight = want.landing ? leap(want.landing, 220 + SHOWN_AFTER - LAND_EARLY - 100) : 0
+    const flight = want.landing ? leap(want.landing, 220 + GROWN_AFTER + LAND_AFTER - 100) : 0
     if (!flight) dive(12, DEEP(), 18, spring('tap'))
     await at(220)
     act('handoffShow')
@@ -730,7 +730,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     root.dataset.exit = 'caption'
     await at(560)
     root.dataset.exit = 'caption all'
-    const flight = want.landing ? leap(want.landing, 720 + SHOWN_AFTER - LAND_EARLY - 560) : 0
+    const flight = want.landing ? leap(want.landing, 720 + GROWN_AFTER + LAND_AFTER - 560) : 0
     if (!flight) dive(18, DEEP(), 24, spring('shape'))
     await at(660)
     if (!flight) sendRipple()
@@ -754,9 +754,10 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   // drawn, and the main process turned that into this page's coordinates once the window has
   // grown onto the team window's rect. The whale leaves the lane (its clip would cut it at the
   // waterline) for the window-wide .flight layer, rises out of the water and glides down onto the
-  // avatar, shrinking to its size, so that it lands as the team window shows: the window grows
-  // from handoffShow + 160 ms for 300 ms (GROWTH in start-window.mjs), and the team window shows
-  // when it is done. Returns how long the flight takes.
+  // avatar, shrinking to its size. The window grows from handoffShow + 40 ms for 260 ms (GROWTH in
+  // start-window.mjs) while the whale rises and starts over, and the whale lands LAND_AFTER later,
+  // in a window that no longer moves; handoffDone then lets the team window show under it, and
+  // the start window fades out over it. Returns how long the flight takes.
   function leap(landing, ms) {
     // It arrives as the avatar sits: upright, unstretched (the celebration's squash, a failure's
     // pose before a late or held hand-off) and looking ahead.
@@ -791,10 +792,10 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     if (want.celebrate && playful()) setTimeout(() => happyEyes(false), Math.round(ms * 0.7))
     return ms
   }
-  // From handoffShow to the team window showing (GROWTH.delay + GROWTH.duration), and how much
-  // sooner the flight ends, so a step the main process runs late never shows it mid-air.
-  const SHOWN_AFTER = 460
-  const LAND_EARLY = 30
+  // From handoffShow to the end of the growth (GROWTH.delay + GROWTH.duration), and how long after
+  // it the whale lands: the end of the glide is seen in a still window.
+  const GROWN_AFTER = 300
+  const LAND_AFTER = 60
   // 1.25 x the whale's height: fully under the waterline within about 200 ms, so the window
   // can grow around an empty sheet.
   const DEEP = () => Math.round(125 * u)
