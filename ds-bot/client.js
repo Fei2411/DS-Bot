@@ -3354,13 +3354,12 @@ header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inse
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
-   becomes -webkit-app-region:drag). pointer-events:none would keep the row from
-   ever being hit, so its drag mark is dead while the floating header shows.
-   Restoring hit-testing on darwin brings the drag back; the pill is a button and
-   the leading seat is marked no-drag by the shell's own darwin rules. */
-html[data-platform=darwin] header[class*="_header"]:has(.bt-head){pointer-events:auto}
-html[data-platform=darwin] .bt-head{pointer-events:auto}
-html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true],[data-slot]){-webkit-app-region:no-drag}
+   becomes -webkit-app-region:drag). The floating header stays click-through, so
+   the transcript under it still takes links and the wheel. Only the 40px .bt-head
+   bar the pill sits in is hit again and carries the drag mark; controls inside
+   keep no-drag. The data-slot anchor must not take no-drag, or the bar inherits it. */
+html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
+html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
 [class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
 /* The shell writes the column's width on the conversation root at every resize, only to
    derive the content width that the rule above replaces. Inherited, each write restyled
