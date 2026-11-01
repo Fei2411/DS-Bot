@@ -1327,6 +1327,19 @@ export function install(rt) {
         if (reply?.questions !== undefined) stamp(event, { kind: 'answer', questions: reply.questions, answers: reply.answers, time: event.time })
         else if (reply?.handoff !== undefined) stamp(event, { kind: 'answer', text: replyText(text), handoff: reply.handoff, time: event.time })
         else if (reply?.views !== undefined) stamp(event, { kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
+      } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+        // A group's own Session reads as one conversation: member posts are its
+        // messages. A post past what a message holds came as a file, with its start.
+        const content = Array.isArray(event.data.content) ? event.data.content : []
+        const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        stamp(event, {
+          kind: 'post',
+          botId: source.senderSessionId ?? null,
+          name: source.senderName ?? null,
+          text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
+          ...(file ? { file, length: source.length } : {}),
+          time: event.time,
+        })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }
@@ -1377,14 +1390,17 @@ export function install(rt) {
 
   async function earlierPage(sessionId, cursor) {
     const past = rt.pastOwners.get(sessionId)
-    const botId = rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined)
-    const parts = botId === undefined ? [] : partsOf(botId)
+    // A group's own Session is its own chain of parts like a Bot's own chat: its
+    // current Session and every earlier `room.parts` page the same "Load earlier".
+    const roomId = rt.roomOwners?.get(sessionId) ?? (past?.botId === undefined ? past?.roomId : undefined)
+    const botId = roomId === undefined ? rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined) : undefined
+    const parts = roomId === undefined ? (botId === undefined ? [] : partsOf(botId)) : partsOf(undefined, roomId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
     if (at <= 0 || index < 0 || index >= at) return { items: [], cursor: null, startedAt: parts[at]?.startedAt ?? null }
     // Aside cards belong to the part that was current when they were asked, so
     // they ride along with that part's history instead of the team view.
-    const btw = (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
+    const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
     return { ...(await partPage(parts, index, cursor)), btw, startedAt: parts[at].startedAt }
   }
 

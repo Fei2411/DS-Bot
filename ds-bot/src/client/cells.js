@@ -428,8 +428,11 @@ function EarlierParts({ sessionId, roster, actions }) {
   const load = (cursor) => {
     if (busy.current) return
     const mine = generation.current
-    // The host numbers a page by the same part index: cursor.part, or the part before this one.
-    const partIndex = partIndexOf(roster.byId[sessionId], sessionId, cursor)
+    // The host numbers a page by the same part index: cursor.part, or the part
+    // before this one. A group's own Session chains `room.ownParts` + `sessionId`.
+    const room = roster.roomsById[sessionId]
+    const owner = roster.byId[sessionId] ?? (room === undefined ? undefined : { parts: room.ownParts, sessionId: room.sessionId })
+    const partIndex = partIndexOf(owner, sessionId, cursor)
     busy.current = true
     setView(current => ({ ...current, loading: true, failed: false }))
     actions.earlier(sessionId, cursor).then((page) => {
@@ -535,6 +538,15 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
     }
     case 'btw': return h(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete })
+    case 'post': {
+      // A member's message in a group's earlier part, as the live row shows it.
+      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
+      return h(GroupMessage, {
+        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, room: roster.roomsById[sessionId], roster, actions,
+        msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time,
+        whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
+      })
+    }
     case 'event': {
       if (row.role === 'report') return h(GroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
@@ -586,7 +598,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
   function triggerBody() {
     if (source.kind === 'bot') {
       // A part opens with its handoff package, so the earlier parts go right above it.
-      if (source.handoff === true) return roster.roomsById[sessionId] ? null : h(EarlierParts, { sessionId, roster, actions })
+      if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions })
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
       if (source.role === 'kickoff' || source.role === 'room') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.

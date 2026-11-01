@@ -1039,6 +1039,24 @@ test('a group folder change moves the group\'s own Session to a part in the fold
   assert.equal(state().rooms.r1.id, 'r1')
 })
 
+test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
+  const { ctx, call, project, state, stop } = await start()
+  t.after(stop)
+  // The earlier part's record carries the group's posts as user/message events.
+  ctx.sessionController.page = async ({ address }) => (address?.sessionId === 'r1'
+    ? { records: [{ event: { type: 'user/message', seq: 2, time: 2, data: { content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }], source: { kind: 'bot', role: 'post', senderSessionId: 'gb', senderName: 'Writer' } } } }], hasMore: false }
+    : { records: [], hasMore: false })
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  await until(() => state().rooms.r1.sessionId === 's1')
+  // The current part's earlier page reads the part it moved on from.
+  const page = (await call('earlier', { sessionId: 's1' })).value
+  assert.deepEqual(page.items.map(item => [item.kind, item.name, item.text]), [['post', 'Writer', 'Done.']])
+  assert.equal(page.cursor, null)
+  assert.equal(typeof page.startedAt, 'number')
+  // The first part itself has nothing before it.
+  assert.deepEqual((await call('earlier', { sessionId: 'r1' })).value.items, [])
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.

@@ -843,6 +843,16 @@ const step = (host, sessionId, said, callId, name = 'pwsh', args = '{}') => {
 }
 const progress = async host => (await host.call('room-progress', { roomId: 'r1' })).value[0]
 
+test('room-progress answers for any part of the group\'s own Session', async (t) => {
+  // The group's own Session moved on once: 'r1' is the group's id and an earlier
+  // part, 's1' its current one; rounds are still keyed by the group's id.
+  const host = await start(t, { sessionId: 's1', parts: [{ sessionId: 'r1', endedAt: 1 }] })
+  host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal((await host.call('room-progress', { roomId: 's1' })).value[0]?.callId, 'c1')
+  assert.equal((await host.call('room-progress', { roomId: 'r1' })).value[0]?.callId, 'c1')
+})
+
 test('what a member writes while it works shows in the round at once, and its @ calls members', async (t) => {
   const host = await start(t)
   const result = host.round('c1', host.say('@Writer 整理文档'))

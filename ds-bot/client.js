@@ -8129,7 +8129,9 @@ function EarlierParts({ sessionId, roster, actions }) {
   const load = (cursor) => {
     if (busy.current) return;
     const mine = generation.current;
-    const partIndex = partIndexOf(roster.byId[sessionId], sessionId, cursor);
+    const room2 = roster.roomsById[sessionId];
+    const owner = roster.byId[sessionId] ?? (room2 === void 0 ? void 0 : { parts: room2.ownParts, sessionId: room2.sessionId });
+    const partIndex = partIndexOf(owner, sessionId, cursor);
     busy.current = true;
     setView((current) => ({ ...current, loading: true, failed: false }));
     actions.earlier(sessionId, cursor).then((page) => {
@@ -8235,6 +8237,20 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     }
     case "btw":
       return (0, import_react16.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
+    case "post": {
+      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
+      return (0, import_react16.createElement)(GroupMessage, {
+        key,
+        bot: poster,
+        text: row.file ? stripLongNote(row.text) : row.text,
+        room: roster.roomsById[sessionId],
+        roster,
+        actions,
+        msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
+        time: row.time,
+        whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
+      });
+    }
     case "event": {
       if (row.role === "report") return (0, import_react16.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
@@ -8277,7 +8293,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   return unreadOpening ? (0, import_react16.createElement)(import_react16.Fragment, null, (0, import_react16.createElement)("div", { className: "bt-open-new" }, (0, import_react16.createElement)(NewDivider), (0, import_react16.createElement)("div", { className: "bt-time-sep", role: "separator" }, unreadOpening)), body) : body;
   function triggerBody() {
     if (source.kind === "bot") {
-      if (source.handoff === true) return roster.roomsById[sessionId] ? null : (0, import_react16.createElement)(EarlierParts, { sessionId, roster, actions });
+      if (source.handoff === true) return (0, import_react16.createElement)(EarlierParts, { sessionId, roster, actions });
       if (source.role === "kickoff" || source.role === "room") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react16.createElement)("div", { className: "bt-event" }, t("Profile updated"));
