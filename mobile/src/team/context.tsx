@@ -5,7 +5,6 @@ import { useTeamLink } from './link.ts'
 import { demoLink } from './demo.ts'
 
 export const DEMO = process.env.EXPO_PUBLIC_DSB_DEMO === '1'
-export const NAV = process.env.EXPO_PUBLIC_DSB_NAV === 'b' ? 'b' : 'a'
 
 export interface TeamCtx {
   team: TeamState | null

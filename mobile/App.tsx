@@ -7,10 +7,9 @@ import { DefaultTheme, NavigationContainer } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { forgetComputer, loadComputer, loadIdentity, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { errorText } from './src/team/link.ts'
-import { DEMO, DemoProvider, NAV, TeamProvider, useTeam } from './src/team/context.tsx'
+import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
-import ShellA from './src/nav/ShellA.tsx'
 import ShellB from './src/nav/ShellB.tsx'
 
 // Colors follow the computer's prefs plus the phone's light/dark mode.
@@ -19,10 +18,6 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-}
-
-function Shell({ onForget }: { onForget: () => void }) {
-  return NAV === 'b' ? <ShellB onForget={onForget} /> : <ShellA onForget={onForget} />
 }
 
 // The navigator lives inside the palette provider so its container theme can
@@ -46,7 +41,7 @@ function ThemedShell({ onForget }: { onForget: () => void }) {
   return (
     <ThemeContext.Provider value={value}>
       <NavigationContainer theme={navTheme}>
-        <Shell onForget={onForget} />
+        <ShellB onForget={onForget} />
       </NavigationContainer>
     </ThemeContext.Provider>
   )

@@ -1,9 +1,10 @@
-import { createDrawerNavigator } from '@react-navigation/drawer'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
+import { useNavigation } from '@react-navigation/native'
 import { useEffect, useState } from 'react'
 import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
+import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -16,22 +17,23 @@ import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
-const Drawer = createDrawerNavigator()
 const Stack = createNativeStackNavigator()
 const LAST_KEY = 'dsbot.lastChat'
 
 // Drawer content = the desktop sidebar as a drawer: "Needs you" row on top when
 // anything is pending, the team list, and a footer with the You mark + gear.
-function DrawerContent({ navigation }: any) {
+function DrawerContent() {
   const { p } = useTheme()
   const { team } = useTeam()
   const insets = useSafeAreaInsets()
+  const navigation = useNavigation<any>()
+  const drawer = useDrawer()
   const pending = pendingCountOf(team)
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
-    navigation.closeDrawer()
-    if (target.kind === 'needs') navigation.navigate('Main', { screen: 'Needs' })
-    else if (target.kind === 'settings') navigation.navigate('Main', { screen: 'Settings' })
-    else navigation.navigate('Main', { screen: 'Chat', params: target })
+    drawer.close()
+    if (target.kind === 'needs') navigation.navigate('Needs')
+    else if (target.kind === 'settings') navigation.navigate('Settings')
+    else navigation.navigate('Chat', target)
   }
   return (
     <View style={{ flex: 1, backgroundColor: p.sidebar }}>
@@ -67,11 +69,14 @@ function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<type
 
 function Header({ title, bot, room, bots = [], onMenu }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void }) {
   const { p } = useTheme()
+  const { team } = useTeam()
+  const pending = pendingCountOf(team) > 0
   const insets = useSafeAreaInsets()
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 4, paddingBottom: 8, paddingHorizontal: 10, backgroundColor: p.main }}>
       <Pressable accessibilityRole="button" accessibilityLabel="Open team list" onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <SidebarIcon size={20} color={p.ink2} />
+        {pending ? <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent }} /> : null}
       </Pressable>
       <View style={{ flex: 1, alignItems: 'center' }}><Pill title={title} bot={bot} room={room} bots={bots} /></View>
       <View style={{ width: 44 }} />
@@ -82,6 +87,7 @@ function Header({ title, bot, room, bots = [], onMenu }: { title: string; bot?: 
 function ChatScreenB({ route, navigation }: any) {
   const { team } = useTeam()
   const { p, dark } = useTheme()
+  const drawer = useDrawer()
   const params = route.params as ChatTarget | undefined
   useEffect(() => { if (params) void SecureStore.setItemAsync(LAST_KEY, JSON.stringify(params)) }, [params])
   const fallback = team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0]
@@ -89,16 +95,17 @@ function ChatScreenB({ route, navigation }: any) {
   const id = params?.id ?? fallback?.id ?? ''
   const bot = kind === 'bot' ? team?.bots?.find(b => b.id === id) : undefined
   const room = kind === 'room' ? team?.rooms?.find(r => r.id === id) : undefined
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => navigation.openDrawer()} />
+  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} />
   if (team === null) return <View style={{ flex: 1, backgroundColor: p.main }}>{header}</View>
   return <ChatView bot={bot} room={room} header={header} />
 }
 
 function NeedsScreenB({ navigation }: any) {
   const { p } = useTheme()
+  const drawer = useDrawer()
   return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
-      <Header title={t('Needs you')} onMenu={() => navigation.openDrawer()} />
+      <Header title={t('Needs you')} onMenu={() => drawer.open()} />
       <NeedsYou onOpen={target => navigation.navigate('Chat', target)} />
     </View>
   )
@@ -106,9 +113,10 @@ function NeedsScreenB({ navigation }: any) {
 
 function SettingsScreenB({ onForget, navigation }: any) {
   const { p } = useTheme()
+  const drawer = useDrawer()
   return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
-      <Header title={t('Settings')} onMenu={() => navigation.openDrawer()} />
+      <Header title={t('Settings')} onMenu={() => drawer.open()} />
       <Settings onForget={onForget} />
     </View>
   )
@@ -139,17 +147,9 @@ export default function ShellB({ onForget }: { onForget: () => void }) {
   }, [])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
-    <Drawer.Navigator
-      screenOptions={{
-        headerShown: false,
-        drawerType: 'front',
-        drawerStyle: { width, backgroundColor: p.sidebar },
-        overlayColor: 'rgba(0,0,0,0.32)',
-        swipeEdgeWidth: 60,
-      }}
-      drawerContent={props => <DrawerContent {...props} />}>
-      <Drawer.Screen name="Main">{() => <Inner initial={saved} onForget={onForget} />}</Drawer.Screen>
-    </Drawer.Navigator>
+    <Drawer width={width} content={<DrawerContent />}>
+      <Inner initial={saved} onForget={onForget} />
+    </Drawer>
   )
 }
 

@@ -17,14 +17,12 @@ npm run typecheck
 
 Two bundles can be built side by side; both are chosen at bundle time:
 
-- `EXPO_PUBLIC_DSB_NAV=a|b` — navigation preview. `a` (default) is the list-first
-  shell with the Team / Needs you / Settings tab bar; `b` puts the team list in a
   left drawer and opens on the last chat.
 - `EXPO_PUBLIC_DSB_DEMO=1` — skips pairing and fills the app with a demo team.
   Only active when the flag is set while the bundle is built.
 
 ```sh
-EXPO_PUBLIC_DSB_NAV=b EXPO_PUBLIC_DSB_DEMO=1 npx expo start   # variant B, demo data
+EXPO_PUBLIC_DSB_DEMO=1 npx expo start   # variant B, demo data
 npx expo run:android --device <emulator>                    # native build when deps change
 ```
 
