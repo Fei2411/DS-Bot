@@ -316,8 +316,9 @@ export function install(rt) {
   }
 
   // Checks a change of `private` or of the folder of a Bot before it is written. A
-  // private Bot's folder is no other Bot's, no group's and not the team workspace,
-  // because DSH cannot be told which files of a shared folder to hide.
+  // private Bot's folder is no other Bot's, no group's and not the team workspace —
+  // a member's own pick in a group counts as that member's folder — because DSH
+  // cannot be told which files of a shared folder to hide.
   async function checkChange(bot, { flag, moving, workDir }) {
     const makes = flag === undefined ? bot.private === true : flag
     const dir = moving ? workDir : bot.workDir
@@ -336,6 +337,9 @@ export function install(rt) {
       ['the team workspace', teamFolder()],
       ...Object.values(state.bots).filter(other => other.id !== bot.id && other.workDir).map(other => [`the folder of ${other.name}`, other.workDir]),
       ...Object.values(state.rooms).filter(room => room.workDir).map(room => [`the folder of "${room.name}"`, room.workDir]),
+      ...Object.values(state.rooms).flatMap(room => Object.entries(room.memberDirs ?? {})
+        .filter(([member, dir]) => room.members.includes(member) && dir !== null)
+        .map(([member, dir]) => [`the folder of ${rt.botOf(member)?.name ?? 'a member'} in "${room.name}"`, dir])),
     ]
     for (const [what, path] of others) {
       const spelled = await spellings(path)

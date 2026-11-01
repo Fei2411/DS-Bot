@@ -924,12 +924,30 @@ test('a member\'s folder pick in a group goes with the group\'s folder setting o
   assert.equal(state().rooms.r1.memberDirs?.b, undefined)
 })
 
-test('setting a group folder points that group\'s own Session, and clearing it points back', async (t) => {
+test('a member cannot pick the folder of a private Bot inside a group', async (t) => {
+  const { service } = folderService()
+  const { services } = approvalServices('allowed-once')
+  const three = {
+    ...TEAM,
+    bots: { ...TEAM.bots, c: { id: 'c', name: 'Diary', role: 'Notes', sessionId: 'c', createdAt: 3 } },
+  }
+  const { ctx, call, agentOf, project, state, stop } = await start({ services: { ...services, workingDirectory: service }, team: three })
+  t.after(stop)
+  assert.equal((await call('update-bot', { id: 'c', private: true, workDir: project })).ok, true)
+  const moved = await changeDirectory(ctx, service, agentOf('gb'), project)
+  assert.equal(moved.ran, false)
+  assert.match(moved.error, /Diary is a private Bot/)
+  assert.equal(state().rooms.r1.memberDirs, undefined)
+})
+
+test('a group folder change leaves the group\'s own Session as it was made', async (t) => {
   const { call, created, agentOf, preStep, project, team, state, stop } = await start()
   t.after(stop)
   assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
   assert.equal(state().rooms.r1.id, 'r1')
-  assert.equal(agentOf('r1').session.header.cwd, project)
+  // A Session's header is creation metadata DSH owns: the relay Session stays in the
+  // team workspace, and no fresh Session is made for the group.
+  assert.equal(agentOf('r1').session.header.cwd, team)
   assert.equal(state().rooms.r1.sessions.b, 'gb')
   assert.deepEqual(created, [])
 
@@ -937,7 +955,7 @@ test('setting a group folder points that group\'s own Session, and clearing it p
   await until(() => state().rooms.r1.sessions.b === 's1')
   assert.deepEqual(created, [{ cwd: project }])
   assert.equal(state().rooms.r1.id, 'r1')
-  assert.equal(agentOf('r1').session.header.cwd, project)
+  assert.equal(agentOf('r1').session.header.cwd, team)
 
   assert.equal((await call('update-room', { id: 'r1', workDir: '' })).ok, true)
   assert.equal(state().rooms.r1.workDir, undefined)
@@ -946,45 +964,33 @@ test('setting a group folder points that group\'s own Session, and clearing it p
   assert.equal(state().rooms.r1.sessions.b, 's1')
 })
 
-test('a frozen group Session header is replaced in memory', async (t) => {
-  const { call, agentOf, project, team, state, created, stop } = await start()
+test('the file panel of a group with a folder lists that folder', async (t) => {
+  // The workspaceFileScope lookup answers what the file panel lists; until DS Bot's
+  // resolver answers for the group's own Session, the provider's own resolution runs.
+  const resolved = []
+  const provider = { resolve: async id => { resolved.push(id); return { sessionId: id, workspaceRoot: `/header-${id}` } } }
+  let resolver
+  const typert = { lookups: {
+    get: key => (key === 'workspaceFileScope' ? provider : undefined),
+    configure: (key, next) => { resolver = next; return () => {} },
+  } }
+  const { call, project, stop } = await start({ services: { typert } })
   t.after(stop)
-  const session = agentOf('r1').session
-  const previous = session.header
-  Object.freeze(previous)
-  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
-  assert.equal(previous.cwd, team)
-  assert.equal(session.header.cwd, project)
-  assert.notEqual(session.header, previous)
-  assert.equal(state().rooms.r1.id, 'r1')
-  assert.deepEqual(created, [])
-})
+  assert.deepEqual(await resolver('r1'), { sessionId: 'r1', workspaceRoot: '/header-r1' })
 
-test('pointing a saved group folder does not hold up the team view', async (t) => {
-  const env = await start()
-  t.after(env.stop)
-  assert.equal((await env.call('update-room', { id: 'r1', workDir: env.project })).ok, true)
-  assert.equal(env.agentOf('r1').session.header.cwd, env.project)
-  env.agentOf('r1').session.header.cwd = env.team
-  let release
-  const gate = new Promise(resolve => { release = resolve })
-  const resolveAgent = env.ctx.sessionController.resolveAgent
-  env.ctx.sessionController.resolveAgent = async (id) => {
-    if (id === 'r1') await gate
-    return resolveAgent(id)
-  }
-  const view = await Promise.race([
-    env.call('state', {}),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('state waited for the group Session')), 300)),
-  ])
-  assert.equal(view.ok, true)
-  assert.equal(env.agentOf('r1').session.header.cwd, env.team)
-  release()
-  await until(() => env.agentOf('r1').session.header.cwd === env.project)
-  env.agentOf('r1').session.header.cwd = env.team
-  assert.equal((await env.call('state', {})).ok, true)
-  await settle()
-  assert.equal(env.agentOf('r1').session.header.cwd, env.team)
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  assert.deepEqual(await resolver('r1'), { sessionId: 'r1', workspaceRoot: project })
+  // A member's Session and every other Session still resolve as the provider would.
+  assert.deepEqual(await resolver('gb'), { sessionId: 'gb', workspaceRoot: '/header-gb' })
+  assert.deepEqual(resolved, ['r1', 'gb'])
+
+  // A folder gone from disk resolves as the provider would have it, not as an error.
+  rmSync(project, { recursive: true })
+  assert.deepEqual(await resolver('r1'), { sessionId: 'r1', workspaceRoot: '/header-r1' })
+  mkdirSync(project)
+
+  assert.equal((await call('update-room', { id: 'r1', workDir: '' })).ok, true)
+  assert.deepEqual(await resolver('r1'), { sessionId: 'r1', workspaceRoot: '/header-r1' })
 })
 
 test('a group Session that cannot be opened still saves the folder', async (t) => {
