@@ -180,7 +180,7 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
 })
 
 test('a group round logs notices a returning client reads back, and the feed says the group changed', async (t) => {
-  const { call, emit, relay, answer, sent, history, routes, stop } = start()
+  const { call, emit, relay, answer, sent, history, routes, ctx, rt, stop } = start()
   t.after(stop)
   const { chief, writer, room } = await team(call)
   const { boot } = (await call('hello', {})).value
@@ -193,6 +193,7 @@ test('a group round logs notices a returning client reads back, and the feed say
   assert.equal(hello.data.boot, boot)
 
   sent.length = 0
+  for (const def of rt.teamTools) ctx.tools.register(def)
   history[room.id] = [user(1, 'Start'), relayCall(2, 'call-1')]
   await emit(room.id, history[room.id][0])
   const running = relay(room.id, 'call-1')
@@ -242,6 +243,7 @@ test('a Bot\'s own chat message and its question card are notices; a hidden Bot-
   await emit(chat, { type: 'assistant/message', data: { turn: 3, message: { content: [{ type: 'text', text: `Report:\n\n${'x'.repeat(400)}` }] } } })
   rt.state.exchangeTurns[chat] = [4]
   await emit(chat, { type: 'assistant/message', data: { turn: 4, message: { content: [{ type: 'text', text: 'to another Bot' }] } } })
+  for (const def of rt.teamTools) ctx.tools.register(def)
   await ctx.registeredTools.get('ask_user').execute({ question: 'Ship it?', options: [{ label: 'Yes' }, { label: 'No' }] }, { agent: { id: chat }, callId: 'q1' })
   const { notices } = (await call('notices', { boot, since: seq })).value
   assert.deepEqual(notices.map(notice => [notice.kind, notice.botId, notice.name, notice.sessionId]), [['message', writer.id, 'Writer', chat], ['question', writer.id, 'Writer', chat]])
@@ -331,4 +333,54 @@ test('a member\'s approval in a group is a notice that names the group', async (
   assert.deepEqual(notices.map(notice => [notice.kind, notice.botId, notice.roomId, notice.title, notice.text]), [['approval', writer.id, room.id, 'Launch', 'bash']])
   controller.abort()
   assert.equal(await answer, 'cancelled')
+})
+
+test('stop-chat ends a Bot own-chat turn, and answers false when nothing runs', async () => {
+  const { call, emit, stop } = start()
+  const { chief } = await team(call)
+  assert.equal((await call('stop-chat', { botId: chief })).value, false)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  await emit(sessionId, { type: 'turn/start', data: { turn: 1 } })
+  await emit(sessionId, user(1, 'go'))
+  assert.equal((await call('stop-chat', { botId: chief })).value, true)
+  await stop()
+})
+
+test('chat with steps folds the turn tool calls into a steps row after its last text', async () => {
+  const { call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'turn/start', data: { turn: 1 } },
+    user(2, 'fix the thing'),
+    { seq: 3, time: 3, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'On it' }] } } },
+    { seq: 4, time: 4, type: 'tool/call', data: { callId: 'c1', name: 'read_file', arguments: '{}' } },
+    { seq: 5, time: 5, type: 'tool/result', data: { message: { toolCallId: 'c1', ok: true, content: [] } } },
+  ]
+  const page = (await call('chat', { botId: chief, steps: true })).value
+  const steps = page.items.find(item => item.kind === 'steps')
+  assert.equal(steps.turn, 1)
+  assert.deepEqual(steps.tools, [{ name: 'read_file', label: 'Opening a file', ok: true }])
+  assert.equal(page.items.indexOf(steps), page.items.length - 1)
+  const plain = (await call('chat', { botId: chief })).value
+  assert.equal(plain.items.some(item => item.kind === 'steps'), false)
+  await stop()
+})
+
+test('state rows carry lastAt and preview from the Bot own chat', async () => {
+  const { call, emit, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  history[sessionId] = [user(1, 'Ship the list first', 1000)]
+  await emit(sessionId, history[sessionId][0])
+  let row
+  for (let at = 0; at < 200 && row === undefined; at += 1) {
+    const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
+    if (bot?.preview !== undefined && bot.preview !== '') row = bot
+    else await settle()
+  }
+  assert(row !== undefined)
+  assert.equal(row.lastAt, 1000)
+  assert.equal(row.preview, 'Ship the list first')
+  await stop()
 })
