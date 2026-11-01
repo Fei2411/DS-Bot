@@ -22,7 +22,7 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
       const code = (token as Tokens.Code)
       return (
         <View style={{ backgroundColor: p.hover, borderRadius: radius.item, marginVertical: 6, borderWidth: 1, borderColor: p.line }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
             <Text selectable style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: 13, lineHeight: 19, color: textColor, paddingHorizontal: 10, paddingVertical: 8 }}>{code.text}</Text>
           </ScrollView>
         </View>
@@ -57,7 +57,7 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
         </View>
       ))
       return (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6, flexGrow: 0 }}>
           <View style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item }}>
             <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>{cells(table.header)}</View>
             {table.rows.map((row, ri) => <View key={ri} style={{ flexDirection: 'row' }}>{cells(row)}</View>)}
