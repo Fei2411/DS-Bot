@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { type as typeScale, useTheme } from '../ui/tokens.ts'
-import { Avatar } from '../ui/marks.tsx'
+import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ChevronLeftIcon, GearIcon, PeopleIcon, UnreadIcon } from '../ui/icons.tsx'
 import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
@@ -85,7 +85,7 @@ function ChatScreenA({ route, navigation }: any) {
       <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => navigation.goBack()} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <ChevronLeftIcon size={22} color={p.accent} />
       </Pressable>
-      {bot ? <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={(team?.mainBotIds ?? []).includes(bot.id)} working={running} /> : null}
+      {bot ? <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={(team?.mainBotIds ?? []).includes(bot.id)} working={running} /> : room ? <RoomAvatar room={room} bots={team?.bots ?? []} dark={dark} size={36} ring={p.sidebar} /> : null}
       <View style={{ flex: 1, minWidth: 0, marginLeft: 6 }}>
         <Text style={[typeScale.headerTitle, { color: p.ink }]} numberOfLines={1}>{bot?.name ?? room?.name ?? ''}</Text>
         <Text style={{ color: p.ink2, fontSize: 13, lineHeight: 18 }} numberOfLines={1}>{running ? t('Working') : (bot?.role ?? '')}</Text>

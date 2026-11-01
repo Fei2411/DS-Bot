@@ -7,12 +7,13 @@ import * as SecureStore from 'expo-secure-store'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
-import { Avatar, YouMark } from '../ui/marks.tsx'
+import { Avatar, RoomAvatar, YouMark } from '../ui/marks.tsx'
 import { GearIcon, SidebarIcon } from '../ui/icons.tsx'
 import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
+import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
 const Drawer = createDrawerNavigator()
@@ -54,17 +55,17 @@ function DrawerContent({ navigation }: any) {
   )
 }
 
-function Pill({ title, bot }: { title: string; bot?: { name: string } & Parameters<typeof Avatar>[0]['bot'] }) {
+function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots: Bot[] }) {
   const { p, dark } = useTheme()
   return (
     <View style={[styles.pill, { backgroundColor: p.card, borderColor: p.line2 }]}>
-      {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} /> : null}
-      <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', marginLeft: bot ? 8 : 0 }} numberOfLines={1}>{title}</Text>
+      {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} /> : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={24} ring={p.card} /> : null}
+      <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', marginLeft: bot || room ? 8 : 0 }} numberOfLines={1}>{title}</Text>
     </View>
   )
 }
 
-function Header({ title, bot, onMenu }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; onMenu: () => void }) {
+function Header({ title, bot, room, bots = [], onMenu }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
   return (
@@ -72,7 +73,7 @@ function Header({ title, bot, onMenu }: { title: string; bot?: Parameters<typeof
       <Pressable accessibilityRole="button" accessibilityLabel="Open team list" onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <SidebarIcon size={20} color={p.ink2} />
       </Pressable>
-      <View style={{ flex: 1, alignItems: 'center' }}><Pill title={title} bot={bot} /></View>
+      <View style={{ flex: 1, alignItems: 'center' }}><Pill title={title} bot={bot} room={room} bots={bots} /></View>
       <View style={{ width: 44 }} />
     </View>
   )
@@ -88,7 +89,7 @@ function ChatScreenB({ route, navigation }: any) {
   const id = params?.id ?? fallback?.id ?? ''
   const bot = kind === 'bot' ? team?.bots?.find(b => b.id === id) : undefined
   const room = kind === 'room' ? team?.rooms?.find(r => r.id === id) : undefined
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} onMenu={() => navigation.openDrawer()} />
+  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => navigation.openDrawer()} />
   if (team === null) return <View style={{ flex: 1, backgroundColor: p.main }}>{header}</View>
   return <ChatView bot={bot} room={room} header={header} />
 }
