@@ -8,6 +8,8 @@ files:
   - package.json
   - src/**
   - assets/**
+  # The LibreOffice engine goes beside the app instead (extraResources).
+  - '!node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
 # The Host runs pnpm as a separate Node process to install plugins, and the Office payload's
 # plain Node runs the LibreOffice Kit CLI: both must be plain files outside the asar.
 asarUnpack:
@@ -24,6 +26,13 @@ extraResources:
     to: primary-runtime
   - from: build/runtime/office-skills
     to: office-skills
+  # File previews start the LibreOffice engine, a program in the engine package that the kit
+  # resolves. Electron cannot start a program by a path inside the asar, even an unpacked one
+  # (#679). Out here the engine is plain files, and Node's lookup from the kit inside the asar
+  # goes up from app.asar/node_modules to resources/node_modules and finds it.
+  - from: node_modules/@deepseek-ai
+    to: node_modules/@deepseek-ai
+    filter: ['libreoffice-kit-*/**']
 # node-pty, sharp and koffi ship prebuilt binaries for each platform. A rebuild would compile
 # node-pty from source and needs a C++ toolchain.
 npmRebuild: false
