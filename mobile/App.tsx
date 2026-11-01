@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Text, useColorScheme, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { NavigationContainer } from '@react-navigation/native'
+import { DefaultTheme, NavigationContainer } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { forgetComputer, loadComputer, loadIdentity, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { errorText } from './src/team/link.ts'
@@ -25,10 +25,37 @@ function Shell({ onForget }: { onForget: () => void }) {
   return NAV === 'b' ? <ShellB onForget={onForget} /> : <ShellA onForget={onForget} />
 }
 
+// The navigator lives inside the palette provider so its container theme can
+// follow the computer's theme instead of flashing the default white.
+function ThemedShell({ onForget }: { onForget: () => void }) {
+  const dark = useColorScheme() === 'dark'
+  const { team } = useTeam()
+  const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
+  const navTheme = useMemo(() => ({
+    dark,
+    colors: {
+      primary: value.p.accent,
+      background: value.p.main,
+      card: value.p.sidebar,
+      text: value.p.ink,
+      border: value.p.line,
+      notification: value.p.accent,
+    },
+    fonts: DefaultTheme.fonts,
+  }), [dark, value])
+  return (
+    <ThemeContext.Provider value={value}>
+      <NavigationContainer theme={navTheme}>
+        <Shell onForget={onForget} />
+      </NavigationContainer>
+    </ThemeContext.Provider>
+  )
+}
+
 function Linked({ computer, identity, onForget }: { computer: SavedComputer; identity: PhoneIdentity; onForget: () => void }) {
   return (
     <TeamProvider computer={computer} identity={identity}>
-      <ThemeProvider><Shell onForget={onForget} /></ThemeProvider>
+      <ThemedShell onForget={onForget} />
     </TeamProvider>
   )
 }
@@ -48,7 +75,7 @@ function Boot() {
   const forget = useCallback(() => { void forgetComputer().then(() => setComputer(null)) }, [])
 
   if (DEMO) {
-    return <DemoProvider><ThemeProvider><Shell onForget={forget} /></ThemeProvider></DemoProvider>
+    return <DemoProvider><ThemedShell onForget={forget} /></DemoProvider>
   }
   if (bootError !== null) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><Text style={{ color: p.danger }}>{bootError}</Text></View>
   if (identity === null || computer === undefined) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><ActivityIndicator color={p.accent} /></View>
@@ -61,9 +88,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer>
-          <Boot />
-        </NavigationContainer>
+        <Boot />
         <StatusBar style={dark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

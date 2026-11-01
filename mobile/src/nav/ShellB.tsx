@@ -1,13 +1,13 @@
 import { createDrawerNavigator } from '@react-navigation/drawer'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
-import { Avatar } from '../ui/marks.tsx'
+import { Avatar, YouMark } from '../ui/marks.tsx'
 import { GearIcon, SidebarIcon } from '../ui/icons.tsx'
 import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
@@ -28,12 +28,9 @@ function DrawerContent({ navigation }: any) {
   const pending = pendingCountOf(team)
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
     navigation.closeDrawer()
-    if (target.kind === 'needs') navigation.navigate('Needs')
-    else if (target.kind === 'settings') navigation.navigate('Settings')
-    else {
-      void SecureStore.setItemAsync(LAST_KEY, JSON.stringify(target))
-      navigation.navigate('Chat', target)
-    }
+    if (target.kind === 'needs') navigation.navigate('Main', { screen: 'Needs' })
+    else if (target.kind === 'settings') navigation.navigate('Main', { screen: 'Settings' })
+    else navigation.navigate('Main', { screen: 'Chat', params: target })
   }
   return (
     <View style={{ flex: 1, backgroundColor: p.sidebar }}>
@@ -48,7 +45,7 @@ function DrawerContent({ navigation }: any) {
         <TeamList onOpen={open} />
       </View>
       <View style={[styles.foot, { borderTopColor: p.line, paddingBottom: insets.bottom + 8 }]}>
-        <View style={styles.you}><Text style={[typeScale.rowName, { color: p.ink }]}>{t('You')}</Text></View>
+        <View style={styles.you}><YouMark dark={useTheme().dark} size={24} /><Text style={[typeScale.rowName, { color: p.ink }]}>{t('You')}</Text></View>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           <GearIcon size={20} color={p.ink2} />
         </Pressable>
@@ -85,6 +82,7 @@ function ChatScreenB({ route, navigation }: any) {
   const { team } = useTeam()
   const { p, dark } = useTheme()
   const params = route.params as ChatTarget | undefined
+  useEffect(() => { if (params) void SecureStore.setItemAsync(LAST_KEY, JSON.stringify(params)) }, [params])
   const fallback = team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0]
   const kind = params?.kind ?? 'bot'
   const id = params?.id ?? fallback?.id ?? ''
@@ -100,7 +98,7 @@ function NeedsScreenB({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       <Header title={t('Needs you')} onMenu={() => navigation.openDrawer()} />
-      <NeedsYou onOpen={target => { void SecureStore.setItemAsync(LAST_KEY, JSON.stringify(target)); navigation.navigate('Chat', target) }} />
+      <NeedsYou onOpen={target => navigation.navigate('Chat', target)} />
     </View>
   )
 }
@@ -115,12 +113,15 @@ function SettingsScreenB({ onForget, navigation }: any) {
   )
 }
 
-function Inner({ onForget }: { onForget: () => void }) {
+function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: () => void }) {
+  const { p } = useTheme()
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-      <Stack.Screen name="Chat" component={ChatScreenB} />
+    <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+      <Stack.Screen name="Chat" component={ChatScreenB} initialParams={initial ?? undefined} />
       <Stack.Screen name="Needs">{(props: any) => <NeedsScreenB {...props} />}</Stack.Screen>
       <Stack.Screen name="Settings">{(props: any) => <SettingsScreenB onForget={onForget} {...props} />}</Stack.Screen>
+      {/* Home is only a background color while Chat resolves the first Main Bot. */}
+      <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
     </Stack.Navigator>
   )
 }
@@ -128,14 +129,14 @@ function Inner({ onForget }: { onForget: () => void }) {
 export default function ShellB({ onForget }: { onForget: () => void }) {
   const { p } = useTheme()
   const width = Math.min(Dimensions.get('window').width * 0.85, 340)
-  const drawerRef = useRef<{ openDrawer: () => void; navigate: (name: string, params?: unknown) => void } | null>(null)
-  // Open on the last opened chat (else the first Main Bot).
+  // Render the navigator only once the saved chat is known, so it can start on it.
+  const [saved, setSaved] = useState<ChatTarget | null | undefined>(undefined)
   useEffect(() => {
-    void SecureStore.getItemAsync(LAST_KEY).then(saved => {
-      if (saved === null) return
-      try { drawerRef.current?.navigate('Main', { screen: 'Chat', params: JSON.parse(saved) }) } catch { /* malformed */ }
+    void SecureStore.getItemAsync(LAST_KEY).then(text => {
+      try { setSaved(text === null ? null : JSON.parse(text) as ChatTarget) } catch { setSaved(null) }
     })
   }, [])
+  if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
     <Drawer.Navigator
       screenOptions={{
@@ -146,7 +147,7 @@ export default function ShellB({ onForget }: { onForget: () => void }) {
         swipeEdgeWidth: 60,
       }}
       drawerContent={props => <DrawerContent {...props} />}>
-      <Drawer.Screen name="Main">{() => <Inner onForget={onForget} />}</Drawer.Screen>
+      <Drawer.Screen name="Main">{() => <Inner initial={saved} onForget={onForget} />}</Drawer.Screen>
     </Drawer.Navigator>
   )
 }
