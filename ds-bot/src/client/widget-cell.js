@@ -129,4 +129,9 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+/* A row of segmented options is only as wide as its labels; at phone widths a
+   few longer ones would spill past the card. Let them wrap and let a label wrap
+   inside its own button instead. */
+.dv-seg.dv-view-seg{flex-wrap:wrap}
+.dv-seg.dv-view-seg button{flex:0 1 auto;height:auto;min-height:30px;min-width:0;padding-block:5px;white-space:normal;overflow-wrap:anywhere}
 `
