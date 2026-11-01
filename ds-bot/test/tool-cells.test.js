@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles } from './src/client/cells.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -43,6 +43,9 @@ class FakeObserver {
   observe() {}
   disconnect() { this.off = true }
 }
+// The markdown the host's renderer is given, and what DS Bot's copy controls write.
+const markdownTexts = []
+const copiedTexts = []
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
@@ -52,11 +55,16 @@ runInNewContext(outputFiles[0].text, {
   require: (name) => {
     if (name === 'react') return react
     if (name === 'react-dom') return { createPortal: node => node }
-    if (name === '@deepseek-ai/dsh-client-ui-primitives') return { MarkdownText: ({ text }) => text }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+      return {
+        MarkdownText: ({ text }) => { markdownTexts.push(text); return text },
+        writeClipboard: text => { copiedTexts.push(text); return Promise.resolve(true) },
+      }
+    }
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, QuestionDock, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -972,4 +980,37 @@ test('a view works its formulas out, draws a chart, and keeps html in a sandboxe
   assert.match(frame.props.srcDoc, /Content-Security-Policy" content="default-src 'none'/)
   assert.ok(frame.props.srcDoc.indexOf('Content-Security-Policy') < frame.props.srcDoc.indexOf('<b>hi</b>'), 'the policy comes before the markup')
   assert.equal(frame.props.title, 'A greeting')
+})
+
+// #718: a folded message's cut code block is drawn by DS Bot, so no copy control
+// exists that holds only the part shown; DS Bot's own is bound to the whole
+// block, and a short block keeps the host's normal rendering and copy.
+test('a folded code block leaves no copy of only its shown part', async () => {
+  const inner = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n')
+  const bubble = (texts) => expand(Bubbles({
+    texts, roster: team(), selfId: chief.id, sessionId: chief.id, actions: {},
+    useUi: select => select({ reactions: {} }),
+  }))
+  const copyOf = node => findAll(node, item => item.type === 'button' && typeof item.props?.className === 'string' && item.props.className.includes('bt-fold-copy'))
+
+  markdownTexts.length = 0
+  copiedTexts.length = 0
+  const out = bubble([`Here:\n\`\`\`js\n${inner}\n\`\`\``])
+  // The markdown the host renders holds no fence, so it can draw no copy of the part.
+  assert.ok(markdownTexts.length > 0 && markdownTexts.every(given => !given.includes('```')))
+  // DS Bot draws the part the preview keeps, and its copy holds the whole block.
+  assert.equal(text(find(out, item => item.type === 'pre')), 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8')
+  const [copy] = copyOf(out)
+  assert.equal(copyOf(out).length, 1)
+  copy.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(copiedTexts, [inner])
+
+  // A short block goes to the host whole, with the host's own copy and none of ours.
+  markdownTexts.length = 0
+  copiedTexts.length = 0
+  const short = bubble(['```js\none\n```'])
+  assert.ok(markdownTexts.some(given => given.includes('```js')))
+  assert.equal(copyOf(short).length, 0)
+  effects = []
 })
