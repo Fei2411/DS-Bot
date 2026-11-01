@@ -146,6 +146,29 @@ export function install(rt) {
     save()
   }
 
+  // A delivery the restart delayed is marked, so the answer that comes back for
+  // the work says the request only arrived then.
+  function lateWork(id) {
+    const work = works()[id]
+    if (work === undefined || work.late === true) return
+    work.late = true
+    save()
+  }
+
+  // The reply carrying a result never reached the asker: the failure reaches it
+  // as an input instead (turns.js), which ends the wait when it is read like any
+  // reply. The result kept with the work it was for is marked, so the answer
+  // that goes up names it.
+  function answerMissed(id) {
+    for (const work of Object.values(works())) {
+      if (!work.open.includes(id)) continue
+      const result = (work.results ?? []).find(item => item.id === id)
+      if (result !== undefined) result.failed = true
+      save()
+      return
+    }
+  }
+
   const owns = (botId, workId) => workId !== undefined && works()[workId]?.to === botId
   const waits = workId => (works()[workId]?.open.length ?? 0) > 0
   function hold(workId, text) {
@@ -166,10 +189,13 @@ export function install(rt) {
     const results = (work?.results ?? []).map(result => {
       const { text, whole } = resultText(result)
       const cut = whole ? '' : `\n[cut; ${result.length} characters in all, the rest was not kept]`
+      if (result.failed === true) return `${result.name} could not send its reply to you; what it had answered:\n${text}${cut}`
       return `${result.name}:\n${text}${cut}`
     })
-    if (results.length === 0) return said || `${botName} finished without a reply.`
-    return [said || `${botName} finished and wrote nothing more.`, `[Handed back to ${botName} for this work]`, ...results].join('\n\n')
+    const body = results.length === 0 ? said || `${botName} finished without a reply.`
+      : [said || `${botName} finished and wrote nothing more.`, `[Handed back to ${botName} for this work]`, ...results].join('\n\n')
+    // The request reached its target only after a restart; the answer says so.
+    return work?.late === true ? `[This request reached ${botName} only after DeepSeek Harness restarted.]\n\n${body}` : body
   }
 
   // The Bots waiting for the result of these works: whoever asked for each, and on up.
@@ -262,5 +288,5 @@ export function install(rt) {
     return lines.join('; ')
   }
 
-  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView })
+  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView })
 }
