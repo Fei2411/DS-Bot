@@ -1,5 +1,5 @@
 {
-  "name": "deepseek-bot-link",
+  "name": "ds-bot-link",
   "version": "0.1.0",
   "private": true,
   "description": "DS Bot's encrypted link between the phone app and the computer, and its Relay Server.",

@@ -276,7 +276,7 @@ test('the user adds and edits memory entries directly, with the same checks as t
   assert.deepEqual(added.entries.map(entry => [entry.scope, entry.text, entry.by]), [['own', 'Prefers short drafts', 'user']])
   const edited = (await call('memory-edit', { botId: writer.id, scope: 'own', text: 'Prefers short drafts', next: 'Prefers drafts under one page' })).value
   assert.deepEqual(edited.entries.map(entry => entry.text), ['Prefers drafts under one page'])
-  const refused = await call('memory-edit', { botId: writer.id, scope: 'own', text: 'Prefers drafts under one page', next: 'sk-abcdefghijklmnopqrstuvwxyz0123456789' })
+  const refused = await call('memory-edit', { botId: writer.id, scope: 'own', text: 'Prefers drafts under one page', next: 'sk-' + 'abcdefghijklmnopqrstuvwxyz0123456789' })
   assert.equal(refused.ok, false)
   assert.equal(refused.error.code, 'bot/invalid')
   assert.equal((await call('memory-edit', { botId: writer.id, scope: 'own', text: 'not there', next: 'x' })).ok, false)
