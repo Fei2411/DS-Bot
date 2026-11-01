@@ -133,7 +133,7 @@ export function install(rt) {
       return
     }
     shadowed.add(agent)
-    agent.ctx.tools.register({
+    const lift = agent.ctx.tools.register({
       ...def,
       execute: async (args, exec) => {
         const native = def.execute(args, exec)
@@ -194,17 +194,23 @@ export function install(rt) {
         return { kind: 'promoted', cwd, jobId, timeoutMs: Date.now() - startedAt, output: renderJobRead(read) }
       },
     })
+    // tools.js keeps this with the Session's scope; unmarking lets a later
+    // scope register the shadow again.
+    return () => { shadowed.delete(agent); lift?.() }
   }
   rt.shadowShells = (agent) => {
     if (agent === undefined || !rt.isBotSession(agent.session?.id)) return
     if (shadowed.has(agent) || typeof agent.ctx?.tools?.register !== 'function') return
+    const disposers = []
     for (const name of SHELL_TOOLS) {
       try {
-        shadowShell(agent, name)
+        const lift = shadowShell(agent, name)
+        if (typeof lift === 'function') disposers.push(lift)
       } catch (error) {
         rt.warn('ds-bot: shadowing %s failed: %s', name, error)
       }
     }
+    return disposers
   }
 
   ctx.on('session/event', (session, event) => {
