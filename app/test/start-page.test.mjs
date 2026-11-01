@@ -62,7 +62,7 @@ test('the page sends only the acts of the start window', () => {
     ...[...code['start.js'].matchAll(/\bact: '(\w+)'|\bact\('(\w+)'/gu)].map(match => match[1] ?? match[2]),
     ...[...code['whale.js'].matchAll(/\bact\('(\w+)'\)/gu)].map(match => match[1]),
   ].filter(name => !local.has(name)))
-  assert.deepEqual([...sent].sort(), ['answer', 'copyDetails', 'freshStart', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'openLogs', 'pick', 'reloadView', 'retry', 'stopCopy', 'wait'])
+  assert.deepEqual([...sent].sort(), ['answer', 'copyDetails', 'freshStart', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
   // Every act the main process takes is one that the page sends, under the same name.
   for (const name of START_ACTS) assert.ok(sent.has(name), `the main process takes ${name}, which the page never sends`)
 })
@@ -177,13 +177,12 @@ test('every text key starts with one of the ten layers', () => {
   for (const key of Object.keys(TEXT.zh)) assert.ok(LAYERS.includes(layerOf(key)), `${key}: unknown layer`)
 })
 
-// The whale speaks only when the user is needed (past 45 s, the 180 s question, a failure, a data
-// move), and the hint row only for a short drive: no greeting, stage lines or clock.
+// The whale speaks only when something went wrong (the 180 s question, a failure), and the hint
+// row only for a short drive: no greeting, stage lines, slow-start lines or clock.
 test('the whale and the hint row have only the lines for when the user is needed', () => {
   const layer = name => Object.keys(TEXT.zh).filter(key => layerOf(key) === name).sort()
-  assert.deepEqual(layer('voice'), ['voice.failed', 'voice.moving', 'voice.slow45', 'voice.slowLater', 'voice.viewFailed', 'voice.watchdog'])
+  assert.deepEqual(layer('voice'), ['voice.failed', 'voice.viewFailed', 'voice.watchdog'])
   assert.deepEqual(layer('hint'), ['hint.space'])
-  assert.equal(TEXT.zh['voice.slowLater'], '比平时慢，请再等一会儿')
   assert.ok(!('status.elapsed' in TEXT.zh), 'the elapsed clock is back')
 })
 
@@ -272,7 +271,7 @@ test('every text key that the page uses exists', () => {
     for (const [, prefix] of text.matchAll(/`([\w.]+\.)\$\{/gu)) assert.ok(keys.some(key => key.startsWith(prefix)), `${name}: no text key starts with ${prefix}`)
   }
   // Keys the page builds from the snapshot's views, the stages and the failure reasons.
-  for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'voice.moving', 'voice.slow45', 'voice.slowLater', 'status.phase.data', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
+  for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'status.phase.data', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
   assert.deepEqual(matching('reason.start.{reason}').sort(), ['reason.start.engine', 'reason.start.files', 'reason.start.other', 'reason.start.permission', 'reason.start.space'])
   assert.deepEqual(matching('reason.place.{reason}').sort(), ['reason.place.drive', 'reason.place.dsh', 'reason.place.foreign', 'reason.place.nested', 'reason.place.onedrive', 'reason.place.permission', 'reason.place.program', 'reason.place.space', 'reason.place.workspace'])
   assert.deepEqual(matching('reason.copy.{reason}').sort(), ['reason.copy.full', 'reason.copy.inUse', 'reason.copy.other', 'reason.copy.permission'])

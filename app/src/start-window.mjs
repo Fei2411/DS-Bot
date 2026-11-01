@@ -4,6 +4,7 @@
 // team window's rect, and the hidden team window shows on the same rect. The rect maths, the
 // growth, the snapshot and the checks are plain functions, so the tests run without Electron.
 import { pathToFileURL } from 'node:url'
+import { writeFile } from 'node:fs/promises'
 import { within } from './copy-tree.mjs'
 
 export const START_STATE = 'ds-bot:start-state'
@@ -23,6 +24,8 @@ export const TEAM_VIEW_MS = 20_000
 export const GROWTH = { delay: 160, duration: 300, step: 14 }
 export const DESTROY_AFTER_MS = 300
 export const FAILURE_LINES = 200
+// 〔保存日志…〕 saves this many of the latest log lines, after the same header as the copied details.
+export const SAVED_LINES = 5000
 // The DeepSeek theme's --bt-main and --bt-ink (ui-standard 2.1), as in start.css: the window's
 // own background and caption symbols, which show before the page paints and where Mica is not.
 const COLORS = { light: { main: '#fcfcfc', ink: '#141414' }, dark: { main: '#141414', ink: '#f2f2f2' } }
@@ -44,8 +47,8 @@ const ACT_VIEWS = {
   // The failure page's update banner: 〔下载〕 or 〔重试〕 on it, and 「手动下载」.
   installUpdate: ['failed'],
   manualDownload: ['failed'],
-  openLogs: null,
   copyDetails: null,
+  saveLog: null,
 }
 export const START_ACTS = Object.freeze(Object.keys(ACT_VIEWS))
 
@@ -280,7 +283,7 @@ export class StartWindow {
 
   /**
    * @param {{
-   *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, nativeTheme: any, systemPreferences: any },
+   *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, dialog?: any, nativeTheme: any, systemPreferences: any },
    *   page: string, preload: string, icon: string, mica: boolean, devTools: boolean,
    *   lang: () => 'zh' | 'en', motion: string, version: string, program: string[],
    *   log: { dir: string, tail: (count: number) => string[] },
@@ -697,8 +700,8 @@ export class StartWindow {
     else if (name === 'retry') this.#retry()
     else if (name === 'wait') this.#wait()
     else if (name === 'reloadView') this.#reload()
-    else if (name === 'openLogs') this.#openLogs()
     else if (name === 'copyDetails') this.#copyDetails()
+    else if (name === 'saveLog') void this.#saveLog()
     else if (name === 'pick') this.#o.onPick?.(valueOf(payload))
     else if (name === 'answer') this.#o.onAnswer?.(valueOf(payload))
     else if (name === 'installUpdate' || name === 'manualDownload') this.#o.onUpdate?.(name)
@@ -731,15 +734,26 @@ export class StartWindow {
     this.teamLoading()
   }
 
-  #openLogs() {
-    void this.#o.electron.shell.openPath(this.#o.log.dir).then((problem) => { if (problem) note(`the logs folder did not open: ${problem}`) })
-  }
-
   #copyDetails() {
     const { version } = this.#o
     const reason = this.#state.failure?.reason ?? 'other'
     const text = detailsText({ version, platform: process.platform, arch: process.arch, reason, lines: this.#o.log.tail(FAILURE_LINES) })
     void Promise.resolve(this.#o.electron.clipboard.writeText(text)).catch((error) => { note(`the details were not copied: ${error instanceof Error ? error.message : String(error)}`) })
+  }
+
+  async #saveLog() {
+    const { version, electron } = this.#o
+    if (!electron.dialog) return
+    const reason = this.#state.failure?.reason ?? 'other'
+    const text = detailsText({ version, platform: process.platform, arch: process.arch, reason, lines: this.#o.log.tail(SAVED_LINES) })
+    try {
+      const { canceled, filePath } = await electron.dialog.showSaveDialog(this.#window, { defaultPath: 'DeepSeek-Bot-log.txt', filters: [{ name: 'Text', extensions: ['txt'] }] })
+      if (canceled || !filePath) return
+      await writeFile(filePath, text, 'utf8')
+      note(`the log was saved to ${filePath}`)
+    } catch (error) {
+      note(`the log was not saved: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   #handoffShow(payload) {

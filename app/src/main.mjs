@@ -169,7 +169,7 @@ if (canonical !== undefined) {
   app.once('will-quit', () => { logs.flush() })
   console.log(`DeepSeek Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   startWindow = new StartWindow({
-    electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
+    electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, dialog, nativeTheme, systemPreferences },
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, mica, devTools: !app.isPackaged,
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
@@ -405,13 +405,15 @@ function setPlaces(next) {
   made = { dataDir: !existsSync(places.dataDir), workspace: places.workspace !== undefined && !existsSync(places.workspace), root: root !== undefined && !existsSync(root) }
 }
 
-// The line on the start page that says where the data goes and how much room is there, and the
-// short drive's note for the first 10 s (start-window §2, §4).
+// The line on the start page that says where the data goes and how much room is left, and the
+// short drive's note for the first 10 s, both only on a short drive (start-window §2, §4).
 function tellPlace(dataDir) {
   const free = freeSpace(dataDir)
-  startWindow.place(placeOf(dataDir, { free }))
   const drive = driveOf(dataDir)
-  startWindow.hint(drive !== undefined && free !== undefined && free < SHORT_DRIVE_BYTES ? { drive, free: formatBytes(free) } : undefined)
+  const short = drive !== undefined && free !== undefined && free < SHORT_DRIVE_BYTES
+  // The page has no words while the start goes well: the line shows only when room runs short.
+  startWindow.place(short ? placeOf(dataDir, { free }) : undefined)
+  startWindow.hint(short ? { drive, free: formatBytes(free) } : undefined)
 }
 
 // A later start shows the line again once the drive is down to a fifth of the free space it had

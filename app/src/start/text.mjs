@@ -23,10 +23,7 @@
 export const TEXT = {
   zh: {
     // voice
-    'voice.slow45': '有点久，可能是杀毒软件在查新文件',
-    'voice.slowLater': '比平时慢，请再等一会儿',
     'voice.watchdog': '等太久了，要不要重试？',
-    'voice.moving': '正在搬 DeepSeek Bot 的数据…',
     'voice.failed': 'DeepSeek Bot 没能启动',
     'voice.viewFailed': '团队界面没有加载出来',
     // say
@@ -98,7 +95,6 @@ export const TEXT = {
     // btn
     'btn.retry': '重试',
     'btn.wait': '继续等待',
-    'btn.openLogs': '打开日志文件夹',
     'btn.freshStart': '用新的空白团队开始…',
     'btn.useRec': '放到 {rec} 盘',
     'btn.keepDrive': '仍然放在 {drive} 盘',
@@ -117,6 +113,7 @@ export const TEXT = {
     'btn.startWithout': '先不带团队开始',
     'btn.copyDetails': '复制详细信息',
     'btn.copied': '已复制',
+    'btn.saveLog': '保存日志…',
     'btn.details': '详细信息',
     'btn.manualDownload': '手动下载',
     'btn.reload': '重新载入',
@@ -177,10 +174,7 @@ export const TEXT = {
   },
   en: {
     // voice
-    'voice.slow45': 'Taking a while: antivirus may be checking new files',
-    'voice.slowLater': 'Slower than usual; please wait a little longer',
     'voice.watchdog': 'This is taking too long. Try again?',
-    'voice.moving': 'Moving DeepSeek Bot’s data…',
     'voice.failed': 'DeepSeek Bot couldn’t start',
     'voice.viewFailed': 'The team view didn’t load',
     // say
@@ -252,7 +246,6 @@ export const TEXT = {
     // btn
     'btn.retry': 'Try again',
     'btn.wait': 'Keep waiting',
-    'btn.openLogs': 'Open log folder',
     'btn.freshStart': 'Start with a new blank team…',
     'btn.useRec': 'Put it on drive {rec}',
     'btn.keepDrive': 'Keep it on drive {drive}',
@@ -271,6 +264,7 @@ export const TEXT = {
     'btn.startWithout': 'Start without the team',
     'btn.copyDetails': 'Copy details',
     'btn.copied': 'Copied',
+    'btn.saveLog': 'Save log…',
     'btn.details': 'Details',
     'btn.manualDownload': 'Download manually',
     'btn.reload': 'Reload',

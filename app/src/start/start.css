@@ -127,8 +127,6 @@ html[data-up] .caption{opacity:0;pointer-events:none}
 .caption-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .caption>*{opacity:0;filter:blur(6px);transition:opacity .16s,filter .16s}
 .caption>[data-on]{opacity:1;filter:none;transition:opacity .22s ease-out,filter .22s ease-out}
-.caption>.btn[data-on]{transition:opacity .22s ease-out .09s,filter .22s ease-out .09s,scale var(--spring-tap-ms) var(--spring-tap) .09s}
-@starting-style{.caption>.btn[data-on]{scale:.96}}
 
 /* sheet: one surface that every card morphs in and out of */
 .sheet{position:absolute;left:48px;top:260px;width:624px;height:calc(100% - 304px)}

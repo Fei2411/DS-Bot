@@ -20,7 +20,7 @@ root.dataset.sheet = 'none'
 const $ = selector => document.querySelector(selector)
 const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), stage = $('.stage'), pond = $('.pond'), live = $('.live')
 const voiceEl = $('.voice'), voiceText = $('.voice>span')
-const captionText = $('.caption-text'), logs = $('.caption .btn')
+const captionText = $('.caption-text')
 const placeEl = $('.place'), placeText = $('.place-text')
 const CODE = new Set(['path', 'dataDir', 'workspace'])
 let lang = 'zh'
@@ -79,22 +79,16 @@ function varsOf(snap) {
 function announce(text) { if (text) live.textContent = text }
 
 // ---- the whale's line ----
-// One short line under the ring, and only when the user is needed: a start that runs past 45 s,
-// the 180 s question, a failure. A data move (which the user started, and which takes a while)
-// keeps its line. A card speaks with its own first line, so the whale's line is empty while a
-// card is up (the 180 s question is the exception: its card holds only the buttons). A new line
-// fades in once the old one has faded out.
+// One short line under the ring, and only when something went wrong: the 180 s question or a
+// failure. A slow start is told by the whale's pose alone. A card speaks with its own first line,
+// so the whale's line is empty while a card is up (the 180 s question is the exception: its card
+// holds only the buttons). A new line fades in once the old one has faded out.
 const VOICES = { failed: 'voice.failed', viewFailed: 'voice.viewFailed', watchdog: 'voice.watchdog' }
 const FADE_MS = 160
 // key/text: the line chosen (on screen, or coming in once the old one has faded out).
 const v = { key: '', text: '', swap: 0 }
-// Past 45 s with the engine not up yet: the whale says why it takes so long.
-const late = () => ['boot', 'moving'].includes(s.view) && !(s.done ?? []).includes('engine') && bootMs() >= 45000
 function voiceWant() {
-  if (VOICES[s.view]) return VOICES[s.view]
-  if (s.view === 'card') return ''
-  if (late()) return first ? 'voice.slow45' : 'voice.slowLater'
-  return START === 'moving' ? 'voice.moving' : ''
+  return VOICES[s.view] ?? ''
 }
 function speak() {
   if (!s) return
@@ -117,13 +111,11 @@ function put() {
 }
 
 // ---- the hint row ----
-// Empty unless the user is needed: a short drive's one-line note for the first 10 s, and from
-// 45 s 〔打开日志文件夹〕 alone, since the whale's line says why. Nothing shows while a card, the
-// 180 s question or a failure is up.
+// Empty unless room runs short: a short drive's one-line note for the first 10 s. Nothing shows
+// while a card, the 180 s question or a failure is up.
 function hintWant() {
-  if (s.view !== 'boot' && s.view !== 'moving') return ['', {}, false]
-  if (late()) return ['', {}, true]
-  return [s.hint && bootMs() < 10000 ? 'hint.space' : '', { ...s.hint }, false]
+  if (s.view !== 'boot' && s.view !== 'moving') return ['', {}]
+  return [s.hint && bootMs() < 10000 ? 'hint.space' : '', { ...s.hint }]
 }
 let shimmerReady = false
 if (!first) setTimeout(() => { shimmerReady = true; if (s) shimmer() }, resume ? 0 : 1000)
@@ -144,10 +136,10 @@ function timeUI() {
   if (booting) director.slow(first && engineDone ? 0 : ms >= 45000 ? 2 : ms >= 10000 ? 1 : 0)
   if (booting && s.clock?.running) tick = setTimeout(timeUI, (sec + 1) * 1000 - ms + 4)
 }
-const hint = () => { const [key, vars, withLogs] = hintWant(); caption(key, vars, withLogs) }
+const hint = () => { const [key, vars] = hintWant(); caption(key, vars) }
 let captionKey = ''
 let captionTimer = 0
-function caption(key, vars, withLogs) {
+function caption(key, vars) {
   const text = key ? say(key, vars) : ''
   if (key !== captionKey) {
     const had = captionKey
@@ -156,8 +148,6 @@ function caption(key, vars, withLogs) {
     const show = () => { captionText.textContent = text; captionText.toggleAttribute('data-on', Boolean(key)) }
     if (had) { delete captionText.dataset.on; captionTimer = setTimeout(show, 160) } else show()
   } else if (key && captionText.textContent !== text) captionText.textContent = text
-  if (withLogs && logs.hidden) { logs.hidden = false; logs.dataset.on = '' }
-  if (!withLogs && !logs.hidden) { delete logs.dataset.on; setTimeout(() => { if (!logs.dataset.on) logs.hidden = true }, 160) }
 }
 
 // ---- the sheet: one surface that every card morphs in and out of ----

@@ -116,7 +116,7 @@ test('only a missing file of the app\'s own says that the install is incomplete'
 })
 
 test('the main process takes only its own acts, each in its own views', () => {
-  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'installUpdate', 'manualDownload', 'openLogs', 'pick', 'reloadView', 'retry', 'wait'])
+  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'installUpdate', 'manualDownload', 'pick', 'reloadView', 'retry', 'saveLog', 'wait'])
   assert.equal(acceptsAct('handoffShow', 'handoff'), true)
   // 「换个位置…」 while the start boots and 〔重新选〕 on its cards; a card's answer only on a card.
   assert.equal(acceptsAct('pick', 'boot'), true)
@@ -142,8 +142,8 @@ test('the main process takes only its own acts, each in its own views', () => {
     for (const view of ['boot', 'card', 'viewFailed', 'watchdog', 'handoff', 'moving']) assert.equal(acceptsAct(name, view), false, `${name} in ${view}`)
   }
   for (const view of ['boot', 'failed', 'viewFailed', 'watchdog', 'handoff', 'moving']) {
-    assert.equal(acceptsAct('openLogs', view), true)
     assert.equal(acceptsAct('copyDetails', view), true)
+    assert.equal(acceptsAct('saveLog', view), true)
   }
   // The cards of later pull requests, and names that are not acts at all.
   for (const name of ['reload', 'toggleDetails', 'freshStart', 'stopCopy', 'keepCopying', 'importModel', 'importOption', '__proto__', 'constructor', 'toString', '']) {
@@ -344,13 +344,13 @@ test('the start window takes acts only from its own page, each in its own view',
   const own = s.win()
   const ownFrame = { sender: own.webContents, senderFrame: own.webContents.mainFrame }
   const other = s.other()
-  assert.equal(s.act('openLogs', undefined, { sender: other.webContents, senderFrame: other.webContents.mainFrame }), false)
-  assert.equal(s.act('openLogs', undefined, { sender: own.webContents, senderFrame: { url: own.webContents.mainFrame.url } }), false)
+  assert.equal(s.act('saveLog', undefined, { sender: other.webContents, senderFrame: other.webContents.mainFrame }), false)
+  assert.equal(s.act('saveLog', undefined, { sender: own.webContents, senderFrame: { url: own.webContents.mainFrame.url } }), false)
   const loaded = own.webContents.mainFrame.url
   own.webContents.mainFrame.url = loaded.replace('first', 'later')
-  assert.equal(s.act('openLogs', undefined, ownFrame), false)
+  assert.equal(s.act('saveLog', undefined, ownFrame), false)
   own.webContents.mainFrame.url = loaded
-  assert.equal(s.act('openLogs', undefined, ownFrame), true)
+  assert.equal(s.act('saveLog', undefined, ownFrame), true)
   assert.equal(s.act('retry', undefined, ownFrame), false)
   assert.equal(s.act('freshStart', undefined, ownFrame), false)
   assert.equal(s.calls.retry, 0)
@@ -738,7 +738,7 @@ test('a move from a later start turns the start window into the move\'s and drop
   assert.equal('place' in m.state(), false)
   assert.match(m.win().webContents.mainFrame.url, /\?start=moving$/u)
   assert.equal(m.act('pick', { value: 'changePlace' }), false)
-  assert.equal(m.act('openLogs'), true)
+  assert.equal(m.act('saveLog'), true)
   m.tick(WATCHDOG_MS)
   assert.equal(m.state().view, 'moving')
   // A move that does not go through asks on a card of the moving page; the clock stands still
