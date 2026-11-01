@@ -77,6 +77,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool read_group_chat',
     'effect ds-bot: group step lines',
     'on llm/stream',
+    'tool group_goal',
     'on approval/request (prepend)',
     'on agent/inbox/discarded',
     'on session/event',

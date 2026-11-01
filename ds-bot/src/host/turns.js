@@ -665,6 +665,15 @@ export function install(rt) {
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(id, { text: '', kickoff: true })
+        } else if (source?.kind === SOURCE_KIND && source.role === 'goal' && rt.roomOf(id)) {
+          // A goal message — the user's draft ask, an idle goal check, a resume —
+          // opens a round of its own; the draft ask is the user's line.
+          queueRoomMessage(id, {
+            text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
+            ...(source.goal !== undefined ? { goal: source.goal } : {}),
+            ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
+            ...(source.goal === 'draft' ? { user: true } : {}),
+          })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
             entry.pending = source
@@ -697,7 +706,7 @@ export function install(rt) {
             const content = Array.isArray(event.data.content) ? event.data.content : []
             const images = content.filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
             const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-            queueRoomMessage(id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
+            queueRoomMessage(id, { text: textOf(event.data.content), user: true, ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.dropKickoff(own)

@@ -67,8 +67,11 @@ export const TEAM_TOOLS = [
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
   'list_capabilities', 'save_capability', 'delete_capability',
-  'attach_capability', 'detach_capability',
+  'attach_capability', 'detach_capability', 'group_goal',
 ]
+// Consecutive automatic admin wakes with no goal progress before the goal waits
+// for the user instead of waking the admin again.
+export const GOAL_IDLE_NUDGES = 2
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000

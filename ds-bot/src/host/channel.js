@@ -46,7 +46,7 @@ export function install(rt) {
       ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
     })),
     // `parts`: the members' hidden group Sessions and their earlier segments, for usage.
-    rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, ...room }) => {
+    rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, pastGoals, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId)]
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
       return { ...room, parts, ...(last ? { preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
@@ -320,10 +320,26 @@ export function install(rt) {
         case 'approval-answer':
           rt.answerApproval(body.id, body.choice)
           return ok(true)
-        case 'stop-member-work':
-          return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
-        case 'stop-room-work':
-          return ok(await rt.stopRoomWork(String(body.roomId ?? '')))
+        case 'stop-member-work': {
+          const stopped = await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? ''))
+          rt.goalUserStopped?.(String(body.roomId ?? ''))
+          return ok(stopped)
+        }
+        case 'stop-room-work': {
+          const stopped = await rt.stopRoomWork(String(body.roomId ?? ''))
+          rt.goalUserStopped?.(String(body.roomId ?? ''))
+          return ok(stopped)
+        }
+        case 'goal-draft': {
+          await rt.load()
+          const result = await rt.goalDraft(String(body.roomId ?? ''), body.text)
+          return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
+        }
+        case 'goal-control': {
+          await rt.load()
+          const result = await rt.goalControl(String(body.roomId ?? ''), body)
+          return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
+        }
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {

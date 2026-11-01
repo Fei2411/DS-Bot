@@ -113,6 +113,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
+    goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
+    goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),
+    // The goal island: `goalCompose` holds the room whose draft form is open,
+    // `goalOpen` the room whose panel is open.
+    composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId })),
+    closeGoalCompose: () => ui.set(state => (state.goalCompose ? { ...state, goalCompose: null } : state)),
+    toggleGoal: roomId => ui.set(state => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId })),
+    closeGoal: () => ui.set(state => (state.goalOpen ? { ...state, goalOpen: null } : state)),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),
     secretAllow: requestId => after(call('secret-allow', { requestId })),
