@@ -34,6 +34,9 @@ export function install(rt) {
   let stopped = false
   // mtime and size of the state.json this host last read or wrote.
   let seen = ''
+  // Bumped each time this host takes the lock, so a save queued before a loss
+  // does not write across a reclaim it could not see.
+  let lockEpoch = 0
   const stamp = () => {
     try {
       const { mtimeMs, size } = statSync(statePath)
@@ -48,6 +51,7 @@ export function install(rt) {
     try {
       mkdirSync(home, { recursive: true })
       holder = lock.claim()
+      if (holder === undefined) lockEpoch += 1
     } catch (error) {
       // An unusable lock (a read-only or odd file system) must not stop the team; a
       // save that then cannot write still rejects.
@@ -247,6 +251,32 @@ export function install(rt) {
     for (const room of stale) void rt.retitleRoom(room)
   })()
 
+  // The lock is back in this host's hands, whether a refresh or a save retook it:
+  // the file on disk is adopted, after this host's own state is put aside when the
+  // file is not what it last saw. The step is queued behind `writing` — and behind
+  // any adopt already queued — so no save or second refresh slips between the
+  // reclaim and the adopt.
+  let adopting
+  const adoptAfterReclaim = () => {
+    const run = (adopting ?? writing).then(async () => {
+      warnedReadOnly = false
+      if (stamp() !== seen) {
+        const aside = `${statePath}.replaced-${Date.now()}`
+        try {
+          await writeFile(aside, JSON.stringify(state))
+          warn('ds-bot: %s changed while no host held the team; it is adopted and this host\'s state is kept as %s', statePath, aside)
+        } catch (error) {
+          warn('ds-bot: %s changed while no host held the team; it is adopted, and this host\'s state is lost because it could not be kept aside: %s', statePath, error)
+        }
+      }
+      adopt(readFileState())
+    })
+    writing = run.catch(() => {})
+    const tracked = run.finally(() => { if (adopting === tracked) adopting = undefined })
+    adopting = tracked
+    return tracked
+  }
+
   // A reading host follows the file and takes over once the other host has gone.
   const refresh = async () => {
     await load()
@@ -255,8 +285,7 @@ export function install(rt) {
       claimLock()
       if (holder === undefined) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
-        warnedReadOnly = false
-        adopt(readFileState())
+        await adoptAfterReclaim()
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -266,24 +295,14 @@ export function install(rt) {
       claimLock()
       if (lockBroken) return
       if (holder === undefined) {
-        warnedReadOnly = false
-        // The lock was free and is this host's again. A hand-over and an outside edit look
-        // the same here, so the file on disk is adopted either way; when it is not what this
-        // host last saw, this host's own state is kept aside first.
-        if (stamp() !== seen) {
-          const aside = `${statePath}.replaced-${Date.now()}`
-          try {
-            await writeFile(aside, JSON.stringify(state))
-            warn('ds-bot: %s changed while no host held the team; it is adopted and this host\'s state is kept as %s', statePath, aside)
-          } catch (error) {
-            warn('ds-bot: %s changed while no host held the team; it is adopted, and this host\'s state is lost because it could not be kept aside: %s', statePath, error)
-          }
-        }
-        adopt(readFileState())
+        // The lock was free and is this host's again. A hand-over and an outside
+        // edit look the same here, so the file on disk is adopted either way.
+        await adoptAfterReclaim()
         return
       }
       warn('ds-bot: %s', readOnly())
     }
+    if (adopting !== undefined) return adopting
     if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
   }
 
@@ -299,10 +318,14 @@ export function install(rt) {
     if (lockBroken) return true
     if (holder === undefined && lock.owns()) return true
     // Lost the lock: retake it when nobody else holds it (its file was deleted), else
-    // another host took it over and this one stops writing.
+    // another host took it over and this one stops writing. A retake adopts the file
+    // first, and the save queues behind that adopt on `writing`.
     if (holder === undefined) {
       claimLock()
-      if (holder === undefined) return true
+      if (holder === undefined) {
+        void adoptAfterReclaim().catch(() => {})
+        return true
+      }
     }
     return warnReadOnly()
   }
@@ -312,16 +335,21 @@ export function install(rt) {
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
-    state.revision += 1
-    state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
-    const snapshot = JSON.stringify(state)
+    const epoch = lockEpoch
     const run = writing.then(async () => {
+      // The snapshot is taken once the queued write runs, so a save made while an
+      // adopt was pending writes the adopted state, not the stale one it had.
+      state.revision += 1
+      state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
+      const snapshot = JSON.stringify(state)
       const temp = `${statePath}.${process.pid}.tmp`
       try {
         await mkdir(home, { recursive: true })
         const ensureLock = () => {
           if (lockBroken) return
-          if (!lock.owns()) {
+          // A different epoch means this host lost and retook the lock since the
+          // save was queued: the write must not slip across that reclaim.
+          if (!lock.owns() || lockEpoch !== epoch) {
             const error = new Error('ds-bot lost the state lock to another dsh')
             error.code = 'ELOCKLOST'
             throw error

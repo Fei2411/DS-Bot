@@ -225,6 +225,100 @@ test('a changed file is still adopted when keeping this host\'s state aside fail
   assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'outside edit')
 })
 
+test('a save that takes the lock back adopts a changed file first', async (t) => {
+  const { rt, home, statePath, warnings } = runtime(t)
+  await rt.load()
+  rt.state.prefs.marker = 'ours'
+  await rt.save()
+  // A tool with full file access edits the team file and removes the lock; the
+  // next save runs before any refresh sees it.
+  fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
+  fs.rmSync(join(home, 'state.lock'))
+  rt.state.prefs.after = 'late change'
+  await rt.save()
+  // The file on disk was adopted, not overwritten by the old in-memory state.
+  const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+  assert.equal(saved.prefs.marker, 'outside edit')
+  assert.equal(rt.state.prefs.marker, 'outside edit')
+  assert.equal(rt.state.prefs.after, undefined)
+  assert.ok(warnings.some(args => /adopted/.test(String(args)) && /kept as/.test(String(args))))
+  const backups = fs.readdirSync(home).filter(name => name.startsWith('state.json.replaced-'))
+  assert.equal(backups.length, 1)
+  const aside = JSON.parse(fs.readFileSync(join(home, backups[0]), 'utf8'))
+  assert.equal(aside.prefs.marker, 'ours')
+  assert.equal(aside.prefs.after, 'late change')
+})
+
+test('a save cannot slip between a reclaim and the adopt it waits on', async (t) => {
+  const { rt, home, statePath } = runtime(t)
+  await rt.load()
+  rt.state.prefs.marker = 'ours'
+  await rt.save()
+  fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
+  fs.rmSync(join(home, 'state.lock'))
+  let entered
+  let unblock
+  const atBackup = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { unblock = resolve })
+  const restore = patch('writeFile', originalWrite => async (path, ...args) => {
+    if (String(path).startsWith(`${statePath}.replaced-`)) {
+      entered()
+      await gate
+    }
+    return originalWrite(path, ...args)
+  })
+  try {
+    const refreshing = rt.refresh()
+    await atBackup
+    // The reclaim already happened; this save must wait for the adopt, not write
+    // the in-memory state it still holds.
+    rt.state.prefs.after = 'racing save'
+    const racing = rt.save()
+    unblock()
+    await refreshing
+    await racing
+    assert.equal(rt.state.prefs.marker, 'outside edit')
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'outside edit')
+  } finally {
+    unblock()
+    restore()
+  }
+})
+
+test('a save queued before the lock was lost does not write over an outside edit', async (t) => {
+  const { rt, home, statePath } = runtime(t)
+  await rt.load()
+  rt.state.prefs.marker = 'ours'
+  await rt.save()
+  let entered
+  let unblock
+  const atMkdir = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { unblock = resolve })
+  const restore = patch('mkdir', originalMkdir => async (path, ...args) => {
+    if (path === home) {
+      entered()
+      await gate
+    }
+    return originalMkdir(path, ...args)
+  })
+  try {
+    rt.state.prefs.after = 'queued save'
+    const racing = rt.save()
+    await atMkdir
+    fs.writeFileSync(statePath, JSON.stringify({ version: 1, revision: 900, prefs: { marker: 'outside edit' } }))
+    fs.rmSync(join(home, 'state.lock'))
+    const refreshing = rt.refresh()
+    unblock()
+    await assert.rejects(racing, { code: 'ELOCKLOST' })
+    await refreshing
+    assert.equal(rt.state.prefs.marker, 'outside edit')
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'outside edit')
+  } finally {
+    unblock()
+    restore()
+  }
+})
+
 test('a changed file is adopted when another host left its lock behind', async (t) => {
   const { rt, home, statePath } = runtime(t)
   await rt.load()
