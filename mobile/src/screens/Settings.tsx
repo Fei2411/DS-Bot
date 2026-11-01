@@ -28,7 +28,7 @@ export function Settings({ onForget }: { onForget: () => void }) {
       <Text style={[typeScale.small, { color: p.ink2, fontWeight: '600', marginHorizontal: 20, marginTop: 24, marginBottom: 8 }]}>{t('Appearance').toUpperCase()}</Text>
       <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
         <View style={styles.row}>
-          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Appearance')}</Text>
+          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Theme')}</Text>
           <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{themeLabel(team?.prefs?.theme)}</Text>
         </View>
       </View>

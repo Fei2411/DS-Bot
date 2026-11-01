@@ -25,7 +25,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
       summary: [a.tool, a.reason].filter(Boolean).join(' · '),
     })),
     ...Object.entries(team?.secretRequests ?? {}).flatMap(([botId, list]) =>
-      (list ?? []).filter(r => r.status !== 'settled').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ?? t('A secret is needed') }))),
+      (list ?? []).filter(r => r.status !== 'settled').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ? t('Asks for the secret {name}', { name: r.name }) : t('A secret is needed') }))),
   ]
 
   const look = (row: PendingRow) => {

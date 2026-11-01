@@ -80,19 +80,22 @@ export function ApprovalCard({ approval, call, p }: { approval: Approval; call: 
     catch { setFailed(true) } finally { setBusy(false) }
   }
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+    <View accessibilityLabel={t('{name} is waiting for your approval', { name: '' })}
+      style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{approval.tool || 'Approval'}</Text>
-      {approval.reason !== '' ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]} numberOfLines={4}>{approval.reason}</Text> : null}
-      {approval.detail?.code ? <Text style={[type.small, { color: p.ink3, marginTop: 6, fontFamily: 'monospace' }]} numberOfLines={3}>{approval.detail.code}</Text> : null}
+      {typeof approval.detail?.text === 'string' && approval.detail.text !== ''
+        ? <Text selectable style={[type.small, { color: p.ink, marginTop: 4 }]}>{approval.detail.text}</Text> : null}
+      {approval.reason !== '' ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 4 }]} numberOfLines={4}>{approval.reason}</Text> : null}
+      {approval.detail?.code ? <Text selectable style={[type.small, { color: p.ink3, marginTop: 6, fontFamily: 'monospace' }]} numberOfLines={3}>{approval.detail.code}</Text> : null}
       {approval.answerable === true
         ? <View style={styles.answerRow}>
-            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('allow')}
-              style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
-              <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Allow')}</Text>
-            </Pressable>
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('reject')}
               style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
               <Text style={{ color: p.ink, fontSize: 14 }}>{t('Reject')}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('allow')}
+              style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+              <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Allow once')}</Text>
             </Pressable>
           </View>
         : <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Answer on the computer.')}</Text>}
