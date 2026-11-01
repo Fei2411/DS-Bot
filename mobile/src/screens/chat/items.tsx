@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { t, dateLocale } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
-import { Markdown } from './markdown.tsx'
+import { Markdown, hasBlockContent } from './markdown.tsx'
 
 export interface ChatItem {
   kind: 'bot' | 'user' | 'event' | 'answer' | 'view' | 'divider' | 'steps'
@@ -60,16 +60,17 @@ export function Item({ item, p, flat, maxWidth, inRoom, open, onToggle }: { item
     )
   }
   const name = inRoom && item.name ? <Text style={[type.caption, { color: p.ink3, marginBottom: 2, marginLeft: 2 }]}>{item.name}</Text> : null
+  const wide = hasBlockContent(item.text ?? '')
   if (flat) {
     return (
-      <View style={{ alignSelf: 'flex-start', maxWidth, marginVertical: 4 }}>
+      <View style={{ alignSelf: 'flex-start', maxWidth, width: wide ? '100%' : undefined, marginVertical: 4 }}>
         {name}
         <Markdown text={item.text ?? ''} p={p} textColor={p.ink} />
       </View>
     )
   }
   return (
-    <View style={{ alignSelf: 'flex-start', maxWidth }}>
+    <View style={{ alignSelf: 'flex-start', maxWidth, width: wide ? '100%' : undefined }}>
       {name}
       <View style={[styles.bubble, { backgroundColor: p.bubble }]}>
         <Markdown text={item.text ?? ''} p={p} textColor={p.ink} />
@@ -87,7 +88,7 @@ function Steps({ item, p, open, onToggle }: { item: ChatItem; p: Palette; open: 
     <View style={{ alignSelf: 'center', marginVertical: 4, maxWidth: '92%' }}>
       <Pressable accessibilityRole="button" onPress={onToggle} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
         <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>
-          {t('Used {count} tools', { count: tools.length })}{seconds !== undefined && seconds > 0 ? t(' · thought for {seconds}s', { seconds }) : ''}
+          {tools.length === 1 ? t('Used {count} tool', { count: tools.length }) : t('Used {count} tools', { count: tools.length })}{seconds !== undefined && seconds > 0 ? t(' · thought for {seconds}s', { seconds }) : ''}
         </Text>
       </Pressable>
       {open ? tools.map((tool, index) => (

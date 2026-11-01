@@ -33,6 +33,7 @@ const MOBILE_ZH: Record<string, string> = {
   'reported back': '交回了工作',
   'stopped': '停下了',
   'Used {count} tools': '用了 {count} 个工具',
+  'Used {count} tool': '用了 {count} 个工具',
   ' · thought for {seconds}s': ' · 想了 {seconds} 秒',
   ' — failed': ' — 失败了',
   '{name} {event}': '{name}{event}',

@@ -4,6 +4,11 @@ import { MONO, radius, type Palette } from '../../ui/tokens.ts'
 
 // Markdown in Bot text: the marked lexer walks the block tokens; each block maps
 // to RN views. Tables and fenced code scroll horizontally.
+// A message that has any block that lays out wider than its text (list, code,
+// table, heading, rule, quote) needs the bubble's full width to wrap inside it.
+export function hasBlockContent(text: string): boolean {
+  return lexer(text).some(token => token.type !== 'paragraph' && token.type !== 'text' && token.type !== 'space')
+}
 export function Markdown({ text, p, textColor, fontSize = 16, lineHeight = 24 }: { text: string; p: Palette; textColor: string; fontSize?: number; lineHeight?: number }) {
   const blocks = lexer(text)
   return <View>{blocks.map((token, index) => <Block key={index} token={token} p={p} textColor={textColor} fs={fontSize} lh={lineHeight} />)}</View>
