@@ -1,4 +1,5 @@
-// The Host: the shell runs this file in Electron's Node mode. It boots the app's own `ds-bot` profile
+// The Host: the shell runs this file in plain Node on Linux and Electron's Node mode elsewhere.
+// It boots the app's own `ds-bot` profile
 // on a loopback port and reports the launch URL over IPC. With DS_BOT_CHECK, the path of a JSON list
 // of Session ids, it boots the first-run check's profile instead and reports which of them it cannot read.
 // Follows DeepSeek Harness apps/desktop-host/src/index.ts (MIT); see NOTICE.

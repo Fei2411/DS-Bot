@@ -62,7 +62,7 @@ function harness({ platform = 'win32', trayFails = false, busy = false, ready = 
     },
     platform,
     messages: () => ({
-      tooltip: 'DeepSeek Bot', open: 'Open', quit: 'Quit', notice: 'The app goes on.', noticeConfirm: 'OK',
+      tooltip: 'DS Bot', open: 'Open', quit: 'Quit', notice: 'The app goes on.', noticeConfirm: 'OK',
       fallback: 'The system tray is not available, so the app cannot stay in the background. Do you want to end it?', cancel: 'Cancel',
     }),
     trayImage: () => {

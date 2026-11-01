@@ -297,7 +297,7 @@ test('a goal turn trigger draws nothing', () => {
     sessionId: 'r1', useRoster: hook(roster), useSessions: hook({ byId: {} }),
     useTurnClock: hook({}), useUi: hook({ visits: {} }), actions: {},
   })
-  assert.equal(node, null)
+  assert.equal(node?.type?.name, 'CellEmpty')
 })
 
 // A component node by name, evaluating function components on the way down.

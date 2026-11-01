@@ -520,7 +520,7 @@ export function install(rt) {
   // A goal message into the room's own Session, which relays it as a new round:
   // the user's draft request, a resume after the user continues, or an idle nudge.
   async function queueGoalRelay(room, goal, text, senderName = 'You') {
-    const agent = await rt.resolveAgent(room.id)
+    const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     agent.followup(createUserMessage({
       content: [{ type: 'text', text }],
       source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId: randomUUID(), senderName, roomId: room.id },
@@ -655,7 +655,7 @@ export function install(rt) {
     if (room !== undefined && markTasks(room, botId, from, to, note)) void rt.save().catch(() => {})
   }
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'group_goal',
     description: 'Set and run a group chat\'s goal: one outcome for the whole group, how to check it is done, and stages whose tasks go to members. Only the group\'s admin or a Main Bot changes it; any member can show it. Inside that group\'s own conversation the group is implied; elsewhere name it. Actions: show; draft (you are aligning the goal with the user before writing it); start (write it and begin stage 1); revise (change it when the user corrects the direction; reason required); task (set one member\'s task status or note); pass (the current stage meets its check; evidence required); rework (the current stage falls short; reason required); complete (every stage passed and the overall check is met; evidence and summary required); pause; resume; stop (reason required).',
     parameters: {

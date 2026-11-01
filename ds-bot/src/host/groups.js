@@ -92,6 +92,7 @@ const noticeText = (line) => {
   if (line.reason === 'missed') return `${(line.names ?? []).join(' and ')} did not answer within ${line.minutes} minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.`
   if (line.reason === 'paused') return `Paused: Bots have called each other ${line.limit} times since the user last wrote here. The calls to @${(line.names ?? []).join(' and @')} wait until the user continues or writes here; do not call them again.`
   if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
+  if (line.reason === 'folder') return `The group's folder ${line.path} is gone, so its members work in the team workspace; set the group's folder again in the group's settings.`
   if (line.reason === 'goal') return goalNotice(line)
   return line.text ?? ''
 }
@@ -123,6 +124,24 @@ export const mentionsIn = (text, members, references = []) => {
     else if (!found.includes(span.bot)) found.push(span.bot)
   }
   return { all, found }
+}
+
+// post_to_group resolves "@" on the whole message and stores it on the post. A post
+// past MESSAGE_INLINE_MAX keeps only its first LONG_HEAD characters in `text`, so
+// reading "@" there would miss anyone named further on. Undefined for a user's
+// message, a late reply, or a step line, which were not sent that way.
+// A saved list ignores opener.references. post_to_group posts carry none today; if
+// they gain references, handle them together with this list.
+function mentionsOf(opener, everyone) {
+  const saved = opener?.mentions
+  if (saved === undefined || !Array.isArray(saved.ids)) return undefined
+  const byId = new Map(everyone.map(bot => [bot.id, bot]))
+  const found = []
+  for (const id of saved.ids) {
+    const bot = byId.get(id)
+    if (bot !== undefined && !found.includes(bot)) found.push(bot)
+  }
+  return { all: saved.all === true, found }
 }
 
 // What the user referenced in this round, for a member that has not been shown it yet.
@@ -227,6 +246,23 @@ export function install(rt) {
     logRoom: (room, line) => { ensureRoomLog(room); appendRoom(room, line) },
   })
 
+  // The folder a group was set to work in is gone: its members' Sessions move on in
+  // the team workspace (parts.js), and the group is told once per folder, so a later
+  // round does not say it again. Changing the folder clears the mark (updateRoom).
+  async function roomFolderNotice(roomId, folder) {
+    const room = rt.roomOf(roomId)
+    if (room === undefined || folder === undefined || room.workDir !== folder || room.folderNotice === folder) return
+    ensureRoomLog(room)
+    room.folderNotice = folder
+    appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'folder', path: folder })
+    const text = noticeText({ reason: 'folder', path: folder })
+    for (const round of rt.roomProgress.values()) {
+      if (round.roomId === room.id) round.replies.push({ kind: 'folder', text, time: Date.now() })
+    }
+    await rt.save()
+  }
+  rt.roomFolderNotice = roomFolderNotice
+
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
   // first message, so it stays fixed and the prefix stays cacheable.
@@ -252,7 +288,8 @@ export function install(rt) {
     delete room.seen[member.id]
     const ref = await rt.desiredModel(member)
     if (ref !== undefined) {
-      await rt.selectSessionModel(id, splitRef(ref))
+      const effort = await rt.desiredEffort(member, ref)
+      await rt.selectSessionModel(id, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
         .catch(error => rt.warn('ds-bot: model for %s in %s not applied: %s', member.name, room.name, error))
     }
     await rt.applyPermission(member, id, room)
@@ -827,7 +864,7 @@ export function install(rt) {
     }
   }
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'group_relay',
     description: 'Group chat relay only. Deliver the latest user message to the Bots it calls in this group chat, and collect their replies.',
     parameters: {},
@@ -859,6 +896,9 @@ export function install(rt) {
       // late failure, its work picked up after a restart, its work the user stopped, or
       // the end of work whose result it already posted is an event of the round.
       const event = item => item.failed || item.resumed || item.stopped || item.done || item.goal === 'nudge' || item.goal === 'resume'
+      // A user post has no botId and is no round event or kickoff; a goal draft counts
+      // as the user's own line too.
+      const userPost = post => post.botId === undefined && post.kickoff !== true && !event(post)
       const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true)
       for (const post of posts.filter(item => !item.kickoff && !event(item) && item.logged === undefined)) {
         // Image readings go into the log only; `@` names are picked from what the user typed.
@@ -872,7 +912,7 @@ export function install(rt) {
         })
       }
       await rt.save()
-      if (posts.some(post => post.user === true)) rt.goalUserMessage?.(room.id)
+      if (posts.some(userPost)) rt.goalUserMessage?.(room.id)
       // An event post, and a member post that calls nobody, never pick the speakers
       // over a message queued with them. A post whose members an earlier round already
       // called (`called`) picks none.
@@ -880,8 +920,10 @@ export function install(rt) {
       const open = posts.filter(post => post.called !== true)
       const opener = open.findLast(post => !event(post) && !callsNobody(post)) ?? open.findLast(post => !event(post)) ?? open.at(-1) ?? { text: '', quiet: true }
       const references = posts.flatMap(post => post.references ?? [])
-      // A member a Bot's post calls by name works for that Bot.
-      const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
+      // A member a Bot's post calls by name works for that Bot. The saved list is the
+      // whole message; the text may be only its opening.
+      const everyone = room.members.map(rt.botOf).filter(Boolean)
+      const named = opener.botId === undefined ? [] : (mentionsOf(opener, everyone) ?? mentionsIn(opener.text ?? '', everyone)).found
       const { speakers, ordered } = openingCall(room, opener)
       const calledByOpener = speakers.filter(member => named.includes(member))
       const openingBatchKey = opener.botId !== undefined && calledByOpener.length > 0 ? registerBatch(room.id, opener.botId, calledByOpener) : undefined
@@ -900,7 +942,7 @@ export function install(rt) {
         members: room.members,
         startSeq,
         goalRevision: room.goal?.revision,
-        ...(posts.some(post => post.user === true) ? { userMessage: true } : {}),
+        ...(posts.some(userPost) ? { userMessage: true } : {}),
         ...(opener.kickoff ? { kickoff: true } : {}),
         ...(opener.goal === 'nudge' ? { goalNudge: true } : {}),
         ...(opener.goal === 'resume' ? { goalResume: true } : {}),
@@ -981,7 +1023,7 @@ export function install(rt) {
   }))
 
   // Private context enters a group only through this tool, and the group sees each use.
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'read_own_chat',
     description: 'Read or search your own chat with the user, across all its parts, including earlier parts that left your working context. Each line starts with its anchor, such as [part 2 #1234 · 10-08 14:22]; long messages are cut. Pass the anchor as around to read that message in full, with what was said just before and after it. In a group chat the group sees that you looked, so share only what the group needs.',
     parameters: {
@@ -1036,7 +1078,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'read_group_chat',
     description: 'Read the latest messages of a group chat, including what you said there. You speak in groups from separate conversations, so your own chat does not show them. Main Bots may read any group; others the groups they are in.',
     parameters: {
@@ -1083,7 +1125,7 @@ export function install(rt) {
     if (opener.done) return at(members.filter(bot => bot.id === opener.askedBy))
     // A goal post — the user's draft ask, an idle goal check, a resume — is the admin's alone.
     if (opener.goal !== undefined) return at(admin ? [admin] : [])
-    const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
+    const { all, found: named } = mentionsOf(opener, everyone) ?? mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
     if (opener.progress) return at(found)
     if (opener.late) {
@@ -1111,7 +1153,8 @@ export function install(rt) {
     const post = { ...extra, botId: sender.id, name: sender.name, text }
     const { speakers, ordered } = openingCall(room, post)
     if (speakers.length === 0) return false
-    const named = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const named = (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).found
     const by = speakers.filter(peer => named.includes(peer))
     const rest = speakers.filter(peer => !named.includes(peer))
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
@@ -1119,7 +1162,7 @@ export function install(rt) {
     callIn(round, rest, note, undefined, { ordered })
     if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     if (extra.reportBack) {
-      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
+      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}), ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
     }
     return true
   }
@@ -1150,7 +1193,7 @@ export function install(rt) {
       await rt.save()
       return
     }
-    const agent = await rt.resolveAgent(room.id)
+    const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
       source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra },
@@ -1311,7 +1354,7 @@ export function install(rt) {
     const room = rt.roomOf(roomId)
     if (room === undefined) return false
     const round = rt.roomBusy(room.id)
-    if (round) (await rt.resolveAgent(room.id)).cancel({ kind: 'user' })
+    if (round) (await rt.resolveAgent(rt.sessionOfRoom(room))).cancel({ kind: 'user' })
     let stopped = false
     for (const botId of room.members) stopped = (await stopMemberWork(room.id, botId)) || stopped
     return round || stopped
@@ -1346,7 +1389,7 @@ export function install(rt) {
   async function greetRoom(roomId) {
     const room = rt.roomOf(roomId)
     if (!room?.admin) return
-    const agent = await rt.resolveAgent(room.id)
+    const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: '[Group chat created]' }],
       source: { kind: SOURCE_KIND, form: 'relay', role: 'kickoff', exchangeId: randomUUID(), senderName: 'You', roomId: room.id },
@@ -1368,7 +1411,10 @@ export function install(rt) {
     ].filter(Boolean).join('\n\n')
     // Replies the poster waited for go on with the work it posted for.
     const work = post.sub === undefined ? undefined : rt.closeWork(post.sub, `Group "${room.name}"`, text)
-    await rt.deliver({ toId: post.botId, role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
+    // The report goes back to the conversation the post was written from: its
+    // Session in that group when the post came from one, else the own chat.
+    const back = rt.roomOf(post.fromRoomId)?.sessions?.[post.botId]
+    await rt.deliver({ toId: post.botId, ...(back ? { sessionId: back } : {}), role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
       .catch(error => rt.warn('ds-bot: group report to %s failed: %s', post.name, error))
   }
 

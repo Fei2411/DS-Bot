@@ -86,8 +86,8 @@ try {
         [void][IO.Directory]::CreateDirectory($path)
     }
     Write-Host "Persistent data: $DataRoot"
-    if ($PrepareOnly) { Write-Host 'Ready. Run start.ps1 to open DeepSeek Bot.'; return }
-    Write-Host 'Starting DeepSeek Bot. Configure model providers in Settings; close the window to stop.'
+    if ($PrepareOnly) { Write-Host 'Ready. Run start.ps1 to open DS Bot.'; return }
+    Write-Host 'Starting DS Bot. Configure model providers in Settings; close the window to stop.'
     Invoke-Npm $appDir @('start')
 } finally {
     foreach ($name in $envNames) {

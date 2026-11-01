@@ -3,7 +3,9 @@
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { randomUUID } from 'node:crypto'
+import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
@@ -85,6 +87,17 @@ export const stripWrittenCalls = text => text
 // Under DSH's PTC presentation the model calls only this tool; the program's sub-calls
 // are the tools it really runs.
 const PROGRAM_TOOL = 'run_code'
+// DSH's delegation tools, named by the tool instance: a spawn child and a fork.
+const SUBAGENT_TOOLS = new Set(['subagent', 'subagent_fork'])
+// A settled child's closing text, or why it ended without one. A child that did
+// not finish says so: output it left behind can be partial, so the reason it
+// ended is part of its result.
+const subEndText = (data) => {
+  const text = textOf(data?.lastAssistantMessage)
+  const reason = typeof data?.stopReason === 'string' ? data.stopReason : ''
+  if (text === '') return `subagent ended${reason === '' ? '' : ` (${reason})`} without a closing message.`
+  return reason === '' || reason === 'completed' ? text : `subagent ended (${reason}) before it finished. What it had written:\n${text}`
+}
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and complete the task now, or state your final answer if no tool is needed.'
@@ -379,10 +392,11 @@ export function install(rt) {
       const botId = owner?.botId ?? rt.chatOwners.get(id)
       if (botId !== undefined) merged[botId] ??= 'working'
     }
-    // A Bot writing its handoff note is thinking.
+    // A Bot writing its handoff note is thinking; a group's own Session that moves
+    // shows on the group's key.
     for (const job of rt.switchJobs()) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
-      else merged[job.botId] ??= 'thinking'
+      else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
     for (const approval of rt.approvalsView?.() ?? []) merged[approval.botId] = 'alert'
     // Waiting for work it handed on shows only while no turn of the Bot runs.
@@ -428,7 +442,9 @@ export function install(rt) {
       bots[botId] = { ...sub, ...(owner ? { roomId: owner.roomId } : {}) }
     }
     for (const job of rt.switchJobs()) {
-      // `folder` marks the switch the chat must name: the working folder changed.
+      // `folder` marks the switch the chat must name: the working folder changed. A
+      // group's own Session belongs to no Bot; the group's row shows it instead.
+      if (job.botId === undefined) continue
       const work = { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}), ...(job.roomId ? { roomId: job.roomId } : {}) }
       if (job.roomId === undefined) bots[job.botId] = work
       else bots[job.botId] ??= work
@@ -467,7 +483,8 @@ export function install(rt) {
       if (sub !== undefined) add(owner.roomId, owner.botId, sub)
     }
     for (const job of rt.switchJobs()) {
-      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}) })
+      // `self`: the group's own Session moves; the group's activity row names it.
+      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}), ...(job.botId === undefined ? { self: true } : {}) })
     }
     return rooms
   }
@@ -641,13 +658,15 @@ export function install(rt) {
         if (source?.kind === SOURCE_KIND && source.role === 'post' && rt.roomOf(id)) {
           // A long post comes as a file (attachLong), which stays with its line.
           const files = (Array.isArray(event.data.content) ? event.data.content : []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-          queueRoomMessage(id, {
+          queueRoomMessage(rt.roomOf(id).id, {
             text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
             ...(source.member ? { member: true } : {}),
+            // Who the whole post called. `text` may be only its opening (attachLong).
+            ...(source.mentions ? { mentions: source.mentions } : {}),
             ...(source.sub ? { sub: source.sub } : {}),
             ...(source.late ? { late: true } : {}),
             ...(source.progress ? { progress: true } : {}),
@@ -658,17 +677,18 @@ export function install(rt) {
             ...(source.stopped ? { stopped: true } : {}),
             ...(source.done ? { done: true } : {}),
             ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+            ...(source.fromRoomId ? { fromRoomId: source.fromRoomId } : {}),
             // A post written into a running round already carries its log seq, or true
             // when its event needed none; the relay must not write it again.
             ...(source.logged !== undefined ? { logged: source.logged } : {}),
             ...(source.called ? { called: true } : {}),
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
-          queueRoomMessage(id, { text: '', kickoff: true })
+          queueRoomMessage(rt.roomOf(id).id, { text: '', kickoff: true })
         } else if (source?.kind === SOURCE_KIND && source.role === 'goal' && rt.roomOf(id)) {
           // A goal message — the user's draft ask, an idle goal check, a resume —
           // opens a round of its own; the draft ask is the user's line.
-          queueRoomMessage(id, {
+          queueRoomMessage(rt.roomOf(id).id, {
             text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
@@ -698,15 +718,35 @@ export function install(rt) {
           // claims the running turn nor queues as the next one's trigger.
         } else if (source?.kind === 'schedule' && rt.roomOf(id)) {
           // A group's scheduled task reaches the group as the user's message.
-          queueRoomMessage(id, { text: reminderText(textOf(event.data.content)) })
+          queueRoomMessage(rt.roomOf(id).id, { text: reminderText(textOf(event.data.content)) })
         } else if (source?.kind === REFERENCE_KIND && rt.roomOf(id)) {
-          attachReference(roomInbox.get(id), source, textOf(event.data.content))
+          attachReference(roomInbox.get(rt.roomOf(id).id), source, textOf(event.data.content))
+        } else if (source?.kind === 'subagent-settled') {
+          // A settled sub-run's notice: the work it hung under goes on once a turn
+          // reads it, like a reply that came back. The notice names only the child;
+          // its run is the earliest of the child's not read yet. One read while a
+          // turn does other work comes back in a turn of its own, like any
+          // handed-back result.
+          const run = rt.subWorkRun?.(source.senderSessionId)
+          if (run !== undefined) {
+            rt.takenWork?.(run.parent, run.id)
+            const info = { kind: SOURCE_KIND, role: 'reply', work: run.parent, replyTo: run.id, exchangeId: run.id, senderSessionId: source.senderSessionId }
+            if (entry.turn === undefined) entry.pending = info
+            else if (entry.info === undefined && !opened) {
+              // DSH opens the turn before it records the message that filled its
+              // inbox: a notice that opened the turn claims it, like the first
+              // relay of a turn.
+              entry.opened = true
+              entry.answers = true
+              claimTrigger(id, entry, info)
+            } else if (rt.workOf?.(entry.info) !== run.parent) entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+          }
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
           if (rt.roomOf(id) && source.kind === 'user') {
             const content = Array.isArray(event.data.content) ? event.data.content : []
             const images = content.filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
             const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-            queueRoomMessage(id, { text: textOf(event.data.content), user: true, ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
+            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.dropKickoff(own)
@@ -726,7 +766,7 @@ export function install(rt) {
       }
       case 'agent/inbox/spliced':
         // A message the user sends to a group while its round runs joins that round.
-        if (rt.roomOf(id)) rt.nudgeRoom?.(id)
+        if (rt.roomOf(id)) rt.nudgeRoom?.(rt.roomOf(id).id)
         if (stoppedSubagentParents.has(id)) {
           for (const inserted of event.data?.inserted ?? []) {
             if (inserted?.source?.kind === 'subagent-settled' || stoppedSubagents.has(inserted?.source?.senderSessionId)) {
@@ -810,6 +850,13 @@ export function install(rt) {
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
         if (failure !== undefined) noteTurnFailure(id, failure)
+        // A route that is not a model endpoint refuses every generation; the failed
+        // Session's own request names it, so it is refused everywhere from now on.
+        if (failure?.code === 'HOSTED_ENGINE_ROUTE') {
+          const config = session.requestHeader?.()?.config
+          const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
+          if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
+        }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) break
         // A model that writes its tool call as text ends the turn as if it were done,
@@ -915,9 +962,77 @@ export function install(rt) {
     }
   })
 
+  // A subagent a Bot's turn delegates to is work handed on, like message_bot: each
+  // run of the child hangs under the work the turn answers until its settlement
+  // notice comes back, and its closing message joins that work's results. A child
+  // can be sent more to do once it settled, and that is a fresh run on the same
+  // child id, so the run — not the child — is the sub-work. These are Cordis
+  // events, not Session events: the dispatch keys `this` by the delegating parent
+  // Agent, which `carrierKeyOf` hands back.
+  ctx.on('subagent/start', function (info) {
+    const id = carrierKeyOf(this)?.session?.id
+    const entry = id === undefined ? undefined : live.get(id)
+    const work = rt.workOf?.(entry?.info)
+    const self = id === undefined ? undefined : rt.selfOf(id)
+    if (work === undefined || self === undefined || !rt.chatOwners.has(id) || typeof info?.id !== 'string' || typeof info?.runId !== 'string' || !rt.ownsWork?.(self, work)) return
+    rt.openWork?.(info.runId, { from: self, parent: work, name: 'subagent', child: info.id })
+  })
+  // A settled run closes its sub-work: its closing text joins the results of
+  // the work it hung under.
+  ctx.on('subagent/end', (info) => {
+    if (typeof info?.id !== 'string') return
+    rt.settleSubWork?.(typeof info.runId === 'string' ? info.runId : info.id, subEndText(info), info.id)
+  })
+  ctx.on('tools/result', (exec, result) => {
+    if (!SUBAGENT_TOOLS.has(exec?.name) || result?.isError || typeof result?.value?.subagentId !== 'string') return
+    const description = exec.arguments?.description
+    rt.nameSubWork?.(result.value.subagentId, `subagent${typeof description === 'string' && description.trim() !== '' ? ` ${description.trim()}` : ''}`)
+  })
+
   const markSteerCut = (id) => {
     const entry = live.get(id)
     if (entry?.turn !== undefined) entry.cut = { texts: entry.texts.length }
+  }
+
+  // DSH's prompt admission wraps any unexpected failure as 'session/agent-busy' and
+  // keeps the real cause in details.reason, which the window never shows and the log
+  // never saw (#424). For a Session this team owns, the reason is written to the
+  // diagnostics and put into the error the user reads.
+  const prompt = ctx.sessionController?.prompt
+  if (typeof prompt === 'function') {
+    const controller = ctx.sessionController
+    const admitted = async function (request, ...rest) {
+      try {
+        return await prompt.call(this, request, ...rest)
+      } catch (error) {
+        const id = request?.sessionId
+        if (id === undefined || (rt.roomOf(id) === undefined && !rt.isBotSession(id))) throw error
+        // The reason can name local paths or carry tokens, so the same cleaning the
+        // diagnostics get applies before it reaches the client.
+        const reason = typeof error?.details?.reason === 'string' && error.details.reason !== ''
+          ? cleanText(error.details.reason, { redact: rt.redactSecrets })
+          : undefined
+        rt.noteFailure({
+          source: 'prompt',
+          text: `prompt rejected for ${placeOf(id)}${reason === undefined ? '' : `: ${reason}`}`,
+          code: error?.code,
+          where: placeOf(id),
+          sessionId: id,
+        })
+        // The gateway passes a RemoteError's code and details on as they are, but
+        // wraps a fresh plain Error as 'gateway/internal': the reason is written on
+        // the rejection itself, keeping its identity.
+        if (reason !== undefined) {
+          error.message = `${error?.message ?? 'prompt rejected'} — ${reason}`
+          error.details = { ...error.details, reason }
+        }
+        throw error
+      }
+    }
+    ctx.effect(() => {
+      controller.prompt = admitted
+      return () => { if (controller.prompt === admitted) controller.prompt = prompt }
+    }, 'ds-bot: prompt rejection reasons')
   }
 
   Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, markSteerCut, hasSubagents, stopSubagents })
