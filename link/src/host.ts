@@ -44,6 +44,8 @@ export interface HostLinkOptions {
   maxTunnels?: number
   retryMs?: readonly [number, number]
   onStatus?: (status: HostLinkStatus) => void
+  /** How many phones hold a ready tunnel, fired on each change. */
+  onReadyCount?: (count: number) => void
 }
 
 export type HostLinkStatus = 'stopped' | 'connecting' | 'online' | 'offline'
@@ -307,6 +309,7 @@ export class HostLink {
       if (!allowed) throw new TunnelError('NOT_PAIRED', 'The phone is not paired.')
       const reply = tunnel.noise.writeHandshake(encodeHandshakeHello(this.options.name === undefined ? {} : { name: this.options.name }))
       tunnel.stage = 'ready'
+      this.options.onReadyCount?.(this.connectedDevices().length)
       this.sendControl('secure.handshake', {
         connectionId: tunnel.connectionId,
         targetDeviceId: tunnel.deviceId,
@@ -379,6 +382,7 @@ export class HostLink {
   private dropTunnel(tunnel: Tunnel, code: string | undefined): void {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel) return
     this.tunnels.delete(tunnel.connectionId)
+    if (tunnel.stage === 'ready') this.options.onReadyCount?.(this.connectedDevices().length)
     for (const controller of tunnel.calls.values()) controller.abort(new Error('The phone link closed.'))
     tunnel.calls.clear()
     tunnel.noise.destroy()

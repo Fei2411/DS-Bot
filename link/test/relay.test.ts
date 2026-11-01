@@ -29,7 +29,7 @@ function identity(keys: KeyPair = generateKeyPair()) {
   return { deviceId: deviceIdFor(keys.publicKey), ...keys }
 }
 
-async function computer(handle: Handler = async (method, params) => ({ method, params })) {
+async function computer(handle: Handler = async (method, params) => ({ method, params }), onReadyCount?: (count: number) => void) {
   const self = identity()
   const registry = new DeviceRegistry()
   let calls = 0
@@ -41,6 +41,7 @@ async function computer(handle: Handler = async (method, params) => ({ method, p
     admits: (deviceId, key) => registry.admits(deviceId, key),
     authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
     handle: (method, params, request) => { calls += 1; return handle(method, params, request) },
+    onReadyCount,
     retryMs: [50, 200],
   })
   host.start()
@@ -182,3 +183,18 @@ async function hello(self: { deviceId: string; publicKey: string }, accessToken:
     ws.close()
   }
 }
+
+test('the ready count fires when a phone joins and leaves', async () => {
+  const counts: number[] = []
+  const desk = await computer(async (method, params) => ({ method, params }), count => counts.push(count))
+  const { code } = desk.registry.openPairing()
+  const offer = parsePairingUri(pairingUri({ server: server.url, hostDeviceId: desk.self.deviceId, hostKey: desk.self.publicKey, code, name: 'Desk' }))
+  const link = phone({ deviceId: offer.hostDeviceId, publicKey: offer.hostKey }, { pairingCode: offer.code })
+  await link.client.connect()
+  assert.deepEqual(counts, [1])
+  assert.deepEqual(desk.host.connectedDevices(), [link.self.deviceId])
+  await link.client.close()
+  await new Promise(resolve => setTimeout(resolve, 400))
+  assert.deepEqual(counts, [1, 0])
+  assert.deepEqual(desk.host.connectedDevices(), [])
+})
