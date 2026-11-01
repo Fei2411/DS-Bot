@@ -138,6 +138,13 @@ export function install(rt) {
     closeWork(id, work.name ?? 'subagent', text)
     return parent
   }
+  // A fast child can settle before its tool result identifies the call that made it.
+  const nameSubWork = (id, name) => {
+    const work = works()[id] ?? Object.values(works()).flatMap(work => work.results ?? []).find(result => result.id === id)
+    if (work === undefined || work.name === name) return
+    work.name = name
+    save()
+  }
 
   const dropWork = (id) => {
     const work = works()[id]
@@ -275,5 +282,5 @@ export function install(rt) {
     return lines.join('; ')
   }
 
-  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkParent })
+  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkParent, nameSubWork })
 }
