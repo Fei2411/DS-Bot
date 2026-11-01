@@ -9559,12 +9559,15 @@ function TeamSidebar(props) {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
   const settleTimer = (0, import_react18.useRef)(0);
+  const springTimer = (0, import_react18.useRef)(0);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
     clearTimeout(settleTimer.current);
+    clearTimeout(springTimer.current);
     const grip = event.currentTarget;
     const column = grip.parentElement;
+    delete column.dataset.folding;
     grip.setPointerCapture?.(event.pointerId);
     chatRoom.hold(true);
     const columns2 = chatRoom.columns();
@@ -9572,7 +9575,6 @@ function TeamSidebar(props) {
     const offLeft = frameSnap.collapsedWidth ?? 0;
     let last = null;
     let liveLeft = mode;
-    let folded = false;
     let done = false;
     const write = (at) => {
       const width = at.left === "rail" ? RAIL_WIDTH : at.width;
@@ -9581,27 +9583,36 @@ function TeamSidebar(props) {
       const push = Math.max(0, (at.left === "open" ? width : RAIL_WIDTH) - offLeft);
       for (const col of columns2) col.style.setProperty("margin-left", `${push}px`, "important");
     };
+    let springUntil = 0;
+    const springOff = () => {
+      springUntil = 0;
+      delete column.dataset.folding;
+      for (const col of columns2) col.style.setProperty("transition", "none", "important");
+    };
+    const springOn = () => {
+      column.dataset.folding = "";
+      for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
+      springUntil = performance.now() + SPRING_SHAPE.duration;
+      clearTimeout(springTimer.current);
+      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration);
+    };
     const track = (x) => {
       last = dragColumn(x, window.innerWidth);
       if (last.left !== liveLeft) {
-        if (!folded && !reducedMotion()) {
-          folded = true;
-          column.dataset.folding = "";
-          for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
-        }
         liveLeft = last.left;
+        if (!reducedMotion()) springOn();
         setDrag(last);
       }
       write(last);
     };
     const onMove = (move) => track(move.clientX);
     const finish = () => {
+      clearTimeout(springTimer.current);
       if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === "open" ? last.width : RAIL_WIDTH) - offLeft));
       for (const col of columns2) {
         col.style.removeProperty("margin-left");
         col.style.removeProperty("transition");
       }
-      column.style.removeProperty("width");
       column.style.removeProperty("--bt-lc-w");
       delete column.dataset.folding;
       chatRoom.hold(false);
@@ -9627,8 +9638,8 @@ function TeamSidebar(props) {
         actions.setSidebarPref?.("open");
         actions.setLeftDrawer?.(last.left === "drawer");
       }
-      if (!folded) finish();
-      else settleTimer.current = setTimeout(finish, SPRING_SHAPE.duration + 60);
+      if (springUntil === 0) finish();
+      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60);
     };
     grip.addEventListener("pointermove", onMove);
     for (const name of ends) grip.addEventListener(name, onEnd);
