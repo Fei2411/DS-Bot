@@ -32,20 +32,29 @@ export function install(rt) {
     try { controller.enqueue(chunk) } catch { clients.delete(controller) }
   }
   const publish = (event, data) => {
+    for (const tap of taps) {
+      try { tap(event, data) } catch { /* taps are isolated from the feed */ }
+    }
+    if (clients.size === 0) return
     const chunk = encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     for (const controller of clients) send(controller, chunk)
   }
 
+  // Non-SSE listeners (the phone link) get every event through a tap; a tap is
+  // isolated so a slow or throwing listener never hurts SSE clients.
+  const taps = new Set()
+  rt.feedTap = (listener) => { taps.add(listener); return () => taps.delete(listener) }
+  const listening = () => clients.size > 0 || taps.size > 0
   rt.stateSaved = () => {
-    if (clients.size > 0) publish('revision', { revision: state.revision })
+    if (listening()) publish('revision', { revision: state.revision })
   }
   rt.publishFeed = (event, data) => {
-    if (clients.size > 0) publish(event, data)
+    if (listening()) publish(event, data)
   }
 
   let liveTimer
   const live = () => {
-    if (clients.size === 0 || liveTimer !== undefined) return
+    if (!listening() || liveTimer !== undefined) return
     liveTimer = setTimeout(() => {
       liveTimer = undefined
       publish('live', {})
@@ -56,7 +65,7 @@ export function install(rt) {
   })
 
   ctx.on('session/event', (session, event) => {
-    if (clients.size === 0) return
+    if (!listening()) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
     for (const item of rt.displayItems(session.id, [event])) publish('message', { botId, sessionId: session.id, item })
@@ -69,7 +78,7 @@ export function install(rt) {
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     if (frame.type === 'start') {
       const botId = rt.chatOwners.get(agent.id)
-      if (clients.size === 0 || botId === undefined || (state.exchangeTurns[agent.id] ?? []).includes(frame.turn)) return
+      if (!listening() || botId === undefined || (state.exchangeTurns[agent.id] ?? []).includes(frame.turn)) return
       writing.set(frame.attemptId, { botId, sessionId: agent.id })
       publish('stream', { botId, sessionId: agent.id, attemptId: frame.attemptId, phase: 'start' })
       return
@@ -85,7 +94,7 @@ export function install(rt) {
 
   const leave = (controller) => {
     clients.delete(controller)
-    if (clients.size === 0) writing.clear()
+    if (!listening()) writing.clear()
     try { controller.close() } catch { /* already closed or errored */ }
   }
 

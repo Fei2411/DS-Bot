@@ -60,10 +60,13 @@ interface Tunnel {
   lastCounter: number
   sendTail: Promise<void>
   calls: Map<string, AbortController>
+  // Unsettled emit() sends; a phone too far behind gets dropped and reconnects.
+  emitPending?: number
 }
 
 const RELAY_CAPABILITY = 'transport.relay'
 const MAX_CALLS_PER_TUNNEL = 32
+const MAX_EMIT_PENDING = 64
 const SERVER_SILENCE_MS = 75_000
 
 class TunnelError extends Error {
@@ -140,7 +143,15 @@ export class HostLink {
   emit(event: string, data: unknown): void {
     const message = encodeMessage(createMessage('event', { event, data }))
     for (const tunnel of this.tunnels.values()) {
-      if (tunnel.stage === 'ready') void this.sendSecure(tunnel, message).catch(() => this.dropTunnel(tunnel, 'SEND_FAILED'))
+      if (tunnel.stage !== 'ready') continue
+      if ((tunnel.emitPending ?? 0) >= MAX_EMIT_PENDING) {
+        this.dropTunnel(tunnel, 'SEND_FAILED')
+        continue
+      }
+      tunnel.emitPending = (tunnel.emitPending ?? 0) + 1
+      void this.sendSecure(tunnel, message)
+        .catch(() => this.dropTunnel(tunnel, 'SEND_FAILED'))
+        .finally(() => { if (tunnel.emitPending !== undefined) tunnel.emitPending -= 1 })
     }
   }
 

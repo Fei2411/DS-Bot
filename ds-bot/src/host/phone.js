@@ -19,6 +19,7 @@ export function install(rt) {
   let data
   let registry
   let link = null
+  let feedUntap = null
   let linkServer
   let serve = null
   let pairing = null
@@ -61,6 +62,8 @@ export function install(rt) {
   const stop = () => {
     const running = link
     link = null
+    feedUntap?.()
+    feedUntap = null
     return running?.stop()
   }
   const reconcile = () => {
@@ -82,6 +85,9 @@ export function install(rt) {
       handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
     })
     linkServer = data.server
+    // Feed events ride the link instead of SSE while the link is up.
+    const running = link
+    feedUntap = rt.feedTap((event, data) => running.emit(event, data))
     link.start()
   }
 
