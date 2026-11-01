@@ -180,8 +180,8 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
-  // A failed connection says nothing about the conversation, so it never moves a part on.
-  const STUCK_CODES = ['INVALID_REQUEST', 'IMAGE_OFFLOAD_REQUIRED']
+  // Generic request and credential errors say nothing about the conversation.
+  const STUCK_CODES = ['IMAGE_OFFLOAD_REQUIRED']
   const ORIGINAL_COMPACT = Symbol.for('ds-bot/compaction')
   const STEWARD_MAX_TOKENS = 4_096
   const STEWARD_TIMEOUT_MS = 120_000
@@ -192,9 +192,9 @@ export function install(rt) {
   // A broken provider adapter must not crash every turn; estimate from the
   // derived messages instead, with one warning.
   let measureWarned = false
-  const tokensOf = (session) => {
+  const measureOf = (session) => {
     try {
-      return ctx.get('tokenMeter')?.measure(session).totalTokens
+      return ctx.get('tokenMeter')?.measure(session)
     } catch (error) {
       if (!measureWarned) {
         measureWarned = true
@@ -202,12 +202,46 @@ export function install(rt) {
       }
     }
     try {
-      return estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n'))
+      return { totalTokens: estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n')) }
     } catch {
       return undefined
     }
   }
+  const tokensOf = session => measureOf(session)?.totalTokens
   const clock = createClock(config.timeZone)
+  // Replacing a handoff must shrink the request, not just create another Session.
+  async function canMakeRoom(agent, carry = []) {
+    const session = agent.session
+    const messages = session.deriveMessages()
+    if (!messages.some(message => message.source?.handoff === true)) return true
+    const place = placeOf(agent.id)
+    const room = rt.roomOf(place.roomId)
+    const parts = partsOf(place.botId, place.roomId)
+    const previous = parts.at(-2)
+    const lines = await contextLines(session).catch(() => undefined)
+    const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    const text = handoffPackage({
+      room,
+      segment: { fallback: 'overflow', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) },
+      lines: await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length }),
+      number: parts.length + 1,
+      resume: true,
+      overflow: true,
+    })
+    const meter = ctx.get('tokenMeter')
+    const size = message => meter?.estimateMessage(message) ?? estimateTokens(textOf(message.content))
+    const measured = measureOf(session)
+    // Images in the replaced history must use the same route pricing as the total.
+    const history = measured?.nodes === undefined
+      ? messages.filter(message => message.role !== 'system').reduce((total, message) => total + size(message), 0)
+      : measured.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
+    const pending = carry.reduce((total, message) => total + size(message), 0)
+    const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
+    const tokens = measured?.totalTokens
+    // The system prompt and tool definitions stay; pending input is forwarded whole.
+    return replacement < history + pending
+      && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)
+  }
 
   // Lines for the model the Session last routed to; undefined while it has not
   // routed yet.
@@ -1034,6 +1068,7 @@ export function install(rt) {
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
+    if (!await canMakeRoom(agent, payload.messages)) return next()
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
 
@@ -1045,8 +1080,10 @@ export function install(rt) {
       running.carry.push(...payload.messages)
       return { kind: 'reject' }
     }
-    const midTurn = payload.step > 1
     const entry = rt.liveOf(agent.id)
+    // A turn carried through a steer cut keeps its trigger and joined work, so
+    // its first step is already the middle of a turn for the folder check.
+    const midTurn = payload.step > 1 || entry.carried === true
     entry.switched = true
     startSwitch(agent, { resume: midTurn, carry: payload.messages, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
     return { kind: 'reject' }
@@ -1115,9 +1152,6 @@ export function install(rt) {
     await rt.load()
     const { agent } = payload
     if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || rescued.get(agent.id) === 'bare') return decided
-    // A provider may turn down one request for reasons of its own; a history that
-    // breaks every request fails the next turn as well.
-    if (failure.code === 'INVALID_REQUEST' && !STUCK_CODES.includes(lastTurnEnd(agent)?.data?.reason?.error?.code)) return decided
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     // The latest messages carried into a rescued part may be what breaks the request.
@@ -1129,7 +1163,7 @@ export function install(rt) {
     if (payload.failure?.code !== OVERFLOW || payload.signal?.aborted) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await canMakeRoom(agent)) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -1141,6 +1175,7 @@ export function install(rt) {
   // past it.
   async function checkContext(agent) {
     if (switches.has(agent.id) || freshParts.has(agent.id) || checking.has(agent.id) || readOnly()) return
+    if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
@@ -1153,6 +1188,7 @@ export function install(rt) {
         if (condensed !== false) return
       }
       if (switches.has(agent.id)) return
+      if (!await canMakeRoom(agent)) return
       startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
     } finally {
       checking.delete(agent.id)

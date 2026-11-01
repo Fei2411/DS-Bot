@@ -8,6 +8,7 @@ import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
 import * as permissions from './src/host/permissions.js'
 import * as turns from './src/host/turns.js'
+import * as steer from './src/host/steer.js'
 import * as handoffs from './src/host/handoffs.js'
 import * as requests from './src/host/requests.js'
 import * as delivery from './src/host/delivery.js'
@@ -51,7 +52,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
-const MODULES = [diagnostics, store, models, providers, permissions, turns, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills]
+const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
