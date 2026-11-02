@@ -169,3 +169,10 @@ test('the chat-room rule is installed through installStyles, so it is owned too'
   assert.match(pane, /installStyles\(.*'chat-room'/)
   assert.equal(pane.includes("dataset.dshBot = 'chat-room'"), false)
 })
+
+test('message tools anchor to the bottom of a long reply in both layouts', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /\.bt-tools\{position:absolute;bottom:0;/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{bottom:-14px;/)
+  assert.doesNotMatch(css, /\.bt-tools\{position:absolute;top:50%;/)
+})
