@@ -612,21 +612,27 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const beginSwitch = (next) => {
     if (reducedMotion()) return
     const panel = root.current
+    // The mark flies between the drawer avatar (details view) and the strip's Bot tab:
+    // up into the tab when the details view is left, back down when it returns. A switch
+    // between the browser and a side chat has no drawer avatar and nothing to fly.
+    const source = next === 'details'
+      ? panel?.querySelector('.bt-ptab-bot .bt-mark')
+      : panel?.querySelector('.bt-drawer-id .bt-mark')
     const outgoing = panel?.querySelector('.bt-panel-view')
     if (outgoing) {
       const ghostEl = document.createElement('div')
       ghostEl.className = 'bt-panel-ghost'
       ghostEl.style.width = `${outgoing.offsetWidth}px`
       ghostEl.append(outgoing.cloneNode(true))
+      // The flying clone stands in for the drawer's mark; the fading copy must not
+      // show it a second time.
+      if (source && next !== 'details') for (const mark of ghostEl.querySelectorAll('.bt-drawer-id .bt-mark')) mark.style.visibility = 'hidden'
       outgoing.parentElement.append(ghostEl)
       void ghostEl.animate([
         { opacity: 1, transform: 'scale(1)' },
         { opacity: 0, transform: 'scale(0.985)' },
       ], { duration: 160, easing: 'ease-out', fill: 'forwards' }).finished.catch(() => {}).finally(() => ghostEl.remove())
     }
-    const source = next === 'browser'
-      ? panel?.querySelector('.bt-drawer-id .bt-mark')
-      : panel?.querySelector('.bt-ptab-bot .bt-mark')
     if (source) fly.current = { node: source.cloneNode(true), from: source.getBoundingClientRect() }
   }
   const switchView = (next) => {
@@ -646,9 +652,9 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     const move = fly.current
     if (!move) return
     fly.current = null
-    const target = view === 'browser'
-      ? root.current?.querySelector('.bt-ptab-bot .bt-mark')
-      : root.current?.querySelector('.bt-drawer-id .bt-mark')
+    const target = view === 'details'
+      ? root.current?.querySelector('.bt-drawer-id .bt-mark')
+      : root.current?.querySelector('.bt-ptab-bot .bt-mark')
     if (!target || move.from.width === 0) return
     // A strip that has just appeared still grows from zero height; the target is
     // measured where it stands once the strip is full height.
