@@ -133,7 +133,7 @@ function SettingsScreenB({ onForget, navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       <Header title={t('Settings')} onMenu={() => drawer.open()} />
-      <Settings onForget={onForget} />
+      <Settings onForget={onForget} navigation={navigation} />
     </View>
   )
 }
