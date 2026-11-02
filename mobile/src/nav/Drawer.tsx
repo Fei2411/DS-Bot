@@ -10,7 +10,7 @@ export const useDrawer = () => useContext(DrawerCtx)
 // The desktop sidebar as a left drawer: edge pan or the header button opens it,
 // a pan on the panel or a tap on the scrim closes it, and the hardware back
 // button closes it first.
-export function Drawer({ width, edgeWidth = 24, content, children }: { width: number; edgeWidth?: number; content: ReactNode; children: ReactNode }) {
+export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, children }: { width: number; edgeWidth?: number; edgeEnabled?: boolean; content: ReactNode; children: ReactNode }) {
   const reduced = useReducedMotion()
   const x = useSharedValue(-width)
   const [shown, setShown] = useState(false)
@@ -61,7 +61,7 @@ export function Drawer({ width, edgeWidth = 24, content, children }: { width: nu
     <DrawerCtx.Provider value={{ open, close }}>
       <View style={{ flex: 1 }}>
         {children}
-        {!shown ? (
+        {!shown && edgeEnabled ? (
           <GestureDetector gesture={edgePan}>
             <View style={[styles.edge, { width: edgeWidth }]} />
           </GestureDetector>

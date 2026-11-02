@@ -185,9 +185,23 @@ export default function ShellB({ onForget }: { onForget: () => void }) {
       try { setSaved(text === null ? null : JSON.parse(text) as ChatTarget) } catch { setSaved(null) }
     })
   }, [])
+  // The left edge swipe is the iOS back gesture on pushed screens, so the
+  // drawer only claims it while the root Chat is on top. The shell sits
+  // outside the navigator, so it tracks the top route through the container's
+  // own navigation object instead of useNavigationState.
+  const navigation = useNavigation<any>()
+  const [top, setTop] = useState('Chat')
+  useEffect(() => {
+    const update = () => {
+      const state = navigation.getState()
+      setTop(state?.routes?.[state.index]?.name ?? 'Chat')
+    }
+    update()
+    return navigation.addListener('state', update)
+  }, [navigation])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
-    <Drawer width={width} content={<DrawerContent />}>
+    <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'}>
       <Inner initial={saved} onForget={onForget} />
     </Drawer>
   )
