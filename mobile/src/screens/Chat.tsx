@@ -177,8 +177,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
-              {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} /> : null}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
+              {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} sessionId={sessionId} /> : null}
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}

@@ -66,6 +66,7 @@ export interface TeamState {
   mainBotId?: string | null
   mainBotIds?: string[]
   questions?: Record<string, Question>
+  views?: Record<string, { id?: string; title?: string }>
   secretRequests?: Record<string, SecretRequest[]>
   work?: {
     bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
