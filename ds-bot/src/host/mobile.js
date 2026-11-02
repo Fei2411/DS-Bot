@@ -37,6 +37,7 @@ export const CAPABILITIES = [
   'row-meta',
   'chat-steps',
   'link-feed',
+  'images',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -98,8 +99,9 @@ export function roomItems(events) {
       const source = event.data?.source
       const content = Array.isArray(event.data?.content) ? event.data.content : []
       if (source?.kind === 'user') {
-        const images = content.filter(block => block?.type === 'image').length
-        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), time: event.time ?? null })
+        const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
+        const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: block.attachment.mime ?? block.attachment.mimeType, name: block.attachment.name }))
+        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
@@ -310,12 +312,36 @@ export function install(rt) {
     return { botId: bot.id, day: totals(within(24)), week: totals(within(24 * 7)), month: totals(month), models, scanning: view.scanning }
   }
 
+  async function image(body) {
+    const sessionId = String(body.sessionId ?? '')
+    const owned = rt.chatOwners.get(sessionId) !== undefined || rt.roomOf(sessionId) !== undefined || rt.pastOwners.get(sessionId) !== undefined
+    if (!owned) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const attachments = ctx.get?.('attachments')
+    if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
+    const page = await ctx.sessionController.page({
+      address: { kind: 'session', sessionId },
+      maxMessages: 500,
+    }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+    for (const record of page.records) {
+      const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
+      for (const block of content) {
+        if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
+          const chunks = []
+          for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) chunks.push(chunk)
+          return { mime: block.attachment.mime ?? block.attachment.mimeType ?? 'image/png', data: Buffer.concat(chunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString('base64') }
+        }
+      }
+    }
+    throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
+  }
+
   async function mobileEndpoint(endpoint, body) {
     switch (endpoint) {
       case 'hello': return hello(body)
       case 'notices': return notices(body)
       case 'avatar': return avatar(body)
       case 'room-chat': return roomChat(body)
+      case 'image': return image(body)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })

@@ -367,6 +367,26 @@ test('chat with steps folds the turn tool calls into a steps row after its last 
   await stop()
 })
 
+test('chat items carry imageRefs and image returns bytes for an owned session only', async () => {
+  const { ctx, call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const file = await ctx.get('attachments').saveFile({ data: Buffer.from('PNG bytes'), name: 'shot.png' })
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'look' }, { type: 'image', attachment: file }] } },
+  ]
+  const item = (await call('chat', { botId: chief })).value.items.find(i => i.kind === 'user')
+  assert.equal(item.images, 1)
+  assert.equal(item.imageRefs[0].attachmentId, file.attachmentId)
+  const img = (await call('image', { sessionId, attachmentId: file.attachmentId })).value
+  assert.equal(img.mime, 'image/png')
+  assert.equal(Buffer.from(img.data, 'base64').toString(), 'PNG bytes')
+  const refused = await call('image', { sessionId: 's-unknown', attachmentId: file.attachmentId })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'bot/not-found')
+  await stop()
+})
+
 test('state rows carry lastAt and preview from the Bot own chat', async () => {
   const { call, emit, history, stop } = start()
   const { chief } = await team(call)

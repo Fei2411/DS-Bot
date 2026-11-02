@@ -31,6 +31,7 @@ export function fakeApproval(outcome = 'allowed-once') {
 // A stand-in for the plugin context that records what apply() registers, in order,
 // without starting any service.
 export function fakeContext({ services = {} } = {}) {
+  services = { attachments: fakeAttachments(), ...services }
   const calls = []
   const disposers = []
   const registeredTools = new Map()
