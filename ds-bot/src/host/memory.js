@@ -27,7 +27,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { BlockAssembler, HarnessError } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
@@ -535,7 +535,10 @@ export function install(rt) {
 
   async function writeText(path, text) {
     await mkdir(dirname(path), { recursive: true })
-    const temp = `${path}.${process.pid}.tmp`
+    // The temporary name sits next to the file and stays short however long the
+    // file's own name is: a legal name near the system's per-name limit must
+    // still write, and one made of the whole path would not.
+    const temp = join(dirname(path), `.${basename(path).slice(0, 32)}.${process.pid}.${randomUUID()}.tmp`)
     await writeFile(temp, text, 'utf8')
     await replaceFile(temp, path)
   }
@@ -1523,6 +1526,9 @@ export function install(rt) {
         const found = exactLines(target, row.after)
         if (found.length === 0) throw noMatch(`The entry that line ${line} added is no longer in ${label}; it may have changed or been removed since.`)
         if (found.length > 1) throw noMatch(`The line that line ${line} added is in ${label} more than once; restore it by hand so the wrong one is not removed.`)
+        // The line comes out of the file but goes into the change log as this
+        // row's before: a value that became a saved secret since is not journaled.
+        if (secretEntry(row.after)) throw new Error(`The entry that line ${line} added cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
         const lines = target.lines.filter((_line, index) => index !== found[0].line)
         const empty = target.topic !== undefined && lines.every(item => item.trim() === '' || HEADING.test(item))
         if (empty) {
@@ -1604,6 +1610,9 @@ export function install(rt) {
       // count: an after that squashes to the before text is no duplicate.
       const same = matchEntries(allEntries(files), back).find(entry => squash(entry.text) === squash(back) && !(entry.file === target && entry.line === found[0].line))
       if (same !== undefined) throw noMatch(`The entry that line ${line} changed is already in ${label} (${fileName(same.file)}); there is nothing to restore.`)
+      // The recorded after-line is journaled as this row's before, so it faces
+      // the same check the line going back did.
+      if (secretEntry(row.after)) throw new Error(`The entry that line ${line} wrote cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
       const lines = [...target.lines]
       lines[found[0].line] = row.before
       const next = joinLines(lines)

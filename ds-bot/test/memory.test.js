@@ -670,6 +670,59 @@ test('a restore refuses a removed topic whose name is a saved secret now', async
   assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /harbor-dock-meeting-9f3k/)
 })
 
+test('a restore rebuilds a removed topic whose file name is near the name limit', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  for (const stem of ['a'.repeat(250), 'a'.repeat(251)]) {
+    // The topic's own name is legal; a temporary name made of the whole path
+    // beside it would pass the system's per-name limit and the write would fail
+    // after the pending record accepted the change, wedging every later one.
+    writeFileSync(join(dir, `${stem}.md`), `# ${stem}\n\n- A fact kept for ${stem.length} characters [added: 2026-01-01]\n`)
+    writeFileSync(join(dir, 'MEMORY.md'), `# Memory\n\n## Index\n- [[${stem}]]\n`)
+    assert.match(await tool('forget', { entry: `${stem.length} characters` }, 'b2'), /was empty/)
+    const restored = await call('memory-restore', { line: journal().length })
+    assert.equal(restored.ok, true, JSON.stringify(restored))
+    assert.match(read('bots', 'b2', `${stem}.md`), /- A fact kept for /)
+    assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+    // Nothing half-written: the memory still reads and writes.
+    assert.equal((await call('memory-view', { botId: 'b2' })).ok, true)
+    assert.match(await tool('remember', { text: 'Still works' }, 'b2'), /Saved to your memory/)
+  }
+})
+
+test('a restore does not journal a line that is a saved secret now', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  const addLine = journal().length
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await tool('remember', { text: 'Likes green tea', replace: 'tea' }, 'b2')
+  const replaceLine = journal().length
+  const rows = journal().length
+  // Each restore copies the line its row wrote into a row of its own: a value
+  // that became a saved secret since must not come back to the change log.
+  const kept = await call('secret-set', { name: 'HOME_CITY', value: 'Lives in Hangzhou' })
+  assert.equal(kept.ok, true, JSON.stringify(kept))
+  const keptTea = await call('secret-set', { name: 'TEA_CHOICE', value: 'Likes green tea' })
+  assert.equal(keptTea.ok, true, JSON.stringify(keptTea))
+
+  const undoAdd = await call('memory-restore', { line: addLine })
+  assert.equal(undoAdd.ok, false)
+  assert.match(undoAdd.error.message, /cannot be taken out/)
+  assert.doesNotMatch(undoAdd.error.message, /Lives in Hangzhou/)
+  const undoReplace = await call('memory-restore', { line: replaceLine })
+  assert.equal(undoReplace.ok, false)
+  assert.match(undoReplace.error.message, /cannot be taken out/)
+  assert.doesNotMatch(undoReplace.error.message, /Likes green tea/)
+
+  assert.equal(journal().length, rows)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes green tea \[/)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())
