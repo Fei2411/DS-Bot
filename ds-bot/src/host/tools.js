@@ -753,7 +753,7 @@ export function install(rt) {
   // the live Agents back: a reload lifts their scope while they are still
   // live, and agent/created does not fire for them again, so without the walk
   // their next request would come without the team tools.
-  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>}>} */
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
   const scoped = new Map()
   const unscope = (id) => {
     const held = scoped.get(id)
@@ -780,6 +780,9 @@ export function install(rt) {
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
+  // A wanted Session whose Agent cannot take scoped tools yet is warned about
+  // once; held.tools stays unset, so the next step's check tries again.
+  const registerless = new WeakSet()
   const shareBotTools = (agent) => {
     if (agent === undefined) return
     const id = agent.session?.id
@@ -794,26 +797,37 @@ export function install(rt) {
       held = undefined
     }
     if (!wanted || held?.tools === true) return
-    if (typeof agent.ctx?.tools?.register !== 'function') return
+    if (typeof agent.ctx?.tools?.register !== 'function') {
+      if (!registerless.has(agent)) {
+        registerless.add(agent)
+        rt.warn('ds-bot: %s needs the team tools but its Agent cannot register them yet', id)
+      }
+      return
+    }
     const disposers = []
     const failed = []
+    const registered = []
     for (const def of rt.teamTools) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') disposers.push(dispose)
+        registered.push(def.name)
       } catch (error) {
         // A tool another plugin already scoped onto this agent stays missing
         // rather than stopping the team; the rest still land.
         failed.push(`${def.name}: ${error.message ?? error}`)
       }
     }
-    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [] }
+    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
     held.disposers.push(...disposers)
     scoped.set(id, held)
+    // A scope made outside creation never reached a collected tool list; the
+    // assemble adds the pending names to the step's list once, then clears them.
+    for (const name of registered) held.unlisted.add(name)
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
   }
 
@@ -877,13 +891,13 @@ export function install(rt) {
     // the team lifts them like the rest, and the Agent can be scoped again.
     const shadows = rt.shadowShells?.(agent) ?? []
     if (shadows.length > 0) {
-      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
       held.agent = agent
       held.disposers.push(...shadows)
       scoped.set(id, held)
     }
     if (agent === undefined || !rt.isBotSession(id)) return
-    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
+    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     scoped.set(id, held)
     filterBotAssembly(agent, held)
@@ -904,8 +918,58 @@ export function install(rt) {
     try {
       await rt.load()
       hideBotUnusedTools(agent)
+      // Creation runs before the first step collects the tool list, so the
+      // names just registered will already be in it; nothing stays pending.
+      scoped.get(agent?.session?.id)?.unlisted?.clear()
     } catch (error) {
       rt.warn('ds-bot: hiding %s on agent/created failed: %s', HIDDEN_TOOLS.join(', '), error)
+    }
+  })
+
+  // A live Agent the creation path missed — after a restart, agent/created may
+  // run before this plugin's listeners are back — is scoped by the load or
+  // here, before the step's request. The request's tool list was collected
+  // before this waterfall, so names scoped since are added now: a same-named
+  // global entry is replaced by the scoped schema, and a PTC list that reaches
+  // team tools through run_code is left alone.
+  ctx.on('system-prompt/assemble', async function scopeTeamTools(_assembly, context, next) {
+    const agent = context.agent
+    if (agent === undefined) return next()
+    try {
+      await rt.load()
+      hideBotUnusedTools(agent)
+    } catch (error) {
+      rt.warn('ds-bot: scoping the tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+    }
+    const assembled = await next()
+    const held = scoped.get(agent.session?.id)
+    if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
+    const pending = [...held.unlisted]
+    // Cleared whatever happens below: the names are offered once, not on
+    // every step.
+    held.unlisted.clear()
+    if ((assembled.tools ?? []).some(tool => tool.name === 'run_code')) return assembled
+    if (typeof ctx.tools?.schemas !== 'function') return assembled
+    try {
+      const wanted = new Set(pending)
+      const current = new Map(ctx.tools.schemas(agent).filter(schema => wanted.has(schema.name)).map(schema => [schema.name, schema]))
+      let changed = false
+      const tools = (assembled.tools ?? []).map((tool) => {
+        const schema = current.get(tool.name)
+        if (schema === undefined) return tool
+        changed = true
+        return schema
+      })
+      const present = new Set((assembled.tools ?? []).map(tool => tool.name))
+      for (const name of pending) {
+        if (present.has(name) || !current.has(name)) continue
+        changed = true
+        tools.push(current.get(name))
+      }
+      return changed ? { ...assembled, tools } : assembled
+    } catch (error) {
+      rt.warn('ds-bot: listing the scoped tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+      return assembled
     }
   })
 

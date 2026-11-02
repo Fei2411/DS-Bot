@@ -55,6 +55,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: scoped team tools',
     'tools guard',
     'on agent/created',
+    'on system-prompt/assemble',
     'on session/event',
     'effect ds-bot: chat index',
     'effect ds-bot: group step lines',

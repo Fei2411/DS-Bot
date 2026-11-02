@@ -1429,7 +1429,8 @@ export function install(rt) {
     if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     return (async function* relayOrPass() {
       await rt.load()
-      if (rt.roomOf(options.sessionId) === undefined) {
+      const room = rt.roomOf(options.sessionId)
+      if (room === undefined) {
         yield* next()
         return
       }
@@ -1444,8 +1445,20 @@ export function install(rt) {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
       }
-      const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
       const declared = new Set((options.tools ?? []).map(tool => tool.name))
+      // Neither relay path is declared, so a synthesized call could only fail
+      // unseen. The assemble scope keeps this unreachable; if it is reached the
+      // step ends with a line the user can read instead.
+      if (!declared.has('group_relay') && !declared.has('run_code')) {
+        rt.warn('ds-bot: group %s cannot relay: group_relay is not available in its Session', room.name)
+        const text = 'This group could not pass the message on: its relay tool is not available. Restart DS Bot; if it keeps happening, report it.'
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
       // Only for a group made under the PTC preset, which can call nothing but run_code;
       // new group Sessions get the standard preset.
       const [name, args] = declared.has('run_code') && !declared.has('group_relay')

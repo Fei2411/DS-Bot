@@ -46,6 +46,7 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals, throwOn }
       session: { id },
       ctx: {
         tools: {
+          register: () => () => {},
           restrict: (filter) => {
             if (throwOn !== undefined && filter.deny.includes(throwOn)) throw new Error(`"${throwOn}" is registered in this scope`)
             hidden.push([id, [...filter.deny]])
