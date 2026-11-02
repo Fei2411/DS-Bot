@@ -8,7 +8,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "io.github.fei2411.dsbot"
+      "bundleIdentifier": "io.github.fei2411.dsbot",
+      "infoPlist": {
+        "CFBundleLocalizations": ["en", "zh-Hans"]
+      }
     },
     "android": {
       "adaptiveIcon": {
