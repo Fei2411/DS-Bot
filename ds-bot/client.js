@@ -821,6 +821,13 @@ var ZH = {
   "{name}'s memory": "{name} 的记忆",
   "Memory summary": "记忆摘要",
   "All entries": "全部记忆",
+  "Change history": "更改记录",
+  "No changes yet": "还没有更改",
+  "Load more": "加载更多",
+  Undo: "撤销",
+  Undone: "已撤销",
+  "Undo this change": "撤销这条更改",
+  "Click again to undo": "再点一次撤销",
   "Memory options": "记忆选项",
   "Close memory": "关闭记忆",
   "Back to the summary": "返回摘要",
@@ -1782,6 +1789,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
     memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
+    memoryHistory: (id, before) => call2("memory-history", { ...memoryOf(id), ...before === void 0 ? {} : { before } }),
+    memoryRestore: (id, rowId) => call2("memory-restore", { ...memoryOf(id), id: rowId }),
     diagnostics: (payload) => call2("diagnostics", payload),
     diagnosticsLog: () => call2("diagnostics-log"),
     diagnosticsClear: () => call2("diagnostics-clear"),
@@ -3324,6 +3333,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);padding:0 10px}
 @media (hover:none){.bt-mem-remove{opacity:1}}
 .bt-mem-none{font-size:13px;line-height:18px;color:var(--bt-ink-3);padding:8px 4px}
+.bt-mem-undone{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-mem-foot{flex:none;padding:8px 20px 20px;display:flex;flex-direction:column;gap:10px}
 .bt-mem-reply{border-radius:16px;background:var(--bt-hover);padding:8px 8px 12px 16px;display:flex;flex-direction:column;gap:6px;max-height:36vh;max-height:36dvh;overflow-y:auto;scrollbar-width:thin;transform-origin:50% 100%;animation:bt-pop-lift ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-mem-reply-head{display:flex;align-items:center;gap:8px;min-height:24px}
@@ -13790,6 +13800,85 @@ function changeLine(change) {
   if (change.op === "edit") return t("Updated: {text}", { text });
   return change.scope === "team" ? t("Added to team memory: {text}", { text }) : t("Added: {text}", { text });
 }
+function historyLine(row) {
+  const text = row.text.length > 120 ? `${row.text.slice(0, 120)}…` : row.text;
+  if (row.op === "remove") return row.scope === "team" ? t("Removed from team memory: {text}", { text }) : t("Removed: {text}", { text });
+  if (row.op === "replace") return t("Updated: {text}", { text });
+  return row.scope === "team" ? t("Added to team memory: {text}", { text }) : t("Added: {text}", { text });
+}
+function HistoryRow({ row, undo, now }) {
+  const [confirming, setConfirming] = (0, import_react31.useState)(false);
+  const [busy, setBusy] = (0, import_react31.useState)(false);
+  (0, import_react31.useEffect)(() => {
+    if (!confirming) return void 0;
+    const timer = setTimeout(() => setConfirming(false), 3e3);
+    return () => clearTimeout(timer);
+  }, [confirming]);
+  const when3 = ago(Date.parse(row.time), now) ?? t("just now");
+  const meta = [when3, row.by === "user" ? t("by you") : t("by {name}", { name: row.by })].join(" · ");
+  const click = async () => {
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    setBusy(true);
+    if (!await undo(row)) setBusy(false);
+  };
+  return (0, import_react31.createElement)(
+    "li",
+    { className: "bt-mem-entry", "data-busy": busy || void 0 },
+    (0, import_react31.createElement)(
+      "div",
+      { className: "bt-mem-entry-copy" },
+      (0, import_react31.createElement)("span", { className: "bt-mem-entry-text" }, historyLine(row)),
+      (0, import_react31.createElement)("span", { className: "bt-mem-entry-meta" }, meta)
+    ),
+    row.restored ? (0, import_react31.createElement)("span", { className: "bt-mem-undone" }, t("Undone")) : (0, import_react31.createElement)("button", {
+      type: "button",
+      className: "bt-mem-remove",
+      "data-confirm": confirming || void 0,
+      disabled: busy,
+      "aria-label": confirming ? t("Click again to undo") : t("Undo this change"),
+      title: confirming ? void 0 : t("Undo this change"),
+      onClick: click
+    }, t("Undo"))
+  );
+}
+function History({ owner, actions, undo, now }) {
+  const [rows2, setRows] = (0, import_react31.useState)(null);
+  const [more, setMore] = (0, import_react31.useState)(null);
+  const [paging, setPaging] = (0, import_react31.useState)(false);
+  const load = (0, import_react31.useCallback)(async (before) => {
+    const page = await actions.memoryHistory(owner.id, before);
+    setRows(before === void 0 ? page.rows : [...rows2 ?? [], ...page.rows]);
+    setMore(page.more);
+  }, [owner.id, rows2]);
+  (0, import_react31.useEffect)(() => {
+    void load();
+  }, [owner.id]);
+  const reload = async () => {
+    setRows(null);
+    setMore(null);
+    await load();
+  };
+  const undoRow = async (row) => await undo(row) ? reload() : false;
+  const moreClick = async () => {
+    setPaging(true);
+    try {
+      await load(more);
+    } finally {
+      setPaging(false);
+    }
+  };
+  if (rows2 === null) return (0, import_react31.createElement)(Skeleton);
+  if (rows2.length === 0) return (0, import_react31.createElement)("div", { className: "bt-mem-none" }, t("No changes yet"));
+  return (0, import_react31.createElement)(
+    "div",
+    { className: "bt-mem-entries" },
+    (0, import_react31.createElement)("ul", { className: "bt-mem-list" }, rows2.map((row) => (0, import_react31.createElement)(HistoryRow, { key: row.id, row, undo: undoRow, now }))),
+    more ? (0, import_react31.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: paging, onClick: () => void moreClick() }, t("Load more")) : null
+  );
+}
 function Reply({ answer, dismiss }) {
   return (0, import_react31.createElement)(
     "div",
@@ -13896,6 +13985,10 @@ function MemoryDialog({ owner, actions, leaving = false }) {
     setMenu(false);
     setPage("entries");
   };
+  const openHistory = () => {
+    setMenu(false);
+    setPage("history");
+  };
   const backToSummary = () => {
     setPage("summary");
     void load({ summarize: true });
@@ -13906,6 +13999,15 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       return true;
     } catch (failure) {
       setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) });
+      return false;
+    }
+  };
+  const undo = async (row) => {
+    try {
+      show2(await actions.memoryRestore(owner.id, row.id));
+      return true;
+    } catch (failure) {
+      setAnswer({ asked: row.text, error: failure?.message ?? String(failure) });
       return false;
     }
   };
@@ -13939,8 +14041,8 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       (0, import_react31.createElement)(
         "div",
         { className: "bt-mem-head" },
-        page === "entries" ? (0, import_react31.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to the summary"), onClick: backToSummary }, (0, import_react31.createElement)(ChevronLeftIcon)) : null,
-        (0, import_react31.createElement)("h2", null, page === "entries" ? t("All entries") : t("Memory summary")),
+        page === "summary" ? null : (0, import_react31.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to the summary"), onClick: backToSummary }, (0, import_react31.createElement)(ChevronLeftIcon)),
+        (0, import_react31.createElement)("h2", null, page === "entries" ? t("All entries") : page === "history" ? t("Change history") : t("Memory summary")),
         (0, import_react31.createElement)("span", { className: "bt-mem-status" }, page === "summary" ? [owner.name, status].filter(Boolean).join(" · ") : status),
         (0, import_react31.createElement)("span", { className: "bt-mem-head-gap" }),
         (0, import_react31.createElement)("button", { ref: dotsRef, type: "button", className: "bt-icon-btn", "aria-label": t("Memory options"), "aria-haspopup": "menu", "aria-expanded": menu, onClick: () => setMenu((value) => !value) }, (0, import_react31.createElement)(DotsIcon)),
@@ -13956,6 +14058,11 @@ function MemoryDialog({ owner, actions, leaving = false }) {
           ),
           (0, import_react31.createElement)(
             "button",
+            { type: "button", role: "menuitem", onClick: openHistory },
+            (0, import_react31.createElement)("span", { className: "bt-menu-label" }, t("Change history"))
+          ),
+          (0, import_react31.createElement)(
+            "button",
             { type: "button", role: "menuitem", disabled: count === 0 || view?.summarizing, onClick: regenerate },
             (0, import_react31.createElement)("span", { className: "bt-menu-label" }, t("Regenerate summary"))
           )
@@ -13965,7 +14072,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         "div",
         { className: "bt-mem-body" },
         error ? (0, import_react31.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, hostText(error)) : null,
-        view === null ? error ? null : (0, import_react31.createElement)(Skeleton) : page === "entries" ? (0, import_react31.createElement)(Entries, { owner, view, remove }) : (0, import_react31.createElement)(Summary, { owner, view, regenerate })
+        view === null ? error ? null : (0, import_react31.createElement)(Skeleton) : page === "entries" ? (0, import_react31.createElement)(Entries, { owner, view, remove }) : page === "history" ? (0, import_react31.createElement)(History, { owner, actions, undo, now }) : (0, import_react31.createElement)(Summary, { owner, view, regenerate })
       ),
       (0, import_react31.createElement)(
         "div",
