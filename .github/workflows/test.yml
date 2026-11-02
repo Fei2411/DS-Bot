@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, node: 24, dsh: 0.2.1-rc.4 }
-          - { os: windows-latest, node: 24, dsh: 0.2.1-rc.4 }
-          - { os: ubuntu-latest, node: 22, dsh: 0.2.1-rc.4 }
+          - { os: ubuntu-latest, node: 24, dsh: 0.2.1-rc.5 }
+          - { os: windows-latest, node: 24, dsh: 0.2.1-rc.5 }
+          - { os: ubuntu-latest, node: 22, dsh: 0.2.1-rc.5 }
           - { os: ubuntu-latest, node: 24, dsh: 0.2.0-rc.2 }
     defaults:
       run:
@@ -115,12 +115,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           function Find-Entry($root) {
             Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
-              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DeepSeek Bot*' }
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot*' }
           }
-          $installer = Get-Item dist-pack/DeepSeek-Bot-*-win-x64.exe
+          $installer = Get-Item dist-pack/DS-Bot-*-win-x64.exe
           Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
-          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Bot'
-          $exe = Join-Path $dir 'DeepSeek Bot.exe'
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot'
+          $exe = Join-Path $dir 'DS Bot.exe'
           if (-not (Test-Path $exe)) { throw "The installer did not put the app in $dir" }
           $entry = Find-Entry 'HKCU:'
           if (-not $entry) { throw 'No uninstall entry for the current user' }
@@ -148,20 +148,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Bot\DeepSeek Bot.exe'
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot\DS Bot.exe'
           node scripts/check-update.mjs $exe dist-next
           if ($LASTEXITCODE -ne 0) { throw 'The installed app did not take the update' }
           # The installer goes on after the app has quit.
           function Installed-Version {
             Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
               ForEach-Object { Get-ItemProperty $_.PSPath } |
-              Where-Object { $_.DisplayName -like 'DeepSeek Bot*' } |
+              Where-Object { $_.DisplayName -like 'DS Bot*' } |
               Select-Object -ExpandProperty DisplayVersion
           }
           $deadline = (Get-Date).AddSeconds(240)
           while ((Installed-Version) -ne $env:NEXT_VERSION -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
           if ((Installed-Version) -ne $env:NEXT_VERSION) { throw "The installed version is $(Installed-Version), not $env:NEXT_VERSION" }
-          while ((Get-Process | Where-Object { $_.Path -like '*deepseek-bot-updater*' }) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          while ((Get-Process | Where-Object { $_.Path -like '*dsbot-updater*' }) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
           node scripts/check-packed.mjs $exe
           if ($LASTEXITCODE -ne 0) { throw 'The updated app failed its check' }
 
@@ -171,18 +171,18 @@ jobs:
           $ErrorActionPreference = 'Stop'
           function Find-Entry($root) {
             Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
-              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DeepSeek Bot*' }
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot*' }
           }
-          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Bot'
-          $exe = Join-Path $dir 'DeepSeek Bot.exe'
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot'
+          $exe = Join-Path $dir 'DS Bot.exe'
           # The uninstaller removes the program only: the data location and the app's own data stay.
-          $kept = foreach ($folder in (Join-Path $HOME '.ds-bot'), (Join-Path $env:APPDATA 'DeepSeek Bot')) {
+          $kept = foreach ($folder in (Join-Path $HOME '.ds-bot'), (Join-Path $env:APPDATA 'DS Bot')) {
             New-Item -ItemType Directory -Force $folder | Out-Null
             $file = Join-Path $folder 'kept.txt'
             Set-Content $file 'kept'
             $file
           }
-          $uninstaller = Join-Path $dir 'Uninstall DeepSeek Bot.exe'
+          $uninstaller = Join-Path $dir 'Uninstall DS Bot.exe'
           Start-Process -FilePath $uninstaller -ArgumentList '/currentuser', '/S' -Wait
           # The uninstaller goes on from a copy in the temp folder, so wait for its result.
           $deadline = (Get-Date).AddSeconds(120)
@@ -219,16 +219,16 @@ jobs:
           CSC_FOR_PULL_REQUEST: 'true'
       - name: Check the zip
         run: |
-          zip="dist-pack/DeepSeek-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
+          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
           test -f "$zip"
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
       - name: Install from the zip and check
         run: |
-          zip="dist-pack/DeepSeek-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
+          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
           ditto -x -k "$zip" /Applications
-          app="/Applications/DeepSeek Bot.app"
-          exe="$app/Contents/MacOS/DeepSeek Bot"
+          app="/Applications/DS Bot.app"
+          exe="$app/Contents/MacOS/DS Bot"
           codesign --verify --deep --strict "$app"
           file "$exe"
           expected="${{ matrix.arch }}"
@@ -257,8 +257,8 @@ jobs:
       - name: Check the packages
         run: |
           version="$(node -p "require('./package.json').version")"
-          test -f "dist-pack/DeepSeek-Bot-$version-linux-x86_64.AppImage"
-          test -f "dist-pack/DeepSeek-Bot-$version-linux-amd64.deb"
+          test -f "dist-pack/DS-Bot-$version-linux-x86_64.AppImage"
+          test -f "dist-pack/DS-Bot-$version-linux-amd64.deb"
           test -f dist-pack/latest-linux.yml
       # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
       # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
@@ -273,12 +273,12 @@ jobs:
       - name: Install the deb and check
         run: |
           version="$(node -p "require('./package.json').version")"
-          sudo apt-get install -y "./dist-pack/DeepSeek-Bot-$version-linux-amd64.deb"
-          test -f /usr/share/applications/deepseek-bot.desktop
-          xvfb-run -a node scripts/check-packed.mjs "/opt/DeepSeek Bot/deepseek-bot"
+          sudo apt-get install -y "./dist-pack/DS-Bot-$version-linux-amd64.deb"
+          test -f /usr/share/applications/dsbot.desktop
+          xvfb-run -a node scripts/check-packed.mjs "/opt/DS Bot/dsbot"
       # A deb cannot update itself: it points at the release page, as on macOS.
       - name: The deb's app hears of a new version
-        run: xvfb-run -a node scripts/check-update.mjs "/opt/DeepSeek Bot/deepseek-bot" 99.0.0
+        run: xvfb-run -a node scripts/check-update.mjs "/opt/DS Bot/dsbot" 99.0.0
       # The update builds the app a second time, so it runs only for changes to the app or the
       # workflows. The AppImage downloads the new one and replaces itself as it quits.
       - name: Does the change touch the app?
@@ -296,16 +296,16 @@ jobs:
         if: steps.scope.outputs.update == 'true'
         run: |
           tmp="$(mktemp -d)"
-          cp dist-pack/DeepSeek-Bot-*-linux-x86_64.AppImage "$tmp/deepseek-bot.AppImage"
-          chmod +x "$tmp/deepseek-bot.AppImage"
-          xvfb-run -a node scripts/check-update.mjs "$tmp/deepseek-bot.AppImage" dist-next
-          pkill -f "$tmp/deepseek-bot" || true
-          next="$(ls dist-next/DeepSeek-Bot-*-linux-x86_64.AppImage)"
-          test "$(sha512sum "$tmp/deepseek-bot.AppImage" | cut -d' ' -f1)" = "$(sha512sum "$next" | cut -d' ' -f1)"
+          cp dist-pack/DS-Bot-*-linux-x86_64.AppImage "$tmp/dsbot.AppImage"
+          chmod +x "$tmp/dsbot.AppImage"
+          xvfb-run -a node scripts/check-update.mjs "$tmp/dsbot.AppImage" dist-next
+          pkill -f "$tmp/dsbot" || true
+          next="$(ls dist-next/DS-Bot-*-linux-x86_64.AppImage)"
+          test "$(sha512sum "$tmp/dsbot.AppImage" | cut -d' ' -f1)" = "$(sha512sum "$next" | cut -d' ' -f1)"
       - name: Uninstall
         run: |
-          sudo apt-get remove -y deepseek-bot
-          test ! -e "/opt/DeepSeek Bot/deepseek-bot"
+          sudo apt-get remove -y dsbot
+          test ! -e "/opt/DS Bot/dsbot"
 
   docker:
     name: Docker startup and data migration
