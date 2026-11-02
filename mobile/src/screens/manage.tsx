@@ -4,6 +4,8 @@
 import { useState } from 'react'
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as Crypto from 'expo-crypto'
+import { listComputers, removeComputer, setActiveComputer, type StoredComputer } from '../store.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
@@ -773,6 +775,102 @@ export function Usage({ route, navigation }: any) {
           <Row label={t('Tools')} value={String(stats?.tools ?? '—')} />
           <Row label={t('Messages')} value={String(stats?.messages ?? '—')} />
         </Section>
+      </ScrollView>
+    </Screen>
+  )
+}
+
+// ------------------------------------------------------------ Computers
+
+const fingerprint = async (key: string): Promise<string> => {
+  const hex = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, key)
+  return hex.slice(0, 16).toUpperCase().match(/.{4}/g)?.join(' ') ?? hex.slice(0, 16).toUpperCase()
+}
+
+export function Computers({ route, navigation }: any) {
+  const { p } = useTheme()
+  const { online, computer } = useTeam()
+  const [list, setList] = useState<StoredComputer[]>([])
+  const [prints, setPrints] = useState<Record<string, string>>({})
+  const [armed, setArmed] = useState<string | null>(null)
+  useState(() => {
+    void listComputers().then(({ computers }) => {
+      setList(computers)
+      computers.forEach(item => void fingerprint(item.hostKey).then(text => setPrints(prev => ({ ...prev, [item.hostDeviceId]: text }))).catch(() => {}))
+    })
+    return null
+  })
+  const forget = (id: string) => { if (armed !== id) { setArmed(id); return } setArmed(null); void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) route.params?.onForget?.() }) }
+  return (
+    <Screen title="">
+      <BackRow title={t('Computers')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <Section label={t('Computers')}>
+          {list.map(item => {
+            const active = item.hostDeviceId === computer?.hostDeviceId
+            return (
+              <View key={item.hostDeviceId} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name || item.server}</Text>
+                  <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{active ? (online ? t('Connected') : t('Connecting…')) : t('Not connected')} · {prints[item.hostDeviceId] ?? '…'}</Text>
+                </View>
+                {active ? null : (
+                  <Pressable accessibilityRole="button" onPress={() => void setActiveComputer(item.hostDeviceId).then(() => route.params?.onSwitch?.(item))} hitSlop={8}>
+                    <Text style={[typeScale.settingsRow, { color: p.accent }]}>{t('Switch')}</Text>
+                  </Pressable>
+                )}
+                <Pressable accessibilityRole="button" onPress={() => forget(item.hostDeviceId)} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
+                  <Text style={[typeScale.settingsRow, { color: armed === item.hostDeviceId ? p.danger : p.ink3 }]}>{armed === item.hostDeviceId ? t('Tap again to forget') : t('Forget')}</Text>
+                </Pressable>
+              </View>
+            )
+          })}
+          <Row label={t('Add a computer')} onPress={() => route.params?.onForget?.()} />
+        </Section>
+      </ScrollView>
+    </Screen>
+  )
+}
+
+// ------------------------------------------------------------ Secrets
+
+export function Secrets({ navigation }: any) {
+  const { p } = useTheme()
+  const { team } = useTeam()
+  const { run, error } = useWrite(navigation)
+  const [name, setName] = useState('')
+  const [value, setValue] = useState('')
+  const [armed, setArmed] = useState<string | null>(null)
+  const secrets = (team as { secrets?: { name: string; description?: string; scope?: string }[] } | null)?.secrets ?? []
+  const save = () => { if (!name.trim() || !value) return; const next = value; setValue(''); void run('secret-set', { name: name.trim(), value: next }, () => setName('')) }
+  return (
+    <Screen title="">
+      <BackRow title={t('Secrets')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        <Section label={t('Secrets')}>
+          {secrets.map(secret => (
+            <View key={secret.name} style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={[typeScale.settingsRow, { color: p.ink }]}>{secret.name}</Text>
+                {secret.scope ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{secret.scope}</Text> : null}
+              </View>
+              <Pressable accessibilityRole="button" onPress={() => { if (armed === secret.name) { setArmed(null); void run('secret-delete', { name: secret.name }) } else setArmed(secret.name) }} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
+                <Text style={[typeScale.settingsRow, { color: armed === secret.name ? p.danger : p.ink3 }]}>{armed === secret.name ? t('Tap again to delete') : t('Delete')}</Text>
+              </Pressable>
+            </View>
+          ))}
+          {secrets.length === 0 ? <Row label={t('Nothing saved yet')} disabled /> : null}
+        </Section>
+        <Section label={t('Add')}>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={name} onChangeText={setName} placeholder={t('Name')} placeholderTextColor={p.ink3} autoCapitalize="characters" /></View>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={value} onChangeText={setValue} placeholder={t('Paste or type the key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry /></View>
+        </Section>
+        <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
+          <Pressable accessibilityRole="button" disabled={!name.trim() || !value} onPress={save} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !name.trim() || !value ? 0.5 : pressed ? 0.85 : 1 }]}>
+            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Save')}</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </Screen>
   )

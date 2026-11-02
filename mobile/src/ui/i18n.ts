@@ -86,6 +86,14 @@ const MOBILE_ZH: Record<string, string> = {
   'Remove photo': '移除照片',
   'Another Bot has this name.': '已经有 Bot 叫这个名字。',
   'Back': '返回',
+  'Phone': '手机', 'Computers': '电脑', 'Language': '语言',
+  'Follow system': '跟随系统', 'System': '跟随系统', 'Light': '浅色', 'Dark': '深色',
+  'In-app banners': '应用内横幅', 'Notifications': '通知',
+  'Model providers': '模型服务商', 'Secrets': '密钥', 'Connectors': '连接器',
+  'Capabilities': '能力', 'Location': '位置',
+  'Updates & diagnostics': '更新和诊断', 'About': '关于',
+  'Forget': '忘记', 'Add a computer': '添加一台电脑',
+  'Paste or type the key': '粘贴或输入密钥', 'Tap again to delete': '再点一次删除',
   'Pick the model this Bot runs on.': '选这个 Bot 用的模型。',
   'Pick a model and {name} can start.': '选好模型，{name} 就能开工了。',
   'Ask': '提问', 'Ask memory': '问记忆',
@@ -135,8 +143,6 @@ const MOBILE_ZH: Record<string, string> = {
   'Approvals': '批准',
   'Secret requests': '密钥',
   'Cards': '卡片',
-  'Dark': '深色',
-  'Light': '浅色',
   'Demo team': '演示团队',
 }
 
@@ -151,6 +157,10 @@ const fill = (text: string, params?: Record<string, string | number>) =>
 // text-autospace; RN has none, so the composed string gets the space here.
 const autospaced = (text: string) =>
   text.replace(/([\u4e00-\u9fff])([A-Za-z0-9])/g, '$1 $2').replace(/([A-Za-z0-9])([\u4e00-\u9fff])/g, '$1 $2')
+
+let langOverride: 'system' | 'zh' | 'en' = 'system'
+export function setLang(lang: 'system' | 'zh' | 'en'): void { langOverride = lang }
+export function getLang(): 'system' | 'zh' | 'en' { return langOverride }
 
 export function t(key: string, params?: Record<string, string | number>): string {
   let text = key

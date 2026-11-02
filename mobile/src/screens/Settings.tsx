@@ -1,44 +1,68 @@
-import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import Constants from 'expo-constants'
+import { useEffect, useState } from 'react'
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { useTeam } from '../team/context.tsx'
-import { t } from '../ui/i18n.ts'
-import { themeLabel, type as typeScale, radius, useTheme } from '../ui/tokens.ts'
+import { t, getLang, setLang } from '../ui/i18n.ts'
+import { ChevronRightIcon } from '../ui/icons.tsx'
+import { readPrefs, writePrefs } from '../store.ts'
+import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 
-export function Settings({ onForget }: { onForget: () => void }) {
-  const { team, online, error, computer } = useTeam()
+function Row({ label, value, onPress, end }: { label: string; value?: string; onPress?: () => void; end?: React.ReactNode }) {
   const { p } = useTheme()
-  const [confirm, setConfirm] = useState(false)
-  const version = Constants.expoConfig?.version ?? '0.1.0'
+  const body = (
+    <View style={styles.row}>
+      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{label}</Text>
+      {value !== undefined ? <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{value}</Text> : null}
+      {end}
+      {onPress ? <ChevronRightIcon size={16} color={p.ink3} /> : null}
+    </View>
+  )
+  return onPress ? <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed ? { backgroundColor: p.hover } : null}>{body}</Pressable> : body
+}
 
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  const { p } = useTheme()
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.main }} contentContainerStyle={{ paddingBottom: 32 }}>
-      <Text style={[typeScale.small, { color: p.ink2, fontWeight: '600', marginHorizontal: 20, marginTop: 20, marginBottom: 8 }]}>{t('Computer').toUpperCase()}</Text>
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-        <View style={styles.row}><Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{computer?.name || computer?.hostDeviceId || '—'}</Text></View>
-        <View style={[styles.row, styles.sep, { borderTopColor: p.line }]}>
-          <Text style={[typeScale.settingsRow, { color: online ? p.green : p.ink2 }]}>{online ? t('Connected') : t('Not connected')}</Text>
-        </View>
-        {error ? <View style={[styles.row, styles.sep, { borderTopColor: p.line }]}><Text style={[typeScale.small, { color: p.danger }]}>{error}</Text></View> : null}
-        <Pressable accessibilityRole="button" onPress={() => { if (confirm) { setConfirm(false); onForget() } else setConfirm(true) }}
-          style={[styles.row, styles.sep, { borderTopColor: p.line }]}>
-          <Text style={[typeScale.settingsRow, { color: p.danger }]}>{confirm ? t('Tap again to forget') : t('Forget this computer')}</Text>
-        </Pressable>
-      </View>
-      <Text style={[typeScale.small, { color: p.ink2, fontWeight: '600', marginHorizontal: 20, marginTop: 24, marginBottom: 8 }]}>{t('Appearance').toUpperCase()}</Text>
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-        <View style={styles.row}>
-          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Theme')}</Text>
-          <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{themeLabel(team?.prefs?.theme)}</Text>
-        </View>
-      </View>
-      <Text style={[typeScale.caption, { color: p.ink3, textAlign: 'center', marginTop: 32 }]}>DS Bot {version}</Text>
+    <View style={{ marginTop: 16 }}>
+      <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 18, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6, fontSize: 11 }]}>{label}</Text>
+      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>{children}</View>
+    </View>
+  )
+}
+
+export function Settings({ navigation, onForget }: { navigation?: any; onForget?: () => void }) {
+  const { p } = useTheme()
+  const { team, computer } = useTeam()
+  const [prefs, setPrefs] = useState<Record<string, string>>({})
+  const [, bump] = useState(0)
+  useEffect(() => { void readPrefs().then(setPrefs) }, [])
+  const set = (key: string, value: string) => { const next = { ...prefs, [key]: value }; setPrefs(next); void writePrefs({ [key]: value }) }
+  const theme = prefs.theme ?? 'system'
+  const lang = getLang()
+  return (
+    <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <Section label={t('Phone')}>
+        <Row label={t('Computers')} value={computer?.name ?? ''} onPress={() => navigation?.navigate('Computers', { onForget })} />
+        <Row label={t('Appearance')} value={{ light: t('Light'), dark: t('Dark'), system: t('System') }[theme] ?? t('System')}
+          onPress={() => set('theme', theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')} />
+        <Row label={t('Language')} value={{ system: t('Follow system'), zh: '简体中文', en: 'English' }[lang] ?? t('Follow system')}
+          onPress={() => { const next = lang === 'system' ? 'zh' : lang === 'zh' ? 'en' : 'system'; set('lang', next); setLang(next); bump(v => v + 1) }} />
+        <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ true: p.accent }} />} />
+      </Section>
+      <Section label={t('Team')}>
+        <Row label={t('Model providers')} onPress={() => navigation?.navigate('Placeholder', { title: t('Model providers') })} />
+        <Row label={t('Secrets')} onPress={() => navigation?.navigate('Secrets')} />
+        <Row label={t('Connectors')} onPress={() => navigation?.navigate('Placeholder', { title: t('Connectors') })} />
+        <Row label={t('Capabilities')} onPress={() => navigation?.navigate('Placeholder', { title: t('Capabilities') })} />
+        <Row label={t('Usage')} onPress={() => navigation?.navigate('Placeholder', { title: t('Usage') })} />
+        <Row label={t('Location')} onPress={() => navigation?.navigate('Placeholder', { title: t('Location') })} />
+        <Row label={t('Updates & diagnostics')} onPress={() => navigation?.navigate('Placeholder', { title: t('Updates & diagnostics') })} />
+        <Row label={t('About')} onPress={() => navigation?.navigate('Placeholder', { title: t('About') })} />
+      </Section>
     </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
-  card: { marginHorizontal: 16, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden' },
-  row: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', minHeight: 44 },
-  sep: { borderTopWidth: StyleSheet.hairlineWidth },
+  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden', ...shadow(1) },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 50, gap: 8 },
 })

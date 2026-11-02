@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, openLink, type TeamState } from '../connection.ts'
+import { ensureUnlock } from './gate.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
 // Feed events keep the app live; the poll only stays as a foreground fallback.
@@ -33,6 +34,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   const call = useCallback(async (endpoint: string, payload: unknown = {}) => {
     const client = clientRef.current
     if (client === undefined) throw new Error('Not connected to the computer yet.')
+    await ensureUnlock(endpoint)
     return callBot(client, endpoint, payload)
   }, [])
 

@@ -14,7 +14,7 @@ import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
-import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings, Memory, Schedules, Folder, Usage } from '../screens/manage.tsx'
+import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
@@ -186,6 +186,16 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       <Stack.Screen name="Schedules">{(props: any) => <Schedules {...props} />}</Stack.Screen>
       <Stack.Screen name="Folder">{(props: any) => <Folder {...props} />}</Stack.Screen>
       <Stack.Screen name="Usage">{(props: any) => <Usage {...props} />}</Stack.Screen>
+      <Stack.Screen name="Computers">{(props: any) => <Computers {...props} />}</Stack.Screen>
+      <Stack.Screen name="Secrets">{(props: any) => <Secrets {...props} />}</Stack.Screen>
+      <Stack.Screen name="Placeholder">{({ route, navigation }: any) => (
+        <View style={{ flex: 1, backgroundColor: '#f6f8fb' }}>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14, paddingTop: 60 }}>
+            <Text style={{ fontSize: 16, fontWeight: '500' }}>{String(route.params?.title ?? '')}</Text>
+            <Text style={{ color: '#4f7df3', fontSize: 15, marginTop: 8 }} onPress={() => navigation.goBack()}>{'‹'}</Text>
+          </View>
+        </View>
+      )}</Stack.Screen>
       <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
     </Stack.Navigator>
     </View>

@@ -5,6 +5,9 @@ export interface PhoneIdentity extends DeviceIdentity {
   accessToken: string
 }
 
+export interface StoredComputer extends SavedComputer { addedAt: number }
+interface ComputerList { activeId: string | null; computers: StoredComputer[] }
+
 export type SavedComputer = Omit<PairingOffer, 'code'>
 
 const IDENTITY = 'dsbot.identity'
@@ -34,9 +37,13 @@ export async function loadIdentity(): Promise<PhoneIdentity> {
 }
 
 export async function loadComputer(): Promise<SavedComputer | undefined> {
-  const saved = await read(COMPUTER) as Partial<SavedComputer> | undefined
-  if (typeof saved?.server !== 'string' || typeof saved.hostDeviceId !== 'string' || typeof saved.hostKey !== 'string') return undefined
-  return { server: saved.server, hostDeviceId: saved.hostDeviceId, hostKey: saved.hostKey, name: saved.name ?? '' }
+  const saved = await read(COMPUTERS) as { activeId: string | null; computers: StoredComputer[] } | undefined
+  if (saved !== undefined && Array.isArray(saved.computers)) {
+    return saved.computers.find(item => item.hostDeviceId === saved.activeId) ?? saved.computers[0]
+  }
+  const single = await read(COMPUTER) as Partial<SavedComputer> | undefined
+  if (typeof single?.server !== 'string' || typeof single.hostDeviceId !== 'string' || typeof single.hostKey !== 'string') return undefined
+  return { server: single.server, hostDeviceId: single.hostDeviceId, hostKey: single.hostKey, name: single.name ?? '' }
 }
 
 export async function saveComputer({ server, hostDeviceId, hostKey, name }: PairingOffer): Promise<SavedComputer> {
@@ -47,4 +54,49 @@ export async function saveComputer({ server, hostDeviceId, hostKey, name }: Pair
 
 export async function forgetComputer(): Promise<void> {
   await SecureStore.deleteItemAsync(COMPUTER, LOCAL)
+}
+
+const COMPUTERS = 'dsbot.computers'
+const PREFS = 'dsbot.prefs'
+
+// The older single-computer key migrates into the list on first read.
+export async function listComputers(): Promise<ComputerList> {
+  const saved = await read(COMPUTERS) as ComputerList | undefined
+  if (saved !== undefined && Array.isArray(saved.computers)) return saved
+  const single = await loadComputer()
+  const list: ComputerList = single === undefined
+    ? { activeId: null, computers: [] }
+    : { activeId: single.hostDeviceId, computers: [{ ...single, addedAt: Date.now() }] }
+  await SecureStore.setItemAsync(COMPUTERS, JSON.stringify(list), LOCAL)
+  return list
+}
+
+export async function addComputer(offer: PairingOffer): Promise<SavedComputer> {
+  const list = await listComputers()
+  const computer: StoredComputer = { server: offer.server, hostDeviceId: offer.hostDeviceId, hostKey: offer.hostKey, name: offer.name, addedAt: Date.now() }
+  list.computers = [...list.computers.filter(item => item.hostDeviceId !== computer.hostDeviceId), computer]
+  list.activeId = computer.hostDeviceId
+  await SecureStore.setItemAsync(COMPUTERS, JSON.stringify(list), LOCAL)
+  return computer
+}
+
+export async function setActiveComputer(hostDeviceId: string): Promise<void> {
+  const list = await listComputers()
+  list.activeId = hostDeviceId
+  await SecureStore.setItemAsync(COMPUTERS, JSON.stringify(list), LOCAL)
+}
+
+export async function removeComputer(hostDeviceId: string): Promise<StoredComputer[]> {
+  const list = await listComputers()
+  list.computers = list.computers.filter(item => item.hostDeviceId !== hostDeviceId)
+  if (list.activeId === hostDeviceId) list.activeId = list.computers[0]?.hostDeviceId ?? null
+  await SecureStore.setItemAsync(COMPUTERS, JSON.stringify(list), LOCAL)
+  return list.computers
+}
+
+export async function readPrefs(): Promise<Record<string, string>> {
+  return (await read(PREFS) as Record<string, string> | undefined) ?? {}
+}
+export async function writePrefs(patch: Record<string, string>): Promise<void> {
+  await SecureStore.setItemAsync(PREFS, JSON.stringify({ ...(await readPrefs()), ...patch }), LOCAL)
 }
