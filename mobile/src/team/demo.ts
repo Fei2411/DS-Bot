@@ -209,6 +209,30 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { ok: true }
       }
       case 'team-workspace': return { ok: true }
+      case 'side-new': {
+        const chatId = `sc-${Math.random().toString(36).slice(2, 8)}`
+        const botId = String(body.sessionId ?? '').split(':')[0] || 'b-chief'
+        ;((state.sideChats ??= {})[botId] ??= []).push({ chatId, entries: [] })
+        return { chatId }
+      }
+      case 'side-ask': {
+        const entry = { id: `se-${Math.random().toString(36).slice(2, 8)}`, question: String(body.text ?? ''), answer: '从目前的进展看：这一步还卡在迁移脚本上，其余都在轨。', status: 'done' }
+        const list = Object.values(state.sideChats ?? {}).flat()
+        const chat = list.find(c => c.chatId === body.chatId)
+        if (chat !== undefined) (chat.entries ??= []).push(entry)
+        return entry
+      }
+      case 'side-cancel': {
+        const chat = Object.values(state.sideChats ?? {}).flat().find(c => c.chatId === body.chatId)
+        const entry = (chat?.entries ?? []).find(e => e.id === body.entryId)
+        if (entry !== undefined) entry.status = 'cancelled'
+        return { ok: true }
+      }
+      case 'side-close': {
+        for (const [botId, chats] of Object.entries(state.sideChats ?? {})) state.sideChats![botId] = chats.filter(c => c.chatId !== body.chatId)
+        return { ok: true }
+      }
+      case 'btw-delete': return { ok: true }
       case 'usage': return {
         total: { input: 402100, output: 90300 },
         bots: [

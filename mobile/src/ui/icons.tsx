@@ -82,3 +82,14 @@ export function CheckIcon({ size = 15, color }: IconProps) {
   return h(Svg, { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: use(color, p.accent), strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
     h(Path, { d: 'M4.5 10.5l3.5 3.5 7.5-8' }))
 }
+
+export function CloseIcon({ size = 18, color }: IconProps) {
+  return h('svg', { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: color, strokeWidth: 1.6, strokeLinecap: 'round' },
+    h('path', { d: 'M5 5l10 10M15 5L5 15' }))
+}
+
+export function SideIcon({ size = 20, color }: IconProps) {
+  return h('svg', { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: color, strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
+    h('path', { d: 'M17 11.5a6.5 6.5 0 0 1-6.5 6.5H4l2-2.6A6.5 6.5 0 1 1 17 11.5Z' }),
+    h('path', { d: 'M8.5 8.5 12 12M12 8.5 8.5 12' }))
+}

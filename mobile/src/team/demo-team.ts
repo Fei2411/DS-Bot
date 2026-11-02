@@ -53,6 +53,17 @@ export function demoData(): DemoData {
       turns: {},
     },
     activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    sideChats: {
+      'b-chief': [
+        { chatId: 'sc-1', entries: [
+          { id: 'se-1', question: '进度怎么样了？', answer: '三个 Bot 都在轨：Coder 在跑测试，Writer 起草了发布说明，Researcher 交了对比。', status: 'done' },
+          { id: 'se-2', question: '哪一步最慢？', answer: '测试套件的迁移脚本，卡在 staging 环境变量上。', status: 'done' },
+        ] },
+        { chatId: 'sc-2', entries: [
+          { id: 'se-3', question: '明天的发布能赶上吗？', answer: '', status: 'answering' },
+        ] },
+      ],
+    },
     connectors: [
       { id: 'github', name: 'GitHub', state: 'ready', account: 'feiz' },
       { id: 'linear', name: 'Linear', state: 'off' },

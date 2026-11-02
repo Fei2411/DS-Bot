@@ -9,13 +9,14 @@ import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar, YouMark } from '../ui/marks.tsx'
-import { GearIcon, SidebarIcon } from '../ui/icons.tsx'
+import { GearIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
 import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
 import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
 import { Providers, Connectors, Capabilities, TeamUsage, Location, Updates, About } from '../screens/settings-pages.tsx'
+import { Side } from '../screens/side.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
@@ -73,7 +74,7 @@ function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<type
   )
 }
 
-function Header({ title, bot, room, bots = [], onMenu, onPill }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void; onPill?: () => void }) {
+function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void; onPill?: () => void; onSide?: () => void }) {
   const { p } = useTheme()
   const { team } = useTeam()
   const pending = pendingCountOf(team) > 0
@@ -87,7 +88,11 @@ function Header({ title, bot, room, bots = [], onMenu, onPill }: { title: string
       <View style={{ flex: 1, alignItems: 'center' }}>
         {onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
       </View>
-      <View style={{ width: 44 }} />
+      {onSide !== undefined ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Side chat')} onPress={onSide} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+          <SideIcon size={20} color={p.ink2} />
+        </Pressable>
+      ) : <View style={{ width: 44 }} />}
     </View>
   )
 }
@@ -111,7 +116,7 @@ function ChatScreenB({ route, navigation }: any) {
     void SecureStore.deleteItemAsync(LAST_KEY)
     if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id })
   }, [missing])
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupSettings', { roomId: room.id }) }} />
+  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupSettings', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
   if (team === null) return <View style={{ flex: 1, backgroundColor: p.main }}>{header}</View>
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id }) }
   return <ChatView bot={bot} room={room} header={header} onMissing={onMissing} />
@@ -196,6 +201,7 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       <Stack.Screen name="Location">{(props: any) => <Location {...props} />}</Stack.Screen>
       <Stack.Screen name="Updates">{(props: any) => <Updates {...props} />}</Stack.Screen>
       <Stack.Screen name="About">{(props: any) => <About {...props} />}</Stack.Screen>
+      <Stack.Screen name="Side">{({ route, navigation }: any) => <Side bot={route.params.bot} sessionId={route.params.sessionId} navigation={navigation} />}</Stack.Screen>
       <Stack.Screen name="Placeholder">{({ route, navigation }: any) => (
         <View style={{ flex: 1, backgroundColor: '#f6f8fb' }}>
           <View style={{ paddingHorizontal: 16, paddingVertical: 14, paddingTop: 60 }}>
