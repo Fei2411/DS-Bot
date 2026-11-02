@@ -30,7 +30,7 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
     <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => { void Haptics.selectionAsync(); onToggle() }}
         style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: 14, gap: 8 }}>
-        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1 }]} numberOfLines={1}>{title}</Text>
+        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1 }]} numberOfLines={expanded ? 4 : 1}>{title}</Text>
         {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent }} /> : null}
         <Animated.View style={chevron}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
       </Pressable>
@@ -89,7 +89,7 @@ export function QuestionCard({ question, sessionId, call, p , bare = false }: { 
 
   return (
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{question.question}</Text>
+      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{question.question}</Text>}
       {question.detail ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{question.detail}</Text> : null}
       <View style={{ marginTop: 12, borderRadius: radius.option, borderWidth: 1, borderColor: p.line, overflow: 'hidden' }}>
         {options.map((option, index) => (
@@ -124,8 +124,8 @@ export function ApprovalCard({ approval, call, p , bare = false }: { approval: A
   }
   return (
     <View accessibilityLabel={t('{name} is waiting for your approval', { name: '' })}
-      style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{approval.tool || 'Approval'}</Text>
+      style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{approval.tool || 'Approval'}</Text>}
       {typeof approval.detail?.text === 'string' && approval.detail.text !== ''
         ? <Text selectable style={[type.small, { color: p.ink, marginTop: 4 }]}>{approval.detail.text}</Text> : null}
       {approval.reason !== '' ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 4 }]} numberOfLines={4}>{approval.reason}</Text> : null}
@@ -167,7 +167,7 @@ export function SecretCard({ secret, call, p , bare = false }: { secret: SecretR
   }
   return (
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{allow ? t('Let {bot} use {name}?', { bot: t('the Bot'), name: secret.name ?? "" }) : t('{name} needs a key', { name: secret.name ?? "" })}</Text>
+      {bare && !allow ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{allow ? t('Let {bot} use {name}?', { bot: t('the Bot'), name: secret.name ?? "" }) : t('{name} needs a key', { name: secret.name ?? "" })}</Text>}
       {allow && secret.scope ? <Text style={[type.small, { color: p.ink2, marginTop: 6 }]}>{Array.isArray(secret.scope) ? secret.scope.join(", ") : secret.scope}</Text> : null}
       {!allow ? (
         <TextInput style={[styles.secretInput, { color: p.ink, borderColor: p.line }]} value={value} onChangeText={setValue}
@@ -207,8 +207,8 @@ export function BtwCard({ card, sessionId, call, p , bare = false }: { card: Btw
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Aside')}</Text>
-          {card.question ? <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 2 }]}>{card.question}</Text> : null}
+          {bare ? null : <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Aside')}</Text>}
+          {card.question && !bare ? <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 2 }]}>{card.question}</Text> : null}
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} hitSlop={10} disabled={busy}
           style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.35 : 1 }}>
@@ -232,7 +232,7 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
   }
   return (
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Browser handoff')}</Text>
+      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Browser handoff')}</Text>}
       {handoff.note || handoff.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{handoff.note ?? handoff.reason}</Text> : null}
       <View style={styles.answerRow}>
         {onView !== undefined ? <Pressable accessibilityRole="button" onPress={onView} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('View')}</Text></Pressable> : null}
