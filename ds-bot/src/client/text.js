@@ -223,16 +223,18 @@ export function commRunOf(order, peers, turn, hiddenTurns = []) {
 }
 
 // Latest visible line for a sidebar row; Bot-to-Bot exchange turns stay out of it.
-export function previewOf(list, id, hiddenTurns = []) {
+export function previewOf(list, id, hiddenTurns = [], monitorResult) {
   const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
-  if (!Array.isArray(outline)) return ''
-  for (let index = outline.length - 1; index >= 0; index -= 1) {
+  for (let index = (outline?.length ?? 0) - 1; index >= 0; index -= 1) {
     const entry = outline[index]
     if (hiddenTurns.includes(entry.turn)) continue
     const text = entry.response || entry.prompt || ''
-    if (text !== '') return stripHeader(text).replace(/\s+/g, ' ').trim()
+    if (text !== '') {
+      if (monitorResult?.sessionId === id && entry.turn <= (monitorResult.anchorTurn ?? -1)) return monitorResult.text.slice(0, 160)
+      return stripHeader(text).replace(/\s+/g, ' ').trim()
+    }
   }
-  return ''
+  return monitorResult?.text.slice(0, 160) ?? ''
 }
 
 const formatTokens = count => (count >= 1e6 ? `${(count / 1e6).toFixed(1)}M` : count >= 1e3 ? `${(count / 1e3).toFixed(1)}K` : String(count))

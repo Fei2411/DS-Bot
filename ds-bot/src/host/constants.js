@@ -63,6 +63,7 @@ export const AGENT_SESSION_TITLE_MAX = 80
 // each Bot session's own scope. `read_browser` only exists in the Desktop
 // profile, so the list served to one session can be shorter.
 export const TEAM_TOOLS = [
+  'create_automation', 'report_monitor',
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'show_view',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',

@@ -42,6 +42,24 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Task completed": "任务已完成",
+  Notifications: "通知",
+  "Task completion notifications": "任务完成通知",
+  "Notify when a task finishes while you are away from this chat.": "未聚焦此聊天时，在任务完成后发送系统通知。",
+  "Enable system notifications": "启用系统通知",
+  "Notification permission: {status}": "系统通知权限：{status}",
+  "Saved task records": "已保存的任务记录",
+  "View monitor runs": "查看监视记录",
+  "Make silent monitor": "改为静默监视",
+  "Make normal task": "改为普通任务",
+  Baseline: "基线",
+  "No change": "无变化",
+  Match: "命中",
+  Failed: "失败",
+  "Task type": "任务类型",
+  "Normal task": "普通任务",
+  "Silent monitor": "静默监视",
+  "The first check establishes a baseline. Only new matching messages appear in chat. The Host must stay running.": "首次检查建立基线，之后仅在聊天中发布新增且符合条件的消息。Host 必须保持运行。",
   // Shared
   "Main Bot": "主 Bot",
   Working: "进行中",
@@ -1522,8 +1540,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h51, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h51 / 2}" width="${w}" height="${h51}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h51, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h51 * 0.14}Q0 ${-h51 * 0.42} ${w * 0.62} ${h51 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h52, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h52 / 2}" width="${w}" height="${h52}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h52, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h52 * 0.14}Q0 ${-h52 * 0.42} ${w * 0.62} ${h52 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -1733,6 +1751,10 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     folderList: (path) => call2("folder-list", { path: path ?? "" }),
     setTeamWorkspace: (path) => after(call2("team-workspace", { path })),
     deleteBot: (id) => after(call2("delete-bot", { id })),
+    monitorRuns: (id) => call2("monitor-runs", { id }),
+    monitorRunLog: (id, runId) => call2("monitor-run-log", { id, runId }),
+    convertMonitor: (task) => call2("schedule-monitor", { id: task.id, sessionId: task.sessionId }),
+    convertNormal: (task) => call2("schedule-normal", { id: task.id, sessionId: task.sessionId }),
     releasePrivate: (id) => after(call2("private-release", { id })),
     duplicateBot: (id) => after(call2("duplicate-bot", { id })),
     setPrefs: (prefs) => after(call2("set-prefs", prefs)),
@@ -2174,16 +2196,18 @@ function commRunOf(order, peers, turn, hiddenTurns = []) {
   }
   return { count, peerIds };
 }
-function previewOf(list, id, hiddenTurns = []) {
+function previewOf(list, id, hiddenTurns = [], monitorResult) {
   const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
-  if (!Array.isArray(outline)) return "";
-  for (let index = outline.length - 1; index >= 0; index -= 1) {
+  for (let index = (outline?.length ?? 0) - 1; index >= 0; index -= 1) {
     const entry = outline[index];
     if (hiddenTurns.includes(entry.turn)) continue;
     const text = entry.response || entry.prompt || "";
-    if (text !== "") return stripHeader(text).replace(/\s+/g, " ").trim();
+    if (text !== "") {
+      if (monitorResult?.sessionId === id && entry.turn <= (monitorResult.anchorTurn ?? -1)) return monitorResult.text.slice(0, 160);
+      return stripHeader(text).replace(/\s+/g, " ").trim();
+    }
   }
-  return "";
+  return monitorResult?.text.slice(0, 160) ?? "";
 }
 var formatTokens = (count) => count >= 1e6 ? `${(count / 1e6).toFixed(1)}M` : count >= 1e3 ? `${(count / 1e3).toFixed(1)}K` : String(count);
 function usageOf(list, ids) {
@@ -2283,12 +2307,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h51 = dt / steps;
+    const h52 = dt / steps;
     let moving = false;
     for (const value of values.values()) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h51;
-        value.x += value.v * h51;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h52;
+        value.x += value.v * h52;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -8992,6 +9016,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return (0, import_react19.createElement)(EarlierUser, { key, row, actions });
     case "answer":
       return (0, import_react19.createElement)(AnsweredReply, { key, node: { data: row } });
+    case "monitor":
+      return (0, import_react19.createElement)("article", { key, className: "bt-set-card bt-monitor-result" }, (0, import_react19.createElement)("div", { className: "bt-set-row" }, row.title), (0, import_react19.createElement)("div", { className: "bt-set-row" }, (0, import_react19.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: row.text, labels: mdLabels3(), variant: "compact" })));
     // A display-only view replays from the blueprint the host kept on the call.
     case "view":
       return (0, import_react19.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
@@ -9983,7 +10009,8 @@ var waitingFor = (roster, waits) => {
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id;
   const part = currentPart(bot);
-  const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
+  const result = (roster.monitorResults ?? []).findLast((entry) => entry.botId === id);
+  const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part], result));
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const active = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
   const unread = useSessionStatus((map) => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== void 0) || marked && !active;
@@ -12945,7 +12972,11 @@ var nextText = (task) => {
   if (task.state === "overdue" || task.state === void 0 && task.status === "active" && Date.parse(task.scheduledAt) <= Date.now()) return t("Overdue: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) });
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
 };
+var RUN_STATUS = { baseline: "Baseline", no_change: "No change", match: "Match", failed: "Failed" };
 function TaskRow2({ task, actions, onView, showBot, roster }) {
+  const [runs, setRuns] = (0, import_react28.useState)(null);
+  const [runLog, setRunLog] = (0, import_react28.useState)(null);
+  const [error, setError] = (0, import_react28.useState)("");
   const [confirming, setConfirming] = (0, import_react28.useState)(false);
   const [expanded, setExpanded] = (0, import_react28.useState)(false);
   const [busy, setBusy] = (0, import_react28.useState)(false);
@@ -12975,6 +13006,29 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
       task.prompt && task.prompt !== task.title ? (0, import_react28.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
     ),
     (0, import_react28.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+    task.mode === "monitor" ? (0, import_react28.createElement)(
+      import_react28.Fragment,
+      null,
+      (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+        void actions.monitorRuns(task.automationId).then(setRuns, (failure) => setError(failure.message));
+      } }, t("View monitor runs")),
+      task.status === "active" ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => {
+        setBusy(true);
+        void actions.convertNormal(task).then(onView, (failure) => setError(failure.message)).finally(() => setBusy(false));
+      } }, t("Make normal task")) : null
+    ) : task.botId && !task.roomId && task.status === "active" && task.kind !== "cron" ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+      setBusy(true);
+      void actions.convertMonitor(task).then(onView, (failure) => setError(failure.message)).finally(() => setBusy(false));
+    }, disabled: busy }, t("Make silent monitor")) : null,
+    runs ? (0, import_react28.createElement)("div", { className: "bt-task-runs" }, runs.slice().reverse().map((run2) => (0, import_react28.createElement)(
+      "div",
+      { key: run2.id },
+      (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+        void actions.monitorRunLog(task.automationId, run2.id).then(setRunLog, (failure) => setError(failure.message));
+      } }, `${new Date(run2.at).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" })} · ${t(RUN_STATUS[run2.status] ?? run2.status)}${run2.error ? ` · ${run2.error}` : ""}`)
+    ))) : null,
+    runLog ? (0, import_react28.createElement)("pre", { className: "bt-task-log" }, runLog) : null,
+    error ? (0, import_react28.createElement)("span", { role: "alert", className: "bt-danger" }, error) : null,
     (0, import_react28.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -12995,6 +13049,7 @@ function inAnHour() {
 var KINDS = [["at", "Once"], ["daily", "Every day"], ["weekly", "Every week"], ["every", "Repeat"]];
 var UNITS = [["minutes", 1, "minutes"], ["hours", 60, "hours"], ["days", 1440, "days"]];
 function TaskForm({ roster, actions, start, onDone, onCancel }) {
+  const [mode, setMode] = (0, import_react28.useState)("normal");
   const [target, setTarget] = (0, import_react28.useState)(start ?? roster.bots[0]?.id ?? "");
   const [title, setTitle] = (0, import_react28.useState)("");
   const [prompt, setPrompt] = (0, import_react28.useState)("");
@@ -13024,7 +13079,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
       setBusy(false);
       return;
     }
-    void actions.scheduleCreate({ target, title, prompt, when: when3 }).then(onDone, (failure) => {
+    void actions.scheduleCreate({ target, title, prompt, when: when3, mode }).then(onDone, (failure) => {
       setError(hostText(failure?.message ?? String(failure)));
       setBusy(false);
     });
@@ -13036,10 +13091,25 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     (0, import_react28.createElement)(
       "label",
       { className: "bt-set-row bt-bs-row" },
+      t("Task type"),
+      (0, import_react28.createElement)(
+        "select",
+        { className: "bt-select", value: mode, onChange: (event) => setMode(event.target.value) },
+        (0, import_react28.createElement)("option", { value: "normal" }, t("Normal task")),
+        (0, import_react28.createElement)("option", { value: "monitor", disabled: roster.rooms.some((room2) => room2.id === target) }, t("Silent monitor"))
+      )
+    ),
+    mode === "monitor" ? (0, import_react28.createElement)("p", { className: "bt-set-hint" }, t("The first check establishes a baseline. Only new matching messages appear in chat. The Host must stay running.")) : null,
+    (0, import_react28.createElement)(
+      "label",
+      { className: "bt-set-row bt-bs-row" },
       (0, import_react28.createElement)("span", { className: "bt-set-copy" }, (0, import_react28.createElement)("span", { className: "bt-bs-label" }, t("Send to"))),
       (0, import_react28.createElement)(
         "select",
-        { className: "bt-select bt-task-bot", value: target, onChange: (event) => setTarget(event.target.value) },
+        { className: "bt-select bt-task-bot", value: target, onChange: (event) => {
+          setTarget(event.target.value);
+          if (roster.rooms.some((room2) => room2.id === event.target.value)) setMode("normal");
+        } },
         (0, import_react28.createElement)("optgroup", { label: t("Bots") }, roster.bots.map((bot) => (0, import_react28.createElement)("option", { key: bot.id, value: bot.id }, bot.name))),
         roster.rooms.length > 0 ? (0, import_react28.createElement)("optgroup", { label: t("Group chats") }, roster.rooms.map((room2) => (0, import_react28.createElement)("option", { key: room2.id, value: room2.id }, room2.name))) : null
       )
@@ -13174,7 +13244,13 @@ function ScheduleSummary({ bot, actions }) {
   );
 }
 var SCHEDULE_CSS = `
-.bt-task{gap:10px}
+.bt-task{gap:10px;flex-wrap:wrap}
+/* The copy keeps a real basis so a narrow panel wraps it onto its own line
+   instead of squeezing the title to one character per line. */
+.bt-task>.bt-set-copy{flex:1 1 180px}
+.bt-task-runs{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.bt-task-runs .bt-soft{height:auto;min-height:28px;padding:4px 12px;text-align:left;white-space:normal;max-width:100%}
+.bt-task-runs,.bt-task-log{flex-basis:100%;max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-task[data-done]{opacity:.6}
 .bt-task[data-busy]{opacity:.4}
 .bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
@@ -13995,6 +14071,79 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   );
 }
 
+// src/client/completion-notices.js
+async function completionPermission() {
+  if (globalThis.dsBotApp?.notifications) return await globalThis.dsBotApp.notifications.supported() ? "granted" : "unavailable";
+  if (typeof Notification !== "function") return "unavailable";
+  return Notification.permission;
+}
+async function requestCompletionPermission() {
+  const permission = await completionPermission();
+  return permission === "default" ? Notification.requestPermission() : permission;
+}
+function noticeCompletions({ roster, shownSession, openSession, markUnread, claim, storage = globalThis.localStorage, bridge = globalThis.dsBotApp?.notifications, since = Date.now() }) {
+  const handled = /* @__PURE__ */ new Set();
+  let monitorSeen = {};
+  try {
+    const saved = JSON.parse(storage.getItem("ds-bot-monitor-seen") ?? "{}");
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) monitorSeen = saved;
+  } catch {
+  }
+  let stopped = false;
+  let clientId;
+  try {
+    clientId = storage.getItem("ds-bot-notification-client");
+    if (!clientId) {
+      clientId = crypto.randomUUID();
+      storage.setItem("ds-bot-notification-client", clientId);
+    }
+  } catch {
+    clientId = crypto.randomUUID();
+  }
+  const notify = () => {
+    bridge?.current(shownSession());
+    const snapshot = roster.getSnapshot();
+    const latest = /* @__PURE__ */ new Map();
+    for (const result of snapshot.monitorResults ?? (snapshot.completions ?? []).filter((entry) => entry.kind === "monitor")) latest.set(result.botId, result);
+    for (const [botId, result] of latest) {
+      if (!snapshot.byId[botId] || Object.hasOwn(monitorSeen, botId) && monitorSeen[botId] === result.id) continue;
+      monitorSeen[botId] = result.id;
+      const foreground = document.visibilityState === "visible" && document.hasFocus() && shownSession() === result.sessionId;
+      if (!foreground) markUnread(botId);
+      try {
+        storage.setItem("ds-bot-monitor-seen", JSON.stringify(monitorSeen));
+      } catch {
+      }
+    }
+    for (const entry of snapshot.completions ?? []) {
+      if (!snapshot.byId[entry.botId] || handled.has(entry.id) || entry.time < since) continue;
+      handled.add(entry.id);
+      const foreground = document.visibilityState === "visible" && document.hasFocus() && shownSession() === entry.sessionId;
+      if (foreground || bridge || snapshot.byId[entry.botId]?.notifyCompletion === false || typeof Notification !== "function" || Notification.permission !== "granted") continue;
+      void claim(entry.id, clientId).then((allowed2) => {
+        if (!allowed2 || stopped) return;
+        const note = new Notification(snapshot.byId[entry.botId]?.name ?? t("A Bot"), { body: t("Task completed"), tag: `ds-bot-completion-${entry.id}` });
+        note.onclick = () => {
+          window.focus();
+          openSession(entry.botId);
+          note.close();
+        };
+      }).catch(() => {
+      });
+    }
+  };
+  const unsubscribe = roster.subscribe(notify);
+  const open = bridge?.onOpen(openSession);
+  const timer = bridge ? setInterval(() => bridge.current(shownSession()), 500) : void 0;
+  notify();
+  return () => {
+    stopped = true;
+    unsubscribe();
+    open?.();
+    clearInterval(timer);
+  };
+}
+
 // src/client/bot-settings.js
 var import_react32 = require("react");
 var capitalize = (word) => word[0].toUpperCase() + word.slice(1);
@@ -14221,12 +14370,24 @@ function MemoryCard({ bot, actions }) {
 function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const [editing, setEditing] = (0, import_react32.useState)(false);
   const [confirming, setConfirming] = (0, import_react32.useState)(false);
+  const [notificationStatus, setNotificationStatus] = (0, import_react32.useState)("");
   const closeEditor = (0, import_react32.useCallback)(() => setEditing(false), []);
   (0, import_react32.useEffect)(() => {
     if (!confirming) return void 0;
     const timer = setTimeout(() => setConfirming(false), 4e3);
     return () => clearTimeout(timer);
   }, [confirming]);
+  (0, import_react32.useEffect)(() => {
+    let active = true;
+    void completionPermission().then((status) => {
+      if (active) setNotificationStatus(status);
+    }).catch(() => {
+      if (active) setNotificationStatus("unavailable");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const isMainBot = isMainOf(roster, bot.id);
   const onlyMain = isMainBot && (roster.mainBotIds ?? []).length === 1;
   const isTile = roster.mainBotId === bot.id;
@@ -14315,6 +14476,23 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
     (0, import_react32.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2, SwitchRow }),
     roster.memory === false ? null : (0, import_react32.createElement)(MemoryCard, { bot, actions }),
     (0, import_react32.createElement)(BotSchedules, { bot, roster, actions }),
+    (0, import_react32.createElement)(
+      Card2,
+      { title: t("Notifications") },
+      (0, import_react32.createElement)(SwitchRow, {
+        label: t("Task completion notifications"),
+        hint: t("Notify when a task finishes while you are away from this chat."),
+        on: bot.notifyCompletion !== false,
+        onChange: (on) => run2((async () => {
+          if (on) setNotificationStatus(await requestCompletionPermission());
+          await actions.updateBot(bot.id, { notifyCompletion: on });
+        })())
+      }),
+      (0, import_react32.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+        void requestCompletionPermission().then(setNotificationStatus);
+      } }, t("Enable system notifications")),
+      notificationStatus ? (0, import_react32.createElement)("p", { role: "status" }, t("Notification permission: {status}", { status: notificationStatus })) : null
+    ),
     (0, import_react32.createElement)(
       Card2,
       { title: t("Main Bot") },
@@ -21227,6 +21405,26 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
   return work.subscribe(notify);
 }
 
+// src/client/automation-results.js
+var import_react54 = require("react");
+function AutomationResults({ sessionId, turn, useRoster, actions, unanchored = false }) {
+  const entries2 = useRoster((roster) => (roster.monitorResults ?? []).filter((entry) => entry.sessionId === sessionId && (unanchored ? entry.anchorTurn === null : entry.anchorTurn === turn?.turn)));
+  if (entries2.length === 0) return null;
+  return (0, import_react54.createElement)("div", { className: "bt-automation-results" }, entries2.map((entry) => (0, import_react54.createElement)(
+    "article",
+    { key: entry.id, className: "bt-set-card bt-monitor-result" },
+    (0, import_react54.createElement)("div", { className: "bt-set-row" }, (0, import_react54.createElement)("strong", null, entry.title), (0, import_react54.createElement)("time", { dateTime: new Date(entry.time).toISOString() }, new Date(entry.time).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" }))),
+    (0, import_react54.createElement)("div", { className: "bt-set-row" }, (0, import_react54.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: entry.text, labels: mdLabels2(), variant: "compact" }), (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("View monitor runs")))
+  )));
+}
+var AUTOMATION_CSS = `
+.bt-automation-results{display:flex;flex-direction:column;gap:12px}
+.bt-monitor-result time{margin-left:auto;font-size:12px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-monitor-result .bt-soft{flex:none}
+/* A narrow viewport turns .bt-set-row into a stretched column; keep the action compact. */
+@media (max-width:640px){.bt-monitor-result .bt-soft{align-self:flex-start}}
+`;
+
 // src/client/open-listed.js
 function listedOpener({ list, open, refresh, current }) {
   let drop = () => {
@@ -21920,6 +22118,13 @@ function apply(ctx) {
     shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
     openSession: (id) => actions.openSession(id)
   }), "ds-bot: approval notifications");
+  ctx.effect(() => noticeCompletions({
+    roster,
+    shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
+    openSession: (id) => actions.openSession(id),
+    markUnread: (id) => actions.markUnread(id),
+    claim: (id, clientId) => call("completion-claim", { id, clientId })
+  }), "ds-bot: completion notifications");
   const assistantFace = (sessionId) => {
     const binding = ctx.sessions.binding(sessionId);
     if (binding === void 0) throw new Error(`ds-bot: unknown session "${sessionId}"`);
@@ -22110,6 +22315,9 @@ function apply(ctx) {
     () => shadow("shell.overlay", { id: "bot-toast", order: 60, inject: face }, ErrorToast)
   ];
   const installConversation = () => [
+    () => installCompiledStyles(AUTOMATION_CSS, "automations"),
+    () => shadow("conversation.chat.turnTail", { id: "bot-monitor-results", order: 900, inject: face }, AutomationResults),
+    () => shadow("conversation.input.dock", { id: "bot-monitor-unanchored", order: 900, inject: face }, (props) => AutomationResults({ ...props, unanchored: true })),
     () => installCompiledStyles(CONVERSATION_CSS, "conversation"),
     () => installMentions(),
     () => installAtMenu(),

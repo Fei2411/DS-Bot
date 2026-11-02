@@ -449,7 +449,7 @@ export function install(rt) {
           request.settledAt = now
         }
       }
-      list.push({
+      const request = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
         sessionId: id,
@@ -458,9 +458,11 @@ export function install(rt) {
         kind: secret ? 'allow' : 'fill',
         status: 'pending',
         askedAt: now,
-      })
+      }
+      list.push(request)
       trimRequests(list)
       await rt.save()
+      rt.attentionNotify?.({ kind: 'secret', id: request.id, botId: bot.id, sessionId: id })
       exec.concludeTurn?.()
       return secret
         ? `The card asking the user to let you use ${name} is on screen. A note arrives when the user answers; you will not see the value.`

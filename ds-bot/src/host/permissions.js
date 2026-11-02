@@ -66,7 +66,8 @@ export function install(rt) {
     const applyTo = (sessionId, room = roomOfSession(sessionId)) =>
       setPreset(sessionId, () => (request.seq === mine ? room?.permission ?? bot.permission : undefined))
     const groups = async (warnFail) => {
-      for (const sessionId of rt.groupSessionsOf(bot.id)) {
+      const sessions = [...rt.groupSessionsOf(bot.id), ...[...(rt.automationOwners?.values() ?? [])].filter(task => task.botId === bot.id && !task.disabled).map(task => task.sessionId)]
+      for (const sessionId of sessions) {
         if (request.seq !== mine) break
         if (roomOfSession(sessionId)?.permission) continue
         await applyTo(sessionId).catch(warnFail)

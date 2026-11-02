@@ -30,6 +30,7 @@ export function install(rt) {
     }
     pending.set(id, entry)
     rt.noteApproval?.(sessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
+    rt.attentionNotify?.({ kind: 'approval', id, botId: entry.botId, sessionId, tool: entry.tool, reason: entry.reason, detail: entry.detail, ...(owner ? { roomId: owner.roomId } : {}) })
     const settled = () => {
       pending.delete(id)
       rt.noteApproval?.(sessionId, undefined)
