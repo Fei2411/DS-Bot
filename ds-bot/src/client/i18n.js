@@ -1059,6 +1059,8 @@ const ZH = {
   'Where Bots without a folder of their own work.': '没有单独设置文件夹的 Bot 在这里工作。',
   Locations: '位置',
   'Data location': '数据位置',
+  'Allow folders in DSH data': '允许使用 DSH 数据里的文件夹',
+  "A Bot can then work in a folder inside DSH's own data, such as a remote folder mounted there. The team's data stays out of reach.": '开启后，Bot 可以设在 DSH 自己的数据里的文件夹工作，例如挂在那里面的远程文件夹。团队自己的数据仍然不可访问。',
   'Change…': '更改…',
   "Each Bot's own folder": '各 Bot 自己的文件夹',
   'Choose a folder…': '选择文件夹…',

@@ -1106,6 +1106,8 @@ var ZH = {
   "Where Bots without a folder of their own work.": "没有单独设置文件夹的 Bot 在这里工作。",
   Locations: "位置",
   "Data location": "数据位置",
+  "Allow folders in DSH data": "允许使用 DSH 数据里的文件夹",
+  "A Bot can then work in a folder inside DSH's own data, such as a remote folder mounted there. The team's data stays out of reach.": "开启后，Bot 可以设在 DSH 自己的数据里的文件夹工作，例如挂在那里面的远程文件夹。团队自己的数据仍然不可访问。",
   "Change…": "更改…",
   "Each Bot's own folder": "各 Bot 自己的文件夹",
   "Choose a folder…": "选择文件夹…",
@@ -17038,10 +17040,10 @@ function GeneralPage({ roster, actions, run: run2 }) {
         (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("agent") }, t("Switch"))
       )
     ) : null,
-    (0, import_react45.createElement)(LocationsSection, { key: "places", actions, run: run2 })
+    (0, import_react45.createElement)(LocationsSection, { key: "places", roster, actions, run: run2 })
   ];
 }
-function LocationsSection({ actions, run: run2 }) {
+function LocationsSection({ roster, actions, run: run2 }) {
   const app = globalThis.dsBotApp;
   const [team, setTeam] = (0, import_react45.useState)(null);
   const [data, setData] = (0, import_react45.useState)(null);
@@ -17072,6 +17074,11 @@ function LocationsSection({ actions, run: run2 }) {
       SetRow,
       { label: t("Team workspace"), hint: t("Where Bots without a folder of their own work.") },
       team === null ? null : (0, import_react45.createElement)(FolderMenu, { value: team, team: true, actions, run: run2, onPick: pickTeam, disabled: moving })
+    ),
+    (0, import_react45.createElement)(
+      SetRow,
+      { label: t("Allow folders in DSH data"), hint: t("A Bot can then work in a folder inside DSH's own data, such as a remote folder mounted there. The team's data stays out of reach.") },
+      (0, import_react45.createElement)(Switch, { label: t("Allow folders in DSH data"), on: roster.prefs?.dataFolders === true, disabled: moving, onChange: (dataFolders) => run2(actions.setPrefs({ dataFolders })) })
     ),
     data === null ? null : (0, import_react45.createElement)(
       SetRow,
