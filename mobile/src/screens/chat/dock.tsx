@@ -15,30 +15,60 @@ type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
 // The pending dock above the composer: question card (ui-standard 10.8), then
 // approval cards. Taller than 50% of the screen, the dock scrolls inside.
-export function Dock({ question, sessionId, approvals, secrets = [], btw = [], handoff, onViewBrowser, view, call, p, maxHeight, collapsed, onCollapse }: {
-  maxHeight?: number; collapsed?: Record<string, boolean>; onCollapse?: (id: string, value: boolean) => void
+function useChevron(expanded: boolean) {
+  const progress = useSharedValue(expanded ? 1 : 0)
+  const reduced = useReducedMotion()
+  useEffect(() => {
+    progress.value = reduced ? (expanded ? 1 : 0) : withSpring(expanded ? 1 : 0, SPRING_TAP)
+  }, [expanded])
+  return useAnimatedStyle(() => ({ transform: [{ rotate: `${progress.value * 90}deg` }] }))
+}
+
+function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title: string; dot?: boolean; expanded: boolean; onToggle: () => void; p: Palette; children: React.ReactNode }) {
+  const chevron = useChevron(expanded)
+  return (
+    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => { void Haptics.selectionAsync(); onToggle() }}
+        style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: 14, gap: 8 }}>
+        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1 }]} numberOfLines={1}>{title}</Text>
+        {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent }} /> : null}
+        <Animated.View style={chevron}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+      </Pressable>
+      {expanded ? <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>{children}</View> : null}
+    </View>
+  )
+}
+
+export function Dock({ question, sessionId, approvals, secrets = [], btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
-  secrets?: SecretRequest[]
-  btw?: BtwCardData[]
-  handoff?: HandoffData
-  onViewBrowser?: () => void
+  secrets?: SecretRequest[]; btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
+  maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
-  const has = question !== undefined || approvals.length > 0 || secrets.length > 0 || btw.length > 0 || handoff !== undefined || view !== undefined
-  if (!has) return null
+  interface CardEntry { key: string; title: string; needs: boolean; order: number; body: React.ReactNode }
+  const cards: CardEntry[] = []
+  for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
+  if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
+  for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
+  if (handoff !== undefined) cards.push({ key: 'handoff', title: t('Browser handoff'), needs: true, order: 3, body: <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} bare /> })
+  if (view !== undefined) cards.push({ key: `view-${view.id ?? 'view'}`, title: view.title ?? 'View', needs: true, order: 4, body: <ViewCard sessionId={sessionId} view={view} p={p} bare /> })
+  for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })
+  if (cards.length === 0) return null
+  const chosen = cards.find(card => card.key === expanded)
+  const active = chosen ?? cards.slice().sort((a, b) => a.order - b.order).find(card => card.needs) ?? cards[0]
   return (
     <ScrollView style={[styles.dock, maxHeight !== undefined ? { maxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
-      {view !== undefined ? <DockView sessionId={sessionId} view={view} p={p} cap={maxHeight} collapsed={collapsed?.[view.id ?? ''] ?? null} onCollapse={onCollapse} /> : null}
-      {question ? <QuestionCard question={question} sessionId={sessionId} call={call} p={p} /> : null}
-      {handoff !== undefined ? <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} /> : null}
-      {btw.map(card => <BtwCard key={card.id} card={card} sessionId={sessionId} call={call} p={p} />)}
-      {secrets.map(secret => <SecretCard key={secret.id} secret={secret} call={call} p={p} />)}
-      {approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} call={call} p={p} />)}
+      {cards.map(card => (
+        <AccordionCard key={card.key} title={card.title} dot={card.needs && card.key !== active.key && chosen === undefined} p={p}
+          expanded={card.key === active.key} onToggle={() => onExpand(card.key === active.key && chosen !== undefined ? null : card.key)}>
+          {card.body}
+        </AccordionCard>
+      ))}
     </ScrollView>
   )
 }
 
-export function QuestionCard({ question, sessionId, call, p }: { question: Question; sessionId: string; call: Call; p: Palette }) {
+export function QuestionCard({ question, sessionId, call, p , bare = false }: { question: Question; sessionId: string; call: Call; p: Palette; bare?: boolean }) {
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [custom, setCustom] = useState('')
   const [busy, setBusy] = useState(false)
@@ -58,7 +88,7 @@ export function QuestionCard({ question, sessionId, call, p }: { question: Quest
   }
 
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+    <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{question.question}</Text>
       {question.detail ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{question.detail}</Text> : null}
       <View style={{ marginTop: 12, borderRadius: radius.option, borderWidth: 1, borderColor: p.line, overflow: 'hidden' }}>
@@ -84,7 +114,7 @@ export function QuestionCard({ question, sessionId, call, p }: { question: Quest
   )
 }
 
-export function ApprovalCard({ approval, call, p }: { approval: Approval; call: Call; p: Palette }) {
+export function ApprovalCard({ approval, call, p , bare = false }: { approval: Approval; call: Call; p: Palette; bare?: boolean }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const answer = async (choice: 'allow' | 'reject') => {
@@ -121,7 +151,7 @@ export function ApprovalCard({ approval, call, p }: { approval: Approval; call: 
 // reduced motion).
 export interface SecretRequest { id: string; name?: string; kind?: string; status?: string; scope?: string | string[] }
 
-export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: Call; p: Palette }) {
+export function SecretCard({ secret, call, p , bare = false }: { secret: SecretRequest; call: Call; p: Palette; bare?: boolean }) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -136,7 +166,7 @@ export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: C
     } finally { setBusy(false) }
   }
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+    <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{allow ? t('Let {bot} use {name}?', { bot: t('the Bot'), name: secret.name ?? "" }) : t('{name} needs a key', { name: secret.name ?? "" })}</Text>
       {allow && secret.scope ? <Text style={[type.small, { color: p.ink2, marginTop: 6 }]}>{Array.isArray(secret.scope) ? secret.scope.join(", ") : secret.scope}</Text> : null}
       {!allow ? (
@@ -166,7 +196,7 @@ export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: C
 
 export interface BtwCardData { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }
 
-export function BtwCard({ card, sessionId, call, p }: { card: BtwCardData; sessionId: string; call: Call; p: Palette }) {
+export function BtwCard({ card, sessionId, call, p , bare = false }: { card: BtwCardData; sessionId: string; call: Call; p: Palette; bare?: boolean }) {
   const [busy, setBusy] = useState(false)
   const drop = () => {
     if (busy) return
@@ -174,7 +204,7 @@ export function BtwCard({ card, sessionId, call, p }: { card: BtwCardData; sessi
     void call('btw-delete', { sessionId, cardId: card.id }).catch(() => {}).finally(() => setBusy(false))
   }
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+    <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
         <View style={{ flex: 1 }}>
           <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Aside')}</Text>
@@ -193,7 +223,7 @@ export function BtwCard({ card, sessionId, call, p }: { card: BtwCardData; sessi
 
 export interface HandoffData { callId: string; reason?: string; note?: string }
 
-export function HandoffCard({ handoff, botId, onView, call, p }: { handoff: HandoffData; botId: string; onView?: () => void; call: Call; p: Palette }) {
+export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: { handoff: HandoffData; botId: string; onView?: () => void; call: Call; p: Palette; bare?: boolean }) {
   const [busy, setBusy] = useState(false)
   const answer = (outcome: string) => {
     if (busy) return
@@ -201,7 +231,7 @@ export function HandoffCard({ handoff, botId, onView, call, p }: { handoff: Hand
     void call('browser-give-back', { botId, outcome, callId: handoff.callId }).catch(() => {}).finally(() => setBusy(false))
   }
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+    <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Browser handoff')}</Text>
       {handoff.note || handoff.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{handoff.note ?? handoff.reason}</Text> : null}
       <View style={styles.answerRow}>

@@ -27,6 +27,9 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
   }))
   const secrets = Object.entries(team?.secretRequests ?? {}).flatMap(([botId, list]) =>
     (list ?? []).filter(r => r.status !== 'settled').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ? t('Asks for the secret {name}', { name: r.name }) : t('A secret is needed') })))
+  const handoffs = Object.entries((team as { browserHolds?: Record<string, { callId?: string; note?: string; reason?: string }> } | null)?.browserHolds ?? {})
+    .filter(([, hold]) => hold.callId !== undefined)
+    .map(([botId, hold]) => ({ key: `h-${hold.callId}`, botId, summary: hold.note ?? hold.reason ?? t('Browser handoff') }))
   const views = Object.entries(team?.views ?? {}).flatMap(([sessionId, view]) => {
     const bot = botOfSession(sessionId)
     return bot ? [{ key: `v-${view?.id ?? sessionId}`, botId: bot.id, summary: view?.title ?? 'View' }] : []
@@ -36,6 +39,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
     { title: t('Questions'), mark: '?', data: questions },
     { title: t('Approvals'), mark: '!', data: approvals },
     { title: t('Secret requests'), mark: '🔑', data: secrets },
+    { title: t('Browser handoffs'), mark: '🌐', data: handoffs },
     { title: t('Cards'), mark: '▣', data: views },
   ].filter(section => section.data.length > 0)
 
