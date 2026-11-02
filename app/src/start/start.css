@@ -116,7 +116,8 @@ html[data-shimmer] .voice[data-on]>span{color:transparent;background:linear-grad
 .card{position:absolute;inset:0 0 auto;max-height:100%;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;transition:opacity .22s ease-out .07s,filter .22s ease-out .07s}
 @starting-style{.card{opacity:0;filter:blur(6px)}}
 .card-scroll,.log{scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent}
-.card-scroll{position:relative;min-height:0;flex:0 1 auto;overflow:auto}
+/* The padding keeps the 2px + 2px focus rings inside the scroll clip; the negative margin keeps the layout where it was. */
+.card-scroll{position:relative;min-height:0;flex:0 1 auto;overflow:auto;padding:4px;margin:-4px}
 .card-scroll>*+*{margin-top:6px}
 .card-scroll>.card-actions{margin-top:12px}
 .card-title{font-size:15px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
