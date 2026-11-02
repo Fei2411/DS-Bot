@@ -87,19 +87,25 @@ export function install(rt) {
     if (monitor) return { botId: monitor.botId }
     const chat = rt.chatOwners.get(sessionId)
     if (chat !== undefined) return { botId: chat }
-    if (rt.roomOf(sessionId) !== undefined) return { roomId: sessionId }
+    const room = rt.roomOf(sessionId)
+    if (room !== undefined) return { roomId: room.id }
     return rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
   }
   const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
 
   async function schedulesView() {
     if (service === null) return { available: false, tasks: [] }
+    const now = Date.now()
     const tasks = []
     for (const entry of await service.catalog()) {
       const owner = ownerOf(entry.sessionId)
       if (!known(owner)) continue
+      // The state DSH derives for its own view: a task past its next firing reads
+      // overdue; an inactive one is finished. DSH 0.2.1's catalog() carries the
+      // status but not this state, so it is derived the same way here.
+      const state = entry.status === 'active' ? (now >= Date.parse(entry.scheduledAt) ? 'overdue' : 'scheduled') : 'finished'
       const monitor = rt.automationOwners.get(entry.sessionId)
-      tasks.push({ ...entry, ...owner, mode: monitor ? 'monitor' : 'normal', ...(monitor ? { automationId: monitor.id, lastRun: monitor.runs?.at(-1) } : {}) })
+      tasks.push({ ...entry, ...owner, state, mode: monitor ? 'monitor' : 'normal', ...(monitor ? { automationId: monitor.id, lastRun: monitor.runs?.at(-1) } : {}) })
     }
     return { available: true, tasks }
   }
@@ -119,7 +125,7 @@ export function install(rt) {
       if (title === '') throw invalid('Give the task a name')
       if (title.length > MAX_TITLE) throw invalid(`Keep the name under ${MAX_TITLE} characters`)
       if (prompt === '') throw invalid('Say what the Bot should do')
-      await service.create(bot ? rt.chatOf(bot.id) : room.id, { title, prompt, ...selectorOf(body.when) })
+      await service.create(bot ? rt.chatOf(bot.id) : rt.sessionOfRoom(room), { title, prompt, ...selectorOf(body.when) })
       return schedulesView()
     },
     async 'schedule-delete'(body) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { join, resolve } from 'node:path'
-import { FileMatcher } from 'app-builder-lib/out/fileMatcher.js'
+import { FileMatcher, getNodeModuleFileMatcher } from 'app-builder-lib/out/fileMatcher.js'
 import { parse } from 'yaml'
 
 // npm installs the peers that the DSH packages ask for, but electron-builder packs only the
@@ -34,9 +34,44 @@ test('sharp native modules and versioned libvips libraries are unpacked together
   assert.equal(filter(join(root, 'node_modules/yaml/dist/index.js'), stat), false)
 })
 
+// The kit resolves its engine package and starts the program in it. Electron cannot start a
+// program by a path inside the asar, so every file preview failed (#679).
+test('the LibreOffice engine ships as plain files beside the asar, the kit inside it', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  const root = resolve('app-fixture')
+  const stat = { isDirectory: () => false }
+  const modules = getNodeModuleFileMatcher(root, root, value => value, {}, { config, debugLogger: { isEnabled: false } }).createFilter()
+  const packed = file => modules(join(root, 'node_modules', file), { ...stat, moduleFullFilePath: join('node_modules', file) })
+  for (const engine of ['win32-x64', 'win32-arm64', 'darwin-arm64', 'darwin-x64', 'wasm']) {
+    assert.equal(packed(`@deepseek-ai/libreoffice-kit-${engine}/package.json`), false, engine)
+  }
+  assert.equal(packed('@deepseek-ai/libreoffice-kit/lib/index.js'), true)
+  assert.equal(packed('yaml/dist/index.js'), true)
+
+  const beside = config.extraResources.find(set => set.to === 'node_modules/@deepseek-ai')
+  const extra = new FileMatcher(join(root, beside.from), beside.to, value => value, beside.filter).createFilter()
+  assert.equal(extra(join(root, beside.from, 'libreoffice-kit-win32-x64/bin/libreoffice-kit.exe'), stat), true)
+  assert.equal(extra(join(root, beside.from, 'libreoffice-kit/lib/index.js'), stat), false)
+})
+
+test('Linux leaves the Host and its dependencies readable by plain Node', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(config.linux.asar, false)
+  assert.notEqual(config.mac.asar, false)
+  assert.notEqual(config.win.asar, false)
+})
+
 // A release is tagged with the version of ds-bot, and the installed apps compare their own
 // version with the one in the release's latest.yml.
 test('the app has the version of ds-bot', () => {
   const version = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8')).version
   assert.equal(version('../package.json'), version('../../ds-bot/package.json'))
+})
+
+// Tool processes (bash, scripts a Bot runs) connect to devices on the local network;
+// macOS blocks them outright when Info.plist has no NSLocalNetworkUsageDescription.
+test('the mac package asks macOS for local network access', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(typeof config.mac?.extendInfo?.NSLocalNetworkUsageDescription, 'string')
+  assert.notEqual(config.mac.extendInfo.NSLocalNetworkUsageDescription.trim(), '')
 })

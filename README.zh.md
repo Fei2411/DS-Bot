@@ -21,9 +21,9 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 桌面应用自带 dsh，不用先装 dsh。在 [Releases](https://github.com/Fei2411/DS-Bot/releases) 里下载：
 
-- Windows（x64）：`DeepSeek-Bot-<版本>-win-x64.exe`。运行它即可安装，只装给当前用户，不要管理员权限。如果提示“Windows 已保护你的电脑”，点 **更多信息** → **仍要运行**。
-- macOS：Apple 芯片下载 `DeepSeek-Bot-<版本>-mac-arm64.zip`，Intel 下载 `DeepSeek-Bot-<版本>-mac-x64.zip`。Safari 会自动解压；把 **DeepSeek Bot** 拖进 **应用程序**，再打开。如果提示无法检查这个 App，打开 **系统设置** → **隐私与安全性**，点 **仍要打开**。
-- Linux（x64）：`DeepSeek-Bot-<版本>-linux-x86_64.AppImage` 通用于所有发行版——加上可执行权限后打开即可。它通过 FUSE 2 挂载，可能需要先安装（Ubuntu 24.04+ 用 `sudo apt install libfuse2t64`，Fedora 用 `sudo dnf install fuse-libs`，Arch 用 `sudo pacman -S fuse2`）。Ubuntu 24.04 及以后版本会限制 AppImage 需要的沙箱，AppImage 可能因此拒绝启动；Debian/Ubuntu 上的 `DeepSeek-Bot-<版本>-linux-amd64.deb` 没有这个问题，还会加菜单项。
+- Windows（x64）：`DS-Bot-<版本>-win-x64.exe`。运行它即可安装，只装给当前用户，不要管理员权限。如果提示“Windows 已保护你的电脑”，点 **更多信息** → **仍要运行**。
+- macOS：Apple 芯片下载 `DS-Bot-<版本>-mac-arm64.zip`，Intel 下载 `DS-Bot-<版本>-mac-x64.zip`。Safari 会自动解压；把 **DS Bot** 拖进 **应用程序**，再打开。如果提示无法检查这个 App，打开 **系统设置** → **隐私与安全性**，点 **仍要打开**。
+- Linux（x64）：`DS-Bot-<版本>-linux-x86_64.AppImage` 通用于 glibc 2.28 及以上的所有发行版——加上可执行权限后打开即可。它通过 FUSE 2 挂载，可能需要先安装（Ubuntu 24.04+ 用 `sudo apt install libfuse2t64`，Fedora 用 `sudo dnf install fuse-libs`，Arch 用 `sudo pacman -S fuse2`）。Ubuntu 24.04 及以后版本会限制 AppImage 需要的沙箱，AppImage 可能因此拒绝启动；Debian/Ubuntu 上的 `DS-Bot-<版本>-linux-amd64.deb` 没有这个问题，还会加菜单项。CentOS 7 这类旧 glibc 系统上应用和 dsh Web 会因 `GLIBC_2.27 not found` 失败，改用 Docker 镜像（见下文和[已知问题](docs/known-issues.zh.md)）。
 
 第一次打开时，App 会问数据和 Bot 的文件放在哪里，并可以从你的 dsh 复制 Bot 团队（只读取你的 dsh，不改它）。在 App 的设置里配好模型就能用。Windows 版和 Linux 的 AppImage 会自动更新；macOS 版和 Linux 的 deb 有新版本时会提示你下载。
 
@@ -47,11 +47,11 @@ DS Bot 0.2.1 及更早的版本在 DSH Desktop 0.2.1-rc.2 及以后的版本里�
 
 **dsh Web（Windows、macOS、Linux）**
 
-需要 Node.js `22.19` 以上和 pnpm。
+需要 Node.js `22.19` 以上和 pnpm。Linux 上它和桌面应用一样要求 glibc 2.28 及以上——dsh 自身会加载原生库，CentOS 7 这类旧 glibc 系统请走下面的 Docker 路线。
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-rc.4 web
+npx @deepseek-ai/dsh@0.2.1-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.1-rc.5 web
 ```
 
 **Docker（NAS、Linux 服务器）**
@@ -106,9 +106,11 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 Bot 可以处理 Office 文档：创建和编辑 .docx、.pptx、.xlsx；按稳定 id 读文档结构；检查会让 Office 拒开的包缺陷；定点编辑（批注、修订、域、表格单元格）；幻灯片重排与复制；列出工作簿错误；渲染成图片并按拼图检查。桌面应用已全部带上；在 DSH Desktop 里用 DSH 自己的 Office 运行时加 DS Bot 的命令；在 DSH Web 里检查、校验、编辑类命令可用，从头建文件和渲染页面需要桌面应用或 DSH Desktop。
 
-### 完成通知
+### 通知
 
 每个 Bot 都有「任务完成通知」开关，默认开启。你不在它的聊天里时收到通知：桌面应用走系统原生通知，Web 需要浏览器通知权限且页面保持打开。
+
+Bot 需要你时，桌面应用也会通知：等待审批、问题卡、视图、密钥卡，以及失败的任务。群成员等待审批时，通知里写明工具、命令和原因，可以直接在通知里允许或拒绝；问题卡显示选项，Bot 允许时还可以输入自己的答案。Bot 自己聊天里的审批要在聊天里答复。其他通知点击后打开所属的聊天。
 
 ### 静默监视
 

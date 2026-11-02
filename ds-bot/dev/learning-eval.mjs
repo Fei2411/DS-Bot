@@ -9,7 +9,7 @@
 //   node --import ./test/harness-resolve.mjs dev/learning-eval.mjs [--kind skill|agents] [--reps 3] [--cases case-file.json] [--only id,id] [--out report.json]
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { agentsProblem, agentsRequest, agentsSystem, applyEdits, parseJson, skillProblem, skillRequest, skillSystem, LEARNING } from '../src/host/learning.js'
+import { agentsAnswer, agentsProblem, agentsRequest, agentsSystem, applyEdits, parseJson, skillProblem, skillRequest, skillSystem, LEARNING } from '../src/host/learning.js'
 import { writtenIn } from '../src/host/memory.js'
 
 const { values: args } = parseArgs({ options: { kind: { type: 'string', default: 'skill' }, reps: { type: 'string', default: '3' }, only: { type: 'string' }, cases: { type: 'string' }, out: { type: 'string' }, stage: { type: 'string', default: 'decide,effect' } } })
@@ -57,7 +57,7 @@ if (args.kind === 'agents') {
     const request = agentsRequest({ folder: '/project', current, lines: entry.lines, declined: [], language: writtenIn(user, 'English') })
     const reply = await chat(agentsSystem(), request)
     tokens += reply.tokens
-    const proposal = parseJson(reply.text)
+    const proposal = agentsAnswer(reply.text, current)
     const problem = agentsProblem(proposal, current)
     const misses = []
     if (entry.expect === 'none') {

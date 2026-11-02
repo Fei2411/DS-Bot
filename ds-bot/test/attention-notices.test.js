@@ -26,6 +26,7 @@ async function bench(t) {
         inbox: { nextStep: [], nextTurn: [], remove: () => true }, followup: () => {}, cancel: () => {} })
       return { agent: agents.get(id) }
     } }
+  const listening = new Set(process.listeners('message'))
   const rt = createRuntime(ctx, { home, memory: false, learning: false })
   await rt.load()
   rt.eventsBackwards = async function* () {}
@@ -49,8 +50,16 @@ async function bench(t) {
     for (const listener of ctx.listeners.get('session/event')) await listener(agent.session, { type, data, seq, time: Date.now() })
   }
   const attention = () => sent.filter(message => message.type === 'ds-bot:attention')
-  return { rt, ctx, sent, attention, tool, event }
+  // The app's answer arrives on the Host's IPC channel; only the listener this runtime added gets it.
+  const answer = message => {
+    for (const listener of process.listeners('message')) if (!listening.has(listener)) listener(message)
+  }
+  const results = () => sent.filter(message => message.type === 'ds-bot:attention-result')
+  return { rt, ctx, sent, attention, results, answer, tool, event }
 }
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 30))
+const textOf = message => message.content.map(part => part.text).join('')
 
 test('a question card, a view card, a secret card and an approval each notify the desktop once', async t => {
   const b = await bench(t)
@@ -141,4 +150,75 @@ test('an internal exchange turn fails quietly and attention ignores the completi
   await b.tool('ask_user', { question: 'Still there?', options: [{ label: 'Yes' }, { label: 'No' }] }, 'writer', 'call-q2')
   assert.equal(b.attention().length, 1)
   assert.equal(b.sent.some(message => message.type === 'ds-bot:completion'), false)
+})
+
+test('a group member approval names the tool and the reason, and a notice answer decides it', async t => {
+  const b = await bench(t)
+  b.rt.groupOwners.set('member-1', { botId: 'writer', roomId: 'room1' })
+  const waiting = b.ctx.listeners.get('approval/request')[0](
+    { agent: { session: { id: 'member-1' } }, toolName: 'bash', reason: 'clean the folder', callId: 'call-a' }, () => 'from-dsh')
+  const notice = b.attention().at(-1)
+  assert.equal(notice.kind, 'approval')
+  assert.equal(notice.roomId, 'room1')
+  assert.equal(notice.tool, 'bash')
+  assert.equal(notice.reason, 'clean the folder')
+  b.answer({ type: 'ds-bot:attention-answer', id: notice.id, kind: 'approval', choice: 'reject' })
+  assert.equal(await waiting, 'rejected')
+  await settle()
+  assert.deepEqual(b.results(), [{ type: 'ds-bot:attention-result', id: notice.id, ok: true }])
+})
+
+test('a question carries its options, and a notice answer reaches the Bot once as the user’s answer', async t => {
+  const b = await bench(t)
+  await b.ctx.emitAsync('agent/created', { agent: b.ctx.scopeAgent('writer') })
+  await b.tool('ask_user', { question: 'Which one?', detail: 'Pick one', options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }], allowCustom: true }, 'writer', 'call-q')
+  const card = b.rt.state.questions.writer
+  const notice = b.attention().at(-1)
+  assert.equal(notice.kind, 'question')
+  assert.equal(notice.question, 'Which one?')
+  assert.equal(notice.detail, 'Pick one')
+  assert.deepEqual(notice.options, ['A', 'B', 'C'])
+  assert.equal(notice.multiSelect, false)
+  assert.equal(notice.allowCustom, true)
+  const { agent } = await b.ctx.sessionController.resolveAgent('writer')
+  const followups = []
+  agent.followup = message => followups.push(message)
+  b.answer({ type: 'ds-bot:attention-answer', id: card.id, kind: 'question', sessionId: 'writer', selected: ['B'], custom: '' })
+  await settle()
+  assert.equal(b.rt.state.questions.writer, undefined)
+  assert.equal(followups.length, 1)
+  assert.match(textOf(followups[0]), /"selected":\["B"\]/)
+  b.answer({ type: 'ds-bot:attention-answer', id: card.id, kind: 'question', sessionId: 'writer', selected: ['A'] })
+  await settle()
+  assert.equal(followups.length, 1)
+  assert.deepEqual(b.results(), [
+    { type: 'ds-bot:attention-result', id: card.id, ok: true },
+    { type: 'ds-bot:attention-result', id: card.id, ok: false, error: 'This question is no longer open' },
+  ])
+})
+
+test('a typed answer from a notice is sent as the user wrote it, and an empty one is refused', async t => {
+  const b = await bench(t)
+  await b.ctx.emitAsync('agent/created', { agent: b.ctx.scopeAgent('writer') })
+  await b.tool('ask_user', { question: 'Which one?', options: [{ label: 'A' }, { label: 'B' }], allowCustom: true }, 'writer', 'call-q')
+  const card = b.rt.state.questions.writer
+  const { agent } = await b.ctx.sessionController.resolveAgent('writer')
+  const followups = []
+  agent.followup = message => followups.push(message)
+  b.answer({ type: 'ds-bot:attention-answer', id: card.id, kind: 'question', sessionId: 'writer', selected: [], custom: '' })
+  await settle()
+  assert.equal(followups.length, 0)
+  assert.equal(b.rt.state.questions.writer?.id, card.id)
+  assert.deepEqual(b.results().at(-1), { type: 'ds-bot:attention-result', id: card.id, ok: false, error: 'Nothing to send' })
+  b.answer({ type: 'ds-bot:attention-answer', id: card.id, kind: 'question', sessionId: 'writer', selected: [], custom: 'None of these' })
+  await settle()
+  assert.equal(followups.length, 1)
+  assert.match(textOf(followups[0]), /"custom":"None of these"/)
+})
+
+test('a notice answer for a card that cannot be answered from a notice is refused', async t => {
+  const b = await bench(t)
+  b.answer({ type: 'ds-bot:attention-answer', id: 'v1', kind: 'view', sessionId: 'writer' })
+  await settle()
+  assert.deepEqual(b.results(), [{ type: 'ds-bot:attention-result', id: 'v1', ok: false, error: 'This card cannot be answered from a notice' }])
 })
