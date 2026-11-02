@@ -567,17 +567,16 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
       const i = D.at
       // A copy can be done before the card has landed in its arc: the arc fills after that.
       if (phases[i] === 'import' && D.flying) return
-      if (!ran) {
-        // The data stage is usually done before the page has painted: its arc still turns
-        // active once the whale has surfaced and holds there, the folder in view, before it
-        // fills. No loop starts for that short wait: a loop's own hold would add another 400 ms.
-        if (i === 0 && !resume && ['boot', 'moving'].includes(want.view) && stationEl(0).dataset.state === 'pending') {
-          clearTimeout(activeTimer)
-          showActive(0)
-        }
-        await hold(Math.max(D.activeAt[i] ? D.activeAt[i] + HOLD : 0, D.loopAt ? D.loopAt + HOLD : 0))
-        if (want.view === 'handoff') break
+      // A stage done while nobody could see it (the data folder before the page painted, the
+      // engine while the import card waited or the copy ran) still turns active and holds there,
+      // its prop in view, before it fills. No loop starts for that short wait: a loop's own hold
+      // would add another 400 ms. A stage that was seen running fills at once.
+      if (!resume && !failure() && stationEl(i).dataset.state === 'pending') {
+        clearTimeout(activeTimer)
+        showActive(i)
       }
+      await hold(Math.max(D.activeAt[i] ? D.activeAt[i] + HOLD : 0, !ran && D.loopAt ? D.loopAt + HOLD : 0))
+      if (want.view === 'handoff') break
       await leg(i, ran > 0)
       ran += 1
     }
@@ -749,8 +748,18 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   // closes into one circle (html[data-ring=closed]), and the whale goes. Every path shows the
   // team window well inside the main process's fallback (start-window.mjs fallbackMs).
   async function handoff() {
-    if (D.handed) return
+    if (D.handed || D.handing) return
     clearTimeout(activeTimer)
+    // The team's arc gets its turn too when the team view was ready before the arc turned active
+    // (it loaded while a card waited, or in a moment): on a first start, whose fallback leaves
+    // the time (start-window.mjs fallbackMs, 2.5 s).
+    const t = last()
+    if (!resume && first && D.checks === t && stationEl(t).dataset.state === 'pending') {
+      D.handing = true
+      showActive(t)
+      await sleep(HOLD)
+      D.handing = false
+    }
     stopHop()
     petEnd()
     for (let i = D.checks; i < phases.length; i += 1) popCheck(i)

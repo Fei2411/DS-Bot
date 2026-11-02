@@ -152,12 +152,22 @@ test('an empty or hidden arc leaves no dot: no dash touches its path', () => {
   assert.equal(touches(dashes(base), offsetOf(base)), true)
 })
 
-// The data stage is usually done before the page has painted; its arc (and the folder) still turns
-// active once the whale has surfaced and holds for HOLD before it fills.
-test('the first stage is seen active before it fills, even when it was done before the page painted', () => {
+// A stage done while nobody could see it still gets its turn: the data folder, usually done before
+// the page has painted, and the engine, which warms up while the import card waits (or comes up
+// while the copy runs). Its arc turns active, its prop in view, and holds for HOLD before it
+// fills; a stage seen running fills at once. While the import card waits, the ring holds after
+// the first arc.
+test('every stage is seen active before it fills, even one done before the page painted or while a card waited', () => {
   const whale = code['whale.js']
   const legs = whale.slice(whale.indexOf('async function runLegs()'), whale.indexOf('function failStation()'))
-  assert.match(legs, /if \(i === 0 && !resume && \['boot', 'moving'\]\.includes\(want\.view\) && stationEl\(0\)\.dataset\.state === 'pending'\) \{\s*clearTimeout\(activeTimer\)\s*showActive\(0\)/u)
+  assert.match(legs, /while \(D\.at < want\.station && want\.view !== 'handoff'\) \{[\s\S]*?if \(!resume && !failure\(\) && stationEl\(i\)\.dataset\.state === 'pending'\) \{\s*clearTimeout\(activeTimer\)\s*showActive\(i\)/u)
+  assert.doesNotMatch(legs, /if \(!ran\) \{/u, 'only the first stage gets its turn')
+  assert.match(whale, /if \(holding\(\)\) station = Math\.min\(station, 1\)/u)
+  assert.match(whale, /\(holding\(\) && i >= 1\)\) return/u)
+  // The team's arc, when the team view was ready before it turned active: at the hand-off of a
+  // first start, inside the main process's 2.5 s fallback.
+  const handoff = whale.slice(whale.indexOf('async function handoff()'), whale.indexOf('root.dataset.ring = \'closed\''))
+  assert.match(handoff, /if \(!resume && first && D\.checks === t && stationEl\(t\)\.dataset\.state === 'pending'\) \{\s*D\.handing = true\s*showActive\(t\)\s*await sleep\(HOLD\)/u)
   assert.match(legs, /await hold\(Math\.max\(D\.activeAt\[i\] \? D\.activeAt\[i\] \+ HOLD : 0/u)
   assert.match(whale, /const HOLD = 420\b/u)
   // The reconcile waits for the entrance first, so the arc turns active on a whale that has surfaced.
