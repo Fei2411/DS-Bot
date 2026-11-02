@@ -209,10 +209,11 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
 // loads. A card the user starts editing stays in the dock until it closes.
 export function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const question = useRoster(value => value.questions?.[sessionId])
+  const enterToSend = useRoster(value => sendsOnEnter(value.prefs))
   const drawn = useCards?.(state => state[sessionId]?.[question?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('question', question?.id)] > 0) === true
   if (question === undefined || (question.callId && drawn && !held)) return null
-  return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend: useRoster(value => sendsOnEnter(value.prefs)) })
+  return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend })
 }
 
 // An answered card in the transcript: the question stays where it was asked, with the
