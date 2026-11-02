@@ -15,17 +15,19 @@ type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
 // The pending dock above the composer: question card (ui-standard 10.8), then
 // approval cards. Taller than 50% of the screen, the dock scrolls inside.
-export function Dock({ question, sessionId, approvals, view, call, p, maxHeight, collapsed, onCollapse }: {
+export function Dock({ question, sessionId, approvals, secrets = [], view, call, p, maxHeight, collapsed, onCollapse }: {
   maxHeight?: number; collapsed?: Record<string, boolean>; onCollapse?: (id: string, value: boolean) => void
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
+  secrets?: SecretRequest[]
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
-  const has = question !== undefined || approvals.length > 0 || view !== undefined
+  const has = question !== undefined || approvals.length > 0 || secrets.length > 0 || view !== undefined
   if (!has) return null
   return (
     <ScrollView style={[styles.dock, maxHeight !== undefined ? { maxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
       {view !== undefined ? <DockView sessionId={sessionId} view={view} p={p} cap={maxHeight} collapsed={collapsed?.[view.id ?? ''] ?? null} onCollapse={onCollapse} /> : null}
       {question ? <QuestionCard question={question} sessionId={sessionId} call={call} p={p} /> : null}
+      {secrets.map(secret => <SecretCard key={secret.id} secret={secret} call={call} p={p} />)}
       {approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} call={call} p={p} />)}
     </ScrollView>
   )
@@ -112,6 +114,47 @@ export function ApprovalCard({ approval, call, p }: { approval: Approval; call: 
 
 // "X is doing…" while a Bot works: 28px avatar + shimmering text (off under
 // reduced motion).
+export interface SecretRequest { id: string; name: string; kind?: string; status?: string; scope?: string }
+
+export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: Call; p: Palette }) {
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const allow = secret.kind === 'allow'
+  const send = async (endpoint: string, payload: Record<string, unknown>) => {
+    if (busy) return
+    setBusy(true)
+    try { await call(endpoint, { id: secret.id, ...payload }) } catch { setFailed(true) } finally { setBusy(false) }
+  }
+  return (
+    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{allow ? t('Let {bot} use {name}?', { bot: t('the Bot'), name: secret.name }) : t('{name} needs a key', { name: secret.name })}</Text>
+      {allow && secret.scope ? <Text style={[type.small, { color: p.ink2, marginTop: 6 }]}>{secret.scope}</Text> : null}
+      {!allow ? (
+        <TextInput style={[styles.secretInput, { color: p.ink, borderColor: p.line }]} value={value} onChangeText={setValue}
+          placeholder={t('Value of {name}', { name: secret.name })} placeholderTextColor={p.ink3}
+          autoCapitalize="none" autoCorrect={false} secureTextEntry />
+      ) : null}
+      <View style={styles.answerRow}>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void send('secret-cancel', {})} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
+          <Text style={{ color: p.ink, fontSize: 14 }}>{t('Cancel')}</Text>
+        </Pressable>
+        {allow ? (
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void send('secret-allow', {})} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{busy ? t('Allowing…') : t('Allow')}</Text>
+          </Pressable>
+        ) : (
+          <Pressable accessibilityRole="button" disabled={busy || value.trim() === ''} onPress={() => { const next = value; setValue(''); void send('secret-set', { value: next }) }}
+            style={[styles.choice, { backgroundColor: p.accent, opacity: busy || value.trim() === '' ? 0.35 : 1 }]}>
+            <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{busy ? t('Saving…') : t('Save')}</Text>
+          </Pressable>
+        )}
+      </View>
+      {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
+    </View>
+  )
+}
+
 export function ActionRow({ bot, doing, p, dark }: { bot: Bot; doing: string; p: Palette; dark: boolean }) {
   const reduced = useReducedMotion()
   const shimmer = useSharedValue(0.35)
@@ -160,6 +203,7 @@ const styles = StyleSheet.create({
   viewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   answerInput: { flex: 1, minHeight: 40, borderRadius: radius.input, paddingHorizontal: 12, fontSize: 15 },
   submit: { height: 40, borderRadius: radius.pill, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  secretInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, height: 40, marginTop: 10, fontSize: 14 },
   choice: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   action: { flexDirection: 'row', alignItems: 'center', height: 36, marginHorizontal: 12 },
 })

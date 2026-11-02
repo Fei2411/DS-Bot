@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
+import { listComputers } from '../store.ts'
+import * as SecureStore from 'expo-secure-store'
 import type { TeamState } from '../connection.ts'
 import { useTeamLink } from './link.ts'
 import { demoLink } from './demo.ts'
@@ -28,6 +30,19 @@ export function TeamProvider({ computer, identity, children }: { computer: Saved
 export function DemoProvider({ children }: { children: ReactNode }) {
   const link = demoLink()
   const computer = useMemo<SavedComputer>(() => ({ server: 'demo', hostDeviceId: 'demo', hostKey: 'demo', name: 'Demo team' }), [])
+  useEffect(() => { void seedDemoComputers() }, [])
   const value = useMemo<TeamCtx>(() => ({ team: link.team, online: true, error: null, call: link.call, computer }), [link.team, link.call, computer])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+}
+
+async function seedDemoComputers(): Promise<void> {
+  const existing = await listComputers()
+  if (existing.computers.length > 0) return
+  await SecureStore.setItemAsync('dsbot.computers', JSON.stringify({
+    activeId: 'demo',
+    computers: [
+      { server: 'demo', hostDeviceId: 'demo', hostKey: 'demo-key-alpha', name: 'Demo team', addedAt: Date.now() - 86400000 },
+      { server: '10.0.0.5:9877', hostDeviceId: 'demo-2', hostKey: 'demo-key-beta', name: 'Studio Mac', addedAt: Date.now() - 3600000 },
+    ],
+  }), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY })
 }

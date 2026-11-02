@@ -89,6 +89,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const question: Question | undefined = team?.questions?.[sessionId]
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
+  const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status !== 'settled')
   const roomWork = room !== undefined ? (team?.work?.rooms?.[room.id] ?? []) : []
   const running = doing !== undefined || roomWork.length > 0
   const doingBot = bot ?? (roomWork[0] !== undefined ? team?.bots?.find(b => b.id === roomWork[0].botId) : undefined)
