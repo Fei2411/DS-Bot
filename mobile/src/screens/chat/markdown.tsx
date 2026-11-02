@@ -1,4 +1,6 @@
 import { Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { useRef, useState } from 'react'
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { lexer, type Token, type Tokens } from 'marked'
 import { MONO, radius, type Palette } from '../../ui/tokens.ts'
 
@@ -27,9 +29,9 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
       const code = (token as Tokens.Code)
       return (
         <View style={{ backgroundColor: p.hover, borderRadius: radius.item, marginVertical: 6, borderWidth: 1, borderColor: p.line }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+          <HScroll p={p} style={{ flexGrow: 0 }}>
             <Text selectable style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: 13, lineHeight: 19, color: textColor, paddingHorizontal: 10, paddingVertical: 8 }}>{code.text}</Text>
-          </ScrollView>
+          </HScroll>
         </View>
       )
     }
@@ -62,12 +64,12 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
         </View>
       ))
       return (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6, flexGrow: 0 }}>
+        <HScroll p={p} style={{ marginVertical: 6, flexGrow: 0 }}>
           <View style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item }}>
             <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>{cells(table.header)}</View>
             {table.rows.map((row, ri) => <View key={ri} style={{ flexDirection: 'row' }}>{cells(row)}</View>)}
           </View>
-        </ScrollView>
+        </HScroll>
       )
     }
     case 'hr':
@@ -84,6 +86,38 @@ function Block({ token, p, textColor, fs, lh }: { token: Token; p: Palette; text
       return 'raw' in token && typeof token.raw === 'string' && token.raw.trim() !== ''
         ? <Text selectable style={base}>{token.raw}</Text> : null
   }
+}
+
+// A horizontal scroller whose right edge fades while content hides behind it.
+// The fade uses the bubble's own colors so it works over any bubble background.
+function HScroll({ children, p, style }: { children: React.ReactNode; p: Palette; style?: object }) {
+  const [fade, setFade] = useState(false)
+  const layout = useRef({ width: 0, content: 0, x: 0 })
+  const check = () => setFade(layout.current.content > layout.current.width + 1 && layout.current.x < layout.current.content - layout.current.width - 8)
+  return (
+    <View style={style}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        onLayout={e => { layout.current.width = e.nativeEvent.layout.width; check() }}
+        onContentSizeChange={w => { layout.current.content = w; check() }}
+        onScroll={e => { layout.current.x = e.nativeEvent.contentOffset.x; check() }}
+        scrollEventThrottle={32}>
+        {children}
+      </ScrollView>
+      {fade ? (
+        <View style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 28 }} pointerEvents="none">
+          <Svg width={28} height="100%">
+            <Defs>
+              <LinearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+                <Stop offset="0" stopColor={p.bubble} stopOpacity="0" />
+                <Stop offset="1" stopColor={p.bubble} stopOpacity="1" />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="28" height="100%" fill="url(#fade)" />
+          </Svg>
+        </View>
+      ) : null}
+    </View>
+  )
 }
 
 function Inlines({ tokens, p, color }: { tokens: Token[]; p: Palette; color: string }) {
