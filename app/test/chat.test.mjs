@@ -12,7 +12,6 @@ import { build } from 'esbuild'
 const stubs = {
   'cells.js': 'export const Bubbles = () => null\nexport const ChatRows = () => null\nexport const Shimmer = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\n',
-  'questions.js': 'export const PendingQuestion = () => null\n',
   'api.js': "export const call = async () => ({ sessionId: 'b1', items: [], cursor: null })\n",
 }
 const { outputFiles } = await build({
@@ -22,7 +21,7 @@ const { outputFiles } = await build({
   plugins: [{
     name: 'app-chat-stubs',
     setup(bundler) {
-      bundler.onResolve({ filter: /src\/client\/(cells|model-menu|questions|api)\.js$/ }, args => ({ path: args.path.split('/').pop(), namespace: 'app-chat-stub' }))
+      bundler.onResolve({ filter: /src\/client\/(cells|model-menu|api)\.js$/ }, args => ({ path: args.path.split('/').pop(), namespace: 'app-chat-stub' }))
       bundler.onLoad({ filter: /.*/, namespace: 'app-chat-stub' }, args => ({ contents: stubs[args.path], loader: 'js' }))
     },
   }],
@@ -56,6 +55,8 @@ const react = {
   useEffect: effect, useLayoutEffect: effect,
   useMemo: make => make(),
   useCallback: fn => fn,
+  useId: () => slot(() => ({ id: 'card-id' })).id,
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
 }
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
@@ -66,7 +67,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`no platform module ${name}`)
   },
   window: { addEventListener() {}, removeEventListener() {}, innerHeight: 800 },
-  document: { querySelector: () => null, body: {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
+  document: { querySelector: () => null, body: {}, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
   navigator: { language: 'en' },
   setTimeout: () => 0, clearTimeout() {},
   requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
@@ -103,8 +104,9 @@ const all = (node, check) => {
   if (!node || typeof node !== 'object') return []
   return [...(check(node) ? [node] : []), ...all(node.props.children, check)]
 }
-const textarea = node => all(node, child => child.type === 'textarea')[0]
+const textarea = node => all(node, child => child.type === 'textarea' && child.props?.['data-composer-input'] !== undefined)[0]
 const sendButton = node => all(node, child => child.type === 'button' && child.props?.className === 'dsb-send')[0]
+const answerField = node => all(node, child => child.props?.className === 'bt-q-input')[0]
 const enter = (extra = {}) => ({
   key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false }, prevented: false,
   preventDefault() { this.prevented = true }, ...extra,
@@ -114,9 +116,10 @@ const plain = value => JSON.parse(JSON.stringify(value))
 
 // Mounts a Bot's chat with `prefs` in the roster, types a draft, and returns the
 // send log plus the rendered tree accessor.
-const view = (prefs, ready = true) => {
+const view = (prefs, ready = true, question) => {
   const sent = []
-  const roster = { ready, prefs, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: {} }
+  const answered = []
+  const roster = { ready, prefs, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
   const team = {
     actions: {
       noteSent() {},
@@ -125,6 +128,8 @@ const view = (prefs, ready = true) => {
       openVoice() {},
       clearQuote() {},
       canReferenceChat: () => false,
+      answerQuestion: async (sessionId, id, answer) => { answered.push([sessionId, id, answer]) },
+      dismissQuestion() {},
     },
     hooks: {
       useRoster: select => select(roster),
@@ -135,7 +140,7 @@ const view = (prefs, ready = true) => {
   }
   const instance = mount({ sessionId: 'b1', team })
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
-  return { sent, tree: () => instance.render() }
+  return { sent, answered, tree: () => instance.render() }
 }
 
 test('with Enter sending on, a plain Enter sends the draft and clears it', async () => {
@@ -170,6 +175,26 @@ test('a roster without the flag keeps the default: Enter sends', async () => {
   await tick()
   assert.equal(event.prevented, true)
   assert.deepEqual(plain(sent), [['b1', 'hi']])
+})
+
+// The Bot's ask_user card shares the composer preference: off, a plain Enter in
+// the own-answer field is the field's newline and the card's Submit answers.
+test('the ask_user own-answer field honors the Enter preference', async () => {
+  const question = { id: 'q1', question: 'Pick?', options: ['Alpha', 'Beta'], allowCustom: true }
+  const sending = view({ enterToSend: true }, true, question)
+  answerField(sending.tree()).props.onChange({ target: { value: 'own' } })
+  const on = enter()
+  answerField(sending.tree()).props.onKeyDown(on)
+  await tick()
+  assert.equal(on.prevented, true)
+  assert.deepEqual(plain(sending.answered), [['b1', 'q1', { selected: [], custom: 'own' }]])
+  const keeping = view({ enterToSend: false }, true, question)
+  answerField(keeping.tree()).props.onChange({ target: { value: 'own' } })
+  const off = enter()
+  answerField(keeping.tree()).props.onKeyDown(off)
+  await tick()
+  assert.equal(off.prevented, false)
+  assert.deepEqual(plain(keeping.answered), [])
 })
 
 test('Shift+Enter and IME confirmation keep their default behavior', async () => {

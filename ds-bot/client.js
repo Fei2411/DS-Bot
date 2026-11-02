@@ -4008,6 +4008,21 @@ function CellEmpty({ className }) {
   return (0, import_react4.createElement)("span", { ref, className, hidden: true, "data-bt-empty": true });
 }
 
+// src/client/enter-key.js
+var sendsOnEnter = (prefs) => prefs?.enterToSend !== false;
+function insertComposerNewline(event, inputActions) {
+  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")) return false;
+  const target = event.target;
+  if (typeof target?.closest !== "function" || !target.closest('[data-composer-card] [role="textbox"]')) return false;
+  if (target.closest("[data-composer-composing]")) return false;
+  if (target.ownerDocument?.querySelector('[role="listbox"]')) return false;
+  if (typeof inputActions?.captureInsertion !== "function" || typeof inputActions?.insertText !== "function") return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  inputActions.insertText("\n", inputActions.captureInsertion());
+  return true;
+}
+
 // src/client/card-hold.js
 var import_react5 = require("react");
 function useDockHold(sessionId, kind, requestId, actions, inline) {
@@ -4060,7 +4075,7 @@ function useOptionKeys(count, onPick, ownRef) {
   }, [count, ownRef]);
   return count > 0 && listening <= 1;
 }
-function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false }) {
+function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
   const [own, setOwn] = (0, import_react6.useState)("");
   const [picked, setPicked] = (0, import_react6.useState)([]);
   const ownRef = (0, import_react6.useRef)(null);
@@ -4103,7 +4118,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
       }
     },
     onKeyDown: (event) => {
-      if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+      if (event.key !== "Enter" || !enterToSend || event.shiftKey || event.nativeEvent.isComposing) return;
       event.preventDefault();
       submit();
     }
@@ -4235,7 +4250,7 @@ function QuestionCard({ matched }) {
   };
   return (0, import_react6.createElement)(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true });
 }
-function PendingQuestion({ sessionId, question, actions, inline }) {
+function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true }) {
   const [answered, setAnswered] = (0, import_react6.useState)(null);
   const [busy, setBusy] = (0, import_react6.useState)(false);
   const busyRef = (0, import_react6.useRef)(false);
@@ -4256,7 +4271,7 @@ function PendingQuestion({ sessionId, question, actions, inline }) {
   return (0, import_react6.createElement)(
     "div",
     { className: inline ? "bt-q-inline" : "bt-q-dock" },
-    (0, import_react6.createElement)(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline })
+    (0, import_react6.createElement)(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend })
   );
 }
 function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
@@ -4264,7 +4279,7 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
   const drawn = useCards?.((state) => state[sessionId]?.[question?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("question", question?.id)] > 0) === true;
   if (question === void 0 || question.callId && drawn && !held) return null;
-  return (0, import_react6.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false });
+  return (0, import_react6.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend: useRoster((value) => sendsOnEnter(value.prefs)) });
 }
 function AnsweredCell({ node }) {
   const data = node.data ?? {};
@@ -8947,7 +8962,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       const question = roster.questions?.[sessionId];
       if (!question || question.callId !== call2.callId) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
       if (heldCards?.[heldCardKey("question", question.id)] > 0) return (0, import_react17.createElement)(CellEmpty);
-      return (0, import_react17.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true });
+      return (0, import_react17.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) });
     }
     case "show_view":
       return (0, import_react17.createElement)(WidgetCell, { sessionId, callId: call2.callId, args: { text: arg, value: argValue }, done, isError: call2.isError, roster, actions, heldCards });
@@ -10697,21 +10712,6 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     ),
     document.body
   );
-}
-
-// src/client/enter-key.js
-var sendsOnEnter = (prefs) => prefs?.enterToSend !== false;
-function insertComposerNewline(event, inputActions) {
-  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")) return false;
-  const target = event.target;
-  if (typeof target?.closest !== "function" || !target.closest('[data-composer-card] [role="textbox"]')) return false;
-  if (target.closest("[data-composer-composing]")) return false;
-  if (target.ownerDocument?.querySelector('[role="listbox"]')) return false;
-  if (typeof inputActions?.captureInsertion !== "function" || typeof inputActions?.insertText !== "function") return false;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  inputActions.insertText("\n", inputActions.captureInsertion());
-  return true;
 }
 
 // src/client/composer.js
