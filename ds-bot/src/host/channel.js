@@ -116,7 +116,7 @@ export function install(rt) {
   // Updates change the dsh profile, not the team, so a reading host may run them too.
   const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library'])
 
-  function setPrefs(body) {
+  async function setPrefs(body) {
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -146,11 +146,21 @@ export function install(rt) {
       else if (Number.isInteger(body.flatWidth) && body.flatWidth >= 50 && body.flatWidth <= 100) state.prefs.flatWidth = body.flatWidth
       else throw invalid('Flat text width must be a whole percent from 50 to 100')
     }
+    if (body.defaultBotModel !== undefined) {
+      // The model new Bots start on when a create names none. It resolves now, so the
+      // saved ref is one the catalog served at save time; a create still re-checks it.
+      if (body.defaultBotModel === null || body.defaultBotModel === '') delete state.prefs.defaultBotModel
+      else state.prefs.defaultBotModel = await rt.resolveModel(body.defaultBotModel)
+    }
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
       // may grow more states later.
       if (body.thinking === true) state.prefs.thinking = true
       else if (body.thinking === false || body.thinking === null) delete state.prefs.thinking
+    }
+    if (body.enterToSend !== undefined) {
+      if (body.enterToSend === false) state.prefs.enterToSend = false
+      else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend
     }
     return rt.save()
   }
@@ -344,10 +354,26 @@ export function install(rt) {
         case 'approval-answer':
           rt.answerApproval(body.id, body.choice)
           return ok(true)
-        case 'stop-member-work':
-          return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
-        case 'stop-room-work':
-          return ok(await rt.stopRoomWork(String(body.roomId ?? '')))
+        case 'stop-member-work': {
+          const stopped = await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? ''))
+          rt.goalUserStopped?.(String(body.roomId ?? ''))
+          return ok(stopped)
+        }
+        case 'stop-room-work': {
+          const stopped = await rt.stopRoomWork(String(body.roomId ?? ''))
+          rt.goalUserStopped?.(String(body.roomId ?? ''))
+          return ok(stopped)
+        }
+        case 'goal-draft': {
+          await rt.load()
+          const result = await rt.goalDraft(String(body.roomId ?? ''), body.text)
+          return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
+        }
+        case 'goal-control': {
+          await rt.load()
+          const result = await rt.goalControl(String(body.roomId ?? ''), body)
+          return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
+        }
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {

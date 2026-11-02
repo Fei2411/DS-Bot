@@ -90,7 +90,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   const referenceLabels = data.referenceLabels ?? []
   const references = openFile && openSkill ? { openFile, openSkill } : undefined
   const steering = node.kind === 'steering'
-  const groupTime = roster.roomsById?.[sessionId] && Number.isFinite(data.time) ? messageClock(data.time) : undefined
+  const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
   const { shown, folded, control } = useFold(text, { markdown: false })
   const body = h(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions })
   const row = useRef(null)
@@ -115,7 +115,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
         control,
         rest.map((block, index) => (ui.JsonBlock ? h(ui.JsonBlock, { key: index, label: t('Content'), payload: block }) : null))) : null,
       referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null,
-      groupTime ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, groupTime) : null),
+      sentAt ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, sentAt) : null),
     text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text })))
 }
 

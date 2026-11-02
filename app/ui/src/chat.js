@@ -2,6 +2,7 @@ import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, u
 import { call } from '../../../ds-bot/src/client/api.js'
 import { Bubbles, ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { ComposerPlus, ComposerVoice } from '../../../ds-bot/src/client/composer.js'
+import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ArrowUpIcon } from '../../../ds-bot/src/client/icons.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
@@ -103,6 +104,7 @@ function Composer({ sessionId, placeholder, disabled, onSend, actions, useUi, us
   const [error, setError] = useState(null)
   const field = useRef(null)
   const inputActions = useInput(field, setText)
+  const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
   useLayoutEffect(() => {
     const node = field.current
     node.style.height = 'auto'
@@ -136,14 +138,14 @@ function Composer({ sessionId, placeholder, disabled, onSend, actions, useUi, us
           'data-composer-input': '',
           onChange: event => setText(event.target.value),
           onKeyDown: (event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               void submit()
             }
           },
         })),
       h('div', { className: 'dsb-composer-trailing' },
-        h(ComposerVoice, { sessionId, inputActions, actions, useUi }),
+        h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster }),
         h('button', { type: 'button', className: 'dsb-send', disabled: disabled || text.trim() === '', 'aria-label': t('Send message'), title: t('Send message'), onClick: () => { void submit() } }, h(ArrowUpIcon)))))
 }
 
@@ -186,7 +188,7 @@ export function Chat({ sessionId, team }) {
           stream?.text ? h(Bubbles, { texts: [stream.text], roster, selfId: bot?.id, actions, streaming: true, sessionId }) : null,
           // The Bot views' activity row (from the header pill) draws itself in here.
           h('div', { 'data-chat-running': '' }),
-          question ? h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true }) : null))),
+          question ? h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : null))),
     h('div', { className: 'dsb-composer-root' },
       h(ModelChoiceDock, { sessionId, useRoster: hooks.useRoster, actions }),
       h(Composer, {

@@ -99,6 +99,15 @@ export function install(rt) {
   }
   const defaultModel = async () => pickDefault(await catalog())
 
+  // The model a create that names none starts on: the team's pick while the catalog
+  // still serves it, else the DSH default. A create fixes the ref then, so a later
+  // change of either default leaves the Bot alone.
+  const defaultBotModel = async () => {
+    const entries = await catalog()
+    const preferred = state.prefs.defaultBotModel
+    return entries.some(entry => entry.ref === preferred) ? preferred : pickDefault(entries)
+  }
+
   // A full `provider/model` ref, or a model id or name that only one provider serves.
   async function resolveModel(text) {
     const entries = await catalog({ fresh: true })
@@ -262,7 +271,7 @@ export function install(rt) {
 
   Object.assign(rt, {
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
-    defaultRef, defaultModel, defaultEffort, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
+    defaultRef, defaultModel, defaultBotModel, defaultEffort, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, waitForModel, syncModels, routeRefused,
     dropCatalog: () => { catalogCache = { at: 0, value: [] } },
   })

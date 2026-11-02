@@ -144,12 +144,13 @@ export function useAnchoredMenu() {
 // The trigger shows the model name over its provider. A Thinking section lists the
 // levels of the shown model when it has them.
 // `onPick`/`onPickEffort` replace saving to the Bot, for a Bot that does not exist yet.
-export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort }) {
+// `withEfforts: false` keeps the Thinking section out, for a pick that has no level of its own.
+export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
   const served = servedOf(roster, current)
-  const reasoning = useEfforts(served, current, actions)
+  const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
   const picked = reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
   const currentEffort = picked ?? reasoning?.defaultEffort
@@ -183,13 +184,13 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     h('span', { className: 'bt-model-copy' },
       h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
       shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
-        ? (effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
+        ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
         : t('{provider} · not available', { provider: shown.provider })) : null),
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
       models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
         : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
-      effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
+      withEfforts && effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
       manage ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
       manage ? h('button', { type: 'button', role: 'menuitem', onClick: () => { close(); manage() } }, h(SlidersIcon), h('span', { className: 'bt-menu-label' }, t('Models and providers…'))) : null), document.body) : null)
 }

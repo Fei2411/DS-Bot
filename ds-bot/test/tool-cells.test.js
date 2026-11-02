@@ -617,6 +617,32 @@ test('a card whose call is not drawn waits in the dock; a drawn one shows only a
   assert.match(docks(store, roster), /Which draft\?.*Chief needs a key/)
 })
 
+// React needs the same hooks on every render: the dock reads the Enter preference
+// before its early returns, so a card arriving or moving to the transcript never
+// changes the count.
+test('the question dock calls the same hooks whether its card shows or not', () => {
+  const store = cardStore()
+  const render = (roster) => {
+    let calls = 0
+    const props = dockProps(store, roster)
+    props.useRoster = (select) => { calls += 1; return select(roster) }
+    const out = expand(QuestionDock(props))
+    return { calls, out }
+  }
+  const empty = render(team({}))
+  const roster = team({ questions: { chief: question('program:ptc:1') } })
+  const waiting = render(roster)
+  assert.equal(empty.out, null)
+  assert.notEqual(waiting.out, null)
+  assert.equal(waiting.calls, empty.calls)
+  // The transcript drew the call: the dock steps back, still on the same hooks.
+  store.state = { chief: { 'program:ptc:1': 1 } }
+  const drawn = render(roster)
+  assert.equal(drawn.out, null)
+  assert.equal(drawn.calls, empty.calls)
+  effects = []
+})
+
 test('the docks keep pending cards through history loading until their calls actually mount', () => {
   const store = cardStore()
   const roster = team({ questions: { chief: question('program:ptc:1') }, secretRequests: { chief: [request('program:ptc:2')] } })

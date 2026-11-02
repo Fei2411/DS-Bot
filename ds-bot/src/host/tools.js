@@ -14,7 +14,7 @@ import { checkShownView, showViewDescription, showViewParameters } from 'deep-vi
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
-// DS Bot carries no goal across conversation parts, so Bot Sessions do not run DSH goals.
+// DS Bot has its own group goals; DSH's session goal still does not survive conversation parts.
 const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
 // DSH's delegation tools start child agents the user cannot watch or stop, and they
 // end with the conversation part that started them; Bots hand work to other Bots.
@@ -25,7 +25,7 @@ const HIDDEN_TOOL_GROUPS = [[BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS], DELEGATION_
 const HIDDEN_TOOLS = HIDDEN_TOOL_GROUPS.flat()
 // The guidance DSH writes into the prompt for the hidden tools.
 const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal'])
-const GOAL_REFUSAL = 'DS Bot does not run goals. Ask the Bot in a message instead.'
+const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'
 const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
@@ -57,6 +57,7 @@ export function install(rt) {
       room.notice ? `notice: ${room.notice.split('\n')[0].slice(0, 100)}` : '',
       room.workDir ? `members work in ${room.workDir} here` : '',
       room.permission ? `members work with the ${room.permission} permissions here` : '',
+      room.goal !== undefined ? `goal: "${room.goal.title}" (${room.goal.status}${room.goal.status === 'active' || room.goal.status === 'paused' ? `, stage ${Math.min(room.goal.current + 1, room.goal.stages.length)}/${room.goal.stages.length}` : ''})` : '',
     ].filter(Boolean)
     return `- "${room.name}" — ${parts.join('; ')}`
   }
@@ -315,7 +316,7 @@ export function install(rt) {
       role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
-      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
+      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the team default model from DS Bot settings, or the model you run on.' },
       effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
       work_dir: WORK_DIR_PARAM,
       avatar: AVATAR_PARAM,
@@ -329,11 +330,13 @@ export function install(rt) {
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
-        // Without a named model the new Bot takes its creator's: the DSH default may be
-        // a provider that has no key, and then the new Bot fails on its first reply.
+        // Without a named model the team's default applies; without one the new Bot
+        // takes its creator's: the DSH default may be a provider that has no key, and
+        // then the new Bot fails on its first reply.
         const creator = callerBot(exec)
-        const served = creator?.model && (await rt.catalog()).some(entry => entry.ref === creator.model)
-        const model = args.model || (served ? creator.model : undefined)
+        const served = new Set((await rt.catalog()).map(entry => entry.ref))
+        const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
+        const model = args.model || fallback
         const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, createdBy: creator?.id })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
