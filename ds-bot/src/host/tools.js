@@ -780,8 +780,14 @@ export function install(rt) {
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
+  // A wanted Session whose Agent cannot take scoped tools yet is warned about
+  // once; held.tools stays unset, so the next step's check tries again.
+  const registerless = new WeakSet()
+  // Returns the names this call registered, so a caller that missed the request's
+  // tool list can add them to it.
   const shareBotTools = (agent) => {
-    if (agent === undefined) return
+    const added = []
+    if (agent === undefined) return added
     const id = agent.session?.id
     const owns = rt.isBotSession(id)
     const relayOnly = !owns && rt.roomOf(id) !== undefined
@@ -793,8 +799,14 @@ export function install(rt) {
       unscope(id)
       held = undefined
     }
-    if (!wanted || held?.tools === true) return
-    if (typeof agent.ctx?.tools?.register !== 'function') return
+    if (!wanted || held?.tools === true) return added
+    if (typeof agent.ctx?.tools?.register !== 'function') {
+      if (!registerless.has(agent)) {
+        registerless.add(agent)
+        rt.warn('ds-bot: %s needs the team tools but its Agent cannot register them yet', id)
+      }
+      return added
+    }
     const disposers = []
     const failed = []
     for (const def of rt.teamTools) {
@@ -802,6 +814,7 @@ export function install(rt) {
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') disposers.push(dispose)
+        added.push(def.name)
       } catch (error) {
         // A tool another plugin already scoped onto this agent stays missing
         // rather than stopping the team; the rest still land.
@@ -815,6 +828,7 @@ export function install(rt) {
     held.disposers.push(...disposers)
     scoped.set(id, held)
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
+    return added
   }
 
   // The standard preset registers `subagent` (model selection) in each Agent's own
@@ -870,8 +884,10 @@ export function install(rt) {
   // through ask_user instead, so it is taken out of their tool list, as are the goal
   // and delegation tools. The restricts are kept with the Session's scope, so they
   // lift with it.
+  // Returns the team tool names shareBotTools registered on this call — empty
+  // when the scope was already in place or the Session is not the team's.
   const hideBotUnusedTools = (agent) => {
-    shareBotTools(agent)
+    const added = shareBotTools(agent)
     const id = agent?.session?.id
     // The shell shadows go with the scope, so a reload or a Session that leaves
     // the team lifts them like the rest, and the Agent can be scoped again.
@@ -882,13 +898,14 @@ export function install(rt) {
       held.disposers.push(...shadows)
       scoped.set(id, held)
     }
-    if (agent === undefined || !rt.isBotSession(id)) return
+    if (agent === undefined || !rt.isBotSession(id)) return added
     const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
     held.agent = agent
     scoped.set(id, held)
     filterBotAssembly(agent, held)
-    if (held.restricted === true || typeof agent.ctx?.tools?.restrict !== 'function') return
+    if (held.restricted === true || typeof agent.ctx?.tools?.restrict !== 'function') return added
     maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
+    return added
   }
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // recording path resolves it again once the session is known as a Bot's; meanwhile
@@ -906,6 +923,37 @@ export function install(rt) {
       hideBotUnusedTools(agent)
     } catch (error) {
       rt.warn('ds-bot: hiding %s on agent/created failed: %s', HIDDEN_TOOLS.join(', '), error)
+    }
+  })
+
+  // A live Agent the creation path missed — after a restart, agent/created may
+  // run before this plugin's listeners are back — still gets its scope here,
+  // before the step's request. The request's tool list is collected before this
+  // waterfall, so names registered now are appended to it by hand (#826).
+  ctx.on('system-prompt/assemble', async function scopeTeamTools(_assembly, context, next) {
+    const agent = context.agent
+    if (agent === undefined) return next()
+    let added = []
+    try {
+      await rt.load()
+      added = hideBotUnusedTools(agent)
+    } catch (error) {
+      rt.warn('ds-bot: scoping the tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+    }
+    const assembled = await next()
+    if (added.length === 0 || typeof ctx.tools?.schemas !== 'function') return assembled
+    try {
+      const present = new Set((assembled.tools ?? []).map(tool => tool.name))
+      const fresh = []
+      for (const schema of ctx.tools.schemas(agent)) {
+        if (!added.includes(schema.name) || present.has(schema.name)) continue
+        present.add(schema.name)
+        fresh.push(schema)
+      }
+      return fresh.length === 0 ? assembled : { ...assembled, tools: [...(assembled.tools ?? []), ...fresh] }
+    } catch (error) {
+      rt.warn('ds-bot: listing the scoped tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+      return assembled
     }
   })
 
