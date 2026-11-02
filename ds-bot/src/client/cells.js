@@ -322,15 +322,55 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
+const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
+export function syncGroupChains(flow) {
+  const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)]
+  for (let i = 0; i < items.length; i += 1) {
+    const curr = items[i]
+    if (!curr.classList.contains('bt-group-msg')) continue
+    const prev = items[i - 1]
+    const next = items[i + 1]
+    const botId = curr.dataset.botId
+    const chainPrev = Boolean(botId && prev?.classList.contains('bt-group-msg') && prev.dataset.botId === botId)
+    const chainNext = Boolean(botId && next?.classList.contains('bt-group-msg') && next.dataset.botId === botId)
+    if (chainPrev) curr.dataset.chainPrev = ''; else delete curr.dataset.chainPrev
+    if (chainNext) curr.dataset.chainNext = ''; else delete curr.dataset.chainNext
+    const turn = curr.closest('[data-chat-group-key]')
+    if (turn) {
+      if (chainPrev) turn.dataset.btChainPrev = ''; else delete turn.dataset.btChainPrev
+      if (chainNext) turn.dataset.btChainNext = ''; else delete turn.dataset.btChainNext
+    }
+  }
+}
+
+const pendingFlows = new WeakSet()
+function scheduleGroupChains(flow) {
+  if (!flow || pendingFlows.has(flow)) return
+  pendingFlows.add(flow)
+  queueMicrotask(() => {
+    pendingFlows.delete(flow)
+    if (flow.isConnected !== false) syncGroupChains(flow)
+  })
+}
+
 // One Bot message inside a group chat: avatar, name (with its group role), when it ran
 // and how long it took, bubble. The flat layout moves the avatar from beside the last
 // bubble to the head of the name row, so the text below runs the whole width.
 function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi, whole, time, duration }) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el?.closest) return undefined
+    const flow = el.closest('[data-chat-flow]')
+    if (!flow) return undefined
+    scheduleGroupChains(flow)
+    return () => scheduleGroupChains(flow)
+  }, [bot.id])
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   const flat = layoutOf(roster.prefs) === 'flat'
-  const took = Number.isFinite(duration) ? elapsedLabel(duration) : undefined
-  return h('div', { className: 'bt-group-msg' },
+  const took = Number.isFinite(duration) && duration >= 1000 ? elapsedLabel(duration) : undefined
+  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
@@ -945,9 +985,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     stackReplies(replies).map(({ reply, index, texts, time, duration }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
-        return h('div', { key: `user-${index}`, className: 'bt-urow' }, h('div', { className: 'bt-ububble' },
-          h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' }),
-          Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null))
+        return h('div', { key: `user-${index}`, className: 'bt-urow' },
+          h('div', { className: 'bt-ububble' }, h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
+          Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
       }
       if (reply.kind !== undefined) {
         return h(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions })
