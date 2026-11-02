@@ -59,7 +59,7 @@ mac:
 linux:
   # The Linux Host uses the payload's plain Node, which cannot read asar archives.
   asar: false
-  # One AppImage runs on every distribution and updates itself; the deb is for Debian/Ubuntu,
+  # One AppImage runs on every distribution with glibc 2.28 or newer and updates itself; the deb is for Debian/Ubuntu,
   # where it avoids Ubuntu 24.04's AppArmor question of an AppImage and adds a menu entry.
   target:
     - target: AppImage

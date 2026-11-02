@@ -76,3 +76,20 @@ The error code is `WEB_PROVIDER_CONFIGURED_MISSING`.
 To check the result, run `npx @deepseek-ai/dsh@0.2.1-rc.4 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
 
 See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei2411/DS-Bot/issues/128).
+
+## Linux: "GLIBC_2.27 not found" loading libghostty-vt.so
+
+**Where:** on a Linux system whose glibc is older than 2.28 (CentOS 7 ships glibc 2.17), the desktop AppImage or deb, or a host-installed `dsh web`, fails at start. The loader reports a missing glibc version, for example:
+
+```text
+libghostty-vt.so: GLIBC_2.27 not found
+```
+
+**Why:** DeepSeek Harness ships native libraries, including `libghostty-vt.so`, built against newer glibc symbols than CentOS 7 provides. DS Bot is a plugin and cannot rebuild DSH's libraries, so there is no glibc-2.17 build to install. Check your version with `ldd --version`.
+
+**What to do:** run the Docker image instead — the container has its own, newer glibc, so the host's glibc no longer decides. See [`docker/`](../docker/README.md): build or pull the image, publish the port, and open the UI from any browser on the LAN. Keep these points in mind:
+
+- The container brings its own DSH and its own native libraries. Do not copy or mount the host's `libghostty-vt.so` into the container — mixing them breaks it.
+- The container needs a Docker (or Podman) new enough to run a Debian Bookworm image. CentOS 7's stock kernel and Docker are old; if Docker itself fails, Podman or a newer Docker engine is the route. This exact combination is untested — the image itself is covered by CI on a modern host.
+- Data lives in the mounted data directory (`/data`), not your real `~/.dsh`; the container never reads or writes it.
+- Stop with `docker compose down` (or `docker stop`), which flushes sessions cleanly.
