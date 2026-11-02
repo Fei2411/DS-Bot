@@ -24,8 +24,12 @@ export function ViewCard({ sessionId, view, p, readOnly }: { sessionId: string; 
   const lookup = useMemo(() => createScope(inputs, lets), [inputs, lets])
   const val = (v: unknown) => {
     if (!isFormula(v)) return v
-    const out = evaluate(compileFormula(String((v as Record<string, unknown>)['='])), lookup)
-    return 'error' in out ? undefined : out.value
+    const compiled = compileFormula(String((v as Record<string, unknown>)['=']))
+    if ('error' in compiled) return undefined
+    try {
+      const out = evaluate(compiled.tree, lookup)
+      return 'error' in out ? undefined : out.value
+    } catch { return undefined }
   }
   const answer = (id: string, action: string, values: unknown) => {
     if (readOnly || done !== null) return

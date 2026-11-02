@@ -61,7 +61,7 @@ export function demoData(): DemoData {
         children: [
           { type: 'chart', kind: 'bar', categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], series: [{ name: 'Merged', values: [3, 5, 2, 7, 4] }, { name: 'Open', values: [6, 4, 5, 3, 2] }], unit: ' PRs' },
           { type: 'slider', id: 'days', label: 'Days to release', min: 1, max: 14, step: 1, value: 5, unit: 'd' },
-          { type: 'metric', label: 'Burn rate', value: { '=': 'open / days' }, caption: 'open PRs per day' },
+          { type: 'metric', label: 'Reviews to clear', value: { '=': '18 / days' }, caption: 'reviews per day to hit the tag' },
           { type: 'options', id: 'a-1', options: [{ label: 'Ship Friday' }, { label: 'Hold for Monday' }, { label: 'Cancel the tag' }] },
         ],
       },
