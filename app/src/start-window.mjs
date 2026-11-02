@@ -16,9 +16,12 @@ export const SHORT_START_SIZE = { width: 720, height: 500 }
 const SHORT_WORK_AREA = 588
 export const MAIN_SIZE = { width: 1320, height: 860 }
 export const PHASES = ['data', 'engine', 'team']
-// A first start that copies a team from DSH has a stage of its own for the copy (§6).
+// A start that copies a team from DSH gets a stage of its own for the copy once the copy runs
+// (§6): the ring has three arcs while the import card asks, and goes back to three when the copy
+// stops or the start goes on without it.
 export const IMPORT_PHASES = ['data', 'import', 'engine', 'team']
-export const phasesOf = state => (state.explain?.mode === 'import' ? IMPORT_PHASES : PHASES)
+const COPY_CARDS = ['copying', 'stopCopy', 'importFailed']
+export const phasesOf = state => (state.done.includes('import') || COPY_CARDS.includes(state.card?.kind) ? IMPORT_PHASES : PHASES)
 export const START_KINDS = ['first', 'later', 'moving']
 export const WATCHDOG_MS = 180_000
 export const TEAM_VIEW_MS = 20_000

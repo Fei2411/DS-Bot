@@ -137,12 +137,15 @@ html[data-resume] :is(.arc-fill,.ring-full){transition:none}
 .gear-small{fill:color-mix(in srgb,var(--bt-ink-deepseek) 55%,transparent);animation:bt-turn 1.8s linear infinite reverse}
 [data-p=engine]{animation:bt-pulse 1.35s ease-in-out infinite}
 .pond:not(:has(.arc[data-phase=engine][data-state=active])) [data-p=engine]{animation:none}
-/* The import: a box is lifted off the old pile and carried onto the new one. */
+/* The import: a box is lifted off the old pile, tips forward along a dotted route and lands with a
+   squash on the new one, 1.6 s a trip. The pale pile is where the team was. */
 .box rect{fill:var(--bt-ink-deepseek)}
-.box path{fill:none;stroke:var(--bt-card);stroke-width:1.2;stroke-linecap:round}
-.box-from rect{fill:color-mix(in srgb,var(--bt-ink-deepseek) 40%,transparent)}
-.box-moving{animation:bt-carry 1.6s cubic-bezier(.4,0,.2,1) infinite}
-@keyframes bt-carry{0%{translate:0 0;opacity:0}12%{translate:0 0;opacity:1}42%{translate:10px -17px}66%,86%{translate:20px -12px;opacity:1}100%{translate:20px -12px;opacity:0}}
+.box path{fill:none;stroke:var(--bt-card);stroke-width:1.3;stroke-linecap:round}
+.box-from rect{fill:color-mix(in srgb,var(--bt-ink-deepseek) 35%,transparent)}
+.box-from path{stroke:color-mix(in srgb,var(--bt-card) 70%,transparent)}
+.route{fill:none;stroke:color-mix(in srgb,var(--bt-ink-deepseek) 55%,transparent);stroke-width:1.5;stroke-linecap:round;stroke-dasharray:0 3.4}
+.box-moving{transform-origin:50% 100%;animation:bt-carry 1.6s infinite}
+@keyframes bt-carry{0%{translate:0 0;rotate:0deg;scale:1;opacity:0;animation-timing-function:ease-out}12%{translate:0 -2px;opacity:1;animation-timing-function:cubic-bezier(.3,.6,.5,1)}38%{translate:10px -15px;rotate:14deg;animation-timing-function:cubic-bezier(.5,0,.8,.4)}62%{translate:21px -12px;rotate:0deg;scale:1.12 .86;animation-timing-function:ease-out}72%{scale:.96 1.05}80%,90%{translate:21px -12px;scale:1;opacity:1}100%{translate:21px -12px;opacity:0}}
 @keyframes bt-turn{to{rotate:360deg}}
 @keyframes bt-pulse{0%,100%{transform:none}15%{transform:scale(1.07)}35%{transform:none}}
 .mate circle{fill:var(--bt-ink-deepseek)}

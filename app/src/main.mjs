@@ -659,8 +659,8 @@ async function importStep(mine) {
   if (result.outcome === 'gone' || signal.aborted || mine !== attempt) return undefined
   importOffer = undefined
   saveLocations(where)
-  startWindow.done('import')
   if (result.outcome === 'copied') {
+    startWindow.done('import')
     const { summary } = result
     console.log(`DeepSeek Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
     // The team lives here now; moving it is Settings' job (the data move).

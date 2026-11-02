@@ -38,8 +38,8 @@ test('the first start offers the DSH team on the import card, copies it on cards
   await import('../src/main.mjs')
   await waitFor(() => startState()?.card?.kind === 'import', 'offer the team on the import card')
   const offer = startState().card
-  // The copy is a stage of its own on the start page's ring.
-  assert.deepEqual(startState().phases, ['data', 'import', 'engine', 'team'])
+  // The ring has three arcs while the card asks; the copy brings a fourth (checked below).
+  assert.deepEqual(startState().phases, ['data', 'engine', 'team'])
   assert.deepEqual([offer.bots, offer.groups, offer.sessions, offer.names], [2, 0, 2, 'Chief, Writer'])
   assert.equal(offer.path, dsh)
   assert.equal(existsSync(join(paths.userData, 'locations.json')), false, 'the places wait for the answer')

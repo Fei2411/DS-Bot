@@ -433,27 +433,36 @@ test('the 180 s question comes on the start\'s clock while the engine is not up'
   assert.equal(s.state().view, 'boot')
 })
 
-// A first start that copies a team has a stage of its own for the copy, between the data and the
-// engine (§6). The engine that warmed up while the card waited stops for the copy: its stage is
-// open again until the copied team's engine is up.
-test("an import is a stage of its own, and the engine's stage waits for the copied team's engine", (t) => {
+// The copy is a stage of its own, between the data and the engine (§6), from the moment it runs:
+// the ring has three arcs while the import card asks, keeps the fourth once the copy is done, and
+// goes back to three when the copy stops. The engine that warmed up while the card waited stops
+// for the copy: its stage is open again until the copied team's engine is up.
+test("the copy is a stage of its own, and the engine's stage waits for the copied team's engine", (t) => {
   const s = startWindow(t)
   s.start.open('first')
-  s.start.explain(explainOf())
-  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'])
   s.start.explain(explainOf({ offered: true }))
-  assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'])
   s.start.done('data')
-  assert.equal(s.state().phase, 'import')
+  s.start.card({ kind: 'import', bots: 4, groups: 0 })
   s.start.done('engine')
-  assert.deepEqual(s.state().done, ['data', 'engine'])
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'], 'three arcs while the card asks')
+  const copying = (step, arc) => ({ kind: 'copying', step, fraction: 0, arc, steps: [{}, {}, {}] })
+  s.start.card(copying(1, 0))
+  assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
   assert.equal(s.state().phase, 'import')
+  s.start.card({ ...copying(2, 0.6), kind: 'stopCopy' })
+  assert.equal(s.state().phases.length, 4, 'the stop\'s question keeps the copy\'s arc')
+  s.start.card(undefined)
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'], 'a stopped copy goes back to three')
+  s.start.card(copying(2, 0.15))
   s.start.engineDown()
   assert.deepEqual(s.state().done, ['data'])
   s.start.ready()
   assert.notEqual(s.state().view, 'handoff', 'no hand-off while no engine is up')
   s.start.done('import')
   assert.equal(s.state().phase, 'engine')
+  s.start.card(undefined)
+  assert.equal(s.state().phases.length, 4, 'a done copy keeps its arc')
   s.start.done('engine')
   assert.deepEqual(s.state().done, ['data', 'import', 'engine'])
   s.start.ready()

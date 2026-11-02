@@ -331,11 +331,12 @@ async function flyIn(mine) {
     land()
   }
 }
-// The middle of the import's arc, where the page shows it now (the pond may be shrunk).
+// Where the import's arc is, as the page shows it now (the pond may be shrunk): the middle of the
+// arc on a ring of four, else the gap after the data folder's arc that it grows out of.
 function importPoint() {
-  const path = $('.arc[data-phase=import] .arc-base')
-  const p = path.getPointAtLength(path.getTotalLength() / 2)
-  return new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM())
+  const ring = $('.ring')
+  const a = ((ring.dataset.n === '4' ? 135 : 120) * Math.PI) / 180
+  return new DOMPoint(110 + 106 * Math.sin(a), 110 - 106 * Math.cos(a)).matrixTransform(ring.getScreenCTM())
 }
 
 // What a new card says to a screen reader: its first line and its first visible sentence (the
@@ -504,7 +505,9 @@ function apply(next) {
   placeUI(next.place)
   stopButton.hidden = !(next.view === 'card' && next.card?.kind === 'copying' && next.card.step < 3)
   const name = blockFor(next)
-  if (name !== shown) showBlock(name, jump)
+  // The import card comes once the data folder's arc has filled (start-window §6).
+  if (name === 'import' && name !== shown && !jump) director.through(0).then(() => { if (blockFor(s) === 'import') showBlock('import', false) })
+  else if (name !== shown) showBlock(name, jump)
   else { fillBlock(name); resize() }
   timeUI()
   director.update(next)

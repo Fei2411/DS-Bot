@@ -98,8 +98,9 @@ test('the start page draws the progress as a ring of three or four arcs and a cl
   assert.match(read('start.css'), /\.ring:not\(\[data-n="4"\]\) \.arc\[data-phase=import\]\{display:none\}/u)
   // The director draws the same arcs.
   const source = code['whale.js']
-  const body = source.match(/^export function arcPath\(k, n\) \{$[\s\S]*?^\}$/mu)[0].replace('export ', '')
-  const arcPath = new Function(`${body}\nreturn arcPath`)()
+  const arcD = source.match(/^export function arcD\(from, to\) \{$[\s\S]*?^\}$/mu)[0].replace('export ', '')
+  const arcPathOf = source.match(/^export const arcPath = .*$/mu)[0].replace('export ', '')
+  const arcPath = new Function(`${arcD}\n${arcPathOf}\nreturn arcPath`)()
   assert.equal(arcPath(0, 3), arcs[0][2].match(/d="([^"]+)"/u)[1])
   assert.equal(arcPath(2, 3), arcs[2][2].match(/d="([^"]+)"/u)[1])
   assert.equal(arcPath(1, 4), arcs[3][2].match(/d="([^"]+)"/u)[1])
