@@ -55,7 +55,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, own }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -65,11 +65,16 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const approval = useApproval(useWork, entry => entry.botId === id)
+  // A group's member row stands for the Bot's own chat: what is said or waits there
+  // shows on it, while work in a group stays on the group's row. A pending approval
+  // carries the room it belongs to; only its own chat's approval has none.
+  const approval = useApproval(useWork, own
+    ? entry => entry.botId === id && entry.roomId === undefined
+    : entry => entry.botId === id)
   const alert = roster.questions?.[part] !== undefined || approval
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
-  const groups = workKeys(useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
+  const groups = workKeys(useGroupWork(useWork, rooms => own ? [] : Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
   const away = !running && groups.length > 0
   const state = botState(running || away, doing, alert)
   // A Bot running in its own chat previews what it is doing, like a group's row.
@@ -109,7 +114,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
+function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useUi, useWork, wide, marked }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -122,22 +127,36 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   const members = workKeys(useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) }))))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
+  const markedUnread = useUi(value => value.unread)
   if (room.hidden && !active) return null
-  const pinned = room.pinned === true
-  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
-  return h('button', {
-    type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-    'data-room-id': id, title: wide ? undefined : room.name, onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id),
-    onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
-  },
-  h(RoomAvatar, { room, roster, size: wide ? 36 : 44 }),
-  pinned && !wide ? h(PinMark) : null,
-  wide ? h('span', { className: 'bt-row-body' },
-    h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null),
-    workingLine ? h('span', { className: 'bt-row-preview' }, workingLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-  wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
-    : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
-      : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
+  // While the group is on screen its members show under the row, the way the DSH
+  // Agent shows its Sessions; the Main Bot and pinned Bots keep their own rows.
+  const shown = active && wide
+    ? (room.members ?? []).map(member => roster.byId[member]).filter(bot => bot && bot.id !== roster.mainBotId && bot.pinned !== true)
+    : []
+  // Folded, the row is all a group shows, so it says how many Bots live inside.
+  const memberCount = (room.members ?? []).length
+  const foldedHint = !active && memberCount > 0 ? t('{count} members', { count: memberCount }) : ''
+  const label = [room.name, room.pinned === true ? t('Pinned') : '', memberCount > 0 ? t('{count} members', { count: memberCount }) : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
+  return h('div', { className: 'bt-room' },
+    h('button', {
+      type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+      'data-room-id': id, title: wide ? undefined : room.name, onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id),
+      onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
+    },
+    h(RoomAvatar, { room, roster, size: wide ? 36 : 44 }),
+    room.pinned === true && !wide ? h(PinMark) : null,
+    wide ? h('span', { className: 'bt-row-body' },
+      h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), room.pinned === true ? h(PinMark) : null),
+      workingLine ? h('span', { className: 'bt-row-preview' }, workingLine)
+        : foldedHint ? h('span', { className: 'bt-row-preview' }, preview ? `${foldedHint} · ${preview}` : foldedHint)
+          : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
+    wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
+      : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
+        : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
+    h('div', { className: 'bt-agent-sub', 'data-open': shown.length > 0 || undefined },
+      h('div', { className: 'bt-agent-sub-in' },
+        shown.map(bot => h(BotRow, { key: bot.id, bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide: true, own: true, marked: markedUnread[bot.id] === true })))))
 }
 
 // One expanded DSH Agent Session row: title, relative stamp, rename field, and a
@@ -328,8 +347,17 @@ export function TeamSidebar(props) {
   })
   const order = useMemo(() => {
     const stamps = JSON.parse(updated)
+    // A Bot that belongs to a visible group lives under that group's row, where the
+    // group's Session shows its members; the list stays flat because membership is
+    // only a view, so joining and leaving moves nothing. Pinned Bots stay on top by
+    // explicit choice, and a hidden group hides no one.
+    const grouped = new Set()
+    for (const room of roster.rooms) {
+      if (room.hidden === true) continue
+      for (const id of room.members ?? []) grouped.add(id)
+    }
     const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
+      ...roster.bots.filter(bot => bot.id !== roster.mainBotId && (bot.pinned === true || !grouped.has(bot.id))).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
       ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
@@ -1010,6 +1038,8 @@ export const SIDEBAR_CSS = `
 .bt-agent-edit{padding:3px 10px 3px 4px}
 .bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
+/* A group's member rows share the Agent's expanding sub list, un-staggered. */
+.bt-agent-sub[data-open] .bt-row{animation:bt-agent-row-in .24s ease both}
 @keyframes bt-agent-row-in{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:blur(0)}}
-@media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row,.bt-agent-sub .bt-row{animation:none}}
 `

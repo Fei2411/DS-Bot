@@ -9420,7 +9420,7 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, own }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
@@ -9430,10 +9430,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   useMarkedUnread(id, active, marked, actions);
   const main = isMainOf(roster, id);
   const tile = roster.mainBotId === id;
-  const approval = useApproval(useWork, (entry) => entry.botId === id);
+  const approval = useApproval(useWork, own ? (entry) => entry.botId === id && entry.roomId === void 0 : (entry) => entry.botId === id);
   const alert = roster.questions?.[part] !== void 0 || approval;
   const doing = useActivity((map) => map[id]);
-  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
+  const groups = workKeys(useGroupWork(useWork, (rooms) => own ? [] : Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
   const runningLine = running && doing ? doingLine(doing) : null;
@@ -9489,7 +9489,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     wide && unread && !active ? (0, import_react19.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (alert || unread) ? (0, import_react19.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
   );
 }
-function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
+function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useUi, useWork, wide, marked }) {
   const id = room2.id;
   const sessionId = room2.sessionId ?? id;
   const fallback = useSessions((list) => previewOf(list, sessionId));
@@ -9501,34 +9501,50 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
   const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).filter((entry) => entry.botId !== void 0).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
   const first = roster.byId[members[0]?.id];
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
+  const markedUnread = useUi((value) => value.unread);
   if (room2.hidden && !active) return null;
-  const pinned = room2.pinned === true;
-  const label = [room2.name, pinned ? t("Pinned") : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
+  const shown = active && wide ? (room2.members ?? []).map((member) => roster.byId[member]).filter((bot) => bot && bot.id !== roster.mainBotId && bot.pinned !== true) : [];
+  const memberCount = (room2.members ?? []).length;
+  const foldedHint = !active && memberCount > 0 ? t("{count} members", { count: memberCount }) : "";
+  const label = [room2.name, room2.pinned === true ? t("Pinned") : "", memberCount > 0 ? t("{count} members", { count: memberCount }) : "", members.length > 0 ? t("Working") : "", approval ? t("Waiting for your approval") : ""].filter(Boolean).join(", ");
   return (0, import_react19.createElement)(
-    "button",
-    {
-      type: "button",
-      className: "bt-row",
-      "aria-label": label,
-      "aria-current": active ? "page" : void 0,
-      "data-room-id": id,
-      title: wide ? void 0 : room2.name,
-      onMouseEnter: wide ? nameIfCut : void 0,
-      onClick: () => actions.openSession(id),
-      onContextMenu: (event) => {
-        event.preventDefault();
-        actions.openMenu({ kind: "room", id, x: event.clientX, y: event.clientY });
-      }
-    },
-    (0, import_react19.createElement)(RoomAvatar, { room: room2, roster, size: wide ? 36 : 44 }),
-    pinned && !wide ? (0, import_react19.createElement)(PinMark) : null,
-    wide ? (0, import_react19.createElement)(
-      "span",
-      { className: "bt-row-body" },
-      (0, import_react19.createElement)("span", { className: "bt-row-name" }, (0, import_react19.createElement)("span", { className: "bt-row-title" }, room2.name), pinned ? (0, import_react19.createElement)(PinMark) : null),
-      workingLine ? (0, import_react19.createElement)("span", { className: "bt-row-preview" }, workingLine) : preview ? (0, import_react19.createElement)("span", { className: "bt-row-preview" }, preview) : null
-    ) : null,
-    wide && approval && !active ? (0, import_react19.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react19.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (approval || unread) ? (0, import_react19.createElement)("span", { className: `bt-dot${approval ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
+    "div",
+    { className: "bt-room" },
+    (0, import_react19.createElement)(
+      "button",
+      {
+        type: "button",
+        className: "bt-row",
+        "aria-label": label,
+        "aria-current": active ? "page" : void 0,
+        "data-room-id": id,
+        title: wide ? void 0 : room2.name,
+        onMouseEnter: wide ? nameIfCut : void 0,
+        onClick: () => actions.openSession(id),
+        onContextMenu: (event) => {
+          event.preventDefault();
+          actions.openMenu({ kind: "room", id, x: event.clientX, y: event.clientY });
+        }
+      },
+      (0, import_react19.createElement)(RoomAvatar, { room: room2, roster, size: wide ? 36 : 44 }),
+      room2.pinned === true && !wide ? (0, import_react19.createElement)(PinMark) : null,
+      wide ? (0, import_react19.createElement)(
+        "span",
+        { className: "bt-row-body" },
+        (0, import_react19.createElement)("span", { className: "bt-row-name" }, (0, import_react19.createElement)("span", { className: "bt-row-title" }, room2.name), room2.pinned === true ? (0, import_react19.createElement)(PinMark) : null),
+        workingLine ? (0, import_react19.createElement)("span", { className: "bt-row-preview" }, workingLine) : foldedHint ? (0, import_react19.createElement)("span", { className: "bt-row-preview" }, preview ? `${foldedHint} · ${preview}` : foldedHint) : preview ? (0, import_react19.createElement)("span", { className: "bt-row-preview" }, preview) : null
+      ) : null,
+      wide && approval && !active ? (0, import_react19.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react19.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (approval || unread) ? (0, import_react19.createElement)("span", { className: `bt-dot${approval ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
+    ),
+    (0, import_react19.createElement)(
+      "div",
+      { className: "bt-agent-sub", "data-open": shown.length > 0 || void 0 },
+      (0, import_react19.createElement)(
+        "div",
+        { className: "bt-agent-sub-in" },
+        shown.map((bot) => (0, import_react19.createElement)(BotRow, { key: bot.id, bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide: true, own: true, marked: markedUnread[bot.id] === true }))
+      )
+    )
   );
 }
 function AgentSessionRow({ session, agent, actions, renaming, index }) {
@@ -9746,8 +9762,13 @@ function TeamSidebar(props) {
   });
   const order = (0, import_react19.useMemo)(() => {
     const stamps = JSON.parse(updated);
+    const grouped3 = /* @__PURE__ */ new Set();
+    for (const room2 of roster.rooms) {
+      if (room2.hidden === true) continue;
+      for (const id of room2.members ?? []) grouped3.add(id);
+    }
     const entries2 = [
-      ...roster.bots.filter((bot) => bot.id !== roster.mainBotId).map((bot) => ({ kind: "bot", item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
+      ...roster.bots.filter((bot) => bot.id !== roster.mainBotId && (bot.pinned === true || !grouped3.has(bot.id))).map((bot) => ({ kind: "bot", item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
       ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: stamps[room2.id] ?? room2.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map((agent) => ({ kind: "agent", item: agent, at: Math.max(0, ...agent.sessions.map((id) => stamps[id] ?? 0)) || agent.createdAt }))
@@ -10450,8 +10471,10 @@ var SIDEBAR_CSS = `
 .bt-agent-edit{padding:3px 10px 3px 4px}
 .bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
+/* A group's member rows share the Agent's expanding sub list, un-staggered. */
+.bt-agent-sub[data-open] .bt-row{animation:bt-agent-row-in .24s ease both}
 @keyframes bt-agent-row-in{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:blur(0)}}
-@media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row,.bt-agent-sub .bt-row{animation:none}}
 `;
 
 // src/client/header.js
