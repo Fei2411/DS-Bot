@@ -1047,7 +1047,10 @@ var ZH = {
   "Every weekend at {time}": "每个周末 {time}",
   "On the schedule {expression}": "按计划 {expression}",
   "Next: {time}": "下次 {time}",
+  "Overdue: {time}": "已逾期 {time}",
   Finished: "已结束",
+  "Scheduled tasks · {count}": "定时任务 · {count}",
+  "Show all": "显示全部",
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
   "Delete task": "删除任务",
@@ -12296,9 +12299,13 @@ function timingText(task) {
       return "";
   }
 }
-var nextText = (task) => task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
+var nextText = (task) => {
+  if (task.state === "overdue" || task.state === void 0 && task.status === "active" && Date.parse(task.scheduledAt) <= Date.now()) return t("Overdue: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) });
+  return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
+};
 function TaskRow({ task, actions, onView, showBot, roster }) {
   const [confirming, setConfirming] = (0, import_react27.useState)(false);
+  const [expanded, setExpanded] = (0, import_react27.useState)(false);
   const [busy, setBusy] = (0, import_react27.useState)(false);
   (0, import_react27.useEffect)(() => {
     if (!confirming) return void 0;
@@ -12319,13 +12326,13 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
     { className: "bt-set-row bt-task", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
     showBot ? (0, import_react27.createElement)(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     (0, import_react27.createElement)(
-      "span",
-      { className: "bt-set-copy" },
+      "button",
+      { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
       (0, import_react27.createElement)("span", { className: "bt-task-title" }, task.title),
       (0, import_react27.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react27.createElement)("span", { className: "bt-task-prompt" }, task.prompt) : null
+      task.prompt && task.prompt !== task.title ? (0, import_react27.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
     ),
-    (0, import_react27.createElement)("span", { className: "bt-task-next" }, nextText(task)),
+    (0, import_react27.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
     (0, import_react27.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -12458,7 +12465,8 @@ function AutomationOff({ actions }) {
 }
 function SchedulesPage({ roster, actions, start }) {
   const view = useSchedules(actions);
-  const [adding, setAdding] = (0, import_react27.useState)(Boolean(start));
+  const owner = start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null;
+  const [adding, setAdding] = (0, import_react27.useState)(Boolean(start) && owner === null);
   if (view === null) return (0, import_react27.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
   if (!view.available) return (0, import_react27.createElement)(AutomationOff, { actions });
   const shown = (next) => {
@@ -12468,9 +12476,14 @@ function SchedulesPage({ roster, actions, start }) {
   const byChat = [
     ...roster.bots.map((bot) => [bot.id, (0, import_react27.createElement)(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter((task) => task.botId === bot.id)]),
     ...roster.rooms.map((room2) => [room2.id, (0, import_react27.createElement)(RoomAvatar, { room: room2, roster, size: 18 }), room2.name, view.tasks.filter((task) => task.botId === void 0 && task.roomId === room2.id)])
-  ].filter(([, , , tasks]) => tasks.length > 0);
+  ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner));
   return [
-    adding ? (0, import_react27.createElement)(TaskForm, { key: "form", roster, actions, start, onDone: shown, onCancel: () => setAdding(false) }) : (0, import_react27.createElement)("div", { key: "add", className: "bt-actions" }, (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react27.createElement)(PlusIcon), t("New task"))),
+    adding ? (0, import_react27.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : (0, import_react27.createElement)(
+      "div",
+      { key: "add", className: "bt-actions" },
+      (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react27.createElement)(PlusIcon), t("New task")),
+      owner !== null ? (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("Show all")) : null
+    ),
     byChat.length === 0 && !adding ? (0, import_react27.createElement)("div", { key: "none", className: "bt-set-card" }, (0, import_react27.createElement)("div", { className: "bt-set-row" }, (0, import_react27.createElement)("span", { className: "bt-set-hint" }, t("No scheduled tasks yet.")))) : byChat.map(([id, avatar, name, tasks]) => (0, import_react27.createElement)(
       "section",
       { key: id, className: "bt-set-section" },
@@ -12508,10 +12521,10 @@ function ScheduleSummary({ bot, actions }) {
   return (0, import_react27.createElement)(
     "div",
     null,
-    (0, import_react27.createElement)("div", { className: "bt-section-title" }, t("Scheduled tasks")),
+    (0, import_react27.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
     tasks.length === 0 ? (0, import_react27.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Harness settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react27.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react27.createElement)(
       "button",
-      { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules") },
+      { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react27.createElement)(ClockIcon),
       (0, import_react27.createElement)("span", { className: "bt-task-line-title" }, task.title),
       (0, import_react27.createElement)("span", { className: "bt-task-line-when" }, timingText(task))
@@ -12524,7 +12537,10 @@ var SCHEDULE_CSS = `
 .bt-task[data-busy]{opacity:.4}
 .bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
 .bt-task-prompt{font-size:12px;line-height:16px;color:var(--bt-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.bt-task-prompt[data-open]{display:block;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere;white-space:pre-wrap}
+.bt-task-copy{padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer}
 .bt-task-next{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-task-next[data-state=overdue]{color:var(--bt-danger)}
 .bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;color:var(--bt-ink-3)}
 .bt-task-remove svg{width:14px;height:14px}
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}

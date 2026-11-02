@@ -45,7 +45,10 @@ function scheduleService() {
       return record
     },
     async list({ sessionId }) { return [...tasks.values()].filter(task => task.sessionId === sessionId).map(task => task.record) },
-    async catalog() { return [...tasks.values()].map(task => ({ ...task.record, sessionId: task.sessionId, status: 'active' })) },
+    async catalog() {
+      return [...tasks.values()].map(task => ({ ...task.record, sessionId: task.sessionId, status: task.status ?? 'active' }))
+        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.id.localeCompare(b.id))
+    },
     async delete({ sessionId, id }) {
       if (tasks.get(id)?.sessionId !== sessionId) return { id, deleted: false, code: 'schedule_not_found' }
       tasks.delete(id)
@@ -87,9 +90,13 @@ test('tasks are created on the Bot’s current part, listed by Bot, and deleted'
 
   await schedule.create('w1', { title: 'Old part', prompt: 'x', every_seconds: 3600 })
   await schedule.create('outside', { title: 'Not ours', prompt: 'x', every_seconds: 3600 })
+  // A task past its firing reads overdue; an inactive one is finished.
+  schedule.tasks.set('schedule-late', { sessionId: 'w2', record: { id: 'schedule-late', kind: 'at', title: 'Late', prompt: 'x', scheduledAt: '2020-01-01T00:00:00.000Z' } })
+  schedule.tasks.set('schedule-done', { sessionId: 'w2', record: { id: 'schedule-done', kind: 'at', title: 'Done', prompt: 'x', scheduledAt: '2020-01-01T00:00:00.000Z' }, status: 'inactive' })
   const listed = (await call('schedules', {})).value
   assert.equal(listed.available, true)
-  assert.deepEqual(listed.tasks.map(task => [task.title, task.botId]), [['Briefing', 'w1'], ['Old part', 'w1']])
+  assert.deepEqual(listed.tasks.map(task => [task.title, task.botId]), [['Done', 'w1'], ['Late', 'w1'], ['Briefing', 'w1'], ['Old part', 'w1']])
+  assert.deepEqual(listed.tasks.map(task => task.state), ['finished', 'overdue', 'scheduled', 'scheduled'])
 
   const weekly = await call('schedule-create', { target: 'm1', title: 'Week', prompt: 'Plan', when: { kind: 'weekly', time: '18:30', timeZone: 'UTC', weekdays: [5, 1, 1, 9] } })
   assert.equal(weekly.ok, true)
@@ -109,7 +116,7 @@ test('tasks are created on the Bot’s current part, listed by Bot, and deleted'
   assert.match((await call('schedule-create', { target: 'm1', title: '', prompt: 'y', when: { kind: 'every', minutes: 5 } })).error.message, /name/)
 
   const removed = await call('schedule-delete', { sessionId: 'w2', id: created.record.id })
-  assert.deepEqual(removed.value.tasks.map(task => task.title), ['Old part', 'Week', 'Ping'])
+  assert.deepEqual(removed.value.tasks.map(task => task.title), ['Done', 'Late', 'Old part', 'Week', 'Ping'])
   assert.match((await call('schedule-delete', { sessionId: 'outside', id: 'schedule-3' })).error.message, /No such task/)
 })
 
