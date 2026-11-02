@@ -58,6 +58,8 @@ export function demoData(): DemoData {
       { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash' },
       { key: 'openrouter/auto', name: 'OpenRouter Auto' },
     ],
+    mainBotId: 'b-chief',
+    mainBotIds: ['b-chief'],
     views: {
       's-chief': {
         id: 'v-1', title: 'Release readiness',

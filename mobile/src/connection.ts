@@ -77,6 +77,7 @@ export interface TeamState {
   mainBotId?: string | null
   mainBotIds?: string[]
   models?: { key?: string; name: string; ref?: string }[]
+  memory?: boolean
   questions?: Record<string, Question>
   views?: Record<string, { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }>
   secretRequests?: Record<string, SecretRequest[]>

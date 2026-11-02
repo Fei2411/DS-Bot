@@ -162,7 +162,30 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { ok: true }
       }
       case 'models': return state.models ?? []
-      case 'efforts': return ['low', 'medium', 'high']
+      case 'efforts': return { efforts: [{ id: 'low', name: 'Quick' }, { id: 'medium', name: 'Balanced' }, { id: 'high', name: 'Careful' }], defaultEffort: 'medium' }
+      case 'memory-view': return { summary: 'Chief keeps the launch plan moving.', sizes: { own: 420, team: 180 }, limits: { main: 4000 }, entries: [
+        { scope: 'own', topic: 'Release', text: 'Tag lands Friday once screenshots are in', added: '2 天前', by: 'Coder', source: 'chat' },
+        { scope: 'own', topic: null, text: 'Prefers concise status lines', added: '上周', by: null, source: 'memory panel' },
+        { scope: 'team', topic: 'Team', text: 'Writer drafts docs first, Coder tests before merge', added: '本月', by: 'Chief', source: 'chat' },
+      ] }
+      case 'memory-add': case 'memory-edit': return { ok: true }
+      case 'memory-forget': return { ok: true }
+      case 'memory-ask': return { answer: 'The tag is held until the screenshots land — see Release notes.' }
+      case 'schedules': return [
+        { id: 'sch-1', botId: 'b-chief', sessionId: 's-chief', title: 'Morning standup', prompt: 'Post the team status', kind: 'daily', time: '09:00', scheduledAt: Date.now() + 3600e3, status: 'active' },
+        { id: 'sch-2', botId: 'b-chief', sessionId: 's-chief', title: 'Weekly review', prompt: 'Summarize the week', kind: 'weekly', weekdays: [5], time: '17:00', scheduledAt: Date.now() + 86400e3, status: 'active' },
+        { id: 'sch-3', botId: 'b-chief', sessionId: 's-chief', title: 'Tag reminder', kind: 'at', scheduledAt: Date.now() + 7200e3, status: 'active' },
+      ]
+      case 'schedule-create': case 'schedule-delete': return { ok: true }
+      case 'folders': return { team: '/Users/feiz/Work', picker: 'browse', folders: [{ path: '/Users/feiz/Work/ds-bot', title: 'ds-bot' }, { path: '/Users/feiz/Work/docs', title: 'docs' }] }
+      case 'folder-list': {
+        const path = String(body.path ?? '')
+        const tree: Record<string, string[]> = { '': ['Users'], '/Users': ['feiz'], '/Users/feiz': ['Work', 'Downloads', 'Pictures'], '/Users/feiz/Work': ['ds-bot', 'docs', 'notes'], '/Users/feiz/Work/ds-bot': ['mobile', 'ds-bot', 'app'] }
+        const kids = tree[path] ?? []
+        return { path, parent: path.split('/').slice(0, -1).join('/') || null, entries: kids.map(name => ({ name, path: `${path}/${name}` })), truncated: false }
+      }
+      case 'usage-summary': return { botId: String(body.botId ?? ''), day: { input: 12400, output: 3200, cacheRead: 8800 }, week: { input: 98200, output: 21400, cacheRead: 61100 }, month: { input: 402100, output: 90300, cacheRead: 251000 }, models: [{ key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash', input: 102000, output: 20200 }], scanning: false }
+      case 'run-stats': return { parts: 3, messages: 214, turns: 96, tools: 311, sessions: 2 }
       case 'avatar-library': return { entries: [], done: true }
       case 'avatar-import': return { ok: true }
       case 'avatar-delete': return { ok: true }

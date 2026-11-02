@@ -145,6 +145,37 @@ function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm
   )
 }
 
+function EffortRow({ bot, model, onSaved }: { bot: Bot; model?: { key?: string; name: string; ref?: string }; onSaved?: () => void }) {
+  const { p } = useTheme()
+  const { call } = useTeam()
+  const { run } = useWrite(null)
+  const [open, setOpen] = useState(false)
+  const [list, setList] = useState<{ efforts: { id: string; name: string }[]; defaultEffort?: string } | null>(null)
+  const ref = model?.ref ?? model?.key ?? bot.model
+  const load = () => { setOpen(true); if (ref !== undefined) void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => setList(null)) }
+  if (list === null && !open) {
+    // cheap probe: show the row whenever the bot has a model; hide only after efforts come back empty
+    if (bot.model !== undefined) void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => {})
+  }
+  if (list !== null && (list.efforts ?? []).length === 0) return null
+  const current = (list?.efforts ?? []).find(e => e.id === bot.effort)?.name ?? (bot.effort ?? (list !== null ? t('Default') : '—'))
+  return (
+    <>
+      <Row label={t('Effort')} value={current} onPress={load} />
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.scrim} onPress={() => setOpen(false)} />
+        <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
+          {(list?.efforts ?? []).map(e => (
+            <Pressable key={e.id} accessibilityRole="button" onPress={() => { setOpen(false); void run('update-bot', { id: bot.id, effort: e.id }) }} style={styles.menuRow}>
+              <Text style={[typeScale.settingsRow, { color: e.id === bot.effort ? p.accent : p.ink }]}>{e.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </Modal>
+    </>
+  )
+}
+
 function useWrite(navigation: any) {
   const { call } = useTeam()
   const [error, setError] = useState<string | null>(null)
@@ -177,15 +208,15 @@ export function BotDetails({ route, navigation }: any) {
         {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
         <Section label={t('Model')}>
           <Row label={t('Model')} value={model?.name ?? bot.model ?? '—'} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
-          {bot.effort ? <Row label={t('Effort')} value={bot.effort} /> : null}
+          <EffortRow bot={bot} model={model} onSaved={undefined} />
         </Section>
         <Section label={t('Working folder')}>
-          <Row label={t('Folder')} value={bot.workDir ?? '—'} disabled />
+          <Row label={t('Folder')} value={bot.workDir ?? '—'} onPress={() => navigation.navigate('Folder', { current: bot.workDir, onPick: 'bot', botId: bot.id })} />
         </Section>
         <Section label={t('More')}>
-          <Row label={t('Memory')} disabled end={null} />
-          <Row label={t('Schedules')} disabled end={null} />
-          <Row label={t('Usage')} disabled end={null} />
+          {team?.memory === false ? null : <Row label={t('Memory')} onPress={() => navigation.navigate('Memory', { id: bot.id, name: bot.name, group: false })} />}
+          <Row label={t('Schedules')} onPress={() => navigation.navigate('Schedules', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
+          <Row label={t('Usage')} onPress={() => navigation.navigate('Usage', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
         </Section>
         <Section label={t('Actions')}>
           <Row label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
@@ -232,6 +263,7 @@ export function BotEdit({ route, navigation }: any) {
               <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: shape === id }} onPress={() => save({ avatar: { ...bot.avatar, shape: id } })}
                 style={[styles.cell, shape === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
                 <Avatar bot={{ ...bot, avatar: { ...bot.avatar, shape: id }, color } as Bot} dark={dark} size={40} ring={p.card} />
+                {shape === id ? <View style={[styles.tick, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontSize: 10, fontWeight: '700' }}>✓</Text></View> : null}
               </Pressable>
             ))}
           </View>
@@ -241,7 +273,9 @@ export function BotEdit({ route, navigation }: any) {
             {COLORS.map(id => (
               <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: color === id }} onPress={() => save({ color: id })}
                 style={[styles.cell, color === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
-                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: COLOR_PAINT[id] ?? p.accent }} />
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: COLOR_PAINT[id] ?? p.accent, alignItems: 'center', justifyContent: 'center' }}>
+                  {color === id ? <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>✓</Text> : null}
+                </View>
               </Pressable>
             ))}
           </View>
@@ -477,6 +511,191 @@ export function NewGroup({ navigation }: any) {
   )
 }
 
+
+// ------------------------------------------------------------ Memory
+
+export function Memory({ route, navigation }: any) {
+  const { p } = useTheme()
+  const { call } = useTeam()
+  const id = String(route.params?.id ?? '')
+  const name = String(route.params?.name ?? '')
+  const [view, setView] = useState<{ summary?: string; entries?: { scope: string; topic: string | null; text: string; added?: string; by?: string | null }[]; error?: string } | null>(null)
+  const [asking, setAsking] = useState(false)
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState<string | null>(null)
+  const owner = route.params?.group === true ? { roomId: id } : { botId: id }
+  const load = () => void call('memory-view', owner).then(v => setView(v as typeof view)).catch(() => {})
+  useState(() => { load(); return null })
+  const forget = (entry: { scope: string; topic: string | null; text: string }) => void call('memory-forget', { ...owner, scope: entry.scope, topic: entry.topic, text: entry.text }).then(load).catch(() => {})
+  const ask = () => { if (!question.trim()) return; setAsking(true); void call('memory-ask', { ...owner, text: question.trim() }).then(v => setAnswer((v as { answer?: string })?.answer ?? null)).catch(() => {}).finally(() => setAsking(false)) }
+  return (
+    <Screen title={name}>
+      <BackRow title={t('Memory')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {view?.summary ? <Text style={[typeScale.caption, { color: p.ink3, margin: 18 }]}>{view.summary}</Text> : null}
+        <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, marginTop: 14 }]}>
+          <View style={styles.row}>
+            <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={question} onChangeText={setQuestion}
+              placeholder={t('Ask memory')} placeholderTextColor={p.ink3} onSubmitEditing={ask} />
+            <Pressable accessibilityRole="button" onPress={ask}><Text style={[typeScale.settingsRow, { color: p.accent }]}>{asking ? '…' : t('Ask')}</Text></Pressable>
+          </View>
+          {answer !== null ? <Text style={[typeScale.settingsRow, { color: p.ink, paddingHorizontal: 16, paddingBottom: 12 }]}>{answer}</Text> : null}
+        </View>
+        <Section label={t('{count} entries', { count: view?.entries?.length ?? 0 })}>
+          {(view?.entries ?? []).map((entry, i) => (
+            <View key={i} style={styles.row}>
+              <View style={{ flex: 1 }}>
+                {entry.topic ? <Text style={[typeScale.small, { color: p.ink3 }]}>{entry.topic}</Text> : null}
+                <Text style={[typeScale.settingsRow, { color: p.ink }]}>{entry.text}</Text>
+                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{[entry.added, entry.by ? t('by {name}', { name: entry.by }) : null].filter(Boolean).join(' · ')}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Remove from memory')} onPress={() => forget(entry)} hitSlop={8}>
+                <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
+              </Pressable>
+            </View>
+          ))}
+          {view !== null && (view.entries ?? []).length === 0 ? <Row label={t('Nothing saved yet')} disabled /> : null}
+        </Section>
+      </ScrollView>
+    </Screen>
+  )
+}
+
+// ------------------------------------------------------------ Schedules
+
+const whenText = (task: { kind: string; time?: string; everySeconds?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }) => {
+  switch (task.kind) {
+    case 'at': return t('Once, {time}', { time: new Date(task.scheduledAt ?? 0).toLocaleString() })
+    case 'every': { const s = task.everySeconds ?? 0; if (s % 86400 === 0) return s === 86400 ? t('Every day') : t('Every {count} days', { count: s / 86400 }); if (s % 3600 === 0) return s === 3600 ? t('Every hour') : t('Every {count} hours', { count: s / 3600 }); return t('Every {count} minutes', { count: Math.round(s / 60) }) }
+    case 'daily': return t('Every day at {time}', { time: task.time ?? '' })
+    case 'weekly': { const d = (task.weekdays ?? []).join(); return d === '1,2,3,4,5' ? t('Every weekday at {time}', { time: task.time ?? '' }) : d === '6,7' ? t('Every weekend at {time}', { time: task.time ?? '' }) : t('Every day at {time}', { time: task.time ?? '' }) }
+    case 'cron': return t('On the schedule {expression}', { expression: task.expression ?? '' })
+    default: return ''
+  }
+}
+
+export function Schedules({ route, navigation }: any) {
+  const { p } = useTheme()
+  const { call } = useTeam()
+  const { run } = useWrite(navigation)
+  const botId = String(route.params?.botId ?? '')
+  const sessionId = String(route.params?.sessionId ?? '')
+  const [tasks, setTasks] = useState<{ id: string; botId?: string; sessionId: string; title: string; prompt?: string; kind: string; status: string; time?: string; everySeconds?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }[]>([])
+  const [title, setTitle] = useState('')
+  const [time, setTime] = useState('09:00')
+  const [adding, setAdding] = useState(false)
+  const load = () => void call('schedules').then(v => setTasks(((v as typeof tasks) ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
+  useState(() => { load(); return null })
+  const create = () => { if (!title.trim()) return; setAdding(false); void run('schedule-create', { botId, title: title.trim(), kind: 'daily', time, sessionId }, () => { setTitle(''); load() }) }
+  return (
+    <Screen title={String(route.params?.name ?? '')}>
+      <BackRow title={t('Schedules')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <Section label={t('Schedules')}>
+          {tasks.map(task => (
+            <View key={task.id} style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={[typeScale.settingsRow, { color: p.ink }]}>{task.title}</Text>
+                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{whenText(task)}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Delete task')} onPress={() => void run('schedule-delete', { sessionId: task.sessionId ?? sessionId, id: task.id }, load)} hitSlop={8}>
+                <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
+              </Pressable>
+            </View>
+          ))}
+          {tasks.length === 0 ? <Row label={t('Nothing saved yet')} disabled /> : null}
+        </Section>
+        <Section label={t('New task')}>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={title} onChangeText={setTitle} placeholder={t('Title')} placeholderTextColor={p.ink3} /></View>
+          <View style={styles.row}><Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Every day at {time}', { time: '' })}</Text>
+            <TextInput style={[typeScale.settingsRow, { color: p.ink, minWidth: 60 }]} value={time} onChangeText={setTime} placeholder="09:00" placeholderTextColor={p.ink3} autoCapitalize="none" /></View>
+        </Section>
+        <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
+          <Pressable accessibilityRole="button" disabled={!title.trim()} onPress={create} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !title.trim() ? 0.5 : pressed ? 0.85 : 1 }]}>
+            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create')}</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </Screen>
+  )
+}
+
+// ------------------------------------------------------------ Folder browser
+
+export function Folder({ route, navigation }: any) {
+  const { p } = useTheme()
+  const { call } = useTeam()
+  const { run } = useWrite(navigation)
+  const [path, setPath] = useState(String(route.params?.current ?? ''))
+  const [listing, setListing] = useState<{ path: string; parent: string | null; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
+  const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
+  const load = (next: string) => { setPath(next); void call('folder-list', { path: next }).then(v => setListing(v as typeof listing)).catch(() => {}) }
+  useState(() => { void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {}); load(path); return null })
+  const choose = (picked: string) => {
+    const target = route.params?.onPick === 'room' ? ['update-room', { id: route.params?.roomId, workDir: picked }] : ['update-bot', { id: route.params?.botId, workDir: picked }]
+    void run(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
+  }
+  return (
+    <Screen title="">
+      <BackRow title={t('Working folder')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {recent.length > 0 ? (
+          <Section label={t('Folders')}>
+            {recent.map(folder => <Row key={folder.path} label={folder.title} value={folder.path} onPress={() => load(folder.path)} />)}
+          </Section>
+        ) : null}
+        <Section label={path || '/'}>
+          {listing?.parent ? <Row label={t('Up one level')} onPress={() => load(listing.parent ?? '')} /> : null}
+          {(listing?.entries ?? []).map(entry => <Row key={entry.path} label={entry.name} onPress={() => load(entry.path)} />)}
+          {listing !== null && listing.entries.length === 0 ? <Row label={t('No folders inside.')} disabled /> : null}
+          {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}
+        </Section>
+        <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
+          <Pressable accessibilityRole="button" onPress={() => choose(path)} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: pressed ? 0.85 : 1 }]}>
+            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Use this folder')}</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </Screen>
+  )
+}
+
+// ------------------------------------------------------------ Usage
+
+export function Usage({ route, navigation }: any) {
+  const { p } = useTheme()
+  const { call } = useTeam()
+  const botId = String(route.params?.botId ?? '')
+  const [summary, setSummary] = useState<{ day?: { input: number; output: number }; week?: { input: number; output: number }; month?: { input: number; output: number }; models?: { key?: string; name: string; input: number; output: number }[] } | null>(null)
+  const [stats, setStats] = useState<{ parts?: number; messages?: number; turns?: number; tools?: number } | null>(null)
+  useState(() => {
+    void call('usage-summary', { botId }).then(v => setSummary(v as typeof summary)).catch(() => {})
+    void call('run-stats', { sessionId: route.params?.sessionId }).then(v => setStats(v as typeof stats)).catch(() => {})
+    return null
+  })
+  const total = (t2?: { input: number; output: number }) => t2 === undefined ? '—' : (t2.input + t2.output).toLocaleString()
+  return (
+    <Screen title={String(route.params?.name ?? '')}>
+      <BackRow title={t('Usage')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <Section label={t('Usage')}>
+          <Row label={t('Day')} value={total(summary?.day)} />
+          <Row label={t('Week')} value={total(summary?.week)} />
+          <Row label={t('Month')} value={total(summary?.month)} />
+        </Section>
+        <Section label={t('Model')}>
+          {(summary?.models ?? []).map(m => <Row key={m.key ?? m.name} label={m.name} value={(m.input + m.output).toLocaleString()} />)}
+        </Section>
+        <Section label={t('Runs')}>
+          <Row label={t('Turns')} value={String(stats?.turns ?? '—')} />
+          <Row label={t('Tools')} value={String(stats?.tools ?? '—')} />
+          <Row label={t('Messages')} value={String(stats?.messages ?? '—')} />
+        </Section>
+      </ScrollView>
+    </Screen>
+  )
+}
+
 const styles = StyleSheet.create({
   backRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
@@ -493,4 +712,5 @@ const styles = StyleSheet.create({
   scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: { position: 'absolute', left: 24, right: 24, top: '25%', maxHeight: '55%', borderRadius: radius.card, borderWidth: 1, overflow: 'hidden' },
   menuRow: { paddingHorizontal: 18, paddingVertical: 14 },
+  tick: { position: 'absolute', top: 3, right: 3, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 })
