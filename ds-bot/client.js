@@ -2409,7 +2409,7 @@ function useLinger(value, ms) {
 var SHELL_CSS = `
 body{--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
+:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice){corner-shape:round}
 body[data-ds-dark-theme]{--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
@@ -11168,7 +11168,7 @@ function SideEntry({ chatId, entry, actions }) {
     )
   );
 }
-function SideChatView({ subject, chat, actions }) {
+function SideChatView({ subject, chat, roster, actions }) {
   const scroll = (0, import_react22.useRef)(null);
   const [draft, setDraft] = (0, import_react22.useState)("");
   const [fail2, setFail] = (0, import_react22.useState)(null);
@@ -11214,11 +11214,19 @@ function SideChatView({ subject, chat, actions }) {
           if (fail2 !== null) setFail(null);
         },
         onKeyDown: (event) => {
-          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent?.isComposing) return;
+          if (event.key !== "Enter" || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing) return;
           event.preventDefault();
           ask();
         }
       }),
+      // With Enter sending off this is the only way to ask; on, it sends the same.
+      (0, import_react22.createElement)("button", {
+        type: "button",
+        className: "bt-side-send",
+        "aria-label": t("Send message"),
+        disabled: busy || draft.trim() === "" || typeof actions?.askSide !== "function",
+        onClick: ask
+      }, (0, import_react22.createElement)(ArrowUpIcon)),
       fail2 !== null ? (0, import_react22.createElement)("p", { className: "bt-side-fail" }, fail2) : null
     )
   );
@@ -11281,8 +11289,11 @@ var SIDE_CSS = `
 .bt-side-a{display:flex;flex-direction:column;gap:8px;align-items:flex-start;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-side-status{margin:0;font-size:12px;color:var(--bt-ink-3)}
 .bt-side-fail{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger)}
-.bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line)}
-.bt-side-input{display:block;width:100%;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
+.bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line);display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.bt-side-form>.bt-side-fail{flex-basis:100%}
+.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.bt-side-send:disabled{opacity:.3;cursor:default}
+.bt-side-input{display:block;flex:1;min-width:0;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
 .bt-side-input::placeholder{color:var(--bt-ink-3)}
 .bt-side-input:focus{border-color:var(--bt-accent)}
 .bt-side-input:disabled{opacity:.6}
@@ -18937,7 +18948,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? (0, import_react_dom8.createPortal)((0, import_react49.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
     hasStrip ? (0, import_react49.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
-    view === "browser" && bot ? (0, import_react49.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react49.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react49.createElement)(SideChatView, { subject: pane.id, chat: sideChat, actions: panelActions })) : (0, import_react49.createElement)(
+    view === "browser" && bot ? (0, import_react49.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react49.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react49.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : (0, import_react49.createElement)(
       "div",
       { key: `details:${pane.id}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react49.createElement)(DetailsDrawer, {
