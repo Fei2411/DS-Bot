@@ -229,6 +229,13 @@ test('the team view that did not load says what happened and what to do, and fol
   recovers(card, 'viewFailed')
 })
 
+test('a failed copy says what happened and what to do, retries or starts without the team, and folds out the log', () => {
+  const card = cardOf('importFailed')
+  assert.match(card, /<p class="lead" data-t="card\.importFailed\.lead"><\/p><p class="small do" data-t="card\.importFailed\.do"><\/p>/u)
+  assert.match(card, /data-look="primary" data-act="answer" data-detail="retry".*?data-act="answer" data-detail="startWithout"/u)
+  recovers(card, 'importFailed')
+})
+
 test('a move that does not go through has one card with three variants', () => {
   const card = html.match(/<section class="card" data-kind="moveFailed" hidden>.*?<\/section>/u)?.[0]
   assert.ok(card, 'the moveFailed card is missing')

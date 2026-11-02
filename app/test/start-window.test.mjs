@@ -470,6 +470,22 @@ test("the copy is a stage of its own, and the engine's stage waits for the copie
 
 // start-window §7: the stage that failed is the one the snapshot is at, and the page turns its arc
 // red: the data folder when it cannot be made or written, the engine when it or the Host stops.
+// §6: a failed copy keeps the copy's arc (the page turns it red); 〔先不带团队开始〕 takes the card
+// away and the ring goes back to three.
+test('a failed copy keeps its arc on the ring until the start goes on without the team', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.explain(explainOf({ offered: true }))
+  s.start.done('data')
+  s.start.card({ kind: 'copying', step: 2, fraction: 0.4, arc: 0.5, steps: [{}, {}, {}] })
+  s.start.card({ kind: 'importFailed', reason: 'inUse', log: ['EBUSY: resource busy or locked'] })
+  assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
+  assert.equal(s.state().phase, 'import')
+  assert.deepEqual(s.state().card.log, ['EBUSY: resource busy or locked'])
+  s.start.card(undefined)
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'])
+})
+
 test('a data folder that cannot be written fails at the data stage, a stopped engine at the engine', async (t) => {
   for (const [error, reason, phase, done] of [
     [Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES' }), 'permission', 'data', []],
