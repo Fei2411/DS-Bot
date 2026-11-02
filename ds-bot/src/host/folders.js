@@ -63,6 +63,12 @@ export function install(rt) {
   }
   // The desktop app runs its own DSH and names the user's, which Bots must not write either.
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
+  // The user may let Bots work inside DSH's own data (a remote folder mounted in it, for
+  // example). It applies to working folders and the team workspace only: the team's own
+  // data files and the files a Bot reads into the team stay closed either way, so the
+  // team's data folder is guarded whether or not the user allows the rest of DSH's data.
+  const dataFoldersOpen = () => state.prefs?.dataFolders === true
+  const guardedRoots = () => (dataFoldersOpen() ? [rt.home] : dataRoots())
 
   // A Bot that could write where DSH or the team keeps its data could change its own
   // permissions or the team, so neither those folders nor one that holds them is allowed.
@@ -70,7 +76,7 @@ export function install(rt) {
   // plugin's default does): one that holds or is a data root does not open it up.
   async function guarded(path) {
     const team = await realTeam()
-    for (const root of dataRoots()) {
+    for (const root of guardedRoots()) {
       const data = await real(root)
       if (within(data, path)) return true
       if (within(path, data) && !(team !== undefined && within(path, team) && team !== data && within(team, data))) return true
@@ -124,7 +130,10 @@ export function install(rt) {
     // folder itself, not where a link put in its place leads.
     const fallback = resolve(defaultTeamFolder())
     const own = join(await realBeyond(dirname(fallback)), basename(fallback))
+    // With data folders allowed a workspace may sit anywhere, as a Bot's folder may, but
+    // never in the team's own data.
     const holdsData = async (path) => {
+      if (dataFoldersOpen()) return !!rt.home && within(path, await real(rt.home))
       const roots = await Promise.all(dataRoots().map(real))
       if (roots.some(data => within(data, path))) return true
       if (path === own && await realBeyond(fallback) === own) return false

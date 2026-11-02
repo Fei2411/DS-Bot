@@ -916,6 +916,36 @@ test('in the desktop app the user\'s own DSH data is no team workspace and no Bo
   assert.equal(state().workspaceId, 'w1')
 })
 
+test('the user can let Bots work inside DSH data, and the team\'s own data stays out of reach', async (t) => {
+  const { dsh, home, state, call, tool, stop } = await start()
+  t.after(stop)
+  const error = async workDir => (await call('update-bot', { id: 'b', workDir })).error?.message
+  // Off by default: DSH's data is refused, as before.
+  mkdirSync(join(dsh, 'remote'), { recursive: true })
+  assert.match(await error(join(dsh, 'remote')), /holds DeepSeek Harness data/)
+  assert.equal((await call('set-prefs', { dataFolders: true })).value.dataFolders, true)
+  assert.equal(state().prefs.dataFolders, true)
+  // With it on, a folder inside DSH's data is a working folder, as an ordinary one is.
+  assert.equal((await call('update-bot', { id: 'b', workDir: join(dsh, 'remote') })).value.workDir, join(dsh, 'remote'))
+  assert.equal(state().bots.b.workDir, join(dsh, 'remote'))
+  assert.equal(await tool('update_bot', { work_dir: join(dsh, 'remote') }, 'b'), `Updated Writer. From your next step on, you work in ${join(dsh, 'remote')}.`)
+  // The team's own data files stay closed even then, so a Bot cannot change them or the team.
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  assert.equal(await error(home), `${home} holds DeepSeek Harness data, so Bots cannot work there`)
+  assert.match(await error(join(home, 'memory')), /holds DeepSeek Harness data/)
+  // Nor may a photo be read out of the team's data into the team.
+  writeFileSync(join(home, 'memory', 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  const pic = join(home, 'memory', 'pic.png')
+  assert.equal(await tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+  // The team workspace may lie in DSH's data too; the team's data is still no workspace.
+  assert.equal((await call('team-workspace', { path: join(dsh, 'shared') })).ok, true)
+  assert.match((await call('team-workspace', { path: join(home, 'memory') })).error?.message, /holds DeepSeek Harness data/)
+  // Off again, DSH's data is refused as before.
+  await call('set-prefs', { dataFolders: false })
+  assert.equal('dataFolders' in state().prefs, false)
+  assert.match(await error(join(dsh, 'remote')), /holds DeepSeek Harness data/)
+})
+
 test('a team folder that was deleted is made again before DSH checks it', async (t) => {
   const { sets, service } = folderService()
   const { ctx, agentOf, team, stop } = await start({ services: { workingDirectory: service } })
