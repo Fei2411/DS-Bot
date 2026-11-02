@@ -27,7 +27,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
@@ -534,7 +534,10 @@ export function install(rt) {
 
   async function writeText(path, text) {
     await mkdir(dirname(path), { recursive: true })
-    const temp = `${path}.${process.pid}.tmp`
+    // The temporary name sits next to the file and stays short however long the
+    // file's own name is: a legal name near the system's per-name limit must
+    // still write, and one made of the whole path would not.
+    const temp = join(dirname(path), `.${basename(path).slice(0, 32)}.${process.pid}.${randomUUID()}.tmp`)
     await writeFile(temp, text, 'utf8')
     await replaceFile(temp, path)
   }
@@ -1469,6 +1472,224 @@ export function install(rt) {
   }
 
   // ---------------------------------------------------------------------------
+  // Undoing a change from the change log.
+  //
+  // Every row of journal.jsonl (or a private Bot's own log) holds the line a change
+  // left and the one it replaced, so one row can be undone with its inverse: an add
+  // is taken out, a remove or replace puts its line back. A restore is applied only
+  // while what it reads still reads as the row left it — an entry that changed
+  // since, or a line already back, is a NO_MATCH rather than a silent delete. A
+  // line going back passes the checks a new entry does, so nothing the memory no
+  // longer keeps returns and a fact remembered again is not duplicated. The
+  // restore itself is a change: it goes through publish like the rest, and its row
+  // is the inverse op with the id of the row it undid, so it can be undone again.
+  // Archive rows move whole folders and are not undone this way.
+
+  const journalScope = key => (key === 'team' ? TEAM
+    : typeof key === 'string' && key.startsWith('bot:') ? ownScope(key.slice(4))
+      : typeof key === 'string' && key.startsWith('group:') ? groupScope(key.slice(6))
+        : undefined)
+
+  // The logs a panel's scopes write to: the shared log, plus a private Bot's own
+  // for its `bot:` scope. journalFor decides which, exactly as it does for writes.
+  const journalPathsOf = panel => [...new Set(Object.values(panel.scopes).map(scope => journalFor(scopeKey(scope), 'restore').path))]
+
+  const journalRows = (path) => {
+    const rows = []
+    for (const line of readJournal(path).split('\n')) {
+      try {
+        const row = JSON.parse(line)
+        if (row !== null && typeof row === 'object') rows.push(row)
+      } catch { /* a half-written or foreign line is not a row */ }
+    }
+    return rows
+  }
+
+  // Every change the owner's scopes made, oldest first across the logs they
+  // landed in. A row outside those scopes is not the owner's to see or undo.
+  function ownerRows(panel) {
+    const keys = new Set(Object.values(panel.scopes).map(scopeKey))
+    const rows = []
+    for (const path of journalPathsOf(panel)) {
+      for (const row of journalRows(path)) if (keys.has(row.scope)) rows.push(row)
+    }
+    return rows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
+  }
+
+  const HISTORY_PAGE = 50
+
+  async function memoryHistory(body) {
+    const panel = panelOf(body)
+    const rows = await settled(() => ownerRows(panel))
+    const undone = new Set(rows.map(row => row.restored).filter(id => typeof id === 'string'))
+    const newest = rows.filter(row => row.op === 'add' || row.op === 'remove' || row.op === 'replace').reverse()
+    let slice = newest
+    if (body.before !== undefined && body.before !== null) {
+      const at = newest.findIndex(row => row.id === body.before)
+      slice = at === -1 ? [] : newest.slice(at + 1)
+    }
+    const page = slice.slice(0, HISTORY_PAGE)
+    return {
+      rows: page.map(row => ({
+        id: row.id,
+        time: row.time,
+        op: row.op,
+        scope: row.scope === 'team' ? 'team' : typeof row.scope === 'string' && row.scope.startsWith('group:') ? 'group' : 'own',
+        text: splitMeta(String((row.op === 'remove' ? row.before : row.after) ?? '').replace(/^\s*[-*]\s+/, '')).text,
+        by: row.actor === 'user' ? 'user' : String(row.actorName ?? row.actor ?? ''),
+        restored: undone.has(row.id),
+      })),
+      more: slice.length > HISTORY_PAGE ? page.at(-1).id : null,
+    }
+  }
+  // The entry lines a file still has exactly as a row recorded them; restoring on
+  // less than a whole line would undo a different change than the one it reads.
+  const exactLines = (file, line) => file.entries.filter(entry => file.lines[entry.line] === line)
+  const noMatch = message => Object.assign(new Error(message), { code: NO_MATCH })
+  // A row's file is a flat name — a file of the scope's folder, never a path. A
+  // row is read, not trusted: a name with separators would reach another scope's
+  // folder when it is joined back for a rebuild, inside() or not, and a control
+  // character would make the write fail after the pending record was accepted.
+  // The name does not have to be a cleanTopic name: hand-renamed files still list.
+  const flatFile = name => name === MAIN || (typeof name === 'string' && name.endsWith('.md') && !/[/\\:]/.test(name) && [...name].every(ch => ch >= ' ' && ch !== '\x7f'))
+  // The line a row puts back is one whole entry, the same bullets parseMemory
+  // reads: a heading or a line with a newline in it would corrupt the file and
+  // make what follows it vanish from recall.
+  const entryLine = line => typeof line === 'string' && !/[\r\n]/.test(line) && /^\s*[-*]\s+\S/.test(line)
+
+  async function memoryRestore(body) {
+    const panel = panelOf(body)
+    const id = String(body.id ?? '')
+    if (id === '') throw new Error('Give the change log id of the change to restore.')
+    await queued(async () => {
+      await recoverPending()
+      // Only a change the owner's own scopes made can be undone: the row comes
+      // from the same logs memory-history reads.
+      const rows = ownerRows(panel)
+      const row = rows.find(record => record.id === id)
+      if (row === undefined) throw new Error('That change is not in the change log of this memory.')
+      if (rows.some(record => record.restored === id)) throw new Error('That change is already restored.')
+      const scope = journalScope(row.scope)
+      if (scope === undefined || !flatFile(row.file)) {
+        throw new Error('That change is not a change that can be restored.')
+      }
+      if (row.op === 'archive') throw new Error('An archived memory cannot be restored from the change log.')
+      if (row.op !== 'add' && row.op !== 'remove' && row.op !== 'replace') {
+        throw new Error('That change is not a change that can be restored.')
+      }
+      writable(scope, USER)
+      const label = labelOf(scope)
+      const files = loadScope(scope)
+      const target = files.find(file => file.file === row.file)
+      const base = { scope: scopeKey(scope), file: row.file, ...actorOf(USER), restored: row.id }
+      const steps = []
+
+      if (row.op === 'add') {
+        // Undoing an add takes the line back out. It must still read as it was
+        // written; a topic left with only its title goes, and its link with it.
+        if (target === undefined || typeof row.after !== 'string') {
+          throw noMatch(`The entry the change added is not where the change log left it; it may have changed or been removed since.`)
+        }
+        const found = exactLines(target, row.after)
+        if (found.length === 0) throw noMatch(`The entry the change added is no longer in ${label}; it may have changed or been removed since.`)
+        if (found.length > 1) throw noMatch(`The line the change added is in ${label} more than once; restore it by hand so the wrong one is not removed.`)
+        // The line comes out of the file but goes into the change log as this
+        // row's before: a value that became a saved secret since is not journaled.
+        if (secretEntry(row.after)) throw new Error(`The entry the change added cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
+        const lines = target.lines.filter((_line, index) => index !== found[0].line)
+        const empty = target.topic !== undefined && lines.every(item => item.trim() === '' || HEADING.test(item))
+        if (empty) {
+          steps.push(removeStep(target.path))
+          const main = files[0]
+          if (main.links.includes(target.topic)) steps.push(writeStep(main.path, joinLines(removeLink(main.lines, target.topic))))
+        } else {
+          steps.push(writeStep(target.path, joinLines(lines)))
+        }
+        await publish({ op: 'remove', scope: scopeKey(scope), steps, row: { op: 'remove', ...base, before: row.after, ...(empty ? { removedTopic: true } : {}) } })
+        return
+      }
+
+      if (row.op === 'remove') {
+        // Undoing a remove puts the line back. The original place is not in the
+        // row, so it goes where a new entry would; a topic the remove took away
+        // is made again with its link, and a line already back is not duplicated.
+        if (!entryLine(row.before)) throw new Error(`That change is not a change that can be restored.`)
+        // The whole line, metadata included, must still be keepable: a value
+        // anywhere in it may be a saved secret since the row was written.
+        if (secretEntry(row.before)) throw new Error(`The entry the change removed cannot be put back: it looks like a key, token, password, or ID number, which memory never keeps.`)
+        const back = splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text
+        const problem = entryProblem(back)
+        if (problem !== undefined) throw new Error(`The entry the change removed cannot be put back: ${problem}`)
+        const [same] = matchEntries(allEntries(files), back).filter(entry => squash(entry.text) === squash(back))
+        if (same !== undefined) throw noMatch(`The entry the change removed is already in ${label} (${fileName(same.file)}); there is nothing to restore.`)
+        let file = target
+        if (file === undefined) {
+          // The file may still be there under another case: a file system that folds
+          // case reports row.file as existing and a fresh file would replace it,
+          // losing what was saved since. Folded names differ only in case, so the
+          // loaded variant is the same file; a sensitive file system keeps them
+          // apart and rebuilds. The journal names what is written, so a restore of
+          // this row finds it again.
+          if (existsSync(join(dirOf(scope), row.file))) {
+            file = files.find(item => item.file.toLowerCase() === row.file.toLowerCase())
+            if (file === undefined) throw noMatch(`A file named ${row.file} is already in ${label}; the entry the change took out can be restored by hand.`)
+          } else {
+            const topic = row.removedTopic === true && row.file.endsWith('.md') && row.file !== MAIN ? row.file.slice(0, -3) : undefined
+            if (topic === undefined) throw noMatch(`The file the change took the entry from is gone; restore it by hand.`)
+            // The rebuilt topic carries its name into a heading and the Index link:
+            // a name that is a saved secret now must not come back either.
+            if (secretEntry(topic)) throw new Error(`The topic the change removed cannot be put back: its name looks like a key, token, password, or ID number, which memory never keeps.`)
+            if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
+            file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
+          }
+        }
+        const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
+        const next = joinLines(insertEntry(lines, row.before))
+        checkSize(file, next, label)
+        steps.push(writeStep(file.path, next))
+        const main = files[0]
+        if (file.topic !== undefined && !main.links.includes(file.topic)) {
+          const index = joinLines(addLink(main.lines, file.topic))
+          checkSize(main, index, label)
+          steps.push(writeStep(main.path, index))
+        }
+        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before } })
+        return
+      }
+
+      // row.op === 'replace': the recorded after-line is put back to before.
+      if (!entryLine(row.before)) throw new Error(`That change is not a change that can be restored.`)
+      // The whole before-line, metadata included, must still be keepable.
+      if (secretEntry(row.before)) throw new Error(`The entry the change changed cannot be put back: it looks like a key, token, password, or ID number, which memory never keeps.`)
+      if (target === undefined || typeof row.after !== 'string') {
+        throw noMatch(`The entry the change changed is not where the change log left it; it may have changed or been removed since.`)
+      }
+      const found = exactLines(target, row.after)
+      if (found.length === 0) throw noMatch(`The entry the change changed is no longer in ${label}; it may have changed or been removed since.`)
+      if (found.length > 1) throw noMatch(`The line the change changed is in ${label} more than once; restore it by hand so the wrong one is not changed.`)
+      // The before-line passes the checks a new entry does, so a restore does not
+      // write — into the file or the change log — what memory no longer keeps.
+      const back = splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text
+      const problem = entryProblem(back)
+      if (problem !== undefined) throw new Error(`The entry the change changed cannot be put back: ${problem}`)
+      // Nor does it come back twice: the same fact may have been saved again since,
+      // under another topic or new metadata. The matched entry itself does not
+      // count: an after that squashes to the before text is no duplicate.
+      const same = matchEntries(allEntries(files), back).find(entry => squash(entry.text) === squash(back) && !(entry.file === target && entry.line === found[0].line))
+      if (same !== undefined) throw noMatch(`The entry the change changed is already in ${label} (${fileName(same.file)}); there is nothing to restore.`)
+      // The recorded after-line is journaled as this row's before, so it faces
+      // the same check the line going back did.
+      if (secretEntry(row.after)) throw new Error(`The entry the change wrote cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
+      const lines = [...target.lines]
+      lines[found[0].line] = row.before
+      const next = joinLines(lines)
+      checkSize(target, next, label)
+      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, next)], row: { op: 'replace', ...base, before: row.after, after: row.before } })
+    })
+    return await memoryView(panelBody(panel))
+  }
+
+  // ---------------------------------------------------------------------------
   // The memory review. When a conversation goes idle, a model reads what is new there
   // and keeps, changes, or removes entries, as a person would after a talk. A Bot's own
   // chat goes to its own memory, read by its model; a group chat goes to the group's
@@ -1816,6 +2037,8 @@ export function install(rt) {
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
+    if (endpoint === 'memory-history') return memoryHistory(body)
+    if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
   }
 
