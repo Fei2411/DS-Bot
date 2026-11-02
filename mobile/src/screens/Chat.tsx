@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
@@ -9,7 +9,7 @@ import { useTheme } from '../ui/tokens.ts'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer } from './chat/composer.tsx'
-import { Item, itemKey, type ChatItem } from './chat/items.tsx'
+import { Actions, Item, itemKey, type ChatItem } from './chat/items.tsx'
 
 const POLL_MS = 2_500
 
@@ -96,6 +96,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
   const [chatWidth, setChatWidth] = useState(0)
+  const [menuText, setMenuText] = useState<string | null>(null)
+  const [readerText, setReaderText] = useState<string | null>(null)
+  const onLongPress = (text: string) => setMenuText(text)
   // The turn being streamed by the model, per attempt id; the real item lands
   // with the 'message' event when the turn's text is saved.
   const [streamText, setStreamText] = useState('')
@@ -177,7 +180,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
               {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} sessionId={sessionId} /> : null}
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
@@ -185,14 +188,29 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       <Dock question={question} sessionId={sessionId} approvals={approvals} call={call} p={p} />
       {error ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />
+      <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
+        onClose={() => setMenuText(null)}
+        onSelect={() => { setReaderText(menuText); setMenuText(null) }} />
+      <Modal visible={readerText !== null} animationType="fade" onRequestClose={() => setReaderText(null)}>
+        <View style={[styles.reader, { backgroundColor: p.main }]}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 80 }}>
+            <Text selectable style={[type.bubble, { color: p.ink }]}>{readerText ?? ''}</Text>
+          </ScrollView>
+          <Pressable accessibilityRole="button" onPress={() => setReaderText(null)} style={[styles.readerClose, { backgroundColor: p.card, borderColor: p.line }]}>
+            <Text style={[type.settingsRow, { color: p.accent }]}>{t('Done')}</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
 
-const type = { caption: { fontSize: 12, lineHeight: 16 }, small: { fontSize: 13, lineHeight: 18 } }
+const type = { caption: { fontSize: 12, lineHeight: 16 }, small: { fontSize: 13, lineHeight: 18 }, bubble: { fontSize: 16, lineHeight: 24 }, settingsRow: { fontSize: 16, lineHeight: 22 } }
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   loading: { flex: 1 },
   list: { flex: 1 },
   listContent: { paddingVertical: 8, paddingHorizontal: 12 },
+  reader: { flex: 1, paddingTop: 60 },
+  readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
 })

@@ -37,30 +37,11 @@ const imageCache = new Map<string, string>()
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void }) {
-  const [menu, setMenu] = useState(false)
-  const [selecting, setSelecting] = useState(false)
-  const longPress = () => { void Haptics.selectionAsync(); setMenu(true) }
+export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; onLongPress?: (text: string) => void }) {
   const source = item.answers !== undefined
     ? item.answers.map(answer => [...(answer.selected ?? []), ...(answer.custom ? [answer.custom] : [])].join(', ')).join('\n')
     : item.text ?? ''
-  const chrome = (
-    <Actions visible={menu} text={source} p={p}
-      onClose={() => setMenu(false)}
-      onSelect={() => { setMenu(false); setSelecting(true) }} />
-  )
-  const reader = (
-    <Modal visible={selecting} animationType="fade" onRequestClose={() => setSelecting(false)}>
-      <View style={[styles.reader, { backgroundColor: p.main }]}>
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 80 }}>
-          <Text selectable style={[typeScale.bubble, { color: p.ink }]}>{source}</Text>
-        </ScrollView>
-        <Pressable accessibilityRole="button" onPress={() => setSelecting(false)} style={[styles.readerClose, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[typeScale.settingsRow, { color: p.accent }]}>{t('Done')}</Text>
-        </Pressable>
-      </View>
-    </Modal>
-  )
+  const longPress = () => { void Haptics.selectionAsync(); onLongPress?.(source) }
   if (item.kind === 'steps') return <Steps item={item} p={p} open={open === true} onToggle={onToggle ?? (() => {})} />
   if (item.kind === 'divider') {
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? new Date(item.time).toLocaleDateString(dateLocale(), { month: 'long', day: 'numeric' }) : ''}</Text>
@@ -80,7 +61,6 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
     return (
       <Pressable onLongPress={longPress} style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth }]}>
         <Text style={[type.bubble, { color: p.userInk }]}>{source}</Text>
-        {chrome}{reader}
       </Pressable>
     )
   }
@@ -91,7 +71,6 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
         {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
           ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} />
           : item.images ? <Text style={[type.caption, { color: p.userInk, opacity: 0.8, marginTop: 4 }]}>{t('{count} images', { count: item.images })}</Text> : null}
-        {chrome}{reader}
       </Pressable>
     )
   }
@@ -103,7 +82,6 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
         {name}
         <Markdown text={item.text ?? ''} p={p} textColor={p.ink} />
         {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
-        {chrome}{reader}
       </Pressable>
     )
   }
@@ -114,7 +92,6 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
         <Markdown text={item.text ?? ''} p={p} textColor={p.ink} />
         {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
       </View>
-      {chrome}{reader}
     </Pressable>
   )
 }
@@ -191,8 +168,8 @@ function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
 }
 
 // The bottom sheet a long-press opens: copy the source text or read it in a
-// selectable page.
-function Actions({ visible, text, p, onClose, onSelect }: { visible: boolean; text: string; p: Palette; onClose: () => void; onSelect: () => void }) {
+// selectable page. ChatView mounts one of each for the whole conversation.
+export function Actions({ visible, text, p, onClose, onSelect }: { visible: boolean; text: string; p: Palette; onClose: () => void; onSelect: () => void }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.scrim} onPress={onClose}>
