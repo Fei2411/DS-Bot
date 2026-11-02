@@ -65,6 +65,7 @@
 .dsb-picker-head{margin:6px 8px 4px;font-size:12px;line-height:18px;font-weight:500;color:var(--bt-ink-2)}
 .dsb-picker-head:first-child{margin-top:0}
 .dsb-picker-root{all:unset;display:flex;align-items:center;gap:8px;min-height:30px;padding:0 8px;border-radius:6px;font-size:13px;line-height:20px;color:var(--bt-ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer}
+.dsb-picker-root-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsb-picker-root:hover{background:var(--bt-hover)}
 .dsb-picker-root[aria-current]{background:color-mix(in srgb,var(--bt-accent) 12%,transparent)}
 .dsb-picker-pane{display:flex;flex-direction:column;min-height:0;border:1px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);overflow:hidden}

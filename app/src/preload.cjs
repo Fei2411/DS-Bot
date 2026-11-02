@@ -448,7 +448,10 @@ function showPicker(request) {
     const group = (heading, items, kind) => {
       if (items.length === 0) return []
       return [make('h3', 'dsb-picker-head', heading), ...items.map((item) => {
-        const root = button('dsb-picker-root', item.label)
+        // The name has a box of its own: as bare text beside the glyph it would be an anonymous
+        // flex item, which no ellipsis reaches.
+        const root = button('dsb-picker-root')
+        root.append(make('span', 'dsb-picker-root-name', item.label))
         root.dataset.path = item.path
         root.title = item.path
         root.prepend(glyph(kind))

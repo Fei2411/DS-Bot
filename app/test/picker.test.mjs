@@ -2,7 +2,7 @@
 // and the IPC that only the page showing a picker may use (picker-host.mjs). Temp folders only.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { after, test } from 'node:test'
@@ -166,4 +166,18 @@ test('a page that does not show the picker in time gets no answer to wait for', 
   assert.equal(await pickers.ask(page, { mode: 'folder', title: 'Pick', start: top, labels: {} }), undefined)
   const loading = Object.assign(new EventEmitter(), { isDestroyed: () => false, isLoading: () => true, send() {} })
   assert.equal(await pickers.ask(loading, { mode: 'folder', title: 'Pick', labels: {} }), undefined)
+})
+
+// A long drive or folder name in the side column ends in an ellipsis: the name is its own box,
+// for an ellipsis does not reach bare text beside the glyph in the button's flex row.
+test('a place or drive with a long name is cut with an ellipsis, and its title keeps the whole path', () => {
+  const src = new URL('../src/', import.meta.url)
+  const preload = readFileSync(new URL('preload.cjs', src), 'utf8')
+  const side = preload.slice(preload.indexOf("button('dsb-picker-root"), preload.indexOf("root.addEventListener('click'"))
+  assert.match(side, /button\('dsb-picker-root'\)/u, 'no bare label in the button')
+  assert.match(side, /root\.append\(make\('span', 'dsb-picker-root-name', item\.label\)\)/u, 'the name in a span of its own')
+  assert.match(side, /root\.title = item\.path/u, 'the whole path on hover')
+  const css = readFileSync(new URL('page-card.css', src), 'utf8')
+  const rule = css.match(/\.dsb-picker-root-name\{([^}]*)\}/u)?.[1].split(';') ?? []
+  for (const declaration of ['min-width:0', 'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap']) assert.ok(rule.includes(declaration), declaration)
 })
