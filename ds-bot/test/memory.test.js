@@ -614,6 +614,62 @@ test('a restore dedupes a row whose before line is an indented bullet', async (t
   assert.match(read('bots', 'b2', 'MEMORY.md'), /^ {2}- Prefers aisle seats$/m)
 })
 
+test('a restore puts a removed topic back into its case-folded file, never over it', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  // A topic file made by hand is removed whole with its last entry.
+  mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'Travel.md'), '# Travel\n\n- Prefers aisle seats [added: 2026-01-01]\n')
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n- [[Travel]]\n')
+  await tool('forget', { entry: 'aisle seats' }, 'b2')
+  const line = journal().length
+  const dir = join(home, 'memory', 'bots', 'b2')
+  // Remembering under the same words makes travel.md; on a file system that
+  // folds case it is the file Travel.md named. A fresh Travel.md written over
+  // it would lose the new fact.
+  await tool('remember', { text: 'Flies on Fridays', topic: 'Travel' }, 'b2')
+  const folded = existsSync(join(dir, 'TRAVEL.MD'))
+  const restored = await call('memory-restore', { line })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  if (folded) {
+    assert.match(read('bots', 'b2', 'travel.md'), /- Flies on Fridays \[/)
+    assert.match(read('bots', 'b2', 'travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
+    assert.equal(journal().at(-1).file, 'travel.md')
+    // Undoing the restore finds the line in the file that holds it.
+    const undone = await call('memory-restore', { line: journal().length })
+    assert.equal(undone.ok, true, JSON.stringify(undone))
+    assert.doesNotMatch(read('bots', 'b2', 'travel.md'), /Prefers aisle seats/)
+  } else {
+    // A case-sensitive file system keeps the two files apart: Travel.md is
+    // rebuilt next to travel.md.
+    assert.match(read('bots', 'b2', 'Travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
+    assert.match(read('bots', 'b2', 'travel.md'), /- Flies on Fridays \[/)
+  }
+})
+
+test('a restore refuses a removed topic whose name is a saved secret now', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Meet at the dock', topic: 'harbor-dock-meeting-9f3k' }, 'b2')
+  await tool('forget', { entry: 'dock', topic: 'harbor-dock-meeting-9f3k' }, 'b2')
+  const line = journal().length
+  const lines = journal().length
+  const dir = join(home, 'memory', 'bots', 'b2')
+  assert.equal(existsSync(join(dir, 'harbor-dock-meeting-9f3k.md')), false)
+  // The name became a saved secret since the row was written: rebuilding the
+  // topic would write it into a heading and the Index link, in the clear.
+  const saved = await call('secret-set', { name: 'COVE_WORD', value: 'harbor-dock-meeting-9f3k' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  const denied = await call('memory-restore', { line })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /cannot be put back/)
+  assert.doesNotMatch(denied.error.message, /harbor-dock-meeting-9f3k/)
+  assert.equal(existsSync(join(dir, 'harbor-dock-meeting-9f3k.md')), false)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+  assert.equal(journal().length, lines)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /harbor-dock-meeting-9f3k/)
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())

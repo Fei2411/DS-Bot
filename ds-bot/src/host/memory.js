@@ -1551,10 +1551,24 @@ export function install(rt) {
         if (same !== undefined) throw noMatch(`The entry that line ${line} removed is already in ${label} (${fileName(same.file)}); there is nothing to restore.`)
         let file = target
         if (file === undefined) {
-          const topic = row.removedTopic === true && row.file.endsWith('.md') && row.file !== MAIN ? row.file.slice(0, -3) : undefined
-          if (topic === undefined) throw noMatch(`The file that line ${line} took the entry from is gone; restore it by hand.`)
-          if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
-          file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
+          // The file may still be there under another case: a file system that folds
+          // case reports row.file as existing and a fresh file would replace it,
+          // losing what was saved since. Folded names differ only in case, so the
+          // loaded variant is the same file; a sensitive file system keeps them
+          // apart and rebuilds. The journal names what is written, so a restore of
+          // this row finds it again.
+          if (existsSync(join(dirOf(scope), row.file))) {
+            file = files.find(item => item.file.toLowerCase() === row.file.toLowerCase())
+            if (file === undefined) throw noMatch(`A file named ${row.file} is already in ${label}; the entry that line ${line} took out can be restored by hand.`)
+          } else {
+            const topic = row.removedTopic === true && row.file.endsWith('.md') && row.file !== MAIN ? row.file.slice(0, -3) : undefined
+            if (topic === undefined) throw noMatch(`The file that line ${line} took the entry from is gone; restore it by hand.`)
+            // The rebuilt topic carries its name into a heading and the Index link:
+            // a name that is a saved secret now must not come back either.
+            if (secretEntry(topic)) throw new Error(`The topic that line ${line} removed cannot be put back: its name looks like a key, token, password, or ID number, which memory never keeps.`)
+            if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
+            file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
+          }
         }
         const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
         const next = joinLines(insertEntry(lines, row.before))
@@ -1566,7 +1580,7 @@ export function install(rt) {
           checkSize(main, index, label)
           steps.push(writeStep(main.path, index))
         }
-        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, after: row.before } })
+        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before } })
         return { restored: row.id, op: 'add', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text }
       }
 
