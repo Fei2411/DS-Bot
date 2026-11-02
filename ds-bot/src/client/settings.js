@@ -109,13 +109,13 @@ function GeneralPage({ roster, actions, run }) {
     actions.setSurface ? h(SetSection, { key: 'mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
-    h(LocationsSection, { key: 'places', actions, run }),
+    h(LocationsSection, { key: 'places', roster, actions, run }),
   ]
 }
 
 // The desktop app's preload hands its window `dsBotApp`; only there does the data location
 // show, since DSH keeps the plugin's data where it runs.
-function LocationsSection({ actions, run }) {
+function LocationsSection({ roster, actions, run }) {
   const app = globalThis.dsBotApp
   const [team, setTeam] = useState(null)
   const [data, setData] = useState(null)
@@ -142,6 +142,8 @@ function LocationsSection({ actions, run }) {
   return h(SetSection, { title: t('Locations'), className: 'bt-set-places' },
     h(SetRow, { label: t('Team workspace'), hint: t('Where Bots without a folder of their own work.') },
       team === null ? null : h(FolderMenu, { value: team, team: true, actions, run, onPick: pickTeam, disabled: moving })),
+    h(SetRow, { label: t('Allow folders in DSH data'), hint: t('A Bot can then work in a folder inside DSH\'s own data, such as a remote folder mounted there. The team\'s data stays out of reach.') },
+      h(Switch, { label: t('Allow folders in DSH data'), on: roster.prefs?.dataFolders === true, disabled: moving, onChange: dataFolders => run(actions.setPrefs({ dataFolders })) })),
     data === null ? null : h(SetRow, { label: t('Data location'), hint: data.path },
       data.fixed ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: moving, onClick: () => { if (!busy.current) void run(app.moveData(team ?? undefined)) } }, t('Change…'))))
 }

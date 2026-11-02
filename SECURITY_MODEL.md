@@ -49,6 +49,7 @@ Trust boundaries:
 ## Existing controls
 
 - Main-Bot checks in `tools.js` (`rt.isMain`, `rt.isAdminOf`).
+- Working folders, the team workspace and Bot photos stay out of DSH's data and the team's data (`folders.js` `guarded`/`inData`); the user can opt in to folders inside DSH's data (Settings → General → Locations), which still keeps the team's own data unreachable.
 - Per-Bot permission presets (`permissions.js`), set on every Session.
 - Secrets: scoped per Bot (`canUse`), redacted from tool results and outbound model requests (`redactor`, JSON/URL-encoded forms).
 - Connectors refuse non-HTTPS addresses (`connectors.js`).
