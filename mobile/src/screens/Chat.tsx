@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
@@ -19,6 +20,7 @@ interface ChatPage { sessionId: string; items: ChatItem[]; cursor: unknown }
 export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
   const { team, call } = useTeam()
   const { p, dark } = useTheme()
+  const insets = useSafeAreaInsets()
   const id = bot?.id ?? room?.id ?? ''
   const [page, setPage] = useState<ChatPage | null>(null)
   const [older, setOlder] = useState<ChatItem[]>([])
@@ -145,7 +147,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const canStop = room !== undefined ? roomWork.length > 0 : running
 
   return (
-    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} style={[styles.screen, { backgroundColor: p.main }]}>
+    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? -insets.bottom : 0} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
       {gone
         ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>

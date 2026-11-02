@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Pressable, StyleSheet, TextInput, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, StopIcon } from '../../ui/icons.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
@@ -14,6 +15,10 @@ export function Composer({ name, running, canStop, onSend, onStop, p }: {
 }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  // iOS: float above the home indicator. The matching negative
+  // keyboardVerticalOffset in ChatView keeps the card hugging the keyboard.
+  const insets = useSafeAreaInsets()
+  const bottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 10) : 10
   const draft = text.trim()
   const send = async () => {
     if (draft === '' || busy) return
@@ -22,7 +27,7 @@ export function Composer({ name, running, canStop, onSend, onStop, p }: {
   }
   const multi = text.includes('\n') || text.length > 80
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderRadius: multi ? radius.composerLong : radius.composer, borderColor: p.line2 }]}>
+    <View style={[styles.card, { backgroundColor: p.card, borderRadius: multi ? radius.composerLong : radius.composer, borderColor: p.line2, marginBottom: bottom }]}>
       <TextInput value={text} onChangeText={setText} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
         multiline style={[styles.input, { color: p.ink }]} accessibilityLabel={t('Message {name}', { name })} />
       {running && canStop && draft === ''
@@ -39,7 +44,7 @@ export function Composer({ name, running, canStop, onSend, onStop, p }: {
 }
 
 const styles = StyleSheet.create({
-  card: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 44, marginHorizontal: 12, marginBottom: 10, paddingLeft: 14, paddingRight: 7.5, paddingVertical: 7.5, borderWidth: 0.5, ...shadow(1) },
+  card: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 44, marginHorizontal: 12, paddingLeft: 14, paddingRight: 7.5, paddingVertical: 7.5, borderWidth: 0.5, ...shadow(1) },
   input: { flex: 1, fontSize: 16, lineHeight: 22, paddingTop: 6, paddingBottom: 6, maxHeight: 130 },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
 })
