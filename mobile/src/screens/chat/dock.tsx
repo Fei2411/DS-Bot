@@ -15,19 +15,22 @@ type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
 // The pending dock above the composer: question card (ui-standard 10.8), then
 // approval cards. Taller than 50% of the screen, the dock scrolls inside.
-export function Dock({ question, sessionId, approvals, secrets = [], btw = [], view, call, p, maxHeight, collapsed, onCollapse }: {
+export function Dock({ question, sessionId, approvals, secrets = [], btw = [], handoff, onViewBrowser, view, call, p, maxHeight, collapsed, onCollapse }: {
   maxHeight?: number; collapsed?: Record<string, boolean>; onCollapse?: (id: string, value: boolean) => void
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   secrets?: SecretRequest[]
   btw?: BtwCardData[]
+  handoff?: HandoffData
+  onViewBrowser?: () => void
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
-  const has = question !== undefined || approvals.length > 0 || secrets.length > 0 || btw.length > 0 || view !== undefined
+  const has = question !== undefined || approvals.length > 0 || secrets.length > 0 || btw.length > 0 || handoff !== undefined || view !== undefined
   if (!has) return null
   return (
     <ScrollView style={[styles.dock, maxHeight !== undefined ? { maxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
       {view !== undefined ? <DockView sessionId={sessionId} view={view} p={p} cap={maxHeight} collapsed={collapsed?.[view.id ?? ''] ?? null} onCollapse={onCollapse} /> : null}
       {question ? <QuestionCard question={question} sessionId={sessionId} call={call} p={p} /> : null}
+      {handoff !== undefined ? <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} /> : null}
       {btw.map(card => <BtwCard key={card.id} card={card} sessionId={sessionId} call={call} p={p} />)}
       {secrets.map(secret => <SecretCard key={secret.id} secret={secret} call={call} p={p} />)}
       {approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} call={call} p={p} />)}
@@ -184,6 +187,28 @@ export function BtwCard({ card, sessionId, call, p }: { card: BtwCardData; sessi
       </View>
       {card.failure ? <Text style={[typeScale.small, { color: p.danger, marginTop: 6 }]}>{card.failure}</Text> : null}
       {card.answer ? <Text style={[typeScale.settingsRow, { color: p.ink2, marginTop: 6 }]}>{card.answer}</Text> : null}
+    </View>
+  )
+}
+
+export interface HandoffData { callId: string; reason?: string; note?: string }
+
+export function HandoffCard({ handoff, botId, onView, call, p }: { handoff: HandoffData; botId: string; onView?: () => void; call: Call; p: Palette }) {
+  const [busy, setBusy] = useState(false)
+  const answer = (outcome: string) => {
+    if (busy) return
+    setBusy(true)
+    void call('browser-give-back', { botId, outcome, callId: handoff.callId }).catch(() => {}).finally(() => setBusy(false))
+  }
+  return (
+    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Browser handoff')}</Text>
+      {handoff.note || handoff.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{handoff.note ?? handoff.reason}</Text> : null}
+      <View style={styles.answerRow}>
+        {onView !== undefined ? <Pressable accessibilityRole="button" onPress={onView} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('View')}</Text></Pressable> : null}
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => answer('skip')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Skip')}</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => answer('done')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Done')}</Text></Pressable>
+      </View>
     </View>
   )
 }

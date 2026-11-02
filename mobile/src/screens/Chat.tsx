@@ -90,6 +90,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status !== 'settled')
+  const handoff = (team as { browserHolds?: Record<string, { callId?: string; reason?: string; note?: string }> } | null)?.browserHolds?.[bot?.id ?? '']
+  const browserHold = handoff !== undefined && handoff.callId !== undefined ? { callId: handoff.callId, reason: handoff.reason, note: handoff.note } : undefined
   const btw = ((team as { btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string }[]> } | null)?.btwCards?.[bot?.id ?? ''] ?? []).filter(card => card.partId === undefined || card.partId === sessionId)
   const roomWork = room !== undefined ? (team?.work?.rooms?.[room.id] ?? []) : []
   const running = doing !== undefined || roomWork.length > 0
@@ -198,7 +200,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} collapsed={collapsedViews} onCollapse={(id, value) => setCollapsedViews(prev => ({ ...prev, [id]: value }))} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} collapsed={collapsedViews} onCollapse={(id, value) => setCollapsedViews(prev => ({ ...prev, [id]: value }))} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {error ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />

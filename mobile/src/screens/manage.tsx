@@ -1,8 +1,9 @@
 // Bot and group management screens, mirroring the desktop details drawer and
 // settings forms: Bot details, Edit Bot, Create Bot, group settings, and the
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
-import { useState } from 'react'
-import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useState } from 'react'
+import { useIsFocused } from '@react-navigation/native'
+import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, setActiveComputer, type StoredComputer } from '../store.ts'
@@ -892,6 +893,7 @@ const styles = StyleSheet.create({
   switch: { width: 46, height: 28, borderRadius: 14, padding: 3, justifyContent: 'center' },
   knob: { width: 22, height: 22, borderRadius: 11 },
   check: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  pillBtn: { borderRadius: 20, paddingHorizontal: 18, height: 40, alignItems: 'center', justifyContent: 'center' },
   cta: { height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: { position: 'absolute', left: 24, right: 24, top: '25%', maxHeight: '55%', borderRadius: radius.card, borderWidth: 1, overflow: 'hidden' },
@@ -899,3 +901,52 @@ const styles = StyleSheet.create({
   dayBtn: { minWidth: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   tick: { position: 'absolute', top: 3, right: 3, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 })
+
+interface BrowserFrame { mime: string; data: string; url?: string; title?: string }
+
+export function BotBrowser({ bot, navigation }: { bot: Bot; navigation: { goBack: () => void } }) {
+  const { p, dark } = useTheme()
+  const { team, call } = useTeam()
+  const focused = useIsFocused()
+  const [frame, setFrame] = useState<BrowserFrame | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const hold = (team as { browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }> } | null)?.browserHolds?.[bot.id]
+  const refresh = useCallback(() => {
+    void call('browser-frame', { botId: bot.id }).then(v => { setFrame(v as BrowserFrame); setError(null) },
+      (f: { code?: string; message?: string }) => setError(f?.code === 'bot/not-found' ? t('This Bot has no open browser') : f?.message ?? String(f)))
+  }, [call, bot.id])
+  useEffect(() => {
+    if (!focused) return
+    refresh()
+    const timer = setInterval(refresh, 2000)
+    return () => clearInterval(timer)
+  }, [focused, refresh])
+  const act = (endpoint: string, payload: Record<string, unknown>) => void call(endpoint, payload).catch(() => {}).then(refresh)
+  return (
+    <View style={{ flex: 1, backgroundColor: p.main }}>
+      <BackRow title={t('Browser')} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 14 }}>
+        {frame?.data ? (
+          <Image source={{ uri: `data:${frame.mime};base64,${frame.data}` }} style={{ width: '100%', aspectRatio: 0.62, borderRadius: radius.card, backgroundColor: p.hover }} resizeMode="contain" />
+        ) : null}
+        {frame?.title ? <Text style={[typeScale.settingsRow, { color: p.ink, marginTop: 10 }]}>{frame.title}</Text> : null}
+        {frame?.url ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={1}>{frame.url}</Text> : null}
+        {error ? <Text style={[typeScale.small, { color: p.danger, marginTop: 12 }]}>{error}</Text> : null}
+        {hold?.note ? <Text style={[typeScale.small, { color: p.ink2, marginTop: 12 }]}>{hold.note}</Text> : null}
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+          {hold?.callId !== undefined ? (
+            <>
+              <Pressable accessibilityRole="button" onPress={() => act('browser-give-back', { botId: bot.id, outcome: 'done', callId: hold.callId })} style={[styles.pillBtn, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Done')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('browser-give-back', { botId: bot.id, outcome: 'skip', callId: hold.callId })} style={[styles.pillBtn, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Skip')}</Text></Pressable>
+            </>
+          ) : hold?.by === 'user' ? (
+            <Pressable accessibilityRole="button" onPress={() => act('browser-give-back', { botId: bot.id })} style={[styles.pillBtn, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Give back')}</Text></Pressable>
+          ) : (
+            <Pressable accessibilityRole="button" onPress={() => act('browser-takeover', { botId: bot.id })} style={[styles.pillBtn, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Take over')}</Text></Pressable>
+          )}
+          <Pressable accessibilityRole="button" onPress={() => act('browser-stop', { botId: bot.id })} style={[styles.pillBtn, { backgroundColor: p.hover }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Pressable>
+        </View>
+      </ScrollView>
+    </View>
+  )
+}

@@ -53,6 +53,9 @@ export function demoData(): DemoData {
       turns: {},
     },
     activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    browserHolds: {
+      'b-coder': { by: 'bot', reason: 'handoff', note: '需要你在浏览器里登录 GitHub 才能继续。', callId: 'hc-1' },
+    },
     btwCards: {
       'b-coder': [
         { id: 'btw-1', partId: 's-coder', question: '测试跑到哪了？', answer: '迁移脚本已过 80%，卡在 staging 的环境变量上。', status: 'done' },

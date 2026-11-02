@@ -17,6 +17,7 @@ import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
 import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
 import { Providers, Connectors, Capabilities, TeamUsage, Location, Updates, About } from '../screens/settings-pages.tsx'
 import { Side } from '../screens/side.tsx'
+import { BotBrowser } from '../screens/manage.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
@@ -201,6 +202,7 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       <Stack.Screen name="Location">{(props: any) => <Location {...props} />}</Stack.Screen>
       <Stack.Screen name="Updates">{(props: any) => <Updates {...props} />}</Stack.Screen>
       <Stack.Screen name="About">{(props: any) => <About {...props} />}</Stack.Screen>
+      <Stack.Screen name="BotBrowser">{({ route, navigation }: any) => <BotBrowser bot={route.params.bot} navigation={navigation} />}</Stack.Screen>
       <Stack.Screen name="Side">{({ route, navigation }: any) => <Side bot={route.params.bot} sessionId={route.params.sessionId} navigation={navigation} />}</Stack.Screen>
       <Stack.Screen name="Placeholder">{({ route, navigation }: any) => (
         <View style={{ flex: 1, backgroundColor: '#f6f8fb' }}>

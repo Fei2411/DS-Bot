@@ -232,6 +232,14 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         for (const [botId, chats] of Object.entries(state.sideChats ?? {})) state.sideChats![botId] = chats.filter(c => c.chatId !== body.chatId)
         return { ok: true }
       }
+      case 'browser-frame': {
+        const hold = state.browserHolds?.[String(body.botId ?? '')]
+        if (hold === undefined && body.botId !== 'b-coder') return { ok: false, error: { code: 'bot/not-found', message: 'This Bot has no open browser' } }
+        return { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', url: 'https://github.com/fei2411/ds-bot', title: 'DS Bot — GitHub' }
+      }
+      case 'browser-takeover': { (state.browserHolds ??= {})[String(body.botId ?? '')] = { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' }; return { ok: true } }
+      case 'browser-give-back': { delete (state.browserHolds ??= {})[String(body.botId ?? '')]; return { ok: true } }
+      case 'browser-stop': { (state.browserHolds ??= {})[String(body.botId ?? '')] = { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' }; return { ok: true } }
       case 'btw-delete': {
         const list = state.btwCards?.[String(body.sessionId ?? '').split(':')[0]] ?? []
         for (const [botId, cards] of Object.entries(state.btwCards ?? {})) state.btwCards![botId] = cards.filter(card => card.id !== body.cardId)
