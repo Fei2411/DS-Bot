@@ -56,6 +56,8 @@ const ZH = {
   'Delete group': '删除群聊',
   "Open {name}'s chat": '打开 {name} 的对话',
   'New Bot': '新 Bot',
+  'New Bots': '新 Bot',
+  'Default model': '默认模型',
 
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
