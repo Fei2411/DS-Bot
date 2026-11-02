@@ -373,6 +373,8 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   assert.equal(find(hidden, node => node.type?.name === 'LeftColumn'), undefined)
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
+  // Reduced motion disables both the column slide and the conversation margin transition.
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {

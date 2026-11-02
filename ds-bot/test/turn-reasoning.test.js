@@ -41,6 +41,18 @@ test('the live step is the one still thinking', () => {
   assert.equal(thinkingStep(steps.slice(0, 1)), undefined)
 })
 
+test('a `<signature>` block at the head of reasoning never shows', () => {
+  // A signature alone leaves nothing to show, like DSH's hidden reasoning row.
+  assert.equal(turnReasoning([], step(1, [think('<signature>abc123</signature>')])), '')
+  assert.equal(turnReasoning([], step(1, [think('<signature>abc123</signature>\n\nReal thought')])), 'Real thought')
+  assert.equal(turnReasoning([], step(1, [think('<signature>abc123</signature>\r\n\r\nReal thought')])), 'Real thought')
+  // A stream that has only reached inside the tag shows nothing yet.
+  assert.equal(turnReasoning([], step(1, [think('<sign')])), '')
+  assert.equal(turnReasoning([], step(1, [think('<signature>abc123')])), '')
+  // Text that only looks like it stays untouched.
+  assert.equal(turnReasoning([], step(1, [think('A <signature> mention')])), 'A <signature> mention')
+})
+
 test('a step outside the loaded Turn list shows only its own reasoning', () => {
   const current = step(1, [think(' A ')])
   assert.equal(turnReasoning([], current), 'A')
