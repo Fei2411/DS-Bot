@@ -423,6 +423,8 @@ export function install(rt) {
         case 'memory-view':
         case 'memory-ask':
         case 'memory-forget':
+        case 'memory-history':
+        case 'memory-restore':
           await rt.load()
           return ok(await rt.memoryEndpoint(endpoint, body))
         case 'learning-answer':

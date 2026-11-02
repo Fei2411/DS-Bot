@@ -15,8 +15,12 @@ import { fileURLToPath } from 'node:url'
 import { canonicalExecPath } from './canonical-path.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
+import { HostProcess } from './host-process.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, teamInUse, userDshHome } from './import.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
+import { copyData, moveProblem } from './move-data.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf } from './place.mjs'
+import { CHECK_PROFILE, PROFILE } from './profile.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
 import { readStartFrame, writeStartFrame } from './start-frame.mjs'
 import { explainOf, StartWindow } from './start-window.mjs'
@@ -517,23 +521,28 @@ async function startEngine(mine) {
     updatesStarted = true
     updates = startUpdates()
     updates?.subscribe((state) => { mainWindow?.webContents.send(IPC.appUpdateChanged, state) })
-  }
-  host = newHost()
-  host.onMessage(message => {
-    if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
-    const downloadRoots = message.downloadRoots
-    if (!Array.isArray(downloadRoots) || downloadRoots.length > 4 || !Array.from(downloadRoots).every(root => typeof root === 'string' && isAbsolute(root))) {
-      host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, error: 'Could not create the browser endpoint.' })
-      return
-    }
-    void botViews.endpoint(message.botId, { downloadRoots }).then(url => {
-      host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, url })
-    }).catch(() => host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, error: 'Could not create the browser endpoint.' }))
-  })
-  return host.start()
-}
 
-function handleIpc() {
+    // Before the Host, which reads the Sessions.
+    await restoreSessions(where.dataDir).then(({ copied, newer }) => {
+      if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
+      if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
+    }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
+    host = newHost()
+    host.onMessage(message => {
+      if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
+      const downloadRoots = message.downloadRoots
+      if (!Array.isArray(downloadRoots) || downloadRoots.length > 4 || !Array.from(downloadRoots).every(root => typeof root === 'string' && isAbsolute(root))) {
+        host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, error: 'Could not create the browser endpoint.' })
+        return
+      }
+      void botViews.endpoint(message.botId, { downloadRoots }).then(url => {
+        host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, url })
+      }).catch(() => host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, error: 'Could not create the browser endpoint.' }))
+    })
+    return host.start()
+  })()
+  ready.catch(fail)
+
   // A throwaway run (DS_BOT_HOME) keeps its folders where it was told.
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
