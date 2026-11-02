@@ -14,6 +14,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
+import { capabilityStatusText } from './settings-pages.tsx'
 
 export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
@@ -224,7 +225,9 @@ export function BotDetails({ route, navigation }: any) {
           {team?.memory === false ? null : <Row label={t('Memory')} onPress={() => navigation.navigate('Memory', { id: bot.id, name: bot.name, group: false })} />}
           <Row label={t('Schedules')} onPress={() => navigation.navigate('Schedules', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
           <Row label={t('Usage')} onPress={() => navigation.navigate('Usage', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
+          <Row label={t('Browser')} onPress={() => navigation.navigate('BotBrowser', { bot })} />
         </Section>
+        <BotCapabilities bot={bot} team={team} run={run} />
         <Section label={t('Actions')}>
           <Row label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
           {bot.private === true ? null : (
@@ -236,6 +239,24 @@ export function BotDetails({ route, navigation }: any) {
         </Section>
       </ScrollView>
     </Screen>
+  )
+}
+
+// The desktop's BotCapabilitiesCard: packs first, then by name; a switch per
+// library item, with its status for this Bot while attached.
+function BotCapabilities({ bot, team, run }: { bot: Bot; team: TeamState | null; run: (endpoint: string, body: Record<string, unknown>) => Promise<void> }) {
+  const library = (team as { capabilities?: { name: string; kind?: string }[] } | null)?.capabilities ?? []
+  if (library.length === 0) return null
+  const items = [...library].sort((a, b) => Number(b.kind === 'pack') - Number(a.kind === 'pack') || a.name.localeCompare(b.name))
+  const attached = new Set(bot.capabilities ?? [])
+  const statuses = (team as { capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }>> } | null)?.capabilityStatuses?.[bot.id] ?? {}
+  return (
+    <Section label={t('Capabilities')}>
+      {items.map(item => (
+        <SwitchRow key={item.name} label={item.name} hint={attached.has(item.name) ? capabilityStatusText(statuses[item.name]) : undefined}
+          on={attached.has(item.name)} onChange={next => void run('bot-capability', { botId: bot.id, name: item.name, attached: next })} />
+      ))}
+    </Section>
   )
 }
 
@@ -923,7 +944,7 @@ export function BotBrowser({ bot, navigation }: { bot: Bot; navigation: { goBack
   }, [focused, refresh])
   const act = (endpoint: string, payload: Record<string, unknown>) => void call(endpoint, payload).catch(() => {}).then(refresh)
   return (
-    <View style={{ flex: 1, backgroundColor: p.main }}>
+    <Screen title={t('Browser')}>
       <BackRow title={t('Browser')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 14 }}>
         {frame?.data ? (
@@ -947,6 +968,6 @@ export function BotBrowser({ bot, navigation }: { bot: Bot; navigation: { goBack
           <Pressable accessibilityRole="button" onPress={() => act('browser-stop', { botId: bot.id })} style={[styles.pillBtn, { backgroundColor: p.hover }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Pressable>
         </View>
       </ScrollView>
-    </View>
+    </Screen>
   )
 }

@@ -270,6 +270,13 @@ export function Connectors({ navigation }: any) {
   )
 }
 
+export const capabilityStatusText = (status?: { state?: string; error?: string }) =>
+  status === undefined ? undefined
+  : status.state === 'ready' ? t('Ready')
+  : status.state === 'needs-approval' ? t('Needs approval')
+  : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
+  : t('Connecting…')
+
 export function Capabilities({ navigation }: any) {
   const { p } = useTheme()
   const { team, call } = useTeam()
@@ -296,12 +303,7 @@ export function Capabilities({ navigation }: any) {
     void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   }
   const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
-  const statusText = (status?: { state?: string; error?: string }) =>
-    status === undefined ? undefined
-    : status.state === 'ready' ? t('Ready')
-    : status.state === 'needs-approval' ? t('Needs approval')
-    : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
-    : t('Connecting…')
+  const statusText = capabilityStatusText
   const detail = (item: { kind?: string; transport?: string; items?: string[] }) =>
     item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
     : item.kind === 'mcp' ? (item.transport === 'stdio' ? t('Local command') : t('HTTP server'))
