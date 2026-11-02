@@ -4,6 +4,12 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-02
+
+### Fixed
+
+- In the desktop app, group chats in a team imported by 0.2.2 or earlier open again: the app copies their missing conversations from the DSH home the team came from. ([#551](https://github.com/Fei2411/DS-Bot/issues/551))
+
 ## [0.2.5] - 2026-11-01
 
 ### Changed
