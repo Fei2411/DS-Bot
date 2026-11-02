@@ -1474,10 +1474,15 @@ export function install(rt) {
   // less than a whole line would undo a different change than the one it reads.
   const exactLines = (file, line) => file.entries.filter(entry => file.lines[entry.line] === line)
   const noMatch = message => Object.assign(new Error(message), { code: NO_MATCH })
-  // A row's file is a flat name — MEMORY.md or a topic file, never a path. A row
-  // is read, not trusted: a name with separators would reach another scope's
-  // folder when it is joined back for a rebuild, inside() or not.
-  const flatFile = name => name === MAIN || (typeof name === 'string' && name.endsWith('.md') && cleanTopic(name) === name.slice(0, -3))
+  // A row's file is a flat name — a file of the scope's folder, never a path. A
+  // row is read, not trusted: a name with separators would reach another scope's
+  // folder when it is joined back for a rebuild, inside() or not. The name does
+  // not have to be a cleanTopic name: files renamed or created by hand still list.
+  const flatFile = name => name === MAIN || (typeof name === 'string' && name.endsWith('.md') && !/[/\\:]/.test(name))
+  // The line a row puts back is one whole entry, the same bullets parseMemory
+  // reads: a heading or a line with a newline in it would corrupt the file and
+  // make what follows it vanish from recall.
+  const entryLine = line => typeof line === 'string' && !/[\r\n]/.test(line) && /^\s*[-*]\s+\S/.test(line)
 
   async function memoryRestore(body) {
     const line = Number(body.line)
@@ -1487,7 +1492,7 @@ export function install(rt) {
       // `botId` picks a private Bot's own log; every other change is in the shared
       // log, which journalFor resolves for a public or unknown Bot too.
       const { path } = journalFor(body.botId === undefined ? 'team' : `bot:${body.botId}`, 'restore')
-      const raw = readJournal(path).split('\n').filter(row => row !== '')[line - 1]
+      const raw = readJournal(path).split('\n')[line - 1]
       let row
       try { row = raw === undefined ? undefined : JSON.parse(raw) } catch { row = null }
       if (row === undefined || row === null || typeof row !== 'object') {
@@ -1534,7 +1539,7 @@ export function install(rt) {
         // Undoing a remove puts the line back. The original place is not in the
         // row, so it goes where a new entry would; a topic the remove took away
         // is made again with its link, and a line already back is not duplicated.
-        if (typeof row.before !== 'string') throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+        if (!entryLine(row.before)) throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
         const back = splitMeta(row.before.replace(/^[-*]\s+/, '')).text
         const problem = entryProblem(back)
         if (problem !== undefined) throw new Error(`The entry that line ${line} removed cannot be put back: ${problem}`)
@@ -1562,7 +1567,8 @@ export function install(rt) {
       }
 
       // row.op === 'replace': the recorded after-line is put back to before.
-      if (target === undefined || typeof row.before !== 'string' || typeof row.after !== 'string') {
+      if (!entryLine(row.before)) throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+      if (target === undefined || typeof row.after !== 'string') {
         throw noMatch(`The entry that line ${line} changed is not where the change log left it; it may have changed or been removed since.`)
       }
       const found = exactLines(target, row.after)

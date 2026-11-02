@@ -464,6 +464,74 @@ test('a restore refuses a change-log row whose file is not a flat name', async (
   }
 })
 
+test('a restore line counts physical lines of the change log, blanks included', async (t) => {
+  const { tool, call, read, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Fact A' }, 'b2')
+  await tool('remember', { text: 'Fact B' }, 'b2')
+  await tool('forget', { entry: 'Fact A' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  const physical = () => read('journal.jsonl').split('\n')
+
+  // A blank first line does not renumber the rows: line 2 is the remove of A,
+  // not the add of B, so restoring it cannot delete B.
+  writeFileSync(journalPath, `\n${read('journal.jsonl')}`)
+  const blank = await call('memory-restore', { line: 1 })
+  assert.equal(blank.ok, false)
+  assert.match(blank.error.message, /not a change that can be restored/)
+  const removed = await call('memory-restore', { line: 2 })
+  assert.equal(removed.ok, false)
+  assert.match(removed.error.message, /not where the change log left it|no longer in/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Fact B \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Fact A/)
+
+  // The add of A is the third physical line: restoring it takes A out again.
+  const undone = await call('memory-restore', { line: 3 })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Fact A/)
+  // The restore rows appended behind still count physical lines.
+  assert.equal(physical().filter(line => line !== '').length, 4)
+})
+
+test('a restore refuses a row whose before is not one entry line', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Real fact' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  const forge = (row) => {
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return journal().length
+  }
+  // A heading or several lines put back would corrupt the file or hide what
+  // follows from recall; a real remove row always held one bullet.
+  for (const before of ['## Index', '- one\n- two', 'plain text', '* ', '']) {
+    const removeLine = forge({ id: `rm-${JSON.stringify(before)}`, time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before })
+    const denied = await call('memory-restore', { line: removeLine })
+    assert.equal(denied.ok, false, JSON.stringify(before))
+    assert.match(denied.error.message, /not a change that can be restored/, JSON.stringify(before))
+    const replaceLine = forge({ id: `rp-${JSON.stringify(before)}`, time: new Date().toISOString(), op: 'replace', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before, after: journal()[0].after })
+    const deniedReplace = await call('memory-restore', { line: replaceLine })
+    assert.equal(deniedReplace.ok, false, JSON.stringify(before))
+    assert.match(deniedReplace.error.message, /not a change that can be restored/, JSON.stringify(before))
+  }
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Real fact \[/)
+})
+
+test('a restore follows a hand-named topic file', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  // A file renamed or created by hand still lists as a topic; a replace that
+  // finds its entry journals the name as it is, not a cleanTopic form.
+  mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'Travel.md'), '# Travel\n\n- Prefers aisle seats [added: 2026-01-01]\n')
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n- [[Travel]]\n')
+  assert.match(await tool('remember', { text: 'Prefers window seats', replace: 'aisle' }, 'b2'), /is now "Prefers window seats"/)
+  assert.equal(journal().at(-1).file, 'Travel.md')
+  const restored = await call('memory-restore', { line: journal().length })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'Travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())
