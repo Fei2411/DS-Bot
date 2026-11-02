@@ -27,35 +27,39 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const stopped = useRef(false)
+  // Each poll loop owns a generation number; a chat switch bumps it so stale
+  // loops and in-flight refreshes stop writing instead of fighting the new chat.
+  const generation = useRef(0)
   const scroller = useRef<{ scrollToEnd: (o: { animated: boolean }) => void } | null>(null)
   const loading = useRef(false)
   const atBottom = useRef(true)
   const seen = useRef(0)
 
-  const refresh = useCallback(async () => {
-    if (stopped.current || id === '') return
+  const refresh = useCallback(async (gen: number) => {
+    if (id === '' || generation.current !== gen) return
     try {
       const next = (room !== undefined
         ? await call('room-chat', { roomId: room.id, steps: true })
         : await call('chat', { botId: id, steps: true })) as ChatPage
-      if (!stopped.current) setPage(next)
+      if (generation.current === gen) setPage(next)
     } catch (failure) {
+      if (generation.current !== gen) return
       const code = (failure as { code?: string })?.code
       if (code === 'bot/not-found') { setGone(true); onMissing?.() }
-      else if (!stopped.current) setError(failure instanceof Error ? failure.message : String(failure))
+      else setError(failure instanceof Error ? failure.message : String(failure))
     }
   }, [call, id])
 
   useEffect(() => {
-    stopped.current = false
+    const gen = ++generation.current
     setPage(null); setOlder([]); cursor.current = undefined; setGone(false); setLoaded(false)
+    streamAttempts.current.clear(); setStreamText('')
     const loop = async () => {
-      await refresh()
-      if (!stopped.current) setTimeout(() => void loop(), POLL_MS)
+      await refresh(gen)
+      if (generation.current === gen) setTimeout(() => void loop(), POLL_MS)
     }
     void loop()
-    return () => { stopped.current = true }
+    return () => { if (generation.current === gen) generation.current += 1 }
   }, [refresh])
 
   // cursor lives in a ref: onScroll can fire again before the setState from
@@ -63,12 +67,14 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // page forever at the top.
   const loadMore = useCallback(async () => {
     if (cursor.current == null || id === '' || loading.current) return
+    const gen = generation.current
     loading.current = true
     atBottom.current = false
     try {
       const next = (room !== undefined
         ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true })
         : await call('chat', { botId: id, cursor: cursor.current, steps: true })) as ChatPage
+      if (generation.current !== gen) return
       cursor.current = next.cursor
       setOlder(prev => [...next.items, ...prev])
     } catch { /* keep the page we have */ }
@@ -96,14 +102,15 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   useEffect(() => { markSeen(id) }, [id])
   useEffect(() => {
     if (onFeed === undefined) return
+    const gen = generation.current
     return onFeed((event, data) => {
-      if (stopped.current) return
-      if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh()
+      if (generation.current !== gen) return
+      if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh(gen)
       if (event === 'message' && data?.sessionId === sessionId) {
         const item = data.item
         if (item !== undefined) setPage(prev => prev === null || prev.items.some(it => it.seq !== undefined && it.seq === item.seq) ? prev : { ...prev, items: [...prev.items, item] })
         markSeen(id)
-        void refresh()
+        void refresh(gen)
       }
       if (event === 'stream' && data?.sessionId === sessionId) {
         if (data.phase === 'start') streamAttempts.current.set(data.attemptId, '')
@@ -124,7 +131,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const send = async (text: string) => {
     try {
       await call('send', { sessionId, text })
-      setError(null); void refresh()
+      setError(null); void refresh(generation.current)
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
   }
   const stop = () => {
@@ -145,7 +152,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
         : page === null && error !== null
           ? <View style={{ alignItems: 'center', marginTop: 24 }}>
               <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{error}</Text>
-              <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setError(null); void refresh() }}>{t('Retry')}</Text>
+              <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setError(null); void refresh(generation.current) }}>{t('Retry')}</Text>
             </View>
         : page === null
           ? <ActivityIndicator style={styles.loading} color={p.accent} />
