@@ -243,6 +243,89 @@ test('topics hold details, linked from MEMORY.md, and go when their last entry d
   assert.equal(read('bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n')
 })
 
+test('a journal line restores its change: remove, replace, and add undone', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'User prefers short replies' }, 'b2')
+  const added = journal().at(-1)
+  assert.equal(added.op, 'add')
+
+  // Undoing a remove puts the line back.
+  await tool('forget', { entry: 'short replies' }, 'b2')
+  const removed = journal().at(-1)
+  assert.equal(removed.op, 'remove')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 0)
+  const line = journal().length
+  const restored = await call('memory-restore', { line })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.equal(restored.value.op, 'add')
+  assert.equal(restored.value.restored, removed.id)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- User prefers short replies \[/)
+  assert.equal(journal().at(-1).op, 'add')
+  assert.equal(journal().at(-1).restored, removed.id)
+
+  // A remove already undone is not undone twice: the line is back, so NO_MATCH.
+  const twice = await call('memory-restore', { line })
+  assert.equal(twice.ok, false)
+  assert.match(twice.error.message, /already in/)
+
+  // Undoing an add takes the line back out, while it still reads as written.
+  const addLine = journal().findIndex(record => record.id === added.id) + 1
+  const undone = await call('memory-restore', { line: addLine })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(undone.value.op, 'remove')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 0)
+
+  // A replace puts the before-line back.
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await tool('remember', { text: 'Lives in Shanghai', replace: 'Hangzhou' }, 'b2')
+  const replaced = journal().at(-1)
+  const back = await call('memory-restore', { line: journal().length })
+  assert.equal(back.ok, true, JSON.stringify(back))
+  assert.equal(back.value.op, 'replace')
+  assert.equal(back.value.restored, replaced.id)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Shanghai/)
+})
+
+test('a restore refuses drift and rows that are not restorable', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'User prefers short replies' }, 'b2')
+  const addLine = journal().length
+  // The entry the add wrote was replaced since: undoing it now is a NO_MATCH,
+  // not a delete of the newer text.
+  await tool('remember', { text: 'User prefers very short replies', replace: 'short replies' }, 'b2')
+  const drift = await call('memory-restore', { line: addLine })
+  assert.equal(drift.ok, false)
+  assert.match(drift.error.message, /no longer in|not where the change log left it/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /very short replies/)
+
+  for (const body of [{ line: 0 }, { line: -2 }, { line: 'three' }, {}]) {
+    const bad = await call('memory-restore', body)
+    assert.equal(bad.ok, false, JSON.stringify(body))
+    assert.match(bad.error.message, /line/)
+  }
+  const pastEnd = await call('memory-restore', { line: journal().length + 10 })
+  assert.equal(pastEnd.ok, false)
+  assert.match(pastEnd.error.message, /not a change that can be restored/)
+})
+
+test('restoring a remove that took a topic with it makes the topic again', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Flies from Hangzhou', topic: 'Travel' }, 'b2')
+  await tool('forget', { entry: 'Flies', topic: 'travel' }, 'b2')
+  const removed = journal().at(-1)
+  assert.equal(removed.removedTopic, true)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'travel.md')), false)
+
+  const restored = await call('memory-restore', { line: journal().length })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'travel.md'), /^# travel\n\n- Flies from Hangzhou \[/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- \[\[travel\]\]/)
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())

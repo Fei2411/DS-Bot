@@ -1453,6 +1453,120 @@ export function install(rt) {
   }
 
   // ---------------------------------------------------------------------------
+  // Undoing a change from the change log.
+  //
+  // Every row of journal.jsonl (or a private Bot's own log) holds the line a change
+  // left and the one it replaced, so one row can be undone with its inverse: an add
+  // is taken out, a remove or replace puts its line back. A restore is applied only
+  // while what it reads still reads as the row left it — an entry that changed
+  // since, or a line already back, is a NO_MATCH rather than a silent delete. The
+  // restore itself is a change: it goes through publish like the rest, and its row
+  // is the inverse op with the id of the row it undid, so it can be undone again.
+  // Archive rows move whole folders and are not undone this way.
+
+  const journalScope = key => (key === 'team' ? TEAM
+    : typeof key === 'string' && key.startsWith('bot:') ? ownScope(key.slice(4))
+      : typeof key === 'string' && key.startsWith('group:') ? groupScope(key.slice(6))
+        : undefined)
+  // The entry lines a file still has exactly as a row recorded them; restoring on
+  // less than a whole line would undo a different change than the one it reads.
+  const exactLines = (file, line) => file.entries.filter(entry => file.lines[entry.line] === line)
+  const noMatch = message => Object.assign(new Error(message), { code: NO_MATCH })
+
+  async function memoryRestore(body) {
+    const line = Number(body.line)
+    if (!Number.isInteger(line) || line < 1) throw new Error('Give the change log line of the change to restore, 1 being the first line.')
+    return queued(async () => {
+      await recoverPending()
+      // `botId` picks a private Bot's own log; every other change is in the shared
+      // log, which journalFor resolves for a public or unknown Bot too.
+      const { path } = journalFor(body.botId === undefined ? 'team' : `bot:${body.botId}`, 'restore')
+      const raw = readJournal(path).split('\n').filter(row => row !== '')[line - 1]
+      let row
+      try { row = raw === undefined ? undefined : JSON.parse(raw) } catch { row = null }
+      if (row === undefined || row === null || typeof row !== 'object') {
+        throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+      }
+      const scope = journalScope(row.scope)
+      if (scope === undefined || typeof row.file !== 'string' || row.file === '') {
+        throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+      }
+      if (row.op === 'archive') throw new Error('An archived memory cannot be restored from the change log.')
+      if (row.op !== 'add' && row.op !== 'remove' && row.op !== 'replace') {
+        throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+      }
+      writable(scope, USER)
+      const label = labelOf(scope)
+      const files = loadScope(scope)
+      const target = files.find(file => file.file === row.file)
+      const base = { scope: scopeKey(scope), file: row.file, ...actorOf(USER), restored: row.id }
+      const steps = []
+
+      if (row.op === 'add') {
+        // Undoing an add takes the line back out. It must still read as it was
+        // written; a topic left with only its title goes, and its link with it.
+        if (target === undefined || typeof row.after !== 'string') {
+          throw noMatch(`The entry that line ${line} added is not where the change log left it; it may have changed or been removed since.`)
+        }
+        const found = exactLines(target, row.after)
+        if (found.length === 0) throw noMatch(`The entry that line ${line} added is no longer in ${label}; it may have changed or been removed since.`)
+        if (found.length > 1) throw noMatch(`The line that line ${line} added is in ${label} more than once; restore it by hand so the wrong one is not removed.`)
+        const lines = target.lines.filter((_line, index) => index !== found[0].line)
+        const empty = target.topic !== undefined && lines.every(item => item.trim() === '' || HEADING.test(item))
+        if (empty) {
+          steps.push(removeStep(target.path))
+          const main = files[0]
+          if (main.links.includes(target.topic)) steps.push(writeStep(main.path, joinLines(removeLink(main.lines, target.topic))))
+        } else {
+          steps.push(writeStep(target.path, joinLines(lines)))
+        }
+        await publish({ op: 'remove', scope: scopeKey(scope), steps, row: { op: 'remove', ...base, before: row.after, ...(empty ? { removedTopic: true } : {}) } })
+        return { restored: row.id, op: 'remove', scope: row.scope, file: row.file, text: splitMeta(row.after.replace(/^[-*]\s+/, '')).text }
+      }
+
+      if (row.op === 'remove') {
+        // Undoing a remove puts the line back. The original place is not in the
+        // row, so it goes where a new entry would; a topic the remove took away
+        // is made again with its link, and a line already back is not duplicated.
+        if (typeof row.before !== 'string') throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+        let file = target
+        if (file === undefined) {
+          const topic = row.removedTopic === true && row.file.endsWith('.md') && row.file !== MAIN ? row.file.slice(0, -3) : undefined
+          if (topic === undefined) throw noMatch(`The file that line ${line} took the entry from is gone; restore it by hand.`)
+          file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
+        }
+        if (file.lines.includes(row.before)) throw noMatch(`The entry that line ${line} removed is already in ${label}; there is nothing to restore.`)
+        const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
+        const next = joinLines(insertEntry(lines, row.before))
+        checkSize(file, next, label)
+        steps.push(writeStep(file.path, next))
+        const main = files[0]
+        if (file.topic !== undefined && !main.links.includes(file.topic)) {
+          const index = joinLines(addLink(main.lines, file.topic))
+          checkSize(main, index, label)
+          steps.push(writeStep(main.path, index))
+        }
+        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, after: row.before } })
+        return { restored: row.id, op: 'add', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^[-*]\s+/, '')).text }
+      }
+
+      // row.op === 'replace': the recorded after-line is put back to before.
+      if (target === undefined || typeof row.before !== 'string' || typeof row.after !== 'string') {
+        throw noMatch(`The entry that line ${line} changed is not where the change log left it; it may have changed or been removed since.`)
+      }
+      const found = exactLines(target, row.after)
+      if (found.length === 0) throw noMatch(`The entry that line ${line} changed is no longer in ${label}; it may have changed or been removed since.`)
+      if (found.length > 1) throw noMatch(`The line that line ${line} changed is in ${label} more than once; restore it by hand so the wrong one is not changed.`)
+      const lines = [...target.lines]
+      lines[found[0].line] = row.before
+      const next = joinLines(lines)
+      checkSize(target, next, label)
+      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, next)], row: { op: 'replace', ...base, before: row.after, after: row.before } })
+      return { restored: row.id, op: 'replace', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^[-*]\s+/, '')).text }
+    })
+  }
+
+  // ---------------------------------------------------------------------------
   // The memory review. When a conversation goes idle, a model reads what is new there
   // and keeps, changes, or removes entries, as a person would after a talk. A Bot's own
   // chat goes to its own memory, read by its model; a group chat goes to the group's
@@ -1800,6 +1914,7 @@ export function install(rt) {
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
+    if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
   }
 
