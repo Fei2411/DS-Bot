@@ -523,10 +523,25 @@ export function Memory({ route, navigation }: any) {
   const [asking, setAsking] = useState(false)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<string | null>(null)
+  const [armed, setArmed] = useState<number | null>(null)
+  const [editor, setEditor] = useState<{ index: number | null; scope: string; topic: string; text: string } | null>(null)
   const owner = route.params?.group === true ? { roomId: id } : { botId: id }
   const load = () => void call('memory-view', owner).then(v => setView(v as typeof view)).catch(() => {})
   useState(() => { load(); return null })
-  const forget = (entry: { scope: string; topic: string | null; text: string }) => void call('memory-forget', { ...owner, scope: entry.scope, topic: entry.topic, text: entry.text }).then(load).catch(() => {})
+  const forget = (entry: { scope: string; topic: string | null; text: string }, index: number) => {
+    if (armed !== index) { setArmed(index); return }
+    setArmed(null)
+    void call('memory-forget', { ...owner, scope: entry.scope, topic: entry.topic, text: entry.text }).then(load).catch(() => {})
+  }
+  const saveEditor = () => {
+    if (editor === null || !editor.text.trim()) return
+    const existing = editor.index !== null ? view?.entries?.[editor.index] : undefined
+    const body = { ...owner, scope: editor.scope, topic: editor.topic.trim() || null, text: existing?.text ?? '', next: editor.text.trim() }
+    const endpoint = existing === undefined ? 'memory-add' : 'memory-edit'
+    const payload = existing === undefined ? { ...owner, scope: editor.scope, topic: editor.topic.trim() || null, text: editor.text.trim() } : body
+    setEditor(null)
+    void call(endpoint, payload).then(load).catch(() => {})
+  }
   const ask = () => { if (!question.trim()) return; setAsking(true); void call('memory-ask', { ...owner, text: question.trim() }).then(v => setAnswer((v as { answer?: string })?.answer ?? null)).catch(() => {}).finally(() => setAsking(false)) }
   return (
     <Screen title={name}>
@@ -543,32 +558,49 @@ export function Memory({ route, navigation }: any) {
         </View>
         <Section label={t('{count} entries', { count: view?.entries?.length ?? 0 })}>
           {(view?.entries ?? []).map((entry, i) => (
-            <View key={i} style={styles.row}>
+            <Pressable key={i} accessibilityRole="button" onPress={() => setEditor({ index: i, scope: entry.scope, topic: entry.topic ?? '', text: entry.text })} style={styles.row}>
               <View style={{ flex: 1 }}>
                 {entry.topic ? <Text style={[typeScale.small, { color: p.ink3 }]}>{entry.topic}</Text> : null}
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{entry.text}</Text>
                 <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{[entry.added, entry.by ? t('by {name}', { name: entry.by }) : null].filter(Boolean).join(' · ')}</Text>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Remove from memory')} onPress={() => forget(entry)} hitSlop={8}>
-                <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={armed === i ? t('Click again to remove') : t('Remove from memory')} onPress={() => forget(entry, i)} hitSlop={8}
+                style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
+                {armed === i ? <Text style={[typeScale.small, { color: p.danger }]}>{t('Remove')}</Text> : <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>}
               </Pressable>
-            </View>
+            </Pressable>
           ))}
           {view !== null && (view.entries ?? []).length === 0 ? <Row label={t('Nothing saved yet')} disabled /> : null}
+          <Row label={t('Add')} onPress={() => setEditor({ index: null, scope: 'own', topic: '', text: '' })} />
         </Section>
       </ScrollView>
+      <Modal visible={editor !== null} transparent animationType="fade" onRequestClose={() => setEditor(null)}>
+        <Pressable style={styles.scrim} onPress={() => setEditor(null)} />
+        <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={editor?.topic ?? ''} onChangeText={topic => setEditor(prev => prev === null ? null : { ...prev, topic })} placeholder={t('Topic')} placeholderTextColor={p.ink3} /></View>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, minHeight: 80, textAlignVertical: 'top' }]} value={editor?.text ?? ''} onChangeText={text => setEditor(prev => prev === null ? null : { ...prev, text })} placeholder={t('Text')} placeholderTextColor={p.ink3} multiline autoFocus /></View>
+          <View style={styles.row}>
+            <Pressable accessibilityRole="button" onPress={() => setEditor(null)} style={{ flex: 1, alignItems: 'center' }}><Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{t('Cancel')}</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={saveEditor} style={{ flex: 1, alignItems: 'center' }}><Text style={[typeScale.settingsRow, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text></Pressable>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   )
 }
 
 // ------------------------------------------------------------ Schedules
 
-const whenText = (task: { kind: string; time?: string; everySeconds?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }) => {
+const KINDS: [string, string][] = [['at', 'Once'], ['daily', 'Every day'], ['weekly', 'Every week'], ['every', 'Repeat']]
+const UNITS: [string, number, string][] = [['minutes', 1, 'minutes'], ['hours', 60, 'hours'], ['days', 1440, 'days']]
+
+const DAY_NAMES = ['', '一', '二', '三', '四', '五', '六', '日']
+const whenText = (task: { kind: string; time?: string; everySeconds?: number; minutes?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }) => {
   switch (task.kind) {
     case 'at': return t('Once, {time}', { time: new Date(task.scheduledAt ?? 0).toLocaleString() })
-    case 'every': { const s = task.everySeconds ?? 0; if (s % 86400 === 0) return s === 86400 ? t('Every day') : t('Every {count} days', { count: s / 86400 }); if (s % 3600 === 0) return s === 3600 ? t('Every hour') : t('Every {count} hours', { count: s / 3600 }); return t('Every {count} minutes', { count: Math.round(s / 60) }) }
+    case 'every': { const s = task.everySeconds ?? (task.minutes ?? 0) * 60; if (s % 86400 === 0) return s === 86400 ? t('Every day') : t('Every {count} days', { count: s / 86400 }); if (s % 3600 === 0) return s === 3600 ? t('Every hour') : t('Every {count} hours', { count: s / 3600 }); return t('Every {count} minutes', { count: Math.round(s / 60) }) }
     case 'daily': return t('Every day at {time}', { time: task.time ?? '' })
-    case 'weekly': { const d = (task.weekdays ?? []).join(); return d === '1,2,3,4,5' ? t('Every weekday at {time}', { time: task.time ?? '' }) : d === '6,7' ? t('Every weekend at {time}', { time: task.time ?? '' }) : t('Every day at {time}', { time: task.time ?? '' }) }
+    case 'weekly': { const d = (task.weekdays ?? []).join(); return d === '1,2,3,4,5' ? t('Every weekday at {time}', { time: task.time ?? '' }) : d === '6,7' ? t('Every weekend at {time}', { time: task.time ?? '' }) : d === '1,2,3,4,5,6,7' ? t('Every day at {time}', { time: task.time ?? '' }) : t('Every {days} at {time}', { days: (task.weekdays ?? []).map(day => t('周{d}', { d: DAY_NAMES[day] ?? String(day) })).join('、'), time: task.time ?? '' }) }
     case 'cron': return t('On the schedule {expression}', { expression: task.expression ?? '' })
     default: return ''
   }
@@ -582,11 +614,29 @@ export function Schedules({ route, navigation }: any) {
   const sessionId = String(route.params?.sessionId ?? '')
   const [tasks, setTasks] = useState<{ id: string; botId?: string; sessionId: string; title: string; prompt?: string; kind: string; status: string; time?: string; everySeconds?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }[]>([])
   const [title, setTitle] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [kind, setKind] = useState('daily')
   const [time, setTime] = useState('09:00')
+  const [atDate, setAtDate] = useState('')
+  const [atTime, setAtTime] = useState('09:00')
+  const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5])
+  const [count, setCount] = useState('1')
+  const [unit, setUnit] = useState('hours')
   const [adding, setAdding] = useState(false)
   const load = () => void call('schedules').then(v => setTasks(((v as typeof tasks) ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
   useState(() => { load(); return null })
-  const create = () => { if (!title.trim()) return; setAdding(false); void run('schedule-create', { botId, title: title.trim(), kind: 'daily', time, sessionId }, () => { setTitle(''); load() }) }
+  const when = () => {
+    if (kind === 'at') { const at = new Date(`${atDate}T${atTime}`); return Number.isNaN(at.getTime()) ? null : { kind, at: at.toISOString() } }
+    if (kind === 'every') { const minutes = Math.round(Number(count) * (UNITS.find(([id]) => id === unit)?.[1] ?? 60)); return minutes > 0 ? { kind, minutes } : null }
+    return { kind, time, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(kind === 'weekly' ? { weekdays } : {}) }
+  }
+  const create = () => {
+    const timing = when()
+    if (!title.trim() || !prompt.trim() || timing === null) return
+    setAdding(true)
+    void run('schedule-create', { target: botId, title: title.trim(), prompt: prompt.trim(), when: timing }, () => { setTitle(''); setPrompt(''); load() })
+    setAdding(false)
+  }
   return (
     <Screen title={String(route.params?.name ?? '')}>
       <BackRow title={t('Schedules')} onBack={() => navigation.goBack()} />
@@ -606,13 +656,45 @@ export function Schedules({ route, navigation }: any) {
           {tasks.length === 0 ? <Row label={t('Nothing saved yet')} disabled /> : null}
         </Section>
         <Section label={t('New task')}>
-          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={title} onChangeText={setTitle} placeholder={t('Title')} placeholderTextColor={p.ink3} /></View>
-          <View style={styles.row}><Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Every day at {time}', { time: '' })}</Text>
-            <TextInput style={[typeScale.settingsRow, { color: p.ink, minWidth: 60 }]} value={time} onChangeText={setTime} placeholder="09:00" placeholderTextColor={p.ink3} autoCapitalize="none" /></View>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={title} onChangeText={setTitle} placeholder={t('Morning briefing')} placeholderTextColor={p.ink3} /></View>
+          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, minHeight: 70, textAlignVertical: 'top' }]} value={prompt} onChangeText={setPrompt} placeholder={t('Sum up what changed since yesterday and what needs me today.')} placeholderTextColor={p.ink3} multiline /></View>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+            <Text style={[typeScale.small, { color: p.ink3, marginBottom: 6 }]}>{t('When')}</Text>
+            <Segmented value={kind} onPick={id => setKind(id)} options={KINDS.map(([id, label]) => ({ id, label: t(label) }))} />
+          </View>
+          {kind === 'at' ? (
+            <View style={styles.row}>
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={atDate} onChangeText={setAtDate} placeholder="2026-11-05" placeholderTextColor={p.ink3} autoCapitalize="none" />
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, width: 70 }]} value={atTime} onChangeText={setAtTime} placeholder="09:00" placeholderTextColor={p.ink3} autoCapitalize="none" />
+            </View>
+          ) : null}
+          {kind === 'weekly' ? (
+            <View style={[styles.row, { flexWrap: 'wrap', gap: 6 }]}>
+              {[1, 2, 3, 4, 5, 6, 7].map(day => (
+                <Pressable key={day} accessibilityRole="button" accessibilityState={{ selected: weekdays.includes(day) }} onPress={() => setWeekdays(days => days.includes(day) ? days.filter(d => d !== day) : [...days, day].sort())}
+                  style={[styles.dayBtn, { borderColor: weekdays.includes(day) ? p.accent : p.line, backgroundColor: weekdays.includes(day) ? p.accent : 'transparent' }]}>
+                  <Text style={[typeScale.caption, { color: weekdays.includes(day) ? p.accentInk : p.ink2 }]}>{DAY_NAMES[day]}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {kind === 'daily' || kind === 'weekly' ? (
+            <View style={styles.row}><Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Time')}</Text>
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, minWidth: 70 }]} value={time} onChangeText={setTime} placeholder="09:00" placeholderTextColor={p.ink3} autoCapitalize="none" /></View>
+          ) : null}
+          {kind === 'every' ? (
+            <View style={styles.row}>
+              <Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Every')}</Text>
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, width: 56, textAlign: 'center' }]} value={count} onChangeText={setCount} placeholder="1" placeholderTextColor={p.ink3} keyboardType="number-pad" />
+              <View style={{ flex: 1 }}>
+                <Segmented value={unit} onPick={setUnit} options={UNITS.map(([id, , label]) => ({ id, label: t(label) }))} />
+              </View>
+            </View>
+          ) : null}
         </Section>
         <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
-          <Pressable accessibilityRole="button" disabled={!title.trim()} onPress={create} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !title.trim() ? 0.5 : pressed ? 0.85 : 1 }]}>
-            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create')}</Text>
+          <Pressable accessibilityRole="button" disabled={!title.trim() || !prompt.trim() || adding} onPress={create} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !title.trim() || !prompt.trim() ? 0.5 : pressed ? 0.85 : 1 }]}>
+            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create task')}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -712,5 +794,6 @@ const styles = StyleSheet.create({
   scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: { position: 'absolute', left: 24, right: 24, top: '25%', maxHeight: '55%', borderRadius: radius.card, borderWidth: 1, overflow: 'hidden' },
   menuRow: { paddingHorizontal: 18, paddingVertical: 14 },
+  dayBtn: { minWidth: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   tick: { position: 'absolute', top: 3, right: 3, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 })
