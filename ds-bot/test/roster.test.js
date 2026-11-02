@@ -566,7 +566,7 @@ test('a model whose provider has no key is never given to a new Bot', async (t) 
 })
 
 test('a message the user writes before the first Main Bot has a model is answered once it has one', async (t) => {
-  const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
+  const { call, stop, sent, ctx } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
   t.after(stop)
   const chief = (await call('state', { locale: 'zh-CN' })).value.mainBotId
   // The Session's own route has no key either, so that turn fails.
@@ -596,7 +596,7 @@ test('a message the user writes before the first Main Bot has a model is answere
 })
 
 test('a held greeting goes once a turn answered the user, and a Bot that can answer drops its own', async (t) => {
-  const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
+  const { call, stop, sent, ctx } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
   t.after(stop)
   const chief = (await call('state', {})).value.mainBotId
   const writer = (await call('create-bot', { name: 'Writer' })).value
@@ -613,7 +613,7 @@ test('a held greeting goes once a turn answered the user, and a Bot that can ans
 })
 
 test('a greeting that fails on a key is held again and goes out once the key is set', async (t) => {
-  const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
+  const { call, stop, sent, ctx } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
   t.after(stop)
   const chief = (await call('state', {})).value.mainBotId
   await call('update-bot', { id: chief, model: 'deepseek/deepseek-v4-flash' })
@@ -793,7 +793,7 @@ test('the first Main Bot keeps its greeting when the user writes while a key blo
 })
 
 test('Retry right after a fix adds no turn while the greeting it released waits for its model, is queued or runs', async (t) => {
-  const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
+  const { call, stop, sent, ctx } = start(undefined, { models: ['deepseek-v4-flash'], keys: [] })
   t.after(stop)
   const chief = (await call('state', {})).value.mainBotId
   await call('update-bot', { id: chief, model: 'deepseek/deepseek-v4-flash' })
