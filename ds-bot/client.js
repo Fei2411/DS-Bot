@@ -505,6 +505,8 @@ var ZH = {
   "Bubble width": "气泡宽度",
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
+  "Enter sends message": "回车发送消息",
+  "When off, Enter inserts a new line. Use the send button to send.": "关闭后，回车换行，点击发送按钮发送。",
   "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
   "Choose a Bot…": "选择一个 Bot…",
@@ -2407,7 +2409,7 @@ function useLinger(value, ms) {
 var SHELL_CSS = `
 body{--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
+:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice){corner-shape:round}
 body[data-ds-dark-theme]{--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
@@ -10685,6 +10687,21 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   );
 }
 
+// src/client/enter-key.js
+var sendsOnEnter = (prefs) => prefs?.enterToSend !== false;
+function insertComposerNewline(event, inputActions) {
+  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")) return false;
+  const target = event.target;
+  if (typeof target?.closest !== "function" || !target.closest('[data-composer-card] [role="textbox"]')) return false;
+  if (target.closest("[data-composer-composing]")) return false;
+  if (target.ownerDocument?.querySelector('[role="listbox"]')) return false;
+  if (typeof inputActions?.captureInsertion !== "function" || typeof inputActions?.insertText !== "function") return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  inputActions.insertText("\n", inputActions.captureInsertion());
+  return true;
+}
+
 // src/client/composer.js
 var import_react21 = require("react");
 var import_react_dom5 = require("react-dom");
@@ -10745,7 +10762,16 @@ function useDictation(onText) {
   const stop = () => recognition.current?.stop();
   return { listening, note, start, stop };
 }
-function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
+function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
+  const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
+  const composerRoot = (0, import_react21.useRef)(null);
+  (0, import_react21.useEffect)(() => {
+    const root = composerRoot.current?.closest("[data-composer-card]");
+    if (enterToSend || !inputActions || !root) return void 0;
+    const onKey = (event) => insertComposerNewline(event, inputActions);
+    root.addEventListener("keydown", onKey, true);
+    return () => root.removeEventListener("keydown", onKey, true);
+  }, [enterToSend, inputActions]);
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion());
   });
@@ -10781,6 +10807,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       onClick: () => dictation.listening ? dictation.stop() : dictation.start()
     }, (0, import_react21.createElement)(MicIcon)),
     (0, import_react21.createElement)("button", {
+      ref: composerRoot,
       type: "button",
       className: "bt-voice",
       "aria-label": t("Start voice chat"),
@@ -11141,7 +11168,7 @@ function SideEntry({ chatId, entry, actions }) {
     )
   );
 }
-function SideChatView({ subject, chat, actions }) {
+function SideChatView({ subject, chat, roster, actions }) {
   const scroll = (0, import_react22.useRef)(null);
   const [draft, setDraft] = (0, import_react22.useState)("");
   const [fail2, setFail] = (0, import_react22.useState)(null);
@@ -11187,11 +11214,19 @@ function SideChatView({ subject, chat, actions }) {
           if (fail2 !== null) setFail(null);
         },
         onKeyDown: (event) => {
-          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent?.isComposing) return;
+          if (event.key !== "Enter" || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing) return;
           event.preventDefault();
           ask();
         }
       }),
+      // With Enter sending off this is the only way to ask; on, it sends the same.
+      (0, import_react22.createElement)("button", {
+        type: "button",
+        className: "bt-side-send",
+        "aria-label": t("Send message"),
+        disabled: busy || draft.trim() === "" || typeof actions?.askSide !== "function",
+        onClick: ask
+      }, (0, import_react22.createElement)(ArrowUpIcon)),
       fail2 !== null ? (0, import_react22.createElement)("p", { className: "bt-side-fail" }, fail2) : null
     )
   );
@@ -11254,8 +11289,11 @@ var SIDE_CSS = `
 .bt-side-a{display:flex;flex-direction:column;gap:8px;align-items:flex-start;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-side-status{margin:0;font-size:12px;color:var(--bt-ink-3)}
 .bt-side-fail{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger)}
-.bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line)}
-.bt-side-input{display:block;width:100%;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
+.bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line);display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.bt-side-form>.bt-side-fail{flex-basis:100%}
+.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.bt-side-send:disabled{opacity:.3;cursor:default}
+.bt-side-input{display:block;flex:1;min-width:0;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
 .bt-side-input::placeholder{color:var(--bt-ink-3)}
 .bt-side-input:focus{border-color:var(--bt-accent)}
 .bt-side-input:disabled{opacity:.6}
@@ -14219,7 +14257,7 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
             "aria-label": placeholder,
             onChange: (event) => setMessage(event.target.value),
             onKeyDown: (event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (event.key === "Enter" && sendsOnEnter(roster.prefs) && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 sendMessage();
               }
@@ -17029,6 +17067,15 @@ function GeneralPage({ roster, actions, run: run2 }) {
       (0, import_react45.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react45.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
       (0, import_react45.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react45.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) }))
     ),
+    (0, import_react45.createElement)(
+      SetSection,
+      { key: "input", title: t("Input") },
+      (0, import_react45.createElement)(
+        SetRow,
+        { label: t("Enter sends message"), hint: t("When off, Enter inserts a new line. Use the send button to send.") },
+        (0, import_react45.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+      )
+    ),
     actions.setSurface ? (0, import_react45.createElement)(
       SetSection,
       { key: "mode", title: t("Mode") },
@@ -18901,7 +18948,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? (0, import_react_dom8.createPortal)((0, import_react49.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
     hasStrip ? (0, import_react49.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
-    view === "browser" && bot ? (0, import_react49.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react49.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react49.createElement)(SideChatView, { subject: pane.id, chat: sideChat, actions: panelActions })) : (0, import_react49.createElement)(
+    view === "browser" && bot ? (0, import_react49.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react49.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react49.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : (0, import_react49.createElement)(
       "div",
       { key: `details:${pane.id}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react49.createElement)(DetailsDrawer, {
@@ -20614,8 +20661,15 @@ function listedOpener({ list, open, refresh, current }) {
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
-  const roster = createSource(EMPTY_ROSTER);
   migrateStorage();
+  const PREFS_KEY = STORAGE.prefs;
+  let savedPrefs = {};
+  try {
+    savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") ?? {};
+  } catch {
+    savedPrefs = {};
+  }
+  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs });
   const unreadStore = sharedMap(STORAGE.unread);
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
@@ -20682,13 +20736,6 @@ function apply(ctx) {
       state[id]?.at === entry.at ? state[id] : { ...entry, seen: opening ? 0 : Date.now() }
     ])));
   };
-  const PREFS_KEY = STORAGE.prefs;
-  let savedPrefs = {};
-  try {
-    savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") ?? {};
-  } catch {
-    savedPrefs = {};
-  }
   const writeUnread = (id, value) => {
     const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui2.getSnapshot().unread);
     ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
@@ -20917,7 +20964,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, enterToSend: prefs.enterToSend }));
         } catch {
         }
       }

@@ -445,6 +445,8 @@ const ZH = {
   'Bubble width': '气泡宽度',
   'Text width': '正文宽度',
   'Show thinking': '显示思考过程',
+  'Enter sends message': '回车发送消息',
+  'When off, Enter inserts a new line. Use the send button to send.': '关闭后，回车换行，点击发送按钮发送。',
   'Bots · {count}': 'Bot · {count}',
   'First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.': '排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。',
   'Choose a Bot…': '选择一个 Bot…',
