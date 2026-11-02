@@ -1459,7 +1459,9 @@ export function install(rt) {
   // left and the one it replaced, so one row can be undone with its inverse: an add
   // is taken out, a remove or replace puts its line back. A restore is applied only
   // while what it reads still reads as the row left it — an entry that changed
-  // since, or a line already back, is a NO_MATCH rather than a silent delete. The
+  // since, or a line already back, is a NO_MATCH rather than a silent delete. A
+  // line going back passes the checks a new entry does, so nothing the memory no
+  // longer keeps returns and a fact remembered again is not duplicated. The
   // restore itself is a change: it goes through publish like the rest, and its row
   // is the inverse op with the id of the row it undid, so it can be undone again.
   // Archive rows move whole folders and are not undone this way.
@@ -1529,13 +1531,18 @@ export function install(rt) {
         // row, so it goes where a new entry would; a topic the remove took away
         // is made again with its link, and a line already back is not duplicated.
         if (typeof row.before !== 'string') throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+        const back = splitMeta(row.before.replace(/^[-*]\s+/, '')).text
+        const problem = entryProblem(back)
+        if (problem !== undefined) throw new Error(`The entry that line ${line} removed cannot be put back: ${problem}`)
+        const [same] = matchEntries(allEntries(files), back).filter(entry => squash(entry.text) === squash(back))
+        if (same !== undefined) throw noMatch(`The entry that line ${line} removed is already in ${label} (${fileName(same.file)}); there is nothing to restore.`)
         let file = target
         if (file === undefined) {
           const topic = row.removedTopic === true && row.file.endsWith('.md') && row.file !== MAIN ? row.file.slice(0, -3) : undefined
           if (topic === undefined) throw noMatch(`The file that line ${line} took the entry from is gone; restore it by hand.`)
+          if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
           file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
         }
-        if (file.lines.includes(row.before)) throw noMatch(`The entry that line ${line} removed is already in ${label}; there is nothing to restore.`)
         const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
         const next = joinLines(insertEntry(lines, row.before))
         checkSize(file, next, label)
@@ -1557,6 +1564,10 @@ export function install(rt) {
       const found = exactLines(target, row.after)
       if (found.length === 0) throw noMatch(`The entry that line ${line} changed is no longer in ${label}; it may have changed or been removed since.`)
       if (found.length > 1) throw noMatch(`The line that line ${line} changed is in ${label} more than once; restore it by hand so the wrong one is not changed.`)
+      // The before-line passes the checks a new entry does, so a restore does not
+      // write — into the file or the change log — what memory no longer keeps.
+      const problem = entryProblem(splitMeta(row.before.replace(/^[-*]\s+/, '')).text)
+      if (problem !== undefined) throw new Error(`The entry that line ${line} changed cannot be put back: ${problem}`)
       const lines = [...target.lines]
       lines[found[0].line] = row.before
       const next = joinLines(lines)
