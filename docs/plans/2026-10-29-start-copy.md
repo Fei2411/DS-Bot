@@ -50,7 +50,7 @@
 
 鲸鱼的话 `voice.*`：`voice.slow45 / watchdog` 不动；`title.moving` → `voice.moving`，`title.failed` → `voice.failed`，`title.viewFailed` → `voice.viewFailed`「团队界面没有加载出来」（去句号），`slow.45.later` → `voice.slowLater`「比平时慢，请再等一会儿」（去句号；以后的启动和搬数据时 45 秒起由鲸鱼说）。启动窗口顺利时不说话（[启动窗口](2026-10-26-start-window.md) 第 3 节），所以表里没有问候、各阶段的话和「进去吧」（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready`），`title.later`「正在打开你的团队…」也没有键。
 
-卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / importSpace / inUse / newer` 不动；停止复制的确认 `say.stopCopy`「停止复制？」。导入卡的第一行带数字，是 `card.import.line`「找到你以前的团队了：{bots} 个 Bot、{groups} 个群聊」（不是句子，不加句号）；复制中没有卡片，所以没有 `say.copying`。
+卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / importSpace / inUse / newer` 不动。导入卡的第一行带数字，是 `card.import.line`「找到你以前的团队了：{bots} 个 Bot、{groups} 个群聊」（不是句子，不加句号）；复制中没有卡片，所以没有 `say.copying`。
 
 提示行 `hint.*`：只有 `hint.space`，不动。接模型、预览版说明和重装的三句（`hint.model / preview / reinstall`）没有键：启动页不提前说进门以后的事。
 
@@ -67,7 +67,6 @@
 | `import.extra / model` | `card.import.extra / model` | 只在「详细」里；`lead / found / scope` 没有了 |
 | `import.opt.regen / skipWork` | `card.import.optRegen / optSkipWork` | 勾选框的标签 |
 | `import.space` | `card.importSpace.lead` | |
-| `stop.confirm` | `card.copying.stopConfirm` | |
 | `inUse` | `card.inUse.lead` | |
 | `newer.updating`、`newer.unreadable` | `card.newerUpdating.lead`、`card.newer.lead` | |
 | `importFailed` | `card.importFailed.lead` | |
@@ -99,7 +98,6 @@
 | `card.picked.use`、`card.picked.repick` | `btn.continue`、`btn.repick` | 继续、重新选…（加 …：它打开选择框） |
 | `import.copy`、`import.skip` | `btn.copy`、`btn.skipCopy` | 复制过来、先不复制 |
 | `import.more`、`import.change` | `btn.more`、`btn.changeModel` | 详细、更换 |
-| `stop`、`keepCopying` | `btn.stopCopy`、`btn.keepCopying` | 停止复制、继续复制 |
 | `startWithout` | `btn.startWithout` | 先不带团队开始 |
 | `copyDetails`、`copied`、`details` | `btn.copyDetails`、`btn.copied`、`btn.details` | |
 | `update.install`、`manualDownload`、`reload` | `btn.install`、`btn.manualDownload`、`btn.reload` | |
@@ -195,3 +193,4 @@
 - 2026-10-31：启动页的底注去掉（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `foot.community`；`foot` 层只剩位置行，第 2、3 节跟着改，「改动的已定设计」加一行。以后的启动搬数据改在卡片上问，加 `say.move`「搬到这个文件夹？」、`card.move.lead`、`reason.place.drive / workspace`（第 3 节对照表加一行，第 2 节 `reason.*` 改成九个原因）；按钮用已有的 `btn.move / repick / cancel`。依据：维护者「移除左下角的社区非官方声明」「让我们尽可能避免系统中出现任何这样的默认弹窗」。
 - 2026-11-01：启动页轻易不写字（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `voice.slow45 / slowLater / moving` 和 `btn.openLogs`，加 `btn.saveLog`「保存日志…」（打开系统保存框，所以以 … 结尾）；`voice` 层只剩出错时的三句。第 3 节的旧键对照是当时的记录，不改。
 - 2026-11-02：导入并进圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.import.line`、`say.stopCopy` 和 `status.phase.import`「复制以前的团队」；去掉 `say.import / copying`、`card.import.lead / leadBare / found / scope` 和 `card.copying.step1 / 2 / 3 / eta / etaSoon`。
+- 2026-11-02：复制没有停止按钮（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：去掉 `say.stopCopy`、`card.copying.stopConfirm`、`btn.stopCopy`、`btn.keepCopying`。

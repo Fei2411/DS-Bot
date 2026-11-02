@@ -83,9 +83,9 @@ test('only a missing file of the app\'s own says that the install is incomplete'
 })
 
 test('the main process takes only its own acts, each in its own views', () => {
-  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'painted', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
-  // The import card's model and options and the copying card's stop, on a card only.
-  for (const name of ['importModel', 'importOption', 'stopCopy', 'keepCopying']) {
+  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'manualDownload', 'painted', 'pick', 'reloadView', 'retry', 'saveLog', 'wait'])
+  // The import card's model and options, on a card only. The copy has no stop of its own.
+  for (const name of ['importModel', 'importOption']) {
     assert.equal(acceptsAct(name, 'card'), true, name)
     for (const view of ['boot', 'failed', 'watchdog', 'handoff', 'moving']) assert.equal(acceptsAct(name, view), false, `${name} in ${view}`)
   }
@@ -450,10 +450,8 @@ test("the copy is a stage of its own, and the engine's stage waits for the copie
   s.start.card(copying(1, 0))
   assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
   assert.equal(s.state().phase, 'import')
-  s.start.card({ ...copying(2, 0.6), kind: 'stopCopy' })
-  assert.equal(s.state().phases.length, 4, 'the stop\'s question keeps the copy\'s arc')
   s.start.card(undefined)
-  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'], 'a stopped copy goes back to three')
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'], 'a copy that ends without the team goes back to three')
   s.start.card(copying(2, 0.15))
   s.start.engineDown()
   assert.deepEqual(s.state().done, ['data'])

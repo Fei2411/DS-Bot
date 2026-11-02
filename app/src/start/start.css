@@ -171,16 +171,6 @@ html[data-up] .caption{opacity:0;pointer-events:none}
 .caption>*{opacity:0;filter:blur(6px);transition:opacity .16s,filter .16s}
 .caption>[data-on]{opacity:1;filter:none;transition:opacity .22s ease-out,filter .22s ease-out}
 
-/* The copy's stop: a round icon button under the ring, only while the copy runs and no card is
-   up; its confirmation is a card. */
-.stop-copy{position:absolute;z-index:1;left:346px;top:324px;width:28px;height:28px;display:grid;place-items:center;padding:0;border:0;border-radius:50%;background:none;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s,color .12s,opacity .16s,scale var(--spring-tap-ms) var(--spring-tap)}
-.stop-copy:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.stop-copy:active{scale:.9}
-.stop-copy:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.stop-copy svg{width:16px;height:16px;fill:currentColor}
-.stop-copy:not([hidden]){animation:bt-fade-in .22s ease-out}
-html[data-up] .stop-copy{opacity:0;pointer-events:none}
-@keyframes bt-fade-in{from{opacity:0}}
 /* sheet: one surface that every card morphs in and out of */
 .sheet{position:absolute;left:48px;top:260px;width:624px;height:calc(100% - 304px)}
 html[data-sheet=none] .sheet{pointer-events:none}
@@ -317,8 +307,7 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-eyes=happy] .bt-eye-happy{opacity:1}
 @media (prefers-reduced-motion:reduce){
 :root :is(.whale-x,.whale-gaze,.whale,.whale-move,.whale-loop,#tail,#gaze,#eye-pair,.bt-eye,.bt-eye-happy,.ripple,.stage){animation:none!important;transition:none!important}
-:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *,.stop-copy){animation:none!important}
-:root .stop-copy,:root .stop-copy:active{scale:none}
+:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *){animation:none!important}
 :root .props>g{scale:none!important;transition:opacity .12s!important}
 :root :is(.arc-fill,.ring-full){transition-duration:.12s!important}
 :root .voice>span{animation:none!important;background:none!important;color:var(--bt-ink)!important}
@@ -327,4 +316,4 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-exit~=lane] .lane{opacity:0;transition:opacity .12s}
 }
 
-@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle,.box rect){fill:CanvasText}.stop-copy{color:ButtonText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}
+@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle,.box rect){fill:CanvasText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}

@@ -104,10 +104,8 @@ export class ImportFlow {
   // The check of the chats, started while the card is up (stale once a holder came meanwhile).
   #check
   #checkAbort
-  // The copy under way, its stop, and the copying card as it stands.
-  #copyAbort
+  // The copying card as it stands.
   #copyCard
-  #confirming = false
   #shownAt = 0
   #timer
   #lastStep = 0
@@ -148,13 +146,6 @@ export class ImportFlow {
     } else if (name === 'importOption' && value !== null && typeof value === 'object' && ['regen', 'skipWork'].includes(value.option)) {
       this.#options = { ...this.#options, [value.option]: value.value === true }
       this.#io.show(this.card())
-    } else if (name === 'stopCopy' && this.#copyAbort !== undefined) {
-      if (value === 'confirm') { this.#copyAbort.abort(); return }
-      this.#confirming = true
-      this.#showCopy(true)
-    } else if (name === 'keepCopying' && this.#copyAbort !== undefined) {
-      this.#confirming = false
-      this.#showCopy(true)
     }
   }
 
@@ -229,15 +220,11 @@ export class ImportFlow {
   async #copyLoop() {
     const io = this.#io
     for (;;) {
-      this.#copyAbort = new AbortController()
-      this.#confirming = false
-      const stop = this.#copyAbort.signal
-      const signal = AbortSignal.any([stop, io.signal])
+      const signal = io.signal
       try {
         const unreadable = await this.#checked(signal)
         if (typeof unreadable === 'object') return unreadable
         if (unreadable > 0) {
-          this.#copyAbort = undefined
           const next = await io.ask({ kind: 'newer', n: unreadable })
           return next === 'startWithout' ? { outcome: 'skipped', newer: true } : { outcome: 'gone' }
         }
@@ -258,16 +245,11 @@ export class ImportFlow {
             this.#setCopy({ step: 2, steps: [checkedStep, { a: formatBytes(done, io.lang), b: of }, {}], fraction: total > 0 ? done / total : 0, eta })
           },
         })
-        this.#copyAbort = undefined
-        this.#confirming = false
         this.#setCopy({ step: 3, steps: [checkedStep, { ...this.#copyCard.steps[1], a: of === '…' ? this.#copyCard.steps[1].a : of }, {}], fraction: 0, eta: null }, true)
         return { outcome: 'copied', summary }
       } catch (error) {
-        this.#copyAbort = undefined
-        this.#confirming = false
+        // A quit or another start: the copy stopped at a safe point and nothing of it stays.
         if (io.signal.aborted) return { outcome: 'gone' }
-        // 〔停止复制〕: nothing of the copy stays, and the start goes on with a new team.
-        if (stop.aborted) return { outcome: 'skipped' }
         const message = error instanceof Error ? error.message : String(error)
         const next = await io.ask({ kind: 'importFailed', reason: io.reasonOf(error), log: message.split('\n') })
         if (next !== 'retry') return { outcome: next === 'startWithout' ? 'skipped' : 'gone' }
@@ -315,7 +297,7 @@ export class ImportFlow {
       const { steps, step, fraction } = this.#copyCard
       this.#lastStep = step
       this.#io.progress?.(Math.min(1, (step - 1 + Math.max(0, Math.min(1, fraction))) / 3))
-      this.#io.show({ ...this.#copyCard, kind: this.#confirming ? 'stopCopy' : 'copying', steps: steps.map(entry => ({ ...entry })), arc: arcShare(step, fraction) })
+      this.#io.show({ ...this.#copyCard, kind: 'copying', steps: steps.map(entry => ({ ...entry })), arc: arcShare(step, fraction) })
     }
     const due = this.#shownAt + CARD_EVERY_MS - this.#now()
     if (now || due <= 0 || this.#lastStep !== card.step) {

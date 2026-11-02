@@ -205,28 +205,32 @@ test("the check of the chats fills the import arc's first 15 %, the copy the res
   assert.equal(arcShare(3, 0), 1)
 })
 
-test('〔停止复制〕 asks on the card, 〔继续复制〕 goes back, and the confirmed stop leaves no team', async () => {
+// The copy has no stop button (the user's decision, start-window §6): a quit, or closing the
+// window, stops it at a safe point, and nothing of it stays.
+test('a quit during the copy stops it and leaves no team', async () => {
   let release
   let stopped = false
+  const quit = new AbortController()
   const { io, shown, answer } = harness({
     copy: ({ signal }) => new Promise((resolve, reject) => {
       release = () => { resolve({ bots: 6, sessions: 3 }) }
       signal.addEventListener('abort', () => { stopped = true; reject(new Error('stopped')) })
     }),
   })
+  io.signal = quit.signal
   const flow = new ImportFlow(io)
   const run = flow.run()
   await tick()
   answer('copy')
   while (release === undefined) await tick()
-  flow.act('stopCopy')
-  assert.equal(shown.at(-1).kind, 'stopCopy')
-  flow.act('keepCopying')
   assert.equal(shown.at(-1).kind, 'copying')
-  flow.act('stopCopy')
+  // The acts of the stop that the page no longer has change nothing.
   flow.act('stopCopy', 'confirm')
-  assert.deepEqual(await run, { outcome: 'skipped' })
-  assert.equal(stopped, true)
+  await tick()
+  assert.equal(stopped, false)
+  quit.abort()
+  assert.deepEqual(await run, { outcome: 'gone' })
+  assert.equal(stopped, true, 'the copy was told to stop')
 })
 
 test('chats newer than this DSH reads say so, and the start goes on without the team', async () => {

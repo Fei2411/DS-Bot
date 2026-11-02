@@ -121,8 +121,8 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   const last = () => phases.length - 1
   const stationEl = i => stations.find(st => st.dataset.phase === phases[i])
   const arcEl = i => document.querySelector(`.arc[data-phase="${phases[i]}"]`)
-  // The import's arc runs while the copy does, its confirmation to stop included.
-  const copying = () => ['copying', 'stopCopy'].includes(want.card)
+  // The import's arc runs while the copy does.
+  const copying = () => want.card === 'copying'
   // A start that offers an import holds after the data folder's arc until the import card is
   // answered: the engine warms up meanwhile, but its arc does not run ahead of the question.
   const holding = () => D.offer && !D.answered
@@ -1051,7 +1051,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     update(s) {
       D.offer = s.explain?.mode === 'import'
       if (s.card?.kind === 'import') D.asked = true
-      if (D.asked && (['copying', 'stopCopy', 'importFailed'].includes(s.card?.kind) || ['boot', 'moving', 'handoff', 'failed', 'viewFailed'].includes(s.view))) D.answered = true
+      if (D.asked && (['copying', 'importFailed'].includes(s.card?.kind) || ['boot', 'moving', 'handoff', 'failed', 'viewFailed'].includes(s.view))) D.answered = true
       if (Array.isArray(s.phases) && s.phases.join() !== phases.join() && s.phases.every(phase => stations.some(st => st.dataset.phase === phase))) relayout(s.phases)
       const done = s.done ?? []
       const now = performance.now()

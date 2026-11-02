@@ -38,7 +38,6 @@ const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), sta
 const voiceEl = $('.voice'), voiceText = $('.voice>span')
 const captionText = $('.caption-text')
 const placeEl = $('.place'), placeText = $('.place-text')
-const stopButton = $('.stop-copy')
 const CODE = new Set(['path', 'dataDir', 'workspace'])
 let lang = 'zh'
 let s = null
@@ -68,8 +67,6 @@ function renderStatic() {
   root.lang = lang === 'zh' ? 'zh-CN' : 'en'
   for (const el of document.querySelectorAll('.track [data-t], .footrow [data-t], .caption [data-t]')) render(el)
   $('.track').setAttribute('aria-label', say('status.track'))
-  stopButton.setAttribute('aria-label', say('btn.stopCopy'))
-  stopButton.title = say('btn.stopCopy')
   for (const st of document.querySelectorAll('.station')) st.querySelector('.sr').textContent = say(`status.state.${st.dataset.state}`)
   if (s) { fillBlock(shown); placeUI(s.place); timeUI() }
 }
@@ -477,7 +474,7 @@ document.addEventListener('click', (event) => {
   if (name === 'toggleModels') return toggleModels(button)
   if (name === 'copyDetails') copiedLabel(button)
   if (name === 'importModel') toggleModels(button.closest('.card').querySelector('[data-act=toggleModels]'), false)
-  if (name === 'answer' || name === 'wait' || name === 'keepCopying') director.nod()
+  if (name === 'answer' || name === 'wait') director.nod()
   bridge?.act(name, value === undefined ? undefined : { value })
 })
 document.addEventListener('change', (event) => {
@@ -503,7 +500,6 @@ function apply(next) {
   root.dataset.view = next.view
   shimmer()
   placeUI(next.place)
-  stopButton.hidden = !(next.view === 'card' && next.card?.kind === 'copying' && next.card.step < 3)
   const name = blockFor(next)
   // The import card comes once the data folder's arc has filled (start-window §6).
   if (name === 'import' && name !== shown && !jump) director.through(0).then(() => { if (blockFor(s) === 'import') showBlock('import', false) })

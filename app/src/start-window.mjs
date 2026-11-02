@@ -20,7 +20,7 @@ export const PHASES = ['data', 'engine', 'team']
 // (§6): the ring has three arcs while the import card asks, and goes back to three when the copy
 // stops or the start goes on without it.
 export const IMPORT_PHASES = ['data', 'import', 'engine', 'team']
-const COPY_CARDS = ['copying', 'stopCopy', 'importFailed']
+const COPY_CARDS = ['copying', 'importFailed']
 export const phasesOf = state => (state.done.includes('import') || COPY_CARDS.includes(state.card?.kind) ? IMPORT_PHASES : PHASES)
 export const START_KINDS = ['first', 'later', 'moving']
 export const WATCHDOG_MS = 180_000
@@ -64,8 +64,6 @@ const ACT_VIEWS = {
   // The import card's model and options, and the copying card's stop (windows-onboarding §4).
   importModel: ['card'],
   importOption: ['card'],
-  stopCopy: ['card'],
-  keepCopying: ['card'],
   // The failure page's update banner: 〔下载〕 or 〔重试〕 on it, and 「手动下载」.
   installUpdate: ['failed'],
   manualDownload: ['failed'],
@@ -320,7 +318,7 @@ export class StartWindow {
    *   onPick?: (value?: string) => void, onAnswer?: (value?: string) => void,
    *   saveAs?: (win: any, name: string) => Promise<string | undefined>,
    *   onUpdate?: (name: 'installUpdate' | 'manualDownload') => void,
-   *   onImport?: (name: 'importModel' | 'importOption' | 'stopCopy' | 'keepCopying', value: unknown) => void,
+   *   onImport?: (name: 'importModel' | 'importOption', value: unknown) => void,
    * }} options `lang` is asked at each open; `program` names the folders of the app's own files;
    *   `onClose` runs when the user closes the start window before the hand-off; `onPick` when
    *   the page asks for the folder picker ('changePlace' from its place line, nothing from a
@@ -782,7 +780,7 @@ export class StartWindow {
     else if (name === 'answer') this.#o.onAnswer?.(valueOf(payload))
     else if (name === 'installUpdate' || name === 'manualDownload') this.#o.onUpdate?.(name)
     else if (name === 'importOption') this.#o.onImport?.(name, optionOf(payload))
-    else if (name === 'importModel' || name === 'stopCopy' || name === 'keepCopying') this.#o.onImport?.(name, valueOf(payload))
+    else if (name === 'importModel') this.#o.onImport?.(name, valueOf(payload))
     return true
   }
 
