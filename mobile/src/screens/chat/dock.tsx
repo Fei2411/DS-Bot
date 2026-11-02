@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import * as Haptics from 'expo-haptics'
+import { ChevronRightIcon } from '../../ui/icons.tsx'
 import { ViewCard } from './view.tsx'
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
-import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, useSharedValue, withSequence } from 'react-native-reanimated'
+import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
 import type { Approval, Question } from '../../connection.ts'
 import { t } from '../../ui/i18n.ts'
-import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
 
@@ -132,14 +133,18 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
   const id = view.id ?? ''
   const title = (view.blueprint?.title ?? view.title) ?? 'View'
   const shut = collapsed === true
+  const reduced = useReducedMotion()
+  const spin = useSharedValue(shut ? 0 : 90)
+  useEffect(() => { spin.value = reduced ? (shut ? 0 : 90) : withSpring(shut ? 0 : 90, SPRING_TAP) }, [shut, reduced])
+  const chevron = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value}deg` }] }))
   return (
-    <View>
-      <Pressable accessibilityRole="button" onPress={() => onCollapse?.(id, !shut)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: shut ? 0 : 4 }}>
-        <Text style={[typeScale.caption, { color: p.ink3 }]}>{title}</Text>
-        <Text style={{ color: p.ink3, fontSize: 12 }}>{shut ? '▸' : '▾'}</Text>
+    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, paddingVertical: 0 }]}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: !shut }} onPress={() => onCollapse?.(id, !shut)} style={styles.viewHead}>
+        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600' }]}>{title}</Text>
+        <Animated.View style={chevron}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
       </Pressable>
       {shut ? null : (
-        <View onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>
+        <View style={{ paddingBottom: 14 }} onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>
           <ViewCard sessionId={sessionId} view={view} p={p} />
         </View>
       )}
@@ -152,6 +157,7 @@ const styles = StyleSheet.create({
   card: { marginHorizontal: 12, marginVertical: 6, borderRadius: radius.card, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, ...shadow(1) },
   option: { paddingHorizontal: 10, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
   answerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  viewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   answerInput: { flex: 1, minHeight: 40, borderRadius: radius.input, paddingHorizontal: 12, fontSize: 15 },
   submit: { height: 40, borderRadius: radius.pill, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   choice: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
