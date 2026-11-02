@@ -56,8 +56,8 @@ html:is([data-start=later],[data-start=moving]) :is(.elapsed,.water,.trace){disp
 
 /* lane: the clipped water above the line at y 180 */
 .lane{position:absolute;left:48px;top:76px;width:624px;height:104px;overflow:clip;pointer-events:none}
-.whale-x{position:absolute;left:76px;top:50px;width:66px;height:66px}
-html:is([data-start=later],[data-start=moving]) .whale-x{left:280px;top:63px;width:48px;height:48px}
+.whale-x{position:absolute;left:87px;top:50px;width:66px;height:66px}
+html:is([data-start=later],[data-start=moving]) .whale-x{left:288px;top:63px;width:48px;height:48px}
 .whale-gaze,.whale,.whale-move,.whale-loop{width:100%;height:100%}
 /* .whale-gaze scales only for the breath at rest (whale.js), around the same pivot. */
 .whale-gaze,.whale,.whale-move,.whale-loop{transform-origin:49.95% 79%}
@@ -69,15 +69,15 @@ html:is([data-start=later],[data-start=moving]) .whale-x{left:280px;top:63px;wid
 .whale-hit{position:absolute;left:calc(var(--hx,168px) - 43.5px);top:107.75px;width:87px;height:64.5px;border-radius:50%}
 html:is([data-start=later],[data-start=moving]) .whale-hit{left:328.5px;top:120.75px;width:63px;height:47.25px}
 .fx{position:absolute;inset:0;pointer-events:none}
-.ripple{position:absolute;left:calc(var(--rx,168px) - 21px);top:175.5px;width:42px;height:9px;box-sizing:border-box;border:1.5px solid var(--bt-line-2);border-radius:50%;opacity:0}
+.ripple{position:absolute;left:calc(var(--rx,177px) - 21px);top:175.5px;width:42px;height:9px;box-sizing:border-box;border:1.5px solid var(--bt-line-2);border-radius:50%;opacity:0}
 
 /* Progress is where the whale is. The waterline is only the surface it rests on (faint, soft at
    both ends, nothing drawn on it); a stop the whale has left keeps a resting ring, which never
    moves again until the hand-off fades it. */
 .water{position:absolute;left:48px;top:180px;width:624px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line) 12% 88%,transparent)}
 .trace{position:absolute;top:175.5px;width:42px;height:9px;box-sizing:border-box;border:1px solid var(--bt-line-2);border-radius:50%;opacity:0}
-.trace:nth-child(1){left:159px}
-.trace:nth-child(2){left:351px}
+.trace:nth-child(1){left:156px}
+.trace:nth-child(2){left:348px}
 .trace[data-on]{opacity:.5}
 .track{list-style:none}
 /* step marks of the copying card */

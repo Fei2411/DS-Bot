@@ -192,7 +192,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   }
   function place() {
     hit.style.setProperty('--hx', `${168 + D.at * 192}px`)
-    ripple.style.setProperty('--rx', `${180 + D.at * 192}px`)
+    ripple.style.setProperty('--rx', `${177 + D.at * 192}px`)
   }
 
   // ---- loops ----
