@@ -21,7 +21,7 @@ import { chooseLocations, localeText, programFolder, saveLocations, text } from 
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { HostProcess } from './host-process.mjs'
-import { copySessions, findTeam, importTeam, teamInUse, userDshHome } from './import.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, teamInUse, userDshHome } from './import.mjs'
 import { copyData, moveProblem } from './move-data.mjs'
 import { CHECK_PROFILE, PROFILE } from './profile.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
@@ -209,6 +209,11 @@ async function start() {
     // update can still come when this version's Host does not start.
     updates = startUpdates()
     updates?.subscribe((state) => { mainWindow?.webContents.send(IPC.appUpdateChanged, state) })
+    // Before the Host, which reads the Sessions.
+    await restoreSessions(where.dataDir).then(({ copied, newer }) => {
+      if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
+      if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
+    }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
     host = newHost()
     host.onMessage(message => {
       if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
