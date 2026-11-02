@@ -1,10 +1,10 @@
-/* DeepSeek Bot start window. Geometry in DIP of the 720 x 540 window content (40 px band on top). */
+/* DS Bot start window. Geometry in DIP of the 720 x 540 window content (40 px band on top). */
 /* tokens */
 /* Generated from the DeepSeek theme in ds-bot/src/client/themes.js, inks.js and styles.js by scripts/start-assets.mjs; do not edit. */
 :root{color-scheme:light dark;--bt-main:#fcfcfc;--bt-card:#ffffff;--bt-ink:#141414;--bt-ink-2:rgba(20,20,20,0.6);--bt-line:rgba(20,20,20,0.08);--bt-line-2:rgba(20,20,20,0.15);--bt-hover:rgba(119,119,119,.09);--bt-accent:#4d6bfe;--bt-accent-ink:#ffffff;--bt-ink-deepseek:#4D6BFE;--bt-green:#00c972;--bt-danger:#e02135}
 @media (prefers-color-scheme:dark){:root{--bt-main:#141414;--bt-card:#1f1f1f;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,0.6);--bt-line:rgba(242,242,242,0.08);--bt-line-2:rgba(242,242,242,0.15);--bt-hover:rgba(160,160,160,.12);--bt-accent:#5b7bff;--bt-accent-ink:#141414;--bt-ink-deepseek:#6A84FF}}
 /* /tokens */
-:root{--font:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;--mono:ui-monospace,Consolas,monospace;--u:.88px}
+:root{--font:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;--mono:ui-monospace,Consolas,monospace;--u:.66px}
 /* springs */
 /* Generated from ds-bot/src/client/motion.js by scripts/start-assets.mjs; do not edit. */
 :root {
@@ -38,7 +38,7 @@ html[data-frame=system] .band{display:none}
 /* stage: everything that moves with the later-start shift */
 .stage{position:absolute;left:calc(50% - 360px);top:0;width:720px;height:100%}
 html[data-frame=system] .stage{top:-24px}
-html:is([data-start=later],[data-start=moving]){--u:.64px}
+html:is([data-start=later],[data-start=moving]){--u:.48px}
 /* Until a card needs the sheet, the whale, its line and the hint sit 80 px lower, at the
    window's visual centre (an integer translation, so the text stays on whole pixels). */
 html:not([data-up]) .stage{translate:0 80px}
@@ -56,8 +56,8 @@ html:is([data-start=later],[data-start=moving]) :is(.elapsed,.water,.trace){disp
 
 /* lane: the clipped water above the line at y 180 */
 .lane{position:absolute;left:48px;top:76px;width:624px;height:104px;overflow:clip;pointer-events:none}
-.whale-x{position:absolute;left:76px;top:28px;width:88px;height:88px}
-html:is([data-start=later],[data-start=moving]) .whale-x{left:280px;top:47px;width:64px;height:64px}
+.whale-x{position:absolute;left:76px;top:50px;width:66px;height:66px}
+html:is([data-start=later],[data-start=moving]) .whale-x{left:280px;top:63px;width:48px;height:48px}
 .whale-gaze,.whale,.whale-move,.whale-loop{width:100%;height:100%}
 /* .whale-gaze scales only for the breath at rest (whale.js), around the same pivot. */
 .whale-gaze,.whale,.whale-move,.whale-loop{transform-origin:49.95% 79%}
@@ -66,18 +66,18 @@ html:is([data-start=later],[data-start=moving]) .whale-x{left:280px;top:47px;wid
 #tail{transform-box:view-box;transform-origin:27.9px 61.1px}
 .bt-eye,#eye-pair,#gaze{transform-box:fill-box;transform-origin:center}
 #gaze{transform:translate(calc(var(--gx,0) * 12%),calc(var(--gy,0) * 11%));transition:transform .18s ease-out}
-.whale-hit{position:absolute;left:calc(var(--hx,168px) - 58px);top:105px;width:116px;height:86px;border-radius:50%}
-html:is([data-start=later],[data-start=moving]) .whale-hit{left:318px;top:124px;width:84px;height:63px}
+.whale-hit{position:absolute;left:calc(var(--hx,168px) - 43.5px);top:107.75px;width:87px;height:64.5px;border-radius:50%}
+html:is([data-start=later],[data-start=moving]) .whale-hit{left:328.5px;top:120.75px;width:63px;height:47.25px}
 .fx{position:absolute;inset:0;pointer-events:none}
-.ripple{position:absolute;left:calc(var(--rx,168px) - 28px);top:174px;width:56px;height:12px;box-sizing:border-box;border:1.5px solid var(--bt-line-2);border-radius:50%;opacity:0}
+.ripple{position:absolute;left:calc(var(--rx,168px) - 21px);top:175.5px;width:42px;height:9px;box-sizing:border-box;border:1.5px solid var(--bt-line-2);border-radius:50%;opacity:0}
 
 /* Progress is where the whale is. The waterline is only the surface it rests on (faint, soft at
    both ends, nothing drawn on it); a stop the whale has left keeps a resting ring, which never
    moves again until the hand-off fades it. */
 .water{position:absolute;left:48px;top:180px;width:624px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line) 12% 88%,transparent)}
-.trace{position:absolute;top:174px;width:56px;height:12px;box-sizing:border-box;border:1px solid var(--bt-line-2);border-radius:50%;opacity:0}
-.trace:nth-child(1){left:152px}
-.trace:nth-child(2){left:344px}
+.trace{position:absolute;top:175.5px;width:42px;height:9px;box-sizing:border-box;border:1px solid var(--bt-line-2);border-radius:50%;opacity:0}
+.trace:nth-child(1){left:159px}
+.trace:nth-child(2){left:351px}
 .trace[data-on]{opacity:.5}
 .track{list-style:none}
 /* step marks of the copying card */
@@ -195,7 +195,7 @@ html:is([data-start=later],[data-start=moving]) .footrow{display:none}
 
 /* entrance, keyed on data-start (no JS timing) */
 @keyframes bt-veil{from{opacity:0;filter:blur(6px)}}
-@keyframes bt-enter-first{from{transform:translateY(64px) rotate(-12deg)}}
+@keyframes bt-enter-first{from{transform:translateY(48px) rotate(-12deg)}}
 @keyframes bt-enter-later{from{transform:translateY(48px)}}
 @keyframes bt-wake{0%{transform:scaleY(.05)}60%{transform:scaleY(1.06)}}
 @keyframes bt-flick-in{0%,100%{transform:none}35%{transform:rotate(-10deg)}70%{transform:rotate(8deg)}}

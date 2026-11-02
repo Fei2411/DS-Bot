@@ -101,7 +101,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   const stations = [...document.querySelectorAll('.station')]
   const traces = [...document.querySelectorAll('.trace')]
   const first = start === 'first'
-  const u = (first ? 88 : 64) / 100
+  const u = (first ? 66 : 48) / 100
   const t0 = performance.now()
   const entranceMs = resume ? 0 : first ? 560 : 290
   const D = { at: 0, checks: 0, pose: 'enter', loop: '', card: '', slow: 0, bx: 0, by: 0, since: [t0], activeAt: [], loopAt: 0, hop: null, pet: null, poking: false, handed: false, workReady: first, missed: false, sinking: false,
@@ -291,7 +291,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     // One answer nods once, whichever listener asks first.
     if (performance.now() - D.nodAt < 150) return
     D.nodAt = performance.now()
-    const a = play(move, [{ transform: 'none' }, { transform: 'translateY(2px) rotate(3deg)' }], { ...spring('tap'), fill: 'forwards' })
+    const a = play(move, [{ transform: 'none' }, { transform: 'translateY(1.5px) rotate(3deg)' }], { ...spring('tap'), fill: 'forwards' })
     setTimeout(() => {
       if (D.pet || D.hop || D.poking) return
       const from = cs(move).transform
@@ -477,7 +477,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     release(pose, { duration: queued ? 160 : 120, easing: 'ease-out' })
     if (!queued) {
       to(body, { scale: '1.04 .96' }, { duration: 120, easing: OUT })
-      to(move, { transform: 'translateX(-3px)' }, { duration: 120, easing: OUT })
+      to(move, { transform: 'translateX(-2.25px)' }, { duration: 120, easing: OUT })
       await sleep(120)
     }
     const timing = { duration: glideMs, easing: shape.easing }
@@ -487,7 +487,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     const glide = play(x, [{ translate: `${x0}px 0` }, { translate: `${x1}px 0` }], { duration: glideMs, easing: clamped(shape.easing) })
     to(body, { scale: '1' }, timing)
     drop(move)
-    const tilt = play(move, [{ transform: `${queued ? '' : 'translateX(-3px) '}rotate(-4deg)` }, { transform: 'none' }], timing)
+    const tilt = play(move, [{ transform: `${queued ? '' : 'translateX(-2.25px) '}rotate(-4deg)` }, { transform: 'none' }], timing)
     if (playful()) {
       const strokes = play(tail, [{ transform: 'none' }, { transform: 'rotate(10deg)' }, { transform: 'rotate(-10deg)' }, { transform: 'none' }], { duration: 200, iterations: 2, easing: 'ease-in-out', fill: 'none' })
       strokes.done.then(() => strokes.cancel())
@@ -549,9 +549,9 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     if (reduced()) { root.dataset.eyes = 'heavy'; return }
     const shape = spring('shape')
     release(pose, shape)
-    eyes.forEach((eye, k) => slide(eye, pose.eyes[k], 'translateY(1.5px) scaleY(.55)', shape))
+    eyes.forEach((eye, k) => slide(eye, pose.eyes[k], 'translateY(1.125px) scaleY(.55)', shape))
     to(body, { scale: '1' }, shape)
-    await until(to(move, { transform: 'translateY(4px) rotate(4deg)' }, shape).done)
+    await until(to(move, { transform: 'translateY(3px) rotate(4deg)' }, shape).done)
   }
   async function lift() {
     if (D.pose !== 'down') return
@@ -559,8 +559,8 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     setBase(0.4, -0.4)
     if (reduced()) return
     const shape = spring('shape')
-    eyes.forEach(eye => to(eye, { transform: 'translateY(1px) scaleY(.8)' }, shape))
-    await until(to(move, { transform: 'translateY(2px)' }, shape).done)
+    eyes.forEach(eye => to(eye, { transform: 'translateY(.75px) scaleY(.8)' }, shape))
+    await until(to(move, { transform: 'translateY(1.5px)' }, shape).done)
   }
   async function shakeOff() {
     D.pose = 'loop'
@@ -594,7 +594,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     const fadeOut = el => play(el, [{ opacity: Number(cs(el).opacity) }, { opacity: 0 }], { duration: 160 })
     if (!reduced()) {
       release(pose, spring('shape'))
-      to(move, { transform: 'translateY(64px)' }, spring('shape'))
+      to(move, { transform: 'translateY(48px)' }, spring('shape'))
       play(move, [{ opacity: 1 }, { opacity: 0 }], { duration: 160 })
       await wait(spring('shape').duration)
     } else await fadeOut(lane).done
@@ -616,7 +616,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     D.pose = 'loop'
     setBase(0, 0)
     if (!reduced()) {
-      const up = play(move, [{ transform: 'translateY(64px) rotate(-12deg)' }, { transform: 'none' }], { ...spring('stretch'), fill: 'none' })
+      const up = play(move, [{ transform: 'translateY(48px) rotate(-12deg)' }, { transform: 'none' }], { ...spring('stretch'), fill: 'none' })
       await up.done
     }
     armActive()
