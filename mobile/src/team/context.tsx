@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 import { listComputers } from '../store.ts'
 import * as SecureStore from 'expo-secure-store'

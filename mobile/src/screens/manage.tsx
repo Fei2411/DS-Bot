@@ -183,7 +183,11 @@ function useWrite(navigation: any) {
   const [error, setError] = useState<string | null>(null)
   const run = async (name: string, body: Record<string, unknown>, done?: () => void) => {
     try { await call(name, body); setError(null); done?.() }
-    catch (failure) { setError((failure as Error)?.message ?? String(failure)) }
+    catch (failure) {
+      const code = (failure as { code?: string })?.code
+      if (code === 'unlock/canceled') return
+      setError((failure as Error)?.message ?? String(failure))
+    }
   }
   return { run, error }
 }

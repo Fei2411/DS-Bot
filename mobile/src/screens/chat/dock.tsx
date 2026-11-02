@@ -124,7 +124,11 @@ export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: C
   const send = async (endpoint: string, payload: Record<string, unknown>) => {
     if (busy) return
     setBusy(true)
-    try { await call(endpoint, { id: secret.id, ...payload }) } catch { setFailed(true) } finally { setBusy(false) }
+    try { await call(endpoint, { id: secret.id, ...payload }) } catch (failure) {
+      if ((failure as { code?: string })?.code === 'unlock/canceled') { /* stay open */ }
+      else if ((failure as { code?: string })?.code === 'unlock/unavailable') setFailed(true)
+      else setFailed(true)
+    } finally { setBusy(false) }
   }
   return (
     <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
