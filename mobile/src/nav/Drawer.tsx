@@ -39,7 +39,10 @@ export function Drawer({ width, edgeWidth = 24, content, children }: { width: nu
     return () => sub.remove()
   })
 
-  const clampX = (v: number) => Math.min(0, Math.max(-width, v))
+  const clampX = (v: number) => {
+    'worklet'
+    return Math.min(0, Math.max(-width, v))
+  }
   const edgePan = Gesture.Pan()
     .activeOffsetX(8)
     .failOffsetY([-12, 12])
