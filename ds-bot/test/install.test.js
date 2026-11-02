@@ -72,8 +72,6 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: memory review',
     'effect ds-bot: monitor prompt',
     'prompt bot-monitor 650',
-    'tool report_monitor',
-    'tool create_automation',
     'on agent/pre-step (prepend)',
     'on tools/execute',
     'on session/event',

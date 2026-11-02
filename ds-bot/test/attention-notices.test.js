@@ -44,7 +44,7 @@ async function bench(t) {
     await ctx.dispose()
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   })
-  const tool = async (name, args, sessionId, callId) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId }, callId, concludeTurn() {} })
+  const tool = async (name, args, sessionId, callId) => rt.teamTools.find(def => def.name === name).execute(args, { agent: { id: sessionId }, callId, concludeTurn() {} })
   const event = async (id, type, data, seq = 1) => {
     const { agent } = await ctx.sessionController.resolveAgent(id)
     for (const listener of ctx.listeners.get('session/event')) await listener(agent.session, { type, data, seq, time: Date.now() })
