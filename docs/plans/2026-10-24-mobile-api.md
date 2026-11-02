@@ -39,13 +39,14 @@
 
 ### 私聊
 
-- `chat`、`send`、feed 的 `message` 和 `stream` 照旧（见 `feed.js`）。
+- `chat`、`send`、feed 的 `message` 和 `stream` 照旧（见 `feed.js`）。`chat` 的用户消息同样带 `images` / `imageRefs`。
+- `image`：`{ sessionId, attachmentId }` → `{ mime, data }`，`data` 是图片字节的 base64。`sessionId` 只认团队的会话（Bot 自己的私聊段、群的会话、换段留下的旧段），其它回 `bot/not-found`；附件不在会话里也是 `bot/not-found`。需要 `images` 能力。
 
 ### 群聊
 
 - `room-chat`：`{ roomId, cursor? }` → `{ roomId, items, cursor, running, speaking }`，从新到旧分页，每页最多 60 条消息，页内从旧到新。
 - 条目：
-  - `{ id, kind: 'user', text, images?, time }`：用户的消息，包括一轮进行中插进来的。
+  - `{ id, kind: 'user', text, images?, imageRefs?, time }`：用户的消息，包括一轮进行中插进来的。`images` 是图片张数，`imageRefs` 是每张的 `{ attachmentId, mime?, name? }`，用 `image` 取内容。
   - `{ id, kind: 'bot', botId, name, color?, text, time, duration?, whole?, live? }`：成员的发言，或 Bot 从群外发进来的帖子。`whole: { length, file }` 表示帖子太长、转成了文件，用 `file-text` 读全文。
   - `{ id, kind: 'event', event, botId?, name?, text?, code?, time }`：一轮里的事件，`event` 是 `working`、`approval`、`done`、`stopped`、`failed`、`missed`、`lookup`、`resumed`、`cut`，或定时任务的 `schedule`。
 - 一轮进行中时，最新一页在这轮的位置放上目前为止的发言（`live: true`），`running` 为真，`speaking` 是正在说话的成员。这轮结束后，同一条发言的 `id` 不变（`<callId>:<序号>`），客户端可以直接替换。

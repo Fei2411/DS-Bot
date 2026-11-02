@@ -318,19 +318,26 @@ export function install(rt) {
     if (!owned) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const attachments = ctx.get?.('attachments')
     if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
-    const page = await ctx.sessionController.page({
-      address: { kind: 'session', sessionId },
-      maxMessages: 500,
-    }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
-    for (const record of page.records) {
-      const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
-      for (const block of content) {
-        if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
-          const chunks = []
-          for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) chunks.push(chunk)
-          return { mime: block.attachment.mime ?? block.attachment.mimeType ?? 'image/png', data: Buffer.concat(chunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString('base64') }
+    let beforeSeq
+    for (;;) {
+      const page = await ctx.sessionController.page({
+        address: { kind: 'session', sessionId },
+        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        maxMessages: 500,
+      }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+      for (const record of page.records) {
+        const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
+        for (const block of content) {
+          if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
+            const chunks = []
+            for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) chunks.push(chunk)
+            return { mime: block.attachment.mime ?? block.attachment.mimeType ?? 'image/png', data: Buffer.concat(chunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString('base64') }
+          }
         }
       }
+      if (page.hasMore !== true) break
+      beforeSeq = page.records[0]?.event?.seq
+      if (beforeSeq === undefined) break
     }
     throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
   }

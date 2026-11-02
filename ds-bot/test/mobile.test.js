@@ -6,14 +6,14 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
-import { fakeContext } from './fake-ctx.js'
+import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 // A team with no model: Sessions are made in memory, a group round runs on answers
 // played back through the session/event listeners, and `history` holds the events
 // each Session's page reads, oldest first.
 function start() {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-'))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services: { attachments: fakeAttachments() } })
   const sent = []
   const history = {}
   const inboxes = new Map()
