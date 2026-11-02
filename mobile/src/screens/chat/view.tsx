@@ -3,7 +3,7 @@ import { Linking, Modal, PanResponder, Pressable, StyleSheet, Switch, Text, Text
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import Svg, { Circle, Line, Path, Polygon, Rect } from 'react-native-svg'
-import { compileFormula, createScope, evaluate, isFormula, choiceValue } from 'deep-view/core'
+import { compileFormula, createScope, evaluate, isFormula, choiceValue, show } from 'deep-view/core'
 import { t } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown } from './markdown.tsx'
@@ -94,7 +94,7 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
       return value === undefined ? <Placeholder p={p} /> : (
         <View>
           <Text style={[type.caption, { color: p.ink3 }]}>{String(val(n.label) ?? '')}</Text>
-          <Text style={[type.largeTitle, { color: p.ink }]}>{String(value)}</Text>
+          <Text style={[type.largeTitle, { color: p.ink }]}>{show(value)}</Text>
           {n.caption !== undefined ? <Text style={[type.caption, { color: p.ink2 }]}>{String(val(n.caption) ?? '')}</Text> : null}
         </View>
       )

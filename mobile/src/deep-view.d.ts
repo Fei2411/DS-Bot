@@ -4,4 +4,5 @@ declare module 'deep-view/core' {
   export function evaluate(tree: unknown, lookup: (name: string) => unknown): { value: unknown } | { error: string }
   export function isFormula(value: unknown): boolean
   export function choiceValue(option: unknown): unknown
+  export function show(value: unknown): string
 }
