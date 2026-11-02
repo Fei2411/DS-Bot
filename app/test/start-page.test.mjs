@@ -222,6 +222,13 @@ test('the failure page says what happened, what to do for each reason, and folds
   recovers(card, 'failed')
 })
 
+test('the team view that did not load says what happened and what to do, and folds out the log', () => {
+  const card = cardOf('viewFailed')
+  assert.match(card, /<p class="lead" data-t="card\.viewFailed\.lead"><\/p><p class="small do" data-t="card\.viewFailed\.do"><\/p>/u)
+  assert.match(card, /data-look="primary" data-act="reloadView"/u)
+  recovers(card, 'viewFailed')
+})
+
 test('a move that does not go through has one card with three variants', () => {
   const card = html.match(/<section class="card" data-kind="moveFailed" hidden>.*?<\/section>/u)?.[0]
   assert.ok(card, 'the moveFailed card is missing')
