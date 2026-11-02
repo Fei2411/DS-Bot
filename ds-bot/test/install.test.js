@@ -66,6 +66,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: memory recovery',
     'effect ds-bot: memory section',
     'prompt bot-memory 645',
+    'on agent/pre-step',
     'on agent/status',
     'effect ds-bot: memory review',
     'effect ds-bot: Bot compaction',
