@@ -7832,7 +7832,7 @@ function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
 var import_react17 = require("react");
 var import_react_dom = require("react-dom");
 var mdLabels3 = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -7862,7 +7862,8 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         lead: lead && last ? lead : null,
         whole: last ? whole : void 0
       });
-    })
+    }),
+    Number.isFinite(time) ? (0, import_react17.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, messageClock(time)) : null
   );
 }
 function FoldCodeCopy({ code, actions }) {
@@ -8127,7 +8128,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       // time makes one Elapsed show settled + running.
       ...thinking !== void 0 ? { at: typeof thinking.time === "number" ? thinking.time - (ms ?? 0) : void 0 } : { ms }
     }) : null,
-    texts2.length ? (0, import_react17.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE }) : null
+    texts2.length ? (0, import_react17.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0 }) : null
   );
 }
 function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
@@ -20422,7 +20423,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
   const steering = node.kind === "steering";
-  const groupTime = roster.roomsById?.[sessionId] && Number.isFinite(data.time) ? messageClock(data.time) : void 0;
+  const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const { shown, folded, control } = useFold(text, { markdown: false });
   const body = (0, import_react52.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
   const row = (0, import_react52.useRef)(null);
@@ -20458,7 +20459,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
         rest.map((block, index) => ui.JsonBlock ? (0, import_react52.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
       ) : null,
       referenceLabels.length > 0 ? (0, import_react52.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null,
-      groupTime ? (0, import_react52.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, groupTime) : null
+      sentAt ? (0, import_react52.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, sentAt) : null
     ),
     text === "" ? null : (0, import_react52.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react52.createElement)(CopyButton, { text }))
   );
