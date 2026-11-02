@@ -107,7 +107,7 @@ function GeneralPage({ roster, actions, run }) {
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
       h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
     h(SetSection, { key: 'input', title: t('Input') },
-      h(SetRow, { label: t('Enter sends message'), hint: t('When off, Enter inserts a new line. Use the send button to send.') },
+      h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
     actions.setSurface ? h(SetSection, { key: 'mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },
