@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { CloseIcon, CheckIcon } from './icons.js'
 import { CellEmpty } from './cell-empty.js'
+import { sendsOnEnter } from './enter-key.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
 import { createSource, heldCardKey } from './sources.js'
@@ -55,7 +56,7 @@ export function useOptionKeys(count, onPick, ownRef) {
 
 // A question shows two ways: as a bubble in the transcript, and raised when it
 // sits in the dock above the composer.
-function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false }) {
+function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
   const [own, setOwn] = useState('')
   const [picked, setPicked] = useState([])
   const ownRef = useRef(null)
@@ -86,7 +87,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     'aria-keyshortcuts': hints ? ownLetter?.toLowerCase() : undefined,
     onChange: (event) => { if (!busy) { onInteract?.(); setOwn(event.target.value) } },
     onKeyDown: (event) => {
-      if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+      if (event.key !== 'Enter' || !enterToSend || event.shiftKey || event.nativeEvent.isComposing) return
       event.preventDefault()
       submit()
     },
@@ -179,7 +180,7 @@ export function QuestionCard({ matched }) {
   return h(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true })
 }
 
-export function PendingQuestion({ sessionId, question, actions, inline }) {
+export function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true }) {
   const [answered, setAnswered] = useState(null)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
@@ -200,7 +201,7 @@ export function PendingQuestion({ sessionId, question, actions, inline }) {
   const onAnswer = answer => run(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? '' }))
   const onDismiss = () => run(() => actions.dismissQuestion(sessionId))
   return h('div', { className: inline ? 'bt-q-inline' : 'bt-q-dock' },
-    h(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline }))
+    h(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend }))
 }
 
 // Questions asked by a tool call render inline at that call (see ToolCell); the dock
@@ -208,10 +209,11 @@ export function PendingQuestion({ sessionId, question, actions, inline }) {
 // loads. A card the user starts editing stays in the dock until it closes.
 export function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const question = useRoster(value => value.questions?.[sessionId])
+  const enterToSend = useRoster(value => sendsOnEnter(value.prefs))
   const drawn = useCards?.(state => state[sessionId]?.[question?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('question', question?.id)] > 0) === true
   if (question === undefined || (question.callId && drawn && !held)) return null
-  return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false })
+  return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend })
 }
 
 // An answered card in the transcript: the question stays where it was asked, with the

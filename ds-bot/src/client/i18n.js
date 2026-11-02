@@ -56,6 +56,8 @@ const ZH = {
   'Delete group': '删除群聊',
   "Open {name}'s chat": '打开 {name} 的对话',
   'New Bot': '新 Bot',
+  'New Bots': '新 Bot',
+  'Default model': '默认模型',
 
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
@@ -445,6 +447,7 @@ const ZH = {
   'Bubble width': '气泡宽度',
   'Text width': '正文宽度',
   'Show thinking': '显示思考过程',
+  'Enter sends message': '回车发送消息',
   'Bots · {count}': 'Bot · {count}',
   'First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.': '排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。',
   'Choose a Bot…': '选择一个 Bot…',
@@ -1000,7 +1003,10 @@ const ZH = {
   'Every weekend at {time}': '每个周末 {time}',
   'On the schedule {expression}': '按计划 {expression}',
   'Next: {time}': '下次 {time}',
+  'Overdue: {time}': '已逾期 {time}',
   Finished: '已结束',
+  'Scheduled tasks · {count}': '定时任务 · {count}',
+  'Show all': '显示全部',
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',

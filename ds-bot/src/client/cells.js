@@ -6,6 +6,7 @@ import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHidd
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
+import { sendsOnEnter } from './enter-key.js'
 import { SettledQuestion, PendingQuestion } from './questions.js'
 import { AnsweredReply, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
@@ -32,8 +33,9 @@ const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied')
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
-// of its message (see useFold).
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole }) {
+// of its message (see useFold). `time` marks the bubbles' message below them; a caller
+// whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
+export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -52,7 +54,8 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
         lead: lead && last ? lead : null,
         whole: last ? whole : undefined,
       })
-    }))
+    }),
+    Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
 // A folded message's last code block shows only its start; DS Bot draws its own
@@ -294,7 +297,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       // time makes one Elapsed show settled + running.
       ...(thinking !== undefined ? { at: typeof thinking.time === 'number' ? thinking.time - (ms ?? 0) : undefined } : { ms }),
     }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE }) : null)
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === undefined ? data.time : undefined }) : null)
 }
 
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
@@ -1086,7 +1089,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       // Answered or closed: the card leaves no gap where it was.
       if (!question || question.callId !== call.callId) return h(CellEmpty, { className: 'bt-q-gone' })
       if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
-      return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true })
+      return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) })
     }
     case 'show_view':
       return h(WidgetCell, { sessionId, callId: call.callId, args: { text: arg, value: argValue }, done, isError: call.isError, roster, actions, heldCards })
