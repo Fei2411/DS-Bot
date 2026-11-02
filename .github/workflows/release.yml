@@ -126,8 +126,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Bot-win-x64
-          path: app/dist-pack/DeepSeek-Bot-*-win-x64.exe
+          name: DS-Bot-win-x64
+          path: app/dist-pack/DS-Bot-*-win-x64.exe
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -138,7 +138,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          installer="dist-pack/DeepSeek-Bot-$(node -p "require('./package.json').version")-win-x64.exe"
+          installer="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-win-x64.exe"
           gh release upload "$TAG" "$installer" "$installer.blockmap" dist-pack/latest.yml --clobber
 
   app-macos:
@@ -169,8 +169,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Bot-mac-${{ matrix.arch }}
-          path: app/dist-pack/DeepSeek-Bot-*-mac-${{ matrix.arch }}.zip
+          name: DS-Bot-mac-${{ matrix.arch }}
+          path: app/dist-pack/DS-Bot-*-mac-${{ matrix.arch }}.zip
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -180,8 +180,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          zip="dist-pack/DeepSeek-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
-          gh release upload "$TAG" "$zip" --clobber
+          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
+          legacy="$(node scripts/legacy-release-assets.mjs "$zip")"
+          gh release upload "$TAG" "$zip" "$legacy" --clobber
 
   app-linux:
     name: Desktop app packages (Linux x64)
@@ -209,15 +210,15 @@ jobs:
         # The dry run never uploads, so it checks here that every file the release attaches exists.
         run: |
           version="$(node -p "require('./package.json').version")"
-          ls -l "dist-pack/DeepSeek-Bot-$version-linux-x86_64.AppImage" "dist-pack/DeepSeek-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml
+          ls -l "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml
       - name: Keep the packages for real-device checks
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Bot-linux-x64
+          name: DS-Bot-linux-x64
           path: |
-            app/dist-pack/DeepSeek-Bot-*-linux-x86_64.AppImage
-            app/dist-pack/DeepSeek-Bot-*-linux-amd64.deb
+            app/dist-pack/DS-Bot-*-linux-x86_64.AppImage
+            app/dist-pack/DS-Bot-*-linux-amd64.deb
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -229,4 +230,5 @@ jobs:
         # The AppImage carries its block map inside the file, so there is no .blockmap to attach.
         run: |
           version="$(node -p "require('./package.json').version")"
-          gh release upload "$TAG" "dist-pack/DeepSeek-Bot-$version-linux-x86_64.AppImage" "dist-pack/DeepSeek-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml --clobber
+          legacy="$(node scripts/legacy-release-assets.mjs "dist-pack/DS-Bot-$version-linux-amd64.deb")"
+          gh release upload "$TAG" "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" "$legacy" dist-pack/latest-linux.yml --clobber
