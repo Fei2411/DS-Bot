@@ -177,10 +177,10 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         { id: 'sch-3', botId: 'b-chief', sessionId: 's-chief', title: 'Tag reminder', kind: 'at', scheduledAt: Date.now() + 7200e3, status: 'active' },
       ]
       case 'schedule-create': case 'schedule-delete': return { ok: true }
-      case 'folders': return { team: '/Users/feiz/Work', picker: 'browse', folders: [{ path: '/Users/feiz/Work/ds-bot', title: 'ds-bot' }, { path: '/Users/feiz/Work/docs', title: 'docs' }] }
+      case 'folders': return { team: '/work', picker: 'browse', folders: [{ path: '/work/ds-bot', title: 'ds-bot' }, { path: '/work/docs', title: 'docs' }] }
       case 'folder-list': {
         const path = String(body.path ?? '')
-        const tree: Record<string, string[]> = { '': ['Users'], '/Users': ['feiz'], '/Users/feiz': ['Work', 'Downloads', 'Pictures'], '/Users/feiz/Work': ['ds-bot', 'docs', 'notes'], '/Users/feiz/Work/ds-bot': ['mobile', 'ds-bot', 'app'] }
+        const tree: Record<string, string[]> = { '': ['work'], '/work': ['ds-bot', 'docs', 'notes'], '/work/ds-bot': ['mobile', 'ds-bot', 'app'] }
         const kids = tree[path] ?? []
         return { path, parent: path.split('/').slice(0, -1).join('/') || null, entries: kids.map(name => ({ name, path: `${path}/${name}` })), truncated: false }
       }

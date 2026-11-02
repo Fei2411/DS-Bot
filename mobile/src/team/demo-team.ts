@@ -73,7 +73,7 @@ export function demoData(): DemoData {
       ],
     },
     connectors: [
-      { id: 'github', name: 'GitHub', state: 'ready', account: 'feiz' },
+      { id: 'github', name: 'GitHub', state: 'ready', account: 'you' },
       { id: 'linear', name: 'Linear', state: 'off' },
       { id: 'notion', name: 'Notion', state: 'error', error: 'Token expired' },
     ],
@@ -87,7 +87,7 @@ export function demoData(): DemoData {
       { name: 'Write files', description: 'Write files inside the working folder', kind: 'mcp', transport: 'stdio' },
       { name: 'Browse the web', description: 'Open pages and read them', kind: 'mcp', transport: 'streamable-http' },
     ],
-    workspace: '/Users/feiz/Work',
+    workspace: '/work',
     dataPath: '~/Library/Application Support/ds-bot',
     version: '0.1.2',
     models: [
