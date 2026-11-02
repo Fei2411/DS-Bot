@@ -94,7 +94,15 @@ export function demoData(): DemoData {
       { sessionId: 's-chief', cursor: { part: 1, beforeSeq: 10 }, items: [
         { kind: 'user', text: 'Ship the list first, then the drawer comparison.', time: T - 3400e3, seq: s(), turn: 3 },
         { kind: 'view', title: 'Team pulse this week', time: T - 2800e3, seq: s(), turn: 3 },
-        { kind: 'user', text: 'Here is the screenshot from the phone', images: 2, imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }, { attachmentId: 'demo-img-2', mime: 'image/png', name: 'night.png' }], time: T - 2600e3, seq: s(), turn: 4 },
+              { kind: 'view', title: 'Coverage this week', view: { id: 'vh-1', title: 'Coverage this week', children: [
+        { type: 'metric', label: 'Cases passing', value: 186, caption: 'of 191 total' },
+        { type: 'table', columns: ['Suite', 'Pass', 'Fail'], rows: [['Unit', 142, 2], ['Link', 20, 0], ['Mobile', 24, 3]] },
+      ] }, time: T - 3000e3, seq: s(), turn: 4 },
+      { kind: 'view', title: 'Draft report', view: { id: 'vh-2', title: 'Draft report', children: [
+        { type: 'html', summary: 'A rich draft with charts and interactive sections that only render fully on the computer.', html: '<div/>' },
+      ] }, time: T - 2990e3, seq: s(), turn: 4 },
+      { kind: 'answer', answers: [{ selected: ['Ship Friday'] }], time: T - 2500e3, seq: s(), turn: 4 },
+      { kind: 'user', text: 'Here is the screenshot from the phone', images: 2, imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }, { attachmentId: 'demo-img-2', mime: 'image/png', name: 'night.png' }], time: T - 2600e3, seq: s(), turn: 4 },
         { kind: 'answer', questions: [{ question: 'Which build should the phone use?' }], answers: [{ selected: ['The debug build'], custom: 'Keep Metro on port 8081' }], time: T - 2400e3, seq: s(), turn: 4 },
         { kind: 'event', role: 'report', name: 'Writer', time: T - 2000e3, seq: s() },
         { kind: 'divider', time: T - 86400e3 / 24, seq: s() },
