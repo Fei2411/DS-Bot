@@ -68,14 +68,14 @@ export function demoData(): DemoData {
     '- Launch plan seats Chief (admin, you) and Writer together for the release checklist',
     '',
     '```ts',
-    'const page = await call(\'chat\', { botId, cursor })',
+    'const page = await call(\'chat\', { botId, cursor: { part: index, beforeSeq }, steps: true })',
     '```',
     '',
     'Worth a read: the [design notes](https://dsbot.app).',
     '',
-    '| Screen | Variant A | Variant B |',
-    '|---|---|---|',
-    '| Team list | Tab | Drawer |',
+    '| Screen | Variant A | Variant B | Variant C | Variant D |',
+    '|---|---|---|---|---|',
+    '| Team list | Tab | Drawer | Rail | Column |',
   ].join('\n')
 
   const chats: DemoData['chats'] = {
