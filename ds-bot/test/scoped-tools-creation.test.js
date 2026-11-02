@@ -269,7 +269,8 @@ test("a deleted Bot's Session keeps none of the scope when it is adopted as a pl
   await host.agentCreated('b')
   assert.ok(hasShowView(host, 'b'))
   assert.ok(denied(host, 'b'))
-  assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
+  const preview = (await host.call('delete-preview', { id: 'b' })).value
+  assert.equal((await host.call('delete-confirm', { id: 'b', token: preview.token, tasks: 'delete', files: [] })).ok, true)
   assert.deepEqual(scopedNames(host, 'b'), [])
   assert.equal(host.restricted.some(entry => entry.sessionId === 'b'), false)
   // The Session lives on unowned: adopting it into the DSH Agent must not bring
@@ -316,7 +317,8 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
   await host.call('state', {})
   await host.agentCreated('b')
   assert.ok(hasShowView(host, 'b'))
-  assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
+  const preview = (await host.call('delete-preview', { id: 'b' })).value
+  assert.equal((await host.call('delete-confirm', { id: 'b', token: preview.token, tasks: 'delete', files: [] })).ok, true)
   assert.deepEqual(scopedNames(host, 'b'), [])
   // A Bot record naming the Session again — here written directly, the way an
   // adopted state could carry it — serves the tools again.
