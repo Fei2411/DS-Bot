@@ -144,6 +144,53 @@ test('a Bot model applies its thinking level, and only re-selects on a change', 
   assert.equal(bot.appliedEffort, undefined)
 })
 
+test('group selections sync per Session even when the Bot-level fields already match', async () => {
+  const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low' }, { id: 'high' }], defaultEffort: 'high' } } } })
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' }
+  const groups = ['g1', 'g2']
+  rt.groupSessionsOf = () => groups
+  const select = rt.ctx.sessionController.selectModel
+  rt.ctx.sessionController.selectModel = async (request) => {
+    await select(request)
+    return { selected: { provider: request.provider, model: request.model, reasoningEffort: request.reasoningEffort ?? 'high' } }
+  }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash:low', 'g2:deepseek/v4-flash:low'])
+  await rt.applyModel(bot)
+  assert.equal(selected.length, 2)
+  groups.push('g3')
+  await rt.applyModel(bot)
+  assert.deepEqual(selected.slice(2), ['g3:deepseek/v4-flash:low'])
+
+  delete bot.effort
+  await rt.applyModel(bot)
+  assert.deepEqual(selected.slice(3), ['b1:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'g2:deepseek/v4-flash', 'g3:deepseek/v4-flash'])
+  // The provider's resolved default is not an explicit Bot choice to reapply.
+  await rt.applyModel(bot)
+  assert.equal(selected.length, 7)
+  await rt.applyModel(bot, { force: true })
+  assert.equal(selected.length, 11)
+})
+
+test('a failed group selection is retried without reselecting the own chat or successful groups', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.groupSessionsOf = () => ['g1', 'g2']
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'g2' && !failed) {
+      failed = true
+      throw new Error('Session unavailable')
+    }
+    return select(request)
+  }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash', 'g2:deepseek/v4-flash'])
+})
+
 test('resolveEffort takes an id or a name, and refuses what the model has not', async () => {
   const { rt } = bench({ reasoning: {
     'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'high', name: 'High' }] } },

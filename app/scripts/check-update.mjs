@@ -18,8 +18,8 @@ const manifest = process.platform === 'linux' ? 'latest-linux.yml' : 'latest.yml
 // The asset the fake release lists: what this install's update check waits for. The deb's file
 // name uses the Debian architecture (x64 → amd64).
 const asset = mac
-  ? version => `DeepSeek-Bot-${version}-mac-${process.arch}.zip`
-  : version => `DeepSeek-Bot-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
+  ? version => `DS-Bot-${version}-mac-${process.arch}.zip`
+  : version => `DS-Bot-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
 if (!executable || !source || !existsSync(executable)
   || (releasePage ? mode !== undefined : !existsSync(join(source, manifest)))) {
   console.error(`check-update: usage: ${releasePage
@@ -127,10 +127,10 @@ try {
     stream.setEncoding('utf8')
     stream.on('data', (chunk) => { output += chunk; process.stdout.write(chunk) })
   }
-  const updateLine = `DeepSeek Bot: update ${String(version)} ${releasePage ? 'available' : 'downloaded'}`
+  const updateLine = `DS Bot: update ${String(version)} ${releasePage ? 'available' : 'downloaded'}`
   const end = Date.now() + (releasePage ? 3 : 5) * 60_000
   while (!output.includes(updateLine)) {
-    if (releasePage ? /DeepSeek Bot: update check failed/u.test(output) : /DeepSeek Bot: update failed/u.test(output)) {
+    if (releasePage ? /DS Bot: update check failed/u.test(output) : /DS Bot: update failed/u.test(output)) {
       throw new Error('the app reported a failed update')
     }
     if (app.exitCode !== null) {

@@ -307,7 +307,7 @@ export function install(rt) {
       for (const sessionId of [bot.id, rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId)]) owners.set(sessionId, botOwner(bot))
     }
     for (const room of Object.values(state.rooms)) {
-      owners.set(room.id, { owner: `room:${room.id}`, name: room.name })
+      for (const sessionId of [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId)].filter(Boolean)) owners.set(sessionId, { owner: `room:${room.id}`, name: room.name })
       const memberOwner = botId => ({ owner: botId, name: rt.botOf(botId)?.name ?? '' })
       for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) owners.set(sessionId, memberOwner(botId))
       for (const [botId, segments] of Object.entries(room.segments ?? {})) {

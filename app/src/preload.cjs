@@ -38,13 +38,13 @@ function browserBridge() {
   const viewListeners = new Set()
   ipcRenderer.on('ds-bot:browser-view-changed', (_event, change) => {
     for (const listener of [...viewListeners]) {
-      try { listener(change) } catch (error) { console.error('DeepSeek Bot: a browser view listener failed', error) }
+      try { listener(change) } catch (error) { console.error('DS Bot: a browser view listener failed', error) }
     }
   })
   ipcRenderer.on('ds-bot:browser-open-requested', (_event, request) => {
     if (typeof request?.lease !== 'string' || typeof request.url !== 'string') return
     for (const listener of [...(listeners.get(request.lease) ?? [])]) {
-      try { listener(request.url) } catch (error) { console.error('DeepSeek Bot: a browser link handler failed', error) }
+      try { listener(request.url) } catch (error) { console.error('DS Bot: a browser link handler failed', error) }
     }
   })
   return {
@@ -86,7 +86,7 @@ function updatesBridge() {
   const listeners = new Set()
   ipcRenderer.on('ds-bot:app-update-changed', (_event, state) => {
     for (const listener of [...listeners]) {
-      try { listener(state) } catch (error) { console.error('DeepSeek Bot: an update state handler failed', error) }
+      try { listener(state) } catch (error) { console.error('DS Bot: an update state handler failed', error) }
     }
   })
   return {

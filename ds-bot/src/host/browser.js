@@ -232,7 +232,7 @@ export function pageText(page, { from = 0, size = TEXT_PAGE, itemsMax = ITEMS_MA
   return lines.join('\n')
 }
 
-export const NO_BROWSER = 'Your browser panel is not open. It exists only in the desktop apps (DSH Desktop and DeepSeek Bot): ask the user to click your name at the top of your chat, open the browser from there, and load the page.'
+export const NO_BROWSER = 'Your browser panel is not open. It exists only in the desktop apps (DSH Desktop and DS Bot): ask the user to click your name at the top of your chat, open the browser from there, and load the page.'
 export const NO_PAGE = 'Your browser panel has no page open yet. Ask the user to load the page there first.'
 
 const OPEN_MAX = 64

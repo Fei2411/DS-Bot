@@ -8,7 +8,7 @@ import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
+import { springEasing, SPRING_SHAPE, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
@@ -116,13 +116,15 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
 
 function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useUi, useWork, wide, marked }) {
   const id = room.id
-  const fallback = useSessions(list => previewOf(list, id))
+  // The group's own Session is a chain of parts; the row shows the current one.
+  const sessionId = room.sessionId ?? id
+  const fallback = useSessions(list => previewOf(list, sessionId))
   const preview = room.preview?.replace(/\s+/g, ' ').trim() || fallback
-  const active = useSessionRetainInfo(id, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(id)?.completionUnread === true) || (marked && !active)
+  const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const approval = useApproval(useWork, entry => entry.roomId === id)
-  const members = workKeys(useGroupWork(useWork, rooms => (rooms[id] ?? []).map(entry => ({ id: entry.botId, ...doingOf(entry) }))))
+  const members = workKeys(useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) }))))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
   const markedUnread = useUi(value => value.unread)
@@ -286,8 +288,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, style: { width: `${width}px` } },
+function LeftColumn({ mode, width, onGrip, leaving, children }) {
+  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -334,7 +336,10 @@ export function TeamSidebar(props) {
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
   const mode = drag?.left ?? layout.left
-  const wideContent = mode !== 'rail'
+  // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
+  const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
+  const shown = held ?? mode
+  const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
@@ -367,7 +372,7 @@ export function TeamSidebar(props) {
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
   // as the rail and the chat stays put when it opens or closes.
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
-  const ourWidth = mode === 'rail' ? RAIL_WIDTH : openWidth
+  const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
@@ -580,7 +585,7 @@ export function TeamSidebar(props) {
   }, [])
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
-        h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
+        h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
@@ -610,7 +615,7 @@ export function TeamSidebar(props) {
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    mode === 'hidden' ? null : h(LeftColumn, { mode, width: ourWidth, onGrip: startDrag }, content))
+    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -708,7 +713,7 @@ function UpdateButton({ useUpdate, actions }) {
 // Account seat of the Settings trigger: the visible label stays for assistive tech only.
 export function YouAvatar() {
   return h('span', { className: 'bt-you-wrap' },
-    h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 })),
+    h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon)),
     h('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' } }, t('Settings')))
 }
 
@@ -878,7 +883,7 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
   return h(Fragment, null,
     h('button', { ref: button, type: 'button', className: 'bt-account', 'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle },
-      h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 }))),
+      h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon))),
     open && box ? createPortal(h('div', { className: 'bt-menu bt-menu-up bt-account-menu', role: 'menu', 'aria-label': t('Account'), style: box },
       confirm !== null ? h('div', { className: 'bt-confirm', role: 'alertdialog', 'aria-label': accountT('signOut') },
         h('p', { className: 'bt-confirm-text' }, accountT(confirm === 'running' ? 'signOutRunningDescription' : confirm === 'unknown' ? 'signOutUnknownDescription' : 'signOutDescription')),
@@ -913,8 +918,16 @@ function useLandOnMainBot(roster, useSessions, actions) {
       if (currentPart(bot) !== id) actions.landOn(bot.id)
       return undefined
     }
+    // The group's own Session moves on like a Bot's chat does: the part it archived
+    // is cleared, and the view goes on in the fresh one.
+    const room = id === '' ? undefined : roster.roomsById[id]
+    if (room !== undefined) {
+      lastBot.current = null
+      if ((room.sessionId ?? room.id) !== id) actions.openSession(room.id)
+      return undefined
+    }
     // A DSH Agent Session, blank or not, is a real destination: it stays.
-    if (id !== '' && (roster.roomsById[id] || (actions.isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
+    if (id !== '' && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
       lastBot.current = null
       return undefined
     }

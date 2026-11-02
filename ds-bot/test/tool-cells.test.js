@@ -9,7 +9,8 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, callTree, CellEmpty, Bubbles } from './src/client/cells.js'",
+      "export { stackReplies } from './src/shared/group-replies.js'",
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
@@ -171,29 +172,14 @@ test('a user message inside a group relay shows its time', () => {
   assert.deepEqual(times.map(node => node.props.title), [`Today ${clockOf(today)}`])
 })
 
-// A group paused at its relay limit shows the wait, with a Continue button while
-// the room still parks calls — which calls room-continue with the group's id.
-test('a paused group shows the wait, and Continue releases it while calls are parked', () => {
+// LEGACY: a round from when groups paused at a relay limit still shows the pause,
+// with nothing to press.
+test('an old paused round shows the pause as a plain line', () => {
   const replies = [{ kind: 'paused', names: ['Writer', 'Coder'], count: 6, time: at(0, 14, 5) }]
-  const relay = call('group_relay', 'direct', { content: { replies } })
-
-  // Nothing parked on the room: the line stands alone, with no button.
-  const plain = show(relay, { sessionId: 'room' })
-  const events = findAll(plain, node => node.props?.className === 'bt-event').map(text)
+  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room' })
+  const events = findAll(out, node => node.props?.className === 'bt-event').map(text)
   assert.deepEqual(events, ['Paused after 6 Bot relays. Waiting: Writer and Coder'])
-  assert.equal(find(plain, node => node.type === 'button' && text(node) === 'Continue'), undefined)
-
-  const parked = { ...room, paused: [{ id: 'writer', name: 'Writer' }] }
-  const clicked = []
-  const live = show(relay, {
-    sessionId: 'room',
-    roster: team({ rooms: [parked], roomsById: { room: parked } }),
-    actions: { continueRoom: id => clicked.push(id) },
-  })
-  const button = find(live, node => node.type === 'button' && text(node) === 'Continue')
-  assert.ok(button, 'the Continue button is drawn while the room parks calls')
-  button.props.onClick()
-  assert.deepEqual(clicked, ['room'])
+  assert.equal(find(out, node => node.type === 'button'), undefined)
 })
 
 // The admin was alone with the user's message and passed: the round shows the
@@ -631,6 +617,32 @@ test('a card whose call is not drawn waits in the dock; a drawn one shows only a
   assert.match(docks(store, roster), /Which draft\?.*Chief needs a key/)
 })
 
+// React needs the same hooks on every render: the dock reads the Enter preference
+// before its early returns, so a card arriving or moving to the transcript never
+// changes the count.
+test('the question dock calls the same hooks whether its card shows or not', () => {
+  const store = cardStore()
+  const render = (roster) => {
+    let calls = 0
+    const props = dockProps(store, roster)
+    props.useRoster = (select) => { calls += 1; return select(roster) }
+    const out = expand(QuestionDock(props))
+    return { calls, out }
+  }
+  const empty = render(team({}))
+  const roster = team({ questions: { chief: question('program:ptc:1') } })
+  const waiting = render(roster)
+  assert.equal(empty.out, null)
+  assert.notEqual(waiting.out, null)
+  assert.equal(waiting.calls, empty.calls)
+  // The transcript drew the call: the dock steps back, still on the same hooks.
+  store.state = { chief: { 'program:ptc:1': 1 } }
+  const drawn = render(roster)
+  assert.equal(drawn.out, null)
+  assert.equal(drawn.calls, empty.calls)
+  effects = []
+})
+
 test('the docks keep pending cards through history loading until their calls actually mount', () => {
   const store = cardStore()
   const roster = team({ questions: { chief: question('program:ptc:1') }, secretRequests: { chief: [request('program:ptc:2')] } })
@@ -769,7 +781,7 @@ test('a PTC group relay shows its replies from the sub-call, live and after relo
   const headless = { ...finished, name: '', call: null }
   assert.equal(shown(headless, { sessionId: 'room' }), reloaded)
 
-  const progress = [{ callId: 'other', replies: [{ botId: 'chief', text: 'Not this round.' }] }, { callId: 'call-1-1:ptc:1', replies: replies.slice(0, 1), speaking: 'chief' }]
+  const progress = [{ callId: 'other', replies: [{ botId: 'chief', text: 'Not this round.' }] }, { callId: 'call-1-1:ptc:1', replies: replies.slice(0, 1), speaking: ['chief'] }]
   const asked = []
   const actions = { roomProgress: async (id) => { asked.push(id); return progress } }
   const running = program([call('group_relay', 'call-1-1:ptc:1', { running: true })], { running: true })
@@ -782,7 +794,7 @@ test('a PTC group relay shows its replies from the sub-call, live and after relo
   stop()
   timers.clear()
   assert.deepEqual(asked, ['room'])
-  assert.deepEqual(JSON.parse(JSON.stringify(sets)), [{ replies: replies.slice(0, 1), speaking: 'chief' }])
+  assert.deepEqual(JSON.parse(JSON.stringify(sets)), [{ replies: replies.slice(0, 1), speaking: ['chief'] }])
 })
 
 // #105: the secret and question cards of a PTC program showed nowhere.

@@ -82,7 +82,7 @@ test('the six app update states set the DS Bot row\'s hint and button', () => {
 test('without an app update state the row keeps today\'s text and no button', () => {
   for (const ownApp of [undefined, null, 'checking', {}]) {
     const view = page({ source: 'app', ownApp })
-    assert.equal(view.hint, 'Updates come with the DeepSeek Bot app.')
+    assert.equal(view.hint, 'Updates come with the DS Bot app.')
     assert.deepEqual(view.buttons, [])
   }
 })

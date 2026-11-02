@@ -967,7 +967,8 @@ test('a photo that cannot be read changes nothing, and a non-Main Bot cannot set
   assert.equal((await call('state', {})).value.bots.find(bot => bot.id === writer.id).avatar.image, PNG_DATA_URL)
 })
 
-test('a group\'s relay limit is a user setting the state view shows, and old late-round fields load away', async (t) => {
+test('old late-round and relay-limit fields of a group load away; calls it parked stay for the next round', async (t) => {
+  const parked = [{ id: 'writer', name: 'Writer', note: 'Chief mentioned you', by: 'chief' }]
   const { call, stop, home } = start({
     version: 1,
     mainBotIds: ['chief'],
@@ -975,33 +976,100 @@ test('a group\'s relay limit is a user setting the state view shows, and old lat
     rooms: {
       r1: {
         id: 'r1', name: 'Ops', members: ['chief', 'writer'], mode: 'admin', admin: 'chief', named: true,
-        log: [], seq: 0, seen: {}, lateRounds: 7, quietNoticed: true, quietShown: true,
+        log: [], seq: 0, seen: {}, lateRounds: 7, quietNoticed: true, quietShown: true, relays: 5, relayLimit: 4, paused: parked,
       },
     },
   })
   t.after(stop)
   const shown = (await call('state', {})).value.rooms.find(room => room.id === 'r1')
-  // The released late-round fields load away, and the live relay count never shows.
-  assert.equal('lateRounds' in shown, false)
-  assert.equal('quietNoticed' in shown, false)
-  assert.equal('quietShown' in shown, false)
-  assert.equal('relays' in shown, false)
-  assert.equal(shown.relayLimit, undefined)
-  assert.equal(shown.relayLimitDefault, 6, 'the default is three relays per member')
-  assert.equal('lateRounds' in JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).rooms.r1, false)
+  for (const key of ['lateRounds', 'quietNoticed', 'quietShown', 'relays', 'relayLimit', 'relayLimitDefault', 'paused']) assert.equal(key in shown, false, key)
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).rooms.r1
+  for (const key of ['lateRounds', 'relays', 'relayLimit']) assert.equal(key in saved, false, key)
+  assert.deepEqual(saved.paused, parked)
 
+  // A limit sent by an older client changes nothing.
   const set = await call('update-room', { id: 'r1', relayLimit: 4 })
   assert.equal(set.ok, true)
-  assert.equal(set.value.room.relayLimit, 4)
-  assert.match(set.value.changes.join(' '), /Bots now pause after 4 relays/)
-  const cleared = await call('update-room', { id: 'r1', relayLimit: null })
-  assert.equal(cleared.ok, true)
-  assert.match(cleared.value.changes.join(' '), /Bots pause at the default relay count again/)
-  assert.equal((await call('state', {})).value.rooms.find(room => room.id === 'r1').relayLimit, undefined)
+  assert.deepEqual(set.value.changes, [])
+})
 
-  for (const bad of [0, 2.5, 201, 'six']) {
-    const result = await call('update-room', { id: 'r1', relayLimit: bad })
-    assert.equal(result.ok, false, JSON.stringify(bad))
-    assert.match(result.error.message, /Relay limit must be a whole number from 1 to 200/)
-  }
+// #227: a team-level default model for new Bots. A create that names a model keeps it;
+// the team's pick comes next, and only when it is still served. Without either, the Bot
+// takes its creator's served model, as it always has.
+const TEAM_MODEL = {
+  version: 1,
+  mainBotIds: ['chief'],
+  bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief', instructions: '', createdAt: 1, model: 'deepseek/deepseek-v4-pro' } },
+  rooms: {},
+  exchanges: [],
+  exchangeTurns: {},
+  questions: {},
+}
+
+const createBotAs = async (name, args = {}, exec = { agent: { id: 'chief' } }) =>
+  rt.teamTools.find(d => d.name === 'create_bot').execute({ name, role: 'R', instructions: '', ...args }, exec)
+const botNamed = async name => Object.values(rt.state.bots).find(bot => bot.name === name)
+
+test('create_bot uses a named model, then the team default, then its creator’s', async (t) => {
+  const { call, stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  await call('set-prefs', { defaultBotModel: 'deepseek/deepseek-v4-flash' })
+
+  // An explicit model wins over the team default.
+  assert.match(await createBotAs('Named', { model: 'deepseek/deepseek-v4-pro' }), /^Created Named/)
+  assert.equal((await botNamed('Named')).model, 'deepseek/deepseek-v4-pro')
+
+  // The team default beats the creator's model.
+  assert.match(await createBotAs('Defaulted'), /^Created Defaulted/)
+  assert.equal((await botNamed('Defaulted')).model, 'deepseek/deepseek-v4-flash')
+
+  // A team default that is no longer served falls back to the creator's model.
+  rt.state.prefs.defaultBotModel = 'gone/model'
+  assert.match(await createBotAs('Inherited'), /^Created Inherited/)
+  assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
+})
+
+test('create_bot inherits the creator’s model when no team default is set', async (t) => {
+  const { stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  assert.match(await createBotAs('Inherited'), /^Created Inherited/)
+  assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
+})
+
+test('set-prefs stores a served default model, clears it, and refuses an unknown one', async (t) => {
+  const { call, stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  assert.equal((await call('set-prefs', { defaultBotModel: 'deepseek/deepseek-v4-flash' })).value.defaultBotModel, 'deepseek/deepseek-v4-flash')
+  // A bare model id resolves to its full ref.
+  assert.equal((await call('set-prefs', { defaultBotModel: 'deepseek-v4-pro' })).value.defaultBotModel, 'deepseek/deepseek-v4-pro')
+  const refused = await call('set-prefs', { defaultBotModel: 'gone/model' })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /Model gone\/model is not available/)
+  assert.equal(rt.state.prefs.defaultBotModel, 'deepseek/deepseek-v4-pro')
+  assert.equal('defaultBotModel' in (await call('set-prefs', { defaultBotModel: null })).value, false)
+  assert.equal('defaultBotModel' in rt.state.prefs, false)
+})
+
+test('a model-less create-bot starts the Bot on the saved team default model', async (t) => {
+  const { call, stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  await call('set-prefs', { defaultBotModel: 'deepseek/deepseek-v4-pro' })
+
+  // The HTTP create names no model: the team's saved pick applies, not the DSH default.
+  const defaulted = (await call('create-bot', { name: 'Defaulted' })).value
+  assert.equal(defaulted.model, 'deepseek/deepseek-v4-pro')
+
+  // An explicit model still wins over the team default.
+  const named = (await call('create-bot', { name: 'Named', model: 'deepseek/deepseek-v4-flash' })).value
+  assert.equal(named.model, 'deepseek/deepseek-v4-flash')
+
+  // A saved pick the catalog no longer serves falls back to the DSH default…
+  rt.state.prefs.defaultBotModel = 'gone/model'
+  const stale = (await call('create-bot', { name: 'Stale' })).value
+  assert.equal(stale.model, 'deepseek/deepseek-v4-flash')
+
+  // …and so does a create once the pick is cleared.
+  await call('set-prefs', { defaultBotModel: null })
+  const plain = (await call('create-bot', { name: 'Plain' })).value
+  assert.equal(plain.model, 'deepseek/deepseek-v4-flash')
 })

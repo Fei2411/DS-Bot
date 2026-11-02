@@ -50,7 +50,7 @@ test('a request names one entry by its text, or by a part only it has', () => {
 
 test('keys are refused, while paths, names, and links are kept', () => {
   for (const key of ['sk-' + 'abcdefghijklmnopqrstuv', 'ghp_abcdefghijklmnopqrstuvwxyz12', 'AKIA' + 'ABCDEFGHIJKLMNOP', 'token aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3f']) assert.equal(looksLikeKey(key), true, key)
-  for (const fine of ['The repo is ~/repos/deepseek-bot/ds-bot/src/host', 'Doc: https://docs.example.com/d/aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3f/edit', 'Uses deepseek-v4-flash for drafts', '用户喜欢简短的回答']) assert.equal(looksLikeKey(fine), false, fine)
+  for (const fine of ['The repo is ~/repos/dsbot/ds-bot/src/host', 'Doc: https://docs.example.com/d/aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3f/edit', 'Uses deepseek-v4-flash for drafts', '用户喜欢简短的回答']) assert.equal(looksLikeKey(fine), false, fine)
   // Passwords given as such, and ID or card numbers, are secrets too.
   for (const secret of ['测试服务器的 root 密码是 hunter2-prod', 'The root password is hunter2', 'pwd: x', '身份证号 330106199001011234', 'card 6222 0212 3456 7890', 'the password for root is hunter2', 'The user\'s ATM PIN is 1234', 'passcode is 654321', '验证码是 123456', 'the CVV is 123', 'staging password remains hunter2', 'root 的密码还是 hunter2', 'the db password was changed to s3cret', 'card 6222-0212-3456-7890', 'Amex 3714-496353-98431', '身份证 330106-19900101-1234', 'I use hunter2 as my password', 'Use 654321 for the PIN', 'The user uses s3cret as the staging root password', '我的密码用 hunter2', '我用 hunter2 当密码', '用 abc123 作为服务器密码', 'I use correct horse battery staple as my password', 'Use six five four three two one for the PIN', '我用 correct horse battery staple 当密码', 'The user\'s SSN is 123-45-6789', 'passport number is A12345678', '护照号E12345678', 'driver\'s license D1234567']) assert.equal(looksSecret(secret), true, secret)
   for (const fine of ['用户不想把密码存进记忆', 'Trip on 2026-11-15, back 2026-11-17', 'The user keeps passwords in a password manager, which is 1Password', '用户的密码管理器是 1Password', 'The user pins the sidebar', 'Pin the tab, it is handy', 'The user uses 1Password for passwords', 'Uses Bitwarden as the password manager', 'Use the PIN pad on the left', '密码用 1Password 管理', '密码不能告诉用户', '密码用于登录', '用 1Password 作为密码管理器', 'Uses Tab for the password field', 'The user uses Vim for editing and Rust for work', 'The user\'s passport expires 2027-05-01', 'Passport renewed 2026-11-15, flight 2026-11-17', 'ID card photo, call 138 0013 8000', '密码不能明文保存因为不安全', 'Off 2026-11-15 2026-11-17', '电话 138-0013-8000', '手机 138 0013 8000 是工作号', 'Issue https://x.test/a/1234567890123456789']) assert.equal(looksSecret(fine), false, fine)
@@ -186,6 +186,16 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
+
+// The group memory message the memory's pre-step puts before a Session's step, given
+// what its history holds.
+const textOf = message => (message?.content ?? []).map(block => block.text).join('')
+async function groupMemoryOf(ctx, sessionId, history = []) {
+  const step = ctx.listeners.get('agent/pre-step').find(listener => /isGroupMemory/.test(String(listener)))
+  const agent = { id: sessionId, session: { deriveMessages: () => history } }
+  const decision = await step({ agent, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+  return decision.messages.find(message => message.source?.kind === 'ds-bot-group-memory')
+}
 
 // The summary is written to disk after the model answers; a fixed wait is too short on
 // a slow disk and leaves the write running into the next step or the cleanup.
@@ -1059,13 +1069,17 @@ test('the members of a group read its memory in their Sessions there, and no Bot
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
-  for (const member of ['g2', 'g3']) {
-    assert.match(section(member), /\n\n## Group memory, shared by the members of this group chat\nOnly the members of this group read it[^\n]*\n\n- The user wants everything under one page \[source: group "Launch"[^\n]*\]$/)
+  for (const [member, bot] of [['g2', 'b2'], ['g3', 'b3']]) {
+    // The prompt is the Bot's own, so the provider's cached prefix holds in both; the
+    // group's memory comes in a snapshot message before the first step.
+    assert.equal(section(member), section(bot))
+    assert.match(textOf(await groupMemoryOf(ctx, member)), /^## Group memory, shared by the members of this group chat\nOnly the members of this group read it[^\n]*\n\n- The user wants everything under one page \[source: group "Launch"[^\n]*\]$/)
     assert.match(await tool('recall', { query: 'page' }, member), /^Entries with "page" in your memory, the group memory, and the team memory:\n\[group · MEMORY\.md\] The user wants everything under one page/)
   }
   // Not in a member's own chat, nor for a Bot outside the group, a Main Bot included.
   for (const elsewhere of ['b2', 'b3', 'b4', 'm1']) {
     assert.doesNotMatch(section(elsewhere), /one page|Group memory/, elsewhere)
+    assert.equal(await groupMemoryOf(ctx, elsewhere), undefined, elsewhere)
     assert.match(await tool('recall', { query: 'page' }, elsewhere), /^Nothing in your memory and the team memory mentions "page"/, elsewhere)
     assert.match(await tool('recall', { scope: 'group' }, elsewhere), /^There is no group memory here/, elsewhere)
   }
@@ -1098,12 +1112,29 @@ test('in a group, remember and forget write the group memory unless told otherwi
   assert.deepEqual(parseMemory(read('groups', 'r1', 'MEMORY.md')).entries.map(entry => entry.text), ['Ship on Friday'])
 })
 
-test('a group Session frozen before groups kept a memory is frozen again, with it', async (t) => {
-  const { tool, section, home, stop } = start()
+test('a group Session gets its group\'s memory as a message once, and again after a checkpoint condensed it', async (t) => {
+  const { ctx, tool, section, home, stop } = start()
   t.after(() => stop())
   await tool('remember', { text: 'Ship on Friday' }, 'g3')
   writeFileSync(join(home, 'memory', 'snapshots', 'g3.md'), section('b3'))
-  assert.match(section('g3'), /## Group memory, shared by the members of this group chat\n[^\n]*\n\n- Ship on Friday \[/)
+  assert.equal(section('g3'), section('b3'))
+  const first = await groupMemoryOf(ctx, 'g3')
+  assert.match(textOf(first), /^## Group memory, shared by the members of this group chat\n[^\n]*\n\n- Ship on Friday \[/)
+  // Still in the history: not put in again.
+  assert.equal(await groupMemoryOf(ctx, 'g3', [first]), undefined)
+  // Condensed away by a checkpoint: it comes again, as the memory is now.
+  await tool('remember', { text: 'Demo on Monday' }, 'g3')
+  assert.match(textOf(await groupMemoryOf(ctx, 'g3', [])), /- Ship on Friday \[[^\n]*\n- Demo on Monday \[/)
+})
+
+test('a group Session frozen with its group\'s memory in its prompt keeps it there, with no message', async (t) => {
+  const { ctx, tool, section, home, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Ship on Friday' }, 'g3')
+  const frozen = `${section('b3')}\n\n## Group memory, shared by the members of this group chat\n- Ship on Friday`
+  writeFileSync(join(home, 'memory', 'snapshots', 'g3.md'), frozen)
+  assert.equal(section('g3'), frozen)
+  assert.equal(await groupMemoryOf(ctx, 'g3'), undefined)
 })
 
 test('deleting a group moves its memory to the archive, with its members\' snapshots gone', async (t) => {
