@@ -586,22 +586,22 @@ test('long turns ending during review remain pending for the next pass', async t
     config: { learningTimes: { tickMs: 100_000 } },
   })
   t.after(() => runtime.stop())
-  // chatOwners is a derived index: load() and save() rebuild it from the saved
-  // team, so the extra Session standing in for a second chat of b2 goes back on
-  // after each rebuild.
+  // Every load and save rebuilds the owner maps from the roster, and the startup model sync
+  // saves while the test runs: b3 is put back after each of them.
+  const owned = () => { runtime.rt.chatOwners.set('b3', 'b2') }
   const load = runtime.rt.load
   runtime.rt.load = async (...args) => {
     const result = await load(...args)
-    runtime.rt.chatOwners.set('b3', 'b2')
+    owned()
     return result
   }
   const save = runtime.rt.save
   runtime.rt.save = (...args) => {
     const result = save(...args)
-    runtime.rt.chatOwners.set('b3', 'b2')
+    owned()
     return result
   }
-  runtime.rt.chatOwners.set('b3', 'b2')
+  owned()
   const b3Statuses = []
   runtime.ctx.on('agent/status', ({ agent, status }) => {
     if (agent?.id === 'b3') b3Statuses.push(status)
