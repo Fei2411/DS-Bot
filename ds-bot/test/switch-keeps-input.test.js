@@ -397,3 +397,17 @@ test('a state write that fails as a switch ends is warned about, not left unhand
   await settle()
   assert.deepEqual(unhandled, [])
 })
+
+test('a Bot exposes switching state while moving to a fresh part and clears it when moved', async (t) => {
+  const host = await start({ services })
+  t.after(host.stop)
+  assert.equal(host.rt.isSwitching('b'), false)
+  const initial = await host.call('state', {})
+  assert.equal(initial.value.bots.find(b => b.id === 'b').switching, undefined)
+
+  await moveWriter(host, [])
+  await until(() => host.state().bots.b.sessionId === 's1' && Object.keys(host.state().switching).length === 0)
+  assert.equal(host.rt.isSwitching('b'), false)
+  const done = await host.call('state', {})
+  assert.equal(done.value.bots.find(b => b.id === 'b').switching, undefined)
+})

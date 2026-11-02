@@ -43,7 +43,11 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model.
     bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => ({
-      ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
+      ...bot,
+      sessionId: rt.chatOf(bot.id),
+      parts: (segments ?? []).map(segment => segment.sessionId),
+      ...(kickoff ? { waiting: true } : {}),
+      ...(rt.isSwitching?.(bot.id) ? { switching: true } : {}),
     })),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier
     // ones; `parts` the members' hidden group Sessions and their earlier segments,
