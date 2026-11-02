@@ -58,10 +58,21 @@ export function demoData(): DemoData {
       { id: 'linear', name: 'Linear', state: 'off' },
       { id: 'notion', name: 'Notion', state: 'error', error: 'Token expired' },
     ],
+    capabilityStatuses: {
+      'Run shell commands': { state: 'ready' },
+      'Read files': { state: 'ready' },
+      'Write files': { state: 'needs-approval' },
+      'Browse the web': { state: 'error', error: 'Token expired' },
+    },
     capabilities: [
-      { name: 'Run shell commands', status: 'approved' }, { name: 'Read files', status: 'approved' },
-      { name: 'Write files', status: 'pending' }, { name: 'Browse the web', status: 'approved' },
+      { name: 'Run shell commands', description: 'Run terminal commands on the computer', kind: 'mcp', transport: 'stdio' },
+      { name: 'Read files', description: 'Read files inside the working folder', kind: 'mcp', transport: 'stdio' },
+      { name: 'Write files', description: 'Write files inside the working folder', kind: 'mcp', transport: 'stdio' },
+      { name: 'Browse the web', description: 'Open pages and read them', kind: 'mcp', transport: 'streamable-http' },
     ],
+    workspace: '/Users/feiz/Work',
+    dataPath: '~/Library/Application Support/ds-bot',
+    version: '0.1.2',
     models: [
       { key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1' },
       { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash' },

@@ -199,6 +199,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       case 'connector-connect': case 'connector-disconnect': case 'connector-retry': return { ok: true }
       // capabilities ride in state, not their own endpoint
       case 'capability-save': case 'capability-delete': case 'capability-approve': case 'bot-capability': return { ok: true }
+      case 'team-workspace': return { ok: true }
       case 'usage': return {
         total: { input: 402100, output: 90300 },
         bots: [
@@ -209,10 +210,10 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
           { name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { name: 'DeepSeek Flash', input: 102000, output: 20200 },
         ],
       }
-      case 'update-check': return { latest: '0.1.2', available: true }
+      case 'update-check': return { update: { phase: 'current', latest: '0.1.2', available: false, checkedAt: Date.now() - 3600e3, source: 'registry' }, dsh: { phase: 'installed', installed: '0.0.1', available: false } }
       case 'update-install': case 'dsh-update-install': return { ok: true }
       case 'diagnostics': return { size: 48200, entries: 214, last: 'Turn 96 on Coder failed once and retried.' }
-      case 'diagnostics-log': return { lines: ['12:00 Chief ran 3 tools', '12:01 Coder failed once and retried', '12:02 Writer posted a draft'] }
+      case 'diagnostics-log': return { lines: ['12:00 Chief ran 3 tools', '12:01 Coder failed once and retried', '12:02 Writer posted a draft', '12:03 Researcher finished a compare'] }
       case 'diagnostics-clear': return { ok: true }
       case 'avatar-library': return { entries: [], done: true }
       case 'avatar-import': return { ok: true }

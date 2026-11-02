@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as Clipboard from 'expo-clipboard'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -270,14 +271,59 @@ export function Connectors({ navigation }: any) {
 }
 
 export function Capabilities({ navigation }: any) {
-  const { team } = useTeam()
-  const items = (team as { capabilities?: { name: string; status?: string }[] } | null)?.capabilities ?? []
+  const { p } = useTheme()
+  const { team, call } = useTeam()
+  const [open, setOpen] = useState<string | null>(null)
+  const [armed, setArmed] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const items = team?.capabilities ?? []
+  const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
+  const statusText = (status?: { state?: string; error?: string }) =>
+    status === undefined ? undefined
+    : status.state === 'ready' ? t('Ready')
+    : status.state === 'needs-approval' ? t('Needs approval')
+    : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
+    : t('Connecting…')
+  const detail = (item: { kind?: string; transport?: string; items?: string[] }) =>
+    item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
+    : item.kind === 'mcp' ? (item.transport === 'stdio' ? t('Local command') : t('HTTP server'))
+    : item.kind === 'skill' ? t('Skill')
+    : ''
+  const act = (endpoint: string, payload: Record<string, unknown>) =>
+    call(endpoint, payload).catch((f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   return (
     <Screen><Back title={t('Capabilities')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
         <Section label={t('Capabilities')}>
-          {items.map(item => <Row key={item.name} label={item.name} hint={item.status} />)}
-          {items.length === 0 ? <Row label={t('Nothing saved yet')} /> : null}
+          {items.map(item => {
+            const status = statuses[item.name]
+            const text = statusText(status)
+            return (
+              <View key={item.name}>
+                <Pressable accessibilityRole="button" onPress={() => setOpen(open === item.name ? null : item.name)} style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name}</Text>
+                    {item.description ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={2}>{item.description}</Text> : null}
+                    <Text style={[typeScale.small, { color: status?.state === 'needs-approval' ? p.accent : status?.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{[detail(item as { kind?: string; transport?: string; items?: string[] }), text].filter(Boolean).join(' · ')}</Text>
+                  </View>
+                  <ChevronRightIcon size={16} color={p.ink3} />
+                </Pressable>
+                {open === item.name ? (
+                  <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
+                    <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{(item as { content?: string }).content ?? item.description ?? ''}</Text></ScrollView>
+                    <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'flex-end' }}>
+                      {status?.state === 'needs-approval' ? <Pressable onPress={() => void act('capability-approve', { name: item.name })}><Text style={{ color: p.accent }}>{t('Approve')}</Text></Pressable> : null}
+                      {armed === item.name
+                        ? <Pressable onPress={() => { setArmed(null); void act('capability-delete', { name: item.name }) }}><Text style={{ color: p.danger, fontWeight: '600' }}>{t('Tap again to delete')}</Text></Pressable>
+                        : <Pressable onPress={() => setArmed(item.name)}><Text style={{ color: p.ink2 }}>{t('Delete')}</Text></Pressable>}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            )
+          })}
+          {items.length === 0 ? <Row label={t('Save an MCP server or skill first.')} /> : null}
         </Section>
       </ScrollView>
     </Screen>
@@ -310,12 +356,14 @@ export function TeamUsage({ navigation }: any) {
 
 export function Location({ navigation }: any) {
   const { team } = useTeam()
-  const workspace = (team as { workspace?: string } | null)?.workspace ?? ''
+  const workspace = team?.workspace ?? ''
+  const dataPath = (team as { dataPath?: string } | null)?.dataPath
   return (
     <Screen><Back title={t('Location')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Section label={t('Location')}>
           <Row label={t('Team workspace')} value={workspace} onPress={() => navigation.navigate('Folder', { current: workspace, onPick: 'team' })} />
+          {dataPath !== undefined ? <Row label={t('Data location')} value={dataPath} /> : null}
         </Section>
       </ScrollView>
     </Screen>
@@ -325,19 +373,67 @@ export function Location({ navigation }: any) {
 export function Updates({ navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const [status, setStatus] = useState<string | null>(null)
-  const [checking, setChecking] = useState(false)
-  const check = () => { setChecking(true); void call('update-check').then(v => setStatus((v as { latest?: string; available?: boolean })?.latest ? `v${(v as { latest: string }).latest}` : t('Up to date'))).catch(() => setStatus(t('Could not check'))).finally(() => setChecking(false)) }
+  const [update, setUpdate] = useState<{ phase?: string; latest?: string; installed?: string; verified?: string; available?: boolean; checkedAt?: number; source?: string; enabled?: boolean; error?: string; notes?: string } | null>(null)
+  const [dsh, setDsh] = useState<{ phase?: string; latest?: string; installed?: string; verified?: string; available?: boolean; blockedBy?: string; error?: string } | null>(null)
+  const [diag, setDiag] = useState<{ size?: number; entries?: number; last?: string } | null>(null)
+  const [log, setLog] = useState<string[] | null>(null)
+  const [armed, setArmed] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const check = () => { setBusy(true); void call('update-check').then(v => { const r = v as { update?: typeof update; dsh?: typeof dsh } | typeof update; setUpdate((r as { update?: typeof update }).update ?? (r as typeof update)); setDsh((r as { dsh?: typeof dsh }).dsh ?? null) }).catch(() => {}).finally(() => setBusy(false)) }
+  useState(() => { check(); void call('diagnostics').then(v => setDiag(v as typeof diag)).catch(() => {}); return null })
+  const updateText = (u: typeof update) => {
+    if (u === null) return '—'
+    if (u.phase === 'installing') return t('Updating DS Bot…')
+    if (u.phase === 'installed') return t('Restart DSH to start using DS Bot {version}.', { version: u.installed ?? u.latest ?? '' })
+    if (u.phase === 'updated') return t('DS Bot {version} is installed.', { version: u.installed ?? u.latest ?? '' })
+    if (u.phase === 'failed') return t('The update did not finish: {reason}', { reason: u.error ?? '' })
+    if (u.available) return t('DS Bot {version} is available', { version: u.latest ?? '' })
+    if (u.source === 'app') return t('Updates come with the DS Bot app.')
+    if (u.enabled === false) return t('Update checks are off.')
+    if (u.source === 'path') return t('Installed from a local folder; update it there.')
+    if (u.latest === undefined || u.latest === null) return t('Could not check for updates.')
+    return t('Up to date')
+  }
+  const dshText = (d: typeof dsh) => {
+    if (d === null) return '—'
+    if (d.phase === 'installing') return t('Updating DSH…')
+    if (d.phase === 'installed') return t('Restart DSH to start using DSH {version}.', { version: d.installed ?? d.verified ?? '' })
+    if (d.phase === 'failed') return t('The update did not finish: {reason}', { reason: d.error ?? '' })
+    if (d.available === false && d.blockedBy) return t('Update DS Bot {version} first.', { version: d.blockedBy })
+    if (d.available) return t('DSH {version} is available', { version: d.verified ?? d.latest ?? '' })
+    return t('Up to date')
+  }
+  const loadLog = () => { if (log !== null) { setLog(null); return } void call('diagnostics-log').then(v => setLog(((v as { lines?: string[] })?.lines ?? []) as string[])).catch(() => {}) }
+  const clearDiag = () => { if (!armed) { setArmed(true); return } setArmed(false); void call('diagnostics-clear').catch(() => {}) }
   return (
     <Screen><Back title={t('Updates & diagnostics')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <Section label={t('Updates')}>
-          <Row label={t('Status')} value={status ?? '—'} />
-          <Row label={t('Check for updates')} onPress={check} />
+        <Section label={t('DS Bot')}>
+          <Row label={t('DS Bot')} value={updateText(update)} />
+          {update?.notes ? <Row label={t('What is new')} value={update.notes} /> : null}
+          {update?.available === true ? <Row label={t('Install update')} onPress={() => void call('update-install')} /> : null}
+          <Row label={busy ? t('Checking for updates…') : t('Check for updates')} onPress={busy ? undefined : check} />
+        </Section>
+        <Section label={t('DSH')}>
+          <Row label={t('DSH')} value={dshText(dsh)} />
+          {dsh?.available === true ? <Row label={t('Install DSH update')} onPress={() => void call('dsh-update-install')} /> : null}
         </Section>
         <Section label={t('Diagnostics')}>
-          <Row label={t('Diagnostics log')} onPress={() => navigation.navigate('Placeholder', { title: t('Diagnostics log') })} />
-          <Row label={t('Clear diagnostics')} onPress={() => void call('diagnostics-clear')} />
+          <Row label={t('Log size')} value={diag !== null ? `${(diag.entries ?? 0)} · ${(diag.size ?? 0).toLocaleString()} B` : '—'} />
+          {diag?.last ? <Row label={t('Last entry')} value={diag.last} /> : null}
+          <Row label={log === null ? t('Diagnostics log') : t('Hide log')} onPress={loadLog} />
+          {log !== null ? (
+            <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
+              <ScrollView style={{ maxHeight: 200 }}>
+                {log.map((line, i) => <Text key={i} style={[typeScale.small, { color: p.ink2, fontFamily: 'monospace' }]}>{line}</Text>)}
+              </ScrollView>
+              <Pressable accessibilityRole="button" onPress={() => { void Clipboard.setStringAsync(log.join('\n')); setCopied(true); setTimeout(() => setCopied(false), 1500) }} style={{ marginTop: 8 }}>
+                <Text style={{ color: p.accent }}>{copied ? t('Copied') : t('Copy all')}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          <Row label={armed ? t('Tap again to delete') : t('Clear diagnostics')} onPress={clearDiag} />
         </Section>
       </ScrollView>
     </Screen>
@@ -345,15 +441,23 @@ export function Updates({ navigation }: any) {
 }
 
 export function About({ navigation }: any) {
+  const { p } = useTheme()
   const { team, computer } = useTeam()
   const version = (team as { version?: string } | null)?.version ?? '—'
+  const dsh = (team as { dshVersion?: string } | null)?.dshVersion
+  const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
   return (
     <Screen><Back title={t('About')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Section label={t('About')}>
           <Row label={t('DS Bot')} value={version} />
+          {dsh !== undefined ? <Row label={t('DSH')} value={dsh} /> : null}
+          <Row label={t('Phone app')} value={appVersion} />
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
-          <Row label={t('Licenses')} onPress={() => navigation.navigate('Placeholder', { title: t('Licenses') })} />
+        </Section>
+        <Section label={t('Licenses')}>
+          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => navigation.navigate('Placeholder', { title: t('Licenses') })} />
+          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => navigation.navigate('Placeholder', { title: t('Repository') })} />
         </Section>
       </ScrollView>
     </Screen>

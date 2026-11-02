@@ -82,8 +82,10 @@ export interface TeamState {
   views?: Record<string, { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }>
   secretRequests?: Record<string, SecretRequest[]>
   connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]
-  capabilities?: { name: string; status?: string }[]
+  capabilities?: { name: string; description?: string; kind?: string; transport?: string; command?: string; url?: string; content?: string; items?: string[]; status?: string }[]
+  capabilityStatuses?: Record<string, { state?: string; error?: string }>
   workspace?: string
+  dataPath?: string
   version?: string
   work?: {
     bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
