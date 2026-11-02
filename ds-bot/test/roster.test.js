@@ -1049,3 +1049,27 @@ test('set-prefs stores a served default model, clears it, and refuses an unknown
   assert.equal('defaultBotModel' in (await call('set-prefs', { defaultBotModel: null })).value, false)
   assert.equal('defaultBotModel' in rt.state.prefs, false)
 })
+
+test('a model-less create-bot starts the Bot on the saved team default model', async (t) => {
+  const { call, stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  await call('set-prefs', { defaultBotModel: 'deepseek/deepseek-v4-pro' })
+
+  // The HTTP create names no model: the team's saved pick applies, not the DSH default.
+  const defaulted = (await call('create-bot', { name: 'Defaulted' })).value
+  assert.equal(defaulted.model, 'deepseek/deepseek-v4-pro')
+
+  // An explicit model still wins over the team default.
+  const named = (await call('create-bot', { name: 'Named', model: 'deepseek/deepseek-v4-flash' })).value
+  assert.equal(named.model, 'deepseek/deepseek-v4-flash')
+
+  // A saved pick the catalog no longer serves falls back to the DSH default…
+  rt.state.prefs.defaultBotModel = 'gone/model'
+  const stale = (await call('create-bot', { name: 'Stale' })).value
+  assert.equal(stale.model, 'deepseek/deepseek-v4-flash')
+
+  // …and so does a create once the pick is cleared.
+  await call('set-prefs', { defaultBotModel: null })
+  const plain = (await call('create-bot', { name: 'Plain' })).value
+  assert.equal(plain.model, 'deepseek/deepseek-v4-flash')
+})
