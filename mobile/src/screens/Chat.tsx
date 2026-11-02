@@ -96,6 +96,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
   const [chatWidth, setChatWidth] = useState(0)
+  const [chatHeight, setChatHeight] = useState(0)
+  const [collapsedViews, setCollapsedViews] = useState<Record<string, boolean>>({})
   const [menuText, setMenuText] = useState<string | null>(null)
   const [readerText, setReaderText] = useState<string | null>(null)
   const onLongPress = (text: string) => setMenuText(text)
@@ -185,7 +187,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} view={team?.views?.[sessionId]} call={call} p={p} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} collapsed={collapsedViews} onCollapse={(id, value) => setCollapsedViews(prev => ({ ...prev, [id]: value }))} />
       {error ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}

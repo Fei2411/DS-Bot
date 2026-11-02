@@ -14,15 +14,16 @@ type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
 // The pending dock above the composer: question card (ui-standard 10.8), then
 // approval cards. Taller than 50% of the screen, the dock scrolls inside.
-export function Dock({ question, sessionId, approvals, view, call, p }: {
+export function Dock({ question, sessionId, approvals, view, call, p, maxHeight, collapsed, onCollapse }: {
+  maxHeight?: number; collapsed?: Record<string, boolean>; onCollapse?: (id: string, value: boolean) => void
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
   const has = question !== undefined || approvals.length > 0 || view !== undefined
   if (!has) return null
   return (
-    <ScrollView style={styles.dock} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
-      {view !== undefined ? <ViewCard sessionId={sessionId} view={view} p={p} /> : null}
+    <ScrollView style={[styles.dock, maxHeight !== undefined ? { maxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
+      {view !== undefined ? <DockView sessionId={sessionId} view={view} p={p} cap={maxHeight} collapsed={collapsed?.[view.id ?? ''] ?? null} onCollapse={onCollapse} /> : null}
       {question ? <QuestionCard question={question} sessionId={sessionId} call={call} p={p} /> : null}
       {approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} call={call} p={p} />)}
     </ScrollView>
@@ -127,6 +128,25 @@ export function ActionRow({ bot, doing, p, dark }: { bot: Bot; doing: string; p:
 }
 
 const type = typeScale
+function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionId: string; view: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }; p: Palette; cap?: number; collapsed: boolean | null; onCollapse?: (id: string, value: boolean) => void }) {
+  const id = view.id ?? ''
+  const title = (view.blueprint?.title ?? view.title) ?? 'View'
+  const shut = collapsed === true
+  return (
+    <View>
+      <Pressable accessibilityRole="button" onPress={() => onCollapse?.(id, !shut)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: shut ? 0 : 4 }}>
+        <Text style={[typeScale.caption, { color: p.ink3 }]}>{title}</Text>
+        <Text style={{ color: p.ink3, fontSize: 12 }}>{shut ? '▸' : '▾'}</Text>
+      </Pressable>
+      {shut ? null : (
+        <View onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>
+          <ViewCard sessionId={sessionId} view={view} p={p} />
+        </View>
+      )}
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   dock: { maxHeight: '50%', flexGrow: 0 },
   card: { marginHorizontal: 12, marginVertical: 6, borderRadius: radius.card, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, ...shadow(1) },
