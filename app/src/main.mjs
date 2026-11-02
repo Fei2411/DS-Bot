@@ -155,7 +155,8 @@ const shell = createShell({
   ready: () => places !== undefined && origin !== undefined && bootstrap !== undefined,
   // The one-time notice is a card in the team window; a page that cannot show it lets the window
   // go to the tray, which is what the notice would have said.
-  notice: { marker: () => join(app.getPath('userData'), 'tray-close-acknowledged'), show: options => boxInWindow(options, 0) },
+  // A second close while the card is up brings the window, and so the card, to the front.
+  notice: { marker: () => join(app.getPath('userData'), 'tray-close-acknowledged'), show: options => boxInWindow(options, 0), focus: () => { toFront(mainWindow) } },
   // Without a tray the close asks whether the app should end; unasked, the window minimizes.
   fallback: { show: options => boxInWindow(options, options.cancelId) },
 })
@@ -1103,13 +1104,17 @@ let cardCount = 0
  * (preload.cjs showCard, page-card.css): the index of the button the user clicks, -1 when a newer
  * card took its place, undefined when the page cannot show it (not loaded, gone, or silent for
  * CARD_SHOWN_MS) or goes away before the answer.
+ * `front` brings the window to the front first: a close waits on the answer, so its card must
+ * be where the user looks.
  * @param {{ message: string, detail?: string, buttons: { label: string, primary?: boolean }[], cancel?: number }} card
+ * @param {{ front?: boolean }} [how]
  * @returns {Promise<number | undefined>}
  */
-function askInWindow(card) {
+function askInWindow(card, { front = false } = {}) {
   const win = mainWindow
   const contents = win?.webContents
   if (win === undefined || win.isDestroyed() || contents.isLoading() || !contents.getURL().startsWith(`${origin}/`)) return Promise.resolve(undefined)
+  if (front) toFront(win)
   const id = (cardCount += 1)
   return new Promise((resolve) => {
     let seen = false
@@ -1119,11 +1124,14 @@ function askInWindow(card) {
       clearTimeout(timer)
       contents.off('did-start-loading', away)
       contents.off('destroyed', away)
+      if (cards.size === 0) botViews?.cover(false)
       resolve(value)
     }
     const away = () => { settle(undefined) }
     const timer = setTimeout(() => { if (!seen) away() }, CARD_SHOWN_MS)
     cards.set(id, { settle, shown: () => { seen = true } })
+    // The Bot browser views are drawn above the page and would cover the card.
+    botViews?.cover(true)
     contents.once('did-start-loading', away)
     contents.once('destroyed', away)
     contents.send(IPC.card, { id, ...card })
@@ -1135,8 +1143,15 @@ function askInWindow(card) {
 async function boxInWindow(options, unasked) {
   const buttons = options.buttons.map((label, index) => ({ label, primary: index === options.defaultId }))
   const cancel = options.cancelId >= 0 ? options.cancelId : undefined
-  const answer = await askInWindow({ message: options.message, detail: options.detail, buttons, cancel })
-  return { response: answer === undefined ? unasked : answer }
+  const answer = await askInWindow({ message: options.message, detail: options.detail, buttons, cancel }, { front: true })
+  return answer === undefined ? { response: unasked, unasked: true } : { response: answer }
+}
+
+function toFront(win) {
+  if (win === undefined || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 // What the updater does when the user says yes. The answer may come later, when the window
