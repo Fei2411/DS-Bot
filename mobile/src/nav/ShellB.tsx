@@ -14,6 +14,7 @@ import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
+import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings } from '../screens/manage.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
@@ -47,6 +48,10 @@ function DrawerContent() {
       <View style={{ flex: 1 }}>
         <TeamList onOpen={open} />
       </View>
+      <Pressable accessibilityRole="button" onPress={() => { drawer.close(); navigation.navigate('NewMenu') }}
+        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 12, backgroundColor: pressed ? p.hover : 'transparent' }]}>
+        <Text style={[typeScale.rowName, { color: p.accent }]}>+ {t('New')}</Text>
+      </Pressable>
       <View style={[styles.foot, { borderTopColor: p.line, paddingBottom: insets.bottom + 8 }]}>
         <View style={styles.you}><YouMark dark={useTheme().dark} size={24} /><Text style={[typeScale.rowName, { color: p.ink }]}>{t('You')}</Text></View>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
@@ -67,7 +72,7 @@ function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<type
   )
 }
 
-function Header({ title, bot, room, bots = [], onMenu }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void }) {
+function Header({ title, bot, room, bots = [], onMenu, onPill }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void; onPill?: () => void }) {
   const { p } = useTheme()
   const { team } = useTeam()
   const pending = pendingCountOf(team) > 0
@@ -78,7 +83,9 @@ function Header({ title, bot, room, bots = [], onMenu }: { title: string; bot?: 
         <SidebarIcon size={20} color={p.ink2} />
         {pending ? <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent }} /> : null}
       </Pressable>
-      <View style={{ flex: 1, alignItems: 'center' }}><Pill title={title} bot={bot} room={room} bots={bots} /></View>
+      <View style={{ flex: 1, alignItems: 'center' }}>
+        {onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
+      </View>
       <View style={{ width: 44 }} />
     </View>
   )
@@ -103,7 +110,7 @@ function ChatScreenB({ route, navigation }: any) {
     void SecureStore.deleteItemAsync(LAST_KEY)
     if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id })
   }, [missing])
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} />
+  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupSettings', { roomId: room.id }) }} />
   if (team === null) return <View style={{ flex: 1, backgroundColor: p.main }}>{header}</View>
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id }) }
   return <ChatView bot={bot} room={room} header={header} onMissing={onMissing} />
@@ -169,6 +176,12 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       <Stack.Screen name="Needs">{(props: any) => <NeedsScreenB {...props} />}</Stack.Screen>
       <Stack.Screen name="Settings">{(props: any) => <SettingsScreenB onForget={onForget} {...props} />}</Stack.Screen>
       {/* Home is only a background color while Chat resolves the first Main Bot. */}
+      <Stack.Screen name="BotDetails">{(props: any) => <BotDetails {...props} />}</Stack.Screen>
+      <Stack.Screen name="BotEdit">{(props: any) => <BotEdit {...props} />}</Stack.Screen>
+      <Stack.Screen name="NewBot">{(props: any) => <NewBot {...props} />}</Stack.Screen>
+      <Stack.Screen name="NewMenu">{(props: any) => <NewMenu {...props} />}</Stack.Screen>
+      <Stack.Screen name="NewGroup">{(props: any) => <NewGroup {...props} />}</Stack.Screen>
+      <Stack.Screen name="GroupSettings">{(props: any) => <GroupSettings {...props} />}</Stack.Screen>
       <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
     </Stack.Navigator>
     </View>

@@ -12,15 +12,15 @@ const T = 1_762_000_000_000 // fixed demo clock
 const seq = () => { let n = 0; return () => { n += 1; return n } }
 
 const BOTS: Bot[] = [
-  { id: 'b-chief', name: 'Chief', role: 'Main Bot', color: 'deepseek', avatar: { shape: 'whale' }, sessionId: 's-chief', parts: ['s-chief-0'], createdAt: T - 90 * 86400e3, lastAt: T - 600e3, preview: 'Here is the plan, in order' },
-  { id: 'b-writer', name: 'Writer', role: 'Words and docs', color: 'violet', avatar: { shape: 'moon' }, sessionId: 's-writer', createdAt: T - 60 * 86400e3, lastAt: T - 2400e3, preview: 'Draft is attached for review' },
+  { id: 'b-chief', name: 'Chief', role: 'Main Bot', color: 'deepseek', avatar: { shape: 'whale' }, model: 'deepseek-official/deepseek-v4.1', effort: 'medium', workDir: '~/ds-bot', instructions: 'Keep the team moving, review every diff before it lands.', sessionId: 's-chief', parts: ['s-chief-0'], createdAt: T - 90 * 86400e3, lastAt: T - 600e3, preview: 'Here is the plan, in order' },
+  { id: 'b-writer', name: 'Writer', role: 'Words and docs', color: 'violet', avatar: { shape: 'moon' }, model: 'deepseek-official/deepseek-flash', workDir: '~/ds-bot/docs', sessionId: 's-writer', createdAt: T - 60 * 86400e3, lastAt: T - 2400e3, preview: 'Draft is attached for review' },
   { id: 'b-coder', name: 'Coder', role: 'Builds and fixes', color: 'cyan', avatar: { shape: 'hex' }, sessionId: 's-coder', createdAt: T - 55 * 86400e3 },
   { id: 'b-researcher', name: 'Researcher', role: 'Reads and compares', color: 'green', avatar: { shape: 'pebbles' }, sessionId: 's-researcher', createdAt: T - 50 * 86400e3 },
   { id: 'b-designer', name: 'Designer', role: 'Interface and brand', color: 'magenta', avatar: { shape: 'star' }, sessionId: 's-designer', pinned: true, createdAt: T - 45 * 86400e3, lastAt: T - 7200e3, preview: 'New avatar set is in' },
 ]
 
 const ROOMS: Room[] = [
-  { id: 'r-launch', name: 'Launch plan', members: ['b-chief', 'b-coder', 'b-writer'], preview: 'Coder：Landing page draft is up', lastAt: T - 900e3, createdAt: T - 20 * 86400e3 },
+  { id: 'r-launch', name: 'Launch plan', members: ['b-chief', 'b-coder', 'b-writer'], admin: 'b-chief', mode: 'admin', notice: 'Ship the release with green tests.', named: true, preview: 'Coder：Landing page draft is up', lastAt: T - 900e3, createdAt: T - 20 * 86400e3 },
   { id: 'r-weekly', name: 'Weekly review', members: ['b-researcher', 'b-designer'], preview: 'Researcher：Notes for Friday', lastAt: T - 86400e3, createdAt: T - 30 * 86400e3 },
 ]
 
@@ -41,8 +41,6 @@ export function demoData(): DemoData {
   const s = seq()
   const state: TeamState = {
     revision: 1,
-    mainBotId: 'b-chief',
-    mainBotIds: ['b-chief'],
     bots: BOTS.map(bot => ({ ...bot })),
     rooms: ROOMS.map(room => ({ ...room })),
     questions: { 's-researcher': { ...QUESTIONS['s-researcher'], options: QUESTIONS['s-researcher'].options?.map(o => ({ ...o })) } },
@@ -55,6 +53,11 @@ export function demoData(): DemoData {
       turns: {},
     },
     activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    models: [
+      { key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1' },
+      { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash' },
+      { key: 'openrouter/auto', name: 'OpenRouter Auto' },
+    ],
     views: {
       's-chief': {
         id: 'v-1', title: 'Release readiness',

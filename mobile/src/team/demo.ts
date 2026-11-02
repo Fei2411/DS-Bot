@@ -104,6 +104,69 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         touch()
         return true
       }
+      case 'update-bot': {
+        const bot = state.bots.find(b => b.id === String(body.id ?? ''))
+        if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+        const { id: _ignored, ...patch } = body as Record<string, unknown>
+        Object.assign(bot, { name: undefined, role: undefined, instructions: undefined, model: undefined, effort: undefined, color: undefined, avatar: undefined, workDir: undefined, private: undefined, permission: undefined }, patch)
+        state.revision += 1; touch()
+        return { ok: true }
+      }
+      case 'create-bot': {
+        const id = `b-${Math.random().toString(36).slice(2, 8)}`
+        state.bots.push({ id, name: String(body.name ?? 'New Bot'), color: body.color as string | undefined, avatar: body.avatar as { shape?: string; image?: string } | undefined, model: body.model as string | undefined, sessionId: `s-${id}`, createdAt: Date.now() })
+        state.revision += 1; touch()
+        return { id }
+      }
+      case 'duplicate-bot': {
+        const bot = state.bots.find(b => b.id === String(body.id ?? ''))
+        if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+        const id = `b-${Math.random().toString(36).slice(2, 8)}`
+        const copy = { ...bot, id, name: `${bot.name} (copy)`, sessionId: `s-${id}`, createdAt: Date.now() }
+        state.bots.push(copy)
+        state.revision += 1; touch()
+        return { id }
+      }
+      case 'delete-bot': {
+        state.bots = state.bots.filter(b => b.id !== String(body.id ?? ''))
+        state.revision += 1; touch()
+        return { ok: true }
+      }
+      case 'set-main': {
+        const mains = new Set(state.mainBotIds ?? [])
+        if (body.main === true) mains.add(String(body.id)); else mains.delete(String(body.id))
+        state.mainBotIds = [...mains]
+        state.mainBotId = state.mainBotIds[0] ?? null
+        state.revision += 1; touch()
+        return { ok: true }
+      }
+      case 'update-room': {
+        const room = state.rooms?.find(r => r.id === String(body.id ?? ''))
+        if (room === undefined) throw Object.assign(new Error('Unknown group'), { code: 'bot/not-found' })
+        const { id: _ignored, ...patch } = body as Record<string, unknown>
+        Object.assign(room, { name: undefined, notice: undefined, mode: undefined, admin: undefined, members: undefined }, patch)
+        state.revision += 1; touch()
+        return { ok: true }
+      }
+      case 'create-room': {
+        const id = `r-${Math.random().toString(36).slice(2, 8)}`
+        const members = (Array.isArray(body.members) ? body.members : []).map(String)
+        const name = members.map(id => state.bots.find(b => b.id === id)?.name).filter(Boolean).join(', ') || 'New group'
+        state.rooms = [...(state.rooms ?? []), { id, name, members, createdAt: Date.now() }]
+        state.revision += 1; touch()
+        return { id }
+      }
+      case 'delete-room': {
+        state.rooms = (state.rooms ?? []).filter(r => r.id !== String(body.id ?? ''))
+        state.revision += 1; touch()
+        return { ok: true }
+      }
+      case 'models': return state.models ?? []
+      case 'efforts': return ['low', 'medium', 'high']
+      case 'avatar-library': return { entries: [], done: true }
+      case 'avatar-import': return { ok: true }
+      case 'avatar-delete': return { ok: true }
+      case 'set-flags': return { ok: true }
       case 'stop-member-work': {
         const roomId = String(body.roomId ?? '')
         const list = state.work?.rooms?.[roomId]

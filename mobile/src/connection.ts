@@ -10,6 +10,12 @@ export interface Bot {
   role?: string
   color?: string
   avatar?: { shape?: string; image?: string }
+  model?: string
+  effort?: string
+  workDir?: string
+  main?: boolean
+  private?: boolean
+  instructions?: string
   sessionId?: string
   parts?: string[]
   waiting?: boolean
@@ -26,6 +32,11 @@ export interface Room {
   preview?: string
   lastAt?: number
   members?: string[]
+  admin?: string
+  mode?: string
+  notice?: string
+  named?: boolean
+  sessionId?: string
   pinned?: boolean
   hidden?: boolean
   createdAt?: number
@@ -65,6 +76,7 @@ export interface TeamState {
   rooms?: Room[]
   mainBotId?: string | null
   mainBotIds?: string[]
+  models?: { key?: string; name: string; ref?: string }[]
   questions?: Record<string, Question>
   views?: Record<string, { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }>
   secretRequests?: Record<string, SecretRequest[]>
