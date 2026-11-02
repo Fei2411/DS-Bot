@@ -16,7 +16,7 @@ export function createDeferredPrompt({ ask, shown, onYes, log = console }) {
   const prompt = async (version) => {
     if (!shown()) {
       waiting = version
-      log.info(`DeepSeek Bot: the update ${version} waits for the window`)
+      log.info(`DS Bot: the update ${version} waits for the window`)
       return false
     }
     return ask(version)
@@ -30,7 +30,7 @@ export function createDeferredPrompt({ ask, shown, onYes, log = console }) {
       // to do the work itself.
       if (await ask(version)) await onYes?.(version)
     } catch (error) {
-      log.error(`DeepSeek Bot: the update ${version} could not be asked: ${error instanceof Error ? error.message : String(error)}`)
+      log.error(`DS Bot: the update ${version} could not be asked: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   return { prompt, flush, waiting: () => waiting }
