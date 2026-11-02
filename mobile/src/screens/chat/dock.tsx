@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import * as Haptics from 'expo-haptics'
+import { ViewCard } from './view.tsx'
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
 import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
@@ -13,7 +14,8 @@ type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
 // The pending dock above the composer: question card (ui-standard 10.8), then
 // approval cards. Taller than 50% of the screen, the dock scrolls inside.
-export function Dock({ question, sessionId, approvals, call, p }: {
+export function Dock({ question, sessionId, approvals, view, call, p }: {
+  view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
   const has = question !== undefined || approvals.length > 0

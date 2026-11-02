@@ -6,6 +6,7 @@ import { t, dateLocale } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
+import { ViewCard } from './view.tsx'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
@@ -21,6 +22,7 @@ export interface ChatItem {
   images?: number
   imageRefs?: ImageRef[]
   title?: string
+  view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   questions?: { question: string }[]
   answers?: { selected?: string[]; custom?: string }[]
   tools?: { name: string; label?: string | null; ok?: boolean }[]
@@ -51,11 +53,11 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('{name} {event}', { name: item.name ?? t('a Bot'), event: label })}</Text>
   }
   if (item.kind === 'view') {
-    return (
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-        <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
-      </View>
-    )
+    return item.view !== undefined
+      ? <ViewCard sessionId={sessionId ?? ''} view={item.view} p={p} readOnly />
+      : <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+          <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
+        </View>
   }
   if (item.kind === 'answer') {
     return (

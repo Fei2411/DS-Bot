@@ -55,6 +55,17 @@ export function demoData(): DemoData {
       turns: {},
     },
     activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    views: {
+      's-chief': {
+        id: 'v-1', title: 'Release readiness',
+        children: [
+          { type: 'chart', kind: 'bar', categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], series: [{ name: 'Merged', values: [3, 5, 2, 7, 4] }, { name: 'Open', values: [6, 4, 5, 3, 2] }], unit: ' PRs' },
+          { type: 'slider', id: 'days', label: 'Days to release', min: 1, max: 14, step: 1, value: 5, unit: 'd' },
+          { type: 'metric', label: 'Burn rate', value: { '=': 'open / days' }, caption: 'open PRs per day' },
+          { type: 'options', id: 'a-1', options: [{ label: 'Ship Friday' }, { label: 'Hold for Monday' }, { label: 'Cancel the tag' }] },
+        ],
+      },
+    },
     exchangeTurns: {},
     prefs: { theme: 'deepseek' },
   }

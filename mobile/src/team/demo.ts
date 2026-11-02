@@ -40,6 +40,16 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         touch()
         return true
       }
+      case 'view-reply': {
+        const sid = String(body.sessionId ?? '')
+        if (state.views?.[sid] !== undefined) { delete state.views[sid]; touch() }
+        return { ok: true }
+      }
+      case 'dismiss-view': {
+        const sid = String(body.sessionId ?? '')
+        if (state.views?.[sid] !== undefined) { delete state.views[sid]; touch() }
+        return { ok: true }
+      }
       case 'image': {
         const id = String(body.attachmentId ?? '')
         const data = id === 'demo-img-1' ? DEMO_IMG_1 : id === 'demo-img-2' ? DEMO_IMG_2 : undefined

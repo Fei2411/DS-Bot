@@ -185,7 +185,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} call={call} p={p} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} view={team?.views?.[sessionId]} call={call} p={p} />
       {error ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
