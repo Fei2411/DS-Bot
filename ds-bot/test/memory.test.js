@@ -410,6 +410,35 @@ test('a restore cannot rebuild a topic past the count the memory holds', async (
   assert.match(restored.error.message, /already has 40 topics/)
 })
 
+test('a restore of a replace does not duplicate a fact remembered again', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await tool('remember', { text: 'Lives in Shanghai', replace: 'Hangzhou' }, 'b2')
+  const replaced = journal().at(-1)
+  // The old fact is remembered again since, under a topic and new metadata.
+  await tool('remember', { text: 'lives  in  hangzhou', topic: 'Home' }, 'b2')
+  const restored = await call('memory-restore', { line: journal().findIndex(record => record.id === replaced.id) + 1 })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already in/)
+  // The entry it replaced stays put, and the remembered copy is not doubled.
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Shanghai \[/)
+  assert.equal(parseMemory(read('bots', 'b2', 'home.md')).entries.length, 1)
+})
+
+test('a restore of a replace whose after reads like its before is no duplicate', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Drinks tea daily' }, 'b2')
+  await tool('remember', { text: 'drinks tea daily', replace: 'tea' }, 'b2')
+  // The after-line squashes to the before text: the matched entry itself is no
+  // duplicate, so the restore still puts the recorded before-line back.
+  const restored = await call('memory-restore', { line: journal().length })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Drinks tea daily \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /- drinks tea daily/)
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())

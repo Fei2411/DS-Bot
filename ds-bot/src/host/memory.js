@@ -1566,8 +1566,14 @@ export function install(rt) {
       if (found.length > 1) throw noMatch(`The line that line ${line} changed is in ${label} more than once; restore it by hand so the wrong one is not changed.`)
       // The before-line passes the checks a new entry does, so a restore does not
       // write — into the file or the change log — what memory no longer keeps.
-      const problem = entryProblem(splitMeta(row.before.replace(/^[-*]\s+/, '')).text)
+      const back = splitMeta(row.before.replace(/^[-*]\s+/, '')).text
+      const problem = entryProblem(back)
       if (problem !== undefined) throw new Error(`The entry that line ${line} changed cannot be put back: ${problem}`)
+      // Nor does it come back twice: the same fact may have been saved again since,
+      // under another topic or new metadata. The matched entry itself does not
+      // count: an after that squashes to the before text is no duplicate.
+      const same = matchEntries(allEntries(files), back).find(entry => squash(entry.text) === squash(back) && !(entry.file === target && entry.line === found[0].line))
+      if (same !== undefined) throw noMatch(`The entry that line ${line} changed is already in ${label} (${fileName(same.file)}); there is nothing to restore.`)
       const lines = [...target.lines]
       lines[found[0].line] = row.before
       const next = joinLines(lines)
