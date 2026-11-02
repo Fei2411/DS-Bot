@@ -53,6 +53,15 @@ export function demoData(): DemoData {
       turns: {},
     },
     activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    connectors: [
+      { id: 'github', name: 'GitHub', state: 'ready', account: 'feiz' },
+      { id: 'linear', name: 'Linear', state: 'off' },
+      { id: 'notion', name: 'Notion', state: 'error', error: 'Token expired' },
+    ],
+    capabilities: [
+      { name: 'Run shell commands', status: 'approved' }, { name: 'Read files', status: 'approved' },
+      { name: 'Write files', status: 'pending' }, { name: 'Browse the web', status: 'approved' },
+    ],
     models: [
       { key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1' },
       { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash' },

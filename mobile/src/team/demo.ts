@@ -186,20 +186,18 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       }
       case 'usage-summary': return { botId: String(body.botId ?? ''), day: { input: 12400, output: 3200, cacheRead: 8800 }, week: { input: 98200, output: 21400, cacheRead: 61100 }, month: { input: 402100, output: 90300, cacheRead: 251000 }, models: [{ key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash', input: 102000, output: 20200 }], scanning: false }
       case 'run-stats': return { parts: 3, messages: 214, turns: 96, tools: 311, sessions: 2 }
-      case 'providers': return [
-        { name: 'DeepSeek', hasKey: true, models: [{ name: 'DeepSeek v4.1' }, { name: 'DeepSeek Flash' }] },
-        { name: 'OpenRouter', hasKey: true, models: [{ name: 'Auto' }, { name: 'Kimi K2.5' }] },
-        { name: 'OpenAI', hasKey: false, models: [{ name: 'GPT-5.2' }] },
-      ]
+      case 'providers': return { available: true, protocols: ['openai'], providers: [
+        { id: 'deepseek', name: 'DeepSeek', key: { configured: true, writable: true }, models: [{ name: 'DeepSeek v4.1' }, { name: 'DeepSeek Flash' }] },
+        { id: 'openrouter', name: 'OpenRouter', key: { configured: true, writable: true }, models: [{ name: 'Auto' }, { name: 'Kimi K2.5' }] },
+        { id: 'openai', name: 'OpenAI', key: { configured: false, writable: true }, removable: true, models: [{ name: 'GPT-5.2' }] },
+      ], addable: [
+        { id: 'anthropic', name: 'Anthropic' }, { id: 'google', name: 'Google' }, { id: 'openai-compat', name: 'OpenAI-compatible' },
+      ] }
       case 'provider-models': return [{ name: 'DeepSeek v4.1' }, { name: 'DeepSeek Flash' }, { name: 'DeepSeek Reasoner' }]
       case 'provider-key': case 'provider-add': case 'provider-remove': return { ok: true }
-      case 'connectors': return [
-        { name: 'GitHub', status: 'connected' }, { name: 'Linear', status: 'connected' }, { name: 'Notion', status: 'needs re-auth' },
-      ]
+      // connectors ride in state, not their own endpoint
       case 'connector-connect': case 'connector-disconnect': case 'connector-retry': return { ok: true }
-      case 'capabilities': return [
-        { name: 'Run shell commands', status: 'approved' }, { name: 'Read files', status: 'approved' }, { name: 'Write files', status: 'pending' }, { name: 'Browse the web', status: 'approved' },
-      ]
+      // capabilities ride in state, not their own endpoint
       case 'capability-save': case 'capability-delete': case 'capability-approve': case 'bot-capability': return { ok: true }
       case 'usage': return {
         total: { input: 402100, output: 90300 },

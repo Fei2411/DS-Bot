@@ -48,53 +48,221 @@ function Row({ label, hint, value, onPress, end }: { label: string; hint?: strin
 
 // ------------------------------------------------------------ Providers
 
+// ------------------------------------------------------------ Providers
+
+interface ProviderItem { id: string; name: string; key?: { configured?: boolean; writable?: boolean }; models: { name?: string; id?: string }[]; removable?: boolean; error?: string }
+interface ProvidersView { available?: boolean; providers: ProviderItem[]; addable?: { id: string; name: string }[]; protocols?: string[] }
+
+const keyLabel = (key?: { configured?: boolean; writable?: boolean }) =>
+  key?.configured !== true ? t('Needs an API key') : key.writable === true ? t('Key set') : t('Key set outside DS Bot')
+
 export function Providers({ navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const [list, setList] = useState<{ name: string; models?: { name: string }[]; hasKey?: boolean }[]>([])
-  const [keyFor, setKeyFor] = useState<string | null>(null)
+  const [view, setView] = useState<ProvidersView | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [mode, setMode] = useState<'known' | 'custom'>('known')
   const [key, setKey] = useState('')
+  const [draft, setDraft] = useState({ provider: '', name: '', baseURL: '', api: '', key: '', typed: '' })
+  const [found, setFound] = useState<{ id: string; name?: string }[] | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [confirm, setConfirm] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const load = () => void call('providers').then(v => setList(v as typeof list)).catch(() => {})
+  const [saved, setSaved] = useState<string | null>(null)
+  const load = () => void call('providers').then(v => setView(v as ProvidersView)).catch(() => {})
   useState(() => { load(); return null })
-  const saveKey = () => { if (!key.trim() || keyFor === null) return; const next = key; setKey(''); void call('provider-key', { provider: keyFor, key: next }).then(() => { setKeyFor(null); load() }, (f: Error) => setError(f.message)) }
+  const apply = (task: Promise<unknown>, after?: () => void) => task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
+  const saveKey = (id: string) => { if (key === '') return; const next = key; setKey(''); void apply(call('provider-key', { provider: id, key: next }), () => { setSaved(id); load() }) }
+  const typed = draft.typed.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+  const models = [...(found ?? []).filter(m => picked.includes(m.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
+  const ready = draft.provider.trim() !== '' && draft.baseURL.trim() !== '' && models.length > 0
+  const discover = () => { if (draft.baseURL.trim() === '') return; void apply(call('provider-models', { baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key }), () => {}) .then(() => {}) }
+  const addKnown = () => { if (draft.provider === '') return; void apply(call('provider-add', { provider: draft.provider, key: draft.key }), () => { setAdding(false); setDraft(d => ({ ...d, provider: '', key: '' })); load() }) }
+  const addCustom = () => { if (!ready) return; void apply(call('provider-add', { custom: true, provider: draft.provider.trim(), name: draft.name, baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key, models }), () => { setAdding(false); setFound(null); setPicked([]); setDraft({ provider: '', name: '', baseURL: '', api: '', key: '', typed: '' }); load() }) }
   return (
     <Screen>
       <Back title={t('Model providers')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {view?.available === false ? <Text style={[typeScale.small, { color: p.ink3, margin: 18 }]}>{t('This DSH cannot set up model providers.')}</Text> : null}
         {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
-        {list.map(provider => (
-          <Section key={provider.name} label={provider.name}>
-            <Row label={provider.hasKey ? t('Key set') : t('No key')} onPress={() => setKeyFor(provider.name)} />
-            {(provider.models ?? []).map(m => <Row key={m.name} label={m.name} />)}
+        <Section label={t('Model providers · {count}', { count: view?.providers?.length ?? 0 })}>
+          {(view?.providers ?? []).map(provider => (
+            <View key={provider.id}>
+              <Pressable accessibilityRole="button" onPress={() => setOpen(open === provider.id ? null : provider.id)} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[typeScale.settingsRow, { color: p.ink }]}>{provider.name}</Text>
+                  <Text style={[typeScale.small, { color: provider.key?.configured !== true ? p.danger : p.ink3, marginTop: 2 }]}>{keyLabel(provider.key)}</Text>
+                  {provider.error ? <Text style={[typeScale.small, { color: p.danger, marginTop: 2 }]}>{provider.error}</Text> : null}
+                </View>
+                <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length })}</Text>
+                <ChevronRightIcon size={16} color={p.ink3} />
+              </Pressable>
+              {open === provider.id ? (
+                <View style={{ borderTopWidth: 1, borderTopColor: p.line }}>
+                  {provider.key?.writable === true ? (
+                    <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+                      <Text style={[typeScale.small, { color: p.ink3, marginBottom: 6 }]}>{provider.key.configured ? t('Replace the API key') : t('API key')}</Text>
+                      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                        <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40 }]} value={key} onChangeText={setKey} placeholder={t('{provider} API key', { provider: provider.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                        <Pressable accessibilityRole="button" disabled={key === ''} onPress={() => saveKey(provider.id)} style={[styles.smallBtn, { backgroundColor: p.accent, opacity: key === '' ? 0.4 : 1 }]}>
+                          <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Save')}</Text>
+                        </Pressable>
+                        {provider.key.configured ? (
+                          <Pressable accessibilityRole="button" onPress={() => void apply(call('provider-key', { provider: provider.id, key: null }), load)} style={[styles.smallBtn, { backgroundColor: p.hover }]}>
+                            <Text style={{ color: p.danger, fontSize: 14 }}>{t('Remove key')}</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                      {saved === provider.id ? <Text style={[typeScale.small, { color: p.accent, marginTop: 6 }]}>{t('Saved.')}</Text> : null}
+                    </View>
+                  ) : provider.key !== undefined ? <Text style={[typeScale.small, { color: p.ink3, paddingHorizontal: 16, paddingVertical: 8 }]}>{t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')}</Text> : null}
+                  {provider.models.length > 0 ? (
+                    <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
+                      <Text style={[typeScale.small, { color: p.ink3, marginBottom: 4 }]}>{t('Models')}</Text>
+                      <Text style={[typeScale.small, { color: p.ink2 }]}>{provider.models.slice(0, 4).map(m => m.name ?? m.id).join(' · ')}{provider.models.length > 4 ? t(' and {count} more', { count: provider.models.length - 4 }) : ''}</Text>
+                    </View>
+                  ) : null}
+                  {provider.removable === true ? (
+                    confirm === provider.id ? (
+                      <View style={[styles.row, { justifyContent: 'flex-end', gap: 12 }]}>
+                        <Text style={[typeScale.small, { color: p.ink2, flex: 1 }]}>{t('Remove {name}? Bots on its models need another model.', { name: provider.name })}</Text>
+                        <Pressable onPress={() => setConfirm(null)}><Text style={{ color: p.ink2, fontSize: 14 }}>{t('Keep')}</Text></Pressable>
+                        <Pressable onPress={() => { setConfirm(null); void apply(call('provider-remove', { provider: provider.id }), load) }}><Text style={{ color: p.danger, fontSize: 14, fontWeight: '600' }}>{t('Remove')}</Text></Pressable>
+                      </View>
+                    ) : <Row label={t('Remove provider')} onPress={() => setConfirm(provider.id)} />
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ))}
+        </Section>
+        {adding ? (
+          <Section label={t('Add a provider')}>
+            <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+              <View style={[styles.segRow, { borderColor: p.line }]}>
+                {[['known', 'Known provider'], ['custom', 'Custom API']].map(([id, label]) => (
+                  <Pressable key={id} onPress={() => setMode(id as 'known' | 'custom')} style={[styles.seg, mode === id ? { backgroundColor: p.accent } : null]}>
+                    <Text style={[typeScale.caption, { color: mode === id ? p.accentInk : p.ink2, fontWeight: '500' }]}>{t(label)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            {mode === 'known' ? (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                  {(view?.addable ?? []).map(option => (
+                    <Pressable key={option.id} onPress={() => setDraft(d => ({ ...d, provider: option.id }))} style={[styles.smallBtn, { backgroundColor: draft.provider === option.id ? p.accent : p.hover }]}>
+                      <Text style={{ color: draft.provider === option.id ? p.accentInk : p.ink2, fontSize: 14 }}>{option.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
+                  <Pressable onPress={() => setAdding(false)}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
+                  <Pressable disabled={draft.provider === ''} onPress={addKnown}><Text style={{ color: draft.provider === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{t('Add')}</Text></Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.name} onChangeText={v => setDraft(d => ({ ...d, name: v }))} placeholder={t('Provider name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.baseURL} onChangeText={v => setDraft(d => ({ ...d, baseURL: v }))} placeholder={t('API base URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.provider} onChangeText={v => setDraft(d => ({ ...d, provider: v }))} placeholder={t('Provider id')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                  <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                  <Pressable accessibilityRole="button" disabled={draft.baseURL.trim() === ''} onPress={discover} style={[styles.smallBtn, { backgroundColor: p.hover, opacity: draft.baseURL.trim() === '' ? 0.4 : 1 }]}>
+                    <Text style={{ color: p.ink, fontSize: 14 }}>{t('Find models')}</Text>
+                  </Pressable>
+                </View>
+                {found !== null ? (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                    {found.map(model => (
+                      <Pressable key={model.id} onPress={() => setPicked(list => list.includes(model.id) ? list.filter(i => i !== model.id) : [...list, model.id])}
+                        style={[styles.smallBtn, { backgroundColor: picked.includes(model.id) ? p.accent : p.hover }]}>
+                        <Text style={{ color: picked.includes(model.id) ? p.accentInk : p.ink2, fontSize: 14 }}>{model.name ?? model.id}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={draft.typed} onChangeText={v => setDraft(d => ({ ...d, typed: v }))} placeholder={t('Or type model ids, comma separated')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
+                  <Pressable onPress={() => setAdding(false)}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
+                  <Pressable disabled={!ready} onPress={addCustom}><Text style={{ color: !ready ? p.ink3 : p.accent, fontWeight: '600' }}>{t('Add')}</Text></Pressable>
+                </View>
+              </View>
+            )}
           </Section>
-        ))}
-      </ScrollView>
-      {keyFor !== null ? (
-        <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, position: 'absolute', left: 14, right: 14, top: '30%' }]}>
-          <View style={styles.row}><Text style={[typeScale.settingsRow, { color: p.ink }]}>{keyFor}</Text></View>
-          <View style={styles.row}><TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={key} onChangeText={setKey} placeholder={t('Paste or type the key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry /></View>
-          <View style={styles.row}>
-            <Pressable accessibilityRole="button" onPress={() => setKeyFor(null)} style={{ flex: 1, alignItems: 'center' }}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={saveKey} style={{ flex: 1, alignItems: 'center' }}><Text style={{ color: p.accent, fontWeight: '600' }}>{t('Save')}</Text></Pressable>
+        ) : (
+          <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
+            <Pressable accessibilityRole="button" onPress={() => setAdding(true)} style={({ pressed }) => [styles.cta, { backgroundColor: p.hover, opacity: pressed ? 0.85 : 1 }]}>
+              <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Add a provider')}</Text>
+            </Pressable>
           </View>
-        </View>
-      ) : null}
+        )}
+      </ScrollView>
     </Screen>
   )
 }
 
 // ------------------------------------------------------------ Connectors / Capabilities / Usage / Location / Updates / About
 
+const CONNECTOR_ABOUT: Record<string, string> = { github: 'Repositories, issues, and pull requests' }
+const TOKEN_URLS: Record<string, string> = { github: 'https://github.com/settings/personal-access-tokens/new' }
+
+const connectorStatus = (item: { id: string; name: string; state?: string; account?: string; error?: string }) => {
+  if (item.state === 'connecting') return t('Connecting…')
+  if (item.state === 'error') return t('Could not connect: {error}', { error: item.error ?? '' })
+  if (item.state === 'ready') return item.account ? t('Connected as {account}', { account: item.account }) : t('Connected')
+  return CONNECTOR_ABOUT[item.id] !== undefined ? t(CONNECTOR_ABOUT[item.id]) : ''
+}
+
 export function Connectors({ navigation }: any) {
-  const { team } = useTeam()
-  const connectors = (team as { connectors?: { name: string; status?: string }[] } | null)?.connectors ?? []
+  const { p } = useTheme()
+  const { team, call } = useTeam()
+  const [form, setForm] = useState<string | null>(null)
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const connectors = (team as { connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[] } | null)?.connectors ?? []
+  const run = (id: string, task: Promise<unknown>, after?: () => void) => {
+    setBusy(id)
+    return task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) }).finally(() => setBusy(null))
+  }
   return (
     <Screen><Back title={t('Connectors')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
         <Section label={t('Connectors')}>
-          {connectors.map(item => <Row key={item.name} label={item.name} hint={item.status} />)}
-          {connectors.length === 0 ? <Row label={t('Nothing saved yet')} /> : null}
+          {connectors.map(item => {
+            const on = item.state !== 'off'
+            const connecting = form === item.id
+            return (
+              <View key={item.id}>
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name}</Text>
+                    <Text style={[typeScale.small, { color: item.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{connectorStatus(item)}</Text>
+                  </View>
+                  {item.state === 'error' ? <Pressable onPress={() => void run(item.id, call('connector-retry', { connector: item.id }))}><Text style={{ color: p.accent }}>{t('Try again')}</Text></Pressable> : null}
+                  {on ? <Pressable onPress={() => void run(item.id, call('connector-disconnect', { connector: item.id }))}><Text style={{ color: p.ink2 }}>{t('Disconnect')}</Text></Pressable>
+                    : connecting ? null : <Pressable onPress={() => setForm(item.id)}><Text style={{ color: p.accent }}>{t('Connect')}</Text></Pressable>}
+                </View>
+                {!on && connecting ? (
+                  <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
+                    <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={token} onChangeText={setToken} placeholder={t('{name} token', { name: item.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+                      {TOKEN_URLS[item.id] !== undefined ? <Text style={[typeScale.small, { color: p.accent, flex: 1 }]} onPress={() => void require('react-native').Linking.openURL(TOKEN_URLS[item.id])}>{t('Create a token on {name}', { name: item.name })}</Text> : <View style={{ flex: 1 }} />}
+                      <Pressable onPress={() => { setForm(null); setToken('') }}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
+                      <Pressable disabled={busy === item.id || token.trim() === ''} onPress={() => { const next = token; setToken(''); void run(item.id, call('connector-connect', { connector: item.id, token: next }), () => setForm(null)) }}>
+                        <Text style={{ color: token.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{busy === item.id ? t('Connecting…') : t('Connect')}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            )
+          })}
+          {connectors.length === 0 ? <Row label={t('No connectors')} /> : null}
         </Section>
       </ScrollView>
     </Screen>
@@ -197,4 +365,8 @@ const styles = StyleSheet.create({
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden', ...shadow(1) },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 50, gap: 8 },
+  smallBtn: { borderRadius: 10, paddingHorizontal: 12, height: 36, alignItems: 'center', justifyContent: 'center' },
+  segRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.pill, overflow: 'hidden' },
+  seg: { flex: 1, height: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  cta: { height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
 })
