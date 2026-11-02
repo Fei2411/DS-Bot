@@ -9905,10 +9905,11 @@ function TeamSidebar(props) {
     main ? (0, import_react19.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react19.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react19.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react19.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react19.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react19.createElement)(
+  const foot = wideContent ? (0, import_react19.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react19.createElement)(AgentReturn, { wide: true, actions }), (0, import_react19.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react19.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react19.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react19.createElement)(PlusIcon)),
+    (0, import_react19.createElement)(AgentReturn, { actions }),
     (0, import_react19.createElement)(AccountLauncher, { seat: false, actions })
   );
   const content = (0, import_react19.createElement)(
@@ -10297,6 +10298,14 @@ function FooterAccount(props) {
   const seated = props.useUi((value) => value.accountSeated === true);
   if (seated) return null;
   return (0, import_react19.createElement)("span", { className: "bt-foot-account" }, (0, import_react19.createElement)(AccountLauncher, { ...props, seat: false }));
+}
+function AgentReturn({ wide, actions }) {
+  return (0, import_react19.createElement)(
+    "button",
+    { type: "button", className: "bt-return", "aria-label": "DSH Agent", title: "DSH Agent", onClick: () => actions.setSurface("agent") },
+    (0, import_react19.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 20 }),
+    wide ? (0, import_react19.createElement)("span", { className: "bt-return-name" }, "DSH Agent") : null
+  );
 }
 function BotReturn({ wide, useSurface, actions }) {
   const mode = useSurface((value) => value.mode);

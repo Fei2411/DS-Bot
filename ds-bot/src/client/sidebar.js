@@ -564,12 +564,13 @@ export function TeamSidebar(props) {
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, uiNow.bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
-  // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // The foot stands in for the shell's hidden footer: the way back to the Agent
+  // page and the account avatar, and on the rail the new-chat button above it.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AgentReturn, { wide: true, actions }), h(AccountLauncher, { seat: false, actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
+        h(AgentReturn, { actions }),
         h(AccountLauncher, { seat: false, actions }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
@@ -910,6 +911,15 @@ export function FooterAccount(props) {
   const seated = props.useUi(value => value.accountSeated === true)
   if (seated) return null
   return h('span', { className: 'bt-foot-account' }, h(AccountLauncher, { ...props, seat: false }))
+}
+
+// The way back from the Bot sidebar to the classic Agent page, the mirror of
+// BotReturn: same footer pill, icon alone on the rail. It sits in the column's
+// own foot — the shell's footer is hidden behind the Bot column.
+function AgentReturn({ wide, actions }) {
+  return h('button', { type: 'button', className: 'bt-return', 'aria-label': 'DSH Agent', title: 'DSH Agent', onClick: () => actions.setSurface('agent') },
+    h(FishLogo, { size: 20 }),
+    wide ? h('span', { className: 'bt-return-name' }, 'DSH Agent') : null)
 }
 
 // The only entry registered in every mode: in Agent mode the whole Bot surface is
