@@ -527,14 +527,13 @@ export function install(rt) {
           return ok(rt.dshUpdateStart?.())
         case 'repo-stars':
           return ok(await rt.repoStars())
-        // The Desktop window's long poll for read_browser, and its answers.
         case 'browser-frame': {
           if (rt.browserFrame === undefined && rt.browserChannel === undefined) return fail('Bot browsers are off on this host', 'bot/browser-off')
-          const botId = body.botId
-          const frame = typeof rt.browserFrame === 'function' ? await rt.browserFrame(botId) : undefined
+          const frame = typeof rt.browserFrame === 'function' ? await rt.browserFrame(String(body.botId ?? '')) : undefined
           if (frame === undefined) return fail('This Bot has no open browser', 'bot/not-found')
           return ok(frame)
         }
+        // The Desktop window's long poll for read_browser, and its answers.
         case 'browser-wait': {
           if (rt.browserChannel === undefined) return fail('Bot browsers are off on this host', 'bot/browser-off')
           const clientId = typeof body.clientId === 'string' ? body.clientId.slice(0, 100) : ''

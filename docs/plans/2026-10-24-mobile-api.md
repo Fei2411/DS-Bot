@@ -42,6 +42,12 @@
 - `chat`、`send`、feed 的 `message` 和 `stream` 照旧（见 `feed.js`）。`chat` 的用户消息同样带 `images` / `imageRefs`。
 - `image`：`{ sessionId, attachmentId }` → `{ mime, data }`，`data` 是图片字节的 base64。`sessionId` 只认团队的会话（Bot 自己的私聊段、群的会话、换段留下的旧段），其它回 `bot/not-found`；附件不在会话里也是 `bot/not-found`。需要 `images` 能力。
 
+### Bot 浏览器
+
+- `state.browserHolds`：每个 Bot 的浏览器现在被谁拿着（`holdSnapshot()` 的形状）：Bot 请用户接手（带 `callId`、`reason`、`note`），或用户接管。
+- `browser-frame`：`{ botId }` → `{ mime, data, url, title }`，Bot 浏览器当前页的截图（JPEG，base64）。这台机器不开 Bot 浏览器回 `bot/browser-off`，这个 Bot 没有打开的浏览器回 `bot/not-found`。
+- 接管、交还、停下照旧用 `browser-takeover`、`browser-give-back`、`browser-stop`。
+
 ### 群聊
 
 - `room-chat`：`{ roomId, cursor? }` → `{ roomId, items, cursor, running, speaking }`，从新到旧分页，每页最多 60 条消息，页内从旧到新。
