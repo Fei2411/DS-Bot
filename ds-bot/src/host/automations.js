@@ -137,11 +137,11 @@ export function install(rt) {
     },
   }), 'ds-bot: monitor prompt')
 
-  ctx.tools.register(defineTool({ name: 'report_monitor', description: 'Finish a background monitor check. Ordinary chat cannot call this.',
+  rt.teamTools.push(defineTool({ name: 'report_monitor', description: 'Finish a background monitor check. Ordinary chat cannot call this.',
     parameters: { status: { type: 'string', required: true, enum: ['no_change', 'match', 'failed'] },
       items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', required: true }, text: { type: 'string', required: true }, matched: { type: 'boolean', required: true } } } },
       error: { type: 'string' } }, output, execute: report }))
-  ctx.tools.register(defineTool({ name: 'create_automation', description: 'Create a normal scheduled task or a silent monitor for yourself. Use mode monitor when the user wants notification only about new matching messages. The first successful check establishes a baseline.',
+  rt.teamTools.push(defineTool({ name: 'create_automation', description: 'Create a normal scheduled task or a silent monitor for yourself. Use mode monitor when the user wants notification only about new matching messages. The first successful check establishes a baseline.',
     parameters: { title: { type: 'string', required: true }, prompt: { type: 'string', required: true }, mode: { type: 'string', enum: ['normal', 'monitor'], required: true },
       when: { type: 'object', additionalProperties: false, required: true, properties: { kind: { type: 'string', required: true, enum: ['at', 'daily', 'weekly', 'every'] }, at: { type: 'string' }, time: { type: 'string' }, timeZone: { type: 'string' }, minutes: { type: 'number' }, weekdays: { type: 'array', items: { type: 'number' } } } } }, output,
     async execute(args, exec) {
