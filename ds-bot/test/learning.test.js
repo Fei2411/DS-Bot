@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { agentsProblem, agentsRequest, applyEdits, LEARNING, parseJson, skillProblem, withoutReviewedAgentsRecords } from '../src/host/learning.js'
+import { agentsAnswer, agentsProblem, agentsRequest, applyEdits, LEARNING, parseJson, skillProblem, withoutReviewedAgentsRecords } from '../src/host/learning.js'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -169,6 +169,25 @@ test('agentsProblem validates edit safety and whole-line matches', () => {
   const long = `# ${'x'.repeat(3997)}`
   const large = { action: 'edit', edits: [1, 2, 3].map(index => ({ op: 'add', after: '', text: `- ${index}${'y'.repeat(397)}`, why: 'Repeated correction.' })) }
   assert.match(agentsProblem(large, long), /too large/)
+})
+
+test('agentsAnswer reads an edit written as the answer, an empty replacement, and lines apart as edits', () => {
+  const current = '# Project\n- Use yarn.\n- Do not edit vendor/.\n- Run `yarn test`.\n'
+  const why = 'The user moved the project to pnpm.'
+  const answer = value => agentsAnswer(JSON.stringify(value), current)
+  const flat = answer({ action: 'replace', old: '- Use yarn.', text: '- Use pnpm.', why })
+  assert.deepEqual(flat, { action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.', text: '- Use pnpm.', why }] })
+  assert.equal(agentsProblem(flat, current), undefined)
+  assert.deepEqual(answer({ action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.', text: ' ', why }] }).edits, [{ op: 'remove', old: '- Use yarn.', why }])
+  const apart = answer({ action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.\n- Run `yarn test`.', text: '- Use pnpm.\n- Run `pnpm test`.', why }] })
+  assert.deepEqual(apart.edits.map(edit => [edit.old, edit.text]), [['- Use yarn.', '- Use pnpm.'], ['- Run `yarn test`.', '- Run `pnpm test`.']])
+  assert.equal(applyEdits(current, apart.edits), '# Project\n- Use pnpm.\n- Do not edit vendor/.\n- Run `pnpm test`.\n')
+  assert.equal(answer({ action: 'edit', edits: [{ op: 'remove', old: '- Use yarn.\n- Run `yarn test`.', why }] }).edits.length, 2)
+  // Lines apart with a different number of new lines stay one edit, and the check refuses it.
+  const uneven = answer({ action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.\n- Run `yarn test`.', text: '- Use pnpm.', why }] })
+  assert.match(agentsProblem(uneven, current), /exactly once/)
+  assert.deepEqual(answer({ action: 'none', reason: 'Routine work.' }), { action: 'none', reason: 'Routine work.' })
+  assert.equal(agentsAnswer('no JSON here', current), undefined)
 })
 
 test('applyEdits supports end and anchored add, replace, remove, and a new file', () => {
