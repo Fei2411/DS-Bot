@@ -114,7 +114,7 @@ export function ApprovalCard({ approval, call, p }: { approval: Approval; call: 
 
 // "X is doing…" while a Bot works: 28px avatar + shimmering text (off under
 // reduced motion).
-export interface SecretRequest { id: string; name: string; kind?: string; status?: string; scope?: string }
+export interface SecretRequest { id: string; name?: string; kind?: string; status?: string; scope?: string | string[] }
 
 export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: Call; p: Palette }) {
   const [value, setValue] = useState('')
@@ -128,11 +128,11 @@ export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: C
   }
   return (
     <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{allow ? t('Let {bot} use {name}?', { bot: t('the Bot'), name: secret.name }) : t('{name} needs a key', { name: secret.name })}</Text>
-      {allow && secret.scope ? <Text style={[type.small, { color: p.ink2, marginTop: 6 }]}>{secret.scope}</Text> : null}
+      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{allow ? t('Let {bot} use {name}?', { bot: t('the Bot'), name: secret.name ?? "" }) : t('{name} needs a key', { name: secret.name ?? "" })}</Text>
+      {allow && secret.scope ? <Text style={[type.small, { color: p.ink2, marginTop: 6 }]}>{Array.isArray(secret.scope) ? secret.scope.join(", ") : secret.scope}</Text> : null}
       {!allow ? (
         <TextInput style={[styles.secretInput, { color: p.ink, borderColor: p.line }]} value={value} onChangeText={setValue}
-          placeholder={t('Value of {name}', { name: secret.name })} placeholderTextColor={p.ink3}
+          placeholder={t('Value of {name}', { name: secret.name ?? "" })} placeholderTextColor={p.ink3}
           autoCapitalize="none" autoCorrect={false} secureTextEntry />
       ) : null}
       <View style={styles.answerRow}>
