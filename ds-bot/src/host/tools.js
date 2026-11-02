@@ -815,20 +815,23 @@ export function install(rt) {
   }
 
   // The standard preset registers `subagent` (model selection) in each Agent's own
-  // scope, where restrict() and a same-name section cannot reach it, so the Bot's
-  // assembly drops the hidden tools and their guidance instead. restrict still
-  // masks what it can, so lookup and execution stay aligned, and the guard
-  // refuses calls. The assembly filter goes on every Bot Session whether or not
-  // the tools are served yet: subagent's own agent/created listener can run
-  // after this one.
+  // scope, where restrict() cannot reach it. Older DSH versions include schemas in
+  // the assembly, so this filter drops hidden tools and their guidance there. Newer
+  // versions keep schemas provider-owned; the guard below still refuses hidden
+  // calls. The filter goes on every Bot Session whether or not tools are served yet:
+  // subagent's own agent/created listener can run after this one.
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
       return {
         ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        ...(Array.isArray(assembled?.tools) ? {
+          tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        } : {}),
+        ...(Array.isArray(assembled?.sections) ? {
+          sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        } : {}),
       }
     })
     held.filtered = true
