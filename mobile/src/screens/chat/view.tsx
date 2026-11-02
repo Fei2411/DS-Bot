@@ -54,7 +54,12 @@ function collectInputs(blueprint: unknown, into = new Map<string, unknown>()): M
   return into
 }
 function collectLets(blueprint: unknown, into = new Map<string, unknown>()): Map<string, unknown> {
-  for (const node of walk(blueprint)) if (node?.let !== undefined) for (const [k, v] of Object.entries(node.let as Record<string, unknown>)) into.set(k, compileFormula(String((v as Record<string, unknown>)['='] ?? v)))
+  for (const node of walk(blueprint)) {
+    if (node?.let !== undefined) for (const [k, v] of Object.entries(node.let as Record<string, unknown>)) {
+      const compiled = compileFormula(String((v as Record<string, unknown>)['='] ?? v))
+      if (!('error' in compiled)) into.set(k, compiled.tree)
+    }
+  }
   return into
 }
 function* walk(node: unknown): Generator<Record<string, unknown>> {
