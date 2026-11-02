@@ -147,6 +147,10 @@ test('an empty or hidden arc leaves no dot: no dash touches its path', () => {
   for (const at of run) assert.equal(touches(dashes(glow), at), false, `the glow touches its arc at ${String(at)}`)
   const draw = Number(css.match(/@keyframes bt-ring-draw\{from\{stroke-dashoffset:(-?[\d.]+)\}\}/u)[1])
   assert.equal(touches(dashes(base), draw), false, 'the ring touches its arcs before it draws in')
+  // The import's arc fills with the copy (--f from 0 to 1): empty at 0, whole at 1.
+  const share = css.match(/\.arc\[data-phase=import\]:is\(\[data-state=active\],\[data-state=failed\]\) \.arc-fill\{stroke-dashoffset:calc\(([\d.]+) - var\(--f,0\) \* ([\d.]+)\)/u).slice(1).map(Number)
+  assert.equal(touches(dashes(fill), share[0]), false, 'an empty import arc touches its arc')
+  assert.equal(share[0] - share[1], 0, 'a full import arc is not whole')
   // Shown, they cover the arc.
   assert.equal(touches(dashes(fill), 0), true)
   assert.equal(touches(dashes(base), offsetOf(base)), true)

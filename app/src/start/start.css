@@ -100,7 +100,7 @@ html[data-up] .pond{translate:0 -60px;scale:.62}
    fills with the copy (--f, from the main process's share); a failed copy keeps what it reached,
    in red. It lights up once the card has flown into it (data-caught). */
 .ring:not([data-n="4"]) .arc[data-phase=import]{display:none}
-.arc[data-phase=import]:is([data-state=active],[data-state=failed]) .arc-fill{stroke-dashoffset:calc(100 - var(--f,0) * 100);transition-duration:.3s;transition-timing-function:ease-out}
+.arc[data-phase=import]:is([data-state=active],[data-state=failed]) .arc-fill{stroke-dashoffset:calc(101 - var(--f,0) * 101);transition-duration:.3s;transition-timing-function:ease-out}
 .arc[data-phase=import][data-state=failed] .arc-fill{stroke:var(--bt-danger)}
 .arc[data-caught] .arc-base{stroke:var(--bt-ink-deepseek);stroke-opacity:.22;animation:bt-catch .42s ease-out}
 @keyframes bt-catch{from{stroke-width:5;stroke-opacity:1}}
