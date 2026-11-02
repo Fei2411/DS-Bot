@@ -70,6 +70,7 @@
 | `inUse` | `card.inUse.lead` | |
 | `newer.updating`、`newer.unreadable` | `card.newerUpdating.lead`、`card.newer.lead` | |
 | `importFailed` | `card.importFailed.lead` | |
+| （新） | `card.failed.do.{reason}` | 恢复卡上原因下面的「该怎么办」，按 `reason.start.*` 的五种原因各一句 |
 | `failed.reason.*` | 见 `reason.start.*` | 卡片直接用 `reason.start.{reason}` |
 | `update.available / downloading / installing / failed / slow` | `card.update.available / downloading / installing / failed / slow` | |
 
@@ -194,3 +195,4 @@
 - 2026-11-01：启动页轻易不写字（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `voice.slow45 / slowLater / moving` 和 `btn.openLogs`，加 `btn.saveLog`「保存日志…」（打开系统保存框，所以以 … 结尾）；`voice` 层只剩出错时的三句。第 3 节的旧键对照是当时的记录，不改。
 - 2026-11-02：导入并进圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.import.line`、`say.stopCopy` 和 `status.phase.import`「复制以前的团队」；去掉 `say.import / copying`、`card.import.lead / leadBare / found / scope` 和 `card.copying.step1 / 2 / 3 / eta / etaSoon`。
 - 2026-11-02：复制没有停止按钮（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：去掉 `say.stopCopy`、`card.copying.stopConfirm`、`btn.stopCopy`、`btn.keepCopying`。
+- 2026-11-02：恢复卡说该怎么办（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.failed.do.permission / space / files / engine / other`。

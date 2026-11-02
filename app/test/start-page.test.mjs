@@ -207,6 +207,21 @@ test('the footer is the place line alone, centred with a grey button, on first a
 // A move that does not go through says why on the moving page (start-window §5): a place that
 // cannot be used after all, another DSH on the data, a copy that failed. Each variant shows its own
 // parts only; 〔用原来的位置启动〕 is on all three, 〔重试〕 and the details only after a failed copy.
+// start-window §7: a recovery card says what happened and what to do, and folds out the log.
+const cardOf = kind => html.match(new RegExp(`<section class="card" data-kind="${kind}" hidden>.*?</section>`, 'u'))?.[0] ?? ''
+const recovers = (card, kind) => {
+  for (const act of ['copyDetails', 'saveLog', 'toggleDetails']) assert.match(card, new RegExp(`data-act="${act}"`, 'u'), `${kind}: no ${act}`)
+  assert.match(card, /<div class="log" hidden><pre><\/pre><\/div>/u, `${kind}: no log to fold out`)
+}
+
+test('the failure page says what happened, what to do for each reason, and folds out the log', () => {
+  const card = cardOf('failed')
+  assert.match(card, /<p class="lead" data-t="reason\.start\.\{reason\}"><\/p><p class="small do" data-t="card\.failed\.do\.\{reason\}"><\/p>/u)
+  for (const reason of ['permission', 'space', 'files', 'engine', 'other']) assert.ok(`card.failed.do.${reason}` in TEXT.zh, reason)
+  assert.match(card, /data-act="retry" data-main/u)
+  recovers(card, 'failed')
+})
+
 test('a move that does not go through has one card with three variants', () => {
   const card = html.match(/<section class="card" data-kind="moveFailed" hidden>.*?<\/section>/u)?.[0]
   assert.ok(card, 'the moveFailed card is missing')

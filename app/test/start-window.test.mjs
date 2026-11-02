@@ -468,6 +468,27 @@ test("the copy is a stage of its own, and the engine's stage waits for the copie
   assert.deepEqual(s.state().done, ['data', 'import', 'engine', 'team'])
 })
 
+// start-window §7: the stage that failed is the one the snapshot is at, and the page turns its arc
+// red: the data folder when it cannot be made or written, the engine when it or the Host stops.
+test('a data folder that cannot be written fails at the data stage, a stopped engine at the engine', async (t) => {
+  for (const [error, reason, phase, done] of [
+    [Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES' }), 'permission', 'data', []],
+    [Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }), 'space', 'data', []],
+    [new Error('The DSH Host stopped (exit 1)'), 'engine', 'engine', ['data']],
+  ]) {
+    await t.test(reason, (st) => {
+      const s = startWindow(st)
+      s.start.open('first')
+      for (const stage of done) s.start.done(stage)
+      s.start.fail(error)
+      assert.equal(s.state().view, 'failed')
+      assert.equal(s.state().failure.reason, reason)
+      assert.equal(s.state().phase, phase)
+      assert.ok(Array.isArray(s.state().failure.log), 'the log goes with it')
+    })
+  }
+})
+
 test('a retry after the engine was up guards the new engine, while the whale keeps its stop', (t) => {
   const s = startWindow(t)
   s.start.open('first')
