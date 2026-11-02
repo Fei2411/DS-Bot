@@ -7,11 +7,14 @@ const models = [
   { ref: 'cloud/qwen-max', name: 'Qwen Max', providerName: 'Cloud' },
 ]
 
-test('the form starts on the DSH default model, else the first served one', () => {
+test('the form starts on the team default model, then the DSH default, else the first served one', () => {
   assert.equal(startModel({ models, defaultModel: 'cloud/qwen-max' }), 'cloud/qwen-max')
   assert.equal(startModel({ models, defaultModel: 'gone/model' }), 'ollama/ds-flash')
   assert.equal(startModel({ models, defaultModel: null }), 'ollama/ds-flash')
   assert.equal(startModel({ models: [], defaultModel: 'cloud/qwen-max' }), '')
+  // The team's pick from settings comes first; one that is not served falls through.
+  assert.equal(startModel({ models, defaultModel: 'cloud/qwen-max', prefs: { defaultBotModel: 'ollama/ds-flash' } }), 'ollama/ds-flash')
+  assert.equal(startModel({ models, defaultModel: 'cloud/qwen-max', prefs: { defaultBotModel: 'gone/model' } }), 'cloud/qwen-max')
 })
 
 test('the payload carries the look, the chosen model, and the brief', () => {

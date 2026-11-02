@@ -315,7 +315,7 @@ export function install(rt) {
       role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
-      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
+      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the team default model from DS Bot settings, or the model you run on.' },
       effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
       work_dir: WORK_DIR_PARAM,
       avatar: AVATAR_PARAM,
@@ -329,11 +329,13 @@ export function install(rt) {
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
-        // Without a named model the new Bot takes its creator's: the DSH default may be
-        // a provider that has no key, and then the new Bot fails on its first reply.
+        // Without a named model the team's default applies; without one the new Bot
+        // takes its creator's: the DSH default may be a provider that has no key, and
+        // then the new Bot fails on its first reply.
         const creator = callerBot(exec)
-        const served = creator?.model && (await rt.catalog()).some(entry => entry.ref === creator.model)
-        const model = args.model || (served ? creator.model : undefined)
+        const served = new Set((await rt.catalog()).map(entry => entry.ref))
+        const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
+        const model = args.model || fallback
         const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, createdBy: creator?.id })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {

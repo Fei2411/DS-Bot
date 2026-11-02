@@ -992,3 +992,60 @@ test('old late-round and relay-limit fields of a group load away; calls it parke
   assert.equal(set.ok, true)
   assert.deepEqual(set.value.changes, [])
 })
+
+// #227: a team-level default model for new Bots. A create that names a model keeps it;
+// the team's pick comes next, and only when it is still served. Without either, the Bot
+// takes its creator's served model, as it always has.
+const TEAM_MODEL = {
+  version: 1,
+  mainBotIds: ['chief'],
+  bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief', instructions: '', createdAt: 1, model: 'deepseek/deepseek-v4-pro' } },
+  rooms: {},
+  exchanges: [],
+  exchangeTurns: {},
+  questions: {},
+}
+
+const createBotAs = async (name, args = {}, exec = { agent: { id: 'chief' } }) =>
+  rt.teamTools.find(d => d.name === 'create_bot').execute({ name, role: 'R', instructions: '', ...args }, exec)
+const botNamed = async name => Object.values(rt.state.bots).find(bot => bot.name === name)
+
+test('create_bot uses a named model, then the team default, then its creator’s', async (t) => {
+  const { call, stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  await call('set-prefs', { defaultBotModel: 'deepseek/deepseek-v4-flash' })
+
+  // An explicit model wins over the team default.
+  assert.match(await createBotAs('Named', { model: 'deepseek/deepseek-v4-pro' }), /^Created Named/)
+  assert.equal((await botNamed('Named')).model, 'deepseek/deepseek-v4-pro')
+
+  // The team default beats the creator's model.
+  assert.match(await createBotAs('Defaulted'), /^Created Defaulted/)
+  assert.equal((await botNamed('Defaulted')).model, 'deepseek/deepseek-v4-flash')
+
+  // A team default that is no longer served falls back to the creator's model.
+  rt.state.prefs.defaultBotModel = 'gone/model'
+  assert.match(await createBotAs('Inherited'), /^Created Inherited/)
+  assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
+})
+
+test('create_bot inherits the creator’s model when no team default is set', async (t) => {
+  const { stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  assert.match(await createBotAs('Inherited'), /^Created Inherited/)
+  assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
+})
+
+test('set-prefs stores a served default model, clears it, and refuses an unknown one', async (t) => {
+  const { call, stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  assert.equal((await call('set-prefs', { defaultBotModel: 'deepseek/deepseek-v4-flash' })).value.defaultBotModel, 'deepseek/deepseek-v4-flash')
+  // A bare model id resolves to its full ref.
+  assert.equal((await call('set-prefs', { defaultBotModel: 'deepseek-v4-pro' })).value.defaultBotModel, 'deepseek/deepseek-v4-pro')
+  const refused = await call('set-prefs', { defaultBotModel: 'gone/model' })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /Model gone\/model is not available/)
+  assert.equal(rt.state.prefs.defaultBotModel, 'deepseek/deepseek-v4-pro')
+  assert.equal('defaultBotModel' in (await call('set-prefs', { defaultBotModel: null })).value, false)
+  assert.equal('defaultBotModel' in rt.state.prefs, false)
+})
