@@ -4,7 +4,7 @@
 // copies and starts again on the new folder, which keeps its own. The Electron parts are test
 // doubles: no display, no DSH, no data of the user.
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,6 +12,9 @@ import { paths, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
 import { answerCard, handOff, messageBoxes, startApp, startWindows, waitFor, window, windowCards } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
+
+// The user makes the folder in the picker first, so a copy shows as what is in it.
+const copied = path => existsSync(path) && readdirSync(path).length > 0
 
 await installHooks()
 
@@ -41,12 +44,17 @@ test('a later start with room to spare shows no place line; Settings still moves
   state.openAnswer = { canceled: false, filePaths: [to] }
   const moved = state.ipc.get('ds-bot:move-data')(event, workspace)
   await waitFor(() => windowCards(win).length === 1, 'ask about the move on a card')
+  // The picker is the app's own, on the team window's page.
+  const picker = win.webContents.sent.find(([channel]) => channel === 'ds-bot:app-picker')?.[1]
+  assert.equal(picker?.mode, 'folder')
+  assert.match(picker.title, /folder/u)
+  assert.equal(picker.labels.chooseFolder, 'Choose this folder')
   assert.match(windowCards(win)[0].message, /data/u)
   answerCard(0, win)
   assert.equal(await moved, true)
   assert.deepEqual(messageBoxes(), [], 'no message box')
   assert.equal(state.relaunches.length, 1)
-  assert.ok(existsSync(to), 'the data was copied')
+  assert.ok(copied(to), 'the data was copied')
   assert.equal(saved().dataDir, to)
   assert.ok(saved().freeAtStart > 1, 'the new folder keeps its own free space')
 })

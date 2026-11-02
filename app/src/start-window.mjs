@@ -291,7 +291,7 @@ export class StartWindow {
   /**
    * @param {{
    *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, dialog?: any, nativeTheme: any, systemPreferences: any },
-   *   page: string, preload: string, icon: string, mica: boolean, devTools: boolean,
+   *   page: string, preload: string, icon: string, mica: boolean, devTools: boolean, css?: string,
    *   lang: () => 'zh' | 'en', motion: string, version: string, program: string[],
    *   log: { dir: string, tail: (count: number) => string[] },
    *   mainWindow: () => any,
@@ -370,7 +370,11 @@ export class StartWindow {
     contents.on('will-navigate', (event) => { event.preventDefault() })
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // A reload loses what the preload kept, so the page gets the state again.
-    contents.on('dom-ready', () => { this.#send() })
+    // The page loads only its own files; the app's picker brings its sheet (page-card.css).
+    contents.on('dom-ready', () => {
+      if (this.#o.css) void contents.insertCSS(this.#o.css)
+      this.#send()
+    })
     contents.on('render-process-gone', (_event, details) => { note(`the page's renderer stopped (${String(details?.reason)})`) })
     if (this.#o.devTools) {
       contents.on('before-input-event', (_event, input) => {

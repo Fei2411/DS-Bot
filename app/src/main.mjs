@@ -5,7 +5,7 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { canonicalExecPath } from './canonical-path.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
+import { Pickers } from './picker-host.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
 import { readStartFrame, writeStartFrame } from './start-frame.mjs'
@@ -67,7 +68,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
-let downloadSaver, chooseLocations, defaultPlaces, lang, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
+let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
@@ -130,6 +131,8 @@ const copyAbort = new AbortController()
 let browserGuests
 let botViews
 let cookieImports
+// The app's own folder and file picker, on the page of the window that asks (picker-host.mjs).
+const pickers = new Pickers({ ipcMain, getPath: name => app.getPath(name) })
 
 // The team window and the tray: closing the window hides it, the tray is the way back to it and
 // the tray's Quit is the one ordinary way out. Until the hand-off the start window is the one
@@ -180,6 +183,7 @@ if (canonical !== undefined) {
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, dialog, nativeTheme, systemPreferences },
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, mica, devTools: !app.isPackaged,
+    css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
@@ -274,7 +278,7 @@ async function loadModules() {
   ;({ applyCookies, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
-  ;({ chooseLocations, defaultPlaces, lang, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
+  ;({ chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
   ;({ HostProcess } = hostProcess)
   ;({ copySessions, findTeam, importTeam, teamInUse, teamSizes, userDshHome } = imports)
   ;({ ImportFlow } = flows)
@@ -334,7 +338,7 @@ async function stopOld(options) {
 }
 
 // The dialogs of the first run belong to the start window and stop its clock.
-const ui = () => ({ owner: () => startWindow.owner(), asking: answer => startWindow.asking(answer) })
+const ui = () => ({ owner: () => startWindow.owner(), asking: answer => startWindow.asking(answer), pick: request => askPicker(startWindow.owner(), request) })
 
 /**
  * A card on the start page that waits for the user, in place of a message box: the value of the
@@ -751,16 +755,14 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
     assertWindow(event)
-    const picked = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: [{ name: 'Cookie files', extensions: ['txt', 'json', 'cookies'] }, { name: 'All files', extensions: ['*'] }],
-    })
-    if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
-    const buffer = await readFile(picked.filePaths[0])
+    // Any file: a cookie export can have any name, and the parser says what it is.
+    const picked = await askPicker(mainWindow, { mode: 'file', title: tx('dialog.pickCookies'), start: knownFolder('downloads') })
+    if (picked === undefined) return { canceled: true }
+    const buffer = await readFile(picked)
     if (buffer.length > IMPORT_FILE_MAX) return { error: 'too-large' }
     const parsed = parseCookieFile(buffer)
     if (!parsed.ok) return { error: parsed.error ?? 'unreadable', format: parsed.format }
-    return cookieImports.store(parsed, { kind: 'file', label: basename(picked.filePaths[0]) })
+    return cookieImports.store(parsed, { kind: 'file', label: basename(picked) })
   })
   ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close) => {
     assertWindow(event)
@@ -894,14 +896,14 @@ async function moveFromStart() {
 // 「这里放不了」 with the reason, or 「搬到这个文件夹？」. A cancelled picker is no change: the card
 // that led here goes, and the start goes on.
 async function pickMove() {
-  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
+  const picked = await askPicker(owner(), { mode: 'folder', title: tx('dialog.pickMove'), start: dirname(places.dataDir) })
   if (stopping || startWindow.owner() === undefined) return
   moveTo = undefined
-  if (canceled || filePaths[0] === undefined) {
+  if (picked === undefined) {
     startWindow.card(undefined)
     return
   }
-  moveCard(resolve(filePaths[0]))
+  moveCard(resolve(picked))
 }
 
 function moveCard(to) {
@@ -948,11 +950,11 @@ async function moveAnswer(value) {
 }
 
 // The folder picker, the checks and the question of a move from Settings: the folder, or none.
-// The question and a refusal are cards in the team window; only the picker is a system window.
+// The picker, the question and a refusal are all on the team window's page.
 async function askMove(workspace) {
-  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
-  if (canceled || filePaths[0] === undefined) return undefined
-  const to = resolve(filePaths[0])
+  const picked = await askPicker(owner(), { mode: 'folder', title: tx('dialog.pickMove'), start: dirname(places.dataDir) })
+  if (picked === undefined) return undefined
+  const to = resolve(picked)
   if (await moveRefused(to, workspace)) return undefined
   const answer = await askInWindow({ message: tx('dialog.move.confirm', { to }), detail: tx('dialog.move.detail', { from: places.dataDir }), buttons: [{ label: tx('btn.move'), primary: true }, { label: tx('btn.cancel') }], cancel: 1 })
   if (answer !== 0 || stopping || await moveRefused(to, workspace)) return undefined
@@ -1098,6 +1100,8 @@ async function askDownloadNow(version) {
 // The cards that the team window shows, by id, until they have their answer.
 const cards = new Map()
 let cardCount = 0
+// Pickers open on the team window; the Bot browser views wait until the last one goes.
+let pickerCount = 0
 
 /**
  * A question of the app in the team window, on a card over its page instead of a message box
@@ -1124,7 +1128,7 @@ function askInWindow(card, { front = false } = {}) {
       clearTimeout(timer)
       contents.off('did-start-loading', away)
       contents.off('destroyed', away)
-      if (cards.size === 0) botViews?.cover(false)
+      if (cards.size === 0 && pickerCount === 0) botViews?.cover(false)
       resolve(value)
     }
     const away = () => { settle(undefined) }
@@ -1146,6 +1150,33 @@ async function boxInWindow(options, unasked) {
   const answer = await askInWindow({ message: options.message, detail: options.detail, buttons, cancel }, { front: true })
   return answer === undefined ? { response: unasked, unasked: true } : { response: answer }
 }
+
+/**
+ * The app's own picker on `win`'s page: the chosen path, null when the user cancels, undefined
+ * when the page cannot show it. The Bot browser views are drawn above the page and would cover
+ * it, so they wait, as for a card.
+ * @param {any} win
+ * @param {{ mode: 'folder' | 'file' | 'save', title: string, start?: string, name?: string }} request
+ * @returns {Promise<string | null | undefined>}
+ */
+async function pickOn(win, request) {
+  if (win === undefined || win === null || win.isDestroyed()) return undefined
+  const covers = win === mainWindow
+  if (covers) { pickerCount += 1; botViews?.cover(true) }
+  try {
+    return await pickers.ask(win.webContents, { ...request, labels: pickerLabels() })
+  } finally {
+    if (covers && (pickerCount -= 1) === 0 && cards.size === 0) botViews?.cover(false)
+  }
+}
+
+// app.getPath throws for a known folder that does not resolve; the picker then starts at home.
+function knownFolder(name) {
+  try { return app.getPath(name) } catch { return undefined }
+}
+
+/** The picker's path, or undefined when it was cancelled or could not be shown. */
+const askPicker = async (win, request) => (await pickOn(win, request)) ?? undefined
 
 function toFront(win) {
   if (win === undefined || win.isDestroyed()) return
@@ -1215,7 +1246,12 @@ function createWindow() {
   // The session is the same for every window of the app, so the handler is bound once.
   if (!downloadsBound) {
     downloadsBound = true
-    contents.session.on('will-download', downloadSaver({ window: () => mainWindow, dialog, getPath: name => app.getPath(name) }))
+    contents.session.on('will-download', downloadSaver({
+      window: () => mainWindow,
+      ask: (name, folder) => pickOn(mainWindow, { mode: 'save', title: tx('dialog.saveAs'), start: folder, name }),
+      staging: () => join(app.getPath('userData'), 'downloading'),
+      getPath: name => app.getPath(name),
+    }))
   }
   if (win32) {
     // Fullscreen hides the caption buttons, and the page drops its band meanwhile. A reload

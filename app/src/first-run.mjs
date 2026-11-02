@@ -1,7 +1,7 @@
 // The first start: where the app keeps its data and the Bots' files (the default places, or the
 // one folder picked from the start page), and whether it copies the Bot team of the user's own
 // DSH. The answers are kept in the app's own data.
-import { app, dialog } from 'electron'
+import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -10,28 +10,41 @@ import { installFolder } from './move-data.mjs'
 import { freeSpace } from './place.mjs'
 import { langOf, t } from './start/text.mjs'
 
-// The system picker and the cards in the team window speak the language of the start page
+// The app's picker and the cards in the team window speak the language of the start page
 // (main.mjs gives it the same locale).
 export const lang = () => langOf(app.getLocale())
 export const tx = (key, vars) => t(lang(), key, vars)
 
 const locationsFile = () => join(app.getPath('userData'), 'locations.json')
 
-// A quit request while the system picker is open stops the first run right after it.
+const PICKER_LABELS = ['places', 'drives', 'home', 'desktop', 'documents', 'downloads', 'path', 'go', 'up', 'newFolder', 'newName', 'create', 'name', 'cancel', 'chooseFolder', 'open', 'save', 'replace', 'loading']
+const PICKER_LINES = ['empty', 'noFolders', 'more']
+const PICKER_ERRORS = ['missing', 'drive', 'denied', 'notFolder', 'notFile', 'tooLong', 'unreadable', 'name', 'exists', 'isFolder', 'replace']
+
+/** The words of the app's picker (preload.cjs showPicker), which has no text of its own. */
+export function pickerLabels() {
+  return Object.fromEntries([
+    ...PICKER_LABELS.map(key => [key, tx(`picker.${key}`)]),
+    ...PICKER_LINES.map(key => [key, tx(`dialog.picker.${key}`)]),
+    ...PICKER_ERRORS.map(key => [`error.${key}`, tx(`dialog.picker.${key}`)]),
+  ])
+}
+
+// A quit request while the picker is open stops the first run right after it.
 class Quit extends Error {}
 
 async function pick(title, from, signal, ui) {
-  const { canceled, filePaths } = await ui.asking(dialog.showOpenDialog(ui.owner(), { title, defaultPath: existsSync(from) ? from : dirname(from), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] }))
+  const picked = await ui.asking(ui.pick({ mode: 'folder', title, start: existsSync(from) ? from : dirname(from) }))
   await new Promise(resolve => setImmediate(resolve))
   if (signal.aborted) throw new Quit()
-  return canceled ? undefined : filePaths[0]
+  return picked ?? undefined
 }
 
 export const programFolder = () => installFolder(app.getPath('exe'))
 
 /**
- * The system picker of 「换个位置…」 on the start page: one folder, from which the root rule
- * (place.mjs) makes the places. Undefined when the box was cancelled or the app is quitting.
+ * The picker of 「换个位置…」 on the start page: one folder, from which the root rule
+ * (place.mjs) makes the places. Undefined when the picker was cancelled or the app is quitting.
  * @param {string} from the folder the picker opens in
  */
 export async function pickRoot(from, signal, ui) {

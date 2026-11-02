@@ -101,16 +101,17 @@ export const messageBoxes = () => state.dialogs.filter(options => 'message' in o
 
 /**
  * A later start whose drive runs low, and its place line's 〔换个位置…〕 to `to`, answered with
- * 〔移动并重启〕: the start window becomes the move's.
+ * 〔移动并重启〕: the start window becomes the move's. `picked` runs once the move card is up.
  * @returns {Promise<{ home: string, workspace: string }>}
  */
-export const moveFromStart = async (to, { before = () => {} } = {}) => {
+export const moveFromStart = async (to, { before = () => {}, picked = () => {} } = {}) => {
   const places = await startApp({ saved: { freeAtStart: Number.MAX_SAFE_INTEGER } })
   before(places)
   await waitFor(() => startState()?.place !== undefined, 'show the place line')
   state.openAnswer = { canceled: false, filePaths: [to] }
   await startAct('pick', 'changePlace')
   await waitFor(() => startState().card?.kind === 'move', 'ask about the move')
+  picked()
   await startAct('answer', 'move')
   await waitFor(() => startWindows()[0].url.endsWith('?start=moving'), 'turn the start window into the move\'s')
   return places

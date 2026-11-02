@@ -10,7 +10,11 @@ const argument = name => process.argv.find(value => value.startsWith(`--${name}=
 const startPage = argument('ds-bot-start')
 const host = argument('ds-bot-origin')
 if (startPage !== undefined) {
-  if (location.href.split(/[?#]/u)[0] === startPage) contextBridge.exposeInMainWorld('dsBotStart', startBridge())
+  if (location.href.split(/[?#]/u)[0] === startPage) {
+    contextBridge.exposeInMainWorld('dsBotStart', startBridge())
+    // The start page's folder pickers (换个位置…, a data move) are the app's own too.
+    ipcRenderer.on('ds-bot:app-picker', (_event, request) => { showPicker(request) })
+  }
 } else if (host !== undefined && location.origin === host) {
   let ready = false
   contextBridge.exposeInMainWorld('dsBotApp', {
@@ -50,6 +54,7 @@ if (startPage !== undefined) {
   loaded(reportLook)
   // The app's own questions (the tray notice, an update, a data move), on a card over the page.
   ipcRenderer.on('ds-bot:app-card', (_event, card) => { loaded(() => { showCard(card) }) })
+  ipcRenderer.on('ds-bot:app-picker', (_event, request) => { loaded(() => { showPicker(request) }) })
   const caption = process.argv.find(value => value.startsWith('--ds-bot-caption='))
   if (caption !== undefined) {
     ipcRenderer.on('ds-bot:fullscreen', (_event, fullscreen) => {
@@ -134,6 +139,329 @@ function showCard(card) {
   ;(buttons.find(button => button.dataset.look === 'primary') ?? buttons[0])?.focus({ preventScroll: true })
   openCard = { close }
   ipcRenderer.send('ds-bot:app-card-shown', card.id)
+}
+
+// The app's own folder and file picker, in place of the system's (main.mjs askPicker,
+// picker-host.mjs): the same card layer with a side column of places and drives, a breadcrumb, a
+// path field, the folder's entries (folders first) and, to save, a file name. The page only
+// draws: the main process lists, makes folders and checks the answer. What goes wrong (a folder
+// without permission, a drive that is gone, a name that cannot be used) is said in place.
+let openPicker
+function showPicker(request) {
+  if (request === null || typeof request !== 'object' || !Number.isInteger(request.id)) return
+  openPicker?.close()
+  const { id, mode } = request
+  const label = key => String(request.labels?.[key] ?? key)
+  const say = (key, vars) => label(key).replace(/\{(\w+)\}/gu, (all, name) => (name in vars ? String(vars[name]) : all))
+  const call = (channel, ...args) => ipcRenderer.invoke(`ds-bot:app-picker-${channel}`, id, ...args)
+  const make = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text === undefined ? {} : { textContent: String(text) }) })
+  const button = (className, text, look) => {
+    const element = make('button', className, text)
+    element.type = 'button'
+    if (look !== undefined) element.dataset.look = look
+    return element
+  }
+  const field = (className) => {
+    const input = make('input', className)
+    input.type = 'text'
+    input.spellcheck = false
+    input.autocomplete = 'off'
+    return input
+  }
+  // A folder, a file or a drive, drawn in the page's ink.
+  const glyph = (kind) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.classList.add('dsb-picker-glyph')
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', {
+      dir: 'M1.5 4.5v8a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-6.5a1 1 0 0 0-1-1H8L6.5 3.5h-4a1 1 0 0 0-1 1Z',
+      file: 'M3.5 1.5h6l3 3v9a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1Zm6 0v3h3',
+      drive: 'M2.5 4.5h11a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1ZM11.5 8h.01',
+    }[kind])
+    svg.append(path)
+    return svg
+  }
+
+  const layer = make('div', 'dsb-card-layer')
+  layer.dataset.kind = 'picker'
+  const box = make('section', 'dsb-card dsb-picker')
+  box.setAttribute('role', 'dialog')
+  box.setAttribute('aria-modal', 'true')
+  const title = make('h2', 'dsb-card-title', request.title ?? '')
+  title.id = `dsb-picker-title-${String(id)}`
+  box.setAttribute('aria-labelledby', title.id)
+
+  const bar = make('div', 'dsb-picker-bar')
+  const up = button('dsb-picker-up')
+  up.setAttribute('aria-label', label('up'))
+  up.title = label('up')
+  const trail = make('nav', 'dsb-picker-crumbs')
+  trail.setAttribute('aria-label', label('path'))
+  bar.append(up, trail)
+
+  const pathRow = make('form', 'dsb-picker-row-form')
+  const pathField = field('dsb-picker-input')
+  pathField.setAttribute('aria-label', label('path'))
+  const go = button('dsb-card-btn dsb-picker-small', label('go'), 'soft')
+  go.type = 'submit'
+  pathRow.append(pathField, go)
+
+  const main = make('div', 'dsb-picker-main')
+  const side = make('nav', 'dsb-picker-side')
+  side.setAttribute('aria-label', label('places'))
+  const pane = make('div', 'dsb-picker-pane')
+  const note = make('p', 'dsb-picker-note')
+  note.hidden = true
+  const rows = make('div', 'dsb-picker-list')
+  rows.setAttribute('role', 'listbox')
+  rows.setAttribute('aria-labelledby', title.id)
+  rows.tabIndex = 0
+  pane.append(note, rows)
+  main.append(side, pane)
+
+  const fresh = make('form', 'dsb-picker-row-form')
+  fresh.hidden = true
+  const freshName = field('dsb-picker-input')
+  freshName.setAttribute('aria-label', label('newFolder'))
+  const freshMake = button('dsb-card-btn dsb-picker-small', label('create'), 'soft')
+  freshMake.type = 'submit'
+  fresh.append(freshName, freshMake)
+
+  const nameRow = make('label', 'dsb-picker-name')
+  const nameField = field('dsb-picker-input')
+  nameField.value = String(request.name ?? '')
+  nameRow.append(make('span', 'dsb-picker-name-label', label('name')), nameField)
+
+  const ask = make('div', 'dsb-picker-ask')
+  ask.setAttribute('role', 'alert')
+  ask.hidden = true
+
+  const actions = make('div', 'dsb-card-actions dsb-picker-actions')
+  const newFolder = button('dsb-card-btn dsb-picker-newbtn', label('newFolder'), 'soft')
+  const cancel = button('dsb-card-btn', label('cancel'), 'soft')
+  const primary = button('dsb-card-btn', label(mode === 'save' ? 'save' : mode === 'file' ? 'open' : 'chooseFolder'), 'primary')
+  actions.append(newFolder, cancel, primary)
+
+  box.append(title, bar, pathRow, main, fresh)
+  if (mode === 'save') box.append(nameRow)
+  box.append(ask, actions)
+  layer.append(box)
+
+  let here
+  let entries = []
+  let picked = -1
+  let asked = 0
+  let done = false
+
+  const tell = (text, tone) => {
+    note.textContent = text ?? ''
+    note.hidden = !text
+    if (tone === undefined) delete note.dataset.tone
+    else note.dataset.tone = tone
+    note.setAttribute('role', tone === 'error' ? 'alert' : 'status')
+  }
+  const hideAsk = () => {
+    ask.hidden = true
+    ask.replaceChildren()
+  }
+  const choice = () => entries[picked]
+  const refresh = () => {
+    const entry = choice()
+    primary.disabled = here === undefined || (mode === 'file' && (entry === undefined || entry.dir))
+    for (const [index, row] of [...rows.children].entries()) row.setAttribute('aria-selected', String(index === picked))
+    if (entry === undefined) { rows.removeAttribute('aria-activedescendant'); return }
+    rows.setAttribute('aria-activedescendant', rows.children[picked].id)
+    rows.children[picked].scrollIntoView({ block: 'nearest' })
+  }
+  const select = (index) => {
+    picked = Math.max(-1, Math.min(index, entries.length - 1))
+    const entry = choice()
+    if (mode === 'save' && entry !== undefined && !entry.dir) nameField.value = entry.name
+    hideAsk()
+    refresh()
+  }
+  const draw = (listing) => {
+    here = listing.path
+    pathField.value = listing.path
+    up.disabled = listing.parent === undefined
+    trail.replaceChildren(...listing.crumbs.map((step, index) => {
+      const crumb = button('dsb-picker-crumb', step.name)
+      crumb.title = step.path
+      if (index === listing.crumbs.length - 1) crumb.setAttribute('aria-current', 'location')
+      crumb.addEventListener('click', () => { void open(step.path) })
+      return crumb
+    }))
+    trail.scrollLeft = trail.scrollWidth
+    entries = listing.entries
+    picked = -1
+    rows.replaceChildren(...entries.map((entry, index) => {
+      const row = make('div', 'dsb-picker-row')
+      row.id = `dsb-picker-row-${String(id)}-${String(index)}`
+      row.setAttribute('role', 'option')
+      row.dataset.dir = String(entry.dir)
+      row.title = entry.name
+      row.append(glyph(entry.dir ? 'dir' : 'file'), make('span', 'dsb-picker-row-name', entry.name))
+      row.addEventListener('click', () => { select(index) })
+      row.addEventListener('dblclick', () => { void enter(index) })
+      return row
+    }))
+    if (listing.more !== undefined) tell(say('more', { count: entries.length }))
+    else if (entries.length === 0) tell(label(mode === 'folder' ? 'noFolders' : 'empty'))
+    else tell()
+    for (const root of side.querySelectorAll('.dsb-picker-root')) {
+      if (root.dataset.path === here) root.setAttribute('aria-current', 'location')
+      else root.removeAttribute('aria-current')
+    }
+    refresh()
+  }
+  // A listing that comes back after a newer one was asked for is dropped. A failed one keeps
+  // the folder that was shown and says why next to it.
+  const open = async (path) => {
+    const turn = (asked += 1)
+    rows.setAttribute('aria-busy', 'true')
+    const listing = await call('list', String(path), here).catch(() => undefined)
+    if (done || turn !== asked) return false
+    rows.removeAttribute('aria-busy')
+    if (listing === undefined || listing === null) return false
+    if (listing.error !== undefined) {
+      tell(label(`error.${listing.error}`), 'error')
+      return false
+    }
+    hideAsk()
+    draw(listing)
+    return true
+  }
+  const enter = async (index) => {
+    const entry = entries[index]
+    if (entry === undefined) return
+    if (entry.dir) await open(entry.path)
+    else if (mode === 'file') await choose(entry.path)
+    else select(index)
+  }
+  const choose = async (path, replace = false) => {
+    if (done || path === undefined) return
+    const name = nameField.value.trim()
+    const answer = await call('choose', path, mode === 'save' ? { name, replace } : undefined).catch(() => undefined)
+    if (done || answer === undefined || answer === null) return
+    if (answer.error !== undefined) { tell(label(`error.${answer.error}`), 'error'); return }
+    if (answer.exists) {
+      const yes = button('dsb-card-btn dsb-picker-small', label('replace'), 'primary')
+      yes.addEventListener('click', () => { void choose(path, true) })
+      ask.replaceChildren(make('span', 'dsb-picker-ask-text', say('error.replace', { name })), yes)
+      ask.hidden = false
+      yes.focus()
+      return
+    }
+    close(false)
+  }
+  const commit = () => {
+    if (mode === 'save') { void choose(here); return }
+    const entry = choice()
+    if (mode === 'file') { if (entry !== undefined && !entry.dir) void choose(entry.path); return }
+    void choose(entry?.dir ? entry.path : here)
+  }
+
+  up.addEventListener('click', () => { const steps = trail.children; if (steps.length > 1) steps[steps.length - 2].click() })
+  pathRow.addEventListener('submit', (event) => { event.preventDefault(); void open(pathField.value) })
+  newFolder.addEventListener('click', () => {
+    fresh.hidden = false
+    freshName.value = label('newName')
+    freshName.focus()
+    freshName.select()
+  })
+  fresh.addEventListener('submit', (event) => {
+    event.preventDefault()
+    void call('folder', here, freshName.value.trim()).catch(() => undefined).then(async (made) => {
+      if (done || made === undefined || made === null) return
+      if (made.error !== undefined) { tell(label(`error.${made.error}`), 'error'); freshName.focus(); return }
+      fresh.hidden = true
+      if (await open(here)) {
+        select(entries.findIndex(entry => entry.path === made.path))
+        rows.focus()
+      }
+    })
+  })
+  nameField.addEventListener('input', hideAsk)
+  nameField.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); commit() } })
+  cancel.addEventListener('click', () => { close(true) })
+  primary.addEventListener('click', commit)
+  rows.addEventListener('keydown', (event) => {
+    const step = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 }[event.key]
+    if (step !== undefined && !event.altKey) { event.preventDefault(); select(picked < 0 ? 0 : picked + step) }
+    else if (event.key === 'Home') { event.preventDefault(); select(0) }
+    else if (event.key === 'End') { event.preventDefault(); select(entries.length - 1) }
+    else if (event.key === 'Enter') { event.preventDefault(); if (choice()?.dir) void enter(picked); else commit() }
+    else if (event.key === 'Backspace' || (event.key === 'ArrowUp' && event.altKey)) { event.preventDefault(); up.click() }
+  })
+
+  const focusables = () => [...box.querySelectorAll('button, input, [tabindex="0"]')].filter(element => !element.disabled && element.offsetParent !== null)
+  const keys = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      if (!ask.hidden) hideAsk()
+      else if (!fresh.hidden) { fresh.hidden = true; rows.focus() } else close(true)
+    } else if (event.key === 'Tab') {
+      const list = focusables()
+      const at = list.indexOf(document.activeElement)
+      event.preventDefault()
+      list[(at + (event.shiftKey ? -1 : 1) + list.length) % list.length]?.focus()
+    }
+    // The page's own shortcuts wait while the picker is up.
+    event.stopPropagation()
+  }
+  const keep = (event) => { if (!layer.contains(event.target)) rows.focus() }
+  const before = document.activeElement
+  function close(cancelled) {
+    if (done) return
+    done = true
+    if (openPicker?.close === quit) openPicker = undefined
+    document.removeEventListener('keydown', keys, true)
+    document.removeEventListener('focusin', keep, true)
+    if (cancelled) ipcRenderer.send('ds-bot:app-picker-cancel', id)
+    delete layer.dataset.open
+    layer.dataset.leaving = ''
+    layer.inert = true
+    setTimeout(() => { layer.remove() }, 220)
+    if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
+  }
+  const quit = () => { close(true) }
+  document.addEventListener('keydown', keys, true)
+  document.addEventListener('focusin', keep, true)
+  ;(document.body ?? document.documentElement).append(layer)
+  // The layer is laid out once before it opens, so that the opening transitions run.
+  void layer.offsetWidth
+  layer.dataset.open = ''
+  openPicker = { close: quit }
+  ipcRenderer.send('ds-bot:app-picker-shown', id)
+  refresh()
+  if (mode === 'save') {
+    nameField.focus({ preventScroll: true })
+    const dot = nameField.value.lastIndexOf('.')
+    nameField.setSelectionRange(0, dot > 0 ? dot : nameField.value.length)
+  } else rows.focus({ preventScroll: true })
+
+  void open(request.start ?? '').then((ok) => { if (!ok && !done && here === undefined && note.hidden) tell(label('error.unreadable'), 'error') })
+  void call('roots').then((found) => {
+    if (done || found === undefined || found === null) return
+    const group = (heading, items, kind) => {
+      if (items.length === 0) return []
+      return [make('h3', 'dsb-picker-head', heading), ...items.map((item) => {
+        const root = button('dsb-picker-root', item.label)
+        root.dataset.path = item.path
+        root.title = item.path
+        root.prepend(glyph(kind))
+        if (item.path === here) root.setAttribute('aria-current', 'location')
+        root.addEventListener('click', () => { void open(item.path) })
+        return root
+      })]
+    }
+    side.replaceChildren(
+      ...group(label('places'), found.places.map(place => ({ path: place.path, label: label(place.key) })), 'dir'),
+      ...group(label('drives'), found.drives, 'drive'),
+    )
+  }, () => {})
 }
 
 // The app's theme (DSH's) and the Bot animation tier (ds-bot's), which the start window takes

@@ -162,7 +162,7 @@ test('a move that does not go through has one card with three variants', () => {
 })
 
 // docs/plans/2026-10-29-start-copy.md §2: the first part of a key says where the line is.
-const LAYERS = ['voice', 'say', 'hint', 'card', 'reason', 'btn', 'note', 'foot', 'status', 'dialog']
+const LAYERS = ['voice', 'say', 'hint', 'card', 'reason', 'btn', 'note', 'foot', 'status', 'dialog', 'picker']
 const layerOf = key => key.split('.')[0]
 // {name} and {name|one|many} (an English count) both name one placeholder.
 const PLACEHOLDER = /\{(\w+)(?:\|[^}]*)?\}/gu
@@ -173,7 +173,7 @@ test('zh and en carry the same keys and the same placeholders', () => {
   for (const [key, zh] of Object.entries(TEXT.zh)) assert.equal(placeholders(TEXT.en[key]), placeholders(zh), `${key}: placeholders differ`)
 })
 
-test('every text key starts with one of the ten layers', () => {
+test('every text key starts with one of the eleven layers', () => {
   for (const key of Object.keys(TEXT.zh)) assert.ok(LAYERS.includes(layerOf(key)), `${key}: unknown layer`)
 })
 
@@ -189,10 +189,10 @@ test('the whale and the hint row have only the lines for when the user is needed
 // §2 and §4: a line that stands alone takes no full stop; card, reason, note and dialog text is
 // whole sentences.
 test('each layer ends its lines as its rule says', () => {
-  const BARE = new Set(['voice', 'say', 'hint', 'btn', 'foot', 'status'])
+  const BARE = new Set(['voice', 'say', 'hint', 'btn', 'foot', 'status', 'picker'])
   // Not sentences: picker titles, progress lines and labels.
   const NOT_SENTENCES = new Set([
-    'card.update.slow', 'card.update.downloading', 'dialog.pickRoot', 'dialog.pickMove',
+    'card.update.slow', 'card.update.downloading', 'dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs',
     'card.copying.step1', 'card.copying.step2', 'card.copying.step3', 'card.copying.eta', 'card.copying.etaSoon',
     'card.import.model', 'card.import.optRegen', 'card.import.optSkipWork',
   ])
@@ -212,7 +212,7 @@ test('each layer ends its lines as its rule says', () => {
       assert.match(zh, ends[0], `${key}: zh is not a whole sentence`)
       assert.match(en, ends[1], `${key}: en is not a whole sentence`)
     }
-    if (key === 'dialog.pickRoot' || key === 'dialog.pickMove') {
+    if (['dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs'].includes(key)) {
       assert.doesNotMatch(zh, /。$/u, `${key}: a picker title ends with a full stop`)
       assert.doesNotMatch(en, /\.$/u, `${key}: a picker title ends with a full stop`)
     }
@@ -244,7 +244,7 @@ test('a button that opens the system picker ends with …', () => {
 // docs/plans/2026-10-26-windows-onboarding.md, 用词: proper names and units only.
 test('the zh copy shows no English but the allowed names and units', () => {
   const NAMES = ['DS Bot', 'DSH Desktop', 'DSH Web']
-  const WORDS = new Set(['DeepSeek', 'Bot', 'API', 'Key', 'Harness', 'DSH', 'Agent', 'MCP', 'Windows', 'PowerShell', 'GitHub', 'SmartScreen', 'OneDrive', 'HTTP', 'SOCKS', 'KB', 'MB', 'GB'])
+  const WORDS = new Set(['DeepSeek', 'Bot', 'API', 'Key', 'Harness', 'DSH', 'Agent', 'MCP', 'Windows', 'PowerShell', 'GitHub', 'SmartScreen', 'OneDrive', 'cookie', 'HTTP', 'SOCKS', 'KB', 'MB', 'GB'])
   const english = []
   for (const [key, value] of Object.entries(TEXT.zh)) {
     let rest = value.replace(PLACEHOLDER, ' ')
