@@ -3,6 +3,7 @@ import { CheckIcon, GlobeIcon } from './icons.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
+import { CellEmpty } from './cell-empty.js'
 
 // -------------------------------------------------------------------------
 // Browser handoff: a Bot's browser reached a step only the user can do (a sign-in,
@@ -86,8 +87,8 @@ export function HandoffCall({ sessionId, callId, roster, actions, heldCards, hoo
   const bot = roster.byId[sessionId]
   const hold = hooks.useBrowserHolds?.(map => (bot ? map[bot.id] : undefined))
   // Answered, taken back, or never raised on this machine: no card, and no gap where it was.
-  if (!bot || hold?.callId !== callId || !actions.browserGiveBack) return h('span', { className: 'bt-q-gone', hidden: true })
-  if (heldCards?.[heldCardKey('handoff', callId)] > 0) return null
+  if (!bot || hold?.callId !== callId || !actions.browserGiveBack) return h(CellEmpty, { className: 'bt-q-gone' })
+  if (heldCards?.[heldCardKey('handoff', callId)] > 0) return h(CellEmpty)
   return h(PendingHandoff, { key: callId, sessionId, bot, hold, hooks, actions, inline: true })
 }
 

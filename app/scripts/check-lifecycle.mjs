@@ -93,7 +93,7 @@ try {
   if (!first.ready) fail('the window did not start')
   if (first.visible !== true) fail('the window is not on the screen')
   if (!first.url?.startsWith('http://127.0.0.1:')) fail(`the window did not reach the Host: ${String(first.url)}`)
-  if (first.title !== 'DeepSeek Bot') fail(`the page did not load: ${String(first.title)}`)
+  if (first.title !== 'DS Bot') fail(`the page did not load: ${String(first.title)}`)
   if (first.hasTray !== true) fail('the tray is not there')
   console.log('check-lifecycle: the window shows the Host and the tray is there')
 

@@ -95,10 +95,12 @@ export function install(rt) {
   const workOf = info => (info === undefined ? undefined
     : info.role === 'request' && info.audience !== 'user' ? info.exchangeId : info.work)
 
-  // `parent`: the work the sender was doing when it sent this one.
-  function openWork(id, { from, to, parent, fromRoom, room }) {
+  // `parent`: the work the sender was doing when it sent this one. `child`: the
+  // session id of the subagent a run of this work belongs to — the run, not the
+  // child, is the sub-work, so a child that is continued hands up a result per run.
+  function openWork(id, { from, to, parent, fromRoom, room, name, child }) {
     const above = parent === undefined ? undefined : works()[parent]
-    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), open: [], results: [], at: Date.now() }
+    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), open: [], results: [], at: Date.now() }
     if (above !== undefined) above.open.push(id)
     save()
   }
@@ -115,7 +117,7 @@ export function install(rt) {
     if (above !== undefined) {
       // The whole result goes into a file of its own before the team file names it.
       const file = keepResult(id, text)
-      above.results.push({ id, name, text: headOf(text, TEXT_KEPT), ...(text.length > TEXT_KEPT ? { length: text.length } : {}), ...(file ? { file } : {}) })
+      above.results.push({ id, name, text: headOf(text, TEXT_KEPT), ...(work.child ? { child: work.child } : {}), ...(text.length > TEXT_KEPT ? { length: text.length } : {}), ...(file ? { file } : {}), at: Date.now() })
       whole.set(id, text)
     }
     for (const result of work.results ?? []) whole.delete(result.id)
@@ -126,6 +128,42 @@ export function install(rt) {
     }).catch(() => {})
     return above === undefined ? undefined : work.parent
   }
+  // The subagent run a settlement notice names. The notice carries only the
+  // child's id, and a child's runs end one after another, so it is the earliest
+  // settled run of that child not read yet, else a run of it still out.
+  const subWorkRun = (id) => {
+    let settled
+    let live
+    for (const [workId, work] of Object.entries(works())) {
+      for (const openId of work.open) {
+        const result = work.results?.find(result => result.id === openId)
+        if ((result?.child ?? works()[openId]?.child ?? openId) !== id) continue
+        if (result === undefined) live ??= { id: openId, parent: workId }
+        else if (settled === undefined || (result.at ?? 0) < settled.at) settled = { id: openId, parent: workId, at: result.at ?? 0 }
+      }
+    }
+    return settled ?? live
+  }
+  // A settled run is handed back like a teammate's reply: its closing text joins
+  // the results of the work it hung under. `id` is the run's id, `child` the
+  // child's, which named the sub-work before runs did.
+  function settleSubWork(id, text, child) {
+    const key = works()[id] !== undefined ? id : child
+    const work = works()[key]
+    if (work === undefined) return undefined
+    const { parent } = work
+    closeWork(key, work.name ?? 'subagent', text)
+    return parent
+  }
+  // A fast child can settle before its tool result identifies the call that made it.
+  const nameSubWork = (id, name) => {
+    const work = Object.entries(works()).find(([key, work]) => (work.child ?? key) === id)?.[1]
+      ?? Object.values(works()).flatMap(work => work.results ?? []).find(result => (result.child ?? result.id) === id)
+    if (work === undefined || work.name === name) return
+    work.name = name
+    save()
+  }
+
   const dropWork = (id) => {
     const work = works()[id]
     if (work === undefined) return
@@ -273,7 +311,7 @@ export function install(rt) {
     for (const { work, out } of held(busyWith(running))) {
       if (work.to !== botId) continue
       const forName = nameOf(work.from) ? `, for ${nameOf(work.from)}` : ''
-      const on = [...new Set(out.map(child => (child.room ? `group "${rt.roomOf(child.room)?.name ?? 'a group'}"` : nameOf(child.to) ?? 'a teammate')))]
+      const on = [...new Set(out.map(child => (child.room ? `group "${rt.roomOf(child.room)?.name ?? 'a group'}"` : child.name ?? nameOf(child.to) ?? 'a teammate')))]
       lines.push(on.length > 0 ? `waiting for ${on.join(' and ')} to hand back work${forName}` : `about to go on with work${forName}, whose results came back`)
     }
     if (lines.length === 0) lines.push('idle')
@@ -288,5 +326,5 @@ export function install(rt) {
     return lines.join('; ')
   }
 
-  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView })
+  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkRun, nameSubWork })
 }

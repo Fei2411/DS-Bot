@@ -86,7 +86,7 @@ function newHome(root) {
   write(join(to, 'bot', 'state.json'), JSON.stringify({ version: 1, mainBotIds: [], bots: {}, rooms: {} }))
   write(join(to, '.credentials.yaml'), HOST_CREDENTIALS)
   write(join(to, 'profiles', 'ds-bot', 'cordis.patch.yml'), '- id: llm-pi-ai\n  config:\n    providers: {}\n- id: webserver\n  config:\n    port: 0\n- id: ui-settings-general\n  config:\n    welcomeNoticeVersion: seen\n')
-  const workspace = join(root, 'DeepSeek Bot')
+  const workspace = join(root, 'DS Bot')
   write(join(workspace, 'kept.txt'), 'new kept')
   return { to, workspace }
 }

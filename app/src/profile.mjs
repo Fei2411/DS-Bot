@@ -1,5 +1,6 @@
 // The app's own DSH profile: its name, its bundles and its installation.
 import { fileURLToPath } from 'node:url'
+import { LEGACY_ENGINE } from './legacy.mjs'
 import { initProfile, loadProfileDirectory, readProfileManifest, resolveProfileDir, writeProfileBundles } from '@deepseek-ai/dsh-app-boot'
 
 export const PROFILE = 'ds-bot'
@@ -11,7 +12,7 @@ export const BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@d
 export const CHECK_PROFILE = 'import-check'
 export const CHECK_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 // Bundles that earlier builds of the app put in its profile: the engine layer of its own window (../engine).
-const RETIRED_BUNDLES = ['deepseek-bot-engine']
+const RETIRED_BUNDLES = [LEGACY_ENGINE, 'dsbot-engine']
 // The app's own manifest is the installation: DSH imports plugins only from the installation's dependency
 // graph, resolves bundles there first, and keeps the bundles it names as direct dependencies from removal.
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
