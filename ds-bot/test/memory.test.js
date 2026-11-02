@@ -243,6 +243,227 @@ test('topics hold details, linked from MEMORY.md, and go when their last entry d
   assert.equal(read('bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n')
 })
 
+test('a journal line restores its change: remove, replace, and add undone', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'User prefers short replies' }, 'b2')
+  const added = journal().at(-1)
+  assert.equal(added.op, 'add')
+
+  // Undoing a remove puts the line back.
+  await tool('forget', { entry: 'short replies' }, 'b2')
+  const removed = journal().at(-1)
+  assert.equal(removed.op, 'remove')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 0)
+  const line = journal().length
+  const restored = await call('memory-restore', { line })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.equal(restored.value.op, 'add')
+  assert.equal(restored.value.restored, removed.id)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- User prefers short replies \[/)
+  assert.equal(journal().at(-1).op, 'add')
+  assert.equal(journal().at(-1).restored, removed.id)
+
+  // A remove already undone is not undone twice: the line is back, so NO_MATCH.
+  const twice = await call('memory-restore', { line })
+  assert.equal(twice.ok, false)
+  assert.match(twice.error.message, /already in/)
+
+  // Undoing an add takes the line back out, while it still reads as written.
+  const addLine = journal().findIndex(record => record.id === added.id) + 1
+  const undone = await call('memory-restore', { line: addLine })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(undone.value.op, 'remove')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 0)
+
+  // A replace puts the before-line back.
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await tool('remember', { text: 'Lives in Shanghai', replace: 'Hangzhou' }, 'b2')
+  const replaced = journal().at(-1)
+  const back = await call('memory-restore', { line: journal().length })
+  assert.equal(back.ok, true, JSON.stringify(back))
+  assert.equal(back.value.op, 'replace')
+  assert.equal(back.value.restored, replaced.id)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Shanghai/)
+})
+
+test('a restore refuses drift and rows that are not restorable', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'User prefers short replies' }, 'b2')
+  const addLine = journal().length
+  // The entry the add wrote was replaced since: undoing it now is a NO_MATCH,
+  // not a delete of the newer text.
+  await tool('remember', { text: 'User prefers very short replies', replace: 'short replies' }, 'b2')
+  const drift = await call('memory-restore', { line: addLine })
+  assert.equal(drift.ok, false)
+  assert.match(drift.error.message, /no longer in|not where the change log left it/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /very short replies/)
+
+  for (const body of [{ line: 0 }, { line: -2 }, { line: 'three' }, {}]) {
+    const bad = await call('memory-restore', body)
+    assert.equal(bad.ok, false, JSON.stringify(body))
+    assert.match(bad.error.message, /line/)
+  }
+  const pastEnd = await call('memory-restore', { line: journal().length + 10 })
+  assert.equal(pastEnd.ok, false)
+  assert.match(pastEnd.error.message, /not a change that can be restored/)
+})
+
+test('restoring a remove that took a topic with it makes the topic again', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Flies from Hangzhou', topic: 'Travel' }, 'b2')
+  await tool('forget', { entry: 'Flies', topic: 'travel' }, 'b2')
+  const removed = journal().at(-1)
+  assert.equal(removed.removedTopic, true)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'travel.md')), false)
+
+  const restored = await call('memory-restore', { line: journal().length })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'travel.md'), /^# travel\n\n- Flies from Hangzhou \[/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- \[\[travel\]\]/)
+})
+
+test('a restore does not put back a value that is a saved secret now', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'The clubhouse code word is bricksparrow72' }, 'b2')
+  await tool('remember', { text: 'Picks bricksparrow72 for the draw' }, 'b2')
+  await tool('remember', { text: 'Picks plain tickets for the draw', replace: 'for the draw' }, 'b2')
+  await tool('forget', { entry: 'code word' }, 'b2')
+  const [replaced, removed] = journal().slice(-2)
+  const lines = journal().length
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /plain tickets/)
+
+  // The value is a saved secret since the change log kept it: putting the line
+  // back would write it in the clear, to the file and to the restore's own row.
+  const saved = await call('secret-set', { name: 'CLUB_CODE', value: 'bricksparrow72' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+
+  const back = await call('memory-restore', { line: journal().findIndex(record => record.id === removed.id) + 1 })
+  assert.equal(back.ok, false)
+  assert.match(back.error.message, /cannot be put back/)
+  assert.match(back.error.message, /never keeps/)
+  assert.doesNotMatch(back.error.message, /bricksparrow72/)
+  const backReplace = await call('memory-restore', { line: journal().findIndex(record => record.id === replaced.id) + 1 })
+  assert.equal(backReplace.ok, false)
+  assert.match(backReplace.error.message, /cannot be put back/)
+  assert.doesNotMatch(backReplace.error.message, /bricksparrow72/)
+
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /bricksparrow72/)
+  assert.equal(journal().length, lines)
+})
+
+test('the row a restore wrote passes the same guards when it is restored', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Wears a green coat' }, 'b2')
+  // Undoing the add leaves a remove row of its own.
+  const undone = await call('memory-restore', { line: journal().length })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(journal().at(-1).op, 'remove')
+  const line = journal().length
+
+  // The fact is back under another topic: the restore row is not duplicated back.
+  await tool('remember', { text: 'wears  a green   coat', topic: 'Style' }, 'b2')
+  const again = await call('memory-restore', { line })
+  assert.equal(again.ok, false)
+  assert.match(again.error.message, /already in/)
+
+  // And once the value is a saved secret, the same row cannot put it back either.
+  const saved = await call('secret-set', { name: 'COAT_COLOR', value: 'green coat' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  const refused = await call('memory-restore', { line })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /cannot be put back/)
+  assert.doesNotMatch(refused.error.message, /green coat/)
+  assert.equal(journal().length, line + 1)
+})
+
+test('a restore does not duplicate a fact remembered again', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou', topic: 'Home' }, 'b2')
+  await tool('forget', { entry: 'Hangzhou' }, 'b2')
+  const line = journal().length
+  // The same fact is back, in MEMORY.md this time and under new metadata.
+  await tool('remember', { text: 'lives   in  hangzhou' }, 'b2')
+  const restored = await call('memory-restore', { line })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already in/)
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 1)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'home.md')), false)
+})
+
+test('a restore cannot rebuild a topic past the count the memory holds', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  for (let i = 1; i <= 40; i += 1) await tool('remember', { text: `detail ${i}`, topic: `topic-${i}` }, 'b2')
+  // topic-40 goes when its last entry does; a fresh topic takes the room meanwhile.
+  await tool('forget', { entry: 'detail 40', topic: 'topic-40' }, 'b2')
+  const line = journal().length
+  await tool('remember', { text: 'a fresh fact', topic: 'fresh' }, 'b2')
+  const restored = await call('memory-restore', { line })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already has 40 topics/)
+})
+
+test('a restore of a replace does not duplicate a fact remembered again', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await tool('remember', { text: 'Lives in Shanghai', replace: 'Hangzhou' }, 'b2')
+  const replaced = journal().at(-1)
+  // The old fact is remembered again since, under a topic and new metadata.
+  await tool('remember', { text: 'lives  in  hangzhou', topic: 'Home' }, 'b2')
+  const restored = await call('memory-restore', { line: journal().findIndex(record => record.id === replaced.id) + 1 })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already in/)
+  // The entry it replaced stays put, and the remembered copy is not doubled.
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Shanghai \[/)
+  assert.equal(parseMemory(read('bots', 'b2', 'home.md')).entries.length, 1)
+})
+
+test('a restore of a replace whose after reads like its before is no duplicate', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Drinks tea daily' }, 'b2')
+  await tool('remember', { text: 'drinks tea daily', replace: 'tea' }, 'b2')
+  // The after-line squashes to the before text: the matched entry itself is no
+  // duplicate, so the restore still puts the recorded before-line back.
+  const restored = await call('memory-restore', { line: journal().length })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Drinks tea daily \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /- drinks tea daily/)
+})
+
+test('a restore refuses a change-log row whose file is not a flat name', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Team drinks tea', scope: 'team' }, 'm1')
+  await tool('remember', { text: 'Likes quiet mornings' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // A forged row in the shared log can name any path; it is read, not trusted.
+  const forge = (file) => {
+    const row = { id: `forged-${file}`, time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file, actor: 'user', actorName: 'user', removedTopic: true, before: '- forged entry' }
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return journal().length
+  }
+  for (const file of ['../../team/MEMORY.md', '..\\..\\team\\MEMORY.md', 'topics/deep.md', '..', '.', 'C:\\out\\x.md']) {
+    const line = forge(file)
+    const denied = await call('memory-restore', { line })
+    assert.equal(denied.ok, false, file)
+    assert.match(denied.error.message, /not a change that can be restored/, file)
+    // The file the row pointed at is untouched, and no restore row was logged.
+    assert.match(read('team', 'MEMORY.md'), /- Team drinks tea \[/)
+    assert.doesNotMatch(read('team', 'MEMORY.md'), /forged/)
+    assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /forged|\.\./)
+    assert.equal(journal().length, line)
+  }
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())
