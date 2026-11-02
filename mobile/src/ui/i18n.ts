@@ -11,6 +11,8 @@ const MOBILE_ZH: Record<string, string> = {
   'On the computer, open DS Bot, go to Settings → Phone and show a QR code. Then scan it here.': '在电脑上打开 DS Bot，进入设置 → 手机，出示二维码，然后在这里扫描。',
   'Use the camera': '使用相机',
   'No camera? Paste the pairing link.': '没有相机？粘贴配对链接。',
+  'Pair': '配对',
+  'Retry': '重试',
   'The computer did not accept this phone. Show a new QR code on the computer and scan it again.': '电脑没有接受这台手机。在电脑上出示新的二维码，再扫一次。',
   'The computer is not connected to the Server. Check that DS Bot is open and phone access is on.': '电脑没有连上服务器。确认 DS Bot 已打开且手机访问已开启。',
   'Not connected to the computer yet.': '还没有连上电脑。',
