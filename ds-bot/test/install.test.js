@@ -157,6 +157,12 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal('thinking' in (await call('set-prefs', { thinking: false })).value, false)
   await call('set-prefs', { thinking: true })
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
+  // Enter sends by default; false persists until the user turns it back on.
+  assert.equal((await call('set-prefs', { enterToSend: false })).value.enterToSend, false)
+  assert.equal((await call('set-prefs', { enterToSend: 'no' })).value.enterToSend, false)
+  assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: true })).value, false)
+  await call('set-prefs', { enterToSend: false })
+  assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: null })).value, false)
   // A refusal from the team code keeps its message for the user.
   assert.deepEqual((await call('delete-bot', { id: 'nobody' })).error, { code: 'bot/refused', message: 'Unknown Bot', details: {} })
   // Off the Desktop profile there are no Bot browsers.

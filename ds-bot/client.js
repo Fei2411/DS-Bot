@@ -505,6 +505,8 @@ var ZH = {
   "Bubble width": "气泡宽度",
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
+  "Enter sends message": "回车发送消息",
+  "When off, Enter inserts a new line. Use the send button to send.": "关闭后，回车换行，点击发送按钮发送。",
   "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
   "Choose a Bot…": "选择一个 Bot…",
@@ -10622,6 +10624,20 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   );
 }
 
+// src/client/enter-key.js
+function insertComposerNewline(event, inputActions) {
+  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")) return false;
+  const target = event.target;
+  if (typeof target?.closest !== "function" || !target.closest('[data-composer-card] [role="textbox"]')) return false;
+  if (target.closest("[data-composer-composing]")) return false;
+  if (target.ownerDocument?.querySelector('[role="listbox"]')) return false;
+  if (typeof inputActions?.captureInsertion !== "function" || typeof inputActions?.insertText !== "function") return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  inputActions.insertText("\n", inputActions.captureInsertion());
+  return true;
+}
+
 // src/client/composer.js
 var import_react21 = require("react");
 var import_react_dom5 = require("react-dom");
@@ -10682,7 +10698,16 @@ function useDictation(onText) {
   const stop = () => recognition.current?.stop();
   return { listening, note, start, stop };
 }
-function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
+function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
+  const enterToSend = useRoster((state) => state.prefs?.enterToSend !== false);
+  const composerRoot = (0, import_react21.useRef)(null);
+  (0, import_react21.useEffect)(() => {
+    const root = composerRoot.current?.closest("[data-composer-card]");
+    if (enterToSend || !inputActions || !root) return void 0;
+    const onKey = (event) => insertComposerNewline(event, inputActions);
+    root.addEventListener("keydown", onKey, true);
+    return () => root.removeEventListener("keydown", onKey, true);
+  }, [enterToSend, inputActions]);
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion());
   });
@@ -10718,6 +10743,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       onClick: () => dictation.listening ? dictation.stop() : dictation.start()
     }, (0, import_react21.createElement)(MicIcon)),
     (0, import_react21.createElement)("button", {
+      ref: composerRoot,
       type: "button",
       className: "bt-voice",
       "aria-label": t("Start voice chat"),
@@ -16966,6 +16992,15 @@ function GeneralPage({ roster, actions, run: run2 }) {
       (0, import_react45.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react45.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
       (0, import_react45.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react45.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) }))
     ),
+    (0, import_react45.createElement)(
+      SetSection,
+      { key: "input", title: t("Input") },
+      (0, import_react45.createElement)(
+        SetRow,
+        { label: t("Enter sends message"), hint: t("When off, Enter inserts a new line. Use the send button to send.") },
+        (0, import_react45.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+      )
+    ),
     actions.setSurface ? (0, import_react45.createElement)(
       SetSection,
       { key: "mode", title: t("Mode") },
@@ -20853,7 +20888,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, enterToSend: prefs.enterToSend }));
         } catch {
         }
       }
