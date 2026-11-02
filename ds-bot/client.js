@@ -10688,6 +10688,7 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
 }
 
 // src/client/enter-key.js
+var sendsOnEnter = (prefs) => prefs?.enterToSend !== false;
 function insertComposerNewline(event, inputActions) {
   if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")) return false;
   const target = event.target;
@@ -10762,7 +10763,7 @@ function useDictation(onText) {
   return { listening, note, start, stop };
 }
 function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
-  const enterToSend = useRoster((state) => state.prefs?.enterToSend !== false);
+  const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
   const composerRoot = (0, import_react21.useRef)(null);
   (0, import_react21.useEffect)(() => {
     const root = composerRoot.current?.closest("[data-composer-card]");
@@ -14245,7 +14246,7 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
             "aria-label": placeholder,
             onChange: (event) => setMessage(event.target.value),
             onKeyDown: (event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (event.key === "Enter" && sendsOnEnter(roster.prefs) && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 sendMessage();
               }
@@ -20649,8 +20650,15 @@ function listedOpener({ list, open, refresh, current }) {
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
-  const roster = createSource(EMPTY_ROSTER);
   migrateStorage();
+  const PREFS_KEY = STORAGE.prefs;
+  let savedPrefs = {};
+  try {
+    savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") ?? {};
+  } catch {
+    savedPrefs = {};
+  }
+  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs });
   const unreadStore = sharedMap(STORAGE.unread);
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
@@ -20717,13 +20725,6 @@ function apply(ctx) {
       state[id]?.at === entry.at ? state[id] : { ...entry, seen: opening ? 0 : Date.now() }
     ])));
   };
-  const PREFS_KEY = STORAGE.prefs;
-  let savedPrefs = {};
-  try {
-    savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") ?? {};
-  } catch {
-    savedPrefs = {};
-  }
   const writeUnread = (id, value) => {
     const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui2.getSnapshot().unread);
     ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });

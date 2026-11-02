@@ -51,8 +51,13 @@ export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'th
 
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
-  const roster = createSource(EMPTY_ROSTER)
   migrateStorage()
+  // The window's cached prefs stand in until the first pull answers: a saved
+  // `enterToSend: false` then already holds, instead of Enter sending meanwhile.
+  const PREFS_KEY = STORAGE.prefs
+  let savedPrefs = {}
+  try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
+  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
   const unreadStore = sharedMap(STORAGE.unread)
   const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new turns against it.
@@ -144,9 +149,6 @@ export function apply(ctx) {
     memoryNews.set(state => Object.fromEntries(Object.entries(next).map(([id, entry]) => [id,
       state[id]?.at === entry.at ? state[id] : { ...entry, seen: opening ? 0 : Date.now() }])))
   }
-  const PREFS_KEY = STORAGE.prefs
-  let savedPrefs = {}
-  try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
   const writeUnread = (id, value) => {
     const unread = unreadStore.update(marks => setUnread(marks, id, value), ui.getSnapshot().unread)
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))

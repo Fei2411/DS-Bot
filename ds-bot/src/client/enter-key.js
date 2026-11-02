@@ -1,3 +1,8 @@
+// Enter submits only while the preference sends on Enter; off, a plain Enter is the
+// field's own newline and only the send button submits. Before the roster answers,
+// the snapshot's prefs come from the window's cache, so a saved `false` already holds.
+export const sendsOnEnter = prefs => prefs?.enterToSend !== false
+
 // Plain Enter can insert a line instead of submitting. Menus, modified shortcuts,
 // and IME confirmation keep the host composer's own behavior.
 export function insertComposerNewline(event, inputActions) {
