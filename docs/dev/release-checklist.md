@@ -7,7 +7,7 @@ CI 只跑单元测试和 Linux 上的测试台。窗口外框、输入法、高 
 ## 准备
 
 - Windows 10 / 11 x64，或 macOS（Apple 芯片）。
-- 官方的 DSH Desktop，版本和 README 里写的一致（现在是 `0.2.1-rc.4`）。只从 DeepSeek Harness 官方渠道下载。
+- 官方的 DSH Desktop，版本和 README 里写的一致（现在是 `0.2.1-rc.5`）。只从 DeepSeek Harness 官方渠道下载。
 - 要发的包：在 `ds-bot/` 里运行 `npm pack`，得到 `ds-bot-<版本>.tgz`。
 - 桌面应用的安装包：在 `app/` 里运行 `npm run dist`，得到 `app/dist-pack/DS-Bot-<版本>-win-x64.exe`。`app/package.json` 和 `ds-bot/package.json` 的版本号要一样。
 - 也可以用发版工作流的试运行：在 GitHub 的 Actions 里选 Release → Run workflow，勾着 dry run 运行。跑完后在这次运行的页面下载 Windows 安装包和两个 Mac 的 zip（保留 7 天）。它们和 Release 里的文件在同样的 runner 上、用同样的方法打包，不发布任何东西。
