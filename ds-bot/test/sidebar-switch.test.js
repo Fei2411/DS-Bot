@@ -431,6 +431,39 @@ test('the Bot footer lays out the account, another plugin\'s entry and the setti
   assert.equal(columnOf(document.querySelector('.x_settingsArea')), '3')
 })
 
+// 公开#685: the way back from the Bot sidebar mirrors BotReturn — a footer pill
+// in the column's own foot, named while wide and icon-only on the rail.
+test('the Bot sidebar foot switches back to the Agent page', () => {
+  viewport.innerWidth = 1280
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const find = (node, match) => {
+    if (Array.isArray(node)) return node.map(child => find(child, match)).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return match(node) ? node : find(node.props?.children, match)
+  }
+  for (const [wide, pref] of [[true, 'open'], [false, 'rail']]) {
+    const calls = []
+    const actions = {
+      setSurface: mode => calls.push(mode), toggleSidebar() {}, toggleLeftHidden() {},
+      openNewChat() {}, openPalette() {}, seatAccount() {},
+    }
+    const tree = TeamSidebar({
+      wide, actions,
+      useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+      useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+      useSidebarPref: pick => pick(pref),
+    })
+    const entry = find(tree, node => node.type?.name === 'AgentReturn')
+    assert.ok(entry, wide ? 'wide foot' : 'rail foot')
+    const button = entry.type(entry.props)
+    assert.equal(button.props['aria-label'], 'DSH Agent')
+    const named = find(button, node => node.props?.className === 'bt-return-name')
+    assert.equal(Boolean(named), wide)
+    button.props.onClick()
+    assert.deepEqual(calls, ['agent'])
+  }
+})
+
 // #452: the Connect plugins button left the footer; what DS Bot puts there is
 // the account menu and the way back from Agent mode.
 test('the Bot footer holds the account and the return button only', () => {
