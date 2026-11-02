@@ -35,7 +35,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return react
   },
 })
-const { FOLD_AT, FOLD_HUGE, foldPreview, stripLongNote, useFold } = module.exports
+const { FOLD_AT, FOLD_HUGE, foldPreview, foldView, stripLongNote, useFold } = module.exports
 const render = (text, options) => { at = 0; return useFold(text, options) }
 const fresh = () => { slots = [] }
 const buttons = node => (node === null || typeof node !== 'object' ? [] : [...(node.type === 'button' ? [node] : []), ...node.children.flatMap(buttons)])
@@ -144,6 +144,45 @@ test('a message kept only in part is read whole on request, and says when it is 
   await buttons(render(short, { whole: lost }).control)[0].props.onClick()
   assert.equal(render(short, { whole: lost }).shown, short)
   assert.match(words(render(short, { whole: lost }).control), /^Only the start of this message is kept here/)
+})
+
+// #718: the copy of a code block the preview cut must reach the whole block.
+test('a folded preview also yields the whole code block it cut', () => {
+  const inner = lines(30)
+  const view = foldView(`Here:\n\`\`\`js\n${inner}\n\`\`\`\nafter`)
+  assert.equal(view.head, `Here:\n\`\`\`\n${lines(8)}\n\`\`\``)
+  assert.equal(view.code, inner)
+  // The markdown before the block, and the part of the block the preview keeps:
+  // the half block is drawn by DS Bot, so the host's copy control never sees it.
+  assert.equal(view.prose, 'Here:')
+  assert.equal(view.codeHead, lines(8))
+  // A block that never closes yields to the end of the text.
+  assert.equal(foldView(`\`\`\`js\n${inner}`).code, inner)
+  // No fence is cut: nothing extra to copy.
+  assert.equal(foldView(lines(30)).code, undefined)
+  const closed = foldView(`\`\`\`\na\n\`\`\`\n${lines(30)}`)
+  assert.equal(closed.code, undefined)
+  // The folded state hands the code to the caller; a cut message cannot.
+  fresh()
+  const folded = render(`Here:\n\`\`\`js\n${inner}\n\`\`\``, {})
+  assert.equal(folded.code, inner)
+  assert.equal(folded.shown, 'Here:')
+  assert.equal(folded.codeHead, lines(8))
+  fresh()
+  assert.equal(render('short', { whole: { length: 300_000 } }).code, undefined)
+})
+
+// #718: a close is bare — a marker line with an info string inside a block is
+// content — and an indented fence's indent is not part of the block's code.
+test('the copied block follows Markdown fence rules', () => {
+  const inner = `${lines(15)}\n\`\`\`literal\n${lines(15)}`
+  assert.equal(foldView(`\`\`\`js\n${inner}\n\`\`\`\nafter`).code, inner)
+  // Indent the opening fence up to three spaces: the same indent leaves the code.
+  const padded = lines(30).split('\n').map(line => `  ${line}`).join('\n')
+  assert.equal(foldView(`  \`\`\`\n${padded}\n  \`\`\``).code, lines(30))
+  // A close padded with trailing spaces still closes; a longer marker does too.
+  assert.equal(foldView(`\`\`\`\n${lines(30)}\n\`\`\`  \nafter`).code, lines(30))
+  assert.equal(foldView(`\`\`\`\n${lines(30)}\n\`\`\`\`\nafter`).code, lines(30))
 })
 
 test('a streaming text never folds', () => {

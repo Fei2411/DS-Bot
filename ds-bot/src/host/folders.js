@@ -23,7 +23,15 @@ export function install(rt) {
   const teamFolder = () => ctx.workspaceRegistry.get?.(state.workspaceId)?.path
   // The desktop app names the folder the user chose for the Bots' files.
   const defaultTeamFolder = () => rt.config.workspace ?? (process.env.DS_BOT_WORKSPACE?.trim() || join(rt.home, 'workspace'))
-  const workDirOf = ({ botId, roomId } = {}) => rt.roomOf(roomId)?.workDir ?? rt.botOf(botId)?.workDir
+  // A member's own pick inside one group, made with working_directory there: a path,
+  // or null for the team workspace, which a missing entry would read as the Bot's
+  // folder. A group's folder outranks it; without one the Bot's folder is the default.
+  const workDirOf = ({ botId, roomId } = {}) => {
+    const room = rt.roomOf(roomId)
+    if (room?.workDir !== undefined) return room.workDir
+    if (room !== undefined && botId !== undefined && Object.hasOwn(room.memberDirs ?? {}, botId)) return room.memberDirs[botId] ?? undefined
+    return rt.botOf(botId)?.workDir
+  }
   const isFolder = path => stat(path).then(info => info.isDirectory(), () => false)
   const real = path => realpath(path).catch(() => resolve(path))
   // The real path of the deepest part that exists, with the rest after it.
@@ -49,30 +57,36 @@ export function install(rt) {
     const reported = session?.header === undefined ? undefined : ctx.get?.('workingDirectory')?.get?.(session) ?? session.header.cwd
     if (reported !== undefined) return reported
     const id = session?.id
+    const room = rt.roomOf(id)
+    if (room !== undefined) return workDirOf({ roomId: room.id }) ?? teamFolder()
     return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId }) ?? teamFolder()
   }
-
   // The desktop app runs its own DSH and names the user's, which Bots must not write either.
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 
   // A Bot that could write where DSH or the team keeps its data could change its own
   // permissions or the team, so neither those folders nor one that holds them is allowed.
+  // The workspace exception covers only a workspace lying inside the data root (the
+  // plugin's default does): one that holds or is a data root does not open it up.
   async function guarded(path) {
     const team = await realTeam()
     for (const root of dataRoots()) {
       const data = await real(root)
       if (within(data, path)) return true
-      if (within(path, data) && !(team !== undefined && within(path, team))) return true
+      if (within(path, data) && !(team !== undefined && within(path, team) && team !== data && within(team, data))) return true
     }
     return false
   }
 
   // A file a Bot names to read into the team, such as a photo, may not come from DSH's or
-  // the team's data; the team workspace, which can lie in it, is the exception.
+  // the team's data; the team workspace, which can lie in it, is the exception, for the
+  // same reason as in guarded().
   async function inData(path) {
     const team = await realTeam()
-    if (team !== undefined && within(path, team)) return false
-    for (const root of dataRoots()) if (within(path, await real(root))) return true
+    for (const root of dataRoots()) {
+      const data = await real(root)
+      if (within(path, data) && !(team !== undefined && within(path, team) && team !== data && within(team, data))) return true
+    }
     return false
   }
 
@@ -142,10 +156,14 @@ export function install(rt) {
   async function approveFolder(exec, { path, sessions = [], who }) {
     const team = await realTeam()
     const policy = ctx.get?.('sandboxPolicy')
-    if (path === undefined || (team !== undefined && within(path, team)) || policy === undefined) return
-    const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
-    const modes = [policy.resolve(), ...agents.map(agent => policy.resolve({ session: agent.session }))].map(entry => entry.mode)
-    if (!modes.includes('workspace-write')) return
+    if (path === undefined || (team !== undefined && within(path, team))) return
+    if (policy !== undefined) {
+      const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
+      const modes = [policy.resolve(), ...agents.map(agent => policy.resolve({ session: agent.session }))].map(entry => entry.mode)
+      if (!modes.includes('workspace-write')) return
+    }
+    // With no policy service a Session's bounds cannot be checked, so a folder outside
+    // the workspace asks like a bounded one would; when nobody can be asked it throws.
     const approval = ctx.get?.('approval')
     const agent = exec.agent
     if (approval === undefined || agent?.session === undefined) throw new Error(`Working in ${path} needs the user's approval, and there is no way to ask for it here, so nothing changed. The user can make this change in the settings.`)

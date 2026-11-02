@@ -35,7 +35,7 @@
 
     # This package's own plugin (index.js): the launch-token exchange.
     - id: engine-index
-      name: deepseek-bot-engine
+      name: dsbot-engine
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'

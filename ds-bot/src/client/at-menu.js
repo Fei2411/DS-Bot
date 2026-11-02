@@ -50,7 +50,7 @@ export function chatRows(roster, list, sessionId) {
   })
   const team = new Set([
     ...roster.bots.flatMap(bot => [bot.id, currentPart(bot), ...(bot.parts ?? [])]),
-    ...roster.rooms.flatMap(room => [room.id, ...(room.parts ?? [])]),
+    ...roster.rooms.flatMap(room => [room.id, room.sessionId, ...(room.ownParts ?? []), ...(room.parts ?? [])].filter(id => id !== undefined)),
   ])
   const others = (list?.ids ?? []).map(id => byId[id])
     .filter(row => row !== undefined && row.id !== sessionId && !team.has(row.id) && row.origin !== 'subagent' && row.blank !== true)

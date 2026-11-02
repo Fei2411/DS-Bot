@@ -8,6 +8,12 @@ import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 // The DSH Agent's mark. The app has no DSH Agent, so nothing asks for it.
 export const FishLogo = () => null
 
+// writeClipboard in the plugin is DSH's (navigator.clipboard with an execCommand
+// fallback off-HTTPS); the window keeps the same contract.
+export const writeClipboard = text => (navigator.clipboard === undefined
+  ? Promise.resolve(document.execCommand('copy', false, text))
+  : navigator.clipboard.writeText(text).then(() => true, () => false))
+
 const plugins = [remarkGfm]
 
 function CodeBlock({ children, labels }) {

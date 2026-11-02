@@ -1,7 +1,7 @@
 # Bot 运行配置：预设、模型、思考强度、工作文件夹、能力
 
 - 日期：2026-10-10 定预设和能力包，之后陆续补充
-- 相关：#99（思考强度）、#159（换模型不生效）、#208、#209（工作文件夹）
+- 相关：#99（思考强度）、#159（换模型不生效）、#208、#209（工作文件夹）、#798（Bot 不派子代理）
 - 代码：`ds-bot/src/host/roster.js`、`models.js`、`folders.js`、`capabilities.js`、`permissions.js`，建 Bot 表单在 `src/client/bot-draft.js`
 
 权限预设（只读 / 工作区内修改 / 完全权限）和群的统一权限见[角色与权限](2026-10-07-roles-and-permissions.md)，这里不重复。
@@ -19,6 +19,8 @@
 - 只有一个 Bot 预设：DS Bot 的 Bot 内核加 DSH 的标准 harness（`standard`），不改造。
 - 这个预设归 DS Bot 所有：新建的 Bot 会话、群会话和对话分段都显式用 `standard`，**不跟随**用户在 DSH 里设的「新任务默认」。DSH 里没有可用的 `standard` 时，才交给 DSH 决定。
 - Bot 的工具只挂在 Bot 的作用域里，不出现在普通 DSH 会话中。
+- Bot 的私聊和群会话里拿掉三类 DSH 工具，以及 DSH 为它们写进系统提示的用法说明：提问工具 `ask_user_question`（Bot 用自己的 `ask_user`）；goal 工具（Bot 不跑 goal）；委派工具（`subagent`、`subagent_fork`、`workflow` 等）和子代理控制工具（`send_message`、`interrupt_agent`、`list_agents`）。万一仍有调用进来，会被拒绝，并提示 Bot 自己做，或把活交给别的 Bot。不是 Bot 的 DSH 会话照旧。
+- 要并行，就让几个 Bot 同时干：`message_bot` 派活，群里 `@` 点名（见 [Bot 之间派活](2026-10-16-bot-handoffs.md)、[群聊](2026-10-07-group-chat.md)）。Bot 不派 DSH 子代理：子代理跑起来用户看不到、停不到，换段时会被连带取消，结论丢失（#463、#788）。
 - 以前在 PTC 预设下建的群会话只能调用 `run_code`，DS Bot 为它们单独处理群的接力；新的群会话都用标准预设（#37、#168）。
 
 ### 模型
@@ -62,7 +64,7 @@
 ## 不做什么
 
 - 不预置分工 Bot（写手、程序员……）。只有一个默认 Bot，分工由用户和 Main Bot 来建。
-- 不改造 DSH 的标准 harness。
+- 不改造 DSH 的标准 harness：只拿掉上面说的、Bot 不用的工具。
 - 不让 Bot 跟随用户在 DSH 里的「新任务默认」预设或默认模型。
 
 ## 已知限制
@@ -71,6 +73,7 @@
 - `create_bot` 和 `update_bot` 还不能设思考强度，只能在界面上设（#99）。
 - DSH 0.2.1-alpha 上，工作文件夹被删或改名后，消息会被吞掉、不会退回总工作区（#209）。
 - 能力包「coding」「research」的具体组成还没定。
+- 委派工具按 DSH 的默认名字认；profile 里改了名（`toolName`）的认不出来。
 
 ## 变更
 
@@ -78,3 +81,4 @@
 - 2026-10-14：新的 Bot 会话、群会话和分段显式用 `standard`，修好 PTC 预设下群聊不接力（#37）。
 - 2026-10-19：Bot 用 DSH 的 `working_directory` 换到工作文件夹以外时，当作给自己设工作文件夹（同样的检查和批准），换到新的一段；在工作文件夹里面换只是走进去（#345）。
 - 2026-10-20：用户能在设置里换总工作区；中文名「团队工作区」改叫「总工作区」（#364）。
+- 2026-11-01：Bot 不再派 DSH 子代理：委派工具和子代理控制工具不出现在 Bot 会话里，goal、workflow 的用法说明也从 Bot 的系统提示里去掉（#798）。

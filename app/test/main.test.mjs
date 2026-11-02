@@ -15,7 +15,7 @@ before(async () => { await startApp() })
 test('the app starts with a window and a tray', async () => {
   await waitFor(() => state.windows.length > 0, 'open the window')
   await waitFor(() => state.tray !== undefined, 'build the tray')
-  assert.equal(state.tray.tooltip, 'DeepSeek Bot')
+  assert.equal(state.tray.tooltip, 'DS Bot')
   assert.equal(state.quits, 0, 'the app goes on')
 })
 

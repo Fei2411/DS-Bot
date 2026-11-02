@@ -17,6 +17,7 @@ const { outputFiles } = await build({
       "export { PendingView, AnsweredReply } from './src/client/widget-cell.js'",
       "export { AnsweredCell } from './src/client/questions.js'",
       "export { HandoffCall, HandoffDock, PendingHandoff, SettledHandoff } from './src/client/handoff-card.js'",
+      "export { CellEmpty } from './src/client/cell-empty.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -66,7 +67,7 @@ runInNewContext(outputFiles[0].text, {
   HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLSelectElement: class {}, HTMLElement: class {},
   URL,
 })
-const { useDockHold, PendingQuestion, SecretCard, PendingView, AnsweredReply, AnsweredCell, HandoffCall, HandoffDock, PendingHandoff, SettledHandoff } = module.exports
+const { useDockHold, PendingQuestion, SecretCard, PendingView, AnsweredReply, AnsweredCell, HandoffCall, HandoffDock, PendingHandoff, SettledHandoff, CellEmpty } = module.exports
 const mount = (Component, props) => {
   const instance = {
     slots: [], effects: [], props,
@@ -186,10 +187,56 @@ test('a question keeps its custom answer and selection while submitting, after f
   form.props.onSubmit({ preventDefault() {} })
   await tick()
   assert.equal(sent.length, 2)
-  assert.equal(pending.render(), null)
+  assert.equal(pending.render().type, CellEmpty)
   view.unmount()
   pending.unmount()
   assert.equal(count('chief', 'question', question.id), 0)
+})
+
+// The Bot ask_user card shares the composer preference: while Enter sends, a plain
+// Enter answers; off, it is the field's own newline and the Submit button answers.
+test('the own-answer field honors the Enter preference', async () => {
+  const enter = (extra = {}) => ({
+    key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false }, prevented: false,
+    preventDefault() { this.prevented = true }, ...extra,
+  })
+  const cards = []
+  const mountCard = (enterToSend) => {
+    const { actions } = lease()
+    const sent = []
+    actions.answerQuestion = (...args) => { sent.push(args); return Promise.resolve() }
+    const pending = mount(PendingQuestion, { actions, sessionId: 'chief', question: { ...question, multiSelect: false }, inline: false, enterToSend })
+    const view = mount(childOf(pending.render()).type, childOf(pending.render()).props)
+    cards.push(pending, view)
+    const form = view.render()
+    field(form).props.onChange({ target: { value: 'My own words' } })
+    return { sent, form: () => view.render() }
+  }
+  const sending = mountCard(true)
+  const on = enter()
+  field(sending.form()).props.onKeyDown(on)
+  await tick()
+  assert.equal(on.prevented, true)
+  assert.deepEqual(plain(sending.sent), [['chief', 'question', { selected: [], custom: 'My own words' }]])
+  const keeping = mountCard(false)
+  const off = enter()
+  field(keeping.form()).props.onKeyDown(off)
+  await tick()
+  assert.equal(off.prevented, false)
+  assert.deepEqual(plain(keeping.sent), [])
+  keeping.form().props.onSubmit({ preventDefault() {} })
+  await tick()
+  assert.deepEqual(plain(keeping.sent), [['chief', 'question', { selected: [], custom: 'My own words' }]])
+  const shifted = mountCard(true)
+  for (const extra of [{ shiftKey: true }, { nativeEvent: { isComposing: true } }]) {
+    const event = enter(extra)
+    field(shifted.form()).props.onKeyDown(event)
+    assert.equal(event.prevented, false)
+  }
+  await tick()
+  assert.deepEqual(plain(shifted.sent), [])
+  // Mounted cards count as open for the letter keys; leave none behind.
+  for (const instance of cards) instance.unmount()
 })
 
 test('keyboard selection owns a dock card and busy questions cannot submit or dismiss twice', async () => {
@@ -451,11 +498,11 @@ test('a handoff call draws its card only while the browser is held for that call
   assert.equal(draw({ hold: handoff() }).props.inline, true)
   // Answered, another call's hold, no hold, a chat without the Bot, or no answer path: nothing, and no gap.
   for (const gone of [draw({ hold: undefined }), draw({ hold: handoff({ callId: 'call-2' }) }), draw({ hold: handoff(), roster: { byId: {} } }), draw({ hold: handoff(), actions: {} })]) {
-    assert.equal(gone.type, 'span')
-    assert.equal(gone.props.hidden, true)
+    assert.equal(gone.type, CellEmpty)
+    assert.equal(gone.props.className, 'bt-q-gone')
   }
   // The dock draws it while the user is working in it.
-  assert.equal(draw({ hold: handoff(), heldCards: { [JSON.stringify(['handoff', 'call-1'])]: 1 } }), null)
+  assert.equal(draw({ hold: handoff(), heldCards: { [JSON.stringify(['handoff', 'call-1'])]: 1 } }).type, CellEmpty)
 })
 
 test('the dock draws a handoff the transcript does not, and keeps one the user started on', () => {
