@@ -258,6 +258,8 @@ html[data-start=moving] .footrow{display:none}
 @media (max-height:520px){.stage{top:-8px}html[data-frame=system] .stage{top:-32px}.sheet{height:calc(100% - 296px)}}
 
 /* entrance, keyed on data-start (no JS timing); the ring draws itself in as the whale surfaces */
+/* held at its first frame until the window is on screen (start.js data-held) */
+html[data-held] *{animation-play-state:paused!important}
 @keyframes bt-veil{from{opacity:0;filter:blur(6px)}}
 @keyframes bt-enter-first{from{transform:translateY(96px) rotate(-12deg)}}
 @keyframes bt-enter-later{from{transform:translateY(84px)}}

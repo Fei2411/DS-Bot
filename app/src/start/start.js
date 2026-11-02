@@ -10,12 +10,28 @@ const root = document.documentElement
 const asked = new URLSearchParams(location.search).get('start')
 const START = ['first', 'later', 'moving'].includes(asked) ? asked : 'first'
 const resume = performance.getEntriesByType('navigation')[0]?.type === 'reload'
+// The main process shows the window by itself after PAINT_WAIT_MS (3 s) and OPEN_MS.
+const HELD_MAX_MS = 3500
 const bridge = window.dsBotStart
 if (resume) root.dataset.resume = ''
 // The page shows nothing but the empty band (html:not([data-start])) without the preload's bridge.
 if (bridge) root.dataset.start = START
 const first = START === 'first'
 root.dataset.sheet = 'none'
+// The window shows see-through once this page has painted and turns opaque a moment later
+// (start-window.mjs OPEN_MS); the snapshot then says `shown`. Until then the whale's entrance
+// waits: its CSS animations hold their first frame (start.css html[data-held]) and the
+// director's clock has not started.
+let onScreen = () => {}
+const begin = bridge && !resume ? new Promise((resolve) => { onScreen = resolve }) : Promise.resolve()
+if (bridge && !resume) {
+  root.dataset.held = ''
+  setTimeout(release, HELD_MAX_MS)
+}
+function release() {
+  delete root.dataset.held
+  onScreen()
+}
 
 const $ = selector => document.querySelector(selector)
 const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), stage = $('.stage'), pond = $('.pond'), live = $('.live')
@@ -438,7 +454,7 @@ matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => 
 new MutationObserver(() => director.refresh()).observe(root, { attributes: true, attributeFilter: ['data-motion'] })
 
 // ---- snapshots ----
-const director = createDirector({ start: START, resume, act: (name, detail) => bridge?.act(name, detail), label: say, announce })
+const director = createDirector({ start: START, resume, begin, act: (name, detail) => bridge?.act(name, detail), label: say, announce })
 let applied = false
 function apply(next) {
   const jump = !applied && resume
@@ -457,6 +473,9 @@ function apply(next) {
   else { fillBlock(name); resize() }
   timeUI()
   director.update(next)
+  if (next.shown) release()
+  // The window shows once this first state is on screen (start-window.mjs 'painted').
+  if (!applied) requestAnimationFrame(() => requestAnimationFrame(() => { bridge?.act('painted') }))
   applied = true
 }
 renderStatic()

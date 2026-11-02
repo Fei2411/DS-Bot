@@ -62,7 +62,7 @@ test('the page sends only the acts of the start window', () => {
     ...[...code['start.js'].matchAll(/\bact: '(\w+)'|\bact\('(\w+)'/gu)].map(match => match[1] ?? match[2]),
     ...[...code['whale.js'].matchAll(/\bact\('(\w+)'\)/gu)].map(match => match[1]),
   ].filter(name => !local.has(name)))
-  assert.deepEqual([...sent].sort(), ['answer', 'copyDetails', 'freshStart', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
+  assert.deepEqual([...sent].sort(), ['answer', 'copyDetails', 'freshStart', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'painted', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
   // Every act the main process takes is one that the page sends, under the same name.
   for (const name of START_ACTS) assert.ok(sent.has(name), `the main process takes ${name}, which the page never sends`)
 })
@@ -133,6 +133,31 @@ test('an empty or hidden arc leaves no dot: no dash touches its path', () => {
   // Shown, they cover the arc.
   assert.equal(touches(dashes(fill), 0), true)
   assert.equal(touches(dashes(base), offsetOf(base)), true)
+})
+
+// The data stage is usually done before the page has painted; its arc (and the folder) still turns
+// active once the whale has surfaced and holds for HOLD before it fills.
+test('the first stage is seen active before it fills, even when it was done before the page painted', () => {
+  const whale = code['whale.js']
+  const legs = whale.slice(whale.indexOf('async function runLegs()'), whale.indexOf('function failStation()'))
+  assert.match(legs, /if \(i === 0 && !resume && \['boot', 'moving'\]\.includes\(want\.view\) && stations\[0\]\.dataset\.state === 'pending'\) \{\s*clearTimeout\(activeTimer\)\s*showActive\(0\)/u)
+  assert.match(legs, /await hold\(Math\.max\(D\.activeAt\[i\] \? D\.activeAt\[i\] \+ HOLD : 0/u)
+  assert.match(whale, /const HOLD = 420\b/u)
+  // The reconcile waits for the entrance first, so the arc turns active on a whale that has surfaced.
+  assert.match(whale, /async function step\(\) \{\s*await entered/u)
+})
+
+// The window turns opaque OPEN_MS after it shows (start-window.mjs); the entrance waits for the
+// snapshot's `shown`, so that it is seen from its first frame.
+test('the whale\'s entrance waits until the window is on screen', () => {
+  const page = code['start.js']
+  assert.match(page, /if \(bridge && !resume\) \{\s*root\.dataset\.held = ''/u)
+  assert.match(page, /if \(next\.shown\) release\(\)/u)
+  assert.match(page, /createDirector\(\{ start: START, resume, begin,/u)
+  assert.match(read('start.css'), /html\[data-held\] \*\{animation-play-state:paused!important\}/u)
+  const whale = code['whale.js']
+  assert.match(whale, /const entered = begun\.then\(\(\) => sleep\(entranceMs\)\)/u)
+  assert.match(whale, /begun\.then\(\(\) => sleep\(resume \? 0 : 700\)\)/u)
 })
 
 test('the footer is the place line alone, centred with a grey button, on first and later starts', () => {

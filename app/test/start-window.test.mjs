@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { readStartFrame, writeStartFrame } from '../src/start-frame.mjs'
 import {
   acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, CROSSFADE, handoffBox, HOLD_MS, TEAM_HANDOFF, TEAM_WAIT_MS,
-  isStartPage, landingOf, MAIN_SIZE, mainRect, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
+  isStartPage, landingOf, MAIN_SIZE, mainRect, OPEN_MS, PAINT_WAIT_MS, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
   TEAM_VIEW_MS, WATCHDOG_MS,
 } from '../src/start-window.mjs'
 
@@ -83,7 +83,7 @@ test('only a missing file of the app\'s own says that the install is incomplete'
 })
 
 test('the main process takes only its own acts, each in its own views', () => {
-  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
+  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'keepCopying', 'manualDownload', 'painted', 'pick', 'reloadView', 'retry', 'saveLog', 'stopCopy', 'wait'])
   // The import card's model and options and the copying card's stop, on a card only.
   for (const name of ['importModel', 'importOption', 'stopCopy', 'keepCopying']) {
     assert.equal(acceptsAct(name, 'card'), true, name)
@@ -151,7 +151,7 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   assert.deepEqual(booting, {
     v: 1, lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', phase: 'data', done: [],
     clock: { ms: 6400, at: now, running: true, rate: 1 },
-    explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true,
+    explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true, shown: false,
   })
   assert.equal(startSnapshot(state({ done: ['data'] }), now).phase, 'engine')
   const ready = startSnapshot(state({ view: 'handoff', done: ['team', 'data', 'engine'] }), now)
@@ -258,6 +258,7 @@ function fakeElectron() {
     getContentBounds() { return { ...this.bounds } }
     getNormalBounds() { return { ...this.bounds } }
     isDestroyed() { return this.destroyed }
+    isVisible() { return this.visible }
     destroy() { if (!this.destroyed) { this.destroyed = true; this.emit('closed') } }
     isMinimized() { return this.minimized }
     isFocused() { return this.focused }
@@ -332,6 +333,48 @@ test('the start window takes acts only from its own page, each in its own view',
   assert.equal(s.calls.retry, 0)
 })
 
+// The page's whale and ring come about 1 s after the window: shown at once, it was an empty panel.
+// Windows draws a window it has just shown a few frames before its page, under its own opening
+// transition: the window shows see-through and turns opaque OPEN_MS later, and only then does the
+// snapshot say `shown`, which starts the whale's entrance (start.js).
+test('the start window shows once its page says it has painted, see-through until OPEN_MS', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  assert.equal(s.win().visible, false)
+  s.tick(PAINT_WAIT_MS - 1)
+  assert.equal(s.win().visible, false)
+  assert.equal(s.act('painted'), true)
+  assert.equal(s.win().visible, true)
+  assert.deepEqual(s.win().calls.filter(call => call === 'show' || call.startsWith('opacity')), ['opacity 0', 'show'])
+  s.tick(OPEN_MS - 1)
+  assert.notEqual(s.state()?.shown, true)
+  assert.equal(s.win().opacity, 0)
+  s.tick(1)
+  assert.equal(s.win().opacity, 1)
+  assert.equal(s.state().shown, true)
+  // The page's fallback and a second 'painted' change nothing.
+  s.tick(PAINT_WAIT_MS)
+  s.act('painted')
+  assert.deepEqual(s.win().calls.filter(call => call === 'show' || call.startsWith('opacity')), ['opacity 0', 'show', 'opacity 1'])
+})
+
+test('a start page that never says it painted is shown anyway, opaque at once', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.tick(PAINT_WAIT_MS)
+  assert.equal(s.win().visible, true)
+  assert.equal(s.state().shown, true)
+  assert.equal(s.win().calls.includes('opacity 0'), false)
+})
+
+test('a dialog of the start window shows it at once: it never opens over nothing', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  assert.equal(s.start.owner(), s.win())
+  assert.equal(s.win().visible, true)
+  assert.equal(s.state().shown, true)
+})
+
 // 〔保存日志…〕 asks the app's own picker (main.mjs saveAs) where, never a system box.
 test('〔保存日志…〕 writes the log where the app\'s picker says, and nothing when it is cancelled', async (t) => {
   const s = startWindow(t)
@@ -348,6 +391,15 @@ test('〔保存日志…〕 writes the log where the app\'s picker says, and not
   const saved = () => (readdirSync(dir).length > 0 ? readFileSync(join(dir, 'log.txt'), 'utf8') : '')
   for (let i = 0; i < 500 && !saved().includes('a log line'); i += 1) await new Promise(resolve => setImmediate(resolve))
   assert.match(saved(), /^DeepSeek Bot 0\.0\.0 \([\s\S]*a log line/u)
+})
+
+test('a dialog of the start window turns it opaque while it waits see-through', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.act('painted')
+  assert.equal(s.start.owner(), s.win())
+  assert.equal(s.win().opacity, 1)
+  assert.equal(s.state().shown, true)
 })
 
 test('the 180 s question comes on the start\'s clock while the engine is not up', async (t) => {

@@ -27,9 +27,6 @@ const PHASES = ['data', 'engine', 'team']
 // An active station and a state loop each hold at least 400 ms; the margin covers the frame
 // on which the change is painted.
 const HOLD = 420
-// The first arc fills this long after the whale has surfaced, so that it is seen to fill: the
-// data stage is usually done before the page has painted.
-const FIRST_ARC_MS = 260
 // The whale is 112 px on every kind of start (start.css --u). Starting over in a new folder, it
 // sinks this far: under the waterline.
 const u = 1.12
@@ -94,7 +91,7 @@ function to(el, props, opts) {
 const kf = (frames, easing) => frames.map(frame => ({ easing, ...frame }))
 export const clamped = easing => easing.replace(/\d+\.\d+/gu, value => String(Math.min(1, Number(value))))
 
-export function createDirector({ start, resume, act, label, announce, onCheck, onActive }) {
+export function createDirector({ start, resume, act, label, announce, onCheck, onActive, begin = Promise.resolve() }) {
   const $ = selector => document.querySelector(selector)
   const x = $('.whale-x'), gazeLayer = $('.whale-gaze'), body = $('.whale'), move = $('.whale-move'), loop = $('.whale-loop')
   const tail = $('#tail'), pair = $('#eye-pair'), lane = $('.lane'), ripple = $('.ripple'), hit = $('.whale-hit')
@@ -102,7 +99,8 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   const stations = [...document.querySelectorAll('.station')]
   const arcs = [...document.querySelectorAll('.arc')]
   const first = start === 'first'
-  const t0 = performance.now()
+  // The entrance's clock starts once the window is on screen (`begin`, start.js).
+  let t0 = performance.now()
   const entranceMs = resume ? 0 : first ? 560 : 290
   const D = { at: 0, checks: 0, pose: 'enter', loop: '', card: '', slow: 0, bx: 0, by: 0, since: [t0], activeAt: [], loopAt: 0, hop: null, pet: null, handed: false, workReady: first, missed: false, sinking: false,
     // Rest on a card: its clock, the lean, the breath, the lively hops; the last glance and press.
@@ -132,11 +130,12 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   const tier = tierNow
   const playful = () => tier() !== 'quiet' && !reduced()
   const failure = () => want.view === 'failed' || want.view === 'viewFailed' || want.card === 'importFailed'
-  const entered = sleep(entranceMs).then(() => { root.dataset.entered = '' })
+  const begun = begin.then(() => { t0 = performance.now(); D.since[0] = t0 })
+  const entered = begun.then(() => sleep(entranceMs)).then(() => { root.dataset.entered = '' })
   // Finished entrance veils are dropped, so later fades of the same blocks stay composited.
-  sleep(resume ? 0 : 700).then(() => { root.dataset.settled = '' })
+  begun.then(() => sleep(resume ? 0 : 700)).then(() => { root.dataset.settled = '' })
   if (resume) instant = true
-  if (!first) setTimeout(() => { D.workReady = true; if (D.started) kick() }, resume ? 0 : 1000)
+  if (!first) begun.then(() => { setTimeout(() => { D.workReady = true; if (D.started) kick() }, resume ? 0 : 1000) })
 
   // ---- stages: the ring's arcs and the hidden list ----
   // Each arc carries its stage's state: pending (faint), active (tinted, a light running along
@@ -167,11 +166,14 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     const delay = Math.max(0, (D.since[i] ?? now) + 250 - now, t0 + entranceMs - now)
     activeTimer = setTimeout(() => {
       if (D.at !== i || stations[i].dataset.state !== 'pending' || failure() || (i < 2 && want.done.includes(PHASES[i]))) return
-      setStation(i, 'active')
-      D.activeAt[i] = performance.now()
-      announce(label('status.sr.active', { phase: label(`status.phase.${PHASES[i]}`) }))
-      onActive?.(i)
+      showActive(i)
     }, instant ? 0 : delay)
+  }
+  function showActive(i) {
+    setStation(i, 'active')
+    D.activeAt[i] = performance.now()
+    announce(label('status.sr.active', { phase: label(`status.phase.${PHASES[i]}`) }))
+    onActive?.(i)
   }
 
   // ---- loops ----
@@ -526,10 +528,14 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     while (D.at < want.station && want.view !== 'handoff') {
       const i = D.at
       if (!ran) {
-        // The first arc waits for the whale to surface (FIRST_ARC_MS). No loop starts for that
-        // short wait: a loop's own hold would delay the arc by another 400 ms.
-        const seen = i === 0 && !resume && ['boot', 'moving'].includes(want.view) ? t0 + entranceMs + FIRST_ARC_MS : 0
-        await hold(Math.max(D.activeAt[i] ? D.activeAt[i] + HOLD : 0, D.loopAt ? D.loopAt + HOLD : 0, seen))
+        // The data stage is usually done before the page has painted: its arc still turns
+        // active once the whale has surfaced and holds there, the folder in view, before it
+        // fills. No loop starts for that short wait: a loop's own hold would add another 400 ms.
+        if (i === 0 && !resume && ['boot', 'moving'].includes(want.view) && stations[0].dataset.state === 'pending') {
+          clearTimeout(activeTimer)
+          showActive(0)
+        }
+        await hold(Math.max(D.activeAt[i] ? D.activeAt[i] + HOLD : 0, D.loopAt ? D.loopAt + HOLD : 0))
         if (want.view === 'handoff') break
       }
       await leg(i, ran > 0)

@@ -65,6 +65,7 @@ export class FakeWindow extends EventEmitter {
   setFullScreen(value) { this.fullScreen = value; if (!value) this.emit('leave-full-screen') }
   show() { this.visible = true; this.shown += 1; this.emit('show') }
   hide() { this.visible = false; this.emit('hide') }
+  setOpacity(value) { this.opacity = value }
   focus() { this.focused += 1 }
   restore() { this.minimized = false; this.visible = true; this.emit('restore') }
   minimize() { this.minimized = true }

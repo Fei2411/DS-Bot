@@ -36,7 +36,12 @@ export const SAVED_LINES = 5000
 // own background and caption symbols, which show before the page paints and where Mica is not.
 const COLORS = { light: { main: '#fcfcfc', ink: '#141414' }, dark: { main: '#141414', ink: '#f2f2f2' } }
 const CAPTION_HEIGHT = 40
-const PAINT_WAIT_MS = 3000
+export const PAINT_WAIT_MS = 3000
+// A window that Windows has just shown is drawn a few frames before its page is (and its own
+// opening transition runs over them): the start window shows see-through and turns opaque
+// this long after.
+export const OPEN_MS = 200
+const sinceLaunch = () => String(Math.round(process.uptime() * 1000))
 
 // What the page may ask, and in which views (null: in any). The cards of later pull requests
 // send other names, which are refused.
@@ -60,6 +65,8 @@ const ACT_VIEWS = {
   manualDownload: ['failed'],
   copyDetails: null,
   saveLog: null,
+  // The page has drawn its first frame: the window shows.
+  painted: null,
 }
 export const START_ACTS = Object.freeze(Object.keys(ACT_VIEWS))
 
@@ -246,6 +253,8 @@ export function startSnapshot(state, now) {
     clock: { ms: Math.round(clockMs(state.clock, now)), at: now, running: state.clock.running, rate: 1 },
     explain: { ...state.explain },
     celebrate: state.celebrate,
+    // The window is on screen: the page's entrance starts (start.js).
+    shown: state.shown === true,
   }
   if (state.hint !== undefined) snapshot.hint = { ...state.hint }
   if (state.place !== undefined) snapshot.place = { ...state.place }
@@ -341,7 +350,7 @@ export class StartWindow {
     const win = new BrowserWindow({
       ...rect,
       useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, minimizable: true,
-      show: true, title: 'DeepSeek Bot', icon: this.#o.icon,
+      show: false, title: 'DeepSeek Bot', icon: this.#o.icon,
       backgroundColor: mica ? '#00000000' : colors.main,
       // Frameless with the system minimize and close buttons over the page's empty 40 px band.
       ...(win32 ? {
@@ -363,10 +372,10 @@ export class StartWindow {
     this.#window = win
     this.#url = startUrl(this.#o.page, start)
     const contents = win.webContents
-    // The window shows at once; its page paints a little later (onboarding §3: within about 1 s).
-    const sinceLaunch = () => String(Math.round(process.uptime() * 1000))
-    note(`${start} start window shown ${sinceLaunch()} ms after launch`)
+    // The window shows once its page says it has drawn its first frame (the 'painted' act), so it
+    // never opens on an empty panel: the page's whale and ring come about 1 s after the window.
     win.once('ready-to-show', () => { note(`the start page painted ${sinceLaunch()} ms after launch`) })
+    this.#later('show', PAINT_WAIT_MS, () => { this.#showStart('the page did not say it painted', { now: true }) })
     this.#painted = new Promise((resolve) => {
       win.once('ready-to-show', resolve)
       contents.once('did-finish-load', resolve)
@@ -404,13 +413,40 @@ export class StartWindow {
     void win.loadURL(this.#url).catch((error) => { note(`the start page did not load: ${error instanceof Error ? error.message : String(error)}`) })
   }
 
-  /** The window that dialogs belong to, while it is the one showing. */
-  owner() { return this.#open() && !this.#revealed ? this.#window : undefined }
+  /** The window that dialogs belong to, while it is the one showing; a dialog never opens over nothing. */
+  owner() {
+    if (!this.#open() || this.#revealed) return undefined
+    this.#showStart('a dialog', { now: true })
+    return this.#window
+  }
+
+  // Shown see-through, then opaque after OPEN_MS; `now` (a dialog, a page that never painted)
+  // does not wait. The page starts the whale's entrance once the snapshot says `shown`.
+  #showStart(why, { now = false } = {}) {
+    this.#clear('show')
+    const win = this.#window
+    if (!this.#open()) return
+    if (!win.isVisible()) {
+      if (!now) win.setOpacity(0)
+      win.show()
+      note(`${this.#state.start} start window shown (${why}) ${sinceLaunch()} ms after launch`)
+      if (!now) { this.#later('opaque', OPEN_MS, () => { this.#opaque() }); return }
+    }
+    if (now) this.#opaque()
+  }
+
+  #opaque() {
+    this.#clear('opaque')
+    if (!this.#open() || this.#state.shown) return
+    this.#window.setOpacity(1)
+    this.#update({ shown: true })
+  }
 
   /** Brings the start window back while it is the one showing. */
   focus() {
-    const win = this.owner()
-    if (win === undefined) return false
+    if (!this.#open() || this.#revealed) return false
+    this.#showStart('focus', { now: true })
+    const win = this.#window
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
@@ -672,7 +708,7 @@ export class StartWindow {
     this.#state = {
       lang: this.#o.lang(), start, motion: this.#o.motion, frame: process.platform === 'win32' ? 'band' : 'system',
       view: start === 'moving' ? 'moving' : 'boot',
-      done: [], explain: this.#explain, celebrate: start === 'first',
+      done: [], explain: this.#explain, celebrate: start === 'first', shown: false,
       clock: { base: 0, from: now, running: true },
       hint: undefined, place: undefined, card: undefined, failure: undefined, update: undefined,
     }
@@ -724,6 +760,7 @@ export class StartWindow {
     else if (name === 'reloadView') this.#reload()
     else if (name === 'copyDetails') this.#copyDetails()
     else if (name === 'saveLog') void this.#saveLog()
+    else if (name === 'painted') this.#showStart('painted')
     else if (name === 'pick') this.#o.onPick?.(valueOf(payload))
     else if (name === 'answer') this.#o.onAnswer?.(valueOf(payload))
     else if (name === 'installUpdate' || name === 'manualDownload') this.#o.onUpdate?.(name)
