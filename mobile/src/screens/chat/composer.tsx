@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics'
 import { useState } from 'react'
 import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -23,6 +24,7 @@ export function Composer({ name, running, canStop, onSend, onStop, p }: {
   const send = async () => {
     if (draft === '' || busy) return
     setBusy(true)
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     try { await onSend(draft); setText('') } finally { setBusy(false) }
   }
   const multi = text.includes('\n') || text.length > 80

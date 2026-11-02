@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import * as Haptics from 'expo-haptics'
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
 import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
@@ -34,7 +35,7 @@ export function QuestionCard({ question, sessionId, call, p }: { question: Quest
 
   const send = async (selected: string[]) => {
     setBusy(true); setFailed(false)
-    try { await call('answer-question', { sessionId, questionId: question.id, answer: { selected, custom: custom.trim() } }) }
+    try { await call('answer-question', { sessionId, questionId: question.id, answer: { selected, custom: custom.trim() } }); void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success) }
     catch { setFailed(true) } finally { setBusy(false) }
   }
   const toggle = (label: string) => {
@@ -76,7 +77,7 @@ export function ApprovalCard({ approval, call, p }: { approval: Approval; call: 
   const [failed, setFailed] = useState(false)
   const answer = async (choice: 'allow' | 'reject') => {
     setBusy(true); setFailed(false)
-    try { await call('approval-answer', { id: approval.id, choice }) }
+    try { await call('approval-answer', { id: approval.id, choice }); void Haptics.notificationAsync(choice === 'allow' ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning) }
     catch { setFailed(true) } finally { setBusy(false) }
   }
   return (
