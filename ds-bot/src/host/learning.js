@@ -202,6 +202,33 @@ export function applyEdits(current, edits) {
   return text
 }
 
+// The review's answer as a proposal. A single edit written as the answer itself, with
+// its operation as the action, is that edit; a replacement with no text removes; lines
+// one edit names that stand apart in the file, each once, are one edit each.
+export function agentsAnswer(reply, current) {
+  let answer = parseJson(reply)
+  if (['add', 'replace', 'remove'].includes(answer?.action)) {
+    const { action, ...edit } = answer
+    answer = { action: 'edit', edits: [{ op: action, ...edit }] }
+  }
+  if (!Array.isArray(answer?.edits)) return answer
+  const lines = lineBlock(current ?? '')
+  const apart = edit => {
+    if (edit?.op !== 'replace' && edit?.op !== 'remove') return [edit]
+    const old = lineBlock(textOf(edit.old))
+    const text = lineBlock(textOf(edit.text))
+    if (old.length < 2 || occurrences(lines, old).length > 0 || old.some(line => occurrences(lines, [line]).length !== 1)) return [edit]
+    if (edit.op === 'replace' && text.length !== old.length) return [edit]
+    return old.map((line, index) => ({ ...edit, old: line, ...(edit.op === 'replace' ? { text: text[index] } : {}) }))
+  }
+  const removes = edit => {
+    const { text, ...rest } = edit
+    return { ...rest, op: 'remove' }
+  }
+  const edits = answer.edits.map(edit => edit?.op === 'replace' && textOf(edit.text).trim() === '' ? removes(edit) : edit)
+  return { ...answer, edits: edits.flatMap(apart) }
+}
+
 export function agentsProblem(proposal, current) {
   if (proposal === undefined) return 'the answer is not a JSON object'
   if (proposal.action === 'none') return undefined
@@ -421,7 +448,7 @@ export function install(rt) {
     const language = writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.())
     const request = agentsRequest({ folder, current, lines, declined: data().declined, language })
     const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
-    const answer = parseJson(reply)
+    const answer = agentsAnswer(reply, current)
     if (answer === undefined || answer === null || typeof answer !== 'object') throw new Error('the answer is not a JSON object')
     if (Array.isArray(answer.edits) && answer.edits.some(edit => [edit?.text, edit?.why].some(value => typeof value === 'string' && rt.redactSecrets(value) !== value))) {
       rt.warn('ds-bot: the AGENTS.md review of %s proposed content containing a saved secret', bot.name)
