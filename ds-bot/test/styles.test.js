@@ -185,3 +185,8 @@ test('the tools toolbar keeps its own stacking context for the hover bridge', ()
   assert.match(css, /\.bt-tools\{position:absolute;bottom:0;z-index:0;/)
   assert.match(css, /\.bt-tools::after\{[^}]*z-index:-1/)
 })
+
+test('the flat toolbar does not cover reactions below the message', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
+})
