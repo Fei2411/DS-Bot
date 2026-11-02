@@ -431,6 +431,18 @@ test('the Bot footer lays out the account, another plugin\'s entry and the setti
   assert.equal(columnOf(document.querySelector('.x_settingsArea')), '3')
 })
 
+// 公开#502: the rail's icons keep the open column's rhythm — its row gap puts
+// the same ~20px between avatar edges that the open list's padding and gap do,
+// and the stacks and sections breathe on the same 6–8px steps.
+test('the rail spaces its icons on the open column\'s rhythm', () => {
+  const all = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)]
+  const bodyOf = selector => all.filter(rule => rule.selector === selector).map(rule => rule.body).pop() ?? ''
+  assert.match(bodyOf('.bt-rail .bt-list'), /(^|;)gap:8px/)
+  assert.match(bodyOf('.bt-rail-top'), /(^|;)gap:8px/)
+  assert.match(bodyOf('.bt-leftcol-foot-rail'), /(^|;)gap:8px/)
+  assert.match(bodyOf('.bt-rail'), /(^|;)gap:6px/)
+})
+
 // #452: the Connect plugins button left the footer; what DS Bot puts there is
 // the account menu and the way back from Agent mode.
 test('the Bot footer holds the account and the return button only', () => {
