@@ -532,6 +532,88 @@ test('a restore follows a hand-named topic file', async (t) => {
   assert.match(read('bots', 'b2', 'Travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
 })
 
+test('a restore checks the whole line for a saved secret, its metadata too', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  const secret = 'harbor dock meeting 9f3k'
+  const saved = await call('secret-set', { name: 'DOCK_WORD', value: secret })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // The value sits in the line's metadata, not its text: the text-only check a
+  // new entry gets never sees it, but putting the line back would write it.
+  const forge = (row) => {
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return journal().length
+  }
+  for (const op of ['remove', 'replace']) {
+    const before = `- Prefers window seats [note: ${secret}]`
+    const row = { id: `sec-${op}`, time: new Date().toISOString(), op, scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before }
+    if (op === 'replace') row.after = journal()[1].after
+    const denied = await call('memory-restore', { line: forge(row) })
+    assert.equal(denied.ok, false, op)
+    assert.match(denied.error.message, /cannot be put back/, op)
+    assert.doesNotMatch(denied.error.message, new RegExp(secret))
+  }
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /harbor dock meeting|window seats/)
+  assert.doesNotMatch(read('journal.jsonl'), /harbor dock meeting 9f3k.*"op":"add"/s)
+})
+
+test('a restore refuses a file name with a control character instead of wedging', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // The name passes a separators-only check, but a write of the file it names
+  // fails after the pending record is accepted, so every later memory change
+  // stops on it. The row is refused before any of that is reached.
+  const row = { id: 'bad-ctl', time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'bad\0.md', actor: 'user', actorName: 'user', removedTopic: true, before: '- forged entry' }
+  writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+  const denied = await call('memory-restore', { line: journal().length })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /not a change that can be restored/)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes tea \[/)
+  assert.equal(journal().length, 2)
+  // The memory still works: nothing half-written is waiting to be finished.
+  assert.equal((await call('memory-view', { botId: 'b2' })).ok, true)
+  assert.match(await tool('remember', { text: 'Also likes coffee' }, 'b2'), /Saved to your memory/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Also likes coffee \[/)
+})
+
+test('a restore dedupes a row whose before line is an indented bullet', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Drinks tea daily' }, 'b2')
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // Rows are written by publish with one bullet, but a hand-edited or foreign
+  // row may indent it; the text check and the duplicate check must read it as
+  // the same entry either way.
+  const forge = (row) => {
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return journal().length
+  }
+  const removeLine = forge({ id: 'ind-rm', time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before: '  - Drinks tea daily [added: 2026-01-01]' })
+  const denied = await call('memory-restore', { line: removeLine })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /already in/)
+  const replaceLine = forge({ id: 'ind-rp', time: new Date().toISOString(), op: 'replace', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before: '  - Drinks tea daily', after: journal()[1].after })
+  const deniedReplace = await call('memory-restore', { line: replaceLine })
+  assert.equal(deniedReplace.ok, false)
+  assert.match(deniedReplace.error.message, /already in/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 2)
+  // An indented before that is no duplicate still restores, and reports the
+  // entry's text, not the line's raw shape.
+  const clean = forge({ id: 'ind-ok', time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before: '  - Prefers aisle seats' })
+  const restored = await call('memory-restore', { line: clean })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.equal(restored.value.text, 'Prefers aisle seats')
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /^ {2}- Prefers aisle seats$/m)
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())

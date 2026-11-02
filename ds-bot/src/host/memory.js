@@ -1476,9 +1476,10 @@ export function install(rt) {
   const noMatch = message => Object.assign(new Error(message), { code: NO_MATCH })
   // A row's file is a flat name — a file of the scope's folder, never a path. A
   // row is read, not trusted: a name with separators would reach another scope's
-  // folder when it is joined back for a rebuild, inside() or not. The name does
-  // not have to be a cleanTopic name: files renamed or created by hand still list.
-  const flatFile = name => name === MAIN || (typeof name === 'string' && name.endsWith('.md') && !/[/\\:]/.test(name))
+  // folder when it is joined back for a rebuild, inside() or not, and a control
+  // character would make the write fail after the pending record was accepted.
+  // The name does not have to be a cleanTopic name: hand-renamed files still list.
+  const flatFile = name => name === MAIN || (typeof name === 'string' && name.endsWith('.md') && !/[/\\:]/.test(name) && [...name].every(ch => ch >= ' ' && ch !== '\x7f'))
   // The line a row puts back is one whole entry, the same bullets parseMemory
   // reads: a heading or a line with a newline in it would corrupt the file and
   // make what follows it vanish from recall.
@@ -1532,7 +1533,7 @@ export function install(rt) {
           steps.push(writeStep(target.path, joinLines(lines)))
         }
         await publish({ op: 'remove', scope: scopeKey(scope), steps, row: { op: 'remove', ...base, before: row.after, ...(empty ? { removedTopic: true } : {}) } })
-        return { restored: row.id, op: 'remove', scope: row.scope, file: row.file, text: splitMeta(row.after.replace(/^[-*]\s+/, '')).text }
+        return { restored: row.id, op: 'remove', scope: row.scope, file: row.file, text: splitMeta(row.after.replace(/^\s*[-*]\s+/, '')).text }
       }
 
       if (row.op === 'remove') {
@@ -1540,7 +1541,10 @@ export function install(rt) {
         // row, so it goes where a new entry would; a topic the remove took away
         // is made again with its link, and a line already back is not duplicated.
         if (!entryLine(row.before)) throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
-        const back = splitMeta(row.before.replace(/^[-*]\s+/, '')).text
+        // The whole line, metadata included, must still be keepable: a value
+        // anywhere in it may be a saved secret since the row was written.
+        if (secretEntry(row.before)) throw new Error(`The entry that line ${line} removed cannot be put back: it looks like a key, token, password, or ID number, which memory never keeps.`)
+        const back = splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text
         const problem = entryProblem(back)
         if (problem !== undefined) throw new Error(`The entry that line ${line} removed cannot be put back: ${problem}`)
         const [same] = matchEntries(allEntries(files), back).filter(entry => squash(entry.text) === squash(back))
@@ -1563,11 +1567,13 @@ export function install(rt) {
           steps.push(writeStep(main.path, index))
         }
         await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, after: row.before } })
-        return { restored: row.id, op: 'add', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^[-*]\s+/, '')).text }
+        return { restored: row.id, op: 'add', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text }
       }
 
       // row.op === 'replace': the recorded after-line is put back to before.
       if (!entryLine(row.before)) throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
+      // The whole before-line, metadata included, must still be keepable.
+      if (secretEntry(row.before)) throw new Error(`The entry that line ${line} changed cannot be put back: it looks like a key, token, password, or ID number, which memory never keeps.`)
       if (target === undefined || typeof row.after !== 'string') {
         throw noMatch(`The entry that line ${line} changed is not where the change log left it; it may have changed or been removed since.`)
       }
@@ -1576,7 +1582,7 @@ export function install(rt) {
       if (found.length > 1) throw noMatch(`The line that line ${line} changed is in ${label} more than once; restore it by hand so the wrong one is not changed.`)
       // The before-line passes the checks a new entry does, so a restore does not
       // write — into the file or the change log — what memory no longer keeps.
-      const back = splitMeta(row.before.replace(/^[-*]\s+/, '')).text
+      const back = splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text
       const problem = entryProblem(back)
       if (problem !== undefined) throw new Error(`The entry that line ${line} changed cannot be put back: ${problem}`)
       // Nor does it come back twice: the same fact may have been saved again since,
@@ -1589,7 +1595,7 @@ export function install(rt) {
       const next = joinLines(lines)
       checkSize(target, next, label)
       await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, next)], row: { op: 'replace', ...base, before: row.after, after: row.before } })
-      return { restored: row.id, op: 'replace', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^[-*]\s+/, '')).text }
+      return { restored: row.id, op: 'replace', scope: row.scope, file: row.file, text: splitMeta(row.before.replace(/^\s*[-*]\s+/, '')).text }
     })
   }
 
