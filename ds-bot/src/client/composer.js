@@ -5,6 +5,7 @@ import { canSetGoal } from './goal.js'
 import { BotMark } from './mark.js'
 import { useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
+import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -54,7 +55,16 @@ export function useDictation(onText) {
   return { listening, note, start, stop }
 }
 
-export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
+export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
+  const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
+  const composerRoot = useRef(null)
+  useEffect(() => {
+    const root = composerRoot.current?.closest('[data-composer-card]')
+    if (enterToSend || !inputActions || !root) return undefined
+    const onKey = event => insertComposerNewline(event, inputActions)
+    root.addEventListener('keydown', onKey, true)
+    return () => root.removeEventListener('keydown', onKey, true)
+  }, [enterToSend, inputActions])
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion())
   })
@@ -84,7 +94,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       onMouseDown: keepComposerFocus, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()),
     }, h(MicIcon)),
     h('button', {
-      type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
+      ref: composerRoot, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
       onMouseDown: keepComposerFocus, onClick: () => actions.openVoice(sessionId),
     }, h(WaveIcon, { size: 18 })),
     dictation.note ? h('span', { className: 'bt-mic-note', role: 'status' }, dictation.note) : null)
