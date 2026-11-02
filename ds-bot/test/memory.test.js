@@ -439,6 +439,31 @@ test('a restore of a replace whose after reads like its before is no duplicate',
   assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /- drinks tea daily/)
 })
 
+test('a restore refuses a change-log row whose file is not a flat name', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Team drinks tea', scope: 'team' }, 'm1')
+  await tool('remember', { text: 'Likes quiet mornings' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // A forged row in the shared log can name any path; it is read, not trusted.
+  const forge = (file) => {
+    const row = { id: `forged-${file}`, time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file, actor: 'user', actorName: 'user', removedTopic: true, before: '- forged entry' }
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return journal().length
+  }
+  for (const file of ['../../team/MEMORY.md', '..\\..\\team\\MEMORY.md', 'topics/deep.md', '..', '.', 'C:\\out\\x.md']) {
+    const line = forge(file)
+    const denied = await call('memory-restore', { line })
+    assert.equal(denied.ok, false, file)
+    assert.match(denied.error.message, /not a change that can be restored/, file)
+    // The file the row pointed at is untouched, and no restore row was logged.
+    assert.match(read('team', 'MEMORY.md'), /- Team drinks tea \[/)
+    assert.doesNotMatch(read('team', 'MEMORY.md'), /forged/)
+    assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /forged|\.\./)
+    assert.equal(journal().length, line)
+  }
+})
+
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
   const { tool, stop } = start()
   t.after(() => stop())

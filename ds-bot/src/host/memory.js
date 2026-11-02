@@ -1474,6 +1474,10 @@ export function install(rt) {
   // less than a whole line would undo a different change than the one it reads.
   const exactLines = (file, line) => file.entries.filter(entry => file.lines[entry.line] === line)
   const noMatch = message => Object.assign(new Error(message), { code: NO_MATCH })
+  // A row's file is a flat name — MEMORY.md or a topic file, never a path. A row
+  // is read, not trusted: a name with separators would reach another scope's
+  // folder when it is joined back for a rebuild, inside() or not.
+  const flatFile = name => name === MAIN || (typeof name === 'string' && name.endsWith('.md') && cleanTopic(name) === name.slice(0, -3))
 
   async function memoryRestore(body) {
     const line = Number(body.line)
@@ -1490,7 +1494,7 @@ export function install(rt) {
         throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
       }
       const scope = journalScope(row.scope)
-      if (scope === undefined || typeof row.file !== 'string' || row.file === '') {
+      if (scope === undefined || !flatFile(row.file)) {
         throw new Error(`Line ${line} of the change log is not a change that can be restored.`)
       }
       if (row.op === 'archive') throw new Error('An archived memory cannot be restored from the change log.')
