@@ -218,6 +218,8 @@ var ZH = {
   // Header
   "Message {name}": "给 {name} 发消息",
   Message: "发消息",
+  "Press Enter to steer queued messages": "按 Enter 插话发送排队的消息",
+  "Couldn’t steer the queued messages. Try again.": "插话发送失败，请重试。",
   "View conversation details": "查看对话详情",
   "1 new message": "1 条新消息",
   "{count} new messages": "{count} 条新消息",
@@ -11267,6 +11269,24 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   );
 }
 
+// src/client/enter-steer.js
+var steerable = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0 && input.queue.some((message) => message.source?.kind === "user");
+var enterSteers = (event, input) => event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
+var steerQueued = async (session) => {
+  try {
+    const queued = session.projections.faceOf("inbox").getSnapshot()?.["next-turn"] ?? [];
+    for (const item of queued) {
+      if (item.source?.kind !== "user") continue;
+      const result = await session.updateQueue(item.id, { kind: "steer" });
+      if (result.ok) continue;
+      return result.error.code === "session/steer-unavailable" || result.error.code === "session/queue-item-not-found" ? "done" : "failed";
+    }
+    return "done";
+  } catch {
+    return "failed";
+  }
+};
+
 // src/client/composer.js
 var import_react23 = require("react");
 var import_react_dom5 = require("react-dom");
@@ -11392,13 +11412,18 @@ function menuIcons(roster) {
     return marks.get(id);
   };
 }
-function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
+function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const [open, setOpen] = (0, import_react23.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react23.useRef)(null);
   const menu = (0, import_react23.useRef)(null);
   const tick = useViewport();
+  const inputNow = (0, import_react23.useRef)(void 0);
+  const ready = useInput?.((state) => {
+    inputNow.current = state;
+    return steerable(state);
+  }) === true;
   (0, import_react23.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
@@ -11417,6 +11442,34 @@ function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  (0, import_react23.useEffect)(() => {
+    const card = button.current?.closest("[data-composer-card]");
+    if (!ready || card === null || card === void 0) return void 0;
+    card.style.setProperty("--bt-placeholder", JSON.stringify(t("Press Enter to steer queued messages")));
+    return () => card.style.removeProperty("--bt-placeholder");
+  });
+  (0, import_react23.useEffect)(() => {
+    let steering = false;
+    const onKey = (event) => {
+      if (steering || event.defaultPrevented || open) return;
+      const target2 = event.target;
+      if (typeof target2?.closest !== "function") return;
+      const card = button.current?.closest("[data-composer-card]");
+      if (card === null || card === void 0 || target2.closest("[data-composer-card]") !== card) return;
+      if (target2.closest("[contenteditable=true]") === null) return;
+      if (target2.closest("[data-composer-composing]")) return;
+      if (target2.ownerDocument?.querySelector('[role="listbox"]')) return;
+      if (!enterSteers(event, inputNow.current)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      steering = true;
+      void Promise.resolve(actions.steerQueued(sessionId)).finally(() => {
+        steering = false;
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, sessionId]);
   const place = (0, import_react23.useMemo)(() => {
     if (!shown || !button.current) return null;
     const rect = button.current.getBoundingClientRect();
@@ -21963,6 +22016,13 @@ function apply(ctx) {
     } catch {
       return () => {
       };
+    }
+  };
+  actions.steerQueued = async (sessionId) => {
+    const session = ctx.sessions.binding(sessionId)?.session;
+    if (session === void 0) return;
+    if (await steerQueued(session) === "failed") {
+      actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
     }
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
