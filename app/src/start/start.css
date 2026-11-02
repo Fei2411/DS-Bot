@@ -86,17 +86,20 @@ html[data-up] .pond{translate:0 -60px;scale:.62}
    ends. */
 .ring{position:absolute;left:250px;top:100px;width:220px;height:220px;overflow:visible}
 .ring path,.ring circle{fill:none;stroke-width:2;stroke-linecap:round}
-.arc-base{stroke:var(--bt-line);stroke-dasharray:100 100;stroke-dashoffset:0}
-.arc-fill{stroke:var(--bt-ink-deepseek);stroke-dasharray:100 100;stroke-dashoffset:100;transition:stroke-dashoffset .56s cubic-bezier(.3,.7,.4,1)}
-.arc-glow{stroke:color-mix(in srgb,var(--bt-ink-deepseek) 75%,transparent);stroke-width:2.5!important;stroke-dasharray:22 200;stroke-dashoffset:22;opacity:0}
+/* A round cap is drawn wherever a dash touches its path, even a dash of no length: an empty fill
+   (offset 100 of a 100-long path) left a dot at the arc's end. Hidden dashes lie wholly off the
+   path instead, one unit past either end, with gaps long enough that no other dash comes in. */
+.arc-base{stroke:var(--bt-line);stroke-dasharray:100 200;stroke-dashoffset:0}
+.arc-fill{stroke:var(--bt-ink-deepseek);stroke-dasharray:100 200;stroke-dashoffset:101;transition:stroke-dashoffset .56s cubic-bezier(.3,.7,.4,1)}
+.arc-glow{stroke:color-mix(in srgb,var(--bt-ink-deepseek) 75%,transparent);stroke-width:2.5!important;stroke-dasharray:22 200;stroke-dashoffset:23;opacity:0}
 .arc[data-state=active] .arc-base{stroke:color-mix(in srgb,var(--bt-ink-deepseek) 22%,transparent)}
 .arc[data-state=active] .arc-glow{opacity:1;animation:bt-arc 1.8s cubic-bezier(.4,0,.2,1) infinite}
 .arc[data-state=done] .arc-fill{stroke-dashoffset:0}
 .arc[data-state=failed] .arc-base{stroke:color-mix(in srgb,var(--bt-danger) 60%,transparent)}
 html[data-whale=pondering] .arc[data-state=active] .arc-glow{animation-duration:2.6s}
-@keyframes bt-arc{from{stroke-dashoffset:22}to{stroke-dashoffset:-100}}
+@keyframes bt-arc{from{stroke-dashoffset:23}to{stroke-dashoffset:-101}}
 /* The hand-off: the gaps close into one circle, which swells once. */
-.ring-full{stroke:var(--bt-ink-deepseek);stroke-dasharray:100 100;stroke-dashoffset:100;opacity:0;transition:stroke-dashoffset .3s ease-out,opacity .3s ease-out}
+.ring-full{stroke:var(--bt-ink-deepseek);stroke-dasharray:100 200;stroke-dashoffset:101;opacity:0;transition:stroke-dashoffset .3s ease-out,opacity .3s ease-out}
 html[data-ring=closed] .ring-full{stroke-dashoffset:0;opacity:1}
 html[data-ring=closed] .ring{animation:bt-ring-pulse .5s cubic-bezier(.3,.7,.4,1)}
 @keyframes bt-ring-pulse{0%,100%{scale:1}40%{scale:1.035}}
@@ -223,7 +226,7 @@ html:is([data-start=later],[data-start=moving]) .footrow{display:none}
 @keyframes bt-veil{from{opacity:0;filter:blur(6px)}}
 @keyframes bt-enter-first{from{transform:translateY(96px) rotate(-12deg)}}
 @keyframes bt-enter-later{from{transform:translateY(84px)}}
-@keyframes bt-ring-draw{from{stroke-dashoffset:100}}
+@keyframes bt-ring-draw{from{stroke-dashoffset:101}}
 @keyframes bt-wake{0%{transform:scaleY(.05)}60%{transform:scaleY(1.06)}}
 @keyframes bt-flick-in{0%,100%{transform:none}35%{transform:rotate(-10deg)}70%{transform:rotate(8deg)}}
 @keyframes bt-ripple-scale{from{scale:.5}to{scale:1.6}}
