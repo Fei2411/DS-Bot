@@ -38,7 +38,7 @@ export const startApp = async ({ packaged = true, firstRun = false } = {}) => {
   // A Linux build updates itself only from inside an AppImage; outside one the app asks about
   // the newest GitHub release, which a test must never fetch. The faked electron-updater
   // answers for the AppImage, as it does on Windows.
-  if (process.platform === 'linux') process.env.APPIMAGE ??= '/tmp/deepseek-bot.AppImage'
+  if (process.platform === 'linux') process.env.APPIMAGE ??= '/tmp/ds-bot.AppImage'
   return { home, workspace }
 }
 
