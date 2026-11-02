@@ -22,6 +22,9 @@ export interface ChatItem {
   botId?: string
   images?: number
   imageRefs?: ImageRef[]
+  files?: { name: string; bytes?: number; attachmentId?: string }[]
+  file?: string
+  length?: number
   title?: string
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   views?: { id: string; title: string; view: { id?: string; title?: string; children?: unknown[] } }[]
@@ -41,7 +44,16 @@ const imageCache = new Map<string, string>()
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; onLongPress?: (text: string) => void }) {
+export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void }) {
+  const chips = (item.files ?? []).map(file => (
+    <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 14, borderWidth: 1, borderColor: p.line, backgroundColor: p.card }}>
+      <View style={{ flex: 1 }}>
+        <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
+        <Text style={[type.caption, { color: p.ink3 }]}>{[(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')}</Text>
+      </View>
+    </Pressable>
+  ))
   const source = item.answers !== undefined
     ? item.answers.map(answer => [...(answer.selected ?? []), ...(answer.custom ? [answer.custom] : [])].join(', ')).join('\n')
     : item.text ?? ''
@@ -51,6 +63,7 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? new Date(item.time).toLocaleDateString(dateLocale(), { month: 'long', day: 'numeric' }) : ''}</Text>
   }
   if (item.kind === 'event') {
+    if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
     const label = { request: t('asked for work'), reply: t('replied'), report: t('reported back'), stopped: t('stopped') }[item.role ?? ''] ?? item.role ?? ''
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('{name} {event}', { name: item.name ?? t('a Bot'), event: label })}</Text>
   }

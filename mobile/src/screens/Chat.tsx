@@ -90,6 +90,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status !== 'settled')
+  const btw = ((team as { btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string }[]> } | null)?.btwCards?.[bot?.id ?? ''] ?? []).filter(card => card.partId === undefined || card.partId === sessionId)
   const roomWork = room !== undefined ? (team?.work?.rooms?.[room.id] ?? []) : []
   const running = doing !== undefined || roomWork.length > 0
   const doingBot = bot ?? (roomWork[0] !== undefined ? team?.bots?.find(b => b.id === roomWork[0].botId) : undefined)
@@ -101,6 +102,15 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [collapsedViews, setCollapsedViews] = useState<Record<string, boolean>>({})
   const [menuText, setMenuText] = useState<string | null>(null)
   const [readerText, setReaderText] = useState<string | null>(null)
+  const [readerTitle, setReaderTitle] = useState<string | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const openFile = (file: { name: string; attachmentId?: string }) => {
+    void call('file-text', { file }).then(result => {
+      const read = result as { text?: string; truncated?: boolean } | string
+      setReaderTitle(file.name)
+      setReaderText(typeof read === 'string' ? read : read?.text ?? '')
+    }, (failure: { code?: string; message?: string }) => setFileError(failure?.message ?? t('This file cannot be read here')))
+  }
   const onLongPress = (text: string) => setMenuText(text)
   // The turn being streamed by the model, per attempt id; the real item lands
   // with the 'message' event when the turn's text is saved.
@@ -183,21 +193,23 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
               {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} sessionId={sessionId} /> : null}
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} collapsed={collapsedViews} onCollapse={(id, value) => setCollapsedViews(prev => ({ ...prev, [id]: value }))} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} collapsed={collapsedViews} onCollapse={(id, value) => setCollapsedViews(prev => ({ ...prev, [id]: value }))} />
+      {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {error ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
-        onSelect={() => { setReaderText(menuText); setMenuText(null) }} />
+        onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />
       <Modal visible={readerText !== null} animationType="fade" onRequestClose={() => setReaderText(null)}>
         <View style={[styles.reader, { backgroundColor: p.main }]}>
-          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 80 }}>
-            <Text selectable style={[type.bubble, { color: p.ink }]}>{readerText ?? ''}</Text>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingTop: insets.top + 20, paddingBottom: 80 }}>
+            {readerTitle !== null ? <Text style={[type.caption, { color: p.ink3, marginBottom: 10 }]}>{readerTitle}</Text> : null}
+            <Text selectable style={[type.bubble, { color: p.ink, fontFamily: readerTitle?.match(/\.(md|markdown)$/i) ? undefined : 'monospace' }]}>{readerText ?? ''}</Text>
           </ScrollView>
           <Pressable accessibilityRole="button" onPress={() => setReaderText(null)} style={[styles.readerClose, { backgroundColor: p.card, borderColor: p.line }]}>
             <Text style={[type.settingsRow, { color: p.accent }]}>{t('Done')}</Text>

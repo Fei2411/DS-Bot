@@ -232,7 +232,12 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         for (const [botId, chats] of Object.entries(state.sideChats ?? {})) state.sideChats![botId] = chats.filter(c => c.chatId !== body.chatId)
         return { ok: true }
       }
-      case 'btw-delete': return { ok: true }
+      case 'btw-delete': {
+        const list = state.btwCards?.[String(body.sessionId ?? '').split(':')[0]] ?? []
+        for (const [botId, cards] of Object.entries(state.btwCards ?? {})) state.btwCards![botId] = cards.filter(card => card.id !== body.cardId)
+        return { ok: true }
+      }
+      case 'file-text': return { text: '# Release notes\n\n- Drawer lands today\n- Mobile cards render natively\n- Needs-you groups the queue\n', truncated: false }
       case 'usage': return {
         total: { input: 402100, output: 90300 },
         bots: [

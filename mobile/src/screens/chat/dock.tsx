@@ -15,18 +15,20 @@ type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
 // The pending dock above the composer: question card (ui-standard 10.8), then
 // approval cards. Taller than 50% of the screen, the dock scrolls inside.
-export function Dock({ question, sessionId, approvals, secrets = [], view, call, p, maxHeight, collapsed, onCollapse }: {
+export function Dock({ question, sessionId, approvals, secrets = [], btw = [], view, call, p, maxHeight, collapsed, onCollapse }: {
   maxHeight?: number; collapsed?: Record<string, boolean>; onCollapse?: (id: string, value: boolean) => void
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   secrets?: SecretRequest[]
+  btw?: BtwCardData[]
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
-  const has = question !== undefined || approvals.length > 0 || secrets.length > 0 || view !== undefined
+  const has = question !== undefined || approvals.length > 0 || secrets.length > 0 || btw.length > 0 || view !== undefined
   if (!has) return null
   return (
     <ScrollView style={[styles.dock, maxHeight !== undefined ? { maxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
       {view !== undefined ? <DockView sessionId={sessionId} view={view} p={p} cap={maxHeight} collapsed={collapsed?.[view.id ?? ''] ?? null} onCollapse={onCollapse} /> : null}
       {question ? <QuestionCard question={question} sessionId={sessionId} call={call} p={p} /> : null}
+      {btw.map(card => <BtwCard key={card.id} card={card} sessionId={sessionId} call={call} p={p} />)}
       {secrets.map(secret => <SecretCard key={secret.id} secret={secret} call={call} p={p} />)}
       {approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} call={call} p={p} />)}
     </ScrollView>
@@ -155,6 +157,33 @@ export function SecretCard({ secret, call, p }: { secret: SecretRequest; call: C
         )}
       </View>
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
+    </View>
+  )
+}
+
+export interface BtwCardData { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }
+
+export function BtwCard({ card, sessionId, call, p }: { card: BtwCardData; sessionId: string; call: Call; p: Palette }) {
+  const [busy, setBusy] = useState(false)
+  const drop = () => {
+    if (busy) return
+    setBusy(true)
+    void call('btw-delete', { sessionId, cardId: card.id }).catch(() => {}).finally(() => setBusy(false))
+  }
+  return (
+    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Aside')}</Text>
+          {card.question ? <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 2 }]}>{card.question}</Text> : null}
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} hitSlop={10} disabled={busy}
+          style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.35 : 1 }}>
+          <Text style={{ color: p.ink3, fontSize: 18 }}>×</Text>
+        </Pressable>
+      </View>
+      {card.failure ? <Text style={[typeScale.small, { color: p.danger, marginTop: 6 }]}>{card.failure}</Text> : null}
+      {card.answer ? <Text style={[typeScale.settingsRow, { color: p.ink2, marginTop: 6 }]}>{card.answer}</Text> : null}
     </View>
   )
 }
