@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -19,7 +20,15 @@ const COLOR_PAINT: Record<string, string> = {
   aurora: '#5cc8a0',
 }
 
-export const botOf = (team: TeamState | null, id: string) => team?.bots?.find(b => b.id === id)
+export const pickPhoto = async (): Promise<string | null> => {
+  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true })
+  const asset = result.canceled ? null : result.assets?.[0]
+  if (!asset?.base64) return null
+  const mime = asset.mimeType ?? 'image/jpeg'
+  return `data:${mime};base64,${asset.base64}`
+}
+
+const botOf = (team: TeamState | null, id: string) => team?.bots?.find(b => b.id === id)
 export const roomOf = (team: TeamState | null, id: string) => team?.rooms?.find(r => r.id === id)
 const mainsOf = (team: TeamState | null) => new Set(team?.mainBotIds ?? (team?.mainBotId ? [team.mainBotId] : []))
 const isMain = (team: TeamState | null, id: string) => mainsOf(team).has(id)
@@ -236,6 +245,10 @@ export function BotEdit({ route, navigation }: any) {
               </Pressable>
             ))}
           </View>
+        </Section>
+        <Section label={t('Photo')}>
+          <Row label={t('Upload photo')} onPress={() => { void pickPhoto().then(image => { if (image !== null) save({ avatar: { ...bot.avatar, image } }) }) }} />
+          {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
           {models.length === 0 ? <Row label={t('Model')} value={bot.model ?? '—'} disabled /> : (
