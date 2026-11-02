@@ -69,6 +69,7 @@
   "devDependencies": {
     "electron": "44.7.0",
     "electron-builder": "26.17.0",
+    "esbuild": "0.28.2",
     "extract-zip": "2.0.1",
     "papaparse": "5.5.3",
     "react": "19.3.0",
