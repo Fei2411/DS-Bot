@@ -7,6 +7,10 @@ import { createRuntime } from '../index.js'
 import { TEAM_TOOLS } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
 
+// tools.js keeps the DSH names a Bot Session never serves in one place; the
+// assemble must add none of them.
+const HIDDEN = ['ask_user_question', 'subagent', 'list_subagent_models', 'send_message']
+
 // A Bot-owned Session gets its Agent before ds-bot records the owner, so the
 // scoped show_view and the hidden-tool restrict used to wait for a later
 // resolveAgent that a held kickoff never ran. These tests drive each creation
@@ -106,8 +110,17 @@ const start = (team = TEAM, services = {}, globals = [], shared = {}) => {
     liveAgents.set(sessionId, agent)
     return agent
   }
-  // ask_user_question is served, so the deny list is not empty in a Bot scope.
-  ctx.tools.schemas = () => [{ name: 'ask_user_question' }, { name: 'show_view' }]
+  // ask_user_question is served, so the deny list is not empty in a Bot scope;
+  // a Session's own registrations join its list and shadow globals of one name,
+  // as DSH's scope view does.
+  ctx.tools.schemas = (agent) => {
+    const view = new Map()
+    for (const name of ['ask_user_question', 'show_view']) view.set(name, { name })
+    for (const entry of scoped.filter(entry => entry.sessionId === agent?.id)) {
+      view.set(entry.name, { name: entry.name, description: entry.tool.description, parameters: entry.tool.parameters })
+    }
+    return [...view.values()]
+  }
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
@@ -324,6 +337,63 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
   await rt.save()
   await host.agentCreated('b')
   assert.ok(hasShowView(host, 'b'))
+})
+
+// #826: after a DSH restart the creation path can miss a live Agent and nothing
+// scoped it again, so the Session ran its requests without the team tools. The
+// step's assemble scopes an owned Session the creation path missed and adds the
+// names the request list was already built without.
+const assemble = (host, agent, assembly = { tools: [], sections: [] }) => {
+  const listener = host.ctx.listeners.get('system-prompt/assemble')
+    .find(listener => /scopeTeamTools/.test(String(listener)))
+  return listener(assembly, { agent, signal: AbortSignal.timeout(60_000) }, async () => assembly)
+}
+
+test("a group Session the creation path missed is scoped at the step's assemble", async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  // The Agent is live but agent/created never ran for it and no save re-synced
+  // the scopes — the state a restart left the reporter's group in.
+  const agent = host.agentOf('r1')
+  const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
+  assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
+  assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'group_relay'])
+})
+
+test("a Bot's own Session the creation path missed gets the whole scope at the assemble", async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const agent = host.agentOf('a')
+  const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
+  const expected = [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort()
+  assert.deepEqual(scopedNames(host, 'a').sort(), expected)
+  assert.deepEqual(assembled.tools.map(tool => tool.name).sort(), ['read', ...expected].sort())
+  // The hidden DSH tools are masked and filtered as on the creation path: none
+  // of their names joined the list the assemble added.
+  assert.ok(denied(host, 'a'), 'the blocking question tool is denied')
+  assert.ok(!HIDDEN.some(name => assembled.tools.some(tool => tool.name === name)))
+})
+
+test('the assemble registers nothing twice in an already scoped Session', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  const before = host.scoped.length
+  const assembly = { tools: [{ name: 'read' }], sections: [] }
+  assert.equal(await assemble(host, host.agentOf('a'), assembly), assembly)
+  assert.equal(host.scoped.length, before)
+})
+
+test('the assemble passes an unowned Session through unchanged', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const assembly = { tools: [{ name: 'read' }], sections: [] }
+  assert.equal(await assemble(host, host.agentOf('plain1'), assembly), assembly)
+  assert.deepEqual(scopedNames(host, 'plain1'), [])
 })
 
 test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {
