@@ -162,16 +162,18 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
 .bt-leftcol-foot{display:flex;align-items:center;gap:9px;padding-top:8px;flex:none}
-.bt-rail{align-items:center;padding:0}
+.bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
-.bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:6px;padding-bottom:8px}
+.bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
-.bt-rail .bt-list{align-self:stretch;align-items:center;gap:4px}
+/* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
+   between avatar edges, the open list's 19px (8px padding + 3px gap + 8px). */
+.bt-rail .bt-list{align-self:stretch;align-items:center;gap:8px}
 /* The rail's list spans the whole column: the badges and dots that sit on a row's
    edge need room beside the 56px rows, or the list scrolls sideways. */
 .bt-leftcol[data-left=rail]{padding:calc(var(--bt-lc-clear) + 8px) 0 8px}
-.bt-leftcol-foot-rail{flex-direction:column;gap:6px}
+.bt-leftcol-foot-rail{flex-direction:column;gap:8px}
 /* A drag that crosses the rail's snap line rides the spring to its target: the
    content is pinned at the target size so only the column's edge moves. */
 .bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
