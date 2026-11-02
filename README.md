@@ -50,8 +50,8 @@ DS Bot 0.2.1 and earlier cannot update themselves in DSH Desktop 0.2.1-rc.2 or l
 Needs Node.js `22.19` or later, and pnpm. On Linux it needs the same glibc 2.28 or newer as the desktop app — the DSH install loads its own native libraries, so CentOS 7 and other older-glibc systems take the Docker route below instead.
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-rc.4 web
+npx @deepseek-ai/dsh@0.2.1-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.1-rc.5 web
 ```
 
 **Docker (NAS, Linux server)**

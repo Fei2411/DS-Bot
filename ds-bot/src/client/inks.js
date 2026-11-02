@@ -3,10 +3,10 @@ export const INKS = {
   deepseek: ['#4D6BFE', '#6A84FF'], charcoal: ['#141416', '#F1F2F4'], graphite: ['#2D2D2D', '#D6D6DA'],
   rose: ['#EC2F6B', '#FF5A7A'], sky: ['#0AA8D6', '#2EE6E0'], tangerine: ['#FF6900', '#FF8A2E'],
   cobalt: ['#082DFF', '#5C78FF'],
-  black: ['#000000', '#FFFFFF'], brown: ['#A27952', '#855C36'], red: ['#FF3E51', '#E02135'],
-  orange: ['#FF781C', '#FF6700'], yellow: ['#FFAF38', '#FF9800'], green: ['#00C972', '#009957'],
-  cyan: ['#1CC3B0', '#00A592'], blue: ['#2A92FE', '#0E74E0'], violet: ['#A97EFE', '#804EE0'],
-  magenta: ['#FF5EB1', '#E02A88'], gray: ['#959595', '#777777'], aurora: ['#00B8D4', '#2EE6E0'],
+  black: ['#000000', '#FFFFFF'], brown: ['#9A6B44', '#7C5332'], red: ['#FF3E51', '#E02135'],
+  orange: ['#FF6B1A', '#FF5E00'], yellow: ['#FFB020', '#F59E0B'], green: ['#10B981', '#059669'],
+  cyan: ['#06B6D4', '#0891B2'], blue: ['#2563EB', '#3B82F6'], violet: ['#8B5CF6', '#7C3AED'],
+  magenta: ['#F43F85', '#E11D74'], gray: ['#8A8F98', '#6E737B'], aurora: ['#00B8D4', '#2EE6E0'],
 }
 // Gradient colors paint a character from its top left to its bottom right; their ink
 // above is the text color. Aurora is the first star mascot's gradient.

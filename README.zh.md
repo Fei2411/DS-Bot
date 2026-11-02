@@ -50,8 +50,8 @@ DS Bot 0.2.1 及更早的版本在 DSH Desktop 0.2.1-rc.2 及以后的版本里�
 需要 Node.js `22.19` 以上和 pnpm。Linux 上它和桌面应用一样要求 glibc 2.28 及以上——dsh 自身会加载原生库，CentOS 7 这类旧 glibc 系统请走下面的 Docker 路线。
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-rc.4 web
+npx @deepseek-ai/dsh@0.2.1-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.1-rc.5 web
 ```
 
 **Docker（NAS、Linux 服务器）**
