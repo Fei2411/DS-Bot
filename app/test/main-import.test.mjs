@@ -38,6 +38,8 @@ test('the first start offers the DSH team on the import card, copies it on cards
   await import('../src/main.mjs')
   await waitFor(() => startState()?.card?.kind === 'import', 'offer the team on the import card')
   const offer = startState().card
+  // The copy is a stage of its own on the start page's ring.
+  assert.deepEqual(startState().phases, ['data', 'import', 'engine', 'team'])
   assert.deepEqual([offer.bots, offer.groups, offer.sessions, offer.names], [2, 0, 2, 'Chief, Writer'])
   assert.equal(offer.path, dsh)
   assert.equal(existsSync(join(paths.userData, 'locations.json')), false, 'the places wait for the answer')
@@ -57,6 +59,7 @@ test('the first start offers the DSH team on the import card, copies it on cards
   const steps = cards().filter(card => card.kind === 'copying').map(card => card.step)
   assert.ok(steps.includes(1) && steps.includes(2) && steps.at(-1) === 3, `the copy shows its three steps (${steps.join(',')})`)
   assert.equal(startState().card, undefined, 'the copying card goes once the team\'s engine is up')
+  assert.deepEqual(startState().done, ['data', 'import', 'engine'], 'the import\'s stage is done, and the engine\'s again')
   assert.ok(existsSync(join(home, 'DeepSeek Bot', 'draft.md')), 'the work files came along')
   assert.equal(existsSync(join(home, 'DeepSeek Bot', 'node_modules')), false, 'the regenerable folders did not')
   assert.equal(JSON.parse(readFileSync(join(paths.userData, 'locations.json'), 'utf8')).dataDir, join(home, '.ds-bot'))

@@ -38,6 +38,7 @@ const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), sta
 const voiceEl = $('.voice'), voiceText = $('.voice>span')
 const captionText = $('.caption-text')
 const placeEl = $('.place'), placeText = $('.place-text')
+const stopButton = $('.stop-copy')
 const CODE = new Set(['path', 'dataDir', 'workspace'])
 let lang = 'zh'
 let s = null
@@ -67,6 +68,8 @@ function renderStatic() {
   root.lang = lang === 'zh' ? 'zh-CN' : 'en'
   for (const el of document.querySelectorAll('.track [data-t], .footrow [data-t], .caption [data-t]')) render(el)
   $('.track').setAttribute('aria-label', say('status.track'))
+  stopButton.setAttribute('aria-label', say('btn.stopCopy'))
+  stopButton.title = say('btn.stopCopy')
   for (const st of document.querySelectorAll('.station')) st.querySelector('.sr').textContent = say(`status.state.${st.dataset.state}`)
   if (s) { fillBlock(shown); placeUI(s.place); timeUI() }
 }
@@ -174,7 +177,8 @@ let sheetRun = 0
 function blockFor(snap) {
   if (snap.view === 'handoff') return shown
   if (snap.view === 'failed' || snap.view === 'viewFailed' || snap.view === 'watchdog') return snap.view
-  if (snap.view === 'card') return snap.card?.kind === 'stopCopy' ? 'copying' : snap.card?.kind ?? ''
+  // The copy has no card: it is the ring's import arc (start-window §6).
+  if (snap.view === 'card') return snap.card?.kind === 'copying' ? '' : snap.card?.kind ?? ''
   return ''
 }
 // The edge and fill layers are pre-sized to the sheet; only their clip-path moves, so a card
@@ -250,6 +254,7 @@ async function showBlock(name, jump) {
   const wasCard = Boolean(shown)
   shown = name
   if (wasCard) leave(oldEl, jump)
+  if (!name && wasCard && s?.card?.kind === 'copying' && !jump && !reduced()) return flyIn(mine)
   const el = blockEl(name)
   if (name && el) {
     root.dataset.sheet = 'card'
@@ -277,6 +282,62 @@ async function showBlock(name, jump) {
   }
 }
 
+// 〔复制过来〕, 〔继续复制〕 or a retry: the card does not fold away. Its surface shrinks to a drop
+// that turns the whale's blue and jumps up into the import's arc, which lights up as it lands and
+// then fills with the copy; the pond comes back down after it (start-window §6). Reduced motion
+// folds the card as usual and turns the arc on at once.
+const FLIGHT_MS = 520
+const ARRIVE = 0.8
+async function flyIn(mine) {
+  let land = () => {}
+  director.flight(new Promise((resolve) => { land = resolve }))
+  try {
+    const box = sheet.getBoundingClientRect()
+    const target = importPoint()
+    const cx = box.width / 2, cy = edgeH / 2
+    // The surface is leaving: a card that comes meanwhile morphs in from nothing.
+    edgeH = 0
+    await sleep(60)
+    if (mine !== sheetRun) return
+    const dot = (r, k) => `inset(${cy - r + k}px ${cx - r + k}px ${box.height - cy - r + k}px ${cx - r + k}px round ${r}px)`
+    const dx = target.x - (box.left + cx), dy = target.y - (box.top + cy)
+    const blue = 'var(--bt-ink-deepseek)'
+    // Shrink and rise, then the hop onto the arc; the arc lights as the drop arrives, under its fade.
+    const flights = [edge, fill].map((layer, k) => {
+      const from = getComputedStyle(layer)
+      const frames = [
+        { clipPath: from.clipPath, translate: '0px 0px', backgroundColor: from.backgroundColor, opacity: 1, easing: 'cubic-bezier(.3,.7,.4,1)' },
+        { clipPath: dot(6, k), translate: `${(dx * 0.25).toFixed(1)}px ${(dy * 0.7).toFixed(1)}px`, backgroundColor: blue, opacity: 1, offset: 0.45, easing: 'cubic-bezier(.4,0,.6,1)' },
+        { clipPath: dot(5, k), translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px`, backgroundColor: blue, opacity: 1, offset: ARRIVE },
+        { clipPath: dot(3, k), translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px`, backgroundColor: blue, opacity: 0 },
+      ]
+      for (const a of layer.getAnimations()) a.cancel()
+      return play(layer, frames, { duration: FLIGHT_MS, easing: 'linear' })
+    })
+    setTimeout(() => { if (mine === sheetRun) land() }, FLIGHT_MS * ARRIVE)
+    await Promise.all(flights.map(a => a.done))
+    if (mine !== sheetRun) return
+    land()
+    const bottom = sheet.clientHeight
+    ;[edge, fill].forEach((layer, k) => {
+      layer.style.clipPath = [`inset(0px 0px ${bottom}px 0px round 12px)`, `inset(1px 1px ${bottom + 1}px 1px round 11px)`][k]
+      layer.style.opacity = '0'
+    })
+    for (const a of flights) a.cancel()
+    root.dataset.sheet = 'none'
+    if (document.activeElement?.closest?.('.sheet')) document.activeElement.blur()
+    if (root.hasAttribute('data-up')) shift(false)
+  } finally {
+    land()
+  }
+}
+// The middle of the import's arc, where the page shows it now (the pond may be shrunk).
+function importPoint() {
+  const path = $('.arc[data-phase=import] .arc-base')
+  const p = path.getPointAtLength(path.getTotalLength() / 2)
+  return new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM())
+}
+
 // What a new card says to a screen reader: its first line and its first visible sentence (the
 // 180 s card has only buttons; the whale's line asks its question).
 function cardWords(el, name) {
@@ -297,11 +358,10 @@ function fillBlock(name) {
     node.hidden = node.dataset.why !== s.card?.why
     if (node.hidden && node.dataset.t) { node.textContent = ''; sigs.delete(node) }
   }
-  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.steps, .copied, [data-why][hidden]')) render(node, vars)
+  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.copied, [data-why][hidden]')) render(node, vars)
   if (name === 'missing') missing(el)
   if (name === 'recommend' || name === 'rejected') recommend(el)
   if (name === 'import') importCard(el)
-  if (name === 'copying') copying(el)
   if (name === 'failed') failed(el)
   if (name === 'moveFailed') el.querySelector('[data-old]').dataset.look = s.card?.why === 'copy' ? 'soft' : 'primary'
 }
@@ -370,32 +430,6 @@ function bar(el, fraction, keep) {
   for (const a of el.getAnimations()) a.cancel()
   el.style.scale = `${f} 1`
   if (!reduced()) play(el, [{ scale: from }, { scale: `${f} 1` }], { ...spring('list'), fill: 'none' })
-}
-let copyStep = 0
-function copying(el) {
-  const card = s.card
-  el.toggleAttribute('data-confirm', card.kind === 'stopCopy')
-  el.querySelector('.confirm').hidden = card.kind !== 'stopCopy'
-  // Once the team starts, the copy is done and there is nothing left to stop.
-  el.querySelector('.btn.stop').hidden = card.step >= 3
-  el.style.setProperty('--step', String(Math.max(0, card.step - 1)))
-  ;[...el.querySelectorAll('.steps li')].forEach((li, k) => {
-    const n = k + 1
-    const state = n < card.step ? 'done' : n === card.step ? 'active' : 'pending'
-    const was = li.dataset.state
-    li.dataset.state = state
-    if (state === 'done' && was && was !== 'done') {
-      const check = li.querySelector('.check')
-      if (reduced()) play(check, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, fill: 'none' })
-      else { play(check, [{ transform: 'scale(.4)' }, { transform: 'none' }], { ...spring('pop'), fill: 'none' }); play(check, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, fill: 'none' }) }
-      director.nod()
-    }
-    render(li.querySelector('[data-t]'), card.steps?.[k] ?? {})
-  })
-  const fillEl = el.querySelector('.copy-steps .bar-fill')
-  if (card.step !== copyStep) { copyStep = card.step; bars.set(fillEl, 0); fillEl.style.scale = '0 1' }
-  bar(fillEl, card.fraction, true)
-  el.querySelector('.eta').textContent = card.eta === null || card.eta === undefined ? '' : card.eta < 1 ? say('card.copying.etaSoon') : say('card.copying.eta', { n: card.eta })
 }
 // The recovery card. 〔换个位置…〕 and 〔用新的空白团队开始…〕 show only when the main process can
 // carry them out (failure.places).
@@ -468,6 +502,7 @@ function apply(next) {
   root.dataset.view = next.view
   shimmer()
   placeUI(next.place)
+  stopButton.hidden = !(next.view === 'card' && next.card?.kind === 'copying' && next.card.step < 3)
   const name = blockFor(next)
   if (name !== shown) showBlock(name, jump)
   else { fillBlock(name); resize() }

@@ -29,12 +29,17 @@ export function freeSpace(path) {
   }
 }
 
-/** Bytes as the page shows them, in Explorer's units of 1024: whole GB from 10 up, else one decimal. */
-export function formatBytes(bytes) {
+/**
+ * Bytes as the page shows them, in Explorer's units of 1024: whole GB from 10 up, else one
+ * decimal, whole MB under 1 GB, and 「不到 1 MB」 under that (never 「0 MB」).
+ * @param {string} [lang] 'en' or 'zh'
+ */
+export function formatBytes(bytes, lang = 'zh') {
   if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return undefined
   const gb = bytes / 2 ** 30
   if (gb >= 10) return `${String(Math.floor(gb))} GB`
   if (gb >= 1) return `${(Math.floor(gb * 10) / 10).toFixed(1)} GB`
+  if (bytes < 2 ** 20) return lang === 'en' ? 'under 1 MB' : '不到 1 MB'
   return `${String(Math.floor(bytes / 2 ** 20))} MB`
 }
 
@@ -64,13 +69,13 @@ export function shortPath(path, home = homedir()) {
 /**
  * What the start page says about the place of the data: the drive and its free space on
  * Windows, the folder elsewhere.
- * @param {{ home?: string, free?: number }} what `free` from freeSpace(); none leaves it out
+ * @param {{ home?: string, free?: number, lang?: string }} what `free` from freeSpace(); none leaves it out
  * @returns {{ drive?: string, path?: string, free?: string }}
  */
-export function placeOf(dataDir, { home = homedir(), free } = {}) {
+export function placeOf(dataDir, { home = homedir(), free, lang } = {}) {
   const drive = driveOf(dataDir)
   const place = drive === undefined ? { path: shortPath(dataDir, home) } : { drive }
-  const text = formatBytes(free)
+  const text = formatBytes(free, lang)
   return text === undefined ? place : { ...place, free: text }
 }
 

@@ -427,8 +427,8 @@ function tellPlace(dataDir) {
   const drive = driveOf(dataDir)
   const short = drive !== undefined && free !== undefined && free < SHORT_DRIVE_BYTES
   // The page has no words while the start goes well: the line shows only when room runs short.
-  startWindow.place(short ? placeOf(dataDir, { free }) : undefined)
-  startWindow.hint(short ? { drive, free: formatBytes(free) } : undefined)
+  startWindow.place(short ? placeOf(dataDir, { free, lang: lang() }) : undefined)
+  startWindow.hint(short ? { drive, free: formatBytes(free, lang()) } : undefined)
 }
 
 // A later start shows the line again once the drive is down to a fifth of the free space it had
@@ -445,7 +445,7 @@ function tellLowSpace(freeAtStart) {
     return
   }
   const free = freeSpace(places.dataDir)
-  if (runningLow(free, freeAtStart)) startWindow.place(placeOf(places.dataDir, { free }))
+  if (runningLow(free, freeAtStart)) startWindow.place(placeOf(places.dataDir, { free, lang: lang() }))
 }
 
 // 「换个位置…」 on the start page and 〔重新选〕 on its cards: the system picker, then the root rule
@@ -614,7 +614,7 @@ async function importStep(mine) {
   host = warm
   let warmStopped = false
   const up = warm.start()
-  // The engine's arc fills once it is up; the team's waits for the answer.
+  // The engine's arc fills once it is up and the import's has filled; the team's waits for the answer.
   up.then(() => { if (mine === attempt && !warmStopped) startWindow.done('engine') }, () => {})
   const sizes = await teamSizes(offer.from, offer.team).catch((error) => { console.error(error); return { sessions: 0 } })
   let result
@@ -635,6 +635,7 @@ async function importStep(mine) {
         warmStopped = true
         await warm.stop()
         if (host === warm) host = undefined
+        if (mine === attempt) startWindow.engineDown()
       },
       copy: options => importTeam({ from: offer.from, to: where.dataDir, workspace: where.workspace, dsh: getDshRuntimeVersion(), ...options }),
       reasonOf: copyReason,
@@ -658,6 +659,7 @@ async function importStep(mine) {
   if (result.outcome === 'gone' || signal.aborted || mine !== attempt) return undefined
   importOffer = undefined
   saveLocations(where)
+  startWindow.done('import')
   if (result.outcome === 'copied') {
     const { summary } = result
     console.log(`DeepSeek Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)

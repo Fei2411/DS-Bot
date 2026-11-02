@@ -10,6 +10,14 @@ export const SPARE_BYTES = 500e6
 const CARD_EVERY_MS = 200
 // The rate is not told before the copy has run this long.
 const ETA_AFTER_MS = 3000
+// The share of the ring's import arc that the check of the chats fills; the copy fills the rest.
+const CHECK_SHARE = 0.15
+
+/** How far the import arc is filled at a step of the copy (start-window §6). */
+export function arcShare(step, fraction) {
+  const f = Math.max(0, Math.min(1, fraction || 0))
+  return step <= 1 ? CHECK_SHARE * f : step === 2 ? CHECK_SHARE + (1 - CHECK_SHARE) * f : 1
+}
 
 /**
  * The model settings an import offers, best first: those of DSH Desktop, then DSH Web, then the
@@ -123,7 +131,7 @@ export class ImportFlow {
       kind: 'import', bots: offer.bots, groups: offer.rooms, sessions: offer.sessions, path: offer.from,
       names: offer.names.slice(0, 3).join(this.#io.lang === 'en' ? ', ' : '、'),
       bare: size === undefined ? 'Bare' : '',
-      ...(size === undefined ? {} : { chats: formatBytes(size.chats), work: formatBytes(size.work), total: formatBytes(size.total) }),
+      ...(size === undefined ? {} : { chats: formatBytes(size.chats, this.#io.lang), work: formatBytes(size.work, this.#io.lang), total: formatBytes(size.total, this.#io.lang) }),
       model: model?.label ?? '', models: this.#models.length > 1 ? this.#models : [],
       options: { ...this.#options },
     }
@@ -181,7 +189,8 @@ export class ImportFlow {
     if (size === undefined || free === undefined) return undefined
     const need = size.total + SPARE_BYTES
     if (free >= need) return undefined
-    return { need: formatBytes(need), free: formatBytes(free), short: formatBytes(need - free), drive: drive ?? '' }
+    const text = bytes => formatBytes(bytes, this.#io.lang)
+    return { need: text(need), free: text(free), short: text(need - free), drive: drive ?? '' }
   }
 
   // The chats are checked while the card is up, unless DSH holds the team: a check of chats that
@@ -234,10 +243,10 @@ export class ImportFlow {
         }
         const size = copySize(this.#sizes, this.#options)
         const total = size?.total ?? 0
-        const of = size === undefined ? '…' : formatBytes(total)
+        const of = size === undefined ? '…' : formatBytes(total, io.lang)
         const checkedStep = this.#copyCard?.steps?.[0] ?? {}
         let eta = null
-        this.#setCopy({ step: 2, steps: [checkedStep, { a: formatBytes(0), b: of }, {}], fraction: 0, eta: null })
+        this.#setCopy({ step: 2, steps: [checkedStep, { a: formatBytes(0, io.lang), b: of }, {}], fraction: 0, eta: null })
         await io.warmed()
         signal.throwIfAborted()
         const started = this.#now()
@@ -246,7 +255,7 @@ export class ImportFlow {
           onProgress: (bytes) => {
             const done = total > 0 ? Math.min(bytes, total) : bytes
             eta = etaMinutes(eta, { done, total, elapsedMs: this.#now() - started })
-            this.#setCopy({ step: 2, steps: [checkedStep, { a: formatBytes(done), b: of }, {}], fraction: total > 0 ? done / total : 0, eta })
+            this.#setCopy({ step: 2, steps: [checkedStep, { a: formatBytes(done, io.lang), b: of }, {}], fraction: total > 0 ? done / total : 0, eta })
           },
         })
         this.#copyAbort = undefined
@@ -306,7 +315,7 @@ export class ImportFlow {
       const { steps, step, fraction } = this.#copyCard
       this.#lastStep = step
       this.#io.progress?.(Math.min(1, (step - 1 + Math.max(0, Math.min(1, fraction))) / 3))
-      this.#io.show({ ...this.#copyCard, kind: this.#confirming ? 'stopCopy' : 'copying', steps: steps.map(entry => ({ ...entry })) })
+      this.#io.show({ ...this.#copyCard, kind: this.#confirming ? 'stopCopy' : 'copying', steps: steps.map(entry => ({ ...entry })), arc: arcShare(step, fraction) })
     }
     const due = this.#shownAt + CARD_EVERY_MS - this.#now()
     if (now || due <= 0 || this.#lastStep !== card.step) {

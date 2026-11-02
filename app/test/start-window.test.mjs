@@ -149,7 +149,7 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   const now = 1_700_000_000_000
   const booting = startSnapshot(state({ clock: { base: 0, from: now - 6400, running: true } }), now)
   assert.deepEqual(booting, {
-    v: 1, lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', phase: 'data', done: [],
+    v: 1, lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', phases: ['data', 'engine', 'team'], phase: 'data', done: [],
     clock: { ms: 6400, at: now, running: true, rate: 1 },
     explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true, shown: false,
   })
@@ -431,6 +431,34 @@ test('the 180 s question comes on the start\'s clock while the engine is not up'
   assert.deepEqual(s.state().done, ['data', 'engine'])
   s.tick(2 * WATCHDOG_MS)
   assert.equal(s.state().view, 'boot')
+})
+
+// A first start that copies a team has a stage of its own for the copy, between the data and the
+// engine (§6). The engine that warmed up while the card waited stops for the copy: its stage is
+// open again until the copied team's engine is up.
+test("an import is a stage of its own, and the engine's stage waits for the copied team's engine", (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.explain(explainOf())
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'])
+  s.start.explain(explainOf({ offered: true }))
+  assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
+  s.start.done('data')
+  assert.equal(s.state().phase, 'import')
+  s.start.done('engine')
+  assert.deepEqual(s.state().done, ['data', 'engine'])
+  assert.equal(s.state().phase, 'import')
+  s.start.engineDown()
+  assert.deepEqual(s.state().done, ['data'])
+  s.start.ready()
+  assert.notEqual(s.state().view, 'handoff', 'no hand-off while no engine is up')
+  s.start.done('import')
+  assert.equal(s.state().phase, 'engine')
+  s.start.done('engine')
+  assert.deepEqual(s.state().done, ['data', 'import', 'engine'])
+  s.start.ready()
+  assert.equal(s.state().view, 'handoff')
+  assert.deepEqual(s.state().done, ['data', 'import', 'engine', 'team'])
 })
 
 test('a retry after the engine was up guards the new engine, while the whale keeps its stop', (t) => {

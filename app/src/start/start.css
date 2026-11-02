@@ -96,6 +96,14 @@ html[data-up] .pond{translate:0 -60px;scale:.62}
 .arc[data-state=active] .arc-glow{opacity:1;animation:bt-arc 1.8s cubic-bezier(.4,0,.2,1) infinite}
 .arc[data-state=done] .arc-fill{stroke-dashoffset:0}
 .arc[data-state=failed] .arc-base{stroke:color-mix(in srgb,var(--bt-danger) 60%,transparent)}
+/* The import's arc (a first start that copies a team, §6) is there only on such a start, and it
+   fills with the copy (--f, from the main process's share); a failed copy keeps what it reached,
+   in red. It lights up once the card has flown into it (data-caught). */
+.ring:not([data-n="4"]) .arc[data-phase=import]{display:none}
+.arc[data-phase=import]:is([data-state=active],[data-state=failed]) .arc-fill{stroke-dashoffset:calc(100 - var(--f,0) * 100);transition-duration:.3s;transition-timing-function:ease-out}
+.arc[data-phase=import][data-state=failed] .arc-fill{stroke:var(--bt-danger)}
+.arc[data-caught] .arc-base{stroke:var(--bt-ink-deepseek);stroke-opacity:.22;animation:bt-catch .42s ease-out}
+@keyframes bt-catch{from{stroke-width:5;stroke-opacity:1}}
 html[data-whale=pondering] .arc[data-state=active] .arc-glow{animation-duration:2.6s}
 @keyframes bt-arc{from{stroke-dashoffset:23}to{stroke-dashoffset:-101}}
 /* The hand-off: the gaps close into one circle, which swells once. */
@@ -113,7 +121,7 @@ html[data-resume] :is(.arc-fill,.ring-full){transition:none}
 .props>g{opacity:0;scale:.6;transform-origin:20px 36px;transition:opacity .16s ease-in,scale .16s ease-in}
 .props *{transform-box:fill-box}
 .props>g{transform-box:view-box}
-.pond:has(.arc:nth-of-type(1)[data-state=active]) [data-p=data],.pond:has(.arc:nth-of-type(2)[data-state=active]) [data-p=engine],.pond:has(.arc:nth-of-type(3)[data-state=active]) [data-p=team]{opacity:1;scale:1;transition:opacity .2s ease-out,scale var(--spring-pop-ms) var(--spring-pop)}
+.pond:has(.arc[data-phase=data][data-state=active]) [data-p=data],.pond:has(.arc[data-phase=import][data-state=active]) [data-p=import],.pond:has(.arc[data-phase=engine][data-state=active]) [data-p=engine],.pond:has(.arc[data-phase=team][data-state=active]) [data-p=team]{opacity:1;scale:1;transition:opacity .2s ease-out,scale var(--spring-pop-ms) var(--spring-pop)}
 .folder-back{fill:color-mix(in srgb,var(--bt-ink-deepseek) 40%,transparent)}
 .folder-front{fill:var(--bt-ink-deepseek)}
 .page rect{fill:var(--bt-card);stroke:var(--bt-line-2);stroke-width:1}
@@ -128,7 +136,13 @@ html[data-resume] :is(.arc-fill,.ring-full){transition:none}
 .gear-big{fill:var(--bt-ink-deepseek);animation:bt-turn 2.7s linear infinite}
 .gear-small{fill:color-mix(in srgb,var(--bt-ink-deepseek) 55%,transparent);animation:bt-turn 1.8s linear infinite reverse}
 [data-p=engine]{animation:bt-pulse 1.35s ease-in-out infinite}
-.pond:not(:has(.arc:nth-of-type(2)[data-state=active])) [data-p=engine]{animation:none}
+.pond:not(:has(.arc[data-phase=engine][data-state=active])) [data-p=engine]{animation:none}
+/* The import: a box is lifted off the old pile and carried onto the new one. */
+.box rect{fill:var(--bt-ink-deepseek)}
+.box path{fill:none;stroke:var(--bt-card);stroke-width:1.2;stroke-linecap:round}
+.box-from rect{fill:color-mix(in srgb,var(--bt-ink-deepseek) 40%,transparent)}
+.box-moving{animation:bt-carry 1.6s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes bt-carry{0%{translate:0 0;opacity:0}12%{translate:0 0;opacity:1}42%{translate:10px -17px}66%,86%{translate:20px -12px;opacity:1}100%{translate:20px -12px;opacity:0}}
 @keyframes bt-turn{to{rotate:360deg}}
 @keyframes bt-pulse{0%,100%{transform:none}15%{transform:scale(1.07)}35%{transform:none}}
 .mate circle{fill:var(--bt-ink-deepseek)}
@@ -138,22 +152,11 @@ html[data-resume] :is(.arc-fill,.ring-full){transition:none}
 [data-p=team]>g:nth-child(2) .mate{animation-delay:.2s}
 [data-p=team]>g:nth-child(3) .mate{opacity:.75;animation-delay:.4s}
 @keyframes bt-mate{0%,40%,100%{transform:none}15%{transform:translateY(-4px) scale(1.05,.95)}}
-html[data-whale=pondering] :is(.page,.mate,[data-p=engine]){animation-duration:2.6s}
+html[data-whale=pondering] :is(.page,.mate,[data-p=engine],.box-moving){animation-duration:2.6s}
 html[data-whale=pondering] .gear-big{animation-duration:4s}
 html[data-whale=pondering] .gear-small{animation-duration:2.667s}
 
 .track{list-style:none}
-/* step marks of the copying card */
-.mark{position:relative;flex:none;width:16px;height:16px;border-radius:50%;box-sizing:border-box;border:1.5px solid var(--bt-line-2);transition:border-color .12s}
-.mark .dot{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:var(--bt-ink);opacity:0;transition:opacity .12s}
-.mark svg{position:absolute;left:-1.5px;top:-1.5px;width:16px;height:16px;opacity:0;overflow:visible}
-.mark circle{stroke:none}
-.mark path{fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.check circle{fill:var(--bt-green)}
-[data-state=active]>.mark{border-color:var(--bt-ink)}
-[data-state=active]>.mark .dot{opacity:1}
-[data-state=done]>.mark{border-color:transparent}
-[data-state=done]>.mark .check{opacity:1}
 html[data-shimmer] .voice[data-on]>span{color:transparent;background:linear-gradient(90deg,var(--bt-ink) 0 40%,var(--bt-ink-2) 50%,var(--bt-ink) 60% 100%) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;animation:bt-shimmer 2.2s steps(60) infinite}
 @keyframes bt-shimmer{from{background-position:100% 0}to{background-position:0 0}}
 
@@ -165,6 +168,16 @@ html[data-up] .caption{opacity:0;pointer-events:none}
 .caption>*{opacity:0;filter:blur(6px);transition:opacity .16s,filter .16s}
 .caption>[data-on]{opacity:1;filter:none;transition:opacity .22s ease-out,filter .22s ease-out}
 
+/* The copy's stop: a round icon button under the ring, only while the copy runs and no card is
+   up; its confirmation is a card. */
+.stop-copy{position:absolute;z-index:1;left:346px;top:324px;width:28px;height:28px;display:grid;place-items:center;padding:0;border:0;border-radius:50%;background:none;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s,color .12s,opacity .16s,scale var(--spring-tap-ms) var(--spring-tap)}
+.stop-copy:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.stop-copy:active{scale:.9}
+.stop-copy:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.stop-copy svg{width:16px;height:16px;fill:currentColor}
+.stop-copy:not([hidden]){animation:bt-fade-in .22s ease-out}
+html[data-up] .stop-copy{opacity:0;pointer-events:none}
+@keyframes bt-fade-in{from{opacity:0}}
 /* sheet: one surface that every card morphs in and out of */
 .sheet{position:absolute;left:48px;top:260px;width:624px;height:calc(100% - 304px)}
 html[data-sheet=none] .sheet{pointer-events:none}
@@ -186,7 +199,7 @@ html[data-sheet=none] .sheet{pointer-events:none}
 .card-title{font-size:15px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-actions{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
 .card>.card-actions:first-child{margin-top:0}
-.card-actions .foot,.card-actions .eta{margin-left:auto}
+.card-actions .foot,.card-actions .end{margin-left:auto}
 .foot{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .card>.foot,.miss{margin-top:8px}
 .miss{font-size:13px;line-height:18px;color:var(--bt-danger)}
@@ -205,15 +218,6 @@ html[data-sheet=none] .sheet{pointer-events:none}
 .opts{display:flex;gap:20px;font-size:13px;line-height:18px}
 .opts label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .opts input{margin:0;width:14px;height:14px;accent-color:var(--bt-accent)}
-.steps{position:relative;list-style:none}
-.steps li{display:flex;align-items:center;gap:10px;height:28px;align-items:flex-start;padding-top:2px;box-sizing:border-box;font-size:13px;line-height:18px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
-.steps li .mark{margin-top:1px}
-.steps li[data-state=active]{color:var(--bt-ink)}
-.card[data-confirm] .steps li:not([data-state=active]){display:none}
-.card[data-confirm] .stop,.card:not([data-confirm]) [data-confirm]{display:none}
-.copy-steps{position:relative}
-.copy-steps .bar{position:absolute;left:26px;right:0;top:calc(var(--step,0) * 28px + 22px)}
-.card[data-confirm] .copy-steps .bar{top:22px}
 .bar{height:4px;border-radius:2px;background:var(--bt-hover);overflow:hidden}
 .bar-fill{display:block;height:100%;background:var(--bt-accent);transform-origin:0 50%;scale:0 1}
 .banner{border-radius:12px;background:var(--bt-hover);padding:12px 14px}
@@ -310,7 +314,8 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-eyes=happy] .bt-eye-happy{opacity:1}
 @media (prefers-reduced-motion:reduce){
 :root :is(.whale-x,.whale-gaze,.whale,.whale-move,.whale-loop,#tail,#gaze,#eye-pair,.bt-eye,.bt-eye-happy,.ripple,.stage){animation:none!important;transition:none!important}
-:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *){animation:none!important}
+:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *,.stop-copy){animation:none!important}
+:root .stop-copy,:root .stop-copy:active{scale:none}
 :root .props>g{scale:none!important;transition:opacity .12s!important}
 :root :is(.arc-fill,.ring-full){transition-duration:.12s!important}
 :root .voice>span{animation:none!important;background:none!important;color:var(--bt-ink)!important}
@@ -319,4 +324,4 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-exit~=lane] .lane{opacity:0;transition:opacity .12s}
 }
 
-@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle){fill:CanvasText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}
+@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle,.box rect){fill:CanvasText}.stop-copy{color:ButtonText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}

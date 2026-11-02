@@ -2,7 +2,7 @@
 // and what the copy does with the answers. The disk, the engine and the window are test doubles.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { copySize, defaultOptions, etaMinutes, ImportFlow, modelChoices } from '../src/import-flow.mjs'
+import { arcShare, copySize, defaultOptions, etaMinutes, ImportFlow, modelChoices } from '../src/import-flow.mjs'
 
 const GB = 2 ** 30
 const tick = () => new Promise((resolve) => { setImmediate(resolve) })
@@ -190,6 +190,19 @@ test('the copying card counts the checked chats, then the bytes, then starts the
   assert.equal(copying.at(-1).step, 3)
   assert.equal(copying.at(-1).steps[1].b, '4.2 GB')
   assert.ok(copying.some(card => card.step === 2), 'the copy shows its own step')
+  // The ring's import arc fills with it and never goes back.
+  const arcs = copying.map(card => card.arc)
+  assert.deepEqual(arcs.slice(1).filter((arc, k) => arc < arcs[k]), [])
+  assert.equal(arcs.at(-1), 1)
+})
+
+test("the check of the chats fills the import arc's first 15 %, the copy the rest", () => {
+  assert.equal(arcShare(1, 0), 0)
+  assert.equal(arcShare(1, 1), 0.15)
+  assert.equal(arcShare(2, 0), 0.15)
+  assert.equal(arcShare(2, 0.5), 0.575)
+  assert.equal(arcShare(2, 2), 1)
+  assert.equal(arcShare(3, 0), 1)
 })
 
 test('〔停止复制〕 asks on the card, 〔继续复制〕 goes back, and the confirmed stop leaves no team', async () => {

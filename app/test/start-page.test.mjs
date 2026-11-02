@@ -67,18 +67,24 @@ test('the page sends only the acts of the start window', () => {
   for (const name of START_ACTS) assert.ok(sent.has(name), `the main process takes ${name}, which the page never sends`)
 })
 
-// The progress is a ring of three arcs round the whale, one per stage: radius 106 round the
-// centre of a 220 box, 120 degrees each from the top, clockwise, 10 degrees apart, with one
-// circle that closes the ring at the hand-off. The rings that the whale left at its stops and
-// the elapsed clock are gone.
-test('the start page draws the progress as a ring of three arcs and a closing circle', () => {
-  const arcs = [...html.matchAll(/<g class="arc" data-state="pending">(.*?)<\/g>/gu)].map(match => match[1])
-  assert.equal(arcs.length, 3)
+// The progress is a ring of arcs round the whale, one per stage: radius 106 round the centre of
+// a 220 box, from the top, clockwise, 10 degrees apart, with one circle that closes the ring at the
+// hand-off. Three arcs of 120 degrees; a first start that copies a team has a fourth stage, the
+// import, and four arcs of 90 degrees (whale.js arcPath draws them again). The rings that the
+// whale left at its stops and the elapsed clock are gone.
+test('the start page draws the progress as a ring of three or four arcs and a closing circle', () => {
+  const arcs = [...html.matchAll(/<g class="arc" data-phase="(\w+)" data-state="pending">(.*?)<\/g>/gu)]
+  assert.deepEqual(arcs.map(match => match[1]), ['data', 'engine', 'team', 'import'])
   const point = (deg) => {
     const a = (deg * Math.PI) / 180
     return [110 + 106 * Math.cos(a), 110 + 106 * Math.sin(a)]
   }
-  arcs.forEach((arc, k) => {
+  // The import's arc is the second of four; it is drawn that way from the start, and shows only
+  // on a ring of four (start.css .ring[data-n]).
+  const layout = [[0, 3], [1, 3], [2, 3], [1, 4]]
+  arcs.forEach(([, , arc], k) => {
+    const [at, n] = layout[k]
+    const span = 360 / n
     const paths = [...arc.matchAll(/<path class="(arc-[a-z]+)" d="([^"]+)" pathLength="100"\/>/gu)]
     assert.deepEqual(paths.map(match => match[1]), ['arc-base', 'arc-fill', 'arc-glow'], `arc ${String(k)}`)
     const d = paths[0][2]
@@ -86,9 +92,19 @@ test('the start page draws the progress as a ring of three arcs and a closing ci
     const [x0, y0, rx, ry, , large, sweep, x1, y1] = d.match(/-?\d+(?:\.\d+)?/gu).map(Number)
     assert.deepEqual([rx, ry, large, sweep], [106, 106, 0, 1], `arc ${String(k)}: not a clockwise arc of radius 106`)
     const near = ([px, py], [qx, qy]) => Math.abs(px - qx) < 0.01 && Math.abs(py - qy) < 0.01
-    assert.ok(near([x0, y0], point(-90 + k * 120 + 5)), `arc ${String(k)} starts elsewhere`)
-    assert.ok(near([x1, y1], point(-90 + (k + 1) * 120 - 5)), `arc ${String(k)} ends elsewhere`)
+    assert.ok(near([x0, y0], point(-90 + at * span + 5)), `arc ${String(k)} starts elsewhere`)
+    assert.ok(near([x1, y1], point(-90 + (at + 1) * span - 5)), `arc ${String(k)} ends elsewhere`)
   })
+  assert.match(read('start.css'), /\.ring:not\(\[data-n="4"\]\) \.arc\[data-phase=import\]\{display:none\}/u)
+  // The director draws the same arcs.
+  const source = code['whale.js']
+  const body = source.match(/^export function arcPath\(k, n\) \{$[\s\S]*?^\}$/mu)[0].replace('export ', '')
+  const arcPath = new Function(`${body}\nreturn arcPath`)()
+  assert.equal(arcPath(0, 3), arcs[0][2].match(/d="([^"]+)"/u)[1])
+  assert.equal(arcPath(2, 3), arcs[2][2].match(/d="([^"]+)"/u)[1])
+  assert.equal(arcPath(1, 4), arcs[3][2].match(/d="([^"]+)"/u)[1])
+  // The hidden stage list has the import's stage too, shown only on such a start.
+  assert.match(html, /<li class="station" data-phase="data"[^>]*>.*\r?\n<li class="station" data-phase="import" data-state="pending" hidden>.*\r?\n<li class="station" data-phase="engine"/u)
   assert.equal(html.match(/<circle class="ring-full" cx="110" cy="110" r="106" pathLength="100" transform="rotate\(-90 110 110\)"\/>/gu)?.length, 1)
   // The ring, the water, the whale and its hit box move as one block when a card comes.
   assert.match(html, /<div class="pond">\r?\n<svg class="ring"[\s\S]*?<div class="water"[\s\S]*?<div class="lane">[\s\S]*?<span class="spout"><svg class="plume"[^>]*\shidden>[\s\S]*?<div class="whale-hit"[\s\S]*?<div class="fx" aria-hidden="true"><span class="ripple"><\/span><\/div>\r?\n<\/div>/u)
@@ -140,7 +156,7 @@ test('an empty or hidden arc leaves no dot: no dash touches its path', () => {
 test('the first stage is seen active before it fills, even when it was done before the page painted', () => {
   const whale = code['whale.js']
   const legs = whale.slice(whale.indexOf('async function runLegs()'), whale.indexOf('function failStation()'))
-  assert.match(legs, /if \(i === 0 && !resume && \['boot', 'moving'\]\.includes\(want\.view\) && stations\[0\]\.dataset\.state === 'pending'\) \{\s*clearTimeout\(activeTimer\)\s*showActive\(0\)/u)
+  assert.match(legs, /if \(i === 0 && !resume && \['boot', 'moving'\]\.includes\(want\.view\) && stationEl\(0\)\.dataset\.state === 'pending'\) \{\s*clearTimeout\(activeTimer\)\s*showActive\(0\)/u)
   assert.match(legs, /await hold\(Math\.max\(D\.activeAt\[i\] \? D\.activeAt\[i\] \+ HOLD : 0/u)
   assert.match(whale, /const HOLD = 420\b/u)
   // The reconcile waits for the entrance first, so the arc turns active on a whale that has surfaced.
@@ -218,8 +234,7 @@ test('each layer ends its lines as its rule says', () => {
   // Not sentences: picker titles, progress lines and labels.
   const NOT_SENTENCES = new Set([
     'card.update.slow', 'card.update.downloading', 'dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs', 'dialog.saveLog',
-    'card.copying.step1', 'card.copying.step2', 'card.copying.step3', 'card.copying.eta', 'card.copying.etaSoon',
-    'card.import.model', 'card.import.optRegen', 'card.import.optSkipWork',
+    'card.import.line', 'card.import.model', 'card.import.optRegen', 'card.import.optSkipWork',
   ])
   for (const key of Object.keys(TEXT.zh)) {
     const zh = TEXT.zh[key]
@@ -296,7 +311,7 @@ test('every text key that the page uses exists', () => {
     for (const [, prefix] of text.matchAll(/`([\w.]+\.)\$\{/gu)) assert.ok(keys.some(key => key.startsWith(prefix)), `${name}: no text key starts with ${prefix}`)
   }
   // Keys the page builds from the snapshot's views, the stages and the failure reasons.
-  for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'status.phase.data', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
+  for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'status.phase.data', 'status.phase.import', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
   assert.deepEqual(matching('reason.start.{reason}').sort(), ['reason.start.engine', 'reason.start.files', 'reason.start.other', 'reason.start.permission', 'reason.start.space'])
   assert.deepEqual(matching('reason.place.{reason}').sort(), ['reason.place.drive', 'reason.place.dsh', 'reason.place.foreign', 'reason.place.nested', 'reason.place.onedrive', 'reason.place.permission', 'reason.place.program', 'reason.place.space', 'reason.place.workspace'])
   assert.deepEqual(matching('reason.copy.{reason}').sort(), ['reason.copy.full', 'reason.copy.inUse', 'reason.copy.other', 'reason.copy.permission'])
@@ -331,10 +346,10 @@ test('t fills placeholders and falls back to zh, then to the key', () => {
 })
 
 test('t picks the English singular or plural by the value', () => {
-  assert.equal(t('en', 'card.import.leadBare', { bots: 1, groups: 6 }), 'DeepSeek Harness has 1 Bot and 6 group chats. Copy them over?')
-  assert.equal(t('en', 'card.import.leadBare', { bots: 6, groups: 1 }), 'DeepSeek Harness has 6 Bots and 1 group chat. Copy them over?')
-  assert.equal(t('zh', 'card.import.leadBare', { bots: 6, groups: 1 }), 'DeepSeek Harness 里有 6 个 Bot 和 1 个群聊。复制过来？')
-  assert.equal(t('en', 'card.import.leadBare', { bots: 1 }), 'DeepSeek Harness has 1 Bot and {groups|group chat|group chats}. Copy them over?')
+  assert.equal(t('en', 'card.import.line', { bots: 1, groups: 6 }), 'Found your old team: 1 Bot, 6 group chats')
+  assert.equal(t('en', 'card.import.line', { bots: 6, groups: 1 }), 'Found your old team: 6 Bots, 1 group chat')
+  assert.equal(t('zh', 'card.import.line', { bots: 4, groups: 0 }), '找到你以前的团队了：4 个 Bot、0 个群聊')
+  assert.equal(t('en', 'card.import.line', { bots: 1 }), 'Found your old team: 1 Bot, {groups|group chat|group chats}')
 })
 
 test('langOf gives zh for every Chinese locale and en otherwise', () => {

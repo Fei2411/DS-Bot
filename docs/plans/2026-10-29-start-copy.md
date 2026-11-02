@@ -50,7 +50,7 @@
 
 鲸鱼的话 `voice.*`：`voice.slow45 / watchdog` 不动；`title.moving` → `voice.moving`，`title.failed` → `voice.failed`，`title.viewFailed` → `voice.viewFailed`「团队界面没有加载出来」（去句号），`slow.45.later` → `voice.slowLater`「比平时慢，请再等一会儿」（去句号；以后的启动和搬数据时 45 秒起由鲸鱼说）。启动窗口顺利时不说话（[启动窗口](2026-10-26-start-window.md) 第 3 节），所以表里没有问候、各阶段的话和「进去吧」（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready`），`title.later`「正在打开你的团队…」也没有键。
 
-卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / import / importSpace / inUse / newer` 不动；`copying.title` → `say.copying`「正在搬过来」。
+卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / importSpace / inUse / newer` 不动；停止复制的确认 `say.stopCopy`「停止复制？」。导入卡的第一行带数字，是 `card.import.line`「找到你以前的团队了：{bots} 个 Bot、{groups} 个群聊」（不是句子，不加句号）；复制中没有卡片，所以没有 `say.copying`。
 
 提示行 `hint.*`：只有 `hint.space`，不动。接模型、预览版说明和重装的三句（`hint.model / preview / reinstall`）没有键：启动页不提前说进门以后的事。
 
@@ -64,11 +64,9 @@
 | `card.missing` | `card.missing.lead` | |
 | `card.missing.retryMissed` | `card.missing.retryMissed` | |
 | `card.picked` | `card.picked.lead` | 会放在 {path}。（加句号） |
-| `import.lead / extra / found / scope / model` | `card.import.lead / extra / found / scope / model` | |
+| `import.extra / model` | `card.import.extra / model` | 只在「详细」里；`lead / found / scope` 没有了 |
 | `import.opt.regen / skipWork` | `card.import.optRegen / optSkipWork` | 勾选框的标签 |
 | `import.space` | `card.importSpace.lead` | |
-| `copying.step1 / 2 / 3` | `card.copying.step1 / 2 / 3` | |
-| `eta.minutes`、`eta.lt1` | `card.copying.eta`、`card.copying.etaSoon` | |
 | `stop.confirm` | `card.copying.stopConfirm` | |
 | `inUse` | `card.inUse.lead` | |
 | `newer.updating`、`newer.unreadable` | `card.newerUpdating.lead`、`card.newer.lead` | |
@@ -141,7 +139,7 @@
 - 逐键对照中文的意思，不另写一套：位置行写全「Data on drive {drive}, {free} free」（原来只有「Drive C, 412 GB free」）。
 - 句首大写；`voice / say / hint / btn / foot / status` 不加句号；`card / reason（整句）/ note / dialog` 以句号或问号结尾；… 和中文同步。
 - 名词：chats（不用 conversations）、group chats、attachments、API Key、Settings → General → Location（单数）、team workspace、data folder、local engine。
-- 单复数用 `{n|one|many}`：`card.import.lead`「DeepSeek Harness has {bots|Bot|Bots} and {groups|group chat|group chats} …」、`card.import.found`、`dialog.import.found`、`dialog.import.newer`。
+- 单复数用 `{n|one|many}`：`card.import.line`「Found your old team: {bots|Bot|Bots}, {groups|group chat|group chats}」、`dialog.import.found`、`dialog.import.newer`。
 - 「先不复制」是 Don't copy yet，「先不带团队开始」是 Start without the team，「先不重启」Not now（重启框）、「先不下载」Not now（下载框）。
 
 ### 5. 测试
@@ -196,3 +194,4 @@
 - 2026-10-30：启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：鲸鱼的话只剩用户要知道或回答时的几句，表里去掉 14 个键（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready / opening`、`hint.model / preview / reinstall`、`status.elapsed`），`hint.slowLater` 改名 `voice.slowLater`（同一句，以后的启动和搬数据时 45 秒起由鲸鱼说）；第 2 节 `voice`、`hint`、`status` 三层的说明、第 3 节的对照和第 4 节单复数的例子跟着改，第 5 节加一条测试。依据：维护者 2026-10-30 转来的讨论（「现在这版有点噪了」）和维护者选定的圆环原型。
 - 2026-10-31：启动页的底注去掉（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `foot.community`；`foot` 层只剩位置行，第 2、3 节跟着改，「改动的已定设计」加一行。以后的启动搬数据改在卡片上问，加 `say.move`「搬到这个文件夹？」、`card.move.lead`、`reason.place.drive / workspace`（第 3 节对照表加一行，第 2 节 `reason.*` 改成九个原因）；按钮用已有的 `btn.move / repick / cancel`。依据：维护者「移除左下角的社区非官方声明」「让我们尽可能避免系统中出现任何这样的默认弹窗」。
 - 2026-11-01：启动页轻易不写字（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `voice.slow45 / slowLater / moving` 和 `btn.openLogs`，加 `btn.saveLog`「保存日志…」（打开系统保存框，所以以 … 结尾）；`voice` 层只剩出错时的三句。第 3 节的旧键对照是当时的记录，不改。
+- 2026-11-02：导入并进圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.import.line`、`say.stopCopy` 和 `status.phase.import`「复制以前的团队」；去掉 `say.import / copying`、`card.import.lead / leadBare / found / scope` 和 `card.copying.step1 / 2 / 3 / eta / etaSoon`。

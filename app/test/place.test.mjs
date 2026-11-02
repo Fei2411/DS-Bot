@@ -26,6 +26,11 @@ test('sizes read as Explorer shows them', () => {
   assert.equal(formatBytes(10 * 2 ** 30), '10 GB')
   assert.equal(formatBytes(1.26 * 2 ** 30), '1.2 GB')
   assert.equal(formatBytes(900 * 2 ** 20), '900 MB')
+  // Under 1 MB, never 「0 MB」.
+  assert.equal(formatBytes(2 ** 20), '1 MB')
+  assert.equal(formatBytes(12_000), '不到 1 MB')
+  assert.equal(formatBytes(0), '不到 1 MB')
+  assert.equal(formatBytes(12_000, 'en'), 'under 1 MB')
   assert.equal(formatBytes(undefined), undefined)
   assert.equal(formatBytes(-1), undefined)
 })

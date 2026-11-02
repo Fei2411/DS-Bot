@@ -16,6 +16,9 @@ export const SHORT_START_SIZE = { width: 720, height: 500 }
 const SHORT_WORK_AREA = 588
 export const MAIN_SIZE = { width: 1320, height: 860 }
 export const PHASES = ['data', 'engine', 'team']
+// A first start that copies a team from DSH has a stage of its own for the copy (§6).
+export const IMPORT_PHASES = ['data', 'import', 'engine', 'team']
+export const phasesOf = state => (state.explain?.mode === 'import' ? IMPORT_PHASES : PHASES)
 export const START_KINDS = ['first', 'later', 'moving']
 export const WATCHDOG_MS = 180_000
 export const TEAM_VIEW_MS = 20_000
@@ -248,8 +251,9 @@ export function startSnapshot(state, now) {
     // Windows draws the caption buttons over the page's band; macOS and Linux a system title bar.
     frame: state.frame,
     view: state.view,
-    phase: PHASES.find(phase => !state.done.includes(phase)) ?? 'team',
-    done: PHASES.filter(phase => state.done.includes(phase)),
+    phases: [...phasesOf(state)],
+    phase: phasesOf(state).find(phase => !state.done.includes(phase)) ?? 'team',
+    done: phasesOf(state).filter(phase => state.done.includes(phase)),
     clock: { ms: Math.round(clockMs(state.clock, now)), at: now, running: state.clock.running, rate: 1 },
     explain: { ...state.explain },
     celebrate: state.celebrate,
@@ -555,9 +559,9 @@ export class StartWindow {
     this.#viewLate = false
   }
 
-  /** The data folder or the engine is ready; the engine also again after a retry. */
+  /** The data folder, the import or the engine is ready; the engine also again after a retry. */
   done(phase) {
-    if (!this.#open() || !['data', 'engine'].includes(phase)) return
+    if (!this.#open() || !['data', 'import', 'engine'].includes(phase)) return
     const again = this.#state.done.includes(phase)
     if (again && (phase !== 'engine' || this.#engineUp)) return
     if (phase === 'engine') this.#engineUp = true
@@ -565,6 +569,16 @@ export class StartWindow {
     this.#phaseAt = Date.now()
     // The engine came up while the 180 s question was open: the question goes.
     this.#update({ ...(again ? {} : { done: [...this.#state.done, phase] }), ...(this.#state.view === 'watchdog' ? { view: 'boot' } : {}) })
+  }
+
+  /**
+   * The engine that warmed up while the import card waited has stopped for the copy: its stage
+   * is open again until the engine of the copied team is up.
+   */
+  engineDown() {
+    if (!this.#open() || !this.#state.done.includes('engine')) return
+    this.#engineUp = false
+    this.#update({ done: this.#state.done.filter(phase => phase !== 'engine') })
   }
 
   /** The engine's page started loading in the hidden team window: it has 20 s to call ready(). */
@@ -604,7 +618,7 @@ export class StartWindow {
     this.#readyAt = now
     // A team view that loads after its 20 s goes in without a celebration (§7).
     const celebrate = this.#state.celebrate && this.#state.view !== 'viewFailed'
-    this.#update({ view: 'handoff', done: [...PHASES], celebrate, failure: undefined, landing: this.#landing(report) })
+    this.#update({ view: 'handoff', done: [...phasesOf(this.#state)], celebrate, failure: undefined, landing: this.#landing(report) })
     const main = this.#o.mainWindow()
     if (main !== undefined && !main.isDestroyed() && !this.#window.isMinimized()) this.#underlay(main)
     this.#later('fallback', fallbackMs(this.#state), () => {
