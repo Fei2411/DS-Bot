@@ -139,6 +139,9 @@ const start = (team = TEAM, services = {}, globals = [], shared = {}) => {
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
+  // Sessions named in shared.live get their Agent into the registry before the
+  // runtime and its first load — the state a restart leaves behind (#826).
+  for (const liveId of shared.live ?? []) agentOf(liveId)
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
@@ -394,6 +397,50 @@ test('the assemble passes an unowned Session through unchanged', async (t) => {
   const assembly = { tools: [{ name: 'read' }], sections: [] }
   assert.equal(await assemble(host, host.agentOf('plain1'), assembly), assembly)
   assert.deepEqual(scopedNames(host, 'plain1'), [])
+})
+
+test('a Session the load itself scoped still gets its tools into the step\'s list', async (t) => {
+  // The restart case of #826: the Agent was already live when the runtime's
+  // first load scoped it — the names were never on a collected tool list, so
+  // the assemble must still add them to this step's.
+  const host = start(TEAM, {}, [], { live: ['r1'] })
+  t.after(host.stop)
+  const assembled = await assemble(host, host.agentOf('r1'), { tools: [{ name: 'read' }], sections: [] })
+  assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
+  assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'group_relay'])
+})
+
+test('a PTC group Session gets its relay scoped but keeps run_code alone in the list', async (t) => {
+  // A group made under the PTC preset relays through run_code; adding the scoped
+  // group_relay to the list would make the hook pick the call it cannot declare.
+  const host = start()
+  t.after(host.stop)
+  const agent = host.agentOf('r1')
+  const assembly = { tools: [{ name: 'run_code' }], sections: [] }
+  assert.equal(await assemble(host, agent, assembly), assembly)
+  assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
+})
+
+test('a same-named global in the list is replaced by the scoped schema', async (t) => {
+  // Another plugin's global show_view was collected for the request; the scoped
+  // one that shadows it at execution replaces its schema in the list.
+  const host = start()
+  t.after(host.stop)
+  const agent = host.agentOf('a')
+  const assembled = await assemble(host, agent, { tools: [{ name: 'show_view', description: 'global' }], sections: [] })
+  const named = assembled.tools.filter(tool => tool.name === 'show_view')
+  assert.equal(named.length, 1)
+  assert.notEqual(named[0].description, 'global')
+})
+
+test('the assemble adds the recovered names once, not on every step', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  const agent = host.agentOf('r1')
+  const first = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
+  assert.deepEqual(first.tools.map(tool => tool.name), ['read', 'group_relay'])
+  const second = { tools: [{ name: 'read' }], sections: [] }
+  assert.equal(await assemble(host, agent, second), second)
 })
 
 test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {
