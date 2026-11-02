@@ -22,6 +22,7 @@ export function Dock({ question, sessionId, approvals, view, call, p }: {
   if (!has) return null
   return (
     <ScrollView style={styles.dock} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
+      {view !== undefined ? <ViewCard sessionId={sessionId} view={view} p={p} /> : null}
       {question ? <QuestionCard question={question} sessionId={sessionId} call={call} p={p} /> : null}
       {approvals.map(approval => <ApprovalCard key={approval.id} approval={approval} call={call} p={p} />)}
     </ScrollView>
