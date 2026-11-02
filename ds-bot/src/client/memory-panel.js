@@ -343,7 +343,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       h('div', { className: 'bt-mem-head' },
         page === 'summary' ? null : h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back to the summary'), onClick: backToSummary }, h(ChevronLeftIcon)),
         h('h2', null, page === 'entries' ? t('All entries') : page === 'history' ? t('Change history') : t('Memory summary')),
-        h('span', { className: 'bt-mem-status' }, page === 'summary' ? [owner.name, status].filter(Boolean).join(' · ') : status),
+        h('span', { className: 'bt-mem-status' }, page === 'summary' ? [owner.name, status].filter(Boolean).join(' · ') : page === 'entries' ? status : ''),
         h('span', { className: 'bt-mem-head-gap' }),
         h('button', { ref: dotsRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Memory options'), 'aria-haspopup': 'menu', 'aria-expanded': menu, onClick: () => setMenu(value => !value) }, h(DotsIcon)),
         h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close memory'), onClick: close }, h(CloseIcon)),

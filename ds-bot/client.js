@@ -14043,7 +14043,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         { className: "bt-mem-head" },
         page === "summary" ? null : (0, import_react31.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to the summary"), onClick: backToSummary }, (0, import_react31.createElement)(ChevronLeftIcon)),
         (0, import_react31.createElement)("h2", null, page === "entries" ? t("All entries") : page === "history" ? t("Change history") : t("Memory summary")),
-        (0, import_react31.createElement)("span", { className: "bt-mem-status" }, page === "summary" ? [owner.name, status].filter(Boolean).join(" · ") : status),
+        (0, import_react31.createElement)("span", { className: "bt-mem-status" }, page === "summary" ? [owner.name, status].filter(Boolean).join(" · ") : page === "entries" ? status : ""),
         (0, import_react31.createElement)("span", { className: "bt-mem-head-gap" }),
         (0, import_react31.createElement)("button", { ref: dotsRef, type: "button", className: "bt-icon-btn", "aria-label": t("Memory options"), "aria-haspopup": "menu", "aria-expanded": menu, onClick: () => setMenu((value) => !value) }, (0, import_react31.createElement)(DotsIcon)),
         (0, import_react31.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close memory"), onClick: close }, (0, import_react31.createElement)(CloseIcon)),
