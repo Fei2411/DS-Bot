@@ -169,3 +169,24 @@ test('the chat-room rule is installed through installStyles, so it is owned too'
   assert.match(pane, /installStyles\(.*'chat-room'/)
   assert.equal(pane.includes("dataset.dshBot = 'chat-room'"), false)
 })
+
+test('message tools anchor to the bottom of a long reply in both layouts', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /\.bt-tools\{position:absolute;bottom:0;/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{bottom:-14px;/)
+  assert.doesNotMatch(css, /\.bt-tools\{position:absolute;top:50%;/)
+})
+
+test('the tools toolbar keeps its own stacking context for the hover bridge', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  // Without a stacking context on .bt-tools, the ::after bridge's z-index:-1
+  // sinks behind the full-width .bt-astack and the toolbar flickers when the
+  // pointer crosses the gap.
+  assert.match(css, /\.bt-tools\{position:absolute;bottom:0;z-index:0;/)
+  assert.match(css, /\.bt-tools::after\{[^}]*z-index:-1/)
+})
+
+test('the flat toolbar does not cover reactions below the message', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
+})
