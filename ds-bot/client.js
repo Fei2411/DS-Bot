@@ -93,6 +93,8 @@ var ZH = {
   "Delete group": "删除群聊",
   "Open {name}'s chat": "打开 {name} 的对话",
   "New Bot": "新 Bot",
+  "New Bots": "新 Bot",
+  "Default model": "默认模型",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
   "Setting up your Main Bot…": "正在设置你的主 Bot…",
@@ -506,7 +508,6 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
-  "When off, Enter inserts a new line. Use the send button to send.": "关闭后，回车换行，点击发送按钮发送。",
   "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
   "Choose a Bot…": "选择一个 Bot…",
@@ -1049,7 +1050,10 @@ var ZH = {
   "Every weekend at {time}": "每个周末 {time}",
   "On the schedule {expression}": "按计划 {expression}",
   "Next: {time}": "下次 {time}",
+  "Overdue: {time}": "已逾期 {time}",
   Finished: "已结束",
+  "Scheduled tasks · {count}": "定时任务 · {count}",
+  "Show all": "显示全部",
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
   "Delete task": "删除任务",
@@ -2562,16 +2566,18 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
 .bt-leftcol-foot{display:flex;align-items:center;gap:9px;padding-top:8px;flex:none}
-.bt-rail{align-items:center;padding:0}
+.bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
-.bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:6px;padding-bottom:8px}
+.bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
-.bt-rail .bt-list{align-self:stretch;align-items:center;gap:4px}
+/* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
+   between avatar edges, the open list's 19px (8px padding + 3px gap + 8px). */
+.bt-rail .bt-list{align-self:stretch;align-items:center;gap:8px}
 /* The rail's list spans the whole column: the badges and dots that sit on a row's
    edge need room beside the 56px rows, or the list scrolls sideways. */
 .bt-leftcol[data-left=rail]{padding:calc(var(--bt-lc-clear) + 8px) 0 8px}
-.bt-leftcol-foot-rail{flex-direction:column;gap:6px}
+.bt-leftcol-foot-rail{flex-direction:column;gap:8px}
 /* A drag that crosses the rail's snap line rides the spring to its target: the
    content is pinned at the target size so only the column's edge moves. */
 .bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
@@ -3057,18 +3063,23 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-msg-line>.bt-bubble{max-width:none;min-width:0}
 /* The same bubble width as beside an avatar column: the share of (100% - 30px), plus the 30px. */
 .bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 52px))}
-.bt-tools{position:absolute;top:50%;left:100%;margin-left:6px;transform:translateY(-50%);display:flex;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
+.bt-tools{position:absolute;bottom:0;z-index:0;left:100%;margin-left:6px;display:flex;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 /* The hover bridge spans only the 6px gap (plus a little overlap) between the
    bubble's edge and the toolbar: wider, it sits over the bubble's tail and
-   blocks text selection and link clicks there. */
+   blocks text selection and link clicks there. Its z-index:-1 only stays under
+   the toolbar, not under the full-width .bt-astack, because z-index:0 above
+   gives the toolbar its own stacking context. */
 .bt-tools::after{content:"";position:absolute;top:-8px;bottom:-8px;right:100%;width:10px;z-index:-1}
 .bt-msg:hover>.bt-msg-line>.bt-tools,.bt-msg:focus-within>.bt-msg-line>.bt-tools,.bt-tools[data-open]{opacity:1;visibility:visible}
 /* The flat layout: a Bot's text has no bubble and takes its own share of the column
-   (the whole of it unless set). The toolbar floats over the message's top right. */
+   (the whole of it unless set). The toolbar floats over the message's bottom right. */
 body[data-bt-layout=flat] .bt-astack{align-items:stretch;gap:10px}
 body[data-bt-layout=flat] .bt-msg,body[data-bt-layout=flat] .bt-astack[data-lead]>.bt-msg{align-items:stretch;max-width:calc(var(--bt-flat-w) * 100%)}
 body[data-bt-layout=flat] .bt-bubble{background:none;padding:0;border-radius:0}
-body[data-bt-layout=flat] .bt-tools{top:-14px;right:0;left:auto;margin-left:0;transform:none;padding:2px;border-radius:999px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
+body[data-bt-layout=flat] .bt-tools{bottom:-14px;right:0;left:auto;margin-left:0;transform:none;padding:2px;border-radius:999px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
+/* With reactions below, the toolbar stays inside the message row instead of
+   covering their top edge when the hover shows it. */
+body[data-bt-layout=flat] .bt-msg:has(>.bt-reacts) .bt-tools{bottom:0}
 body[data-bt-layout=flat] .bt-tools::after{display:none}
 .bt-tool{width:24px;height:24px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-tool:hover,.bt-tool[aria-expanded=true]{background:var(--bt-hover);color:var(--bt-ink)}
@@ -7869,7 +7880,7 @@ function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
 var import_react17 = require("react");
 var import_react_dom = require("react-dom");
 var mdLabels3 = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -7899,7 +7910,8 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         lead: lead && last ? lead : null,
         whole: last ? whole : void 0
       });
-    })
+    }),
+    Number.isFinite(time) ? (0, import_react17.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, messageClock(time)) : null
   );
 }
 function FoldCodeCopy({ code, actions }) {
@@ -8164,7 +8176,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       // time makes one Elapsed show settled + running.
       ...thinking !== void 0 ? { at: typeof thinking.time === "number" ? thinking.time - (ms ?? 0) : void 0 } : { ms }
     }) : null,
-    texts2.length ? (0, import_react17.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE }) : null
+    texts2.length ? (0, import_react17.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0 }) : null
   );
 }
 function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
@@ -11946,12 +11958,12 @@ function useAnchoredMenu() {
   }, [anchor, tick]);
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close };
 }
-function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort }) {
+function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
   const shown = modelOf(bot, roster);
   const current = bot.model ?? bot.appliedModel;
   const served = servedOf(roster, current);
-  const reasoning = useEfforts(served, current, actions);
+  const reasoning = useEfforts(served, withEfforts ? current : void 0, actions);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
@@ -11995,7 +12007,7 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
         "span",
         { className: "bt-model-copy" },
         (0, import_react25.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
-        shown ? (0, import_react25.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
+        shown ? (0, import_react25.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
       ),
       (0, import_react25.createElement)(Caret)
     ),
@@ -12003,7 +12015,7 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": t("Model for {name}", { name: bot.name }), style: shownPlace, "data-leaving": leaving || void 0 },
       models.length > 0 ? (0, import_react25.createElement)(ModelRows, { roster, current, onPick: pick2 }) : (0, import_react25.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
-      effortRows(reasoning).length > 0 ? (0, import_react25.createElement)(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
+      withEfforts && effortRows(reasoning).length > 0 ? (0, import_react25.createElement)(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
       manage ? (0, import_react25.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
       manage ? (0, import_react25.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
         close();
@@ -12398,9 +12410,13 @@ function timingText(task) {
       return "";
   }
 }
-var nextText = (task) => task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
+var nextText = (task) => {
+  if (task.state === "overdue" || task.state === void 0 && task.status === "active" && Date.parse(task.scheduledAt) <= Date.now()) return t("Overdue: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) });
+  return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
+};
 function TaskRow({ task, actions, onView, showBot, roster }) {
   const [confirming, setConfirming] = (0, import_react27.useState)(false);
+  const [expanded, setExpanded] = (0, import_react27.useState)(false);
   const [busy, setBusy] = (0, import_react27.useState)(false);
   (0, import_react27.useEffect)(() => {
     if (!confirming) return void 0;
@@ -12421,13 +12437,13 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
     { className: "bt-set-row bt-task", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
     showBot ? (0, import_react27.createElement)(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     (0, import_react27.createElement)(
-      "span",
-      { className: "bt-set-copy" },
+      "button",
+      { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
       (0, import_react27.createElement)("span", { className: "bt-task-title" }, task.title),
       (0, import_react27.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react27.createElement)("span", { className: "bt-task-prompt" }, task.prompt) : null
+      task.prompt && task.prompt !== task.title ? (0, import_react27.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
     ),
-    (0, import_react27.createElement)("span", { className: "bt-task-next" }, nextText(task)),
+    (0, import_react27.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
     (0, import_react27.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -12560,7 +12576,8 @@ function AutomationOff({ actions }) {
 }
 function SchedulesPage({ roster, actions, start }) {
   const view = useSchedules(actions);
-  const [adding, setAdding] = (0, import_react27.useState)(Boolean(start));
+  const owner = start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null;
+  const [adding, setAdding] = (0, import_react27.useState)(Boolean(start) && owner === null);
   if (view === null) return (0, import_react27.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
   if (!view.available) return (0, import_react27.createElement)(AutomationOff, { actions });
   const shown = (next) => {
@@ -12570,9 +12587,14 @@ function SchedulesPage({ roster, actions, start }) {
   const byChat = [
     ...roster.bots.map((bot) => [bot.id, (0, import_react27.createElement)(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter((task) => task.botId === bot.id)]),
     ...roster.rooms.map((room2) => [room2.id, (0, import_react27.createElement)(RoomAvatar, { room: room2, roster, size: 18 }), room2.name, view.tasks.filter((task) => task.botId === void 0 && task.roomId === room2.id)])
-  ].filter(([, , , tasks]) => tasks.length > 0);
+  ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner));
   return [
-    adding ? (0, import_react27.createElement)(TaskForm, { key: "form", roster, actions, start, onDone: shown, onCancel: () => setAdding(false) }) : (0, import_react27.createElement)("div", { key: "add", className: "bt-actions" }, (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react27.createElement)(PlusIcon), t("New task"))),
+    adding ? (0, import_react27.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : (0, import_react27.createElement)(
+      "div",
+      { key: "add", className: "bt-actions" },
+      (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react27.createElement)(PlusIcon), t("New task")),
+      owner !== null ? (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("Show all")) : null
+    ),
     byChat.length === 0 && !adding ? (0, import_react27.createElement)("div", { key: "none", className: "bt-set-card" }, (0, import_react27.createElement)("div", { className: "bt-set-row" }, (0, import_react27.createElement)("span", { className: "bt-set-hint" }, t("No scheduled tasks yet.")))) : byChat.map(([id, avatar, name, tasks]) => (0, import_react27.createElement)(
       "section",
       { key: id, className: "bt-set-section" },
@@ -12610,10 +12632,10 @@ function ScheduleSummary({ bot, actions }) {
   return (0, import_react27.createElement)(
     "div",
     null,
-    (0, import_react27.createElement)("div", { className: "bt-section-title" }, t("Scheduled tasks")),
+    (0, import_react27.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
     tasks.length === 0 ? (0, import_react27.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Harness settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react27.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react27.createElement)(
       "button",
-      { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules") },
+      { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react27.createElement)(ClockIcon),
       (0, import_react27.createElement)("span", { className: "bt-task-line-title" }, task.title),
       (0, import_react27.createElement)("span", { className: "bt-task-line-when" }, timingText(task))
@@ -12626,7 +12648,10 @@ var SCHEDULE_CSS = `
 .bt-task[data-busy]{opacity:.4}
 .bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
 .bt-task-prompt{font-size:12px;line-height:16px;color:var(--bt-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.bt-task-prompt[data-open]{display:block;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere;white-space:pre-wrap}
+.bt-task-copy{padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer}
 .bt-task-next{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-task-next[data-state=overdue]{color:var(--bt-danger)}
 .bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;color:var(--bt-ink-3)}
 .bt-task-remove svg{width:14px;height:14px}
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
@@ -13854,7 +13879,7 @@ function freshBotName(roster, base = "New Bot") {
 }
 function startModel(roster) {
   const models = roster.models ?? [];
-  return (models.find((model) => model.ref === roster.defaultModel) ?? models[0])?.ref ?? "";
+  return (models.find((model) => model.ref === roster.prefs?.defaultBotModel) ?? models.find((model) => model.ref === roster.defaultModel) ?? models[0])?.ref ?? "";
 }
 function createPayload({ name, look, image, model, effort, brief }) {
   const payload = { name, color: look.color, avatar: image ? { shape: look.shape, image } : { shape: look.shape } };
@@ -17070,10 +17095,28 @@ function GeneralPage({ roster, actions, run: run2 }) {
     ),
     (0, import_react45.createElement)(
       SetSection,
+      { key: "new", title: t("New Bots") },
+      (0, import_react45.createElement)(
+        SetRow,
+        { label: t("Default model") },
+        (0, import_react45.createElement)(ModelMenu, {
+          bot: { id: "new-bots", name: t("New Bots"), model: prefs.defaultBotModel },
+          roster,
+          actions,
+          run: run2,
+          wide: true,
+          withEfforts: false,
+          onPick: (ref) => run2(actions.setPrefs({ defaultBotModel: ref }))
+        }),
+        prefs.defaultBotModel ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
+      )
+    ),
+    (0, import_react45.createElement)(
+      SetSection,
       { key: "input", title: t("Input") },
       (0, import_react45.createElement)(
         SetRow,
-        { label: t("Enter sends message"), hint: t("When off, Enter inserts a new line. Use the send button to send.") },
+        { label: t("Enter sends message") },
         (0, import_react45.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       )
     ),
@@ -20534,7 +20577,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
   const steering = node.kind === "steering";
-  const groupTime = roster.roomsById?.[sessionId] && Number.isFinite(data.time) ? messageClock(data.time) : void 0;
+  const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const { shown, folded, control } = useFold(text, { markdown: false });
   const body = (0, import_react52.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
   const row = (0, import_react52.useRef)(null);
@@ -20570,7 +20613,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
         rest.map((block, index) => ui.JsonBlock ? (0, import_react52.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
       ) : null,
       referenceLabels.length > 0 ? (0, import_react52.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null,
-      groupTime ? (0, import_react52.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, groupTime) : null
+      sentAt ? (0, import_react52.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, sentAt) : null
     ),
     text === "" ? null : (0, import_react52.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react52.createElement)(CopyButton, { text }))
   );
@@ -20965,7 +21008,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, enterToSend: prefs.enterToSend }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
         } catch {
         }
       }
