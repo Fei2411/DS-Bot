@@ -83,7 +83,7 @@ export function demoData(): DemoData {
       { sessionId: 's-chief', cursor: { part: 1, beforeSeq: 10 }, items: [
         { kind: 'user', text: 'Ship the list first, then the drawer comparison.', time: T - 3400e3, seq: s(), turn: 3 },
         { kind: 'view', title: 'Team pulse this week', time: T - 2800e3, seq: s(), turn: 3 },
-        { kind: 'user', text: 'Here is the screenshot from the phone', images: 2, time: T - 2600e3, seq: s(), turn: 4 },
+        { kind: 'user', text: 'Here is the screenshot from the phone', images: 2, imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }, { attachmentId: 'demo-img-2', mime: 'image/png', name: 'night.png' }], time: T - 2600e3, seq: s(), turn: 4 },
         { kind: 'answer', questions: [{ question: 'Which build should the phone use?' }], answers: [{ selected: ['The debug build'], custom: 'Keep Metro on port 8081' }], time: T - 2400e3, seq: s(), turn: 4 },
         { kind: 'event', role: 'report', name: 'Writer', time: T - 2000e3, seq: s() },
         { kind: 'divider', time: T - 86400e3 / 24, seq: s() },
