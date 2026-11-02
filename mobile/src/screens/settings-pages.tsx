@@ -276,7 +276,25 @@ export function Capabilities({ navigation }: any) {
   const [open, setOpen] = useState<string | null>(null)
   const [armed, setArmed] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{ name: string; kind: string; description: string; transport: string; command: string; argsText: string; envText: string; url: string; headersText: string; content: string; items: string[]; originalName?: string } | null>(null)
   const items = team?.capabilities ?? []
+  const library = items.map(i => i.name)
+  const parseMap = (text: string, label: string) => {
+    try { const v = JSON.parse(text || '{}'); if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(); return v } catch { throw new Error(t('{label} must be a JSON object.', { label })) }
+  }
+  const setField = (field: string, value: string | string[]) => setEditing(d => d === null ? null : { ...d, [field]: value })
+  const saveCapability = () => {
+    if (editing === null || editing.name.trim() === '') return
+    let payload: Record<string, unknown>
+    try {
+      payload = { name: editing.name.trim(), kind: editing.kind, description: editing.description, originalName: editing.originalName }
+      if (editing.kind === 'mcp' && editing.transport === 'stdio') { payload.transport = 'stdio'; payload.command = editing.command; payload.args = editing.argsText.split('\n').filter(l => l !== ''); payload.env = parseMap(editing.envText, t('Environment')) }
+      else if (editing.kind === 'mcp') { payload.transport = 'streamable-http'; payload.url = editing.url; payload.headers = parseMap(editing.headersText, t('Headers')) }
+      else if (editing.kind === 'skill') payload.content = editing.content
+      else payload.items = editing.items
+    } catch (f) { setError((f as Error).message); return }
+    void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
+  }
   const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
   const statusText = (status?: { state?: string; error?: string }) =>
     status === undefined ? undefined
@@ -313,6 +331,7 @@ export function Capabilities({ navigation }: any) {
                   <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
                     <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{(item as { content?: string }).content ?? item.description ?? ''}</Text></ScrollView>
                     <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'flex-end' }}>
+                      <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: '', envText: '', url: item.url ?? '', headersText: '', content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
                       {status?.state === 'needs-approval' ? <Pressable onPress={() => void act('capability-approve', { name: item.name })}><Text style={{ color: p.accent }}>{t('Approve')}</Text></Pressable> : null}
                       {armed === item.name
                         ? <Pressable onPress={() => { setArmed(null); void act('capability-delete', { name: item.name }) }}><Text style={{ color: p.danger, fontWeight: '600' }}>{t('Tap again to delete')}</Text></Pressable>
@@ -323,8 +342,69 @@ export function Capabilities({ navigation }: any) {
               </View>
             )
           })}
-          {items.length === 0 ? <Row label={t('Save an MCP server or skill first.')} /> : null}
+          {items.length === 0 && editing === null ? <Row label={t('Save an MCP server or skill first.')} /> : null}
         </Section>
+        {editing === null ? (
+          <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
+            <Pressable accessibilityRole="button" onPress={() => setEditing({ name: '', kind: 'mcp', description: '', transport: 'stdio', command: '', argsText: '', envText: '', url: '', headersText: '', content: '', items: [] })} style={[styles.cta, { backgroundColor: p.hover }]}>
+              <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Add capability')}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Section label={editing.originalName !== undefined ? t('Edit capability') : t('Add capability')}>
+            <View style={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+              <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.name} editable={editing.originalName === undefined} onChangeText={v => setField('name', v)} placeholder={t('Name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+              <View style={[styles.segRow, { borderColor: p.line }]}>
+                {[['mcp', 'MCP'], ['skill', 'Skill'], ['pack', 'Pack']].map(([id, label]) => (
+                  <Pressable key={id} disabled={editing.originalName !== undefined} onPress={() => setField('kind', id)} style={[styles.seg, editing.kind === id ? { backgroundColor: p.accent } : null]}>
+                    <Text style={[typeScale.caption, { color: editing.kind === id ? p.accentInk : p.ink2, fontWeight: '500' }]}>{t(label)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.description} onChangeText={v => setField('description', v)} placeholder={t('Description')} placeholderTextColor={p.ink3} />
+              {editing.kind === 'mcp' ? (
+                <>
+                  <View style={[styles.segRow, { borderColor: p.line }]}>
+                    {[['stdio', 'Local command'], ['streamable-http', 'HTTP server']].map(([id, label]) => (
+                      <Pressable key={id} onPress={() => setField('transport', id)} style={[styles.seg, editing.transport === id ? { backgroundColor: p.accent } : null]}>
+                        <Text style={[typeScale.caption, { color: editing.transport === id ? p.accentInk : p.ink2, fontWeight: '500' }]}>{t(label)}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {editing.transport === 'stdio' ? (
+                    <>
+                      <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.command} onChangeText={v => setField('command', v)} placeholder={t('Command')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                      <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.argsText} onChangeText={v => setField('argsText', v)} placeholder={t('Arguments (one per line)')} placeholderTextColor={p.ink3} multiline />
+                      <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.envText} onChangeText={v => setField('envText', v)} placeholder='{"API_KEY": "$DSH_SECRET_MY_KEY"}' placeholderTextColor={p.ink3} multiline autoCapitalize="none" />
+                    </>
+                  ) : (
+                    <>
+                      <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.url} onChangeText={v => setField('url', v)} placeholder={t('URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+                      <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.headersText} onChangeText={v => setField('headersText', v)} placeholder='{"API_KEY": "$DSH_SECRET_MY_KEY"}' placeholderTextColor={p.ink3} multiline autoCapitalize="none" />
+                    </>
+                  )}
+                </>
+              ) : editing.kind === 'skill' ? (
+                <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.content} onChangeText={v => setField('content', v)} placeholder={t('Skill instructions')} placeholderTextColor={p.ink3} multiline />
+              ) : (
+                library.length === 0 ? <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Save an MCP server or skill first.')}</Text> : (
+                  <View style={{ gap: 6 }}>
+                    {library.map(name => (
+                      <Pressable key={name} onPress={() => setField('items', editing.items.includes(name) ? editing.items.filter(i => i !== name) : [...editing.items, name])} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ color: editing.items.includes(name) ? p.accent : p.ink3 }}>{editing.items.includes(name) ? '✓' : '○'}</Text>
+                        <Text style={[typeScale.settingsRow, { color: p.ink }]}>{name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )
+              )}
+              <View style={{ flexDirection: 'row', gap: 14, justifyContent: 'flex-end', marginTop: 4 }}>
+                <Pressable onPress={() => setEditing(null)}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
+                <Pressable disabled={editing.name.trim() === ''} onPress={saveCapability}><Text style={{ color: editing.name.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{editing.originalName !== undefined ? t('Save changes') : t('Add capability')}</Text></Pressable>
+              </View>
+            </View>
+          </Section>
+        )}
       </ScrollView>
     </Screen>
   )
@@ -473,4 +553,6 @@ const styles = StyleSheet.create({
   segRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.pill, overflow: 'hidden' },
   seg: { flex: 1, height: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   cta: { height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  field: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, height: 40 },
+  multi: { minHeight: 80, paddingVertical: 10, textAlignVertical: 'top', fontFamily: 'monospace' },
 })

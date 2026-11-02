@@ -198,7 +198,16 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       // connectors ride in state, not their own endpoint
       case 'connector-connect': case 'connector-disconnect': case 'connector-retry': return { ok: true }
       // capabilities ride in state, not their own endpoint
-      case 'capability-save': case 'capability-delete': case 'capability-approve': case 'bot-capability': return { ok: true }
+      case 'capability-save': case 'capability-delete': case 'capability-approve': return { ok: true }
+      case 'bot-capability': {
+        const bot = state.bots.find(b => b.id === body.botId)
+        if (bot !== undefined) {
+          const list = new Set(bot.capabilities ?? [])
+          if (body.attached === true) list.add(String(body.name)); else list.delete(String(body.name))
+          bot.capabilities = [...list]
+        }
+        return { ok: true }
+      }
       case 'team-workspace': return { ok: true }
       case 'usage': return {
         total: { input: 402100, output: 90300 },

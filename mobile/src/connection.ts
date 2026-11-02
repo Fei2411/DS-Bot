@@ -11,6 +11,7 @@ export interface Bot {
   color?: string
   avatar?: { shape?: string; image?: string }
   model?: string
+  capabilities?: string[]
   effort?: string
   workDir?: string
   main?: boolean
@@ -83,7 +84,7 @@ export interface TeamState {
   secretRequests?: Record<string, SecretRequest[]>
   connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]
   capabilities?: { name: string; description?: string; kind?: string; transport?: string; command?: string; url?: string; content?: string; items?: string[]; status?: string }[]
-  capabilityStatuses?: Record<string, { state?: string; error?: string }>
+  capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }> | { state?: string; error?: string }>
   workspace?: string
   dataPath?: string
   version?: string
