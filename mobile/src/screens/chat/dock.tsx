@@ -145,7 +145,7 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
       </Pressable>
       {shut ? null : (
         <View style={{ paddingBottom: 14 }} onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>
-          <ViewCard sessionId={sessionId} view={view} p={p} />
+          <ViewCard sessionId={sessionId} view={view} p={p} bare />
         </View>
       )}
     </View>

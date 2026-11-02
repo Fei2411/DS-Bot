@@ -15,7 +15,7 @@ const SERIES = ['accent', 'green', 'magenta', 'violet', 'cyan', 'star']
 // A node value is either literal or `{ '=': 'formula' }` resolved against the
 // view's inputs and `let`s. A formula that fails under the current values shows
 // a placeholder only where it sits, like the desktop's errored cell.
-export function ViewCard({ sessionId, view, p, readOnly }: { sessionId: string; view: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }; p: Palette; readOnly?: boolean }) {
+export function ViewCard({ sessionId, view, p, readOnly, bare }: { sessionId: string; view: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }; p: Palette; readOnly?: boolean; bare?: boolean }) {
   const blueprint = view.blueprint ?? view
   const [inputs, setInputs] = useState<Map<string, unknown>>(() => collectInputs(blueprint))
   const [lets] = useState<Map<string, unknown>>(() => collectLets(blueprint))
@@ -40,8 +40,8 @@ export function ViewCard({ sessionId, view, p, readOnly }: { sessionId: string; 
   const dismiss = () => void call('dismiss-view', { sessionId }).catch(() => {})
   const nodes = blueprint.children ?? []
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      {blueprint.title !== undefined ? <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{blueprint.title}</Text> : null}
+    <View style={bare === true ? null : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      {bare !== true && blueprint.title !== undefined ? <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{blueprint.title}</Text> : null}
       {nodes.map((node, index) => <Node key={index} node={node} val={val} p={p}
         readOnly={readOnly === true || done !== null} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />)}
       {done === null && readOnly !== true ? <Pressable accessibilityRole="button" onPress={dismiss} style={styles.dismiss}><Text style={[type.caption, { color: p.ink3 }]}>{t('Dismiss')}</Text></Pressable> : null}
