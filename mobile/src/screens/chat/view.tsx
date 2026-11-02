@@ -312,7 +312,7 @@ function Chart({ kind, categories, series, unit, p }: { kind: string; categories
   )
   const bw = Math.max(6, (W - pad * 2) / Math.max(1, categories.length) - 6)
   return (
-    <View>
+    <View style={{ position: 'relative' }}>
       <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
         {kind === 'donut' ? <Donut rows={visible} pinned={pinned} p={p} /> :
          kind === 'line' || kind === 'area' ? visible.map((s, si) => {
@@ -328,6 +328,9 @@ function Chart({ kind, categories, series, unit, p }: { kind: string; categories
             : <Rect key={`${si}-${i}`} x={x} y={y} width={bw / visible.length - 2} height={h} rx={2} fill={s.color} opacity={pinned === -1 || pinned === i ? 1 : 0.25} onPress={() => pick(i)} />
         }))}
       </Svg>
+      <View style={styles.chartTouch} pointerEvents="box-none">
+        {categories.map((_, i) => <Pressable key={i} style={{ flex: 1 }} onPress={() => pick(i)} />)}
+      </View>
       {pinned >= 0 ? <Text style={[type.caption, { color: p.ink }]}>{categories[pinned]}: {visible.map(s => `${s.name} ${s.values[pinned] ?? '—'}${unit}`).join(' · ')}</Text> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4, alignItems: 'center' }}>
         {rows.map((s, si) => (
@@ -396,5 +399,6 @@ const styles = StyleSheet.create({
   field: { borderRadius: radius.input, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
   stepper: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   menuRow: { paddingVertical: 12, paddingHorizontal: 16 },
+  chartTouch: { position: 'absolute', top: 0, left: 0, right: 0, height: '100%', flexDirection: 'row' },
   dismiss: { alignSelf: 'center', paddingVertical: 4 },
 })
