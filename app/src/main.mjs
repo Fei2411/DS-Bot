@@ -48,6 +48,7 @@ const IPC = {
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
 const MOVE_PROBLEMS = { drive: 'moveDrive', nested: 'moveNested', workspace: 'moveWorkspace', program: 'inProgram', notEmpty: 'moveNotEmpty' }
+const CHOOSING_QUIT_WAIT_MS = 1_000
 const UPDATE_CHECK_WAIT_MS = 15_000
 const UPDATE_DOWNLOAD_WAIT_MS = 15 * 60_000
 
@@ -142,7 +143,11 @@ if (canonical !== undefined) {
       // A first-run dialog is open: the quit waits for it, and the app goes on meanwhile.
       event.preventDefault()
       shell.cancelQuit()
+      const stuck = choosing
       choosing.abort()
+      // A first run whose dialog never answers would hold every later quit the same
+      // way; the app still leaves when it stays silent.
+      setTimeout(() => { if (choosing === stuck) app.exit(0) }, CHOOSING_QUIT_WAIT_MS).unref()
       return
     }
     if (copying !== undefined) {
