@@ -7,6 +7,7 @@ import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
+import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
@@ -23,8 +24,9 @@ export interface ChatItem {
   imageRefs?: ImageRef[]
   title?: string
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
+  views?: { id: string; title: string; view: { id?: string; title?: string; children?: unknown[] } }[]
   questions?: { question: string }[]
-  answers?: { selected?: string[]; custom?: string }[]
+  answers?: { id?: string; action?: string; values?: { selected?: string[]; inputs?: Record<string, unknown>; fields?: Record<string, string>; confirmed?: boolean }; selected?: string[]; custom?: string }[]
   tools?: { name: string; label?: string | null; ok?: boolean }[]
   ms?: number
   live?: boolean
@@ -60,6 +62,21 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
         </View>
   }
   if (item.kind === 'answer') {
+    const viewReplies = (item.views ?? []).map((entry, i) => {
+      const answer = (item.answers ?? []).find(a => a.id === entry.id) ?? item.answers?.[i]
+      const detail = answer !== undefined && entry.view !== undefined ? viewAnswerText(entry.view, answer as never) : ''
+      return { title: entry.title, detail }
+    })
+    if (viewReplies.length > 0) return (
+      <Pressable onLongPress={longPress} style={[styles.answeredCard, { backgroundColor: p.card, borderColor: p.line, maxWidth }]}>
+        {viewReplies.map((reply, i) => (
+          <View key={i} style={{ gap: 4 }}>
+            <Text style={[type.caption, { color: p.ink3 }]}>{reply.title}</Text>
+            <Text style={[type.bubble, { color: p.ink }]}>{reply.detail !== '' ? reply.detail : source}</Text>
+          </View>
+        ))}
+      </Pressable>
+    )
     return (
       <Pressable onLongPress={longPress} style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth }]}>
         <Text style={[type.bubble, { color: p.userInk }]}>{source}</Text>
@@ -222,6 +239,7 @@ const styles = StyleSheet.create({
   viewer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
   viewerClose: { position: 'absolute', top: 50, right: 20, padding: 10 },
   reader: { flex: 1, paddingTop: 60 },
+  answeredCard: { alignSelf: 'flex-end', borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 3 },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,.35)', justifyContent: 'flex-end' },
   sheet: { marginHorizontal: 12, marginBottom: 34, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },

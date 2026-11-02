@@ -5,4 +5,5 @@ declare module 'deep-view/core' {
   export function isFormula(value: unknown): boolean
   export function choiceValue(option: unknown): unknown
   export function show(value: unknown): string
+  export function viewAnswerText(view: unknown, answer: unknown): string
 }

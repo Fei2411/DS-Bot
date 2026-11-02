@@ -101,7 +101,7 @@ export function demoData(): DemoData {
       { kind: 'view', title: 'Draft report', view: { id: 'vh-2', title: 'Draft report', children: [
         { type: 'html', summary: 'A rich draft with charts and interactive sections that only render fully on the computer.', html: '<div/>' },
       ] }, time: T - 2990e3, seq: s(), turn: 4 },
-      { kind: 'answer', answers: [{ selected: ['Ship Friday'] }], time: T - 2500e3, seq: s(), turn: 4 },
+      { kind: 'answer', text: 'Ship Friday', views: [{ id: 'v-1', title: 'Release readiness', view: { id: 'v-1', title: 'Release readiness', children: [{ type: 'options', id: 'a-1', options: [{ label: 'Ship Friday' }, { label: 'Hold for Monday' }, { label: 'Cancel the tag' }] }] } }], answers: [{ id: 'v-1', action: 'options', values: { selected: ['Ship Friday'] } }], time: T - 2500e3, seq: s(), turn: 4 },
       { kind: 'user', text: 'Here is the screenshot from the phone', images: 2, imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }, { attachmentId: 'demo-img-2', mime: 'image/png', name: 'night.png' }], time: T - 2600e3, seq: s(), turn: 4 },
         { kind: 'answer', questions: [{ question: 'Which build should the phone use?' }], answers: [{ selected: ['The debug build'], custom: 'Keep Metro on port 8081' }], time: T - 2400e3, seq: s(), turn: 4 },
         { kind: 'event', role: 'report', name: 'Writer', time: T - 2000e3, seq: s() },
