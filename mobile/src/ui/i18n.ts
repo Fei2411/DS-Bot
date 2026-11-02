@@ -57,6 +57,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Done': '完成',
   'Image': '图片',
   'View it on the computer': '在电脑上查看',
+  'Open it on the computer': '在电脑上查看',
   'Questions': '提问',
   'Approvals': '批准',
   'Secret requests': '密钥',
