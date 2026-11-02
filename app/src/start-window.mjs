@@ -188,8 +188,10 @@ export function handoffBox(whale, { start, team, viewportWidth }) {
 // sends it about 0.72 s after ready on a celebrating hand-off and 0.22 s otherwise (start-window §8).
 export const fallbackMs = ({ start, celebrate }) => (start === 'first' || celebrate ? 2500 : 800)
 
-// The five reasons of the failure page (windows-onboarding §3), most specific first: a Host
-// that stopped says so and carries its own error output, which names the cause.
+// The reasons of the failure page (windows-onboarding §3), most specific first: a Host that
+// stopped says so and carries its own error output, which names the cause. A folder of the data's
+// that is not there (a drive that is gone) is 'missing', after the program's own files.
+const MISSING = /ENOENT: no such file or directory, (?:mkdir|open|access|stat|lstat|scandir|opendir|rename|copyfile) /u
 const REASONS = [
   ['permission', /\b(?:EACCES|EPERM)\b|permission denied|operation not permitted|access is denied/iu],
   ['space', /\b(?:ENOSPC|EDQUOT)\b|no space left|not enough space|disk (?:is )?full/iu],
@@ -207,7 +209,7 @@ function missingOwnFile(error, text, program) {
 
 /**
  * @param {{ program?: string[] }} where `program`: the folders of the app's own files
- * @returns {'permission' | 'space' | 'files' | 'engine' | 'other'}
+ * @returns {'permission' | 'space' | 'files' | 'engine' | 'missing' | 'other'}
  */
 export function failureReason(error, { program = [] } = {}) {
   const code = typeof error?.code === 'string' ? error.code : ''
@@ -216,7 +218,7 @@ export function failureReason(error, { program = [] } = {}) {
   for (const [reason, pattern] of REASONS) {
     if (pattern.test(text) || (reason === 'files' && missingOwnFile(error, text, program))) return reason
   }
-  return 'other'
+  return MISSING.test(text) ? 'missing' : 'other'
 }
 
 // The Main Bot that a kept team's sidebar shows first (ds-bot's channel.js: mainBotIds[0]; an

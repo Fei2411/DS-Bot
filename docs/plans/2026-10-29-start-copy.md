@@ -72,7 +72,7 @@
 | `importFailed` | `card.importFailed.lead` | |
 | （新） | `card.importFailed.do` | 复制失败的卡：该怎么办 |
 | （新） | `card.viewFailed.lead`、`card.viewFailed.do` | 团队界面没加载出来的卡：发生了什么、该怎么办 |
-| （新） | `card.failed.do.{reason}` | 恢复卡上原因下面的「该怎么办」，按 `reason.start.*` 的五种原因各一句 |
+| （新） | `card.failed.do.{reason}` | 恢复卡上原因下面的「该怎么办」，按 `reason.start.*` 的六种原因各一句 |
 | `failed.reason.*` | 见 `reason.start.*` | 卡片直接用 `reason.start.{reason}` |
 | `update.available / downloading / installing / failed / slow` | `card.update.available / downloading / installing / failed / slow` | |
 
@@ -200,3 +200,4 @@
 - 2026-11-02：恢复卡说该怎么办（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.failed.do.permission / space / files / engine / other`。
 - 2026-11-02：团队界面没加载出来的卡（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.viewFailed.lead / do`。
 - 2026-11-02：复制失败的卡（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.importFailed.do`。
+- 2026-11-02：找不到放数据的文件夹（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `reason.start.missing` 和 `card.failed.do.missing`。

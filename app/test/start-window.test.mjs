@@ -50,7 +50,7 @@ test('the team window shows by itself after 2.5 s on a first start or a celebrat
   assert.equal(fallbackMs({ start: 'later', celebrate: false }), 800)
 })
 
-test('a failure gets one of the five reasons of the failure page', () => {
+test('a failure gets one of the six reasons of the failure page', () => {
   const coded = (code, message) => Object.assign(new Error(message), { code })
   assert.equal(failureReason(coded('EACCES', 'EACCES: permission denied, mkdir \'D:\\data\\profiles\'')), 'permission')
   assert.equal(failureReason(new Error('EPERM: operation not permitted, open \'x\'')), 'permission')
@@ -73,9 +73,9 @@ test('only a missing file of the app\'s own says that the install is incomplete'
   const exe = join(program, 'DeepSeek Bot.exe')
   assert.equal(failureReason(missing(exe, `spawn ${exe} ENOENT`), where), 'files')
   assert.equal(failureReason(missing(exe, `spawn ${exe} ENOENT`)), 'other')
-  // A saved data folder on a drive that is gone.
+  // A saved data folder on a drive that is gone: its own reason, with what to do about it.
   const data = join(tmpdir(), 'gone', 'DeepSeek Bot', 'data', 'profiles', 'ds-bot')
-  assert.equal(failureReason(missing(data, `ENOENT: no such file or directory, mkdir '${data}'`), where), 'other')
+  assert.equal(failureReason(missing(data, `ENOENT: no such file or directory, mkdir '${data}'`), where), 'missing')
   // A Host that stopped: its error output names the missing file.
   const bundle = join(program, 'resources', 'app.asar.unpacked', 'node_modules', 'x', 'index.js')
   assert.equal(failureReason(new Error(`The DSH Host stopped (exit 1):\nError: ENOENT: no such file or directory, open '${bundle}'`), where), 'files')

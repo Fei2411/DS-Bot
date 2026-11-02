@@ -217,7 +217,7 @@ const recovers = (card, kind) => {
 test('the failure page says what happened, what to do for each reason, and folds out the log', () => {
   const card = cardOf('failed')
   assert.match(card, /<p class="lead" data-t="reason\.start\.\{reason\}"><\/p><p class="small do" data-t="card\.failed\.do\.\{reason\}"><\/p>/u)
-  for (const reason of ['permission', 'space', 'files', 'engine', 'other']) assert.ok(`card.failed.do.${reason}` in TEXT.zh, reason)
+  for (const reason of ['permission', 'space', 'files', 'engine', 'missing', 'other']) assert.ok(`card.failed.do.${reason}` in TEXT.zh, reason)
   assert.match(card, /data-act="retry" data-main/u)
   recovers(card, 'failed')
 })
@@ -356,7 +356,7 @@ test('every text key that the page uses exists', () => {
   }
   // Keys the page builds from the snapshot's views, the stages and the failure reasons.
   for (const key of ['voice.failed', 'voice.viewFailed', 'voice.watchdog', 'status.phase.data', 'status.phase.import', 'status.phase.engine', 'status.phase.team', 'status.state.pending', 'status.state.active', 'status.state.done', 'status.state.failed']) assert.ok(key in TEXT.zh, key)
-  assert.deepEqual(matching('reason.start.{reason}').sort(), ['reason.start.engine', 'reason.start.files', 'reason.start.other', 'reason.start.permission', 'reason.start.space'])
+  assert.deepEqual(matching('reason.start.{reason}').sort(), ['reason.start.engine', 'reason.start.files', 'reason.start.missing', 'reason.start.other', 'reason.start.permission', 'reason.start.space'])
   assert.deepEqual(matching('reason.place.{reason}').sort(), ['reason.place.drive', 'reason.place.dsh', 'reason.place.foreign', 'reason.place.nested', 'reason.place.onedrive', 'reason.place.permission', 'reason.place.program', 'reason.place.space', 'reason.place.workspace'])
   assert.deepEqual(matching('reason.copy.{reason}').sort(), ['reason.copy.full', 'reason.copy.inUse', 'reason.copy.other', 'reason.copy.permission'])
 })
