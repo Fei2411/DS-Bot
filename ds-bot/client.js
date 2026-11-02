@@ -93,6 +93,9 @@ var ZH = {
   "Delete group": "删除群聊",
   "Open {name}'s chat": "打开 {name} 的对话",
   "New Bot": "新 Bot",
+  "New Bots": "新 Bot",
+  "Default model": "默认模型",
+  "Applies to Bots made after this pick, when a create names no model. Existing Bots keep their own.": "只影响之后新建的 Bot；已有 Bot 的模型不变。",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
   "Setting up your Main Bot…": "正在设置你的主 Bot…",
@@ -11907,12 +11910,12 @@ function useAnchoredMenu() {
   }, [anchor, tick]);
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close };
 }
-function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort }) {
+function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
   const shown = modelOf(bot, roster);
   const current = bot.model ?? bot.appliedModel;
   const served = servedOf(roster, current);
-  const reasoning = useEfforts(served, current, actions);
+  const reasoning = useEfforts(served, withEfforts ? current : void 0, actions);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
@@ -11956,7 +11959,7 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
         "span",
         { className: "bt-model-copy" },
         (0, import_react25.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
-        shown ? (0, import_react25.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
+        shown ? (0, import_react25.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
       ),
       (0, import_react25.createElement)(Caret)
     ),
@@ -11964,7 +11967,7 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": t("Model for {name}", { name: bot.name }), style: shownPlace, "data-leaving": leaving || void 0 },
       models.length > 0 ? (0, import_react25.createElement)(ModelRows, { roster, current, onPick: pick2 }) : (0, import_react25.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
-      effortRows(reasoning).length > 0 ? (0, import_react25.createElement)(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
+      withEfforts && effortRows(reasoning).length > 0 ? (0, import_react25.createElement)(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
       manage ? (0, import_react25.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
       manage ? (0, import_react25.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
         close();
@@ -13815,7 +13818,7 @@ function freshBotName(roster, base = "New Bot") {
 }
 function startModel(roster) {
   const models = roster.models ?? [];
-  return (models.find((model) => model.ref === roster.defaultModel) ?? models[0])?.ref ?? "";
+  return (models.find((model) => model.ref === roster.prefs?.defaultBotModel) ?? models.find((model) => model.ref === roster.defaultModel) ?? models[0])?.ref ?? "";
 }
 function createPayload({ name, look, image, model, effort, brief }) {
   const payload = { name, color: look.color, avatar: image ? { shape: look.shape, image } : { shape: look.shape } };
@@ -17028,6 +17031,24 @@ function GeneralPage({ roster, actions, run: run2 }) {
       layoutOf(prefs) === "flat" ? (0, import_react45.createElement)(SetRow, { label: t("Text width") }, (0, import_react45.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
       (0, import_react45.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react45.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
       (0, import_react45.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react45.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) }))
+    ),
+    (0, import_react45.createElement)(
+      SetSection,
+      { key: "new", title: t("New Bots") },
+      (0, import_react45.createElement)(
+        SetRow,
+        { label: t("Default model"), hint: t("Applies to Bots made after this pick, when a create names no model. Existing Bots keep their own.") },
+        (0, import_react45.createElement)(ModelMenu, {
+          bot: { id: "new-bots", name: t("New Bots"), model: prefs.defaultBotModel },
+          roster,
+          actions,
+          run: run2,
+          wide: true,
+          withEfforts: false,
+          onPick: (ref) => run2(actions.setPrefs({ defaultBotModel: ref }))
+        }),
+        prefs.defaultBotModel ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
+      )
     ),
     actions.setSurface ? (0, import_react45.createElement)(
       SetSection,
@@ -20917,7 +20938,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel }));
         } catch {
         }
       }

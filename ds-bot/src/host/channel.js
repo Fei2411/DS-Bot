@@ -116,7 +116,7 @@ export function install(rt) {
   // Updates change the dsh profile, not the team, so a reading host may run them too.
   const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library'])
 
-  function setPrefs(body) {
+  async function setPrefs(body) {
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -145,6 +145,12 @@ export function install(rt) {
       if (body.flatWidth === null || body.flatWidth === 100) delete state.prefs.flatWidth
       else if (Number.isInteger(body.flatWidth) && body.flatWidth >= 50 && body.flatWidth <= 100) state.prefs.flatWidth = body.flatWidth
       else throw invalid('Flat text width must be a whole percent from 50 to 100')
+    }
+    if (body.defaultBotModel !== undefined) {
+      // The model new Bots start on when a create names none. It resolves now, so the
+      // saved ref is one the catalog served at save time; a create still re-checks it.
+      if (body.defaultBotModel === null || body.defaultBotModel === '') delete state.prefs.defaultBotModel
+      else state.prefs.defaultBotModel = await rt.resolveModel(body.defaultBotModel)
     }
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
