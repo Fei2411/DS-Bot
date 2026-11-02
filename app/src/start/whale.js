@@ -363,7 +363,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
       const per = big ? 3 : 2
       for (const side of [-1, 1]) for (let i = 0; i < per; i += 1) fallDrop(side * 18 * k, -31 * k, { dx: side * (4 + i * 5 + rnd() * 3), fall: 70 + i * 10 + rnd() * 10, delay: 330 + i * 70, size: 5 + rnd() * 1.5 })
       fallDrop(0, -38 * k, { dx: (rnd() - 0.5) * 6, fall: 80, delay: 400, size: 6 })
-      // At the hand-off the dive sends the ripple; this one would land as the window grows.
+      // At the hand-off the dive sends the ripple; this one would land as the window fades.
       if (!D.handed) setTimeout(sendRipple, 760)
     }
     setTimeout(() => shape.remove(), 900)
@@ -709,18 +709,20 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     if (reduced()) return stillHandoff(at)
     release(pose, { duration: 200, easing: 'ease-out' })
     if (want.celebrate) return spoutHandoff(at)
-    // A beat for the ring to close, then the dive or the jump: handoffShow at 220 ms.
+    // A beat for the ring to close, then the jump (handoffShow at its top, 100 + RISE_MS) or the
+    // dive (handoffShow at 220 ms).
     await at(100)
     root.dataset.exit = 'caption all'
-    const flight = want.landing ? leap(want.landing, 220 + GROWN_AFTER + LAND_AFTER - 100) : 0
-    if (!flight) dive(12, DEEP(), 18, spring('tap'))
+    if (want.landing) return jump(at, 100)
+    dive(12, DEEP(), 18, spring('tap'))
     await at(220)
     act('handoffShow')
-    await at(flight ? 100 + flight : 390)
+    await at(390)
     act('handoffDone')
   }
   // A celebrating hand-off (a first start, or the first success after a failure) spouts as the
-  // ring closes and jumps (or dives) once the column has opened: handoffShow at 720 ms.
+  // ring closes and jumps (or dives) once the column has opened: handoffShow at the top of the
+  // jump (560 + RISE_MS), or at 720 ms with the dive.
   async function spoutHandoff(at) {
     drop(body)
     play(body, kf([{ scale: '1' }, { scale: '1.12 .88', offset: 240 / 460 }, { scale: '.93 1.09' }], OUT), { duration: 460 })
@@ -730,13 +732,13 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     root.dataset.exit = 'caption'
     await at(560)
     root.dataset.exit = 'caption all'
-    const flight = want.landing ? leap(want.landing, 720 + GROWN_AFTER + LAND_AFTER - 560) : 0
-    if (!flight) dive(18, DEEP(), 24, spring('shape'))
+    if (want.landing) return jump(at, 560)
+    dive(18, DEEP(), 24, spring('shape'))
     await at(660)
-    if (!flight) sendRipple()
+    sendRipple()
     await at(720)
     act('handoffShow')
-    await at(flight ? 560 + flight : 980)
+    await at(980)
     act('handoffDone')
   }
   // Reduced motion: the arcs' .12 s fill and the closed ring are seen before the content fades;
@@ -750,54 +752,39 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     await at(440)
     act('handoffDone')
   }
-  // The jump to the Main Bot (start-window §8). The team view said where the Main Bot's avatar is
-  // drawn, and the main process turned that into this page's coordinates once the window has
-  // grown onto the team window's rect. The whale leaves the lane (its clip would cut it at the
-  // waterline) for the window-wide .flight layer, rises out of the water and glides down onto the
-  // avatar, shrinking to its size. The window grows from handoffShow + 40 ms for 260 ms (GROWTH in
-  // start-window.mjs) while the whale rises and starts over, and the whale lands LAND_AFTER later,
-  // in a window that no longer moves; handoffDone then lets the team window show under it, and
-  // the start window fades out over it. Returns how long the flight takes.
-  function leap(landing, ms) {
-    // It arrives as the avatar sits: upright, unstretched (the celebration's squash, a failure's
-    // pose before a late or held hand-off) and looking ahead.
-    const settleIn = { duration: Math.round(ms * 0.4), easing: OUT }
+  // The jump to the Main Bot (start-window §8). The whale leaves the lane (its clip would cut it
+  // at the waterline) for the window-wide .flight layer and rises out of the water, upright and
+  // looking ahead as the avatar sits, and stops at the top. handoffShow says where it is: the
+  // team page draws the same whale there and holds it while the two windows cross-fade, then
+  // glides it onto the Main Bot's avatar. The start window never resizes under it.
+  async function jump(at, from) {
+    const settleIn = { duration: Math.round(RISE_MS * 0.6), easing: OUT }
     to(body, { scale: '1' }, settleIn)
     to(move, { transform: 'none' }, settleIn)
     setBase(0, 0)
     const box = x.getBoundingClientRect()
-    const flight = $('.flight')
     for (const a of scripted(x)) a.cancel()
-    flight.append(x)
+    $('.flight').append(x)
     x.style.left = `${box.left}px`
     x.style.top = `${box.top}px`
     x.style.transformOrigin = '0 0'
-    // The pond may still be shrunk for a card that has just gone: start at the size it shows.
-    const from = box.width / x.offsetWidth
-    const scale = landing.size / x.offsetWidth
-    const dx = landing.x - box.left
-    const dy = landing.y - box.top
-    // Up first, then over: the high point is above both ends.
-    const rise = `translate(${(dx * 0.22).toFixed(1)}px, ${(Math.min(0, dy) * 0.78 - 18).toFixed(1)}px) scale(${(from + (scale - from) * 0.45).toFixed(3)})`
-    play(x, [
-      { transform: `translate(0px, 0px) scale(${from.toFixed(3)})`, easing: 'cubic-bezier(.2,.7,.4,1)' },
-      { transform: rise, offset: 0.4, easing: 'cubic-bezier(.45,0,.25,1)' },
-      { transform: `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) scale(${scale.toFixed(3)})` },
-    ], { duration: ms, fill: 'forwards' })
+    // The pond may still be shrunk for a card that has just gone: it rises at the size it shows.
+    const scale = (box.width / x.offsetWidth).toFixed(3)
+    play(x, [{ transform: `translate(0px, 0px) scale(${scale})` }, { transform: `translate(0px, ${String(-LIFT)}px) scale(${scale})` }], { duration: RISE_MS, easing: 'cubic-bezier(.2,.7,.4,1)', fill: 'forwards' })
     if (playful()) {
       const strokes = play(tail, [{ transform: 'none' }, { transform: 'rotate(12deg)' }, { transform: 'rotate(-12deg)' }, { transform: 'none' }], { duration: 240, iterations: 2, easing: 'ease-in-out', fill: 'none' })
       strokes.done.then(() => strokes.cancel())
     }
-    // It lands with the avatar's open eyes (the celebration gave it ^ ^ ones).
-    if (want.celebrate && playful()) setTimeout(() => happyEyes(false), Math.round(ms * 0.7))
-    return ms
+    // It reaches the top with the avatar's open eyes (the celebration gave it ^ ^ ones).
+    if (want.celebrate && playful()) setTimeout(() => happyEyes(false), Math.round(RISE_MS * 0.6))
+    await at(from + RISE_MS)
+    act('handoffShow', { whale: { x: box.left, y: box.top - LIFT, size: box.width } })
+    await at(from + RISE_MS + 260)
+    act('handoffDone')
   }
-  // From handoffShow to the end of the growth (GROWTH.delay + GROWTH.duration), and how long after
-  // it the whale lands: the end of the glide is seen in a still window.
-  const GROWN_AFTER = 300
-  const LAND_AFTER = 60
-  // 1.25 x the whale's height: fully under the waterline within about 200 ms, so the window
-  // can grow around an empty sheet.
+  const RISE_MS = 300
+  const LIFT = 40
+  // 1.25 x the whale's height: fully under the waterline within about 200 ms.
   const DEEP = () => Math.round(125 * u)
   function dive(dx, dy, deg, curve) {
     to(body, { scale: '1' }, curve)

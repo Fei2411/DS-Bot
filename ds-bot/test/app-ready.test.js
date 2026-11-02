@@ -50,7 +50,7 @@ function mount(component) {
 }
 
 // One page load: a fresh copy of the client modules, under the app bridge it was given.
-function page(dsBotApp, documentStub = {}) {
+function page(dsBotApp, documentStub = {}, globals = {}) {
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
     module, exports: module.exports,
@@ -59,6 +59,7 @@ function page(dsBotApp, documentStub = {}) {
     document: { addEventListener() {}, removeEventListener() {}, querySelector: () => null, documentElement: { setAttribute() {}, removeAttribute() {} }, ...documentStub },
     setTimeout: () => 0, clearTimeout() {},
     ...(dsBotApp === undefined ? {} : { dsBotApp }),
+    ...globals,
   })
   return module.exports
 }
@@ -154,4 +155,49 @@ test('a ready() that throws is noted and the sidebar stays', async () => {
   await setImmediate()
   assert.ok(drawsSide(tree))
   assert.deepEqual(Array.from(clientErrors(), entry => entry.text), ['app ready: bridge gone'])
+})
+
+// The desktop app's start window hands its whale over at the top of its jump: the sidebar draws a
+// copy of the avatar there, holds it while the windows cross-fade, then glides it onto the avatar.
+test('a whale handed over glides from where it was handed onto the Main Bot\'s avatar', async () => {
+  const made = []
+  const element = () => {
+    const el = { style: { setProperty() {} }, children: [], attributes: {}, animations: [], removed: false }
+    el.append = child => { el.children.push(child) }
+    el.setAttribute = (name, value) => { el.attributes[name] = value }
+    el.removeAttribute = (name) => { delete el.attributes[name] }
+    el.remove = () => { el.removed = true }
+    el.animate = (frames, timing) => { const run = { frames, timing, finished: Promise.resolve() }; el.animations.push(run); return run }
+    made.push(el)
+    return el
+  }
+  const mark = { ...element(), checkVisibility: () => true, getBoundingClientRect: () => ({ left: 98, top: 70, width: 60, height: 60 }), cloneNode: () => element() }
+  const body = element()
+  let handoff
+  const calls = []
+  const app = { ready: (...args) => { calls.push(['ready', ...args]) }, onHandoff: (run) => { calls.push(['onHandoff']); handoff = run } }
+  const { TeamSidebar } = page(app, {
+    querySelector: selector => (selector === '.bt-side [data-bot-id="main"] .bt-mark' ? mark : null),
+    documentElement: { clientWidth: 1280, clientHeight: 800, setAttribute() {}, removeAttribute() {} },
+    createElement: element, body,
+  }, { getComputedStyle: () => ({ getPropertyValue: () => '#4D6BFE' }) })
+  mount(TeamSidebar)(sidebarProps(whaleTeam))
+  await setImmediate()
+  // Listening before the report goes, so a quick hand-off is not missed.
+  assert.deepEqual(calls.map(call => call[0]), ['onHandoff', 'ready'])
+  handoff({ x: 584, y: 307, size: 112, hold: 260 })
+  const [outer] = body.children
+  assert.equal(outer.style.position, 'fixed')
+  assert.equal(mark.style.opacity, '0')
+  const [across] = outer.animations
+  assert.equal(across.frames[0].transform, 'translateX(486px)')
+  assert.equal(across.timing.delay, 260)
+  const [glide] = outer.children[0].animations
+  assert.equal(glide.frames[0].transform, `translateY(237px) scale(${String(112 / 60)})`)
+  assert.equal(glide.frames[1].transform, 'none')
+  await setImmediate()
+  // Landed: the copy goes, the avatar is back and gives its small bounce.
+  assert.equal(outer.removed, true)
+  assert.equal(mark.style.opacity, '')
+  assert.equal(mark.animations.length, 1)
 })

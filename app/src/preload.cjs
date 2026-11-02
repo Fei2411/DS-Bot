@@ -25,6 +25,18 @@ if (startPage !== undefined) {
       ready = true
       ipcRenderer.send('ds-bot:ready', placeOf(place))
     },
+    // The start window hands its whale over at the top of its jump (start-window.mjs): `run`
+    // draws it where it is on this page, and once that is painted the main process cross-fades
+    // the two windows.
+    onHandoff: (run) => {
+      if (typeof run !== 'function') return
+      ipcRenderer.removeAllListeners('ds-bot:handoff')
+      ipcRenderer.on('ds-bot:handoff', (_event, value) => {
+        const from = handoffOf(value)
+        if (from === undefined) return
+        try { run(from) } finally { requestAnimationFrame(() => { requestAnimationFrame(() => { ipcRenderer.send('ds-bot:handoff-ready') }) }) }
+      })
+    },
     // DS Bot's settings show and move the app's data location through this.
     dataLocation: () => ipcRenderer.invoke('ds-bot:data-location'),
     moveData: (workspace) => ipcRenderer.invoke('ds-bot:move-data', typeof workspace === 'string' ? workspace : undefined),
@@ -45,6 +57,16 @@ if (startPage !== undefined) {
       place[key] = number
     }
     return place
+  }
+  const handoffOf = (value) => {
+    if (value === null || typeof value !== 'object') return undefined
+    const from = {}
+    for (const key of ['x', 'y', 'size', 'hold']) {
+      const number = Number(value[key])
+      if (!Number.isFinite(number)) return undefined
+      from[key] = number
+    }
+    return from
   }
   // A preload runs before the document root exists.
   const loaded = (run) => {

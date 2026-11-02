@@ -27,7 +27,7 @@ import { CAPTION_HEIGHT, cssColor, micaAvailable, nativeThemeSource } from './wi
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
   dataLocation: 'ds-bot:data-location', moveData: 'ds-bot:move-data', teamWorkspace: 'ds-bot:team-workspace',
-  ready: 'ds-bot:ready', motion: 'ds-bot:motion',
+  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion',
   card: 'ds-bot:app-card', cardShown: 'ds-bot:app-card-shown', cardAnswer: 'ds-bot:app-card-answer',
   browserAcquire: 'ds-bot:browser-acquire', browserRelease: 'ds-bot:browser-release', browserForget: 'ds-bot:browser-forget',
   browserViewChanged: 'ds-bot:browser-view-changed', browserViewCreate: 'ds-bot:browser-view-create',
@@ -701,6 +701,8 @@ function handleIpc() {
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
+  // It has drawn the whale the start window hands over: the windows cross-fade.
+  ipcMain.on(IPC.handoffReady, (event) => { if (fromWindow(event)) startWindow.teamReady() })
   ipcMain.on(IPC.cardShown, (event, id) => { if (fromWindow(event)) cards.get(id)?.shown() })
   ipcMain.on(IPC.cardAnswer, (event, id, index) => { if (fromWindow(event)) cards.get(id)?.settle(Number.isInteger(index) ? index : -1) })
   // The start window takes the app's theme and the Bot animation tier at the next start, before
