@@ -15,6 +15,7 @@ import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
 import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
+import { Providers, Connectors, Capabilities, TeamUsage, Location, Updates, About } from '../screens/settings-pages.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 
@@ -188,6 +189,13 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       <Stack.Screen name="Usage">{(props: any) => <Usage {...props} />}</Stack.Screen>
       <Stack.Screen name="Computers">{(props: any) => <Computers {...props} />}</Stack.Screen>
       <Stack.Screen name="Secrets">{(props: any) => <Secrets {...props} />}</Stack.Screen>
+      <Stack.Screen name="Providers">{(props: any) => <Providers {...props} />}</Stack.Screen>
+      <Stack.Screen name="Connectors">{(props: any) => <Connectors {...props} />}</Stack.Screen>
+      <Stack.Screen name="Capabilities">{(props: any) => <Capabilities {...props} />}</Stack.Screen>
+      <Stack.Screen name="TeamUsage">{(props: any) => <TeamUsage {...props} />}</Stack.Screen>
+      <Stack.Screen name="Location">{(props: any) => <Location {...props} />}</Stack.Screen>
+      <Stack.Screen name="Updates">{(props: any) => <Updates {...props} />}</Stack.Screen>
+      <Stack.Screen name="About">{(props: any) => <About {...props} />}</Stack.Screen>
       <Stack.Screen name="Placeholder">{({ route, navigation }: any) => (
         <View style={{ flex: 1, backgroundColor: '#f6f8fb' }}>
           <View style={{ paddingHorizontal: 16, paddingVertical: 14, paddingTop: 60 }}>

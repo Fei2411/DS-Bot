@@ -186,6 +186,36 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       }
       case 'usage-summary': return { botId: String(body.botId ?? ''), day: { input: 12400, output: 3200, cacheRead: 8800 }, week: { input: 98200, output: 21400, cacheRead: 61100 }, month: { input: 402100, output: 90300, cacheRead: 251000 }, models: [{ key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash', input: 102000, output: 20200 }], scanning: false }
       case 'run-stats': return { parts: 3, messages: 214, turns: 96, tools: 311, sessions: 2 }
+      case 'providers': return [
+        { name: 'DeepSeek', hasKey: true, models: [{ name: 'DeepSeek v4.1' }, { name: 'DeepSeek Flash' }] },
+        { name: 'OpenRouter', hasKey: true, models: [{ name: 'Auto' }, { name: 'Kimi K2.5' }] },
+        { name: 'OpenAI', hasKey: false, models: [{ name: 'GPT-5.2' }] },
+      ]
+      case 'provider-models': return [{ name: 'DeepSeek v4.1' }, { name: 'DeepSeek Flash' }, { name: 'DeepSeek Reasoner' }]
+      case 'provider-key': case 'provider-add': case 'provider-remove': return { ok: true }
+      case 'connectors': return [
+        { name: 'GitHub', status: 'connected' }, { name: 'Linear', status: 'connected' }, { name: 'Notion', status: 'needs re-auth' },
+      ]
+      case 'connector-connect': case 'connector-disconnect': case 'connector-retry': return { ok: true }
+      case 'capabilities': return [
+        { name: 'Run shell commands', status: 'approved' }, { name: 'Read files', status: 'approved' }, { name: 'Write files', status: 'pending' }, { name: 'Browse the web', status: 'approved' },
+      ]
+      case 'capability-save': case 'capability-delete': case 'capability-approve': case 'bot-capability': return { ok: true }
+      case 'usage': return {
+        total: { input: 402100, output: 90300 },
+        bots: [
+          { name: 'Chief', input: 152100, output: 40100 }, { name: 'Writer', input: 120100, output: 30400 },
+          { name: 'Coder', input: 80000, output: 13000 }, { name: 'Researcher', input: 50000, output: 6800 },
+        ],
+        models: [
+          { name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { name: 'DeepSeek Flash', input: 102000, output: 20200 },
+        ],
+      }
+      case 'update-check': return { latest: '0.1.2', available: true }
+      case 'update-install': case 'dsh-update-install': return { ok: true }
+      case 'diagnostics': return { size: 48200, entries: 214, last: 'Turn 96 on Coder failed once and retried.' }
+      case 'diagnostics-log': return { lines: ['12:00 Chief ran 3 tools', '12:01 Coder failed once and retried', '12:02 Writer posted a draft'] }
+      case 'diagnostics-clear': return { ok: true }
       case 'avatar-library': return { entries: [], done: true }
       case 'avatar-import': return { ok: true }
       case 'avatar-delete': return { ok: true }

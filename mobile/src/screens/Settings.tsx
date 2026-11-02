@@ -49,14 +49,14 @@ export function Settings({ navigation, onForget }: { navigation?: any; onForget?
         <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ true: p.accent }} />} />
       </Section>
       <Section label={t('Team')}>
-        <Row label={t('Model providers')} onPress={() => navigation?.navigate('Placeholder', { title: t('Model providers') })} />
+        <Row label={t('Model providers')} onPress={() => navigation?.navigate('Providers')} />
         <Row label={t('Secrets')} onPress={() => navigation?.navigate('Secrets')} />
-        <Row label={t('Connectors')} onPress={() => navigation?.navigate('Placeholder', { title: t('Connectors') })} />
-        <Row label={t('Capabilities')} onPress={() => navigation?.navigate('Placeholder', { title: t('Capabilities') })} />
-        <Row label={t('Usage')} onPress={() => navigation?.navigate('Placeholder', { title: t('Usage') })} />
-        <Row label={t('Location')} onPress={() => navigation?.navigate('Placeholder', { title: t('Location') })} />
-        <Row label={t('Updates & diagnostics')} onPress={() => navigation?.navigate('Placeholder', { title: t('Updates & diagnostics') })} />
-        <Row label={t('About')} onPress={() => navigation?.navigate('Placeholder', { title: t('About') })} />
+        <Row label={t('Connectors')} onPress={() => navigation?.navigate('Connectors')} />
+        <Row label={t('Capabilities')} onPress={() => navigation?.navigate('Capabilities')} />
+        <Row label={t('Usage')} onPress={() => navigation?.navigate('TeamUsage')} />
+        <Row label={t('Location')} onPress={() => navigation?.navigate('Location')} />
+        <Row label={t('Updates & diagnostics')} onPress={() => navigation?.navigate('Updates')} />
+        <Row label={t('About')} onPress={() => navigation?.navigate('About')} />
       </Section>
     </ScrollView>
   )
