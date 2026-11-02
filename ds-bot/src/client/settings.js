@@ -108,7 +108,7 @@ function GeneralPage({ roster, actions, run }) {
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
       h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
     h(SetSection, { key: 'new', title: t('New Bots') },
-      h(SetRow, { label: t('Default model'), hint: t('Applies to Bots made after this pick, when a create names no model. Existing Bots keep their own.') },
+      h(SetRow, { label: t('Default model') },
         h(ModelMenu, {
           bot: { id: 'new-bots', name: t('New Bots'), model: prefs.defaultBotModel },
           roster, actions, run, wide: true, withEfforts: false,

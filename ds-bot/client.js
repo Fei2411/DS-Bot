@@ -95,7 +95,6 @@ var ZH = {
   "New Bot": "新 Bot",
   "New Bots": "新 Bot",
   "Default model": "默认模型",
-  "Applies to Bots made after this pick, when a create names no model. Existing Bots keep their own.": "只影响之后新建的 Bot；已有 Bot 的模型不变。",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
   "Setting up your Main Bot…": "正在设置你的主 Bot…",
@@ -17037,7 +17036,7 @@ function GeneralPage({ roster, actions, run: run2 }) {
       { key: "new", title: t("New Bots") },
       (0, import_react45.createElement)(
         SetRow,
-        { label: t("Default model"), hint: t("Applies to Bots made after this pick, when a create names no model. Existing Bots keep their own.") },
+        { label: t("Default model") },
         (0, import_react45.createElement)(ModelMenu, {
           bot: { id: "new-bots", name: t("New Bots"), model: prefs.defaultBotModel },
           roster,

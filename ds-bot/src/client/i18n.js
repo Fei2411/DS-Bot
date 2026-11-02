@@ -58,7 +58,6 @@ const ZH = {
   'New Bot': '新 Bot',
   'New Bots': '新 Bot',
   'Default model': '默认模型',
-  'Applies to Bots made after this pick, when a create names no model. Existing Bots keep their own.': '只影响之后新建的 Bot；已有 Bot 的模型不变。',
 
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
