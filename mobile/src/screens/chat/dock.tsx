@@ -18,7 +18,7 @@ export function Dock({ question, sessionId, approvals, view, call, p }: {
   view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
-  const has = question !== undefined || approvals.length > 0
+  const has = question !== undefined || approvals.length > 0 || view !== undefined
   if (!has) return null
   return (
     <ScrollView style={styles.dock} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
