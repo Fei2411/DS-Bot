@@ -343,6 +343,9 @@ export class StartWindow {
   /** Settles once the team window has shown at a hand-off. */
   get teamShown() { return this.#teamShown }
 
+  /** Whether the team window has shown at this start's hand-off. */
+  get revealed() { return this.#revealed }
+
   /** Opens the window, unless one is open, with a fresh state for this kind of start. */
   open(kind) {
     if (this.#open()) return

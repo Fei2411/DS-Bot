@@ -210,6 +210,13 @@ if (canonical !== undefined) {
   // A second launch shows the window that is showing: the start window until the hand-off
   // (also after a failed start), then the team window, built anew when it is gone.
   app.on('second-instance', () => { if (!startWindow.focus()) shell.open() })
+  // An error that nothing caught would get Electron's own message box (start-window §7: nothing
+  // native). Until the team window shows, the failure page says it; after that it is logged, and
+  // the team goes on.
+  process.on('uncaughtException', (error) => {
+    if (startWindow.revealed) console.error(error)
+    else void fail(error)
+  })
   app.on('before-quit', (event) => {
     if (copying !== undefined) {
       // A copy is under way: it stops at a safe point, and the app goes on meanwhile.
