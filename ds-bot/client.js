@@ -11291,7 +11291,7 @@ var SIDE_CSS = `
 .bt-side-fail{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line);display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .bt-side-form>.bt-side-fail{flex-basis:100%}
-.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
 .bt-side-send:disabled{opacity:.3;cursor:default}
 .bt-side-input{display:block;flex:1;min-width:0;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
 .bt-side-input::placeholder{color:var(--bt-ink-3)}
