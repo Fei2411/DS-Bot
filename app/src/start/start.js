@@ -422,7 +422,7 @@ function toggleDetails(button) {
   setTimeout(() => {
     pre.textContent = (s.failure?.log ?? s.card?.log ?? []).slice(-200).join('\n')
     pre.parentElement.scrollTop = 1e6
-    card.querySelector('.card-scroll').scrollTop = button.offsetTop - 14
+    card.querySelector('.card-scroll').scrollTop = button.offsetTop - 18
   }, reduced() ? 0 : spring('shape').duration)
 }
 function copiedLabel(button) {

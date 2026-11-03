@@ -17,7 +17,16 @@ test('free space is read at the nearest existing ancestor of a folder that is no
   const free = freeSpace(join(dir, 'not', 'yet'))
   assert.equal(typeof free, 'number')
   assert.ok(free > 0)
-  assert.equal(freeSpace(join(dir, 'not', 'yet')), freeSpace(dir))
+  // Other tests write to the same disk, so the free space can move by a block between two reads:
+  // the folder's own reads on both sides bound the nested read. A write and a delete in between
+  // can still leave it outside, so a few tries.
+  const between = () => {
+    const before = freeSpace(dir)
+    const nested = freeSpace(join(dir, 'not', 'yet'))
+    const after = freeSpace(dir)
+    return nested >= Math.min(before, after) && nested <= Math.max(before, after)
+  }
+  assert.ok(Array.from({ length: 20 }).some(between))
 })
 
 // Explorer's units: GB and MB of 1024, so the line agrees with what the user sees there.
