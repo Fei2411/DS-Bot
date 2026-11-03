@@ -9,7 +9,7 @@ import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } fro
 import { lookOf } from './mark.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts, openHarnessOnboarding, openHarnessSettings, MODELS_STEP, MODELS_STEP_ORDER, OpenModelsStep } from './sidebar.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
-import { installFrameWatch } from './frame-watch.js'
+import { dshCollapsed, installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
@@ -37,7 +37,7 @@ import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
-import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
+import { createBotHomeNavigation, freePriority, groupsFor, installPanelSync, readMode, surfaceGroups, writeMode } from './surface.js'
 import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
@@ -77,7 +77,7 @@ export function apply(ctx) {
   // Bot mode paints the whole team surface; Agent mode withdraws every slot and
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
-  const surface = createSource({ mode: readMode(), plain: false })
+  const surface = createSource({ mode: readMode(), plain: false, panel: ctx.layout.panelInfo?.getSnapshot?.().activePanelId ?? null })
   // DSH Agent Session ids from the last pull, so a reload already knows the main
   // view is a plain Session before the team answers.
   let agentSessionCache = new Set()
@@ -440,16 +440,9 @@ export function apply(ctx) {
       actions.openSession(snapshot.mainBotId)
     }
   }
-  const ensureBotHome = () => {
-    if (roster.getSnapshot().ready) homeToMainBot()
-    else {
-      const off = roster.subscribe(() => {
-        if (!roster.getSnapshot().ready) return
-        off()
-        homeToMainBot()
-      })
-    }
-  }
+  const homeNavigation = createBotHomeNavigation(roster, () => groupsFor(surface.getSnapshot()).shell, homeToMainBot)
+  const ensureBotHome = homeNavigation.ensure
+  ctx.effect(() => () => homeNavigation.cancel(), 'ds-bot: pending home navigation')
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
@@ -524,6 +517,7 @@ export function apply(ctx) {
     // was archived for a fresh one, the view goes on in the fresh one.
     landOn: async (id, last) => {
       if (last) await pull().catch(() => {})
+      if (!groupsFor(surface.getSnapshot()).shell) return
       const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
       setPlain(false)
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)
@@ -554,6 +548,10 @@ export function apply(ctx) {
     // surface closes first so nothing stale reopens on the way back.
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
+      homeNavigation.cancel()
+      show.cancel()
+      // Returning to Bot from a native panel must reveal the conversation again.
+      if (mode === 'bot') ctx.layout.selectPanel(null)
       // Already there: still worth the landing check — a cold start never calls
       // setSurface, so this is also how a stuck Bot surface recovers itself.
       if (surface.getSnapshot().mode === mode) {
@@ -567,7 +565,7 @@ export function apply(ctx) {
       surface.set(state => ({ ...state, mode }))
       // The Bot view kept the shell's sidebar collapsed under its own column; the
       // shell's own view gets it back (below DSH_NARROW the shell decides itself).
-      if (mode === 'agent' && window.innerWidth >= DSH_NARROW && frame.getSnapshot().collapsed) ctx.layout.toggleSidebar()
+      if (mode === 'agent' && window.innerWidth >= DSH_NARROW && dshCollapsed() === true) ctx.layout.toggleSidebar()
       if (mode !== 'bot') return
       ensureBotHome()
     },
@@ -992,7 +990,16 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-handoff', order: -85, inject: face }, HandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock),
   ]
-  // The return button belongs to neither group: it renders only in Agent mode.
+  ctx.effect(() => installPanelSync(ctx.layout, surface, () => {
+    homeNavigation.cancel()
+    show.cancel()
+    expected = null
+    ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, leftDrawer: false, panelYield: false }))
+    if (window.innerWidth >= DSH_NARROW && dshCollapsed() === true) ctx.layout.toggleSidebar()
+  }), 'ds-bot: native panel navigation')
+
+  // The return button belongs to neither group: it remains available in Agent
+  // mode and while a native panel owns the shell.
   ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 

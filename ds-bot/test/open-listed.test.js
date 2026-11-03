@@ -73,3 +73,13 @@ test('a navigation elsewhere drops the wait', () => {
   list.set('a')
   assert.deepEqual(opened, [])
 })
+
+test('cancel drops a pending wait without changing the current navigation', () => {
+  const list = store()
+  const { show, opened, refreshes } = rig(list)
+  show('a')
+  show.cancel()
+  list.set('a')
+  assert.deepEqual(opened, [])
+  assert.equal(refreshes(), 1)
+})

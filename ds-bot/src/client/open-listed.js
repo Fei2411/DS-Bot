@@ -4,7 +4,7 @@
 // elsewhere — drops the wait.
 export function listedOpener({ list, open, refresh, current }) {
   let drop = () => {}
-  return (target) => {
+  const openListed = (target) => {
     drop()
     drop = () => {}
     const listed = () => list.getSnapshot().byId?.[target] !== undefined
@@ -24,4 +24,9 @@ export function listedOpener({ list, open, refresh, current }) {
     drop = off
     refresh?.()
   }
+  openListed.cancel = () => {
+    drop()
+    drop = () => {}
+  }
+  return openListed
 }
