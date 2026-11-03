@@ -147,8 +147,6 @@ export function demoData(): DemoData {
       { kind: 'user', text: 'Here is the screenshot from the phone', images: 2, imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }, { attachmentId: 'demo-img-2', mime: 'image/png', name: 'night.png' }], time: T - 2600e3, seq: s(), turn: 4 },
         { kind: 'answer', questions: [{ question: 'Which build should the phone use?' }], answers: [{ selected: ['The debug build'], custom: 'Keep Metro on port 8081' }], time: T - 2400e3, seq: s(), turn: 4 },
         { kind: 'event', role: 'report', name: 'Writer', time: T - 2000e3, seq: s() },
-        { kind: 'user', text: '看下这个文件', files: [{ name: 'release-notes.md', bytes: 4820, attachmentId: 'att-1' }], time: T - 42 * 60e3 },
-      { kind: 'event', role: 'paused', name: 'Coder', text: 'Chief and Writer', ms: 3, time: T - 40 * 60e3 },
       { kind: 'divider', time: T - 86400e3 / 24, seq: s() },
         { kind: 'bot', text: md, time: T - 1900e3, seq: s(), turn: 5 },
         { kind: 'event', role: 'request', name: 'Coder', time: T - 1850e3, seq: s() },
@@ -158,6 +156,8 @@ export function demoData(): DemoData {
           { name: 'run_command', label: 'Running shell commands', ok: true },
           { name: 'remember', label: 'Saving to memory', ok: true },
         ], time: T - 1700e3, seq: s() },
+        { kind: 'user', text: '看下这个文件', files: [{ name: 'release-notes.md', bytes: 4820, attachmentId: 'att-1' }], time: T - 42 * 60e3 },
+      { kind: 'event', role: 'paused', name: 'Coder', text: 'Chief and Writer', ms: 3, time: T - 40 * 60e3 },
       ] },
       { sessionId: 's-chief-0', cursor: null, items: [
         { kind: 'divider', time: T - 8 * 86400e3, seq: s() },
