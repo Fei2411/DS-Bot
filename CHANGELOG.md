@@ -9,7 +9,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 ### Added
 
 - A group's admin can set a goal with you, split it into checked stages for its members and run it to the end; the header shows the current stage and who is working on it, and you can pause, resume, stop or clear the goal. ([#791](https://github.com/Fei2411/DS-Bot/issues/791), [#795](https://github.com/Fei2411/DS-Bot/pull/795))
-- The desktop app opens a start window while it starts up: the Main Bot's whale swims across three stages, first-run setup shows where your data lives and lets you pick another folder, and a startup failure turns into a recovery card in place. ([#559](https://github.com/Fei2411/DS-Bot/issues/559), [#702](https://github.com/Fei2411/DS-Bot/pull/702))
+- The desktop app opens a start window while it starts up: a ring of three arcs around the Main Bot's whale shows real startup progress, first-run setup shows where your data lives and lets you pick another folder, folder pickers and imports use the app's own cards instead of system dialogs, and every startup error page says what happened and what to do. ([#559](https://github.com/Fei2411/DS-Bot/issues/559), [#702](https://github.com/Fei2411/DS-Bot/pull/702), [#856](https://github.com/Fei2411/DS-Bot/pull/856)–[#867](https://github.com/Fei2411/DS-Bot/pull/867))
 - The memory panel lists each memory's change history and lets you restore a single change from the journal. ([#464](https://github.com/Fei2411/DS-Bot/issues/464), [#822](https://github.com/Fei2411/DS-Bot/pull/822))
 - You can set a default model for new Bots in Settings without changing existing Bots. ([#227](https://github.com/Fei2411/DS-Bot/issues/227), [#823](https://github.com/Fei2411/DS-Bot/pull/823))
 - You can choose whether Enter sends a message or inserts a new line in Bot chats, and while a Bot is working, pressing Enter again on an empty message box sends your queued messages into the running turn right away. ([#680](https://github.com/Fei2411/DS-Bot/issues/680), [#816](https://github.com/Fei2411/DS-Bot/pull/816), [#839](https://github.com/Fei2411/DS-Bot/issues/839), [#841](https://github.com/Fei2411/DS-Bot/pull/841))
@@ -23,6 +23,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Fixed
 
+- In group chats, a Bot that asked another Bot gets the result even while it is still in its own turn, the admin is no longer called by a text match, and a reply that already answers is not asked for again. ([#872](https://github.com/Fei2411/DS-Bot/issues/872), [#873](https://github.com/Fei2411/DS-Bot/pull/873))
 - A group chat no longer goes silent after DeepSeek Harness restarts; if a message cannot be passed on, the group says so. ([#826](https://github.com/Fei2411/DS-Bot/issues/826), [#840](https://github.com/Fei2411/DS-Bot/pull/840))
 - Word, Excel and PowerPoint previews work again in the desktop app on Windows and macOS. ([#679](https://github.com/Fei2411/DS-Bot/issues/679), [#705](https://github.com/Fei2411/DS-Bot/pull/705))
 - Quitting during first-run setup exits even if the folder picker stops answering, and button focus rings and long model names are no longer clipped by their containers. ([#401](https://github.com/Fei2411/DS-Bot/issues/401), [#824](https://github.com/Fei2411/DS-Bot/pull/824), [#847](https://github.com/Fei2411/DS-Bot/pull/847))
