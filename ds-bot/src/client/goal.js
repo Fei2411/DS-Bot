@@ -158,12 +158,13 @@ function GoalPanel({ goal, view, room, roster, actions, working }) {
     const timer = setTimeout(() => setArmed(false), STOP_ARM_MS)
     return () => clearTimeout(timer)
   }, [armed])
-  // Nodes under 14px drop their number so the stepper still fits.
+  // Nodes too narrow for their number (14px, or 17px for two digits) drop it so the stepper still fits.
   const stepper = useRef(null)
   useEffect(() => {
     const box = stepper.current
     if (box === null || typeof ResizeObserver !== 'function') return undefined
-    const measure = () => box.querySelectorAll('.bt-goal-step').forEach(node => node.classList.toggle('bt-goal-mini', node.clientWidth < 14))
+    const min = view.stages.length >= 10 ? 17 : 14
+    const measure = () => box.querySelectorAll('.bt-goal-step').forEach(node => node.classList.toggle('bt-goal-mini', node.clientWidth < min))
     const observer = new ResizeObserver(measure)
     observer.observe(box)
     measure()
@@ -353,12 +354,13 @@ export const GOAL_CSS = `
 .bt-goal-step:first-child::before{left:50%}
 .bt-goal-step:last-child::before{right:50%}
 .bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
-.bt-goal-node>svg{width:12px;height:12px}
+.bt-goal-node>svg{flex:none;width:min(12px,70%);height:auto}
 .bt-goal-step[data-step=passed]>.bt-goal-node{background:var(--bt-green);border-color:var(--bt-green);color:var(--bt-main)}
 .bt-goal-step[data-step=current]>.bt-goal-node{border-color:var(--bt-accent);color:var(--bt-accent);font-weight:600}
 .bt-goal-step[data-step=waiting]>.bt-goal-node{border-color:var(--bt-star);color:var(--bt-star);font-weight:600}
 .bt-goal-step[data-sel]:not([aria-current])>.bt-goal-node{box-shadow:0 0 0 1.5px var(--bt-ink)}
 .bt-goal-step.bt-goal-mini .bt-goal-node{font-size:0}
+.bt-goal-step.bt-goal-mini .bt-goal-node>svg{display:none}
 /* The selected stage below the stepper. */
 .bt-goal-bstage{display:flex;flex-direction:column;padding:4px 14px 14px;font-size:13px;line-height:18px;animation:bt-veil-in .22s ease-out backwards}
 .bt-goal-bline{display:flex;align-items:baseline;gap:8px}
