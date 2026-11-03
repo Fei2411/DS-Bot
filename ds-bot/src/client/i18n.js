@@ -643,6 +643,7 @@ const ZH = {
   '{name} did not answer or call anyone; call a member with @Name': '{name} 没有回答，也没有叫谁；用 @名字 叫一个成员来回答',
   'The group replies could not be shown': '群里的回复显示不出来',
   'Paused after {count} Bot relays. Waiting: {names}': 'Bot 之间已接力 {count} 次，先停下了。还在等：{names}',
+  '{names} went back and forth {count} times without progress and paused. Write here to go on': '{names} 来回 {count} 次没有进展，先停下了。你发言后继续',
   '{name} paused for your approval': '{name} 停下来等你批准',
   '{name} started on it': '{name} 开始做了',
   "You stopped {name}'s work": '你停下了 {name} 的工作',

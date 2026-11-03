@@ -704,6 +704,36 @@ test('calls parked under the old relay limit run in the group\'s next round', as
   assert.equal(saved.paused, undefined)
 })
 
+// #872: calls the idle guard parked wait for the user. A round a Bot's post opens
+// leaves them; the user's message that joins that round brings them in.
+test('calls the idle guard parked wait for the user\'s message, also one that joins a running round', async (t) => {
+  const { call, emit, compose, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+  const chief = rt.state.mainBotIds[0]
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+  const state = () => rt.state.rooms[room.id]
+  state().paused = [{ id: writer.id, name: 'Writer', note: 'Chief mentioned you', by: chief, idle: true }]
+  await rt.save()
+
+  await emit(room.id, { type: 'user/message', data: { source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'p1', senderSessionId: writer.id, senderName: 'Writer', roomId: room.id }, content: [{ type: 'text', text: '[Group post from Writer]\n@Chief the draft is up' }] } })
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.equal(first.sessionId, state().sessions[chief])
+  assert.equal(state().paused.length, 1, 'a Bot\'s post does not bring the parked call in')
+
+  await compose(room.id, 'Go on, both of you')
+  await answer(first.sessionId, first.message.source.exchangeId, 'Thanks.', 1)
+  const parked = await waitFor(() => sent.find(entry => entry !== first && entry.message.source.role === 'room' && /Chief mentioned you/.test(entry.message.content[0].text)))
+  assert.ok(parked, 'the user\'s message brings the parked call in')
+  assert.equal(state().paused, undefined)
+  const again = await waitFor(() => sent.find(entry => entry !== first && entry !== parked && entry.message.source.role === 'room'))
+  await answer(parked.sessionId, parked.message.source.exchangeId, 'On it.', 1)
+  await answer(again.sessionId, again.message.source.exchangeId, 'Fine.', 2)
+  await running
+})
+
 test('a member the reply timeout cut short is told to the group, not left as silence', async (t) => {
   const { call, emit, userMessage, relay, stop, sent, rt } = start()
   t.after(stop)
