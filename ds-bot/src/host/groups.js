@@ -33,10 +33,6 @@ const ROOM_FIRST_LOOK = 12
 const ROOM_DELTA_MAX = 24
 const ROOM_EARLIER_MAX = 8
 
-// A reply that hands back an unresolved decision to the admin or caller without @Name (#619).
-const NEEDS_CALLER_DECISION = /需要.*(?:决定|拍板|确认|指示|裁决|定夺)|请.*(?:管理员|负责人|组长|拍板|决定|指示|确认)|等.*(?:管理员|负责人|决定|拍板|指示)|\b(?:need|needs|waiting\s+for|requires)\s+(?:the\s+)?(?:admin|lead|leader|chief|you)\s+to\s+(?:decide|confirm|choose|approve|pick)\b/i
-const needsCallerDecision = text => typeof text === 'string' && NEEDS_CALLER_DECISION.test(text)
-
 // Short ack/thanks/closing phrases with no new content, used by the 0-tool idle loop guard.
 const IDLE_ACK_BODY = /^(?:(?:收到|好的|好|明白|明白了|了解|了解了|没问题|谢谢|多谢|感谢|辛苦了|辛苦|不客气|不用谢|完毕|完成|好嘞|行|ok|okay|got\s+it|understood|noted|thanks|thank\s+you|you\s+are\s+welcome|you're\s+welcome|welcome|np|no\s+problem|roger|ack|done|all\s+good|sounds\s+good)(?:[\s，,、。.!！~～：:]+|$))+$/i
 const normalizeRelayBody = (text, everyone) => {
@@ -90,6 +86,7 @@ const goalNotice = (line) => {
 }
 const noticeText = (line) => {
   if (line.reason === 'missed') return `${(line.names ?? []).join(' and ')} did not answer within ${line.minutes} minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.`
+  if (line.reason === 'paused' && line.idle) return `Paused: ${[line.from, ...(line.names ?? [])].filter(Boolean).join(' and ')} went back and forth ${line.limit} times without progress (no tool used, only thanks or repeats). The calls to @${(line.names ?? []).join(' and @')} wait until the user writes here; do not call them again.`
   if (line.reason === 'paused') return `Paused: Bots have called each other ${line.limit} times since the user last wrote here. The calls to @${(line.names ?? []).join(' and @')} wait until the user continues or writes here; do not call them again.`
   if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
   if (line.reason === 'folder') return `The group's folder ${line.path} is gone, so its members work in the team workspace; set the group's folder again in the group's settings.`
@@ -603,14 +600,19 @@ export function install(rt) {
     return round.slots.every((other, index) => !other.ordered || other === slot || (other.status !== 'speaking' && !(other.status === 'waiting' && index < at)))
   }
 
-  // LEGACY: groups used to park Bot calls past a relay limit until the user went on.
-  // Calls still parked from then (or by the idle ping-pong guard) run in the group's
-  // next round, with its opening speakers; one already waiting in the round is not
-  // called twice.
+  // Calls the idle ping-pong guard parked (`idle`) run once the user writes: in the
+  // round the user's message opens, or in the running round that takes it in.
+  // LEGACY: groups used to park Bot calls past a relay limit until the user went on;
+  // calls still parked from then run in the group's next round. Either way they join
+  // the round's speakers, and one already waiting in the round is not called twice.
   const releaseParked = (room, round) => {
     const parked = room.paused ?? []
-    delete room.paused
-    for (const entry of parked) {
+    const due = parked.filter(entry => entry.idle !== true || round.userMessage === true)
+    if (due.length === 0) return
+    const left = parked.filter(entry => !due.includes(entry))
+    if (left.length > 0) room.paused = left
+    else delete room.paused
+    for (const entry of due) {
       if (round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
       const peer = rt.botOf(entry.id)
       const batchKey = peer && entry.by !== undefined ? registerBatch(room.id, entry.by, [peer]) : undefined
@@ -661,6 +663,7 @@ export function install(rt) {
       const { speakers, ordered } = openingCall(room, { text: line.text })
       callIn(round, speakers, note, undefined, { ordered })
     }
+    releaseParked(room, round)
     void rt.save().catch(() => {})
   }
 
@@ -691,13 +694,13 @@ export function install(rt) {
         const parked = room.paused ?? []
         for (const peer of callees) {
           if (!parked.some(entry => entry.id === peer.id)) {
-            parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id })
+            parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id, idle: true })
           }
         }
         room.paused = parked
         const names = callees.map(peer => peer.name)
-        appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', limit: ROOM_IDLE_RELAY_LIMIT, names })
-        round.replies.push({ kind: 'paused', count: ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names, time: Date.now() })
+        appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', idle: true, from: member.name, limit: ROOM_IDLE_RELAY_LIMIT, names })
+        round.replies.push({ kind: 'paused', idle: true, botId: member.id, name: member.name, color: member.color, count: ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names, time: Date.now() })
         void rt.save().catch(() => {})
         return
       }
@@ -847,21 +850,17 @@ export function install(rt) {
         if (slot.status === 'posted') {
           batch.done.push(member.name)
           if (called.size > 0) batch.answered = true
-          if (worked || needsCallerDecision(final)) batch.worked = true
+          if (worked) batch.worked = true
         }
         dropMemberFromBatch(room, member.id)
         if (batch.pending.size === 0 && batch.done.length > 0 && batch.worked && !batch.answered && !signal.aborted) {
           const caller = rt.botOf(batch.by)
+          // A caller still waiting in this round reads the results when it starts. One
+          // still in its own turn cannot see them, so it answers in a turn after that one.
           if (caller !== undefined && room.members.includes(caller.id)
-            && !round.slots.some(other => other.id === caller.id && (other.status === 'waiting' || other.status === 'speaking'))) {
+            && !round.slots.some(other => other.id === caller.id && other.status === 'waiting')) {
             callIn(round, [caller], `${batch.done.join(' and ')} finished the work you asked for`, undefined)
           }
-        }
-      } else if (slot.status === 'posted' && called.size === 0 && needsCallerDecision(final) && room.mode === 'admin' && room.admin && room.admin !== member.id) {
-        const admin = rt.botOf(room.admin)
-        if (admin !== undefined && room.members.includes(admin.id)
-          && !round.slots.some(other => other.id === admin.id && (other.status === 'waiting' || other.status === 'speaking'))) {
-          callIn(round, [admin], `${member.name} finished the work and needs your decision`, undefined)
         }
       }
     }
@@ -1131,13 +1130,7 @@ export function install(rt) {
     const { all, found: named } = mentionsOf(opener, everyone) ?? mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
     if (opener.progress) return at(found)
-    if (opener.late) {
-      if (found.length > 0) return at(found)
-      const asked = members.filter(bot => bot.id === opener.askedBy)
-      if (asked.length > 0) return at(asked)
-      if (needsCallerDecision(opener.text) && room.mode === 'admin' && admin) return at([admin])
-      return at([])
-    }
+    if (opener.late) return at(found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy))
     if (opener.member) return at(found)
     if (found.length > 0 && !all) return at(found)
     if (!all && room.mode === 'admin' && admin) return at([admin])

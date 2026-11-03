@@ -919,10 +919,12 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     return h('div', { className: 'bt-event' },
       t('{name} did not answer or call anyone; call a member with @Name', { name: bot.name }))
   }
-  // LEGACY: rounds from when groups paused at a relay limit.
+  // Bots that went back and forth without progress. LEGACY: rounds from when groups
+  // paused at a relay limit.
   if (reply.kind === 'paused') {
-    return h('div', { className: 'bt-event' },
-      t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) }))
+    return h('div', { className: 'bt-event' }, reply.idle
+      ? t('{names} went back and forth {count} times without progress and paused. Write here to go on', { count: reply.count, names: [bot.name, ...(reply.names ?? [])].join(t(' and ')) })
+      : t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) }))
   }
   if (reply.kind === 'resumed') {
     return h('div', { className: 'bt-event' }, t('{name} was cut off by a restart and picked its work back up', { name: bot.name }))
