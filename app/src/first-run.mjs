@@ -44,7 +44,7 @@ export async function pickRoot(from, signal, ui) {
 }
 
 /** The places a first start offers. */
-export const defaultPlaces = () => ({ dataDir: join(homedir(), '.ds-bot'), workspace: join(homedir(), 'DeepSeek Bot') })
+export const defaultPlaces = () => ({ dataDir: join(homedir(), '.ds-bot'), workspace: join(homedir(), 'DS Bot') })
 
 /** The Bot team in a data folder, if it has one. */
 export function teamIn(dataDir) {

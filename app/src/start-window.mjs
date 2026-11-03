@@ -251,9 +251,9 @@ export function startSnapshot(state, now) {
   return snapshot
 }
 
-export const detailsText = ({ version, platform, arch, reason, lines }) => [`DeepSeek Bot ${version} (${platform} ${arch})`, `reason: ${reason}`, '', ...lines].join('\n')
+export const detailsText = ({ version, platform, arch, reason, lines }) => [`DS Bot ${version} (${platform} ${arch})`, `reason: ${reason}`, '', ...lines].join('\n')
 
-const note = message => { console.log(`DeepSeek Bot: start window: ${message}`) }
+const note = message => { console.log(`DS Bot: start window: ${message}`) }
 // The page sends a button's detail as { value }; anything else counts as none.
 const valueOf = payload => (payload !== null && typeof payload === 'object' && typeof payload.value === 'string' ? payload.value.slice(0, 40) : undefined)
 // An option of the import card: its name and whether it is ticked.
@@ -335,7 +335,7 @@ export class StartWindow {
     const win = new BrowserWindow({
       ...rect,
       useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, minimizable: true,
-      show: true, title: 'DeepSeek Bot', icon: this.#o.icon,
+      show: true, title: 'DS Bot', icon: this.#o.icon,
       backgroundColor: mica ? '#00000000' : colors.main,
       // Frameless with the system minimize and close buttons over the page's empty 40 px band.
       ...(win32 ? {
@@ -758,7 +758,7 @@ export class StartWindow {
     const reason = this.#state.failure?.reason ?? 'other'
     const text = detailsText({ version, platform: process.platform, arch: process.arch, reason, lines: this.#o.log.tail(SAVED_LINES) })
     try {
-      const { canceled, filePath } = await electron.dialog.showSaveDialog(this.#window, { defaultPath: 'DeepSeek-Bot-log.txt', filters: [{ name: 'Text', extensions: ['txt'] }] })
+      const { canceled, filePath } = await electron.dialog.showSaveDialog(this.#window, { defaultPath: 'DS-Bot-log.txt', filters: [{ name: 'Text', extensions: ['txt'] }] })
       if (canceled || !filePath) return
       await writeFile(filePath, text, 'utf8')
       note(`the log was saved to ${filePath}`)
