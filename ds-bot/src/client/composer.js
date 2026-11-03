@@ -6,6 +6,7 @@ import { BotMark } from './mark.js'
 import { useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
+import { enterSteers, steerable } from './enter-steer.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -117,13 +118,17 @@ export function menuIcons(roster) {
 // menu, whose plan, permission, model and compact rows reach past what DS Bot keeps
 // for its Bots; "/" still opens that menu. Files go through the shell's own file
 // input beside it.
-export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
+export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster(value => value)
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)
   const menu = useRef(null)
   const tick = useViewport()
+  // The selector runs on every input change, so inputNow stays live for the key
+  // handler while `ready` re-renders only when steerability flips.
+  const inputNow = useRef(undefined)
+  const ready = useInput?.((state) => { inputNow.current = state; return steerable(state) }) === true
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => { if (![button.current, menu.current].some(node => node?.contains(event.target))) setOpen(null) }
@@ -132,6 +137,34 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown, true); window.removeEventListener('keydown', onKey, true) }
   }, [open])
+  // No deps: the "+" can mount after this effect first ran, and the card swap on a
+  // session switch must pick the placeholder up again.
+  useEffect(() => {
+    const card = button.current?.closest('[data-composer-card]')
+    if (!ready || card === null || card === undefined) return undefined
+    card.style.setProperty('--bt-placeholder', JSON.stringify(t('Press Enter to steer queued messages')))
+    return () => card.style.removeProperty('--bt-placeholder')
+  })
+  useEffect(() => {
+    let steering = false
+    const onKey = (event) => {
+      if (steering || event.defaultPrevented || open) return
+      const target = event.target
+      if (typeof target?.closest !== 'function') return
+      const card = button.current?.closest('[data-composer-card]')
+      if (card === null || card === undefined || target.closest('[data-composer-card]') !== card) return
+      if (target.closest('[contenteditable=true]') === null) return
+      if (target.closest('[data-composer-composing]')) return
+      if (target.ownerDocument?.querySelector('[role="listbox"]')) return
+      if (!enterSteers(event, inputNow.current)) return
+      event.preventDefault()
+      event.stopPropagation()
+      steering = true
+      void Promise.resolve(actions.steerQueued(sessionId)).finally(() => { steering = false })
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [open, sessionId])
   // Hooks stay above the early return below: the roster may not know the Bot yet, and a
   // render that skips a hook breaks the composer's slot when the roster arrives.
   // Anchored to the "+" each render: the visible viewport can move (on-screen

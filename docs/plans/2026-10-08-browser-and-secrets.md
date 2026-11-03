@@ -66,7 +66,6 @@ Bot 要替用户在网上做事，就会碰到两类东西：网页，以及登�
 - Bot 浏览器只在 DSH Desktop 和桌面应用里有，DSH Web 没有。
 - 历史消息里的链接还不能直接在 Bot 浏览器里打开（#114）。
 - 关掉 `auto` 搜索以后，`web_search` 可能报错，恢复方法见 #128。
-- 用 opencode 路由时，原生搜索缺少 `x-opencode-session`（#184）。
 - 导入 cookie 只在桌面应用里有（写进 Bot 自己的存储分区）：cookie 文件（Cookie-Editor JSON、cookies.txt、Playwright storageState）和本机 Chrome/Edge/Firefox 的 profile。Chromium 系是先克隆 profile、再让原浏览器自己解密，不是直接读文件。Windows 上 Chrome/Edge 的新 cookie 用 app-bound 加密（v20），只在原 user-data 目录里能解：克隆目录解不开，这些条目会标成跳过；如果整库都是 v20 会直接提示走文件导入。localStorage 等其他登录状态不导。
 - 密钥只防泄露到模型、记录和其他 Bot 的 shell。有权限的 Bot 在自己的 shell 里能用到值，所以给哪些 Bot 开放，要由用户判断。
 
@@ -75,6 +74,7 @@ Bot 要替用户在网上做事，就会碰到两类东西：网页，以及登�
 - 2026-10-08：每个 Bot 一个浏览器，由用户操作，Bot 只读。
 - 2026-10-09：`read_browser` 读成 Markdown 并标注链接和控件；密钥卡和替换规则。
 - 之后：加了多标签页、最多 6 个活着的页面、GitHub 连接器。
+- 2026-10-16：opencode 路由的原生搜索带上提问会话的 `x-opencode-session`（#184，PR #240）。
 - 2026-10-23：桌面应用里也有 Bot 浏览器，登录保存在应用自己的目录里，#449。
 - 2026-10-23：桌面应用的 Bot 浏览器能导入 cookie（文件和本机浏览器），#458。
 - 2026-10-21：操作浏览器改由可选插件来做，见 [浏览器插件](2026-10-21-browser-plugins.md)。不配插件时，这一篇的只读行为不变。
