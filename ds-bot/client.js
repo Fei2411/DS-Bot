@@ -11020,14 +11020,23 @@ function mainAvatarPlace(roster) {
   if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return void 0;
   const mark = mainMarkOf(main.id);
   if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return void 0;
-  const box = mark.getBoundingClientRect();
+  const box = restingBox(mark);
   const view = document.documentElement;
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight };
+}
+function restingBox(mark) {
+  const box = mark.getBoundingClientRect();
+  const column = mark.closest?.(".bt-leftcol");
+  if (!column) return box;
+  const now = column.getBoundingClientRect();
+  const dx = column.offsetLeft - now.left;
+  const dy = column.offsetTop - now.top;
+  return { left: box.left + dx, top: box.top + dy, width: box.width, height: box.height };
 }
 var GLIDE_MS = 460;
 function glideOnto(mark, from) {
   if (!mark || reducedMotion()) return;
-  const box = mark.getBoundingClientRect();
+  const box = restingBox(mark);
   if (!box.width) return;
   const outer = document.createElement("div");
   const inner = document.createElement("div");

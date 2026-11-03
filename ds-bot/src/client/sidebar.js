@@ -935,9 +935,23 @@ function mainAvatarPlace(roster) {
   const mark = mainMarkOf(main.id)
   // Not the opacity: the column fades in as it first draws, which is when this is measured.
   if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return undefined
-  const box = mark.getBoundingClientRect()
+  const box = restingBox(mark)
   const view = document.documentElement
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
+}
+
+// The avatar's box where the team column comes to rest. The column also slides in as it first
+// draws (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
+// outside the page and the whale would have nowhere to land; offsetLeft and offsetTop leave the
+// slide's transform out.
+function restingBox(mark) {
+  const box = mark.getBoundingClientRect()
+  const column = mark.closest?.('.bt-leftcol')
+  if (!column) return box
+  const now = column.getBoundingClientRect()
+  const dx = column.offsetLeft - now.left
+  const dy = column.offsetTop - now.top
+  return { left: box.left + dx, top: box.top + dy, width: box.width, height: box.height }
 }
 
 // The whale the start window hands over (app/src/start-window.mjs): `from` is where it is on
@@ -950,7 +964,7 @@ function mainAvatarPlace(roster) {
 const GLIDE_MS = 460
 function glideOnto(mark, from) {
   if (!mark || reducedMotion()) return
-  const box = mark.getBoundingClientRect()
+  const box = restingBox(mark)
   if (!box.width) return
   const outer = document.createElement('div')
   const inner = document.createElement('div')
