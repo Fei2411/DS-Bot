@@ -5,7 +5,7 @@
 // data is copied and the app starts again on the new folder. The Electron parts are test
 // doubles: no display, no DSH, no data of the user.
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -13,6 +13,9 @@ import { paths, state } from './helpers/fake-electron.mjs'
 import { HostProcess, state as hostState } from './helpers/fake-host-process.mjs'
 import { startApp, startWindows, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
+
+// The user makes the folder in the picker first, so a copy shows as what is in it.
+const copied = path => existsSync(path) && readdirSync(path).length > 0
 
 await installHooks()
 
@@ -68,7 +71,7 @@ test('a later start on a drive that runs low shows the place line, and its butto
   const copiedAtStop = []
   const stop = HostProcess.prototype.stop
   HostProcess.prototype.stop = async function (...args) {
-    copiedAtStop.push(existsSync(to))
+    copiedAtStop.push(copied(to))
     return stop.apply(this, args)
   }
 
@@ -79,7 +82,7 @@ test('a later start on a drive that runs low shows the place line, and its butto
   await waitFor(() => start.url.endsWith('?start=moving'), 'turn the start window into the move\'s')
   await waitFor(() => state.relaunches.length === 1, 'start again on the new folder')
   assert.equal(copiedAtStop[0], false, 'the Host stopped before the copy')
-  assert.ok(existsSync(to), 'the data was copied')
+  assert.ok(copied(to), 'the data was copied')
   const saved = JSON.parse(readFileSync(join(paths.userData, 'locations.json'), 'utf8'))
   assert.equal(saved.dataDir, to)
   assert.equal(saved.workspace, workspace)

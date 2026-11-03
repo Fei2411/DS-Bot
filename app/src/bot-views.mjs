@@ -47,6 +47,7 @@ export class BotViews {
   #saved = {}
   #active = new Map()
   #held = new Set()
+  #covered = false
   // The tabs whose view waits for a window to belong to.
   #waiting = new Set()
 
@@ -254,7 +255,8 @@ export class BotViews {
     const entry = this.#views.get(tabId)
     if (!entry) return false
     if (rect !== null) entry.view.setBounds(rectOf(rect))
-    entry.view.setVisible(visible === true)
+    entry.shown = visible === true
+    entry.view.setVisible(entry.shown && !this.#covered)
     if (visible === true) {
       this.#active.set(entry.botId, tabId)
       this.#remember(entry)
@@ -335,6 +337,18 @@ export class BotViews {
     const token = randomBytes(32).toString('hex')
     this.#tokens.set(token, botId)
     return `ws://127.0.0.1:${this.#address.port}/devtools/browser/${token}`
+  }
+
+  /**
+   * The app's card is up in the window (main.mjs askInWindow). The views are drawn above the
+   * page, so they stay hidden until it goes, or they would cover the card.
+   * @param {boolean} covered
+   */
+  cover(covered) {
+    this.#covered = covered
+    for (const entry of this.#views.values()) {
+      if (!entry.view.webContents.isDestroyed()) entry.view.setVisible(entry.shown === true && !covered)
+    }
   }
 
   sync(botId) {

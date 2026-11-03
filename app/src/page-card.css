@@ -1,0 +1,105 @@
+/* DS Bot's own questions and pickers: one card over the page in place of a message box
+   or a system picker (main.mjs askInWindow and askPicker, preload.cjs showCard and showPicker).
+   The main process inserts this sheet into the team window and the start window; the
+   colors and springs are the start window's, scoped to the card's layer so that the page's own
+   stay as they are. */
+/* tokens */
+/* Generated from the DeepSeek theme in ds-bot/src/client/themes.js, inks.js and styles.js by scripts/start-assets.mjs; do not edit. */
+.dsb-card-layer{color-scheme:light dark;--bt-main:#fcfcfc;--bt-card:#ffffff;--bt-ink:#141414;--bt-ink-2:rgba(20,20,20,0.6);--bt-line:rgba(20,20,20,0.08);--bt-line-2:rgba(20,20,20,0.15);--bt-hover:rgba(119,119,119,.09);--bt-accent:#4d6bfe;--bt-accent-ink:#ffffff;--bt-ink-deepseek:#4D6BFE;--bt-green:#00c972;--bt-danger:#e02135}
+@media (prefers-color-scheme:dark){.dsb-card-layer{--bt-main:#141414;--bt-card:#1f1f1f;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,0.6);--bt-line:rgba(242,242,242,0.08);--bt-line-2:rgba(242,242,242,0.15);--bt-hover:rgba(160,160,160,.12);--bt-accent:#5b7bff;--bt-accent-ink:#141414;--bt-ink-deepseek:#6A84FF}}
+/* /tokens */
+/* springs */
+/* Generated from ds-bot/src/client/motion.js by scripts/start-assets.mjs; do not edit. */
+.dsb-card-layer {
+  --spring-shape: linear(0.0000,0.0510,0.1692,0.3153,0.4639,0.6001,0.7163,0.8102,0.8823,0.9350,0.9717,0.9955,1.0098,1.0171,1.0198,1.0195,1.0175,1.0147,1.0117,1.0089,1.0064,1.0044,1.0028,1.0016,1.0000);
+  --spring-shape-ms: 420ms;
+  --spring-tap: linear(0.0000,0.0541,0.1776,0.3279,0.4784,0.6141,0.7281,0.8187,0.8874,0.9369,0.9709,0.9928,1.0057,1.0124,1.0150,1.0149,1.0134,1.0112,1.0089,1.0067,1.0048,1.0033,1.0021,1.0013,1.0000);
+  --spring-tap-ms: 290ms;
+  --spring-pop: linear(0.0000,0.0698,0.2385,0.4520,0.6677,0.8566,1.0027,1.1009,1.1539,1.1695,1.1578,1.1293,1.0931,1.0566,1.0245,0.9997,0.9830,0.9740,0.9713,0.9732,0.9781,0.9842,0.9904,0.9958,1.0000);
+  --spring-pop-ms: 430ms;
+  --spring-stretch: linear(0.0000,0.0740,0.2474,0.4594,0.6666,0.8422,0.9740,1.0602,1.1060,1.1202,1.1126,1.0924,1.0670,1.0419,1.0204,1.0042,0.9934,0.9875,0.9856,0.9863,0.9887,0.9917,0.9947,0.9974,1.0000);
+  --spring-stretch-ms: 560ms;
+  --spring-list: linear(0.0000,0.0138,0.0503,0.1030,0.1666,0.2367,0.3099,0.3836,0.4556,0.5244,0.5891,0.6489,0.7034,0.7525,0.7962,0.8347,0.8681,0.8969,0.9215,0.9421,0.9592,0.9733,0.9846,0.9936,1.0000);
+  --spring-list-ms: 190ms;
+}
+/* /springs */
+
+.dsb-card-layer{position:fixed;inset:0;z-index:2147483646;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.28);font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;color:var(--bt-ink);-webkit-app-region:no-drag;app-region:no-drag;opacity:0;transition:opacity .16s ease-in}
+@media (prefers-color-scheme:dark){.dsb-card-layer{background:rgba(0,0,0,.5)}}
+.dsb-card-layer[data-open]{opacity:1;transition:opacity .22s ease-out}
+.dsb-card-layer *{box-sizing:border-box}
+.dsb-card{width:min(440px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px 24px;border:1px solid var(--bt-line-2);border-radius:12px;background:var(--bt-card);box-shadow:0 12px 40px rgba(0,0,0,.18);text-align:left;translate:0 8px;scale:.98;transition:translate .16s ease-in,scale .16s ease-in,filter .16s ease-in}
+.dsb-card-layer[data-open] .dsb-card{translate:0 0;scale:1;transition:translate var(--spring-shape-ms) var(--spring-shape),scale var(--spring-shape-ms) var(--spring-shape)}
+/* The way out is the start window's card exit: down 6 px, to .975, blurred 3 px. */
+.dsb-card-layer[data-leaving] .dsb-card{translate:0 6px;scale:.975;filter:blur(3px)}
+.dsb-card-title{margin:0;font-size:15px;line-height:22px;font-weight:600;color:var(--bt-ink);white-space:pre-line;overflow-wrap:anywhere}
+.dsb-card-detail{margin:6px 0 0;font-size:14px;line-height:22px;color:var(--bt-ink-2);white-space:pre-line;overflow-wrap:anywhere}
+.dsb-card-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:18px}
+.dsb-card-btn{all:unset;display:inline-flex;align-items:center;justify-content:center;flex:none;height:36px;padding:0 16px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;white-space:nowrap;cursor:pointer;transition:background-color .12s,color .12s,scale var(--spring-tap-ms) var(--spring-tap)}
+.dsb-card-btn:hover{background:color-mix(in srgb,var(--bt-hover),var(--bt-ink) 6%)}
+.dsb-card-btn:active{scale:.96}
+.dsb-card-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.dsb-card-btn[data-look=primary]{background:var(--bt-accent);color:var(--bt-accent-ink)}
+.dsb-card-btn[data-look=primary]:hover{background:color-mix(in srgb,var(--bt-accent),var(--bt-ink) 10%)}
+/* The app's own folder and file picker (preload.cjs showPicker): the card made wide and tall,
+   places and drives on the left, the folder's entries on the right. */
+.dsb-picker{display:flex;flex-direction:column;gap:10px;width:min(720px,100%);height:min(560px,calc(100vh - 32px));overflow:hidden;padding:18px 20px}
+.dsb-picker[hidden],.dsb-picker [hidden]{display:none!important}
+.dsb-picker-bar{display:flex;align-items:center;gap:6px;min-width:0}
+.dsb-picker-up{all:unset;flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:999px;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s,scale var(--spring-tap-ms) var(--spring-tap)}
+.dsb-picker-up::before{content:"";width:7px;height:7px;border-left:1.5px solid currentColor;border-top:1.5px solid currentColor;rotate:45deg;translate:0 2px}
+.dsb-picker-up:hover{background:var(--bt-hover)}
+.dsb-picker-up:active{scale:.9}
+.dsb-picker-up:disabled{opacity:.35;cursor:default;scale:none;background:none}
+.dsb-picker-crumbs{display:flex;align-items:center;min-width:0;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+.dsb-picker-crumb{all:unset;flex:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;padding:2px 6px;border-radius:6px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer}
+.dsb-picker-crumb+.dsb-picker-crumb::before{content:"/";margin:0 4px 0 -2px;color:var(--bt-line-2)}
+.dsb-picker-crumb:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.dsb-picker-crumb[aria-current]{color:var(--bt-ink);font-weight:600}
+.dsb-picker-row-form{display:flex;gap:8px}
+.dsb-picker-input{all:unset;flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid var(--bt-line-2);border-radius:8px;background:var(--bt-card);font:inherit;font-size:13px;line-height:20px;color:var(--bt-ink);box-sizing:border-box;transition:border-color .12s}
+.dsb-picker-input:focus{border-color:var(--bt-accent)}
+.dsb-picker-small{height:36px;padding:0 14px;font-size:13px}
+.dsb-picker-main{flex:1;min-height:0;display:grid;grid-template-columns:168px minmax(0,1fr);gap:10px}
+.dsb-picker-side{display:flex;flex-direction:column;gap:1px;min-height:0;overflow-y:auto;padding-right:2px}
+.dsb-picker-head{margin:6px 8px 4px;font-size:12px;line-height:18px;font-weight:500;color:var(--bt-ink-2)}
+.dsb-picker-head:first-child{margin-top:0}
+.dsb-picker-root{all:unset;display:flex;align-items:center;gap:8px;min-height:30px;padding:0 8px;border-radius:6px;font-size:13px;line-height:20px;color:var(--bt-ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer}
+.dsb-picker-root-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-picker-root:hover{background:var(--bt-hover)}
+.dsb-picker-root[aria-current]{background:color-mix(in srgb,var(--bt-accent) 12%,transparent)}
+.dsb-picker-pane{display:flex;flex-direction:column;min-height:0;border:1px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);overflow:hidden}
+.dsb-picker-note{margin:0;padding:8px 12px;font-size:13px;line-height:20px;color:var(--bt-ink-2);border-bottom:1px solid var(--bt-line)}
+.dsb-picker-note[data-tone=error]{color:var(--bt-danger)}
+.dsb-picker-list{flex:1;min-height:0;overflow-y:auto;padding:4px;outline:none}
+.dsb-picker-list[aria-busy=true]{opacity:.6;transition:opacity .2s .15s}
+.dsb-picker-list:focus-visible{box-shadow:inset 0 0 0 2px var(--bt-accent);border-radius:10px}
+.dsb-picker-row{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 8px;border-radius:6px;font-size:13px;line-height:20px;color:var(--bt-ink);cursor:default;user-select:none}
+.dsb-picker-row[data-dir=false]{color:var(--bt-ink-2)}
+.dsb-picker-row:hover{background:var(--bt-hover)}
+.dsb-picker-row[aria-selected=true]{background:color-mix(in srgb,var(--bt-accent) 16%,transparent);color:var(--bt-ink)}
+.dsb-picker-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-picker-glyph{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.2;stroke-linejoin:round;stroke-linecap:round;color:var(--bt-ink-2)}
+.dsb-picker-side,.dsb-picker-list{scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent}
+.dsb-picker-row[data-dir=true] .dsb-picker-glyph,.dsb-picker-root .dsb-picker-glyph{color:var(--bt-accent)}
+.dsb-picker-name{display:flex;align-items:center;gap:10px}
+.dsb-picker-name-label{flex:none;font-size:13px;color:var(--bt-ink-2)}
+.dsb-picker-ask{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-danger) 8%,transparent);font-size:13px;line-height:20px;color:var(--bt-ink)}
+.dsb-picker-actions{margin-top:0}
+.dsb-picker-newbtn{margin-right:auto}
+.dsb-card-btn:disabled{opacity:.35;cursor:default;scale:none}
+/* A narrow window (the start window, a small team window) drops the side column under the
+   path field: the places stay one row that scrolls sideways. */
+@media (max-width:560px){
+  .dsb-picker-main{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .dsb-picker-side{flex-direction:row;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:0}
+  .dsb-picker-head{display:none}
+  .dsb-picker-root{flex:none}
+}
+/* start-window §9: fades only, .12 s in and .16 s out, without movement, scale or blur. */
+@media (prefers-reduced-motion:reduce){
+  .dsb-card-layer[data-open]{transition:opacity .12s ease-out}
+  .dsb-card,.dsb-card-layer[data-open] .dsb-card,.dsb-card-layer[data-leaving] .dsb-card{translate:none;scale:none;filter:none;transition:none}
+  .dsb-card-btn,.dsb-card-btn:active{transition:background-color .12s,color .12s;scale:none}
+  .dsb-picker-up,.dsb-picker-up:active{transition:background-color .12s;scale:none}
+}

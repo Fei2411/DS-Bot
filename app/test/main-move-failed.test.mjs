@@ -2,7 +2,7 @@
 // 〔重试〕 copies again, 〔用原来的位置启动〕 starts again on the old folder (start-window §5). The
 // Electron parts are test doubles: no display, no DSH, no data of the user.
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -13,11 +13,16 @@ import { installHooks } from './helpers/register.mjs'
 await installHooks()
 
 test('a failed copy asks on a card whether to copy again or start where the data was', async () => {
-  // A folder whose parent is a file passes the checks, but no copy can go there.
+  // The picked folder's parent turns into a file before the answer: the folder passes the
+  // checks again, but no copy can go there.
   const parent = join(mkdtempSync(join(tmpdir(), 'ds-bot-move-')), 'a-file')
-  writeFileSync(parent, '')
   const to = join(parent, 'data')
-  const { home } = await moveFromStart(to)
+  const { home } = await moveFromStart(to, {
+    picked: () => {
+      rmSync(parent, { recursive: true, force: true })
+      writeFileSync(parent, '')
+    },
+  })
   const failures = () => startWindows()[0].webContents.sent.filter(([channel, snapshot]) => channel === 'ds-bot:start-state' && snapshot.card?.kind === 'moveFailed' && snapshot.view === 'card').length
   const shown = () => startWindows()[0].webContents.sent.filter(([channel]) => channel === 'ds-bot:start-state').length
   await waitFor(() => startState().card?.kind === 'moveFailed', 'say that the copy failed')

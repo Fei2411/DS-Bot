@@ -27,16 +27,17 @@
 
 | 层 | 在哪里 | 谁在说 | 规则 |
 |---|---|---|---|
-| `voice.*` | 鲸鱼下面那一行，只在用户要知道或回答时有字：45 秒、180 秒、失败、搬数据 | 鲸鱼，第一人称、口语 | 一行，不折行，最多 16 字；不加句号，可以问号；可以用口语的动词（「搬过来」） |
+| `voice.*` | 鲸鱼下面那一行，只在出错时有字：180 秒、失败 | 鲸鱼，第一人称、口语 | 一行，不折行，最多 16 字；不加句号，可以问号；可以用口语的动词（「搬过来」） |
 | `say.*` | 卡片的第一行（15/20、600） | 鲸鱼 | 最多 12 字；不加句号 |
 | `hint.*` | 提示行，只有盘不够时前 10 秒的那一句 | 应用，中性 | 只写一件用户现在要知道的事，最多 22 字；不加句号 |
 | `card.*` | 卡片正文 | 应用 | 整句，以 。？ 结尾；说出了什么事，怎么办交给按钮；路径放 `code`；`card.<卡>.<部分>`，几张卡共用的放 `card.update.*` |
 | `reason.*` | 卡片正文里复用的原因 | 应用 | 整句的以 。 结尾（`reason.place.*` 位置不能用的九个原因、`reason.start.*` 启动失败的五个）；嵌进句子的片段不带标点（`reason.copy.*` 复制失败的三个） |
-| `btn.*` | 按钮 | 用户的动作 | 最多 10 字，动词或动作短语开头；打开系统选择框或离开这张卡的以 … 结尾；不加句号；链接样式的小按钮可以是名词短语（「其他位置…」「详细」） |
+| `btn.*` | 按钮 | 用户的动作 | 最多 10 字，动词或动作短语开头；打开选择框或离开这张卡的以 … 结尾；不加句号；链接样式的小按钮可以是名词短语（「其他位置…」「详细」） |
 | `note.*` | 卡片脚注 | 应用 | 一句，以 。 结尾，说以后在哪里改 |
 | `foot.*` | 页脚的位置行 | 应用 | 不加句号（「数据放在 C 盘（剩 412 GB）」） |
 | `status.*` | 只给读屏 | 应用 | 不加句号：隐藏列表「启动进度」、三个阶段名、四个状态词、朗读句 |
-| `dialog.*` | 系统对话框的正文和标题 | 应用 | 正文整句以 。？ 结尾，可以两段（`\n\n`）；选择框标题不加句号；按钮用 `btn.*` |
+| `dialog.*` | 团队窗口里卡片的正文（2026-11-01 前是系统对话框）、选择框的标题，和选择框里的提示与错误（`dialog.picker.*`） | 应用 | 正文整句以 。？ 结尾，可以两段（`\n\n`）；选择框标题不加句号；按钮用 `btn.*` |
+| `picker.*` | 选择框的标签和按钮（2026-11-02 起选择框是应用自己的） | 用户的动作 | 名词或动词短语，不加句号 |
 
 - 同一句话只有一个键；两层里都要的同一句，各自一键（提示行的「C 盘只剩 1.2 GB」和卡片里的「C 盘只剩 1.2 GB。」是两层两键）。
 - 同一个意思只有一种写法：「先不复制」（不复制团队，继续）和「先不带团队开始」（放弃复制、带空白团队启动）是两个意思，各一种写法；对话框里原来的「不复制」「不带团队开始」改成这两句。
@@ -49,7 +50,7 @@
 
 鲸鱼的话 `voice.*`：`voice.slow45 / watchdog` 不动；`title.moving` → `voice.moving`，`title.failed` → `voice.failed`，`title.viewFailed` → `voice.viewFailed`「团队界面没有加载出来」（去句号），`slow.45.later` → `voice.slowLater`「比平时慢，请再等一会儿」（去句号；以后的启动和搬数据时 45 秒起由鲸鱼说）。启动窗口顺利时不说话（[启动窗口](2026-10-26-start-window.md) 第 3 节），所以表里没有问候、各阶段的话和「进去吧」（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready`），`title.later`「正在打开你的团队…」也没有键。
 
-卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / import / importSpace / inUse / newer` 不动；`copying.title` → `say.copying`「正在搬过来」。
+卡片第一行 `say.*`：`say.space / permission / rejected / picked / missing / importSpace / inUse / newer` 不动。导入卡的第一行带数字，是 `card.import.line`「找到你以前的团队了：{bots} 个 Bot、{groups} 个群聊」（不是句子，不加句号）；复制中没有卡片，所以没有 `say.copying`。
 
 提示行 `hint.*`：只有 `hint.space`，不动。接模型、预览版说明和重装的三句（`hint.model / preview / reinstall`）没有键：启动页不提前说进门以后的事。
 
@@ -63,15 +64,15 @@
 | `card.missing` | `card.missing.lead` | |
 | `card.missing.retryMissed` | `card.missing.retryMissed` | |
 | `card.picked` | `card.picked.lead` | 会放在 {path}。（加句号） |
-| `import.lead / extra / found / scope / model` | `card.import.lead / extra / found / scope / model` | |
+| `import.extra / model` | `card.import.extra / model` | 只在「详细」里；`lead / found / scope` 没有了 |
 | `import.opt.regen / skipWork` | `card.import.optRegen / optSkipWork` | 勾选框的标签 |
 | `import.space` | `card.importSpace.lead` | |
-| `copying.step1 / 2 / 3` | `card.copying.step1 / 2 / 3` | |
-| `eta.minutes`、`eta.lt1` | `card.copying.eta`、`card.copying.etaSoon` | |
-| `stop.confirm` | `card.copying.stopConfirm` | |
 | `inUse` | `card.inUse.lead` | |
 | `newer.updating`、`newer.unreadable` | `card.newerUpdating.lead`、`card.newer.lead` | |
 | `importFailed` | `card.importFailed.lead` | |
+| （新） | `card.importFailed.do` | 复制失败的卡：该怎么办 |
+| （新） | `card.viewFailed.lead`、`card.viewFailed.do` | 团队界面没加载出来的卡：发生了什么、该怎么办 |
+| （新） | `card.failed.do.{reason}` | 恢复卡上原因下面的「该怎么办」，按 `reason.start.*` 的六种原因各一句 |
 | `failed.reason.*` | 见 `reason.start.*` | 卡片直接用 `reason.start.{reason}` |
 | `update.available / downloading / installing / failed / slow` | `card.update.available / downloading / installing / failed / slow` | |
 
@@ -97,10 +98,9 @@
 | `pickOther` | `btn.pickPlace` | 选择其他位置… |
 | `place.change`、`changePlace` | `btn.changePlace` | 换个位置…（合一；英文 Change the location…） |
 | `card.missing.relocate` | `btn.relocate` | 重新找到它… |
-| `card.picked.use`、`card.picked.repick` | `btn.continue`、`btn.repick` | 继续、重新选…（加 …：它打开系统选择框） |
+| `card.picked.use`、`card.picked.repick` | `btn.continue`、`btn.repick` | 继续、重新选…（加 …：它打开选择框） |
 | `import.copy`、`import.skip` | `btn.copy`、`btn.skipCopy` | 复制过来、先不复制 |
 | `import.more`、`import.change` | `btn.more`、`btn.changeModel` | 详细、更换 |
-| `stop`、`keepCopying` | `btn.stopCopy`、`btn.keepCopying` | 停止复制、继续复制 |
 | `startWithout` | `btn.startWithout` | 先不带团队开始 |
 | `copyDetails`、`copied`、`details` | `btn.copyDetails`、`btn.copied`、`btn.details` | |
 | `update.install`、`manualDownload`、`reload` | `btn.install`、`btn.manualDownload`、`btn.reload` | |
@@ -140,7 +140,7 @@
 - 逐键对照中文的意思，不另写一套：位置行写全「Data on drive {drive}, {free} free」（原来只有「Drive C, 412 GB free」）。
 - 句首大写；`voice / say / hint / btn / foot / status` 不加句号；`card / reason（整句）/ note / dialog` 以句号或问号结尾；… 和中文同步。
 - 名词：chats（不用 conversations）、group chats、attachments、API Key、Settings → General → Location（单数）、team workspace、data folder、local engine。
-- 单复数用 `{n|one|many}`：`card.import.lead`「DeepSeek Harness has {bots|Bot|Bots} and {groups|group chat|group chats} …」、`card.import.found`、`dialog.import.found`、`dialog.import.newer`。
+- 单复数用 `{n|one|many}`：`card.import.line`「Found your old team: {bots|Bot|Bots}, {groups|group chat|group chats}」、`dialog.import.found`、`dialog.import.newer`。
 - 「先不复制」是 Don't copy yet，「先不带团队开始」是 Start without the team，「先不重启」Not now（重启框）、「先不下载」Not now（下载框）。
 
 ### 5. 测试
@@ -149,13 +149,13 @@
 
 - 已有的：中英键集和占位符相同；中文里没有白名单外的英文；没有 马上 / 稍后 / 下个版本；页面用到的键都在表里。
 - 新加的：
-  - 每个键的第一段是十层之一。
-  - `voice / say / hint / btn / foot / status` 的中文不以 。 结尾，英文不以 . 结尾；`card / note / dialog` 的整句以 。？ 结尾（`reason.copy.*`、`card.update.slow`「下载太慢？」、选择框标题、`card.copying.step*`、`card.copying.eta*`、`card.import.model`、`card.import.opt*`、进度行 `card.update.downloading` 除外，测试里列明）。
+  - 每个键的第一段是十一层之一（2026-11-02 加了选择框的 `picker`）。
+  - `voice / say / hint / btn / foot / status / picker` 的中文不以 。 结尾，英文不以 . 结尾；`card / note / dialog` 的整句以 。？ 结尾（`reason.copy.*`、`card.update.slow`「下载太慢？」、选择框标题、`card.copying.step*`、`card.copying.eta*`、`card.import.model`、`card.import.opt*`、进度行 `card.update.downloading` 除外，测试里列明）。
   - 字数上限（去掉占位符后）：`voice` 16、`say` 12、`hint` 22、`btn` 10。
   - `start.html` 里 `data-act="pick"` 的按钮，键的中文以 … 结尾。
   - 主进程三个文件里 `tx('…')` 用到的键都在表里；`first-run.mjs` 和 `updates.mjs` 里没有自己的字符串表。
   - `t()` 的单复数：`{bots|Bot|Bots}` 在 1 和 6 上各填对。
-  - `voice` 层只有六个键（`voice.failed / moving / slow45 / slowLater / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
+  - `voice` 层只有三个键（`voice.failed / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
 
 ## 改动的已定设计
 
@@ -163,7 +163,7 @@
 |---|---|---|
 | 启动窗口稿第 7 节、上手流程第 3 节：鲸鱼的话「团队界面没有加载出来。」 | 「团队界面没有加载出来」 | 鲸鱼那一行不加句号，和「DS Bot 没能启动」一致 |
 | 启动窗口稿第 5 节、上手流程第 8 节：45 秒「比平时慢，请再等一会儿。」 | 「比平时慢，请再等一会儿」 | 提示行不加句号 |
-| 启动窗口稿第 6 节、上手流程第 3 节：「会放在 `D:\DS Bot`」〔继续〕〔重新选〕 | 「会放在 `D:\DS Bot`。」〔继续〕〔重新选…〕 | 卡片正文以句号结尾；打开系统选择框的按钮以 … 结尾（被拒绝的卡上的〔重新选…〕一样） |
+| 启动窗口稿第 6 节、上手流程第 3 节：「会放在 `D:\DS Bot`」〔继续〕〔重新选〕 | 「会放在 `D:\DS Bot`。」〔继续〕〔重新选…〕 | 卡片正文以句号结尾；打开选择框的按钮以 … 结尾（被拒绝的卡上的〔重新选…〕一样） |
 | 启动窗口稿第 6 节：「…在 OneDrive 里，同步会打断正在写入的聊天记录。」 | 「…正在写入的对话。」 | 一个东西一个名字 |
 | 上手流程第 4 节：更新版本那张卡的脚注「可以在 设置 → 通用 → 位置 里再复制。」 | 「以后可以在 设置 → 通用 → 位置 里复制。」 | 和「以后可以在 … 里改。」同一个句式 |
 | `first-run.mjs`：导入对话框〔复制〕〔不复制〕〔不带团队开始〕 | 〔复制过来〕〔先不复制〕〔先不带团队开始〕 | 和导入卡同一种写法；对话框只到导入卡落地（M5）为止 |
@@ -194,3 +194,10 @@
 - 2026-10-29 首稿：十层、一张表、键的对照、测试；对应 `text.mjs` 重排、`first-run.mjs` 和 `updates.mjs` 的表并入、`start.html` 和 `start.js` 改键。依据：2026-10-29 对三张表的审读（30 个对话框键和 11 个更新键都在用，没有死键；页面表和两份设计稿逐句对照只有 `failed.reason.*` 的句号一处不同；风格问题 30 条，全部复核过）。
 - 2026-10-30：启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：鲸鱼的话只剩用户要知道或回答时的几句，表里去掉 14 个键（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready / opening`、`hint.model / preview / reinstall`、`status.elapsed`），`hint.slowLater` 改名 `voice.slowLater`（同一句，以后的启动和搬数据时 45 秒起由鲸鱼说）；第 2 节 `voice`、`hint`、`status` 三层的说明、第 3 节的对照和第 4 节单复数的例子跟着改，第 5 节加一条测试。依据：维护者 2026-10-30 转来的讨论（「现在这版有点噪了」）和维护者选定的圆环原型。
 - 2026-10-31：启动页的底注去掉（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `foot.community`；`foot` 层只剩位置行，第 2、3 节跟着改，「改动的已定设计」加一行。以后的启动搬数据改在卡片上问，加 `say.move`「搬到这个文件夹？」、`card.move.lead`、`reason.place.drive / workspace`（第 3 节对照表加一行，第 2 节 `reason.*` 改成九个原因）；按钮用已有的 `btn.move / repick / cancel`。依据：维护者「移除左下角的社区非官方声明」「让我们尽可能避免系统中出现任何这样的默认弹窗」。
+- 2026-11-01：启动页轻易不写字（[启动窗口](2026-10-26-start-window.md) 同一天的变更），表里去掉 `voice.slow45 / slowLater / moving` 和 `btn.openLogs`，加 `btn.saveLog`「保存日志…」（打开系统保存框，所以以 … 结尾）；`voice` 层只剩出错时的三句。第 3 节的旧键对照是当时的记录，不改。
+- 2026-11-02：导入并进圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.import.line`、`say.stopCopy` 和 `status.phase.import`「复制以前的团队」；去掉 `say.import / copying`、`card.import.lead / leadBare / found / scope` 和 `card.copying.step1 / 2 / 3 / eta / etaSoon`。
+- 2026-11-02：复制没有停止按钮（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：去掉 `say.stopCopy`、`card.copying.stopConfirm`、`btn.stopCopy`、`btn.keepCopying`。
+- 2026-11-02：恢复卡说该怎么办（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.failed.do.permission / space / files / engine / other`。
+- 2026-11-02：团队界面没加载出来的卡（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.viewFailed.lead / do`。
+- 2026-11-02：复制失败的卡（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.importFailed.do`。
+- 2026-11-02：找不到放数据的文件夹（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `reason.start.missing` 和 `card.failed.do.missing`。

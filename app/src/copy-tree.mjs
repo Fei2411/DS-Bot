@@ -60,12 +60,13 @@ async function relink(source, path, roots, to) {
  * fails the copy.
  * @param {string} from
  * @param {string} into
- * @param {{ force?: boolean, skip?: boolean, leave?: (path: string) => boolean, as?: string, signal?: AbortSignal }} [options]
+ * @param {{ force?: boolean, skip?: boolean, leave?: (path: string) => boolean, as?: string, signal?: AbortSignal, seen?: (bytes: number) => void }} [options]
  *   force: false keeps what is there already; leave: relative paths not to copy; as: where the
- *   copy will end up, when `into` is a staging folder that takes that name later
+ *   copy will end up, when `into` is a staging folder that takes that name later; seen: the size
+ *   of each file as it is about to be copied
  * @returns {Promise<string[]>} the relative paths that were skipped
  */
-export async function copyTree(from, into, { force = true, skip = false, leave = () => false, as = into, signal } = {}) {
+export async function copyTree(from, into, { force = true, skip = false, leave = () => false, as = into, signal, seen } = {}) {
   // The folder can itself be a link; its contents are what is copied.
   const origin = real(from)
   const links = []
@@ -81,6 +82,7 @@ export async function copyTree(from, into, { force = true, skip = false, leave =
       const info = await lstat(source).catch((error) => { if (!skip) throw error })
       if (info === undefined) skipped.push(path)
       else if (info.isSymbolicLink()) links.push(path)
+      else if (info.isFile()) seen?.(info.size)
       return info?.isSymbolicLink() === false
     },
   })

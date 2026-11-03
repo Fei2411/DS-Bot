@@ -8,7 +8,7 @@ import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_SHAPE, useLinger, useViewport, viewBottom } from './motion.js'
+import { springEasing, SPRING_POP, SPRING_SHAPE, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
@@ -898,21 +898,31 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
 // The desktop app keeps its main window hidden until the team interface has drawn
 // the first state, and shows its failure page when that never comes. The report
 // says where the Main Bot's avatar is when it wears the start window's whale: the
-// whale there jumps onto it as the team window takes over.
+// start window hands that whale over at the top of its jump, and it glides onto
+// the avatar here.
 let readyReported = false
 function useReportReady(drawn, roster) {
   useEffect(() => {
     if (!drawn || readyReported) return
     readyReported = true
     void Promise.resolve().then(() => {
-      const ready = globalThis.dsBotApp?.ready
-      if (typeof ready !== 'function') return undefined
+      const app = globalThis.dsBotApp
+      if (typeof app?.ready !== 'function') return undefined
       // The place is a nicety: whatever goes wrong measuring it, the report still goes.
       let place
       try { place = mainAvatarPlace(roster) } catch { place = undefined }
-      return place === undefined ? ready() : ready(place)
+      if (place === undefined) return app.ready()
+      const mainId = roster.mainBotId
+      app.onHandoff?.((from) => { try { glideOnto(mainMarkOf(mainId), from) } catch (error) { quietly('handoff')(error) } })
+      return app.ready(place)
     }).catch(quietly('app ready'))
   }, [drawn])
+}
+
+function mainMarkOf(id) {
+  if (typeof document === 'undefined') return null
+  const key = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id
+  return document.querySelector(`.bt-side [data-bot-id="${key}"] .bt-mark`)
 }
 
 // The Main Bot's avatar in the team column, in CSS px of the page, with the page's size.
@@ -922,13 +932,53 @@ function mainAvatarPlace(roster) {
   if (main === undefined || main.avatar?.image || typeof document === 'undefined') return undefined
   const look = lookOf(main)
   if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return undefined
-  const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(main.id) : main.id
-  const mark = document.querySelector(`.bt-side [data-bot-id="${id}"] .bt-mark`)
+  const mark = mainMarkOf(main.id)
   // Not the opacity: the column fades in as it first draws, which is when this is measured.
   if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return undefined
   const box = mark.getBoundingClientRect()
   const view = document.documentElement
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
+}
+
+// The whale the start window hands over (app/src/start-window.mjs): `from` is where it is on
+// this page at the top of its jump. A copy of the avatar waits there for `hold` ms, while the two
+// windows cross-fade, then glides onto the avatar in one compositor animation, so the jump does
+// not stutter the way a window that resizes under it would. x and y ease differently, so the path
+// bows upward; the avatar itself is hidden until the copy is on it, then gives a small bounce.
+// Hidden by opacity, not visibility: the copy draws through the avatar's own masks (same ids),
+// which a hidden avatar would stop drawing.
+const GLIDE_MS = 460
+function glideOnto(mark, from) {
+  if (!mark || reducedMotion()) return
+  const box = mark.getBoundingClientRect()
+  if (!box.width) return
+  const outer = document.createElement('div')
+  const inner = document.createElement('div')
+  const copy = mark.cloneNode(true)
+  copy.removeAttribute('data-live')
+  Object.assign(outer.style, { position: 'fixed', left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`, zIndex: '2147483647', pointerEvents: 'none' })
+  Object.assign(inner.style, { width: '100%', height: '100%', transformOrigin: '0 0' })
+  Object.assign(copy.style, { width: '100%', height: '100%' })
+  copy.style.setProperty('--bt-ink-deepseek', getComputedStyle(mark).getPropertyValue('--bt-ink-deepseek'))
+  inner.append(copy)
+  outer.append(inner)
+  outer.setAttribute('aria-hidden', 'true')
+  document.body.append(outer)
+  mark.style.opacity = '0'
+  const timing = { delay: Math.max(0, Number(from.hold) || 0), duration: GLIDE_MS, fill: 'both' }
+  outer.animate([{ transform: `translateX(${from.x - box.left}px)` }, { transform: 'none' }], { ...timing, easing: 'cubic-bezier(.45,0,.25,1)' })
+  const glide = inner.animate([{ transform: `translateY(${from.y - box.top}px) scale(${from.size / box.width})` }, { transform: 'none' }], { ...timing, easing: 'cubic-bezier(.2,.65,.3,1)' })
+  let landed = false
+  const land = () => {
+    if (landed) return
+    landed = true
+    outer.remove()
+    mark.style.opacity = ''
+    mark.animate([{ transform: 'scale(1.08, .92)' }, { transform: 'none' }], { duration: SPRING_POP.duration, easing: SPRING_POP.easing })
+  }
+  glide.finished.then(land, land)
+  // A hidden page stops ticking animations: the avatar comes back regardless.
+  setTimeout(land, timing.delay + GLIDE_MS + 500)
 }
 
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way

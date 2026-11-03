@@ -5,6 +5,8 @@
 //   is st-eyes, the clips st-tail-cut and st-torso-cut; the fill stays var(--bt-ink-deepseek).
 // - start.css, between /* tokens */ markers: the DeepSeek theme's light and dark colors.
 // - start.css, between /* springs */ markers: motion.js's springs as linear() curves.
+// - ../page-card.css, between the same two markers: the same colors and springs, scoped to the
+//   card that the team window shows in place of a message box, so that the page's own are kept.
 // Usage: node scripts/start-assets.mjs [--check]   (--check exits 1 when a block is stale and
 // writes nothing)
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -19,6 +21,8 @@ const THEME_TOKENS = ['--bt-main', '--bt-card', '--bt-ink', '--bt-ink-2', '--bt-
 // The status colors are the same in both modes; the plugin's base sheet defines them.
 const BASE_TOKENS = ['--bt-green', '--bt-danger']
 const SPRINGS = ['shape', 'tap', 'pop', 'stretch', 'list']
+// The layer of the team window's card (preload.cjs).
+const CARD_SCOPE = '.dsb-card-layer'
 
 // Wraps the one self-closing element that starts with `start` in <g id>.
 function wrap(markup, id, start) {
@@ -83,15 +87,15 @@ function pick(vars, names, from) {
   }).join(';')
 }
 
-function tokens() {
+function tokens(scope = ':root') {
   const [light, dark] = rules(themeCss(allThemes().deepseek))
   const base = readFileSync(new URL('styles.js', client), 'utf8').match(/^body\{(--bt-[^}]*)\}$/mu)
   if (!base) throw new Error('styles.js: the base body rule was not found')
   const [ink, inkDark] = INKS.deepseek
   return [
     '/* Generated from the DeepSeek theme in ds-bot/src/client/themes.js, inks.js and styles.js by scripts/start-assets.mjs; do not edit. */',
-    `:root{color-scheme:light dark;${pick(light, THEME_TOKENS, 'themeCss')};--bt-ink-deepseek:${ink};${pick(rules(`{${base[1]}}`)[0], BASE_TOKENS, 'styles.js')}}`,
-    `@media (prefers-color-scheme:dark){:root{${pick(dark, THEME_TOKENS, 'themeCss')};--bt-ink-deepseek:${inkDark}}}`,
+    `${scope}{color-scheme:light dark;${pick(light, THEME_TOKENS, 'themeCss')};--bt-ink-deepseek:${ink};${pick(rules(`{${base[1]}}`)[0], BASE_TOKENS, 'styles.js')}}`,
+    `@media (prefers-color-scheme:dark){${scope}{${pick(dark, THEME_TOKENS, 'themeCss')};--bt-ink-deepseek:${inkDark}}}`,
   ]
 }
 
@@ -106,11 +110,11 @@ async function motion() {
   return import(`data:text/javascript,${encodeURIComponent(source.replace(imports[0], stub))}`)
 }
 
-async function springs() {
+async function springs(scope = ':root') {
   const curves = await motion()
   return [
     '/* Generated from ds-bot/src/client/motion.js by scripts/start-assets.mjs; do not edit. */',
-    ':root {',
+    `${scope} {`,
     ...SPRINGS.flatMap((name) => {
       const curve = curves[`SPRING_${name.toUpperCase()}`]
       if (!curve) throw new Error(`motion.js no longer exports SPRING_${name.toUpperCase()}`)
@@ -134,6 +138,7 @@ function between(text, open, close, block) {
 const files = {
   'start.html': html => between(html, '<!-- whale -->', '<!-- /whale -->', rig()),
   'start.css': async css => between(between(css, '/* tokens */', '/* /tokens */', tokens()), '/* springs */', '/* /springs */', await springs()),
+  '../page-card.css': async css => between(between(css, '/* tokens */', '/* /tokens */', tokens(CARD_SCOPE)), '/* springs */', '/* /springs */', await springs(CARD_SCOPE)),
 }
 const check = process.argv.includes('--check')
 const stale = []

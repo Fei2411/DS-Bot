@@ -514,6 +514,29 @@ describe('watchUpdates', () => {
     assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9' })
   })
 
+  test('the download reports its per cent and MB, once per whole per cent', (t) => {
+    const updater = new FakeUpdater()
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+    const seen = []
+    updates.subscribe(state => seen.push(state))
+    // No download, no progress.
+    updater.emit('download-progress', { percent: 5, transferred: 1, total: 2 })
+    assert.deepEqual(seen, [])
+    updater.emit('update-available', { version: '0.1.9' })
+    const MB = 1024 * 1024
+    updater.emit('download-progress', { percent: 37.4, transferred: 78.2 * MB, total: 212 * MB })
+    updater.emit('download-progress', { percent: 37.9, transferred: 79 * MB, total: 212 * MB })
+    updater.emit('download-progress', { percent: 38.1, transferred: 80.6 * MB, total: 212 * MB })
+    updater.emit('download-progress', { percent: Number.NaN })
+    assert.deepEqual(seen.slice(1), [
+      { phase: 'downloading', version: '0.1.9', percent: 37, received: 78, total: 212 },
+      { phase: 'downloading', version: '0.1.9', percent: 38, received: 81, total: 212 },
+    ])
+    updater.emit('update-downloaded', { version: '0.1.9' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9' })
+  })
+
   test('a failed check or download reports failed, unless an update is already downloaded', (t) => {
     const updater = new FakeUpdater()
     const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })

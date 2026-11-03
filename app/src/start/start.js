@@ -10,17 +10,33 @@ const root = document.documentElement
 const asked = new URLSearchParams(location.search).get('start')
 const START = ['first', 'later', 'moving'].includes(asked) ? asked : 'first'
 const resume = performance.getEntriesByType('navigation')[0]?.type === 'reload'
+// The main process shows the window by itself after PAINT_WAIT_MS (3 s) and OPEN_MS.
+const HELD_MAX_MS = 3500
 const bridge = window.dsBotStart
 if (resume) root.dataset.resume = ''
 // The page shows nothing but the empty band (html:not([data-start])) without the preload's bridge.
 if (bridge) root.dataset.start = START
 const first = START === 'first'
 root.dataset.sheet = 'none'
+// The window shows see-through once this page has painted and turns opaque a moment later
+// (start-window.mjs OPEN_MS); the snapshot then says `shown`. Until then the whale's entrance
+// waits: its CSS animations hold their first frame (start.css html[data-held]) and the
+// director's clock has not started.
+let onScreen = () => {}
+const begin = bridge && !resume ? new Promise((resolve) => { onScreen = resolve }) : Promise.resolve()
+if (bridge && !resume) {
+  root.dataset.held = ''
+  setTimeout(release, HELD_MAX_MS)
+}
+function release() {
+  delete root.dataset.held
+  onScreen()
+}
 
 const $ = selector => document.querySelector(selector)
 const sheet = $('.sheet'), edge = $('.sheet-edge'), fill = $('.sheet-fill'), stage = $('.stage'), pond = $('.pond'), live = $('.live')
 const voiceEl = $('.voice'), voiceText = $('.voice>span')
-const captionText = $('.caption-text'), logs = $('.caption .btn')
+const captionText = $('.caption-text')
 const placeEl = $('.place'), placeText = $('.place-text')
 const CODE = new Set(['path', 'dataDir', 'workspace'])
 let lang = 'zh'
@@ -79,22 +95,16 @@ function varsOf(snap) {
 function announce(text) { if (text) live.textContent = text }
 
 // ---- the whale's line ----
-// One short line under the ring, and only when the user is needed: a start that runs past 45 s,
-// the 180 s question, a failure. A data move (which the user started, and which takes a while)
-// keeps its line. A card speaks with its own first line, so the whale's line is empty while a
-// card is up (the 180 s question is the exception: its card holds only the buttons). A new line
-// fades in once the old one has faded out.
+// One short line under the ring, and only when something went wrong: the 180 s question or a
+// failure. A slow start is told by the whale's pose alone. A card speaks with its own first line,
+// so the whale's line is empty while a card is up (the 180 s question is the exception: its card
+// holds only the buttons). A new line fades in once the old one has faded out.
 const VOICES = { failed: 'voice.failed', viewFailed: 'voice.viewFailed', watchdog: 'voice.watchdog' }
 const FADE_MS = 160
 // key/text: the line chosen (on screen, or coming in once the old one has faded out).
 const v = { key: '', text: '', swap: 0 }
-// Past 45 s with the engine not up yet: the whale says why it takes so long.
-const late = () => ['boot', 'moving'].includes(s.view) && !(s.done ?? []).includes('engine') && bootMs() >= 45000
 function voiceWant() {
-  if (VOICES[s.view]) return VOICES[s.view]
-  if (s.view === 'card') return ''
-  if (late()) return first ? 'voice.slow45' : 'voice.slowLater'
-  return START === 'moving' ? 'voice.moving' : ''
+  return VOICES[s.view] ?? ''
 }
 function speak() {
   if (!s) return
@@ -117,13 +127,11 @@ function put() {
 }
 
 // ---- the hint row ----
-// Empty unless the user is needed: a short drive's one-line note for the first 10 s, and from
-// 45 s 〔打开日志文件夹〕 alone, since the whale's line says why. Nothing shows while a card, the
-// 180 s question or a failure is up.
+// Empty unless room runs short: a short drive's one-line note for the first 10 s. Nothing shows
+// while a card, the 180 s question or a failure is up.
 function hintWant() {
-  if (s.view !== 'boot' && s.view !== 'moving') return ['', {}, false]
-  if (late()) return ['', {}, true]
-  return [s.hint && bootMs() < 10000 ? 'hint.space' : '', { ...s.hint }, false]
+  if (s.view !== 'boot' && s.view !== 'moving') return ['', {}]
+  return [s.hint && bootMs() < 10000 ? 'hint.space' : '', { ...s.hint }]
 }
 let shimmerReady = false
 if (!first) setTimeout(() => { shimmerReady = true; if (s) shimmer() }, resume ? 0 : 1000)
@@ -144,10 +152,10 @@ function timeUI() {
   if (booting) director.slow(first && engineDone ? 0 : ms >= 45000 ? 2 : ms >= 10000 ? 1 : 0)
   if (booting && s.clock?.running) tick = setTimeout(timeUI, (sec + 1) * 1000 - ms + 4)
 }
-const hint = () => { const [key, vars, withLogs] = hintWant(); caption(key, vars, withLogs) }
+const hint = () => { const [key, vars] = hintWant(); caption(key, vars) }
 let captionKey = ''
 let captionTimer = 0
-function caption(key, vars, withLogs) {
+function caption(key, vars) {
   const text = key ? say(key, vars) : ''
   if (key !== captionKey) {
     const had = captionKey
@@ -156,8 +164,6 @@ function caption(key, vars, withLogs) {
     const show = () => { captionText.textContent = text; captionText.toggleAttribute('data-on', Boolean(key)) }
     if (had) { delete captionText.dataset.on; captionTimer = setTimeout(show, 160) } else show()
   } else if (key && captionText.textContent !== text) captionText.textContent = text
-  if (withLogs && logs.hidden) { logs.hidden = false; logs.dataset.on = '' }
-  if (!withLogs && !logs.hidden) { delete logs.dataset.on; setTimeout(() => { if (!logs.dataset.on) logs.hidden = true }, 160) }
 }
 
 // ---- the sheet: one surface that every card morphs in and out of ----
@@ -168,7 +174,8 @@ let sheetRun = 0
 function blockFor(snap) {
   if (snap.view === 'handoff') return shown
   if (snap.view === 'failed' || snap.view === 'viewFailed' || snap.view === 'watchdog') return snap.view
-  if (snap.view === 'card') return snap.card?.kind === 'stopCopy' ? 'copying' : snap.card?.kind ?? ''
+  // The copy has no card: it is the ring's import arc (start-window §6).
+  if (snap.view === 'card') return snap.card?.kind === 'copying' ? '' : snap.card?.kind ?? ''
   return ''
 }
 // The edge and fill layers are pre-sized to the sheet; only their clip-path moves, so a card
@@ -244,6 +251,7 @@ async function showBlock(name, jump) {
   const wasCard = Boolean(shown)
   shown = name
   if (wasCard) leave(oldEl, jump)
+  if (!name && wasCard && s?.card?.kind === 'copying' && !jump && !reduced()) return flyIn(mine)
   const el = blockEl(name)
   if (name && el) {
     root.dataset.sheet = 'card'
@@ -271,6 +279,63 @@ async function showBlock(name, jump) {
   }
 }
 
+// 〔复制过来〕, 〔继续复制〕 or a retry: the card does not fold away. Its surface shrinks to a drop
+// that turns the whale's blue and jumps up into the import's arc, which lights up as it lands and
+// then fills with the copy; the pond comes back down after it (start-window §6). Reduced motion
+// folds the card as usual and turns the arc on at once.
+const FLIGHT_MS = 520
+const ARRIVE = 0.8
+async function flyIn(mine) {
+  let land = () => {}
+  director.flight(new Promise((resolve) => { land = resolve }))
+  try {
+    const box = sheet.getBoundingClientRect()
+    const target = importPoint()
+    const cx = box.width / 2, cy = edgeH / 2
+    // The surface is leaving: a card that comes meanwhile morphs in from nothing.
+    edgeH = 0
+    await sleep(60)
+    if (mine !== sheetRun) return
+    const dot = (r, k) => `inset(${cy - r + k}px ${cx - r + k}px ${box.height - cy - r + k}px ${cx - r + k}px round ${r}px)`
+    const dx = target.x - (box.left + cx), dy = target.y - (box.top + cy)
+    const blue = 'var(--bt-ink-deepseek)'
+    // Shrink and rise, then the hop onto the arc; the arc lights as the drop arrives, under its fade.
+    const flights = [edge, fill].map((layer, k) => {
+      const from = getComputedStyle(layer)
+      const frames = [
+        { clipPath: from.clipPath, translate: '0px 0px', backgroundColor: from.backgroundColor, opacity: 1, easing: 'cubic-bezier(.3,.7,.4,1)' },
+        { clipPath: dot(6, k), translate: `${(dx * 0.25).toFixed(1)}px ${(dy * 0.7).toFixed(1)}px`, backgroundColor: blue, opacity: 1, offset: 0.45, easing: 'cubic-bezier(.4,0,.6,1)' },
+        { clipPath: dot(5, k), translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px`, backgroundColor: blue, opacity: 1, offset: ARRIVE },
+        { clipPath: dot(3, k), translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px`, backgroundColor: blue, opacity: 0 },
+      ]
+      for (const a of layer.getAnimations()) a.cancel()
+      return play(layer, frames, { duration: FLIGHT_MS, easing: 'linear' })
+    })
+    setTimeout(() => { if (mine === sheetRun) land() }, FLIGHT_MS * ARRIVE)
+    await Promise.all(flights.map(a => a.done))
+    if (mine !== sheetRun) return
+    land()
+    const bottom = sheet.clientHeight
+    ;[edge, fill].forEach((layer, k) => {
+      layer.style.clipPath = [`inset(0px 0px ${bottom}px 0px round 12px)`, `inset(1px 1px ${bottom + 1}px 1px round 11px)`][k]
+      layer.style.opacity = '0'
+    })
+    for (const a of flights) a.cancel()
+    root.dataset.sheet = 'none'
+    if (document.activeElement?.closest?.('.sheet')) document.activeElement.blur()
+    if (root.hasAttribute('data-up')) shift(false)
+  } finally {
+    land()
+  }
+}
+// Where the import's arc is, as the page shows it now (the pond may be shrunk): the middle of the
+// arc on a ring of four, else the gap after the data folder's arc that it grows out of.
+function importPoint() {
+  const ring = $('.ring')
+  const a = ((ring.dataset.n === '4' ? 135 : 120) * Math.PI) / 180
+  return new DOMPoint(110 + 106 * Math.sin(a), 110 - 106 * Math.cos(a)).matrixTransform(ring.getScreenCTM())
+}
+
 // What a new card says to a screen reader: its first line and its first visible sentence (the
 // 180 s card has only buttons; the whale's line asks its question).
 function cardWords(el, name) {
@@ -291,11 +356,10 @@ function fillBlock(name) {
     node.hidden = node.dataset.why !== s.card?.why
     if (node.hidden && node.dataset.t) { node.textContent = ''; sigs.delete(node) }
   }
-  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.steps, .copied, [data-why][hidden]')) render(node, vars)
+  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.copied, [data-why][hidden]')) render(node, vars)
   if (name === 'missing') missing(el)
   if (name === 'recommend' || name === 'rejected') recommend(el)
   if (name === 'import') importCard(el)
-  if (name === 'copying') copying(el)
   if (name === 'failed') failed(el)
   if (name === 'moveFailed') el.querySelector('[data-old]').dataset.look = s.card?.why === 'copy' ? 'soft' : 'primary'
 }
@@ -365,30 +429,6 @@ function bar(el, fraction, keep) {
   el.style.scale = `${f} 1`
   if (!reduced()) play(el, [{ scale: from }, { scale: `${f} 1` }], { ...spring('list'), fill: 'none' })
 }
-let copyStep = 0
-function copying(el) {
-  const card = s.card
-  el.toggleAttribute('data-confirm', card.kind === 'stopCopy')
-  el.querySelector('.confirm').hidden = card.kind !== 'stopCopy'
-  el.style.setProperty('--step', String(Math.max(0, card.step - 1)))
-  ;[...el.querySelectorAll('.steps li')].forEach((li, k) => {
-    const n = k + 1
-    const state = n < card.step ? 'done' : n === card.step ? 'active' : 'pending'
-    const was = li.dataset.state
-    li.dataset.state = state
-    if (state === 'done' && was && was !== 'done') {
-      const check = li.querySelector('.check')
-      if (reduced()) play(check, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, fill: 'none' })
-      else { play(check, [{ transform: 'scale(.4)' }, { transform: 'none' }], { ...spring('pop'), fill: 'none' }); play(check, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, fill: 'none' }) }
-      director.nod()
-    }
-    render(li.querySelector('[data-t]'), card.steps?.[k] ?? {})
-  })
-  const fillEl = el.querySelector('.copy-steps .bar-fill')
-  if (card.step !== copyStep) { copyStep = card.step; bars.set(fillEl, 0); fillEl.style.scale = '0 1' }
-  bar(fillEl, card.fraction, true)
-  el.querySelector('.eta').textContent = card.eta === null || card.eta === undefined ? '' : card.eta < 1 ? say('card.copying.etaSoon') : say('card.copying.eta', { n: card.eta })
-}
 // The recovery card. 〔换个位置…〕 and 〔用新的空白团队开始…〕 show only when the main process can
 // carry them out (failure.places).
 function failed(el) {
@@ -434,7 +474,7 @@ document.addEventListener('click', (event) => {
   if (name === 'toggleModels') return toggleModels(button)
   if (name === 'copyDetails') copiedLabel(button)
   if (name === 'importModel') toggleModels(button.closest('.card').querySelector('[data-act=toggleModels]'), false)
-  if (name === 'answer' || name === 'wait' || name === 'keepCopying') director.nod()
+  if (name === 'answer' || name === 'wait') director.nod()
   bridge?.act(name, value === undefined ? undefined : { value })
 })
 document.addEventListener('change', (event) => {
@@ -446,7 +486,7 @@ matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => 
 new MutationObserver(() => director.refresh()).observe(root, { attributes: true, attributeFilter: ['data-motion'] })
 
 // ---- snapshots ----
-const director = createDirector({ start: START, resume, act: (name, detail) => bridge?.act(name, detail), label: say, announce })
+const director = createDirector({ start: START, resume, begin, act: (name, detail) => bridge?.act(name, detail), label: say, announce })
 let applied = false
 function apply(next) {
   const jump = !applied && resume
@@ -461,10 +501,15 @@ function apply(next) {
   shimmer()
   placeUI(next.place)
   const name = blockFor(next)
-  if (name !== shown) showBlock(name, jump)
+  // The import card comes once the data folder's arc has filled (start-window §6).
+  if (name === 'import' && name !== shown && !jump) director.through(0).then(() => { if (blockFor(s) === 'import') showBlock('import', false) })
+  else if (name !== shown) showBlock(name, jump)
   else { fillBlock(name); resize() }
   timeUI()
   director.update(next)
+  if (next.shown) release()
+  // The window shows once this first state is on screen (start-window.mjs 'painted').
+  if (!applied) requestAnimationFrame(() => requestAnimationFrame(() => { bridge?.act('painted') }))
   applied = true
 }
 renderStatic()
