@@ -7,7 +7,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { DeviceRegistry, HostLink, deviceIdFor, generateKeyPair, pairingUri, randomToken } from '../../link.js'
+import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pairingUri, randomToken } from '../../link.js'
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
@@ -103,11 +103,12 @@ export function install(rt) {
     reconcile()
     if (pairing !== null && !registry.pairingOpen()) pairing = null
     const connected = new Set(link?.connectedDevices() ?? [])
+    const reason = blocked ?? link?.error
     return {
       server: data.server ?? '',
       on: data.on === true,
       status: link?.status ?? 'off',
-      ...(blocked === undefined ? {} : { error: blocked }),
+      ...(reason === undefined ? {} : { error: reason }),
       phones: registry.list().map(({ deviceId, name, pairedAt }) => ({ id: deviceId, name, pairedAt, connected: connected.has(deviceId) })),
       pairing,
     }
@@ -118,8 +119,10 @@ export function install(rt) {
     switch (endpoint) {
       case 'phone-set': {
         if (body.server !== undefined) {
-          const server = String(body.server).trim().replace(/\/+$/, '')
-          if (server !== '' && !SERVER.test(server)) throw invalid('The Server address must start with ws:// or wss://')
+          const entered = String(body.server).trim().replace(/\/+$/, '')
+          if (entered !== '' && !SERVER.test(entered)) throw invalid('The Server address must start with ws:// or wss://')
+          // A bare host means this relay; the Server only serves LINK_PATH.
+          const server = entered !== '' && new URL(entered).pathname === '/' ? entered + LINK_PATH : entered
           data.server = server
           pairing = null
           registry?.closePairing()

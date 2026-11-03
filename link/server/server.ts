@@ -2,8 +2,9 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { Gateway } from './gateway.ts'
 import { DeviceStore } from './store.ts'
+import { LINK_PATH } from '../src/frames.ts'
 
-export const LINK_PATH = '/v1/link'
+export { LINK_PATH }
 
 export interface RelayServerOptions {
   port?: number

@@ -1,6 +1,7 @@
 // Generated from ../link/src by `npm run build` (scripts/build-link.mjs). Do not edit by hand.
 // src/frames.ts
 var PROTOCOL_VERSION = 1;
+var LINK_PATH = "/v1/link";
 var MAX_CONTROL_FRAME_BYTES = 64 * 1024;
 var MAX_RELAY_FRAME_BYTES = 1024 * 1024;
 var SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024;
@@ -7514,6 +7515,7 @@ var HostLink = class {
   loopDone;
   wake;
   currentStatus = "stopped";
+  lastError;
   statusWaiters = /* @__PURE__ */ new Set();
   constructor(options) {
     if (deviceIdFor(options.identity.publicKey) !== options.identity.deviceId) {
@@ -7523,6 +7525,10 @@ var HostLink = class {
   }
   get status() {
     return this.currentStatus;
+  }
+  /** Why the last connect attempt failed, kept for surfaces that show 'offline'. */
+  get error() {
+    return this.lastError;
   }
   start() {
     if (this.running) return;
@@ -7633,19 +7639,25 @@ var HostLink = class {
           if (frame.type === "hello.ack") {
             this.acceptHello(frame.payload);
             accepted = true;
+            this.lastError = void 0;
             this.setStatus("online");
             return;
           }
           if (!accepted) throw new Error("The Server did not answer hello first.");
           this.handleFrame(frame);
-        } catch {
+        } catch (error) {
+          this.lastError = error instanceof Error ? error.message : String(error);
           socket.close();
         }
       };
-      socket.onerror = () => socket.close();
+      socket.onerror = () => {
+        this.lastError = "The Server did not answer the connection.";
+        socket.close();
+      };
       socket.onclose = () => {
         clearInterval(watchdog);
         if (this.socket === socket) this.socket = void 0;
+        if (!accepted && this.lastError === void 0) this.lastError = "The Server closed the connection.";
         resolve(accepted);
       };
     });
@@ -8289,6 +8301,7 @@ export {
   BaseTransport,
   DeviceRegistry,
   HostLink,
+  LINK_PATH,
   MAX_CONTROL_FRAME_BYTES,
   MAX_RELAY_FRAME_BYTES,
   MAX_SECURE_MESSAGE_BYTES,

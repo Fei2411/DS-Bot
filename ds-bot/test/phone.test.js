@@ -96,3 +96,22 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
   await desk.call('phone-set', { on: false })
   assert.equal((await desk.call('state', {})).value.phone.status, 'off')
 })
+
+test('a bare Server host means the link path; a dead Server shows why', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const desk = open(home)
+  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  // Bare host: the link path is implied.
+  const bare = server.url.replace(/\/v1\/link$/, '')
+  await desk.call('phone-set', { server: bare, on: true })
+  assert.equal((await desk.call('state', {})).value.phone.server, server.url)
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+
+  // An explicit path is kept as typed.
+  await desk.call('phone-set', { server: 'wss://relay.example/some-path' })
+  assert.equal((await desk.call('state', {})).value.phone.server, 'wss://relay.example/some-path')
+  const state = await until(() => desk.call('state', {}), next => next.value.phone.status === 'offline')
+  assert.equal(typeof state.value.phone.error, 'string')
+})

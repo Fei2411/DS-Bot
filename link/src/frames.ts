@@ -1,4 +1,6 @@
 export const PROTOCOL_VERSION = 1
+// Where the Relay Server listens; a bare relay host means this path.
+export const LINK_PATH = '/v1/link'
 export const MAX_CONTROL_FRAME_BYTES = 64 * 1024
 export const MAX_RELAY_FRAME_BYTES = 1024 * 1024
 export const SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024

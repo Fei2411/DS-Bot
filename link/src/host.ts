@@ -93,6 +93,7 @@ export class HostLink {
   private loopDone?: Promise<void>
   private wake?: () => void
   private currentStatus: HostLinkStatus = 'stopped'
+  private lastError?: string
   private readonly statusWaiters = new Set<() => void>()
 
   constructor(options: HostLinkOptions) {
@@ -103,6 +104,9 @@ export class HostLink {
   }
 
   get status(): HostLinkStatus { return this.currentStatus }
+
+  /** Why the last connect attempt failed, kept for surfaces that show 'offline'. */
+  get error(): string | undefined { return this.lastError }
 
   start(): void {
     if (this.running) return
@@ -218,19 +222,22 @@ export class HostLink {
           if (frame.type === 'hello.ack') {
             this.acceptHello(frame.payload as Partial<HelloAckPayload>)
             accepted = true
+            this.lastError = undefined
             this.setStatus('online')
             return
           }
           if (!accepted) throw new Error('The Server did not answer hello first.')
           this.handleFrame(frame)
-        } catch {
+        } catch (error) {
+          this.lastError = error instanceof Error ? error.message : String(error)
           socket.close()
         }
       }
-      socket.onerror = () => socket.close()
+      socket.onerror = () => { this.lastError = 'The Server did not answer the connection.'; socket.close() }
       socket.onclose = () => {
         clearInterval(watchdog)
         if (this.socket === socket) this.socket = undefined
+        if (!accepted && this.lastError === undefined) this.lastError = 'The Server closed the connection.'
         resolve(accepted)
       }
     })
