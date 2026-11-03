@@ -3,11 +3,11 @@
 // cancelled picker cancels it; other contents' downloads pass through. Temp folders only.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
-import { downloadSaver, freePath } from '../src/downloads.mjs'
+import { downloadSaver, freePath, move } from '../src/downloads.mjs'
 
 const top = mkdtempSync(join(tmpdir(), 'ds-bot-downloads-'))
 after(() => { rmSync(top, { recursive: true, force: true }) })
@@ -174,4 +174,87 @@ test('the window is asked for at the moment of the download, because the app may
   window = { webContents: contents }
   save(event(), item(), contents)
   assert.equal(asked, 1)
+})
+
+test('a download whose chosen path cannot be written lands in the downloads folder instead', async () => {
+  const at = place()
+  const target = join(at.home, 'missing', 'picked.png')
+  const warnings = []
+  const { contents, save } = saver(at, async () => target, { log: { warn: line => warnings.push(line) } })
+  const download = item()
+  save(event(), download, contents)
+  download.finish('png')
+  const fallback = join(at.downloads, 'chart.png')
+  await until(() => existsSync(fallback))
+  assert.equal(readFileSync(fallback, 'utf8'), 'png')
+  assert.ok(warnings.some(line => line.includes(target) && line.includes(fallback)), 'the warning names both paths')
+  await until(() => readdirSync(at.staging).length === 0)
+  assert.deepEqual(readdirSync(at.staging), [], 'the staging folder is cleared once the file is placed')
+})
+
+test('a download that can go nowhere keeps its staged file', async () => {
+  const at = place()
+  rmSync(at.downloads, { recursive: true })
+  writeFileSync(at.downloads, 'not a folder')
+  const warnings = []
+  const { contents, save } = saver(at, async () => join(at.home, 'missing', 'picked.png'), { log: { warn: line => warnings.push(line) } })
+  const download = item()
+  save(event(), download, contents)
+  download.finish('png')
+  await until(() => warnings.length > 0)
+  assert.ok(warnings.some(line => line.includes(download.path)), 'the warning names the staged file')
+  assert.equal(readFileSync(download.path, 'utf8'), 'png', 'the staged file stays whole')
+})
+
+test('a cross-drive move copies next to the target, then takes its name', () => {
+  const at = place()
+  const staged = join(at.staging, 'held', 'chart.png')
+  mkdirSync(dirname(staged), { recursive: true })
+  writeFileSync(staged, 'new')
+  const target = join(at.downloads, 'chart.png')
+  writeFileSync(target, 'old')
+  const fs = {
+    renameSync(from, to) {
+      if (from === staged) throw Object.assign(new Error('cross-device link not permitted'), { code: 'EXDEV' })
+      renameSync(from, to)
+    },
+    copyFileSync,
+    rmSync,
+  }
+  move(staged, target, fs)
+  assert.equal(readFileSync(target, 'utf8'), 'new')
+  assert.deepEqual(readdirSync(at.downloads), ['chart.png'], 'no temp file is left next to the target')
+})
+
+test('a cross-drive move whose copy fails leaves the old file and the staged file alone', () => {
+  const at = place()
+  const staged = join(at.staging, 'held', 'chart.png')
+  mkdirSync(dirname(staged), { recursive: true })
+  writeFileSync(staged, 'new')
+  const target = join(at.downloads, 'chart.png')
+  writeFileSync(target, 'old')
+  const fs = {
+    renameSync() { throw Object.assign(new Error('cross-device link not permitted'), { code: 'EXDEV' }) },
+    copyFileSync(_from, to) { writeFileSync(to, 'partial'); throw new Error('no space left on device') },
+    rmSync,
+  }
+  assert.throws(() => move(staged, target, fs), /no space left/)
+  assert.equal(readFileSync(target, 'utf8'), 'old', 'the old file is not truncated')
+  assert.deepEqual(readdirSync(at.downloads), ['chart.png'], 'the failed temp file is removed')
+  assert.equal(readFileSync(staged, 'utf8'), 'new', 'the staged copy stays')
+})
+
+test('two downloads of one name without a picker each keep their own file', async () => {
+  const at = place()
+  const { contents, save } = saver(at, async () => undefined)
+  const first = item('chart.png')
+  const second = item('chart.png')
+  save(event(), first, contents)
+  save(event(), second, contents)
+  first.finish('one')
+  second.finish('two')
+  const names = [join(at.downloads, 'chart.png'), join(at.downloads, 'chart (2).png')]
+  await until(() => names.every(existsSync))
+  const texts = names.map(name => readFileSync(name, 'utf8')).sort()
+  assert.deepEqual(texts, ['one', 'two'], 'each download kept its own bytes')
 })
