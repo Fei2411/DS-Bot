@@ -121,9 +121,9 @@ test('a versioned GitHub install follows the latest release tag and keeps its pa
 
 test('a versioned GitHub install follows the release to the repository\'s current address', async () => {
   const { rt, installs } = start({
-    source: 'github:old-owner/DeepSeek-Bot#v0.1.0&path:/ds-bot',
+    source: 'github:old-owner/retired-dsbot#v0.1.0&path:/ds-bot',
     answers: {
-      'https://api.github.com/repos/old-owner/DeepSeek-Bot/releases/latest': {
+      'https://api.github.com/repos/old-owner/retired-dsbot/releases/latest': {
         tag_name: 'v9.1.0',
         html_url: 'https://github.com/Fei2411/DS-Bot/releases/tag/v9.1.0',
       },

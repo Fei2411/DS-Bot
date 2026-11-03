@@ -23,7 +23,7 @@ class Quit extends Error {}
 // The dialogs belong to `ui.owner()` (the start window); `ui.asking` holds the start's clock while
 // the user answers.
 async function ask(options, signal, ui) {
-  const { response } = await ui.asking(dialog.showMessageBox(ui.owner(), { title: 'DeepSeek Bot', noLink: true, ...options, signal }))
+  const { response } = await ui.asking(dialog.showMessageBox(ui.owner(), { title: 'DS Bot', noLink: true, ...options, signal }))
   // A quit that arrived while a synchronous macOS box was open gets to run first.
   await new Promise(resolve => setImmediate(resolve))
   if (signal.aborted) throw new Quit()
@@ -54,7 +54,7 @@ export async function pickRoot(from, signal, ui) {
 }
 
 /** The places a first start offers. */
-export const defaultPlaces = () => ({ dataDir: join(homedir(), '.ds-bot'), workspace: join(homedir(), 'DeepSeek Bot') })
+export const defaultPlaces = () => ({ dataDir: join(homedir(), '.ds-bot'), workspace: join(homedir(), 'DS Bot') })
 
 /** The Bot team in a data folder, if it has one. */
 export function teamIn(dataDir) {

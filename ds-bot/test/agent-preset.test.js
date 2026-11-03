@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -46,11 +47,14 @@ function start({ presets } = {}) {
   })
   const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
   const relay = ctx.listeners.get('llm/stream').find(listener => /relayOrPass/.test(String(listener)))
+  const warnings = []
+  const warn = rt.warn
+  rt.warn = (...args) => { warnings.push(format(...args)); return warn(...args) }
   const stop = async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { rt, created, relay, stop }
+  return { rt, created, relay, warnings, stop }
 }
 
 async function drain(stream) {
@@ -106,4 +110,20 @@ test('a group made under the PTC preset relays through run_code', async (t) => {
     code: 'return await tools.group_relay({})',
     timeoutMs: 600_000,
   })
+})
+
+test('a group Session without either relay tool ends visibly instead of calling nothing', async (t) => {
+  // #826: the relay used to synthesize group_relay even when the Session did not
+  // declare it, and the "unknown tool" failure left no trace.
+  const { relay, warnings, stop } = start()
+  t.after(stop)
+  const chunks = await drain(relay({ provider: 'deepseek', model: 'v4', sessionId: 'room', messages: [userText('Hello team')], tools: declared('read', 'write') }, () => {
+    throw new Error('a group round never reaches the model')
+  }))
+  assert.ok(!chunks.some(chunk => chunk.type === 'tool-call-delta' || chunk.block?.type === 'tool-call'))
+  const text = chunks.find(chunk => chunk.type === 'text-delta')?.text
+  assert.match(text ?? '', /relay tool is not available/)
+  assert.equal(chunks.find(chunk => chunk.type === 'block-end')?.block?.type, 'text')
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+  assert.ok(warnings.some(line => line.includes('cannot relay')))
 })

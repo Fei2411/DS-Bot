@@ -50,7 +50,7 @@ body:
     id: file
     attributes:
       label: File you downloaded / 下载的文件名
-      placeholder: DeepSeek-Bot-0.2.2-win-x64.exe
+      placeholder: DS-Bot-0.2.2-win-x64.exe
   - type: textarea
     id: more
     attributes:

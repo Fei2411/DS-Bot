@@ -35,7 +35,7 @@ export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, l
     dispose() {
       if (disposed) return
       disposed = true
-      try { tray.destroy() } catch (error) { log.warn(`DeepSeek Bot: the tray icon did not go away: ${error instanceof Error ? error.message : String(error)}`) }
+      try { tray.destroy() } catch (error) { log.warn(`DS Bot: the tray icon did not go away: ${error instanceof Error ? error.message : String(error)}`) }
     },
   }
 }

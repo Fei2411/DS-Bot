@@ -1,7 +1,7 @@
 // The engine's index: the app shell opens the Host's launch URL here and trades its token for the Host
 // cookie. The window's page comes from the shell, so the index serves nothing else.
 
-export const name = 'deepseek-bot-engine'
+export const name = 'dsbot-engine'
 export const inject = ['webServer', 'connection']
 
 export function apply(ctx) {
@@ -15,5 +15,5 @@ export function apply(ctx) {
     if (!ctx.connection.authorizeIndex(req, res)) return
     res.writeHead(204, { 'cache-control': 'no-store' })
     res.end()
-  }), 'deepseek-bot-engine: launch-token exchange')
+  }), 'dsbot-engine: launch-token exchange')
 }
