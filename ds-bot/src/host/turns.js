@@ -7,8 +7,16 @@ import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
-import { textOf } from './text.js'
+import { splitRef, textOf } from './text.js'
 import { reminderText } from './schedules.js'
+
+// Failures only the user can fix: a key, a sign-in, a balance. They block the Bot
+// until it is fixed (`bot.blocked`, for the repair card).
+export const BLOCKING_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID'])
+// The ones a key set outside a turn can fix, and the ones a sign-in can (unblockBots).
+// A balance only a turn that completes shows fixed, as Retry runs one.
+const KEY_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'])
+const SIGN_IN_CODES = new Set(['ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID'])
 
 // A failed turn's `LlmFailure`, kept to what can be shown and logged. Like DSH's own
 // error row, an AUTH failure loses its message: providers may echo part of the key.
@@ -100,11 +108,14 @@ const subEndText = (data) => {
 }
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
-const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and complete the task now, or state your final answer if no tool is needed.'
+const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and do the work now. If your last reply already was your whole answer, reply [PASS]; it stays posted.'
 
 // A reply that only promises to start investigating/checking/running tools now without
-// actually calling a tool or handing off with @Name (#469).
-const PROMISED_WORK = /(?:^(?:收到|好的|明白|好|行|没问题|了解)[，,、。.!！：\s]*(?:我(?:现在|这就|先|马上|立刻|去|来)?(?:开始|着手|去|来|准备)?(?:排查|检查|调查|查看|看看|搜索|搜一下|分析|处理|执行|运行|跑一下|修改|修复|实现|编写|整理|验证|测试|读一下|翻一下)|(?:现在|马上|立刻)?(?:开始|着手)(?:执行|处理|排查|检查|调查|干活|开工)|开工(?:[。！!，,\s]|$))|^(?:开工(?:[。！!，,\s]|$)|我(?:现在|这就|先|马上|立刻)(?:开始|着手|去)(?:排查|检查|调查|查看|搜索|分析|处理|执行|运行|修改|修复|实现|编写|整理|验证|测试))|\b(?:(?:i\s+will|i'll|let\s+me|going\s+to)\s+(?:start|begin|check|look\s+into|investigate|search|run|inspect|read|fix|implement|work\s+on)\b|(?:starting|beginning)\s+(?:the\s+)?(?:investigation|check|search|work|execution|analysis)\b|^on\s+it[,.\s!]+(?:i'll|i\s+will|let\s+me|starting|checking)\b))/i
+// actually calling a tool or handing off with @Name (#469). A verb followed by 过了,
+// 完了, 完毕 or 好了 reports work that is done; 查看过去… still promises. A miss leaves
+// the work undone, while a wrong match only costs a turn the member can pass, so the
+// rest of the reply is not judged.
+const PROMISED_WORK = /(?:^(?:收到|好的|明白|好|行|没问题|了解)[，,、。.!！：\s]*(?:我(?:现在|这就|先|马上|立刻|去|来)?(?:开始|着手|去|来|准备)?(?:排查|检查|调查|查看|看看|搜索|搜一下|分析|处理|执行|运行|跑一下|修改|修复|实现|编写|整理|验证|测试|读一下|翻一下)(?!过了|过(?:[，,。.!！、；;\s]|$)|完了|完毕|好了)|(?:现在|马上|立刻)?(?:开始|着手)(?:执行|处理|排查|检查|调查|干活|开工)(?!过了|过(?:[，,。.!！、；;\s]|$)|完了|完毕|好了)|开工(?:[。！!，,\s]|$))|^(?:开工(?:[。！!，,\s]|$)|我(?:现在|这就|先|马上|立刻)(?:开始|着手|去)(?:排查|检查|调查|查看|搜索|分析|处理|执行|运行|修改|修复|实现|编写|整理|验证|测试)(?!过了|过(?:[，,。.!！、；;\s]|$)|完了|完毕|好了))|\b(?:(?:i\s+will|i'll|let\s+me|going\s+to)\s+(?:start|begin|check|look\s+into|investigate|search|run|inspect|read|fix|implement|work\s+on)\b|(?:starting|beginning)\s+(?:the\s+)?(?:investigation|check|search|work|execution|analysis)\b|^on\s+it[,.\s!]+(?:i'll|i\s+will|let\s+me|starting|checking)\b))/i
 export const promisesWork = text => typeof text === 'string' && text.trim().length <= 240 && PROMISED_WORK.test(text.trim())
 
 export function install(rt) {
@@ -153,6 +164,9 @@ export function install(rt) {
   // late settlement notices from these stopped children must not wake the parent (#701).
   const stoppedSubagents = new Set()
   const stoppedSubagentParents = new Set()
+  // Exchanges whose promise-only opening the group already got before the retry: the
+  // retried turn counts it as shown, so a [PASS] there still hands the result back.
+  const promisedOpenings = new Set()
 
   const STOPPED_KEPT = 200
   const rememberStopped = (set, value) => {
@@ -518,6 +532,64 @@ export function install(rt) {
     })
   }
 
+  // The facts of a blocking failure stay on its Bot, from any of its Sessions, until a
+  // turn of it completes, a change that can fix it (unblockBots), or its model changes
+  // (roster.js). Never the message: a provider may echo part of the key. The provider
+  // is the failing route's, which is the Session's last request, else the model the
+  // Bot runs on.
+  const blockBot = (id, session, failure) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot === undefined || !BLOCKING_CODES.has(failure.code)) return false
+    const provider = session?.requestHeader?.()?.config?.provider ?? splitRef(bot.appliedModel)?.provider
+    bot.blocked = {
+      code: failure.code,
+      ...(failure.status === undefined ? {} : { status: failure.status }),
+      ...(failure.requestId === undefined ? {} : { requestId: failure.requestId }),
+      ...(provider ? { provider } : {}),
+      at: Date.now(),
+    }
+    void rt.save().catch(() => {})
+    return true
+  }
+  const unblockBot = (botId) => {
+    const bot = rt.botOf(botId)
+    if (bot?.blocked === undefined) return
+    delete bot.blocked
+    void rt.save().catch(() => {})
+  }
+
+  // A key set (`ref`) or a sign-in may be the user's fix (models.js): the blocks it can
+  // fix lift, and a greeting held for one goes out again. A key lifts the key failures
+  // of the providers that read it; one whose provider names no key, or that failed on
+  // a provider not known, lifts on any key. A host that only reads the team leaves it
+  // to the one that holds it.
+  function unblockBots({ ref, signedIn = false, keyed } = {}) {
+    if (rt.readOnly?.() !== undefined) return
+    let refs
+    try { refs = ref === undefined ? undefined : rt.keyRefs?.() } catch {}
+    const fixes = ({ code, provider }) => (signedIn && SIGN_IN_CODES.has(code))
+      || (ref !== undefined && KEY_CODES.has(code) && (refs?.get(provider) ?? ref) === ref)
+      || (code === 'MISSING_CREDENTIAL' && provider !== undefined && keyed?.has(provider) === true)
+    const lifted = Object.values(state.bots ?? {}).filter(bot => bot.blocked !== undefined && fixes(bot.blocked))
+    if (lifted.length === 0) return
+    for (const bot of lifted) delete bot.blocked
+    void rt.save().catch(() => {})
+    for (const bot of lifted) void rt.releaseKickoff(bot).catch(error => rt.warn('ds-bot: greeting of %s not sent again: %s', bot.name, error))
+  }
+
+  // The repair card's Retry. A greeting that failed goes out again; otherwise the Bot
+  // answers the user's last message, which is not sent again. A greeting on its way, or
+  // a turn under way in the Bot's chat, answers already: a turn on top answers twice.
+  async function resumeBot(bot) {
+    if (await rt.releaseKickoff(bot)) return
+    if (rt.greetingOut?.(bot.id) || live.get(rt.chatOf(bot.id))?.turn !== undefined) return
+    const code = bot.blocked?.code
+    await rt.deliver({
+      toId: bot.id,
+      role: 'continue',
+      text: `Your last turn failed${code ? ` (${code})` : ''} and the user has fixed it. Answer the user's last unanswered message.`,
+    })
+  }
   ctx.on?.('subagent/start', (info) => {
     const childId = info?.id
     if (typeof childId !== 'string' || childId === '' || stoppedSubagents.has(childId)) return
@@ -528,6 +600,7 @@ export function install(rt) {
   })
   ctx.on?.('subagent/end', (info) => {
     noteSubagentEnd(info?.id)
+    if (rt.groupOwners.has(info?.id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(info.id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
   ctx.on('session/event', (session, event) => {
@@ -622,7 +695,10 @@ export function install(rt) {
       case 'user/message': {
         const source = event.data?.source
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
-          if (typeof source.senderSessionId === 'string') noteSubagentEnd(source.senderSessionId)
+          if (typeof source.senderSessionId === 'string') {
+            noteSubagentEnd(source.senderSessionId)
+            if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+          }
           if (stoppedSubagentParents.has(id) || (typeof source.senderSessionId === 'string' && stoppedSubagents.has(source.senderSessionId))) {
             entry.suppressedSubagent = true
             void rt.resolveAgent(id).then(agent => agent?.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })).catch(() => {})
@@ -685,6 +761,14 @@ export function install(rt) {
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(rt.roomOf(id).id, { text: '', kickoff: true })
+        } else if (source?.kind === SOURCE_KIND && source.role === 'goal' && rt.roomOf(id)) {
+          // A goal message — the user's draft ask, an idle goal check, a resume —
+          // opens a round of its own; the draft ask is the user's line.
+          queueRoomMessage(rt.roomOf(id).id, {
+            text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
+            ...(source.goal !== undefined ? { goal: source.goal } : {}),
+            ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
+          })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
             entry.pending = source
@@ -740,7 +824,7 @@ export function install(rt) {
             queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
           }
           const own = rt.chatOwners.get(id)
-          if (own !== undefined) rt.dropKickoff(own)
+          if (own !== undefined) rt.userWrote(own)
           // Any user message answers or supersedes the open question card and view card.
           let dropped = false
           if (state.questions[id] !== undefined) {
@@ -801,7 +885,7 @@ export function install(rt) {
         const joined = entry.joined ?? []
         // What the group already saw of the turn is not posted again.
         const texts = entry.texts.slice(entry.shown)
-        const shown = entry.shown > 0
+        const shown = entry.shown > 0 || (info?.retried === true && promisedOpenings.delete(info.exchangeId))
         const { lastText, lastCalled } = entry
         const toolCount = entry.toolCount ?? 0
         const suppressedSubagent = entry.suppressedSubagent === true
@@ -850,6 +934,14 @@ export function install(rt) {
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) break
+        const owner = rt.chatOwners.get(id)
+        if (failure !== undefined) {
+          if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
+        } else if (reason?.kind === 'completed') {
+          unblockBot(rt.selfOf(id))
+          // A turn the user opened, or the Retry that answers the user.
+          if (owner !== undefined && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
+        }
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
         // round or sender gets the real answer; a second time, the text goes on without
@@ -862,7 +954,10 @@ export function install(rt) {
         if (retry) {
           if (promisedOnly) {
             const opening = stripWrittenCalls(lastText ?? '')
-            if (opening !== '') void rt.roomStepText?.(id, info, opening, !shown)?.catch(() => {})
+            if (opening !== '') {
+              rememberStopped(promisedOpenings, info.exchangeId)
+              void rt.roomStepText?.(id, info, opening, !shown)?.catch(() => {})
+            }
             roomWaiters.get(info.exchangeId)?.touch()
             void retryPromisedWork(id, info).catch(error => rt.warn('ds-bot: asking %s to run its promised work failed: %s', id, error))
           } else {
@@ -948,6 +1043,7 @@ export function install(rt) {
             deferred: true,
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
+        if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', id, error))
         break
       }
     }
@@ -1026,5 +1122,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, markSteerCut, hasSubagents, stopSubagents })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
 }

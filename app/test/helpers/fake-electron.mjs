@@ -23,6 +23,7 @@ export const state = {
   windows: [],
   menus: [],
   dialogs: [],
+  pickers: [],
   quits: 0,
   relaunches: [],
   exits: [],
@@ -64,6 +65,7 @@ export class FakeWindow extends EventEmitter {
   setFullScreen(value) { this.fullScreen = value; if (!value) this.emit('leave-full-screen') }
   show() { this.visible = true; this.shown += 1; this.emit('show') }
   hide() { this.visible = false; this.emit('hide') }
+  setOpacity(value) { this.opacity = value }
   focus() { this.focused += 1 }
   restore() { this.minimized = false; this.visible = true; this.emit('restore') }
   minimize() { this.minimized = true }
@@ -74,6 +76,18 @@ export class FakeWindow extends EventEmitter {
   setMinimumSize() {}
   moveTop() {}
   getBounds() { return { x: 0, y: 0, width: 800, height: 600 } }
+  // What the start window asks of a window: its rect, its growth into the team window's rect
+  // and the hand-off, at which the team window shows behind it.
+  getNormalBounds() { return this.getBounds() }
+  setBounds() {}
+  setContentBounds() {}
+  setBackgroundColor() {}
+  setSkipTaskbar() {}
+  isFocused() { return false }
+  showInactive() { this.visible = true; this.shown += 1; this.emit('show') }
+  moveAbove() {}
+  getMediaSourceId() { return 'window:1:0' }
+  flashFrame() {}
   async loadURL(url) {
     this.url = url
     this.loaded.push(url)
@@ -92,6 +106,28 @@ export class FakeWindow extends EventEmitter {
   }
 }
 
+// The page's side of the app's picker (preload.cjs showPicker): it shows, then answers with
+// state.openAnswer, the shape of the system picker's answer that the tests set.
+function answerPicker(contents, request) {
+  state.pickers.push(request)
+  setImmediate(async () => {
+    const event = { sender: contents, senderFrame: contents.mainFrame }
+    state.ipc.get('ds-bot:app-picker-shown')(event, request.id)
+    const answer = typeof state.openAnswer === 'function' ? state.openAnswer(request) : (state.openAnswer ?? { canceled: true, filePaths: [] })
+    if (answer.canceled || answer.filePaths[0] === undefined) {
+      state.ipc.get('ds-bot:app-picker-cancel')(event, request.id)
+      return
+    }
+    // The user makes a folder that is not there yet with 〔新建文件夹〕, then chooses it.
+    if (request.mode === 'folder') {
+      try { mkdirSync(answer.filePaths[0], { recursive: true }) } catch {}
+    }
+    const chosen = await state.ipc.get('ds-bot:app-picker-choose')(event, request.id, answer.filePaths[0])
+    // A path that the picker refuses leaves it open; the user then cancels.
+    if (chosen?.error !== undefined) state.ipc.get('ds-bot:app-picker-cancel')(event, request.id)
+  })
+}
+
 class FakeWebContents extends EventEmitter {
   constructor(win) {
     super()
@@ -100,12 +136,18 @@ class FakeWebContents extends EventEmitter {
     this.mainFrame = {}
     this.isDestroyed = () => this.win.destroyed
     this.getURL = () => this.win.url
+    this.isLoading = () => false
     this.getTitle = () => 'DS Bot'
-    this.send = () => {}
+    this.sent = []
+    this.send = (...args) => {
+      this.sent.push(args)
+      if (args[0] === 'ds-bot:app-picker') answerPicker(this, args[1])
+    }
     this.setWindowOpenHandler = () => {}
     this.insertCSS = async () => {}
     this.toggleDevTools = () => {}
     this.loadURL = async url => { await this.win.loadURL(url) }
+    this.reload = () => {}
   }
 }
 
@@ -130,7 +172,10 @@ class FakeApp extends EventEmitter {
       let prevented = false
       this.emit('before-quit', { preventDefault: () => { prevented = true } })
       state.quitPrevented = prevented
-      if (!prevented) this.emit('will-quit')
+      if (prevented) return
+      this.emit('will-quit')
+      // The windows go with the app, and their timers with them.
+      for (const win of state.windows) if (!win.destroyed) win.destroy()
     }
     this.show = () => { state.appShown = (state.appShown ?? 0) + 1 }
     this.hide = () => { state.appHidden = (state.appHidden ?? 0) + 1 }
@@ -181,7 +226,20 @@ export const nativeImage = {
   }),
 }
 
-export const nativeTheme = { shouldUseDarkColors: false, themeSource: 'system' }
+export const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColors: false, themeSource: 'system' })
+
+// One display, where the start window opens and the team window grows to.
+const display = { workArea: { x: 0, y: 0, width: 1920, height: 1040 } }
+export const screen = {
+  getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+  getDisplayNearestPoint: () => display,
+  getDisplayMatching: () => display,
+  getPrimaryDisplay: () => display,
+}
+
+export const systemPreferences = { getAnimationSettings: () => ({ prefersReducedMotion: true }) }
+
+export const clipboard = { writeText: () => {} }
 
 export const powerMonitor = new EventEmitter()
 
@@ -223,4 +281,5 @@ export const dialog = {
 
 export const shell = {
   openExternal: async (url) => { state.opened = (state.opened ?? []).concat(url) },
+  openPath: async () => '',
 }

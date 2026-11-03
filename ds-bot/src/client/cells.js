@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
-import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
+import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
+import { sendsOnEnter } from './enter-key.js'
 import { SettledQuestion, PendingQuestion } from './questions.js'
 import { AnsweredReply, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
@@ -32,8 +34,9 @@ const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied')
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
-// of its message (see useFold).
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole }) {
+// of its message (see useFold). `time` marks the bubbles' message below them; a caller
+// whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
+export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -52,7 +55,8 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
         lead: lead && last ? lead : null,
         whole: last ? whole : undefined,
       })
-    }))
+    }),
+    Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
 // A folded message's last code block shows only its start; DS Bot draws its own
@@ -294,7 +298,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       // time makes one Elapsed show settled + running.
       ...(thinking !== undefined ? { at: typeof thinking.time === 'number' ? thinking.time - (ms ?? 0) : undefined } : { ms }),
     }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE }) : null)
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === undefined ? data.time : undefined }) : null)
 }
 
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
@@ -320,15 +324,55 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
+const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
+export function syncGroupChains(flow) {
+  const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)]
+  for (let i = 0; i < items.length; i += 1) {
+    const curr = items[i]
+    if (!curr.classList.contains('bt-group-msg')) continue
+    const prev = items[i - 1]
+    const next = items[i + 1]
+    const botId = curr.dataset.botId
+    const chainPrev = Boolean(botId && prev?.classList.contains('bt-group-msg') && prev.dataset.botId === botId)
+    const chainNext = Boolean(botId && next?.classList.contains('bt-group-msg') && next.dataset.botId === botId)
+    if (chainPrev) curr.dataset.chainPrev = ''; else delete curr.dataset.chainPrev
+    if (chainNext) curr.dataset.chainNext = ''; else delete curr.dataset.chainNext
+    const turn = curr.closest('[data-chat-group-key]')
+    if (turn) {
+      if (chainPrev) turn.dataset.btChainPrev = ''; else delete turn.dataset.btChainPrev
+      if (chainNext) turn.dataset.btChainNext = ''; else delete turn.dataset.btChainNext
+    }
+  }
+}
+
+const pendingFlows = new WeakSet()
+function scheduleGroupChains(flow) {
+  if (!flow || pendingFlows.has(flow)) return
+  pendingFlows.add(flow)
+  queueMicrotask(() => {
+    pendingFlows.delete(flow)
+    if (flow.isConnected !== false) syncGroupChains(flow)
+  })
+}
+
 // One Bot message inside a group chat: avatar, name (with its group role), when it ran
 // and how long it took, bubble. The flat layout moves the avatar from beside the last
 // bubble to the head of the name row, so the text below runs the whole width.
 function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi, whole, time, duration }) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el?.closest) return undefined
+    const flow = el.closest('[data-chat-flow]')
+    if (!flow) return undefined
+    scheduleGroupChains(flow)
+    return () => scheduleGroupChains(flow)
+  }, [bot.id])
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   const flat = layoutOf(roster.prefs) === 'flat'
-  const took = Number.isFinite(duration) ? elapsedLabel(duration) : undefined
-  return h('div', { className: 'bt-group-msg' },
+  const took = Number.isFinite(duration) && duration >= 1000 ? elapsedLabel(duration) : undefined
+  return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
@@ -621,7 +665,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // A part opens with its handoff package, so the earlier parts go right above it.
       if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions })
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
-      if (source.role === 'kickoff' || source.role === 'room') return null
+      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.
       if (source.role === 'secret' || deferred) return null
       // A profile notice is the user's edit landing in the Bot's chat, not a peer
@@ -650,6 +694,8 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // A request carried on keeps its role, but its message line was shown already.
       if (source.role === 'resume' || source.resumed === true) return h('div', { className: 'bt-event' }, t('Picked up its work after a restart'))
       if (source.role === 'retry' || source.retried === true) return h('div', { className: 'bt-event' }, t('Asked to make the tool call it wrote as text'))
+      // The repair card's Retry: the user's message is not sent again, nor is the note to the Bot.
+      if (source.role === 'continue') return h('div', { className: 'bt-event' }, t('Went on after the failed turn'))
       const run = relayed ? commRunOf(
         order.split(',').filter(Boolean).map(Number),
         Object.fromEntries(peers.split(',').filter(Boolean).map(pair => [Number(pair.slice(0, pair.indexOf(':'))), pair.slice(pair.indexOf(':') + 1)])),
@@ -873,10 +919,12 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     return h('div', { className: 'bt-event' },
       t('{name} did not answer or call anyone; call a member with @Name', { name: bot.name }))
   }
-  // LEGACY: rounds from when groups paused at a relay limit.
+  // Bots that went back and forth without progress. LEGACY: rounds from when groups
+  // paused at a relay limit.
   if (reply.kind === 'paused') {
-    return h('div', { className: 'bt-event' },
-      t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) }))
+    return h('div', { className: 'bt-event' }, reply.idle
+      ? t('{names} went back and forth {count} times without progress and paused. Write here to go on', { count: reply.count, names: [bot.name, ...(reply.names ?? [])].join(t(' and ')) })
+      : t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count, names: (reply.names ?? []).join(t(' and ')) }))
   }
   if (reply.kind === 'resumed') {
     return h('div', { className: 'bt-event' }, t('{name} was cut off by a restart and picked its work back up', { name: bot.name }))
@@ -943,12 +991,16 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     stackReplies(replies).map(({ reply, index, texts, time, duration }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
-        return h('div', { key: `user-${index}`, className: 'bt-urow' }, h('div', { className: 'bt-ububble' },
-          h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' }),
-          Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null))
+        return h('div', { key: `user-${index}`, className: 'bt-urow' },
+          h('div', { className: 'bt-ububble' }, h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
+          Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
       }
       if (reply.kind !== undefined) {
         return h(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions })
+      }
+      if (reply.kind === 'goal') {
+        return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },
+          h('span', { className: 'bt-event-ico', 'aria-hidden': true }, h(GoalIcon)), goalEventText(reply))
       }
       return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration })
     }),
@@ -1046,7 +1098,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       // Answered or closed: the card leaves no gap where it was.
       if (!question || question.callId !== call.callId) return h(CellEmpty, { className: 'bt-q-gone' })
       if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
-      return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true })
+      return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) })
     }
     case 'show_view':
       return h(WidgetCell, { sessionId, callId: call.callId, args: { text: arg, value: argValue }, done, isError: call.isError, roster, actions, heldCards })

@@ -612,21 +612,27 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const beginSwitch = (next) => {
     if (reducedMotion()) return
     const panel = root.current
+    // The mark flies between the drawer avatar (details view) and the strip's Bot tab:
+    // up into the tab when the details view is left, back down when it returns. A switch
+    // between the browser and a side chat has no drawer avatar and nothing to fly.
+    const source = next === 'details'
+      ? panel?.querySelector('.bt-ptab-bot .bt-mark')
+      : panel?.querySelector('.bt-drawer-id .bt-mark')
     const outgoing = panel?.querySelector('.bt-panel-view')
     if (outgoing) {
       const ghostEl = document.createElement('div')
       ghostEl.className = 'bt-panel-ghost'
       ghostEl.style.width = `${outgoing.offsetWidth}px`
       ghostEl.append(outgoing.cloneNode(true))
+      // The flying clone stands in for the drawer's mark; the fading copy must not
+      // show it a second time.
+      if (source && next !== 'details') for (const mark of ghostEl.querySelectorAll('.bt-drawer-id .bt-mark')) mark.style.visibility = 'hidden'
       outgoing.parentElement.append(ghostEl)
       void ghostEl.animate([
         { opacity: 1, transform: 'scale(1)' },
         { opacity: 0, transform: 'scale(0.985)' },
       ], { duration: 160, easing: 'ease-out', fill: 'forwards' }).finished.catch(() => {}).finally(() => ghostEl.remove())
     }
-    const source = next === 'browser'
-      ? panel?.querySelector('.bt-drawer-id .bt-mark')
-      : panel?.querySelector('.bt-ptab-bot .bt-mark')
     if (source) fly.current = { node: source.cloneNode(true), from: source.getBoundingClientRect() }
   }
   const switchView = (next) => {
@@ -646,9 +652,9 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     const move = fly.current
     if (!move) return
     fly.current = null
-    const target = view === 'browser'
-      ? root.current?.querySelector('.bt-ptab-bot .bt-mark')
-      : root.current?.querySelector('.bt-drawer-id .bt-mark')
+    const target = view === 'details'
+      ? root.current?.querySelector('.bt-drawer-id .bt-mark')
+      : root.current?.querySelector('.bt-ptab-bot .bt-mark')
     if (!target || move.from.width === 0) return
     // A strip that has just appeared still grows from zero height; the target is
     // measured where it stands once the strip is full height.
@@ -730,7 +736,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     view === 'browser' && bot
       ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
       : view === 'side' && sideChat
-        ? h('div', { key: `side:${sideChat.id}`, className: 'bt-panel-view' }, h(SideChatView, { subject: pane.id, chat: sideChat, actions: panelActions }))
+        ? h('div', { key: `side:${sideChat.id}`, className: 'bt-panel-view' }, h(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions }))
         : h('div', { key: `details:${pane.id}:${pane.renaming ? 'rename' : ''}:${pane.tab ?? ''}`, className: 'bt-panel-view' },
             h(DetailsDrawer, {
               sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip,
@@ -801,7 +807,8 @@ export const BROWSER_CSS = `
 .bt-bcard{position:relative;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-main);animation:bt-bcard-in .24s cubic-bezier(.16,1,.3,1) both;transition:border-color .12s ease,box-shadow .12s ease}
 @keyframes bt-bcard-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
 .bt-bcard[data-active]{border-color:var(--bt-accent,#4D6BFE);box-shadow:0 0 0 1px var(--bt-accent,#4D6BFE)}
-.bt-bcard-shot{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;background:var(--bt-hover);padding:0;cursor:pointer}
+.bt-bcard-shot{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;border-radius:12px 12px 0 0;background:var(--bt-hover);padding:0;cursor:pointer}
+.bt-bcard-shot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-bcard-blank{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--bt-ink-3);font-size:12px}
 .bt-bcard-blank svg{width:20px;height:20px}
 .bt-bcard-preview{position:absolute;inset:0;display:flex;flex-direction:column;gap:6px;padding:14px 16px;text-align:left;background:linear-gradient(to bottom,var(--bt-main),var(--bt-hover));overflow:hidden}

@@ -187,6 +187,16 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
+// The group memory message the memory's pre-step puts before a Session's step, given
+// what its history holds.
+const textOf = message => (message?.content ?? []).map(block => block.text).join('')
+async function groupMemoryOf(ctx, sessionId, history = []) {
+  const step = ctx.listeners.get('agent/pre-step').find(listener => /isGroupMemory/.test(String(listener)))
+  const agent = { id: sessionId, session: { deriveMessages: () => history } }
+  const decision = await step({ agent, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+  return decision.messages.find(message => message.source?.kind === 'ds-bot-group-memory')
+}
+
 // The summary is written to disk after the model answers; a fixed wait is too short on
 // a slow disk and leaves the write running into the next step or the cleanup.
 async function summarized(call, botId = 'b2') {
@@ -241,6 +251,565 @@ test('topics hold details, linked from MEMORY.md, and go when their last entry d
   assert.match(await tool('forget', { entry: 'window', topic: 'travel' }, 'b2'), /The topic \[\[travel\]\] was empty, so it is gone too\./)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'travel.md')), false)
   assert.equal(read('bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n')
+})
+
+test('a journal line restores its change: remove, replace, and add undone', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'User prefers short replies' }, 'b2')
+  const added = journal().at(-1)
+  assert.equal(added.op, 'add')
+
+  // Undoing a remove puts the line back.
+  await tool('forget', { entry: 'short replies' }, 'b2')
+  const removed = journal().at(-1)
+  assert.equal(removed.op, 'remove')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 0)
+  const restored = await call('memory-restore', { botId: 'b2', id: removed.id })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- User prefers short replies \[/)
+  assert.equal(journal().at(-1).op, 'add')
+  assert.equal(journal().at(-1).restored, removed.id)
+
+  // A remove already undone is not undone twice: the line is back, so NO_MATCH.
+  const twice = await call('memory-restore', { botId: 'b2', id: removed.id })
+  assert.equal(twice.ok, false)
+  assert.match(twice.error.message, /already restored/)
+
+  // Undoing an add takes the line back out, while it still reads as written.
+  const undone = await call('memory-restore', { botId: 'b2', id: added.id })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(journal().at(-1).op, 'remove')
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 0)
+
+  // A replace puts the before-line back.
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await tool('remember', { text: 'Lives in Shanghai', replace: 'Hangzhou' }, 'b2')
+  const replaced = journal().at(-1)
+  const back = await call('memory-restore', { botId: 'b2', id: replaced.id })
+  assert.equal(back.ok, true, JSON.stringify(back))
+  assert.equal(journal().at(-1).op, 'replace')
+  assert.equal(journal().at(-1).restored, replaced.id)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Shanghai/)
+})
+
+test('a restore refuses drift and rows that are not restorable', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'User prefers short replies' }, 'b2')
+  const added = journal().at(-1)
+  // The entry the add wrote was replaced since: undoing it now is a NO_MATCH,
+  // not a delete of the newer text.
+  await tool('remember', { text: 'User prefers very short replies', replace: 'short replies' }, 'b2')
+  const drift = await call('memory-restore', { botId: 'b2', id: added.id })
+  assert.equal(drift.ok, false)
+  assert.match(drift.error.message, /no longer in|not where the change log left it/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /very short replies/)
+
+  for (const body of [{ botId: 'b2', id: '' }, { botId: 'b2' }]) {
+    const bad = await call('memory-restore', body)
+    assert.equal(bad.ok, false, JSON.stringify(body))
+    assert.match(bad.error.message, /change log id/)
+  }
+  const missing = await call('memory-restore', { botId: 'b2', id: 'row-that-is-not-there' })
+  assert.equal(missing.ok, false)
+  assert.match(missing.error.message, /not in the change log of this memory/)
+})
+
+test('restoring a remove that took a topic with it makes the topic again', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Flies from Hangzhou', topic: 'Travel' }, 'b2')
+  await tool('forget', { entry: 'Flies', topic: 'travel' }, 'b2')
+  const removed = journal().at(-1)
+  assert.equal(removed.removedTopic, true)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'travel.md')), false)
+
+  const restored = await call('memory-restore', { botId: 'b2', id: removed.id })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'travel.md'), /^# travel\n\n- Flies from Hangzhou \[/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- \[\[travel\]\]/)
+})
+
+test('a restore does not put back a value that is a saved secret now', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'The clubhouse code word is bricksparrow72' }, 'b2')
+  await tool('remember', { text: 'Picks bricksparrow72 for the draw' }, 'b2')
+  await tool('remember', { text: 'Picks plain tickets for the draw', replace: 'for the draw' }, 'b2')
+  await tool('forget', { entry: 'code word' }, 'b2')
+  const [replaced, removed] = journal().slice(-2)
+  const lines = journal().length
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /plain tickets/)
+
+  // The value is a saved secret since the change log kept it: putting the line
+  // back would write it in the clear, to the file and to the restore's own row.
+  const saved = await call('secret-set', { name: 'CLUB_CODE', value: 'bricksparrow72' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+
+  const back = await call('memory-restore', { botId: 'b2', id: removed.id })
+  assert.equal(back.ok, false)
+  assert.match(back.error.message, /cannot be put back/)
+  assert.match(back.error.message, /never keeps/)
+  assert.doesNotMatch(back.error.message, /bricksparrow72/)
+  const backReplace = await call('memory-restore', { botId: 'b2', id: replaced.id })
+  assert.equal(backReplace.ok, false)
+  assert.match(backReplace.error.message, /cannot be put back/)
+  assert.doesNotMatch(backReplace.error.message, /bricksparrow72/)
+
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /bricksparrow72/)
+  assert.equal(journal().length, lines)
+})
+
+test('the row a restore wrote passes the same guards when it is restored', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Wears a green coat' }, 'b2')
+  // Undoing the add leaves a remove row of its own.
+  const undone = await call('memory-restore', { botId: 'b2', id: journal().at(-1).id })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(journal().at(-1).op, 'remove')
+  const line = journal().length
+  const rid = journal().at(-1).id
+
+  // The fact is back under another topic: the restore row is not duplicated back.
+  await tool('remember', { text: 'wears  a green   coat', topic: 'Style' }, 'b2')
+  const again = await call('memory-restore', { botId: 'b2', id: rid })
+  assert.equal(again.ok, false)
+  assert.match(again.error.message, /already in/)
+
+  // And once the value is a saved secret, the same row cannot put it back either.
+  const saved = await call('secret-set', { name: 'COAT_COLOR', value: 'green coat' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  const refused = await call('memory-restore', { botId: 'b2', id: rid })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /cannot be put back/)
+  assert.doesNotMatch(refused.error.message, /green coat/)
+  assert.equal(journal().length, line + 1)
+})
+
+test('a restore does not duplicate a fact remembered again', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou', topic: 'Home' }, 'b2')
+  await tool('forget', { entry: 'Hangzhou' }, 'b2')
+  const removed = journal().at(-1).id
+  // The same fact is back, in MEMORY.md this time and under new metadata.
+  await tool('remember', { text: 'lives   in  hangzhou' }, 'b2')
+  const restored = await call('memory-restore', { botId: 'b2', id: removed })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already in/)
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 1)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'home.md')), false)
+})
+
+test('a restore cannot rebuild a topic past the count the memory holds', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  for (let i = 1; i <= 40; i += 1) await tool('remember', { text: `detail ${i}`, topic: `topic-${i}` }, 'b2')
+  // topic-40 goes when its last entry does; a fresh topic takes the room meanwhile.
+  await tool('forget', { entry: 'detail 40', topic: 'topic-40' }, 'b2')
+  const removed = journal().at(-1).id
+  await tool('remember', { text: 'a fresh fact', topic: 'fresh' }, 'b2')
+  const restored = await call('memory-restore', { botId: 'b2', id: removed })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already has 40 topics/)
+})
+
+test('a restore of a replace does not duplicate a fact remembered again', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  await tool('remember', { text: 'Lives in Shanghai', replace: 'Hangzhou' }, 'b2')
+  const replaced = journal().at(-1)
+  // The old fact is remembered again since, under a topic and new metadata.
+  await tool('remember', { text: 'lives  in  hangzhou', topic: 'Home' }, 'b2')
+  const restored = await call('memory-restore', { botId: 'b2', id: replaced.id })
+  assert.equal(restored.ok, false)
+  assert.match(restored.error.message, /already in/)
+  // The entry it replaced stays put, and the remembered copy is not doubled.
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Shanghai \[/)
+  assert.equal(parseMemory(read('bots', 'b2', 'home.md')).entries.length, 1)
+})
+
+test('a restore of a replace whose after reads like its before is no duplicate', async (t) => {
+  const { tool, call, read, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Drinks tea daily' }, 'b2')
+  await tool('remember', { text: 'drinks tea daily', replace: 'tea' }, 'b2')
+  // The after-line squashes to the before text: the matched entry itself is no
+  // duplicate, so the restore still puts the recorded before-line back.
+  const restored = await call('memory-restore', { botId: 'b2', id: journal().at(-1).id })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Drinks tea daily \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /- drinks tea daily/)
+})
+
+test('a restore refuses a change-log row whose file is not a flat name', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Team drinks tea', scope: 'team' }, 'm1')
+  await tool('remember', { text: 'Likes quiet mornings' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // A forged row in the shared log can name any path; it is read, not trusted.
+  const forge = (file) => {
+    const row = { id: `forged-${file}`, time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file, actor: 'user', actorName: 'user', removedTopic: true, before: '- forged entry' }
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return row.id
+  }
+  for (const file of ['../../team/MEMORY.md', '..\\..\\team\\MEMORY.md', 'topics/deep.md', '..', '.', 'C:\\out\\x.md']) {
+    const rid = forge(file)
+    const count = journal().length
+    const denied = await call('memory-restore', { botId: 'b2', id: rid })
+    assert.equal(denied.ok, false, file)
+    assert.match(denied.error.message, /not a change that can be restored/, file)
+    // The file the row pointed at is untouched, and no restore row was logged.
+    assert.match(read('team', 'MEMORY.md'), /- Team drinks tea \[/)
+    assert.doesNotMatch(read('team', 'MEMORY.md'), /forged/)
+    assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /forged|\.\./)
+    assert.equal(journal().length, count)
+  }
+})
+
+test('a restore finds a change by row id, blank and foreign lines aside', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Fact A' }, 'b2')
+  const addedA = journal().at(-1)
+  await tool('remember', { text: 'Fact B' }, 'b2')
+  await tool('forget', { entry: 'Fact A' }, 'b2')
+  const removed = journal().at(-1)
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+
+  // Blank and half-written lines sit in the log: the row's own id still finds it.
+  writeFileSync(journalPath, `\nnot json\n${read('journal.jsonl')}`)
+  const restored = await call('memory-restore', { botId: 'b2', id: removed.id })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Fact A \[/)
+
+  // The add of A goes by its id too: restoring it takes A out again.
+  const undone = await call('memory-restore', { botId: 'b2', id: addedA.id })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Fact A/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Fact B \[/)
+})
+
+test('memory-history lists a Bot\'s own and team changes, newest first', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Team drinks tea', scope: 'team' }, 'm1')
+  await tool('remember', { text: 'Likes quiet mornings' }, 'b2')
+  await tool('remember', { text: 'Another Bot fact' }, 'b4')
+  const page = await call('memory-history', { botId: 'b2' })
+  assert.equal(page.ok, true, JSON.stringify(page))
+  assert.equal(page.value.more, null)
+  assert.deepEqual(page.value.rows.map(row => [row.op, row.scope, row.by]), [
+    ['add', 'own', 'Writer'],
+    ['add', 'team', 'Chief'],
+  ])
+  assert.match(page.value.rows[0].text, /Likes quiet mornings/)
+  assert.equal(page.value.rows.every(row => row.restored === false), true)
+  assert.equal(journal().length, 3)
+})
+
+test('memory-history reads a private Bot\'s own log beside the shared one', async (t) => {
+  const { tool, call, stop, home } = start()
+  t.after(() => stop())
+  const team = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  team.bots.b2.private = true
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  await tool('remember', { text: 'A private fact' }, 'b2')
+  await tool('remember', { text: 'Team drinks tea', scope: 'team' }, 'm1')
+  const page = await call('memory-history', { botId: 'b2' })
+  assert.equal(page.ok, true, JSON.stringify(page))
+  // Own rows come out of the private log, team rows out of the shared one.
+  assert.equal(page.value.rows.find(row => row.scope === 'own')?.text.slice(0, 14), 'A private fact')
+  assert.equal(page.value.rows.find(row => row.scope === 'team')?.text.slice(0, 14), 'Team drinks te')
+  assert.equal(page.value.rows.length, 2)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'journal.jsonl')), true)
+})
+
+test('memory-history lists a group\'s changes and marks rows already undone', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Keep replies under one page' }, 'g3')
+  await tool('forget', { entry: 'one page' }, 'g3')
+  const removed = journal().at(-1)
+  const restored = await call('memory-restore', { roomId: 'r1', id: removed.id })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  const page = await call('memory-history', { roomId: 'r1' })
+  assert.equal(page.ok, true, JSON.stringify(page))
+  assert.deepEqual(page.value.rows.map(row => [row.op, row.scope, row.restored]), [
+    ['add', 'group', false],
+    ['remove', 'group', true],
+    ['add', 'group', false],
+  ])
+  assert.equal(page.value.rows.at(-1).restored, false)
+  // A row that is itself a restore is listed like any other, and can be undone.
+  assert.equal(page.value.rows[0].id, journal().at(-1).id)
+  const undone = await call('memory-restore', { roomId: 'r1', id: journal().at(-1).id })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+})
+
+test('a restore refuses a row outside the owner\'s scopes', async (t) => {
+  const { tool, call, journal, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'A Bot fact' }, 'b4')
+  const row = journal().at(-1)
+  const denied = await call('memory-restore', { botId: 'b2', id: row.id })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /not in the change log of this memory/)
+})
+
+test('memory-history pages oldest rows behind before', async (t) => {
+  const { tool, call, journal, stop, home } = start()
+  t.after(() => stop())
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  await tool('remember', { text: 'First fact' }, 'b2')
+  const base = journal()
+  const forged = Array.from({ length: 60 }, (_, i) => ({ id: `old-${i}`, time: new Date(Date.now() - (60 - i) * 1000).toISOString(), op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', after: `- forged ${i}` }))
+  writeFileSync(journalPath, `${journal().map(row => JSON.stringify(row)).join('\n')}\n${forged.map(row => JSON.stringify(row)).join('\n')}\n`)
+  const first = await call('memory-history', { botId: 'b2' })
+  assert.equal(first.ok, true, JSON.stringify(first))
+  assert.equal(first.value.rows.length, 50)
+  assert.notEqual(first.value.more, null)
+  const second = await call('memory-history', { botId: 'b2', before: first.value.more })
+  assert.equal(second.ok, true, JSON.stringify(second))
+  assert.equal(second.value.rows.length, 11)
+  assert.equal(second.value.more, null)
+  assert.equal(second.value.rows.at(-1).id, 'old-0')
+  assert.equal(first.value.rows[0].id, base[0].id)
+})
+
+test('a restore refuses a row whose before is not one entry line', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Real fact' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  const forge = (row) => {
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return JSON.parse(read('journal.jsonl').trim().split('\n').at(-1)).id
+  }
+  // A heading or several lines put back would corrupt the file or hide what
+  // follows from recall; a real remove row always held one bullet.
+  for (const before of ['## Index', '- one\n- two', 'plain text', '* ', '']) {
+    const removeId = forge({ id: `rm-${JSON.stringify(before)}`, time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before })
+    const denied = await call('memory-restore', { botId: 'b2', id: removeId })
+    assert.equal(denied.ok, false, JSON.stringify(before))
+    assert.match(denied.error.message, /not a change that can be restored/, JSON.stringify(before))
+    const replaceId = forge({ id: `rp-${JSON.stringify(before)}`, time: new Date().toISOString(), op: 'replace', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before, after: journal()[0].after })
+    const deniedReplace = await call('memory-restore', { botId: 'b2', id: replaceId })
+    assert.equal(deniedReplace.ok, false, JSON.stringify(before))
+    assert.match(deniedReplace.error.message, /not a change that can be restored/, JSON.stringify(before))
+  }
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Real fact \[/)
+})
+
+test('a restore follows a hand-named topic file', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  // A file renamed or created by hand still lists as a topic; a replace that
+  // finds its entry journals the name as it is, not a cleanTopic form.
+  mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'Travel.md'), '# Travel\n\n- Prefers aisle seats [added: 2026-01-01]\n')
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n- [[Travel]]\n')
+  assert.match(await tool('remember', { text: 'Prefers window seats', replace: 'aisle' }, 'b2'), /is now "Prefers window seats"/)
+  assert.equal(journal().at(-1).file, 'Travel.md')
+  const restored = await call('memory-restore', { botId: 'b2', id: journal().at(-1).id })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(read('bots', 'b2', 'Travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
+})
+
+test('a restore checks the whole line for a saved secret, its metadata too', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  const secret = 'harbor dock meeting 9f3k'
+  const saved = await call('secret-set', { name: 'DOCK_WORD', value: secret })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // The value sits in the line's metadata, not its text: the text-only check a
+  // new entry gets never sees it, but putting the line back would write it.
+  const forge = (row) => {
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return JSON.parse(read('journal.jsonl').trim().split('\n').at(-1)).id
+  }
+  for (const op of ['remove', 'replace']) {
+    const before = `- Prefers window seats [note: ${secret}]`
+    const row = { id: `sec-${op}`, time: new Date().toISOString(), op, scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before }
+    if (op === 'replace') row.after = journal()[1].after
+    const denied = await call('memory-restore', { botId: 'b2', id: forge(row) })
+    assert.equal(denied.ok, false, op)
+    assert.match(denied.error.message, /cannot be put back/, op)
+    assert.doesNotMatch(denied.error.message, new RegExp(secret))
+  }
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /harbor dock meeting|window seats/)
+  assert.doesNotMatch(read('journal.jsonl'), /harbor dock meeting 9f3k.*"op":"add"/s)
+})
+
+test('a restore refuses a file name with a control character instead of wedging', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // The name passes a separators-only check, but a write of the file it names
+  // fails after the pending record is accepted, so every later memory change
+  // stops on it. The row is refused before any of that is reached.
+  const row = { id: 'bad-ctl', time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'bad\0.md', actor: 'user', actorName: 'user', removedTopic: true, before: '- forged entry' }
+  writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+  const denied = await call('memory-restore', { botId: 'b2', id: 'bad-ctl' })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /not a change that can be restored/)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes tea \[/)
+  assert.equal(journal().length, 2)
+  // The memory still works: nothing half-written is waiting to be finished.
+  assert.equal((await call('memory-view', { botId: 'b2' })).ok, true)
+  assert.match(await tool('remember', { text: 'Also likes coffee' }, 'b2'), /Saved to your memory/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Also likes coffee \[/)
+})
+
+test('a restore dedupes a row whose before line is an indented bullet', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Drinks tea daily' }, 'b2')
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  const journalPath = join(home, 'memory', 'journal.jsonl')
+  // Rows are written by publish with one bullet, but a hand-edited or foreign
+  // row may indent it; the text check and the duplicate check must read it as
+  // the same entry either way.
+  const forge = (row) => {
+    writeFileSync(journalPath, `${read('journal.jsonl')}${JSON.stringify(row)}\n`)
+    return JSON.parse(read('journal.jsonl').trim().split('\n').at(-1)).id
+  }
+  const removeId = forge({ id: 'ind-rm', time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before: '  - Drinks tea daily [added: 2026-01-01]' })
+  const denied = await call('memory-restore', { botId: 'b2', id: removeId })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /already in/)
+  const replaceId = forge({ id: 'ind-rp', time: new Date().toISOString(), op: 'replace', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before: '  - Drinks tea daily', after: journal()[1].after })
+  const deniedReplace = await call('memory-restore', { botId: 'b2', id: replaceId })
+  assert.equal(deniedReplace.ok, false)
+  assert.match(deniedReplace.error.message, /already in/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.equal(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.length, 2)
+  // An indented before that is no duplicate still restores, and reports the
+  // entry's text, not the line's raw shape.
+  const clean = forge({ id: 'ind-ok', time: new Date().toISOString(), op: 'remove', scope: 'bot:b2', file: 'MEMORY.md', actor: 'user', actorName: 'user', before: '  - Prefers aisle seats' })
+  const restored = await call('memory-restore', { botId: 'b2', id: clean })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  assert.match(journal().at(-1).after, /Prefers aisle seats/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /^ {2}- Prefers aisle seats$/m)
+})
+
+test('a restore puts a removed topic back into its case-folded file, never over it', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  // A topic file made by hand is removed whole with its last entry.
+  mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'Travel.md'), '# Travel\n\n- Prefers aisle seats [added: 2026-01-01]\n')
+  writeFileSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), '# Memory\n\n## Index\n- [[Travel]]\n')
+  await tool('forget', { entry: 'aisle seats' }, 'b2')
+  const removed = journal().at(-1).id
+  const dir = join(home, 'memory', 'bots', 'b2')
+  // Remembering under the same words makes travel.md; on a file system that
+  // folds case it is the file Travel.md named. A fresh Travel.md written over
+  // it would lose the new fact.
+  await tool('remember', { text: 'Flies on Fridays', topic: 'Travel' }, 'b2')
+  const folded = existsSync(join(dir, 'TRAVEL.MD'))
+  const restored = await call('memory-restore', { botId: 'b2', id: removed })
+  assert.equal(restored.ok, true, JSON.stringify(restored))
+  if (folded) {
+    assert.match(read('bots', 'b2', 'travel.md'), /- Flies on Fridays \[/)
+    assert.match(read('bots', 'b2', 'travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
+    assert.equal(journal().at(-1).file, 'travel.md')
+    // Undoing the restore finds the line in the file that holds it.
+    const undone = await call('memory-restore', { botId: 'b2', id: journal().at(-1).id })
+    assert.equal(undone.ok, true, JSON.stringify(undone))
+    assert.doesNotMatch(read('bots', 'b2', 'travel.md'), /Prefers aisle seats/)
+  } else {
+    // A case-sensitive file system keeps the two files apart: Travel.md is
+    // rebuilt next to travel.md.
+    assert.match(read('bots', 'b2', 'Travel.md'), /- Prefers aisle seats \[added: 2026-01-01\]/)
+    assert.match(read('bots', 'b2', 'travel.md'), /- Flies on Fridays \[/)
+  }
+})
+
+test('a restore refuses a removed topic whose name is a saved secret now', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Meet at the dock', topic: 'harbor-dock-meeting-9f3k' }, 'b2')
+  await tool('forget', { entry: 'dock', topic: 'harbor-dock-meeting-9f3k' }, 'b2')
+  const rid = journal().at(-1).id
+  const lines = journal().length
+  const dir = join(home, 'memory', 'bots', 'b2')
+  assert.equal(existsSync(join(dir, 'harbor-dock-meeting-9f3k.md')), false)
+  // The name became a saved secret since the row was written: rebuilding the
+  // topic would write it into a heading and the Index link, in the clear.
+  const saved = await call('secret-set', { name: 'COVE_WORD', value: 'harbor-dock-meeting-9f3k' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  const denied = await call('memory-restore', { botId: 'b2', id: rid })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /cannot be put back/)
+  assert.doesNotMatch(denied.error.message, /harbor-dock-meeting-9f3k/)
+  assert.equal(existsSync(join(dir, 'harbor-dock-meeting-9f3k.md')), false)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+  assert.equal(journal().length, lines)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /harbor-dock-meeting-9f3k/)
+})
+
+test('a restore rebuilds a removed topic whose file name is near the name limit', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  for (const stem of ['a'.repeat(250), 'a'.repeat(251)]) {
+    // The topic's own name is legal; a temporary name made of the whole path
+    // beside it would pass the system's per-name limit and the write would fail
+    // after the pending record accepted the change, wedging every later one.
+    writeFileSync(join(dir, `${stem}.md`), `# ${stem}\n\n- A fact kept for ${stem.length} characters [added: 2026-01-01]\n`)
+    writeFileSync(join(dir, 'MEMORY.md'), `# Memory\n\n## Index\n- [[${stem}]]\n`)
+    assert.match(await tool('forget', { entry: `${stem.length} characters` }, 'b2'), /was empty/)
+    const restored = await call('memory-restore', { botId: 'b2', id: journal().at(-1).id })
+    assert.equal(restored.ok, true, JSON.stringify(restored))
+    assert.match(read('bots', 'b2', `${stem}.md`), /- A fact kept for /)
+    assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+    // Nothing half-written: the memory still reads and writes.
+    assert.equal((await call('memory-view', { botId: 'b2' })).ok, true)
+    assert.match(await tool('remember', { text: 'Still works' }, 'b2'), /Saved to your memory/)
+  }
+})
+
+test('a restore does not journal a line that is a saved secret now', async (t) => {
+  const { tool, call, read, journal, stop, home } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
+  const addId = journal().at(-1).id
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await tool('remember', { text: 'Likes green tea', replace: 'tea' }, 'b2')
+  const replaceId = journal().at(-1).id
+  const rows = journal().length
+  // Each restore copies the line its row wrote into a row of its own: a value
+  // that became a saved secret since must not come back to the change log.
+  const kept = await call('secret-set', { name: 'HOME_CITY', value: 'Lives in Hangzhou' })
+  assert.equal(kept.ok, true, JSON.stringify(kept))
+  const keptTea = await call('secret-set', { name: 'TEA_CHOICE', value: 'Likes green tea' })
+  assert.equal(keptTea.ok, true, JSON.stringify(keptTea))
+
+  const undoAdd = await call('memory-restore', { botId: 'b2', id: addId })
+  assert.equal(undoAdd.ok, false)
+  assert.match(undoAdd.error.message, /cannot be taken out/)
+  assert.doesNotMatch(undoAdd.error.message, /Lives in Hangzhou/)
+  const undoReplace = await call('memory-restore', { botId: 'b2', id: replaceId })
+  assert.equal(undoReplace.ok, false)
+  assert.match(undoReplace.error.message, /cannot be taken out/)
+  assert.doesNotMatch(undoReplace.error.message, /Likes green tea/)
+
+  assert.equal(journal().length, rows)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Lives in Hangzhou \[/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes green tea \[/)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
 })
 
 test('recall finds a continuous Chinese phrase, and keeps space-separated and Latin matching', async (t) => {
@@ -1059,13 +1628,17 @@ test('the members of a group read its memory in their Sessions there, and no Bot
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
-  for (const member of ['g2', 'g3']) {
-    assert.match(section(member), /\n\n## Group memory, shared by the members of this group chat\nOnly the members of this group read it[^\n]*\n\n- The user wants everything under one page \[source: group "Launch"[^\n]*\]$/)
+  for (const [member, bot] of [['g2', 'b2'], ['g3', 'b3']]) {
+    // The prompt is the Bot's own, so the provider's cached prefix holds in both; the
+    // group's memory comes in a snapshot message before the first step.
+    assert.equal(section(member), section(bot))
+    assert.match(textOf(await groupMemoryOf(ctx, member)), /^## Group memory, shared by the members of this group chat\nOnly the members of this group read it[^\n]*\n\n- The user wants everything under one page \[source: group "Launch"[^\n]*\]$/)
     assert.match(await tool('recall', { query: 'page' }, member), /^Entries with "page" in your memory, the group memory, and the team memory:\n\[group · MEMORY\.md\] The user wants everything under one page/)
   }
   // Not in a member's own chat, nor for a Bot outside the group, a Main Bot included.
   for (const elsewhere of ['b2', 'b3', 'b4', 'm1']) {
     assert.doesNotMatch(section(elsewhere), /one page|Group memory/, elsewhere)
+    assert.equal(await groupMemoryOf(ctx, elsewhere), undefined, elsewhere)
     assert.match(await tool('recall', { query: 'page' }, elsewhere), /^Nothing in your memory and the team memory mentions "page"/, elsewhere)
     assert.match(await tool('recall', { scope: 'group' }, elsewhere), /^There is no group memory here/, elsewhere)
   }
@@ -1074,7 +1647,7 @@ test('the members of a group read its memory in their Sessions there, and no Bot
 test('in a group, remember and forget write the group memory unless told otherwise, for any member', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   twoMembers(home)
-  const { tool, call, read, journal, stop } = start({ home })
+  const { ctx, tool, call, read, journal, stop } = start({ home })
   t.after(() => stop())
   assert.match(await tool('remember', { text: 'Builds go in the out folder' }, 'g2'), /^Saved to the group memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. Every member sees it in its next conversation in this group; recall finds it now\.$/)
   assert.match(read('groups', 'r1', 'MEMORY.md'), /- Builds go in the out folder \[source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Writer; added: /)
@@ -1095,15 +1668,35 @@ test('in a group, remember and forget write the group memory unless told otherwi
   assert.equal((await call('update-room', { id: 'r1', remove: ['b2'] })).ok, true)
   await assert.rejects(tool('remember', { text: 'Still here' }, 'g2'), /Only Bots on the team keep a memory\./)
   await assert.rejects(tool('forget', { entry: 'Friday' }, 'g2'), /Only Bots on the team keep a memory\./)
+  // Nor does it read it: its Session there gets no snapshot of the group's memory.
+  assert.equal(await groupMemoryOf(ctx, 'g2'), undefined)
+  assert.ok(await groupMemoryOf(ctx, 'g3'))
   assert.deepEqual(parseMemory(read('groups', 'r1', 'MEMORY.md')).entries.map(entry => entry.text), ['Ship on Friday'])
 })
 
-test('a group Session frozen before groups kept a memory is frozen again, with it', async (t) => {
-  const { tool, section, home, stop } = start()
+test('a group Session gets its group\'s memory as a message once, and again after a checkpoint condensed it', async (t) => {
+  const { ctx, tool, section, home, stop } = start()
   t.after(() => stop())
   await tool('remember', { text: 'Ship on Friday' }, 'g3')
   writeFileSync(join(home, 'memory', 'snapshots', 'g3.md'), section('b3'))
-  assert.match(section('g3'), /## Group memory, shared by the members of this group chat\n[^\n]*\n\n- Ship on Friday \[/)
+  assert.equal(section('g3'), section('b3'))
+  const first = await groupMemoryOf(ctx, 'g3')
+  assert.match(textOf(first), /^## Group memory, shared by the members of this group chat\n[^\n]*\n\n- Ship on Friday \[/)
+  // Still in the history: not put in again.
+  assert.equal(await groupMemoryOf(ctx, 'g3', [first]), undefined)
+  // Condensed away by a checkpoint: it comes again, as the memory is now.
+  await tool('remember', { text: 'Demo on Monday' }, 'g3')
+  assert.match(textOf(await groupMemoryOf(ctx, 'g3', [])), /- Ship on Friday \[[^\n]*\n- Demo on Monday \[/)
+})
+
+test('a group Session frozen with its group\'s memory in its prompt keeps it there, with no message', async (t) => {
+  const { ctx, tool, section, home, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Ship on Friday' }, 'g3')
+  const frozen = `${section('b3')}\n\n## Group memory, shared by the members of this group chat\n- Ship on Friday`
+  writeFileSync(join(home, 'memory', 'snapshots', 'g3.md'), frozen)
+  assert.equal(section('g3'), frozen)
+  assert.equal(await groupMemoryOf(ctx, 'g3'), undefined)
 })
 
 test('deleting a group moves its memory to the archive, with its members\' snapshots gone', async (t) => {

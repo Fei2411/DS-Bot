@@ -33,10 +33,6 @@ const ROOM_FIRST_LOOK = 12
 const ROOM_DELTA_MAX = 24
 const ROOM_EARLIER_MAX = 8
 
-// A reply that hands back an unresolved decision to the admin or caller without @Name (#619).
-const NEEDS_CALLER_DECISION = /需要.*(?:决定|拍板|确认|指示|裁决|定夺)|请.*(?:管理员|负责人|组长|拍板|决定|指示|确认)|等.*(?:管理员|负责人|决定|拍板|指示)|\b(?:need|needs|waiting\s+for|requires)\s+(?:the\s+)?(?:admin|lead|leader|chief|you)\s+to\s+(?:decide|confirm|choose|approve|pick)\b/i
-const needsCallerDecision = text => typeof text === 'string' && NEEDS_CALLER_DECISION.test(text)
-
 // Short ack/thanks/closing phrases with no new content, used by the 0-tool idle loop guard.
 const IDLE_ACK_BODY = /^(?:(?:收到|好的|好|明白|明白了|了解|了解了|没问题|谢谢|多谢|感谢|辛苦了|辛苦|不客气|不用谢|完毕|完成|好嘞|行|ok|okay|got\s+it|understood|noted|thanks|thank\s+you|you\s+are\s+welcome|you're\s+welcome|welcome|np|no\s+problem|roger|ack|done|all\s+good|sounds\s+good)(?:[\s，,、。.!！~～：:]+|$))+$/i
 const normalizeRelayBody = (text, everyone) => {
@@ -72,11 +68,29 @@ const unseenLines = (room, memberId) => {
 // A notice keeps its fields, not a finished sentence: the line members read is written
 // when it is read, so old entries still say what happened when the wording or the
 // constants move on.
+const goalNotice = (line) => {
+  switch (line.event) {
+    case 'draft': return 'The user asked for a goal for this group; the admin is aligning it with them.'
+    case 'start': return `Goal "${line.title}" started with ${line.count} stages; stage 1 "${line.next ?? ''}" is current.`
+    case 'pass': return line.next !== undefined
+      ? `Goal "${line.title}": stage ${line.stage} of ${line.count} passed; stage ${line.stage + 1} "${line.next}" is current.`
+      : `Goal "${line.title}": stage ${line.stage} of ${line.count} passed; every stage passed.`
+    case 'rework': return `Goal "${line.title}": stage ${line.stage} was sent back: ${line.text ?? ''}`
+    case 'revise': return `Goal "${line.title}" was changed: ${line.text ?? ''}`
+    case 'pause': return `Goal "${line.title}" is paused. Start no new stage work.`
+    case 'resume': return `Goal "${line.title}" is resumed.`
+    case 'complete': return `Goal "${line.title}" is complete.`
+    case 'stop': return `Goal "${line.title}" was stopped: ${line.text ?? ''}`
+    default: return line.text ?? ''
+  }
+}
 const noticeText = (line) => {
   if (line.reason === 'missed') return `${(line.names ?? []).join(' and ')} did not answer within ${line.minutes} minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.`
+  if (line.reason === 'paused' && line.idle) return `Paused: ${[line.from, ...(line.names ?? [])].filter(Boolean).join(' and ')} went back and forth ${line.limit} times without progress (no tool used, only thanks or repeats). The calls to @${(line.names ?? []).join(' and @')} wait until the user writes here; do not call them again.`
   if (line.reason === 'paused') return `Paused: Bots have called each other ${line.limit} times since the user last wrote here. The calls to @${(line.names ?? []).join(' and @')} wait until the user continues or writes here; do not call them again.`
   if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
   if (line.reason === 'folder') return `The group's folder ${line.path} is gone, so its members work in the team workspace; set the group's folder again in the group's settings.`
+  if (line.reason === 'goal') return goalNotice(line)
   return line.text ?? ''
 }
 // `text` is what to show of a message line, by default what the log keeps of it.
@@ -151,6 +165,7 @@ const adminNote = room => [
   'You are this group\'s admin.',
   room.mode === 'admin' ? 'Plain messages come to you first: answer them, or call the members who should answer with @Name.' : '',
   '"@all" calls every member. When the user asks, change the group with update_group.',
+  'When the user wants this group to reach a goal, set it with group_goal: align with the user first (goal-grill skill), then start it.',
 ].filter(Boolean).join(' ')
 
 // The opening turn of a group the user just made without a first message.
@@ -223,7 +238,10 @@ export function install(rt) {
     for (const gone of log.slice(0, -ROOM_LOG_MAX)) dropGroupLine(room.id, gone)
     room.log = log.slice(-ROOM_LOG_MAX)
   }
-  Object.assign(rt, { keepGroupLine, dropGroupLines })
+  Object.assign(rt, {
+    keepGroupLine, dropGroupLines,
+    logRoom: (room, line) => { ensureRoomLog(room); appendRoom(room, line) },
+  })
 
   // The folder a group was set to work in is gone: its members' Sessions move on in
   // the team workspace (parts.js), and the group is told once per folder, so a later
@@ -295,6 +313,7 @@ export function install(rt) {
     const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${ROOM_CALLS}`
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
     if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), files: [] }
+    const goal = rt.goalBlock?.(room, member, { nudge: round.goalNudge === true, resume: round.goalResume === true }) ?? ''
     // Members answering in this round are named with the round below.
     const answering = new Set(round.slots.filter(other => other.status === 'speaking').map(other => other.id))
     const working = workingIn(room).filter(item => item.bot.id !== member.id && !answering.has(item.bot.id))
@@ -302,6 +321,7 @@ export function install(rt) {
     const text = [
       members,
       notice,
+      goal,
       leads ? adminNote(room) : '',
       earlier.length ? `Earlier in the group, before this round (context only):\n${transcript(earlier, memberText(room))}` : '',
       current.length
@@ -419,7 +439,10 @@ export function install(rt) {
     memberBatch.delete(mKey)
     batch.pending.delete(botId)
     pruneBatchPending(room, batch)
-    if (batch.pending.size === 0) roomBatches.delete(batch.key)
+    if (batch.pending.size === 0) {
+      roomBatches.delete(batch.key)
+      void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
+    }
     return batch
   }
 
@@ -577,14 +600,19 @@ export function install(rt) {
     return round.slots.every((other, index) => !other.ordered || other === slot || (other.status !== 'speaking' && !(other.status === 'waiting' && index < at)))
   }
 
-  // LEGACY: groups used to park Bot calls past a relay limit until the user went on.
-  // Calls still parked from then (or by the idle ping-pong guard) run in the group's
-  // next round, with its opening speakers; one already waiting in the round is not
-  // called twice.
+  // Calls the idle ping-pong guard parked (`idle`) run once the user writes: in the
+  // round the user's message opens, or in the running round that takes it in.
+  // LEGACY: groups used to park Bot calls past a relay limit until the user went on;
+  // calls still parked from then run in the group's next round. Either way they join
+  // the round's speakers, and one already waiting in the round is not called twice.
   const releaseParked = (room, round) => {
     const parked = room.paused ?? []
-    delete room.paused
-    for (const entry of parked) {
+    const due = parked.filter(entry => entry.idle !== true || round.userMessage === true)
+    if (due.length === 0) return
+    const left = parked.filter(entry => !due.includes(entry))
+    if (left.length > 0) room.paused = left
+    else delete room.paused
+    for (const entry of due) {
       if (round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
       const peer = rt.botOf(entry.id)
       const batchKey = peer && entry.by !== undefined ? registerBatch(room.id, entry.by, [peer]) : undefined
@@ -624,6 +652,8 @@ export function install(rt) {
     const lines = waitingLines(agent).filter(line => agent.inbox.remove(line.id))
     if (lines.length === 0) return
     round.idleRelays = 0
+    round.userMessage = true
+    rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const line of lines) {
       appendRoom(room, { who: 'User', text: line.text })
@@ -633,6 +663,7 @@ export function install(rt) {
       const { speakers, ordered } = openingCall(room, { text: line.text })
       callIn(round, speakers, note, undefined, { ordered })
     }
+    releaseParked(room, round)
     void rt.save().catch(() => {})
   }
 
@@ -663,13 +694,13 @@ export function install(rt) {
         const parked = room.paused ?? []
         for (const peer of callees) {
           if (!parked.some(entry => entry.id === peer.id)) {
-            parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id })
+            parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id, idle: true })
           }
         }
         room.paused = parked
         const names = callees.map(peer => peer.name)
-        appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', limit: ROOM_IDLE_RELAY_LIMIT, names })
-        round.replies.push({ kind: 'paused', count: ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names, time: Date.now() })
+        appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', idle: true, from: member.name, limit: ROOM_IDLE_RELAY_LIMIT, names })
+        round.replies.push({ kind: 'paused', idle: true, botId: member.id, name: member.name, color: member.color, count: ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names, time: Date.now() })
         void rt.save().catch(() => {})
         return
       }
@@ -678,6 +709,8 @@ export function install(rt) {
       if (norm !== '') (round.botBodies ??= new Map()).set(member.id, [...(round.botBodies?.get(member.id) ?? []), norm])
     }
     callIn(round, callees, `${member.name} mentioned you`, member.id)
+    // An @Name from the admin hands the member its goal task.
+    if (rt.isAdminOf(room, member.id)) for (const peer of callees) rt.goalTaskWorking?.(room.id, peer.id)
   }
 
   // A round runs every call that can start, and wakes when a turn ends, a call comes
@@ -807,6 +840,9 @@ export function install(rt) {
         appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'missed', names: [member.name], minutes: Math.round(ROOM_REPLY_TIMEOUT_MS / 60000) })
       }
     }
+    // A result the admin asked for reports its goal task; a failed model call puts it back.
+    if (slot.status === 'posted' && slot.by === room.admin && final !== undefined) rt.goalTaskReported?.(room.id, member.id)
+    if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
     // Settle the member's place in its call batch when its work did not continue in the background.
     if (slot.status !== 'working') {
       const batch = (slot.batchKey ? roomBatches.get(slot.batchKey) : undefined) ?? memberBatch.get(batchKeyOf(room.id, member.id))
@@ -814,21 +850,17 @@ export function install(rt) {
         if (slot.status === 'posted') {
           batch.done.push(member.name)
           if (called.size > 0) batch.answered = true
-          if (worked || needsCallerDecision(final)) batch.worked = true
+          if (worked) batch.worked = true
         }
         dropMemberFromBatch(room, member.id)
         if (batch.pending.size === 0 && batch.done.length > 0 && batch.worked && !batch.answered && !signal.aborted) {
           const caller = rt.botOf(batch.by)
+          // A caller still waiting in this round reads the results when it starts. One
+          // still in its own turn cannot see them, so it answers in a turn after that one.
           if (caller !== undefined && room.members.includes(caller.id)
-            && !round.slots.some(other => other.id === caller.id && (other.status === 'waiting' || other.status === 'speaking'))) {
+            && !round.slots.some(other => other.id === caller.id && other.status === 'waiting')) {
             callIn(round, [caller], `${batch.done.join(' and ')} finished the work you asked for`, undefined)
           }
-        }
-      } else if (slot.status === 'posted' && called.size === 0 && needsCallerDecision(final) && room.mode === 'admin' && room.admin && room.admin !== member.id) {
-        const admin = rt.botOf(room.admin)
-        if (admin !== undefined && room.members.includes(admin.id)
-          && !round.slots.some(other => other.id === admin.id && (other.status === 'waiting' || other.status === 'speaking'))) {
-          callIn(round, [admin], `${member.name} finished the work and needs your decision`, undefined)
         }
       }
     }
@@ -849,12 +881,27 @@ export function install(rt) {
       const queued = rt.roomInbox.get(room.id) ?? []
       rt.roomInbox.delete(room.id)
       const posts = queued.length > 0 ? queued : [{ text: '' }]
+      // A goal post queued for a goal that moved on is dropped: a check or resume
+      // for a goal that is gone, idle or no longer active is stale, and a draft for
+      // a goal that was written or stopped keeps only its user line.
+      for (const post of [...posts]) {
+        if (post.goal === 'nudge' || post.goal === 'resume') {
+          if (room.goal?.id !== post.goalId || room.goal.status !== 'active' || (post.goal === 'nudge' && room.goal.idle === true)) posts.splice(posts.indexOf(post), 1)
+        } else if (post.goal === 'draft' && (room.goal?.id !== post.goalId || room.goal.status !== 'drafting')) {
+          delete post.goal
+          delete post.goalId
+        }
+      }
       // A post a running round already logged stays inside the round this relay opens.
       const startSeq = Math.min(room.seq + 1, ...posts.map(post => post.logged).filter(seq => typeof seq === 'number'))
       // The opening greeting is a cue for the admin, not a line of the group; a member's
       // late failure, its work picked up after a restart, its work the user stopped, or
       // the end of work whose result it already posted is an event of the round.
-      const event = item => item.failed || item.resumed || item.stopped || item.done
+      const event = item => item.failed || item.resumed || item.stopped || item.done || item.goal === 'nudge' || item.goal === 'resume'
+      // A user post has no botId and is no round event or kickoff; a goal draft counts
+      // as the user's own line too.
+      const userPost = post => post.botId === undefined && post.kickoff !== true && !event(post)
+      const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true)
       for (const post of posts.filter(item => !item.kickoff && !event(item) && item.logged === undefined)) {
         // Image readings go into the log only; `@` names are picked from what the user typed.
         // A file stays with its line and reaches each member the line is shown to.
@@ -867,6 +914,7 @@ export function install(rt) {
         })
       }
       await rt.save()
+      if (posts.some(userPost)) rt.goalUserMessage?.(room.id)
       // An event post, and a member post that calls nobody, never pick the speakers
       // over a message queued with them. A post whose members an earlier round already
       // called (`called`) picks none.
@@ -881,21 +929,34 @@ export function install(rt) {
       const { speakers, ordered } = openingCall(room, opener)
       const calledByOpener = speakers.filter(member => named.includes(member))
       const openingBatchKey = opener.botId !== undefined && calledByOpener.length > 0 ? registerBatch(room.id, opener.botId, calledByOpener) : undefined
+      // The admin's own post that opens a round hands goal tasks the same way a call does.
+      if (rt.isAdminOf(room, opener.botId)) for (const member of calledByOpener) rt.goalTaskWorking?.(room.id, member.id)
       // The admin alone with the user's message: when it passes, the round ends with
       // nothing said, and the group says so once.
       const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
-      const soleAdmin = opener.botId === undefined && !opener.kickoff && room.mode === 'admin' && admin !== undefined
+      const soleAdmin = opener.botId === undefined && !opener.kickoff && opener.goal === undefined && room.mode === 'admin' && admin !== undefined
         && speakers.length === 1 && speakers[0].id === admin.id
+      // A goal draft queued with another post still brings the admin in, on its note.
+      const draftPost = posts.find(post => post.goal === 'draft' && post !== opener)
+      if (draftPost !== undefined && admin !== undefined && !speakers.some(member => member.id === admin.id)) speakers.push(admin)
       const round = {
         roomId: room.id,
         members: room.members,
         startSeq,
+        goalRevision: room.goal?.revision,
+        ...(posts.some(userPost) ? { userMessage: true } : {}),
         ...(opener.kickoff ? { kickoff: true } : {}),
+        ...(opener.goal === 'nudge' ? { goalNudge: true } : {}),
+        ...(opener.goal === 'resume' ? { goalResume: true } : {}),
+        ...(stoppedOnly ? { stoppedOnly: true } : {}),
         ...(references.length > 0 ? { references, shown: [] } : {}),
         slots: speakers.map(member => ({
           id: member.id, name: member.name, status: 'waiting', batch: 1,
           ...(ordered ? { ordered: true } : {}),
           ...(opener.kickoff ? { note: 'the group was just created' } : {}),
+          ...(opener.goal === 'draft' || (draftPost !== undefined && admin !== undefined && member.id === admin.id) ? { note: 'the user wants to set a goal for this group' } : {}),
+          ...(opener.goal === 'nudge' ? { note: 'goal check' } : {}),
+          ...(opener.goal === 'resume' ? { note: 'the user resumed the goal' } : {}),
           ...(named.includes(member) ? { by: opener.botId, ...(openingBatchKey ? { batchKey: openingBatchKey } : {}) } : {}),
           ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
         })),
@@ -905,6 +966,10 @@ export function install(rt) {
         passed: [],
         failed: [],
         started: [],
+      }
+      // The group transcript hides the goal trigger, so the user sees their request as a reply.
+      for (const post of posts.filter(item => item.goal === 'draft' && item.logged === undefined)) {
+        round.replies.push({ kind: 'user', text: post.text, time: Date.now() })
       }
       for (const post of posts.filter(item => item.failed && item.logged === undefined)) {
         const bot = rt.botOf(post.botId)
@@ -932,6 +997,13 @@ export function install(rt) {
       }
       if (exec.signal?.aborted) {
         for (const turn of round.started) void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
+      } else if (rt.goalDrive !== undefined) {
+        // A round that ends with an active goal and nothing running may wake the admin.
+        try {
+          await rt.goalDrive(room, round)
+        } catch (error) {
+          rt.warn('ds-bot: goal check in %s failed: %s', room.name, error)
+        }
       }
       await rt.save()
       for (const post of open) {
@@ -1053,16 +1125,12 @@ export function install(rt) {
     if (opener.kickoff) return at(admin ? [admin] : [])
     if (opener.quiet) return at([])
     if (opener.done) return at(members.filter(bot => bot.id === opener.askedBy))
+    // A goal post — the user's draft ask, an idle goal check, a resume — is the admin's alone.
+    if (opener.goal !== undefined) return at(admin ? [admin] : [])
     const { all, found: named } = mentionsOf(opener, everyone) ?? mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
     if (opener.progress) return at(found)
-    if (opener.late) {
-      if (found.length > 0) return at(found)
-      const asked = members.filter(bot => bot.id === opener.askedBy)
-      if (asked.length > 0) return at(asked)
-      if (needsCallerDecision(opener.text) && room.mode === 'admin' && admin) return at([admin])
-      return at([])
-    }
+    if (opener.late) return at(found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy))
     if (opener.member) return at(found)
     if (found.length > 0 && !all) return at(found)
     if (!all && room.mode === 'admin' && admin) return at([admin])
@@ -1088,6 +1156,7 @@ export function install(rt) {
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
     callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered })
     callIn(round, rest, note, undefined, { ordered })
+    if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     if (extra.reportBack) {
       (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}), ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
     }
@@ -1153,6 +1222,9 @@ export function install(rt) {
     const currentBatch = memberBatch.get(batchKeyOf(room.id, member.id))
     const batch = currentBatch !== undefined && (info.role !== 'room' || info.askedBy === currentBatch.by) ? currentBatch : undefined
     const askedBy = info.role === 'room' ? info.askedBy : (info.askedBy ?? batch?.by)
+    // The admin asked for this result: its goal task is reported at once, even
+    // while the other members of the batch still work.
+    if (askedBy === room.admin && (!isPass(text) || shown)) rt.goalTaskReported?.(room.id, member.id)
     const named = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.filter(bot => bot.id !== member.id)
     let waitingPeers = false
     let batchDoneBefore = false
@@ -1263,6 +1335,7 @@ export function install(rt) {
       const agent = await rt.resolveAgent(sessionId)
       agent.cancel({ kind: 'user' })
     }
+    rt.goalTaskReset?.(roomId, botId, 'Stopped by the user')
     await postToRoom(room, member, '', { quiet: true, stopped: true })
     return true
   }
@@ -1283,6 +1356,10 @@ export function install(rt) {
     return round || stopped
   }
   rt.stopRoomWork = stopRoomWork
+  Object.assign(rt, {
+    workingInRoom: workingIn,
+    roomBatchPending: roomId => [...roomBatches.values()].some(batch => batch.roomId === roomId && batch.pending.size > 0),
+  })
 
   // The round said such a member posts when done; a failed model call is how it ended.
   // Nobody answers it unless other members of its batch already finished and waited on
@@ -1295,6 +1372,7 @@ export function install(rt) {
     const batch = dropMemberFromBatch(room, member.id)
     const wakeCaller = batch !== undefined && batch.pending.size === 0 && batch.done.length > 0 && !batch.answered ? batch.by : undefined
     const { code, status, message } = failure
+    rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
     await postToRoom(room, member, `Could not finish: its model call failed (${failureLine(failure)}).`, {
       late: true,
       ...(wakeCaller ? { askedBy: wakeCaller } : { quiet: true }),
@@ -1344,7 +1422,8 @@ export function install(rt) {
     if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     return (async function* relayOrPass() {
       await rt.load()
-      if (rt.roomOf(options.sessionId) === undefined) {
+      const room = rt.roomOf(options.sessionId)
+      if (room === undefined) {
         yield* next()
         return
       }
@@ -1352,15 +1431,27 @@ export function install(rt) {
       // message from the user, a scheduled task, or a Bot's post after the last model or
       // tool step starts a relay.
       const opens = message => message.role === 'user'
-        && (message.source?.kind === 'user' || message.source?.kind === 'schedule' || (message.source?.kind === SOURCE_KIND && (message.source.role === 'post' || message.source.role === 'kickoff')))
+        && (message.source?.kind === 'user' || message.source?.kind === 'schedule' || (message.source?.kind === SOURCE_KIND && (message.source.role === 'post' || message.source.role === 'kickoff' || message.source.role === 'goal')))
       const latest = [...options.messages].reverse()
         .find(message => message.role === 'assistant' || message.role === 'tool' || opens(message))
       if (latest?.role !== 'user') {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
       }
-      const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
       const declared = new Set((options.tools ?? []).map(tool => tool.name))
+      // Neither relay path is declared, so a synthesized call could only fail
+      // unseen. The assemble scope keeps this unreachable; if it is reached the
+      // step ends with a line the user can read instead.
+      if (!declared.has('group_relay') && !declared.has('run_code')) {
+        rt.warn('ds-bot: group %s cannot relay: group_relay is not available in its Session', room.name)
+        const text = 'This group could not pass the message on: its relay tool is not available. Restart DS Bot; if it keeps happening, report it.'
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
       // Only for a group made under the PTC preset, which can call nothing but run_code;
       // new group Sessions get the standard preset.
       const [name, args] = declared.has('run_code') && !declared.has('group_relay')

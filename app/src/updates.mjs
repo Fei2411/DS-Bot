@@ -1,31 +1,12 @@
 // Windows and a Linux AppImage download and install updates; macOS and a Linux deb ask before
-// opening the release page.
-
-export const UPDATE_TEXT = {
-  en: {
-    ready: version => `DS Bot ${version} is ready to install.`,
-    readyDetail: 'Restart now to update, or it is installed the next time you quit.',
-    restart: 'Restart now', later: 'Later',
-    onFailure: version => `DS Bot ${version} is installed when its download is done, and then DS Bot opens again.`,
-    available: version => `DS Bot ${version} is available.`,
-    availableDetail: 'This version cannot update itself. Download the new version from its release page, then replace DS Bot in Applications.',
-    download: 'Download',
-    onFailurePage: version => `DS Bot ${version} is available. After this box, its download page opens.`,
-  },
-  zh: {
-    ready: version => `DS Bot ${version} 已经下载好。`,
-    readyDetail: '现在重启就能更新；不重启的话，下次退出时安装。',
-    restart: '立即重启', later: '稍后',
-    onFailure: version => `DS Bot ${version} 下载完会自动安装，然后重新打开。`,
-    available: version => `DS Bot ${version} 已经发布。`,
-    availableDetail: '这个版本不能自己更新。请到发布页下载新版，再用它替换「应用程序」里的 DS Bot。',
-    download: '下载',
-    onFailurePage: version => `DS Bot ${version} 已经发布。关掉这个对话框后，会打开它的下载页面。`,
-  },
-}
+// opening the release page. main.mjs asks the questions, in the dialog.update.* copy of
+// start/text.mjs.
 
 const CHECK_EVERY_MS = 4 * 60 * 60_000
 export const RELEASES_URL = 'https://api.github.com/repos/Fei2411/DS-Bot/releases?per_page=20'
+// Where a user downloads the newest version by hand.
+export const RELEASE_PAGE = 'https://github.com/Fei2411/DS-Bot/releases/latest'
+const MB = 1024 * 1024
 
 function parseVersion(version) {
   if (typeof version !== 'string') return null
@@ -178,13 +159,14 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
  *   stop: () => void,
  *   latest: () => Promise<{ version: string, downloaded: Promise<boolean> } | null>,
  *   install: () => Promise<void>,
- *   state: () => { phase: string, version?: string, page?: string },
+ *   state: () => { phase: string, version?: string, page?: string, percent?: number, received?: number, total?: number },
  *   subscribe: (listener: (state: { phase: string }) => void) => () => void,
  *   check: () => void,
  * }} `latest` is what the newest check found: the version and whether its download finished.
  *   `install` stops the Host and runs the installer, which opens the app again. `state` is
- *   the phase the About row shows; `check` runs the same check the timer does and does
- *   nothing while a check, a download or a ready install is on.
+ *   the phase the About row shows, with the download's per cent and MB while it downloads;
+ *   `check` runs the same check the timer does and does nothing while a check, a download or a
+ *   ready install is on.
  */
 export function watchUpdates({ updater, beforeInstall, ask, feed, log = console }) {
   updater.autoDownload = true
@@ -199,6 +181,13 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console 
   updater.on('checking-for-update', () => { holder.set({ phase: 'checking' }) })
   updater.on('update-not-available', () => { holder.set({ phase: 'current' }) })
   updater.on('update-available', (info) => { holder.set({ phase: 'downloading', version: info?.version }) })
+  // The download's progress, for the failure page's update banner: once per whole per cent.
+  updater.on('download-progress', (progress) => {
+    const current = holder.state()
+    const percent = Math.floor(Number(progress?.percent))
+    if (current.phase !== 'downloading' || !Number.isFinite(percent) || percent === current.percent) return
+    holder.set({ ...current, percent, received: Math.round(Number(progress.transferred) / MB) || 0, total: Math.round(Number(progress.total) / MB) || 0 })
+  })
   updater.on('update-downloaded', ({ version }) => {
     log.info(`DS Bot: update ${version} downloaded`)
     holder.set({ phase: 'downloaded', version })

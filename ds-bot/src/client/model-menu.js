@@ -144,12 +144,13 @@ export function useAnchoredMenu() {
 // The trigger shows the model name over its provider. A Thinking section lists the
 // levels of the shown model when it has them.
 // `onPick`/`onPickEffort` replace saving to the Bot, for a Bot that does not exist yet.
-export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort }) {
+// `withEfforts: false` keeps the Thinking section out, for a pick that has no level of its own.
+export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
   const served = servedOf(roster, current)
-  const reasoning = useEfforts(served, current, actions)
+  const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
   const picked = reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
   const currentEffort = picked ?? reasoning?.defaultEffort
@@ -183,13 +184,13 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     h('span', { className: 'bt-model-copy' },
       h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
       shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
-        ? (effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
+        ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
         : t('{provider} · not available', { provider: shown.provider })) : null),
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
       models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
         : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
-      effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
+      withEfforts && effortRows(reasoning).length > 0 ? h(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
       manage ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
       manage ? h('button', { type: 'button', role: 'menuitem', onClick: () => { close(); manage() } }, h(SlidersIcon), h('span', { className: 'bt-menu-label' }, t('Models and providers…'))) : null), document.body) : null)
 }
@@ -210,7 +211,7 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
   const lost = bot.model ? !models.some(model => model.ref === bot.model) : false
   // An unknown catalog (none listed) cannot tell a lost model from a slow provider.
   if (bot.model && (!lost || models.length === 0)) return null
-  // A window without DSH's own settings takes the missing key here.
+  // The missing key is taken here, through the host.
   const keyFor = usable.length === 0 && actions.setProviderKey ? models.find(model => model.needsKey) : undefined
   const manage = manageModels(actions)
   const pick = (ref) => {
@@ -253,9 +254,11 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
     error ? h('div', { className: 'bt-secret-error bt-model-error', role: 'alert' }, error) : null)
 }
 
+const DEEPSEEK_KEYS_URL = 'https://platform.deepseek.com/api_keys'
+
 // The provider's API key, saved through the host; once it is set, the provider's
-// models become the choices.
-function ModelKeyCard({ model, actions }) {
+// models become the choices. `onSaved` runs once the host took the key.
+export function ModelKeyCard({ model, actions, onSaved }) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -266,29 +269,33 @@ function ModelKeyCard({ model, actions }) {
     setBusy(true)
     setError('')
     void Promise.resolve(actions.setProviderKey(model.provider, value))
-      .then(() => setValue(''), failure => setError(hostText(failure?.message ?? String(failure))))
+      .then(() => { setValue(''); onSaved?.() }, failure => setError(hostText(failure?.message ?? String(failure))))
       .finally(() => setBusy(false))
   }
+  const official = model.provider === 'deepseek-official'
   return h('div', { className: 'bt-q bt-model-key', role: 'group', 'aria-label': label },
     h('div', { className: 'bt-model-key-title' }, h(KeyIcon), label),
     h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value, onChange: setValue, onEnter: save, label, autoFocus: true })),
+    official ? h('div', { className: 'bt-model-key-help' },
+      h('a', { className: 'bt-model-key-link', href: DEEPSEEK_KEYS_URL, target: '_blank', rel: 'noopener noreferrer' }, t('Create a key on the DeepSeek platform ↗')),
+      h('span', { className: 'bt-model-key-note' }, t('The API is billed by usage; the account needs a balance first.'))) : null,
     error ? h('div', { className: 'bt-secret-error', role: 'alert' }, error) : null,
     h('div', { className: 'bt-q-foot' },
       actions.openModels ? h('button', { type: 'button', className: 'bt-q-btn bt-model-key-other', onClick: actions.openModels }, t('Another provider')) : null,
       h('button', { type: 'button', className: 'bt-q-submit', disabled: !ready, onClick: save }, busy ? t('Saving…') : t('Save'))))
 }
 
-// Where the providers are set up: the window's own Models page, else DSH's settings.
-const manageModels = actions => actions.openModels ?? actions.openHarnessSettings
+// Where the providers are set up: DS Bot's Models page, else DSH's own.
+export const manageModels = actions => actions.openModels ?? actions.openHarnessModels ?? actions.openHarnessSettings
 
 // Ways to get a first model. The DeepSeek sign-in exists only where the shell carries
-// its account plugin (the Desktop); the API key and custom models use the shell's
-// own editors.
+// its account plugin; the API key uses the shell's own editor.
 function setupChoices(actions) {
+  const custom = manageModels(actions)
   return [
     actions.canSignIn?.() ? [t('Sign in to DeepSeek'), () => actions.signIn()] : null,
     actions.openHarnessOnboarding ? [t('Enter a DeepSeek API key'), () => actions.openHarnessOnboarding('deepseek-official')] : null,
-    actions.openHarnessSettings ? [t('Open settings to set up a custom model'), actions.openHarnessSettings] : null,
+    custom ? [t('Open settings to set up a custom model'), () => custom()] : null,
   ].filter(Boolean)
 }
 
@@ -335,7 +342,8 @@ export const MODEL_CSS = `
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 /* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
 .bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
-.bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:30px;max-width:min(560px,calc(100% - 30px));max-height:min(240px,36vh);max-height:min(240px,36dvh);overflow-y:auto;scrollbar-width:thin}
+/* The scroll box clips at its padding edge, so 3px of padding keeps the chips' focus rings visible; the negative margins cancel it so the chips stay in place. */
+.bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;box-sizing:border-box;padding:3px;margin:-3px 0 -3px 27px;max-width:min(566px,calc(100% - 27px));max-height:min(246px,calc(36vh + 6px));max-height:min(246px,calc(36dvh + 6px));overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-model-choice-chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -351,6 +359,10 @@ export const MODEL_CSS = `
 .bt-model-key-title{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink-2)}
 .bt-model-key-title svg{flex:none;width:16px;height:16px}
 .bt-model-key .bt-q-foot{margin-top:2px}
+.bt-model-key-help{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-model-key-link{align-self:flex-start;color:var(--bt-ink);text-decoration:underline;text-decoration-color:var(--bt-line-2);text-underline-offset:2px}
+.bt-model-key-link:hover{text-decoration-color:currentColor}
+.bt-model-key-link:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px;border-radius:4px}
 .bt-model-key-other{margin-right:auto}
 @keyframes bt-model-in{from{opacity:0;transform:translateY(6px)}}
 .bt-model-spin{flex:none;width:14px;height:14px;border-radius:50%;border:1.5px solid var(--bt-line-2);border-top-color:var(--bt-ink-2);animation:bt-model-spin .7s linear infinite}

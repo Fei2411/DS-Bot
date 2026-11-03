@@ -3,15 +3,16 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignOutIcon } from './icons.js'
-import { MAIN_LOOK } from './characters.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon } from './icons.js'
+import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
+import { springEasing, SPRING_POP, SPRING_SHAPE, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
+import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 
@@ -269,8 +270,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, style: { width: `${width}px` } },
+function LeftColumn({ mode, width, onGrip, leaving, children }) {
+  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -317,7 +318,10 @@ export function TeamSidebar(props) {
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
   const mode = drag?.left ?? layout.left
-  const wideContent = mode !== 'rail'
+  // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
+  const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
+  const shown = held ?? mode
+  const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
@@ -336,12 +340,13 @@ export function TeamSidebar(props) {
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, wideContent, order.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions)
+  useReportReady(roster.ready, roster)
 
   // Our column pushes the conversation over by what it takes beyond the shell's
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
   // as the rail and the chat stays put when it opens or closes.
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
-  const ourWidth = mode === 'rail' ? RAIL_WIDTH : openWidth
+  const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
@@ -554,7 +559,7 @@ export function TeamSidebar(props) {
   }, [])
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
-        h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
+        h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
@@ -584,7 +589,7 @@ export function TeamSidebar(props) {
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    mode === 'hidden' ? null : h(LeftColumn, { mode, width: ourWidth, onGrip: startDrag }, content))
+    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -682,7 +687,7 @@ function UpdateButton({ useUpdate, actions }) {
 // Account seat of the Settings trigger: the visible label stays for assistive tech only.
 export function YouAvatar() {
   return h('span', { className: 'bt-you-wrap' },
-    h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 })),
+    h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon)),
     h('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' } }, t('Settings')))
 }
 
@@ -715,6 +720,23 @@ export function openHarnessOnboarding(id) {
     if (openShellOnboarding) openShellOnboarding(id)
     else openHarnessSettings()
   })
+}
+
+// The launcher seat can only open DSH's settings on their first section. This onboarding
+// step of DS Bot's own, opened by id, hands the shell's openSection the Models page; the
+// first-run pass meets it last and it steps aside at once.
+export const MODELS_STEP = 'ds-bot-models'
+export const MODELS_STEP_ORDER = 1000
+
+export function OpenModelsStep({ explicit, complete, openSection }) {
+  useEffect(() => {
+    if (explicit) {
+      if (typeof openSection === 'function') openSection('models')
+      else openHarnessSettings()
+    }
+    complete()
+  }, [explicit])
+  return null
 }
 
 function openThroughMenu(trigger) {
@@ -798,6 +820,7 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
   const accountSource = ops.hooks?.account
   const account = useSyncExternalStore(accountSource?.subscribe ?? NO_SUBSCRIBE, accountSource ? () => accountSource.getSnapshot() : NO_SNAPSHOT)
   const signedIn = signIn !== null && typeof ops.signOut === 'function' && account?.view?.status === 'credential-stored'
+  const signedOut = signIn !== null && typeof actions.signIn === 'function' && account?.view?.status === 'signed-out'
   const accountT = actions.accountT?.() ?? (key => key)
   const [confirm, setConfirm] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -838,21 +861,25 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
     setSignOutError('')
     setBusy(false)
   }, [open])
+  // DS Bot's Models page where the host serves the providers, else DSH's own.
+  const openModels = actions.providers ? actions.openModels : actions.openHarnessModels
   const groups = [
     [
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
+      openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Bot settings'), GearIcon, () => actions.openSettings('general')],
-    ],
+    ].filter(Boolean),
     [
       [t('Switch to classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')],
     ],
   ]
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
+  else if (signedOut) groups.push([[t('Sign in to DeepSeek'), SignInIcon, () => actions.signIn()]])
   return h(Fragment, null,
     h('button', { ref: button, type: 'button', className: 'bt-account', 'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle },
-      h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 }))),
+      h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon))),
     open && box ? createPortal(h('div', { className: 'bt-menu bt-menu-up bt-account-menu', role: 'menu', 'aria-label': t('Account'), style: box },
       confirm !== null ? h('div', { className: 'bt-confirm', role: 'alertdialog', 'aria-label': accountT('signOut') },
         h('p', { className: 'bt-confirm-text' }, accountT(confirm === 'running' ? 'signOutRunningDescription' : confirm === 'unknown' ? 'signOutUnknownDescription' : 'signOutDescription')),
@@ -866,6 +893,92 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
             key: label, type: 'button', role: 'menuitem',
             onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
           }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
+}
+
+// The desktop app keeps its main window hidden until the team interface has drawn
+// the first state, and shows its failure page when that never comes. The report
+// says where the Main Bot's avatar is when it wears the start window's whale: the
+// start window hands that whale over at the top of its jump, and it glides onto
+// the avatar here.
+let readyReported = false
+function useReportReady(drawn, roster) {
+  useEffect(() => {
+    if (!drawn || readyReported) return
+    readyReported = true
+    void Promise.resolve().then(() => {
+      const app = globalThis.dsBotApp
+      if (typeof app?.ready !== 'function') return undefined
+      // The place is a nicety: whatever goes wrong measuring it, the report still goes.
+      let place
+      try { place = mainAvatarPlace(roster) } catch { place = undefined }
+      if (place === undefined) return app.ready()
+      const mainId = roster.mainBotId
+      app.onHandoff?.((from) => { try { glideOnto(mainMarkOf(mainId), from) } catch (error) { quietly('handoff')(error) } })
+      return app.ready(place)
+    }).catch(quietly('app ready'))
+  }, [drawn])
+}
+
+function mainMarkOf(id) {
+  if (typeof document === 'undefined') return null
+  const key = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id
+  return document.querySelector(`.bt-side [data-bot-id="${key}"] .bt-mark`)
+}
+
+// The Main Bot's avatar in the team column, in CSS px of the page, with the page's size.
+// Only the default look: a photo or another character would not match the start window's whale.
+function mainAvatarPlace(roster) {
+  const main = roster?.byId?.[roster.mainBotId]
+  if (main === undefined || main.avatar?.image || typeof document === 'undefined') return undefined
+  const look = lookOf(main)
+  if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return undefined
+  const mark = mainMarkOf(main.id)
+  // Not the opacity: the column fades in as it first draws, which is when this is measured.
+  if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return undefined
+  const box = mark.getBoundingClientRect()
+  const view = document.documentElement
+  return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
+}
+
+// The whale the start window hands over (app/src/start-window.mjs): `from` is where it is on
+// this page at the top of its jump. A copy of the avatar waits there for `hold` ms, while the two
+// windows cross-fade, then glides onto the avatar in one compositor animation, so the jump does
+// not stutter the way a window that resizes under it would. x and y ease differently, so the path
+// bows upward; the avatar itself is hidden until the copy is on it, then gives a small bounce.
+// Hidden by opacity, not visibility: the copy draws through the avatar's own masks (same ids),
+// which a hidden avatar would stop drawing.
+const GLIDE_MS = 460
+function glideOnto(mark, from) {
+  if (!mark || reducedMotion()) return
+  const box = mark.getBoundingClientRect()
+  if (!box.width) return
+  const outer = document.createElement('div')
+  const inner = document.createElement('div')
+  const copy = mark.cloneNode(true)
+  copy.removeAttribute('data-live')
+  Object.assign(outer.style, { position: 'fixed', left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`, zIndex: '2147483647', pointerEvents: 'none' })
+  Object.assign(inner.style, { width: '100%', height: '100%', transformOrigin: '0 0' })
+  Object.assign(copy.style, { width: '100%', height: '100%' })
+  copy.style.setProperty('--bt-ink-deepseek', getComputedStyle(mark).getPropertyValue('--bt-ink-deepseek'))
+  inner.append(copy)
+  outer.append(inner)
+  outer.setAttribute('aria-hidden', 'true')
+  document.body.append(outer)
+  mark.style.opacity = '0'
+  const timing = { delay: Math.max(0, Number(from.hold) || 0), duration: GLIDE_MS, fill: 'both' }
+  outer.animate([{ transform: `translateX(${from.x - box.left}px)` }, { transform: 'none' }], { ...timing, easing: 'cubic-bezier(.45,0,.25,1)' })
+  const glide = inner.animate([{ transform: `translateY(${from.y - box.top}px) scale(${from.size / box.width})` }, { transform: 'none' }], { ...timing, easing: 'cubic-bezier(.2,.65,.3,1)' })
+  let landed = false
+  const land = () => {
+    if (landed) return
+    landed = true
+    outer.remove()
+    mark.style.opacity = ''
+    mark.animate([{ transform: 'scale(1.08, .92)' }, { transform: 'none' }], { duration: SPRING_POP.duration, easing: SPRING_POP.easing })
+  }
+  glide.finished.then(land, land)
+  // A hidden page stops ticking animations: the avatar comes back regardless.
+  setTimeout(land, timing.delay + GLIDE_MS + 500)
 }
 
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way
@@ -914,8 +1027,11 @@ export function FooterAccount(props) {
 
 // The only entry registered in every mode: in Agent mode the whole Bot surface is
 // withdrawn, and this button in the shell's own footer is the way back.
-export function BotReturn({ wide, useSurface, actions }) {
+export function BotReturn({ wide, useSurface, useRoster, actions }) {
   const mode = useSurface(value => value.mode)
+  const ready = useRoster(value => value.ready)
+  // Agent mode draws no team sidebar; there this button is the team interface.
+  useReportReady(mode === 'agent' && ready)
   if (mode !== 'agent') return null
   return h('button', { type: 'button', className: 'bt-return', 'aria-label': t('DS Bot'), title: t('DS Bot'), onClick: () => actions.setSurface('bot') },
     h(BotMark, { look: MAIN_LOOK, size: 20 }),
@@ -1000,6 +1116,8 @@ export const SIDEBAR_CSS = `
 .bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
+/* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
+.bt-agent-sub-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-agent-sub-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-agent-sub-time{flex:none;font-size:11px;color:var(--bt-ink-3)}
 .bt-agent-new{color:var(--bt-ink-3)}
