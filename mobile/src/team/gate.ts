@@ -15,8 +15,8 @@ export async function ensureUnlock(endpoint: string): Promise<void> {
   if (!GATED.has(endpoint)) return
   const level = await LocalAuth.getEnrolledLevelAsync()
   if (level === LocalAuth.SecurityLevel.NONE) {
-    throw Object.assign(new Error('Set a screen lock on this phone to do this'), { code: 'unlock/unavailable' })
+    throw Object.assign(new Error(t('Set a screen lock on this phone to do this')), { code: 'unlock/unavailable' })
   }
   const result = await LocalAuth.authenticateAsync({ promptMessage: t('Unlock to continue'), cancelLabel: t('Cancel'), disableDeviceFallback: false })
-  if (!result.success) throw Object.assign(new Error('Canceled'), { code: 'unlock/canceled' })
+  if (!result.success) throw Object.assign(new Error(t('Canceled')), { code: 'unlock/canceled' })
 }

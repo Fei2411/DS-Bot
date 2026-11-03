@@ -203,6 +203,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Copy': '复制',
   'Select text': '选择文字',
   'Cancel': '取消',
+  'Canceled': '已取消',
   'Image': '图片',
   'View it on the computer': '在电脑上查看',
   'Open it on the computer': '在电脑上查看',
