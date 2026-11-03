@@ -36,10 +36,10 @@ dsh: disabling profile plugin row "bot": its declared peer dependencies cannot b
 
 1. 退出 DSH。
 2. 打开 profile 文件夹里的 `cordis.patch.yml`，找 `id: bot` 但没有 `name: ds-bot` 的一行，删掉这一行。改之前先备份这个文件。
-3. 确认同一文件夹的 `package.json` 在 `dependencies` 里有 `ds-bot`。没有的话，重新添加 DS Bot：`npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot`。
+3. 确认同一文件夹的 `package.json` 在 `dependencies` 里有 `ds-bot`。没有的话，重新添加 DS Bot：`npx @deepseek-ai/dsh@0.2.1-rc.5 plugin --profile web add ds-bot`。
 4. 重新启动 DSH。
 
-想知道这一行来自哪里，可以运行 `npx @deepseek-ai/dsh@0.2.1-rc.4 --profile web --dump-config`。它会列出每一行插件配置，以及提供它的文件。如果要报告这个问题，只复制 `id: bot` 的那几行和文件名，不要带上 key 或你不想公开的路径。
+想知道这一行来自哪里，可以运行 `npx @deepseek-ai/dsh@0.2.1-rc.5 --profile web --dump-config`。它会列出每一行插件配置，以及提供它的文件。如果要报告这个问题，只复制 `id: bot` 的那几行和文件名，不要带上 key 或你不想公开的路径。
 
 删掉整个 profile 文件夹也能解决，但会一并删掉这个 profile 的其他插件和设置（比如模型）。Bot 团队数据在 `~/.dsh/bot/`，两种做法都不会影响它。
 
@@ -73,6 +73,23 @@ Error: configured web provider "auto" is not registered
 
 3. 重新启动 DSH。
 
-想确认结果，可以运行 `npx @deepseek-ai/dsh@0.2.1-rc.4 --profile web --dump-config`，看 `web` 那一行。另外，有的插件会在 DSH 运行时设置搜索 provider，时间在 profile patch 之后。以后关掉这类插件时，也要再检查一下这个设置。
+想确认结果，可以运行 `npx @deepseek-ai/dsh@0.2.1-rc.5 --profile web --dump-config`，看 `web` 那一行。另外，有的插件会在 DSH 运行时设置搜索 provider，时间在 profile patch 之后。以后关掉这类插件时，也要再检查一下这个设置。
 
 另见插件 README 的 [Web search](../ds-bot/README.md#web-search) 一节和 issue [#128](https://github.com/Fei2411/DS-Bot/issues/128)。
+
+## Linux：加载 libghostty-vt.so 报「GLIBC_2.27 not found」
+
+**在哪里：** 在 glibc 低于 2.28 的 Linux 系统上（CentOS 7 自带 glibc 2.17），桌面 AppImage、deb 或本机装的 `dsh web` 启动即失败。动态加载器报告缺少某个 glibc 版本，例如：
+
+```text
+libghostty-vt.so: GLIBC_2.27 not found
+```
+
+**原因：** DeepSeek Harness 自带的原生库（包括 `libghostty-vt.so`）是按比 CentOS 7 更新的 glibc 符号编译的。DS Bot 是插件，没法重编 DSH 的库，所以没有适配 glibc 2.17 的版本可装。可以用 `ldd --version` 查看本机版本。
+
+**怎么处理：** 改用 Docker 镜像——容器里有自己的、更新的 glibc，宿主 glibc 不再起决定作用。见 [`docker/`](../docker/README.md)（英文）：构建或拉取镜像、发布端口，然后用局域网内任意浏览器打开 UI。注意这几点：
+
+- 容器自带 DSH 和配套原生库。别把宿主机的 `libghostty-vt.so` 复制或挂载进容器，混用会破坏它。
+- 需要能跑 Debian Bookworm 镜像的 Docker（或 Podman）。CentOS 7 自带的内核和 Docker 偏旧，如果 Docker 本身就跑不起来，换 Podman 或更新版 Docker。这个组合没有实机验证过——镜像本身是在现代宿主机上由 CI 测过的。
+- 数据存在挂载的数据目录（`/data`）里，不是你真实的 `~/.dsh`；容器不会去读写它。
+- 停止用 `docker compose down`（或 `docker stop`），会话能正常收尾。

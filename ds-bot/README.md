@@ -4,7 +4,7 @@ The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 > Early release (v0.1). Features, tools and the saved data format can still change.
 
-Tested with dsh `0.2.1-rc.4` (Web) and `0.2.0-rc.2` (Web and Desktop).
+Tested with dsh `0.2.1-rc.5` (Web) and `0.2.0-rc.2` (Web and Desktop).
 
 ## Features
 

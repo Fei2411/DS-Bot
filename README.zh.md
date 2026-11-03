@@ -6,11 +6,11 @@
 
 ![版本](https://img.shields.io/badge/版本-v0.2_预览-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
 
-**[Download DeepSeek Bot for Windows 10/11 (64-bit) / 下载 Windows 10/11（64 位）版](https://github.com/Fei2411/DS-Bot/releases/latest)**, about 212 MB / 约 212 MB. A community project, not an official DeepSeek product. / 社区开源项目，不是 DeepSeek 官方产品。
+**[Download DS Bot for Windows 10/11 (64-bit) / 下载 Windows 10/11（64 位）版](https://github.com/Fei2411/DS-Bot/releases/latest)**, about 212 MB / 约 212 MB. A community project, not an official DeepSeek product. / 社区开源项目，不是 DeepSeek 官方产品。
 
-On that page, download `DeepSeek-Bot-<version>-win-x64.exe`. Double-click it to install; DeepSeek Bot opens when it is done. No administrator rights, no Node or DSH needed. You need a DeepSeek account (you can sign up with a phone number on the spot) or a DeepSeek API key. DeepSeek bills by usage: see [its prices](https://api-docs.deepseek.com/quick_start/pricing). For macOS, Linux or the DSH plugin, see [Install](README.md#install).
+On that page, download `DS-Bot-<version>-win-x64.exe`. Double-click it to install; DS Bot opens when it is done. No administrator rights, no Node or DSH needed. You need a DeepSeek account (you can sign up with a phone number on the spot) or a DeepSeek API key. DeepSeek bills by usage: see [its prices](https://api-docs.deepseek.com/quick_start/pricing). For macOS, Linux or the DSH plugin, see [Install](README.md#install).
 
-在这个页面下载 `DeepSeek-Bot-<版本>-win-x64.exe`，双击就会安装，装好自动打开。不用管理员权限，不用另装 Node 或 DSH。需要一个 DeepSeek 账号（可以当场用手机号注册）或 DeepSeek API Key。DeepSeek 按用量收费，见[价格页](https://api-docs.deepseek.com/quick_start/pricing)。macOS、Linux 和 DSH 插件见[安装](README.zh.md#安装)。
+在这个页面下载 `DS-Bot-<版本>-win-x64.exe`，双击就会安装，装好自动打开。不用管理员权限，不用另装 Node 或 DSH。需要一个 DeepSeek 账号（可以当场用手机号注册）或 DeepSeek API Key。DeepSeek 按用量收费，见[价格页](https://api-docs.deepseek.com/quick_start/pricing)。macOS、Linux 和 DSH 插件见[安装](README.zh.md#安装)。
 
 <details>
 <summary><b>The browser or Windows warns you, or blocks the installer? / 浏览器或 Windows 提示、拦下了安装包？</b></summary>
@@ -21,7 +21,7 @@ The installer is not signed yet, so Windows does not know its publisher.
 - "Windows protected your PC": **More info** → **Run anyway**.
 - "Smart App Control blocked …", with no **Run anyway**: there is no safe way around this for an unsigned installer. Use [DSH Desktop with the DS Bot plugin](README.md#install) instead. Do not turn Smart App Control off.
 - An antivirus blocks it: check the file first. In Command Prompt, run `certutil -hashfile <file> SHA256` and compare the result with the file's line in `SHA256SUMS.txt` on the release page. If they match, choose to trust the file in the antivirus.
-- The installer says it could not uninstall the old version: close DeepSeek Bot and run the installer again. If your antivirus stopped the installer, check and trust it as above first.
+- The installer says it could not uninstall the old version: close DS Bot and run the installer again. If your antivirus stopped the installer, check and trust it as above first.
 
 Still stuck? [Report an install problem](https://github.com/Fei2411/DS-Bot/issues/new?template=install.yml).
 
@@ -31,12 +31,12 @@ Still stuck? [Report an install problem](https://github.com/Fei2411/DS-Bot/issue
 - 「Windows 已保护你的电脑」：「更多信息」→「仍要运行」。
 - 「智能应用控制已阻止…」，而且没有「仍要运行」：未签名的安装包没有安全的绕过办法，请改用 [DSH Desktop 加 DS Bot 插件](README.zh.md#安装)。不要关掉智能应用控制。
 - 杀毒软件拦截：先核对文件。在命令提示符里运行 `certutil -hashfile <文件> SHA256`，和 Release 页上 `SHA256SUMS.txt` 里这个文件的那一行比较，一致后再在杀毒软件里选「信任」。
-- 安装时提示卸载旧版失败：先关掉 DeepSeek Bot，再运行一次安装包。杀毒软件拦了安装包时，先按上面的方法核对，选「信任」。
+- 安装时提示卸载旧版失败：先关掉 DS Bot，再运行一次安装包。杀毒软件拦了安装包时，先按上面的方法核对，选「信任」。
 
 还是装不上？[报告安装问题](https://github.com/Fei2411/DS-Bot/issues/new?template=install.yml)。
 </details>
 
-**DeepSeek Bot**: the desktop app / 桌面应用 · **DS Bot**: the project and the plugin / 项目和插件 · **DeepSeek Harness (DSH)**: what they are built on / 它们的底层
+**DS Bot**: the desktop app, the project and the plugin / 桌面应用、项目和插件 · **DeepSeek Harness (DSH)**: what they are built on / 它们的底层
 
 DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 dsh）的 bot 插件，插件将 dsh 改造为 bot 形式。你可以与自己创建的 bot 交流、工作。
 
@@ -48,9 +48,9 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 桌面应用自带 dsh，不用先装 dsh。在 [Releases](https://github.com/Fei2411/DS-Bot/releases) 里下载：
 
-- Windows（x64）：`DeepSeek-Bot-<版本>-win-x64.exe`。运行它即可安装，只装给当前用户，不要管理员权限。如果提示“Windows 已保护你的电脑”，点 **更多信息** → **仍要运行**。其他提示和拦截，打开本页开头的 **浏览器或 Windows 提示、拦下了安装包？**。
-- macOS：Apple 芯片下载 `DeepSeek-Bot-<版本>-mac-arm64.zip`，Intel 下载 `DeepSeek-Bot-<版本>-mac-x64.zip`。Safari 会自动解压；把 **DeepSeek Bot** 拖进 **应用程序**，再打开。如果提示无法检查这个 App，打开 **系统设置** → **隐私与安全性**，点 **仍要打开**。
-- Linux（x64）：`DeepSeek-Bot-<版本>-linux-x86_64.AppImage` 通用于所有发行版——加上可执行权限后打开即可。它通过 FUSE 2 挂载，可能需要先安装（Ubuntu 24.04+ 用 `sudo apt install libfuse2t64`，Fedora 用 `sudo dnf install fuse-libs`，Arch 用 `sudo pacman -S fuse2`）。Ubuntu 24.04 及以后版本会限制 AppImage 需要的沙箱，AppImage 可能因此拒绝启动；Debian/Ubuntu 上的 `DeepSeek-Bot-<版本>-linux-amd64.deb` 没有这个问题，还会加菜单项。
+- Windows（x64）：`DS-Bot-<版本>-win-x64.exe`。运行它即可安装，只装给当前用户，不要管理员权限。如果提示“Windows 已保护你的电脑”，点 **更多信息** → **仍要运行**。其他提示和拦截，打开本页开头的 **浏览器或 Windows 提示、拦下了安装包？**。
+- macOS：Apple 芯片下载 `DS-Bot-<版本>-mac-arm64.zip`，Intel 下载 `DS-Bot-<版本>-mac-x64.zip`。Safari 会自动解压；把 **DS Bot** 拖进 **应用程序**，再打开。如果提示无法检查这个 App，打开 **系统设置** → **隐私与安全性**，点 **仍要打开**。
+- Linux（x64）：`DS-Bot-<版本>-linux-x86_64.AppImage` 通用于 glibc 2.28 及以上的所有发行版——加上可执行权限后打开即可。它通过 FUSE 2 挂载，可能需要先安装（Ubuntu 24.04+ 用 `sudo apt install libfuse2t64`，Fedora 用 `sudo dnf install fuse-libs`，Arch 用 `sudo pacman -S fuse2`）。Ubuntu 24.04 及以后版本会限制 AppImage 需要的沙箱，AppImage 可能因此拒绝启动；Debian/Ubuntu 上的 `DS-Bot-<版本>-linux-amd64.deb` 没有这个问题，还会加菜单项。CentOS 7 这类旧 glibc 系统上应用和 dsh Web 会因 `GLIBC_2.27 not found` 失败，改用 Docker 镜像（见下文和[已知问题](docs/known-issues.zh.md)）。
 
 第一次打开时，App 把数据和 Bot 的文件放在你的用户文件夹里，启动窗口上写着放在哪，点一下就能换；并可以从你的 dsh 复制 Bot 团队（只读取你的 dsh，不改它）。在 App 的设置里配好模型就能用。Windows 版和 Linux 的 AppImage 会自动更新；macOS 版和 Linux 的 deb 有新版本时会提示你下载。
 
@@ -76,11 +76,11 @@ DS Bot 0.2.1 及更早的版本在 DSH Desktop 0.2.1-rc.2 及以后的版本里�
 
 **dsh Web（Windows、macOS、Linux）**
 
-需要 Node.js `22.19` 以上和 pnpm。
+需要 Node.js `22.19` 以上和 pnpm。Linux 上它和桌面应用一样要求 glibc 2.28 及以上——dsh 自身会加载原生库，CentOS 7 这类旧 glibc 系统请走下面的 Docker 路线。
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-rc.4 web
+npx @deepseek-ai/dsh@0.2.1-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.1-rc.5 web
 ```
 
 **Docker（NAS、Linux 服务器）**
