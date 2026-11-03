@@ -25,8 +25,9 @@ runInNewContext(bundle.outputFiles[0].text, {
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },
+  queueMicrotask,
 })
-const { ChatRows, ThinkingRow } = module.exports
+const { ChatRows, ThinkingRow, syncGroupChains } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
@@ -103,4 +104,29 @@ test('a settled reasoning row shows the turn’s thinking time when known', () =
   assert.equal(time?.children.join(''), '· 12s')
   const untimed = ThinkingRow({ text: 'one\ntwo' })
   assert.equal(untimed.children[0].children.join(''), 'Thought it through')
+})
+
+test('consecutive group messages from the same Bot chain together, and cards or user rows break the chain', () => {
+  const node = (classes, botId, turn = {}) => ({
+    dataset: botId ? { botId } : {},
+    classList: { contains: name => classes.includes(name) },
+    closest: sel => (sel === '[data-chat-group-key]' ? turn : null),
+  })
+  const t1 = { dataset: {} }, t2 = { dataset: {} }, t3 = { dataset: {} }, t4 = { dataset: {} }
+  const m1 = node(['bt-group-msg'], 'a', t1)
+  const m2 = node(['bt-group-msg'], 'a', t2)
+  const card = node(['bt-q-inline'])
+  const m3 = node(['bt-group-msg'], 'a', t3)
+  const hostUser = node([], undefined)
+  const m4 = node(['bt-group-msg'], 'a', t4)
+  syncGroupChains({ querySelectorAll: () => [m1, m2, card, m3, hostUser, m4] })
+  assert.equal(m1.dataset.chainPrev, undefined)
+  assert.equal(m1.dataset.chainNext, '')
+  assert.equal(t1.dataset.btChainNext, '')
+  assert.equal(m2.dataset.chainPrev, '')
+  assert.equal(m2.dataset.chainNext, undefined)
+  assert.equal(t2.dataset.btChainPrev, '')
+  assert.equal(m3.dataset.chainPrev, undefined)
+  assert.equal(m3.dataset.chainNext, undefined)
+  assert.equal(m4.dataset.chainPrev, undefined)
 })

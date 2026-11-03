@@ -67,7 +67,7 @@ export function skillSystem() {
     '4. Not covered: no listed skill already says it. When a learned skill of this Bot covers the class, update that skill instead of making a new one. Also update a learned skill that the work showed to be wrong, outdated, or missing a step.',
     '',
     'Never put in a skill: one-off facts, task progress, file lists, dates, version, pull request or issue numbers, pasted errors or logs, facts about the user that are not about how to work (memory keeps those), or keys, passwords, and tokens.',
-    'Write rules that stand alone, not the story of this work: a reason says why the rule matters, never when or how it was broken ("the user corrected this before", "version 1.2 missed it"). Examples must be general, not the files, values, or fixes of this task.',
+    'Write rules that stand alone, not the story of this work: a reason says why the rule matters, never when or how it was broken ("the user corrected this before", "version 1.2 missed it"). Examples must be general: do not name the files, functions, values, or fixes that this work happened to touch, not even as an example, and write a placeholder such as `<file>:<line>` instead; name something only when the rule is about it, such as a check the user wants run.',
     '',
     'Form:',
     '- name: the class of task, lowercase letters, digits, and single hyphens, 32 characters at most, e.g. "release-checks", never "fix-login-bug".',
@@ -200,6 +200,33 @@ export function applyEdits(current, edits) {
     if (trailing) lines.pop()
   }
   return text
+}
+
+// The review's answer as a proposal. A single edit written as the answer itself, with
+// its operation as the action, is that edit; a replacement with no text removes; lines
+// one edit names that stand apart in the file, each once, are one edit each.
+export function agentsAnswer(reply, current) {
+  let answer = parseJson(reply)
+  if (['add', 'replace', 'remove'].includes(answer?.action)) {
+    const { action, ...edit } = answer
+    answer = { action: 'edit', edits: [{ op: action, ...edit }] }
+  }
+  if (!Array.isArray(answer?.edits)) return answer
+  const lines = lineBlock(current ?? '')
+  const apart = edit => {
+    if (edit?.op !== 'replace' && edit?.op !== 'remove') return [edit]
+    const old = lineBlock(textOf(edit.old))
+    const text = lineBlock(textOf(edit.text))
+    if (old.length < 2 || occurrences(lines, old).length > 0 || old.some(line => occurrences(lines, [line]).length !== 1)) return [edit]
+    if (edit.op === 'replace' && text.length !== old.length) return [edit]
+    return old.map((line, index) => ({ ...edit, old: line, ...(edit.op === 'replace' ? { text: text[index] } : {}) }))
+  }
+  const removes = edit => {
+    const { text, ...rest } = edit
+    return { ...rest, op: 'remove' }
+  }
+  const edits = answer.edits.map(edit => edit?.op === 'replace' && textOf(edit.text).trim() === '' ? removes(edit) : edit)
+  return { ...answer, edits: edits.flatMap(apart) }
 }
 
 export function agentsProblem(proposal, current) {
@@ -421,7 +448,7 @@ export function install(rt) {
     const language = writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.())
     const request = agentsRequest({ folder, current, lines, declined: data().declined, language })
     const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
-    const answer = parseJson(reply)
+    const answer = agentsAnswer(reply, current)
     if (answer === undefined || answer === null || typeof answer !== 'object') throw new Error('the answer is not a JSON object')
     if (Array.isArray(answer.edits) && answer.edits.some(edit => [edit?.text, edit?.why].some(value => typeof value === 'string' && rt.redactSecrets(value) !== value))) {
       rt.warn('ds-bot: the AGENTS.md review of %s proposed content containing a saved secret', bot.name)

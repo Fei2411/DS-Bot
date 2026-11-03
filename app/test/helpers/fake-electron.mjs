@@ -13,7 +13,7 @@ export const paths = {
   root,
   userData: join(root, 'userData'),
   downloads: join(root, 'downloads'),
-  exe: join(root, 'DeepSeek Bot.exe'),
+  exe: join(root, 'DS Bot.exe'),
   // The folder of the app itself: the Host's pnpm lives in it.
   appPath: join(root, 'app'),
 }
@@ -137,7 +137,7 @@ class FakeWebContents extends EventEmitter {
     this.isDestroyed = () => this.win.destroyed
     this.getURL = () => this.win.url
     this.isLoading = () => false
-    this.getTitle = () => 'DeepSeek Bot'
+    this.getTitle = () => 'DS Bot'
     this.sent = []
     this.send = (...args) => {
       this.sent.push(args)
@@ -154,12 +154,14 @@ class FakeWebContents extends EventEmitter {
 class FakeApp extends EventEmitter {
   constructor() {
     super()
-    this.name = 'DeepSeek Bot'
+    this.name = 'DS Bot'
     this.getVersion = () => '0.2.2'
     this.getLocale = () => 'en-US'
     this.getPath = (name) => paths[name] ?? join(root, String(name))
     this.getAppPath = () => paths.appPath
     this.setPath = (name, value) => { state.paths[name] = value }
+    this.setName = (name) => { this.name = name }
+    this.setAppUserModelId = (id) => { state.appId = id }
     // The app starts a tick later, so that a test has its say before the app begins.
     this.whenReady = () => new Promise((done) => { setImmediate(done) })
     this.requestSingleInstanceLock = () => true

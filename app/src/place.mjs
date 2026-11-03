@@ -9,7 +9,7 @@ import { real, within } from './copy-tree.mjs'
 export const DATA_DIR = 'data'
 export const WORKSPACE_DIR = 'workspace'
 // The layer the app adds inside a drive or a folder that is someone else's.
-export const LAYER = 'DeepSeek Bot'
+export const LAYER = 'DS Bot'
 
 /** Free bytes on the volume that holds `path`, measured at its nearest existing ancestor. */
 export function freeSpace(path) {
@@ -109,7 +109,7 @@ const ownEmpty = folder => readdirSync(folder).every(name => [DATA_DIR, WORKSPAC
 // only has OneDrive in its name (OneDrive-old) is not the cloud.
 function inOneDrive(path, env) {
   const roots = ['OneDrive', 'OneDriveConsumer', 'OneDriveCommercial'].map(name => env[name]).filter(value => typeof value === 'string' && value !== '')
-  if (roots.some(root => within(path, root))) return true
+  if (roots.some(root => within(path, real(root)))) return true
   const parts = path.split(/[\\/]/u)
   return parts.some((part, k) => part === 'OneDrive' || part.startsWith('OneDrive - ') || (parts[k - 1] === 'CloudStorage' && part.startsWith('OneDrive-')))
 }
@@ -118,7 +118,7 @@ const sameFolder = (a, b) => within(a, b) && within(b, a)
 
 /**
  * The root R that a picked folder gives (windows-onboarding §3, 一个位置): the folder itself
- * when it is new, empty, or an empty root of the app's own; otherwise `DeepSeek Bot` inside it,
+ * when it is new, empty, or an empty root of the app's own; otherwise `DS Bot` inside it,
  * as inside a drive. The data goes to R\data and the Bots' files to R\workspace.
  * @param {string} picked
  * @param {{ dshHome?: string, program?: string, env?: NodeJS.ProcessEnv, probe?: boolean, current?: { dataDir: string, workspace?: string } }} where

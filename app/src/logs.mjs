@@ -1,5 +1,5 @@
 // main.log: the main process's console output and the Host's, in the app's own userData
-// (%APPDATA%\DeepSeek Bot\logs on Windows), redacted before it is written and kept to three
+// (%APPDATA%\DS Bot\logs on Windows), redacted before it is written and kept to three
 // files of 2 MB (docs/plans/2026-10-26-windows-onboarding.md §3).
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'

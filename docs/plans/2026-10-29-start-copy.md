@@ -6,7 +6,7 @@
 
 ## 为什么
 
-启动页的字是在两份设计稿里一句一句定下来的，代码里却散在三张表里：页面的 `text.mjs`（118 个键），主进程的 `first-run.mjs`（30 个）和 `updates.mjs`（11 个），后两张用函数拼句子，没有测试盯着。键名按来历起，不按它在页面上是哪一行字：鲸鱼那一行既有 `voice.*` 也有 `title.*`，提示行里有一个 `slow.45.later`，按钮一半是光杆键（`retry`）一半挂在卡片下（`card.recommend.use`），卡片正文散在 `card.*`、`import.*`、`newer.*`、`update.*` 和光杆键里。于是同一句话写了两遍（「换个位置…」「DeepSeek Bot 没有权限在 … 里写文件。」），同一个意思有两三种写法（「不复制 / 先不复制」「不带团队开始 / 先不带团队开始」），标点看情况（鲸鱼的话里只有「团队界面没有加载出来。」带句号，提示行里只有「比平时慢，请再等一会儿。」带句号），用词也走了样（「聊天记录」对「对话」，「群」对「群聊」，英文里 chats 和 conversations 混用）。审一遍 2026-10-29 的表，没有一个键是死的，问题全在结构上。
+启动页的字是在两份设计稿里一句一句定下来的，代码里却散在三张表里：页面的 `text.mjs`（118 个键），主进程的 `first-run.mjs`（30 个）和 `updates.mjs`（11 个），后两张用函数拼句子，没有测试盯着。键名按来历起，不按它在页面上是哪一行字：鲸鱼那一行既有 `voice.*` 也有 `title.*`，提示行里有一个 `slow.45.later`，按钮一半是光杆键（`retry`）一半挂在卡片下（`card.recommend.use`），卡片正文散在 `card.*`、`import.*`、`newer.*`、`update.*` 和光杆键里。于是同一句话写了两遍（「换个位置…」「DS Bot 没有权限在 … 里写文件。」），同一个意思有两三种写法（「不复制 / 先不复制」「不带团队开始 / 先不带团队开始」），标点看情况（鲸鱼的话里只有「团队界面没有加载出来。」带句号，提示行里只有「比平时慢，请再等一会儿。」带句号），用词也走了样（「聊天记录」对「对话」，「群」对「群聊」，英文里 chats 和 conversations 混用）。审一遍 2026-10-29 的表，没有一个键是死的，问题全在结构上。
 
 这份稿只做一件事：**按字在页面上的位置分层，每一层一条写法规则，一个键一句话，一张表，一组测试。** 已定的句子一个字都不改，除非它违反自己那一层的规则；改了的逐条记在「改动的已定设计」里。
 
@@ -18,7 +18,7 @@
 - 中文是源，英文逐键对照；两边键集相同、占位符相同（已有的测试）。
 - 占位符 `{name}`；路径、大小、名字、版本都从快照或参数填，表里不写。英文的单复数写在占位符里：`{bots|Bot|Bots}` 填成「1 Bot」「6 Bots」（`t()` 按值是不是 1 选）。中文不用。
 - 查字只有一个函数 `t(lang, key, vars)`。语言由 `langOf(locale)` 定（`zh*` → `zh`，其余 `en`），页面从快照拿，主进程用 `app.getLocale()`。
-- 产品名不是文案：对话框标题 `DeepSeek Bot`、`DSH Desktop`、`DSH Web` 是常量，不进表、不翻译。
+- 产品名不是文案：对话框标题 `DS Bot`、`DSH Desktop`、`DSH Web` 是常量，不进表、不翻译。
 - 表以外不再有用户看得到的中文或英文；主进程里给 Bot 或开发者看的英文错误串（浏览器、cookie 导入、IPC 拒绝）不算文案，不进表。
 
 ### 2. 层：键的第一段
@@ -78,7 +78,7 @@
 | 新 | 中文 | 来自 |
 |---|---|---|
 | `reason.place.space` | {drive} 盘只剩 {free}。 | `card.reason.space` |
-| `reason.place.permission` | DeepSeek Bot 没有权限在 {path} 里写文件。 | `card.reason.permission` 和 `card.rejected.permission` 合一 |
+| `reason.place.permission` | DS Bot 没有权限在 {path} 里写文件。 | `card.reason.permission` 和 `card.rejected.permission` 合一 |
 | `reason.place.onedrive` | {path} 在 OneDrive 里，同步会打断正在写入的对话。 | `card.rejected.onedrive`（聊天记录 → 对话） |
 | `reason.place.foreign / dsh / program / nested` | 照旧 | `card.rejected.*` |
 | `reason.place.drive / workspace` | {path} 是整块磁盘，要选它里面的一个文件夹。／{path} 和总工作区互相包含。 | 新（2026-10-31）：以后的启动搬数据时的「这里放不了」，意思同 `dialog.move.drive / workspace` |
@@ -116,19 +116,19 @@
 
 | 新 | 中文 |
 |---|---|
-| `dialog.pickRoot` | 选择 DeepSeek Bot 放数据的位置 |
-| `dialog.pickMove` | 选择 DeepSeek Bot 数据的新文件夹 |
+| `dialog.pickRoot` | 选择 DS Bot 放数据的位置 |
+| `dialog.pickMove` | 选择 DS Bot 数据的新文件夹 |
 | `dialog.move.inDsh` | 请选择 DeepSeek Harness 数据（{home}）以外的文件夹。 |
 | `dialog.move.inProgram / drive / nested / workspace / notEmpty` | 照旧 |
-| `dialog.move.confirm`、`dialog.move.detail` | 把 DeepSeek Bot 的数据移到 {to} 吗？ / DeepSeek Bot 会把数据复制过去，然后重新启动。{from} 会原样保留，确认一切正常后可以自己删掉。 |
+| `dialog.move.confirm`、`dialog.move.detail` | 把 DS Bot 的数据移到 {to} 吗？ / DS Bot 会把数据复制过去，然后重新启动。{from} 会原样保留，确认一切正常后可以自己删掉。 |
 | `dialog.move.inUse`、`dialog.move.failed` | 照旧（`{message}`） |
-| `dialog.import.found` | DeepSeek Harness 里有 {bots} 个 Bot 和 {groups} 个群聊。要复制到 DeepSeek Bot 吗？（原来 0 个群聊时不写群；现在和导入卡一样总写） |
+| `dialog.import.found` | DeepSeek Harness 里有 {bots} 个 Bot 和 {groups} 个群聊。要复制到 DS Bot 吗？（原来 0 个群聊时不写群；现在和导入卡一样总写） |
 | `dialog.import.foundDetail` | 会复制 Bot、群聊、记忆、对话、附件、模型设置和 API Key。{home} 里的内容不会改变，复制以后两边各用各的。（群 → 群聊，密钥 → API Key，文件 → 附件，和 `card.import.scope` 一致） |
 | `dialog.import.inUse` | DeepSeek Harness 正在使用这个团队。请先关掉它，再重试。 |
-| `dialog.import.newer` | 有 {n} 段对话是更新版本的 DeepSeek Harness 写的，这个版本的 DeepSeek Bot 读不了。请先更新 DeepSeek Bot，再打开它来复制团队。 |
-| `dialog.import.whichModels` | DeepSeek Bot 用哪一份模型设置？ |
-| `dialog.import.failed` | 团队没有复制完：{message}\n\nDeepSeek Bot 会用一个新团队开始。DeepSeek Harness 里的团队没有变化。（没有复制成功 → 没有复制完，和 `card.importFailed.lead` 一致） |
-| `dialog.update.ready`、`dialog.update.readyDetail` | DeepSeek Bot {version} 已经下载好。 / 现在重启就能更新；不重启的话，下次退出时安装。（英文改成 has finished downloading，原来说的是 ready to install） |
+| `dialog.import.newer` | 有 {n} 段对话是更新版本的 DeepSeek Harness 写的，这个版本的 DS Bot 读不了。请先更新 DS Bot，再打开它来复制团队。 |
+| `dialog.import.whichModels` | DS Bot 用哪一份模型设置？ |
+| `dialog.import.failed` | 团队没有复制完：{message}\n\nDS Bot 会用一个新团队开始。DeepSeek Harness 里的团队没有变化。（没有复制成功 → 没有复制完，和 `card.importFailed.lead` 一致） |
+| `dialog.update.ready`、`dialog.update.readyDetail` | DS Bot {version} 已经下载好。 / 现在重启就能更新；不重启的话，下次退出时安装。（英文改成 has finished downloading，原来说的是 ready to install） |
 | `dialog.update.available`、`dialog.update.availableDetail` | 照旧 |
 | `dialog.update.onFailure`、`dialog.update.onFailurePage` | 照旧 |
 
@@ -158,13 +158,13 @@
 
 | 原来 | 现在 | 原因 |
 |---|---|---|
-| 启动窗口稿第 7 节、上手流程第 3 节：鲸鱼的话「团队界面没有加载出来。」 | 「团队界面没有加载出来」 | 鲸鱼那一行不加句号，和「DeepSeek Bot 没能启动」一致 |
+| 启动窗口稿第 7 节、上手流程第 3 节：鲸鱼的话「团队界面没有加载出来。」 | 「团队界面没有加载出来」 | 鲸鱼那一行不加句号，和「DS Bot 没能启动」一致 |
 | 启动窗口稿第 5 节、上手流程第 8 节：45 秒「比平时慢，请再等一会儿。」 | 「比平时慢，请再等一会儿」 | 提示行不加句号 |
-| 启动窗口稿第 6 节、上手流程第 3 节：「会放在 `D:\DeepSeek Bot`」〔继续〕〔重新选〕 | 「会放在 `D:\DeepSeek Bot`。」〔继续〕〔重新选…〕 | 卡片正文以句号结尾；打开选择框的按钮以 … 结尾（被拒绝的卡上的〔重新选…〕一样） |
+| 启动窗口稿第 6 节、上手流程第 3 节：「会放在 `D:\DS Bot`」〔继续〕〔重新选〕 | 「会放在 `D:\DS Bot`。」〔继续〕〔重新选…〕 | 卡片正文以句号结尾；打开选择框的按钮以 … 结尾（被拒绝的卡上的〔重新选…〕一样） |
 | 启动窗口稿第 6 节：「…在 OneDrive 里，同步会打断正在写入的聊天记录。」 | 「…正在写入的对话。」 | 一个东西一个名字 |
 | 上手流程第 4 节：更新版本那张卡的脚注「可以在 设置 → 通用 → 位置 里再复制。」 | 「以后可以在 设置 → 通用 → 位置 里复制。」 | 和「以后可以在 … 里改。」同一个句式 |
 | `first-run.mjs`：导入对话框〔复制〕〔不复制〕〔不带团队开始〕 | 〔复制过来〕〔先不复制〕〔先不带团队开始〕 | 和导入卡同一种写法；对话框只到导入卡落地（M5）为止 |
-| `first-run.mjs`：「DeepSeek Harness 里有一个 Bot 团队：6 个 Bot、2 个群。」「会复制 Bot、群、记忆、对话、文件、密钥和模型设置。」 | 「DeepSeek Harness 里有 6 个 Bot 和 2 个群聊。要复制到 DeepSeek Bot 吗？」「会复制 Bot、群聊、记忆、对话、附件、模型设置和 API Key。…」 | 群聊、附件、API Key 是定下的名字 |
+| `first-run.mjs`：「DeepSeek Harness 里有一个 Bot 团队：6 个 Bot、2 个群。」「会复制 Bot、群、记忆、对话、文件、密钥和模型设置。」 | 「DeepSeek Harness 里有 6 个 Bot 和 2 个群聊。要复制到 DS Bot 吗？」「会复制 Bot、群聊、记忆、对话、附件、模型设置和 API Key。…」 | 群聊、附件、API Key 是定下的名字 |
 | 桌面应用稿 安装和更新、`updates.mjs`：更新框的〔稍后〕 | 〔先不重启〕〔先不下载〕 | 稍后是过程词，UI 标准第 11 节 |
 | `main.mjs`：搬数据被拒绝的框只有英文的〔OK〕 | 〔确定〕/〔OK〕按语言 | 表以外不再有用户看得到的字 |
 | 本文第 3 节：`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready` 不动，`title.later` → `voice.opening`；`hint.model / preview / reinstall` 不动；`elapsed` → `status.elapsed`；第 2 节「「待会儿要接一个模型」……留着」 | 这 14 个键都没有了（`voice` 十个、`hint` 三个、`status` 一个），那句说明也去掉 | 启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md)「改动的已定设计」里 2026-10-30 的几行）：顺利时不说话，不显示已用秒数，不提前说进门以后的事。维护者 2026-10-30 转来的讨论：「现在这版有点噪了」「其实我觉得可能就放一个鲸鱼就够，然后可以做交互动画，文字什么的不太需要」 |
@@ -176,7 +176,7 @@
 
 - 不改任何一句的意思；上面没列的句子一个字不动。
 - 不把插件里（团队界面、设置、Main Bot 聊天里的卡）的文案搬进这张表：那些在 `i18n.js`，源语言是英文（UI 标准第 11 节）。上手流程第 4、8 节里属于设置和聊天的句子不在这里。
-- 不给启动页加新的句子。上手流程第 3 节定了〔重新找到它…〕选到没有数据的文件夹时写「这里没有 DeepSeek Bot 的数据。」，`.deepseek-bot` 标记还没落地，这句等那一步一起加（`card.missing.noData`）。
+- 不给启动页加新的句子。上手流程第 3 节定了〔重新找到它…〕选到没有数据的文件夹时写「这里没有 DS Bot 的数据。」，`.ds-bot` 标记还没落地，这句等那一步一起加（`card.missing.noData`）。
 - 不改 `dialog.move.detail` 说的「{from} 会原样保留」：它说的是今天代码的行为；上手流程第 8 节「搬是搬，旧位置不留副本」落地时一起改。
 - 不改 `dialog.update.availableDetail` 里「应用程序」文件夹的说法（macOS 的话也给了 Linux deb）：属于更新流程，另记。
 

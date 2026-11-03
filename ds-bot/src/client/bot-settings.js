@@ -265,7 +265,7 @@ export const BOT_SETTINGS_CSS = `
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-bs-sub{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-bs .bt-avedit{left:0;transform:none}
+.bt-bs .bt-avedit{left:0;transform:none;width:min(284px,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
@@ -275,7 +275,6 @@ label.bt-bs-row{cursor:text}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
-.bt-bs-input.bt-bs-num{flex:0 0 72px;min-width:0}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
 .bt-bs-area{flex:none;width:auto;min-height:112px;height:auto;margin:0 -6px -4px;padding:8px;line-height:19px;text-align:left;resize:vertical;background:var(--bt-hover)}
 .bt-bs-area:hover{background:var(--bt-active)}
