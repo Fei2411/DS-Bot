@@ -139,6 +139,8 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}
+/* Inset: the .bt-list scroll box clips anything drawn outside the row. */
+.bt-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-row[aria-current=page] .bt-row-name{font-weight:500}
 .bt-row-body{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
 .bt-row-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:400}
@@ -560,6 +562,8 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-set-hint{font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3))}
 .bt-set-control{flex:none;display:flex;align-items:center;gap:6px}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
+/* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
+.bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
@@ -665,7 +669,9 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-msg-line{position:relative;display:flex;align-items:flex-end;gap:8px;max-width:100%}
 .bt-msg-line>.bt-bubble{max-width:none;min-width:0}
 /* The same bubble width as beside an avatar column: the share of (100% - 30px), plus the 30px. */
-.bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 52px))}
+.bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 82px))}
+/* The indent of earlier rows comes out of their line, so their toolbar keeps its 82px too. */
+.bt-astack[data-lead]>.bt-msg:not(:last-child)>.bt-msg-line{max-width:calc(100% - 30px)}
 .bt-tools{position:absolute;bottom:0;z-index:0;left:100%;margin-left:6px;display:flex;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 /* The hover bridge spans only the 6px gap (plus a little overlap) between the
    bubble's edge and the toolbar: wider, it sits over the bubble's tail and
@@ -940,6 +946,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-settings-scroll{overflow-x:clip}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-model .bt-set-control{max-width:none}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
