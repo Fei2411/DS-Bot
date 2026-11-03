@@ -1,6 +1,7 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
-import { mkdir } from 'node:fs/promises'
+import { appendFile, mkdir } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
@@ -468,6 +469,19 @@ export function install(rt) {
     }
   }
 
+  // Membership changes are recorded twice: the room log is what the group shows, this
+  // append-only file is what answers "who changed the members, and when" after a rename,
+  // a deleted Bot or a restart. A failure to write the line is warned and never fails the
+  // change itself — the change has already been made by then, so a throw would only teach
+  // callers to retry it.
+  const auditPath = join(rt.home, 'audit', 'room-changes.jsonl')
+  const auditRoomChange = (record) => {
+    const line = JSON.stringify({ at: new Date().toISOString(), ...record })
+    return mkdir(dirname(auditPath), { recursive: true })
+      .then(() => appendFile(auditPath, `${line}\n`, 'utf8'))
+      .catch(error => rt.warn('ds-bot: writing the room-change audit line failed: %s', error))
+  }
+
   function checkMembers(members) {
     if (members.length < 2) throw new Error('A group chat needs at least two Bots')
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
@@ -480,7 +494,12 @@ export function install(rt) {
 
   async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
-    checkMembers(members)
+    try {
+      checkMembers(members)
+    } catch (error) {
+      void auditRoomChange({ action: 'create-rejected', roomId: null, roomName: roomName ?? null, actor: createdBy ?? null, added: members, removed: [], reason: String(error.message ?? error) })
+      throw error
+    }
     const custom = cleanRoomName(roomName ?? '')
     const adminId = admin !== undefined ? admin : defaultAdmin(members, createdBy)
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
@@ -575,7 +594,24 @@ export function install(rt) {
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
-    const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
+    let planned
+    try {
+      planned = planRoomChange(room, patch, actorId)
+    } catch (error) {
+      // The change was refused (the 12-Bot limit, a permission, a taken name): record the
+      // attempt with who asked, so a membership that keeps being refused is visible too.
+      void auditRoomChange({
+        action: 'change-rejected',
+        roomId: room.id,
+        roomName: room.name,
+        actor: actorId ?? null,
+        added: Array.isArray(patch.add) ? patch.add : [],
+        removed: Array.isArray(patch.remove) ? patch.remove : [],
+        reason: String(error.message ?? error),
+      })
+      throw error
+    }
+    const { members, admin, name, notice, permission } = planned
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
@@ -631,6 +667,20 @@ export function install(rt) {
       await retitleRoom(room)
     }
     await rt.save()
+    // Only a change to who is in the group needs the audit line: a loud rename or notice
+    // edit already shows in the room log, while a swap of members leaves no sender behind.
+    if (added.length > 0 || removed.length > 0) {
+      await auditRoomChange({
+        action: 'members-changed',
+        roomId: room.id,
+        roomName: room.name,
+        actor: actorId ?? null,
+        byMain: actorId === undefined || rt.isMain(actorId),
+        byAdmin: actorId !== undefined && rt.isAdminOf(room, actorId),
+        added,
+        removed,
+      })
+    }
     return { room, changes }
   }
 

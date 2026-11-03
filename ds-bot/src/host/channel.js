@@ -31,6 +31,16 @@ export function install(rt) {
 
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
+  // The channel may name the Bot that asks. `undefined` still means the user, which only
+  // the host's own UI is allowed to be; a named actor must be a Bot of this team, because
+  // an unknown id was silently read as the user and so skipped every permission check in
+  // planRoomChange. A named member is never invented here: no id, no actor.
+  const actorOf = (body) => {
+    if (body.actorId === undefined || body.actorId === null || body.actorId === '') return undefined
+    const id = String(body.actorId)
+    if (state.bots[id] === undefined) throw Object.assign(new Error('Unknown Bot: the request names no member of this team'), { code: 'bot/refused' })
+    return id
+  }
   // Models come from DSH, not state.json, so a provider added in Harness settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
@@ -305,12 +315,19 @@ export function install(rt) {
           return ok(view())
         case 'create-room': {
           await rt.load()
-          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
+          const actorId = actorOf(body)
+          const room = await rt.createRoom({
+            members: Array.isArray(body.members) ? body.members : [],
+            name: body.name,
+            ...(typeof body.admin === 'string' ? { admin: body.admin } : {}),
+            ...(actorId === undefined ? {} : { createdBy: actorId }),
+          })
           if (body.greet === true) await rt.greetRoom(room.id).catch(error => rt.warn('ds-bot: greeting in %s failed: %s', room.name, error))
           return ok(room)
         }
         case 'update-room': {
           await rt.load()
+          const actorId = actorOf(body)
           const { room, changes } = await rt.updateRoom(body.id, {
             name: body.name,
             notice: body.notice,
@@ -321,7 +338,7 @@ export function install(rt) {
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
             permission: body.permission,
-          })
+          }, actorId)
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
         }
         case 'folders':

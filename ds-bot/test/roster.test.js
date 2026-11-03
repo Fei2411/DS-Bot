@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
@@ -1379,4 +1379,68 @@ test('a model-less create-bot starts the Bot on the saved team default model', a
   await call('set-prefs', { defaultBotModel: null })
   const plain = (await call('create-bot', { name: 'Plain' })).value
   assert.equal(plain.model, 'deepseek/deepseek-v4-flash')
+})
+
+// What changed in a group's members is written to an append-only audit file as well: the
+// room log keeps what a group says, so a swap of members left no sender behind. Read back
+// as JSON lines, one per change.
+const auditLines = home => {
+  const path = join(home, 'audit', 'room-changes.jsonl')
+  if (!existsSync(path)) return []
+  return readFileSync(path, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
+}
+
+test('a change to who is in the group is written to the audit file, with who asked', async (t) => {
+  const { call, stop, home } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const reader = (await call('create-bot', { name: 'Reader' })).value
+  const room = (await call('create-room', { members: [chief, writer.id] })).value
+  assert.deepEqual(auditLines(home), [])
+
+  const changed = await call('update-room', { id: room.id, add: [reader.id] })
+  assert.equal(changed.ok, true)
+  const lines = auditLines(home)
+  assert.equal(lines.length, 1)
+  const [line] = lines
+  assert.equal(line.action, 'members-changed')
+  assert.equal(line.roomId, room.id)
+  // No actor is the user: the change came from the host's own UI, not from a Bot.
+  assert.equal(line.actor, null)
+  assert.equal(line.byMain, true)
+  assert.deepEqual(line.added, [reader.id])
+  assert.deepEqual(line.removed, [])
+  assert.equal(typeof line.at, 'string')
+})
+
+test('a membership change that is refused is audited too, with the reason', async (t) => {
+  const { call, stop, home } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const room = (await call('create-room', { members: [chief, writer.id] })).value
+
+  // Removing the last partner would leave a group of one Bot, which checkMembers refuses.
+  const refused = await call('update-room', { id: room.id, remove: [writer.id] })
+  assert.equal(refused.ok, false)
+  const lines = auditLines(home)
+  assert.equal(lines.length, 1)
+  assert.equal(lines[0].action, 'change-rejected')
+  assert.equal(lines[0].roomId, room.id)
+  assert.match(lines[0].reason, /at least two Bots/)
+})
+
+test('the channel refuses a change that names a Bot this team does not have', async (t) => {
+  const { call, stop, home } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const room = (await call('create-room', { members: [chief, writer.id] })).value
+
+  // An unknown id used to be read as the user, so it skipped every permission check.
+  const refused = await call('update-room', { id: room.id, remove: [writer.id], actorId: 'no-such-bot' })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'bot/refused')
+  assert.deepEqual(auditLines(home), [])
 })
