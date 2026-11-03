@@ -4,6 +4,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-03
+
 ### Added
 
 - A group's admin can set a goal with you, split it into checked stages for its members and run it to the end; the header shows the current stage and who is working on it, and you can pause, resume, stop or clear the goal. ([#791](https://github.com/Fei2411/DS-Bot/issues/791), [#795](https://github.com/Fei2411/DS-Bot/pull/795))
