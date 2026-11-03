@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
+import { ensureUnlock } from './gate.ts'
 import type { ChatItem } from '../screens/chat/items.tsx'
 
 // Demo mode (EXPO_PUBLIC_DSB_DEMO=1): no computer, no link. The fixture answers
@@ -18,6 +19,7 @@ const DEMO_IMG_2 = 'iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAA+VemSAAAACXBIWXMAAAsT
 
 const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Promise<unknown> => {
     const body = payload as Record<string, unknown>
+    await ensureUnlock(endpoint)
     const state = stateRef.current
     const bots = state.bots ?? []
     const sessionOf = (id: string) => bots.find(bot => bot.id === id)?.sessionId ?? id

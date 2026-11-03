@@ -156,7 +156,7 @@ function EffortRow({ bot, model, onSaved }: { bot: Bot; model?: { key?: string; 
   const [open, setOpen] = useState(false)
   const [list, setList] = useState<{ efforts: { id: string; name: string }[]; defaultEffort?: string } | null>(null)
   const ref = model?.ref ?? model?.key ?? bot.model
-  const load = () => { setOpen(true); if (ref !== undefined) void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => setList(null)) }
+  const load = () => { if (ref === undefined) return; setOpen(true); void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => setList(null)) }
   if (list === null && !open) {
     // cheap probe: show the row whenever the bot has a model; hide only after efforts come back empty
     if (bot.model !== undefined) void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => {})

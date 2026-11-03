@@ -1,6 +1,7 @@
 // Endpoints that can hand out or change secrets/capabilities need a device
 // unlock, every time. Cancel means the call was never sent.
 import * as LocalAuth from 'expo-local-authentication'
+import { t } from '../ui/i18n.ts'
 
 export const GATED = new Set([
   'provider-key', 'provider-add', 'provider-remove',
@@ -16,6 +17,6 @@ export async function ensureUnlock(endpoint: string): Promise<void> {
   if (level === LocalAuth.SecurityLevel.NONE) {
     throw Object.assign(new Error('Set a screen lock on this phone to do this'), { code: 'unlock/unavailable' })
   }
-  const result = await LocalAuth.authenticateAsync({ promptMessage: 'Unlock to continue', cancelLabel: 'Cancel', disableDeviceFallback: false })
+  const result = await LocalAuth.authenticateAsync({ promptMessage: t('Unlock to continue'), cancelLabel: t('Cancel'), disableDeviceFallback: false })
   if (!result.success) throw Object.assign(new Error('Canceled'), { code: 'unlock/canceled' })
 }
