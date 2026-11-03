@@ -65,6 +65,9 @@ export const handOff = async () => {
   win.webContents.mainFrame.url = win.url
   state.ipc.get('ds-bot:ready')({ sender: win.webContents, senderFrame: win.webContents.mainFrame })
   await waitFor(() => win.visible === true, 'show the team window')
+  // It shows see-through under the start window from ready() on (start-window §8): the hand-off
+  // is over once the start window is gone.
+  await waitFor(() => startWindows().every(start => start.destroyed), 'hand over to the team window')
 }
 
 /** The entries of the tray's menu: Open, a line, Quit. */

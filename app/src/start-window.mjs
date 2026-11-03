@@ -878,6 +878,8 @@ export class StartWindow {
   // window fades out over it. With a whale handed over, the team page holds it where the start
   // page's whale is through this fade, so the two stay on each other.
   #crossfade(main, win, how) {
+    // A team window hidden while it waited (closed to the tray) comes back for the fade.
+    if (!main.isVisible()) main.showInactive()
     main.setSkipTaskbar(false)
     win.setSkipTaskbar(true)
     note(`cross-fade at ready + ${String(Date.now() - this.#readyAt)} ms`)
