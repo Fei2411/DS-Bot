@@ -62,7 +62,7 @@ function modelProfiles(from) {
       patch = parse(readFileSync(file, 'utf8'))
     } catch (error) {
       // An unreadable profile has no model settings to copy; the team is still there.
-      console.warn(`DeepSeek Bot: skipped the model settings in ${file}: ${error instanceof Error ? error.message : String(error)}`)
+      console.warn(`DS Bot: skipped the model settings in ${file}: ${error instanceof Error ? error.message : String(error)}`)
       return []
     }
     const rows = Array.isArray(patch) ? patch.filter(row => MODEL_ROWS.includes(row?.id)) : []
@@ -120,6 +120,16 @@ async function copySessionDirs(from, to, sessions, signal) {
   }
 }
 
+async function moveSessionDirs(stage, to, sessions, signal) {
+  for (const { id, group } of sessions) {
+    signal?.throwIfAborted()
+    await mkdir(join(to, 'sessions', group), { recursive: true })
+    // A copy that stopped can have moved the Session in already.
+    await rm(join(to, 'sessions', group, id), { recursive: true, force: true })
+    await rename(join(stage, 'sessions', group, id), join(to, 'sessions', group, id))
+  }
+}
+
 /**
  * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort stops it between Sessions.
  * @param {string} from @param {any} team @param {string} to @param {AbortSignal} [signal]
@@ -132,12 +142,44 @@ export async function copySessions(from, team, to, signal) {
 }
 
 const logVersion = name => parseSessionFormatLogFilename(name.replace(/\.(zstd|zst|gz|br)$/u, ''))
+const isNewer = (from, { id, group }) => readdirSync(join(from, 'sessions', group, id))
+  .some(name => (logVersion(name) ?? 0) > sessionFormatCatalog.currentVersion)
 
 /** The Sessions whose log is in a newer format than the pinned DSH reads. */
 export function newerSessions(from, team) {
   const { found } = sessionDirs(from, sessionIdsOf(team))
-  return found.filter(({ id, group }) => readdirSync(join(from, 'sessions', group, id))
-    .some(name => (logVersion(name) ?? 0) > sessionFormatCatalog.currentVersion)).map(({ id }) => id)
+  return found.filter(session => isNewer(from, session)).map(({ id }) => id)
+}
+
+/**
+ * Copy into the data location `to` the Sessions its team names that are not there, from the DSH
+ * home the team was imported from. Imports before 0.2.3 left out each group's own Session, and
+ * such a group does not open (#551). Each Session is put together beside the data and moved in
+ * whole; one this DSH cannot read stays where it is. Nothing in the old home changes.
+ * @param {string} to @param {AbortSignal} [signal]
+ * @returns {Promise<{ copied: string[], newer: string[] }>} the ids copied, and those left for their newer format
+ */
+export async function restoreSessions(to, signal) {
+  const record = join(to, 'bot', 'imported.json')
+  const statePath = join(to, 'bot', 'state.json')
+  const none = { copied: [], newer: [] }
+  if (!existsSync(record) || !existsSync(statePath)) return none
+  const { from } = readJson(record)
+  if (typeof from !== 'string' || resolve(from) === resolve(to)) return none
+  for (const name of readdirSync(to).filter(entry => /^\.restore-\d+$/u.test(entry))) {
+    await rm(join(to, name), { recursive: true, force: true })
+  }
+  const { missing } = sessionDirs(to, sessionIdsOf(readJson(statePath)))
+  const { found } = sessionDirs(from, missing)
+  const newer = found.filter(session => isNewer(from, session))
+  const sessions = found.filter(session => !newer.includes(session))
+  if (sessions.length > 0) {
+    const stage = join(to, `.restore-${String(Date.now())}`)
+    await copySessionDirs(from, stage, sessions, signal)
+    await moveSessionDirs(stage, to, sessions, signal)
+    await rm(stage, { recursive: true, force: true })
+  }
+  return { copied: sessions.map(({ id }) => id), newer: newer.map(({ id }) => id) }
 }
 
 // The Host's first start on the data location writes a .credentials.yaml of its own: the browser
@@ -232,7 +274,7 @@ async function copyThroughStage({ found, from, to, workspace, profile, dsh, sign
   if (existsSync(join(oldBot, 'workspace'))) {
     // Bots that ran npm or pnpm there leave links, some of them to nothing.
     const skipped = await copyTree(join(oldBot, 'workspace'), workspace, { force: false, skip: true, signal })
-    if (skipped.length > 0) console.warn('DeepSeek Bot: the import skipped what it could not read in the old team workspace:', skipped)
+    if (skipped.length > 0) console.warn('DS Bot: the import skipped what it could not read in the old team workspace:', skipped)
   }
   signal?.throwIfAborted()
   const keys = []
@@ -242,17 +284,11 @@ async function copyThroughStage({ found, from, to, workspace, profile, dsh, sign
     if (done === 'copied') keys.push(name)
     if (done === 'kept') keptKeys.push(name)
   }
-  if (keptKeys.length > 0) console.warn(`DeepSeek Bot: the import kept the ${keptKeys.join(' and ')} that the data location has`)
+  if (keptKeys.length > 0) console.warn(`DS Bot: the import kept the ${keptKeys.join(' and ')} that the data location has`)
   const rows = found.profiles.find(entry => entry.name === profile)?.rows ?? []
   if (rows.length > 0) await writeModelRows(to, rows)
 
-  for (const { id, group } of sessions) {
-    signal?.throwIfAborted()
-    await mkdir(join(to, 'sessions', group), { recursive: true })
-    // A copy that stopped can have moved the Session in already.
-    await rm(join(to, 'sessions', group, id), { recursive: true, force: true })
-    await rename(join(stage, 'sessions', group, id), join(to, 'sessions', group, id))
-  }
+  await moveSessionDirs(stage, to, sessions, signal)
   signal?.throwIfAborted()
   if (existsSync(join(stage, 'attachments'))) await cp(join(stage, 'attachments'), join(to, 'attachments'), { recursive: true, force: false })
   const summary = {

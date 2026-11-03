@@ -307,10 +307,10 @@ test('t fills placeholders and falls back to zh, then to the key', () => {
 })
 
 test('t picks the English singular or plural by the value', () => {
-  assert.equal(t('en', 'dialog.import.found', { bots: 1, groups: 6 }), 'DeepSeek Harness has 1 Bot and 6 group chats. Copy them into DeepSeek Bot?')
-  assert.equal(t('en', 'dialog.import.found', { bots: 6, groups: 1 }), 'DeepSeek Harness has 6 Bots and 1 group chat. Copy them into DeepSeek Bot?')
-  assert.equal(t('zh', 'dialog.import.found', { bots: 6, groups: 1 }), 'DeepSeek Harness 里有 6 个 Bot 和 1 个群聊。要复制到 DeepSeek Bot 吗？')
-  assert.equal(t('en', 'dialog.import.found', { bots: 1 }), 'DeepSeek Harness has 1 Bot and {groups|group chat|group chats}. Copy them into DeepSeek Bot?')
+  assert.equal(t('en', 'dialog.import.found', { bots: 1, groups: 6 }), 'DeepSeek Harness has 1 Bot and 6 group chats. Copy them into DS Bot?')
+  assert.equal(t('en', 'dialog.import.found', { bots: 6, groups: 1 }), 'DeepSeek Harness has 6 Bots and 1 group chat. Copy them into DS Bot?')
+  assert.equal(t('zh', 'dialog.import.found', { bots: 6, groups: 1 }), 'DeepSeek Harness 里有 6 个 Bot 和 1 个群聊。要复制到 DS Bot 吗？')
+  assert.equal(t('en', 'dialog.import.found', { bots: 1 }), 'DeepSeek Harness has 1 Bot and {groups|group chat|group chats}. Copy them into DS Bot?')
 })
 
 test('langOf gives zh for every Chinese locale and en otherwise', () => {

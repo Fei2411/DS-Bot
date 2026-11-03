@@ -28,7 +28,7 @@ test('the launch token, API keys and the sign-in callback do not reach the log',
 
 test('the home folder becomes %USERPROFILE% in every spelling', () => {
   assert.equal(windows('data C:\\Users\\测试 用户\\.ds-bot'), 'data %USERPROFILE%\\.ds-bot')
-  assert.equal(windows('url file:///c:/users/测试 用户/DeepSeek Bot'), 'url file:///%USERPROFILE%/DeepSeek Bot')
+  assert.equal(windows('url file:///c:/users/测试 用户/DS Bot'), 'url file:///%USERPROFILE%/DS Bot')
   assert.equal(windows('{"dataDir":"C:\\\\Users\\\\测试 用户\\\\.ds-bot"}'), '{"dataDir":"%USERPROFILE%\\\\.ds-bot"}')
   assert.equal(windows('cwd C:\\Users\\测试 用户'), 'cwd %USERPROFILE%')
   // Another user whose name starts the same way is not this one.
