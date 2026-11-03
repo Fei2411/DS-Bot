@@ -14,11 +14,12 @@ if (startPage !== undefined) {
 } else if (host !== undefined && location.origin === host) {
   let ready = false
   contextBridge.exposeInMainWorld('dsBotApp', {
-    // The team view has mounted: the start window hands over to this one.
-    ready: () => {
+    // The team view has mounted: the start window hands over to this one. With it, where the
+    // Main Bot's avatar is drawn, for the start window's whale to land on (start-window §8).
+    ready: (place) => {
       if (ready) return
       ready = true
-      ipcRenderer.send('ds-bot:ready')
+      ipcRenderer.send('ds-bot:ready', placeOf(place))
     },
     // DS Bot's settings show and move the app's data location through this.
     dataLocation: () => ipcRenderer.invoke('ds-bot:data-location'),
@@ -30,6 +31,17 @@ if (startPage !== undefined) {
     // The app's own updater, for the About row's state and buttons.
     updates: updatesBridge(),
   })
+  // Only plain numbers cross; the main process checks that they make a box inside the page.
+  const placeOf = (value) => {
+    if (value === null || typeof value !== 'object') return undefined
+    const place = {}
+    for (const key of ['x', 'y', 'width', 'height', 'viewportWidth', 'viewportHeight']) {
+      const number = Number(value[key])
+      if (!Number.isFinite(number)) return undefined
+      place[key] = number
+    }
+    return place
+  }
   // A preload runs before the document root exists.
   const loaded = (run) => {
     if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', run, { once: true })
