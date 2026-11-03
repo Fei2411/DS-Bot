@@ -112,8 +112,8 @@ export function EffortBar({ reasoning, current, onPick }) {
       if (stops[0]) choose(stops[0].effort)
       return
     }
-    const span = Math.max(1, rect.width - 28)
-    const clamped = Math.max(0, Math.min(1, (clientX - rect.left - 14) / span))
+    const span = Math.max(1, rect.width - 20)
+    const clamped = Math.max(0, Math.min(1, (clientX - rect.left - 10) / span))
     const next = stops[Math.round(clamped * (stops.length - 1))]
     if (next) choose(next.effort)
   }
@@ -140,10 +140,8 @@ export function EffortBar({ reasoning, current, onPick }) {
   }
   return h('div', { className: 'bt-effort-bar', role: 'group', 'aria-label': t('Thinking level') },
     h('div', { className: 'bt-effort-head' },
-      h('span', { className: 'bt-effort-icon' }, h(BoltIcon)),
-      h('div', { className: 'bt-effort-copy' },
-        h('span', { className: 'bt-effort-val' }, active.label),
-        h('span', { className: 'bt-effort-sub' }, picked === undefined && hasDefault ? `${t('Thinking level')} · ${t('Default')}` : t('Thinking level'))),
+      h('span', { className: 'bt-effort-icon', title: t('Thinking level') }, h(BoltIcon)),
+      h('span', { className: 'bt-effort-val' }, active.label),
       h('button', {
         type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'), title: t('Default'),
         disabled: picked === undefined, onClick: () => choose(undefined),
@@ -428,23 +426,22 @@ export const MODEL_CSS = `
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
-.bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:6px;border-top:.5px solid var(--bt-line-2);background:color-mix(in srgb,var(--bt-main) 45%,transparent)}
-.bt-effort-bar{display:flex;flex-direction:column;gap:8px;padding:6px 6px 8px}
-.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bt-effort-icon,.bt-menu button.bt-effort-reset{flex:none;width:24px;height:24px;min-height:0;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-3)}
+.bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
+.bt-effort-bar{display:flex;flex-direction:column;gap:5px;padding:2px 4px 4px}
+.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:6px;height:20px}
+.bt-effort-icon,.bt-menu button.bt-effort-reset{flex:none;width:20px;height:20px;min-height:0;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-3)}
+.bt-effort-icon svg,.bt-menu button.bt-effort-reset svg{width:13px;height:13px;margin:0}
 .bt-menu button.bt-effort-reset{border:0;border-radius:6px;background:none;cursor:pointer;transition:background-color .12s ease,color .12s ease,opacity .12s ease}
 .bt-menu button.bt-effort-reset:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-menu button.bt-effort-reset:disabled{opacity:.35;cursor:default;background:none}
 .bt-menu button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-effort-copy{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:1px}
-.bt-effort-val{font-size:13px;line-height:17px;font-weight:600;color:var(--bt-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.bt-effort-sub{font-size:11px;line-height:14px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.bt-effort-track{position:relative;height:28px;border-radius:999px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);cursor:pointer;user-select:none;touch-action:none}
+.bt-effort-val{flex:1;min-width:0;text-align:center;font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-effort-track{position:relative;height:20px;border-radius:999px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);cursor:pointer;user-select:none;touch-action:none}
 .bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-effort-fill{position:absolute;left:0;top:0;bottom:0;width:calc(28px + (100% - 28px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);transition:${spring(SPRING_TAP, 'width')}}
-.bt-effort-dot{position:absolute;top:50%;left:calc(14px + (100% - 28px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-3) 55%,transparent);pointer-events:none;transition:background-color .12s ease}
+.bt-effort-fill{position:absolute;left:0;top:0;bottom:0;width:calc(20px + (100% - 20px) * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);transition:${spring(SPRING_TAP, 'width')}}
+.bt-effort-dot{position:absolute;top:50%;left:calc(10px + (100% - 20px) * var(--bt-dot-p,0));width:3px;height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-3) 55%,transparent);pointer-events:none;transition:background-color .12s ease}
 .bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 60%,transparent)}
-.bt-effort-knob{position:absolute;top:3px;left:calc(14px + (100% - 28px) * var(--bt-effort-p,0) - 11px);width:22px;height:22px;border-radius:50%;background:var(--bt-accent-ink);box-shadow:0 1px 4px rgba(0,0,0,.22);pointer-events:none;transition:${spring(SPRING_TAP, 'left')}}
+.bt-effort-knob{position:absolute;top:2px;left:calc(10px + (100% - 20px) * var(--bt-effort-p,0) - 8px);width:16px;height:16px;border-radius:50%;background:var(--bt-accent-ink);box-shadow:0 1px 3px rgba(0,0,0,.22);pointer-events:none;transition:${spring(SPRING_TAP, 'left')}}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
