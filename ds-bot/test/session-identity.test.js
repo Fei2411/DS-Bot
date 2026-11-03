@@ -82,7 +82,7 @@ function start() {
       },
     },
     sessionController: {
-      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 2 } } }),
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 2 }, ctx: { tools: { register: () => () => {} } } } }),
       selectModel: async () => {},
       page: async () => ({
         records: [
@@ -144,7 +144,7 @@ test('an image in a group is read for the group, and the group still relays its 
   assert.match(reading, /read by vision:\]\nA red triangle\./)
   assert.deepEqual(bench.requests.map(request => [request.model, request.sessionId]), [['vision', 'r1']])
 
-  const chunks = await drain(ctx.llm.stream({ provider: 'deepseek', model: 'v4', sessionId: 'r1', messages: [userText('Discuss the picture')] }))
+  const chunks = await drain(ctx.llm.stream({ provider: 'deepseek', model: 'v4', sessionId: 'r1', messages: [userText('Discuss the picture')], tools: [{ name: 'group_relay' }] }))
   assert.ok(chunks.some(chunk => chunk.type === 'tool-call-delta' && chunk.name === 'group_relay'))
   assert.equal(bench.requests.length, 1)
 })
@@ -160,7 +160,7 @@ test('the Session hooks pass DS Bot\'s own requests through, and still act on a 
 
   const relay = hook(/relayOrPass/)
   assert.equal(relay(own('r1', [userText('Read this')]), pass), passed)
-  assert.ok((await drain(relay(round('r1', [userText('Read this')]), pass))).some(chunk => chunk.name === 'group_relay'))
+  assert.ok((await drain(relay({ ...round('r1', [userText('Read this')]), tools: [{ name: 'group_relay' }] }, pass))).some(chunk => chunk.name === 'group_relay'))
 
   const handoff = [{ role: 'user', source: { kind: 'bot', handoff: true }, content: [{ type: 'text', text: 'Handoff note' }] }]
   const acknowledge = hook(/acknowledge/)

@@ -36,11 +36,12 @@ const react = {
 }
 const module = { exports: {} }
 const viewport = { innerWidth: 1280 }
-runInNewContext(outputFiles[0].text, {
+const sandbox = {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : {}),
   window: viewport,
-})
+}
+runInNewContext(outputFiles[0].text, sandbox)
 const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
@@ -372,6 +373,8 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   assert.equal(find(hidden, node => node.type?.name === 'LeftColumn'), undefined)
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
+  // Reduced motion disables both the column slide and the conversation margin transition.
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
@@ -428,10 +431,120 @@ test('the Bot footer lays out the account, another plugin\'s entry and the setti
   assert.equal(columnOf(document.querySelector('.x_settingsArea')), '3')
 })
 
+// 公开#502: the rail's icons keep the open column's rhythm — its row gap puts
+// the same ~20px between avatar edges that the open list's padding and gap do,
+// and the stacks and sections breathe on the same 6–8px steps.
+test('the rail spaces its icons on the open column\'s rhythm', () => {
+  const all = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)]
+  const bodyOf = selector => all.filter(rule => rule.selector === selector).map(rule => rule.body).pop() ?? ''
+  assert.match(bodyOf('.bt-rail .bt-list'), /(^|;)gap:8px/)
+  assert.match(bodyOf('.bt-rail-top'), /(^|;)gap:8px/)
+  assert.match(bodyOf('.bt-leftcol-foot-rail'), /(^|;)gap:8px/)
+  assert.match(bodyOf('.bt-rail'), /(^|;)gap:6px/)
+})
+
 // #452: the Connect plugins button left the footer; what DS Bot puts there is
 // the account menu and the way back from Agent mode.
 test('the Bot footer holds the account and the return button only', () => {
   const source = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
   const ids = [...source.matchAll(/shadow\('sidebar\.footer\.action',\s*\{[^}]*?id:\s*['"]([^'"]+)['"]/g)].map(match => match[1])
   assert.deepEqual(ids.sort(), ['bot-account', 'bot-return'])
+})
+
+// The edge drag writes the column and the chat's margins straight into the page, so these
+// run it on a jsdom page with real timers. The sandbox gets the page and the timers only
+// while a drag runs; the release then re-renders the sidebar at the state it stored.
+async function edgeDrag({ start, reduced = false }, run) {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: start.width, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: start.pref }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => TeamSidebar({
+    wide: false, actions,
+    useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+    useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+  })
+  const leftColumn = () => {
+    const find = (node) => {
+      if (Array.isArray(node)) return node.map(find).find(Boolean)
+      if (!node || typeof node !== 'object') return undefined
+      return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+    }
+    return find(render()).props
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  if (reduced) viewport.matchMedia = () => ({ matches: true })
+  const pointer = (type, clientX) => grip.dispatchEvent(new dom.window.MouseEvent(type, { clientX }))
+  try {
+    return await run({
+      column, center, leftColumn,
+      press: () => leftColumn().onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} }),
+      move: clientX => pointer('pointermove', clientX),
+      release: clientX => pointer('pointerup', clientX),
+      settle: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    })
+  } finally {
+    for (const name of Object.keys(globals)) delete sandbox[name]
+    delete viewport.matchMedia
+  }
+}
+
+// After the drag ends the column's own width must be the one the sidebar renders for the
+// state it stored, or the edge sits at the CSS fallback (57px on the rail).
+test('a drag that ends on the rail leaves the column at the rail width', async () => {
+  await edgeDrag({ start: { pref: 'open', width: 350 } }, async ({ column, leftColumn, press, move, release, settle }) => {
+    press()
+    for (const x of [300, 250, 200, 150, 100]) move(x)
+    release(100)
+    await settle(800)
+    assert.equal(leftColumn().mode, 'rail')
+    assert.equal(leftColumn().width, 88)
+    assert.equal(column.style.width, '88px')
+    assert.equal(column.hasAttribute('data-folding'), false)
+  })
+})
+
+test('a reduced-motion drag that unfolds the rail lands at the dragged width', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 }, reduced: true }, async ({ column, leftColumn, press, move, release }) => {
+    press()
+    for (const x of [120, 160, 200, 260, 330]) move(x)
+    release(330)
+    assert.equal(leftColumn().mode, 'open')
+    assert.equal(leftColumn().width, 330)
+    assert.equal(column.style.width, '330px')
+    assert.equal(column.hasAttribute('data-folding'), false)
+  })
+})
+
+// The spring rides the snap switch only: after it settles the same drag follows the cursor
+// frame by frame, and the chat's margin takes no transition of its own.
+test('after a snap the spring stops and the drag follows the cursor', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 } }, async ({ column, center, leftColumn, press, move, release, settle }) => {
+    press()
+    move(200)
+    assert.equal(column.dataset.folding, '')
+    await settle(800)
+    assert.equal(column.hasAttribute('data-folding'), false)
+    assert.equal(center.style.getPropertyValue('transition'), 'none')
+    for (const x of [280, 300, 330]) {
+      move(x)
+      assert.equal(column.style.width, `${x}px`)
+    }
+    release(330)
+    await settle(800)
+    assert.equal(leftColumn().width, 330)
+    assert.equal(column.style.width, '330px')
+  })
 })

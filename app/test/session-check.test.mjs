@@ -55,7 +55,7 @@ describe('the first-run check', () => {
     const check = new HostProcess({
       entry: join(app, 'src', 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list },
       pnpm: join(app, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'), onFailure: () => {},
-    })
+    }, 'darwin') // Exercise the Electron/Node-mode launch without a packaged runtime.
     try {
       ({ unreadable } = await check.start())
     } finally {

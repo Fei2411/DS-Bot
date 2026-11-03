@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { parse } from 'yaml'
-import { copySessions, findTeam, importTeam, newerSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
+import { copySessions, findTeam, importTeam, newerSessions, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -86,7 +86,7 @@ function newHome(root) {
   write(join(to, 'bot', 'state.json'), JSON.stringify({ version: 1, mainBotIds: [], bots: {}, rooms: {} }))
   write(join(to, '.credentials.yaml'), HOST_CREDENTIALS)
   write(join(to, 'profiles', 'ds-bot', 'cordis.patch.yml'), '- id: llm-pi-ai\n  config:\n    providers: {}\n- id: webserver\n  config:\n    port: 0\n- id: ui-settings-general\n  config:\n    welcomeNoticeVersion: seen\n')
-  const workspace = join(root, 'DeepSeek Bot')
+  const workspace = join(root, 'DS Bot')
   write(join(workspace, 'kept.txt'), 'new kept')
   return { to, workspace }
 }
@@ -252,6 +252,50 @@ describe('keys the data location has already', () => {
       assert.equal(readFileSync(join(to, '.credentials.yaml'), 'utf8'), text, name)
       assert.deepEqual(summary.keptKeys, ['.credentials.yaml'], name)
     }
+  })
+})
+
+describe('Sessions an earlier import left out', () => {
+  let root, from, to, ownSession
+  before(async () => {
+    root = mkdtempSync(join(tmpdir(), 'ds-bot-app-restore-'))
+    from = oldHome(root)
+    const home = newHome(root)
+    to = home.to
+    await importTeam({ from, to, workspace: home.workspace })
+    // An import before 0.2.3 did not copy the group's own Session.
+    ownSession = join(to, 'sessions', '--team--', 'session-r1')
+    rmSync(ownSession, { recursive: true, force: true })
+  })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('copies the group\'s own Session from the old home, and changes nothing there', async () => {
+    const oldTree = treeHash(from)
+    const present = join(to, 'sessions', '--team--', 'session-a', 'session.v4.jsonl.zstd')
+    write(present, 'written here since')
+    write(join(to, '.restore-1', 'junk.txt'), 'left over')
+    assert.deepEqual(await restoreSessions(to), { copied: ['session-r1'], newer: [] })
+    assert.equal(readFileSync(join(ownSession, 'session.v4.jsonl.zstd'), 'utf8'), 'session-r1')
+    assert.equal(readFileSync(present, 'utf8'), 'written here since')
+    assert.deepEqual(readdirSync(to).filter(name => name.startsWith('.restore-')), [])
+    assert.equal(treeHash(from), oldTree)
+  })
+
+  test('copies nothing once every Session is there', async () => {
+    assert.deepEqual(await restoreSessions(to), { copied: [], newer: [] })
+  })
+
+  test('leaves a Session this DSH cannot read in the old home', async () => {
+    rmSync(ownSession, { recursive: true, force: true })
+    write(join(from, 'sessions', '--team--', 'session-r1', 'session.v99.jsonl.zstd'), 'newer')
+    assert.deepEqual(await restoreSessions(to), { copied: [], newer: ['session-r1'] })
+    assert.equal(existsSync(ownSession), false)
+    rmSync(join(from, 'sessions', '--team--', 'session-r1', 'session.v99.jsonl.zstd'))
+  })
+
+  test('does nothing for data that was not imported', async () => {
+    const { to: fresh } = newHome(join(root, 'fresh'))
+    assert.deepEqual(await restoreSessions(fresh), { copied: [], newer: [] })
   })
 })
 

@@ -19,7 +19,7 @@ export async function unreadableSessions(persistence, ids) {
       }
     } catch (error) {
       if (error?.name === 'SessionFormatUnsupportedError') unreadable.push(id)
-      else console.warn(`DeepSeek Bot: could not read ${id} while checking the team: ${error instanceof Error ? error.message : String(error)}`)
+      else console.warn(`DS Bot: could not read ${id} while checking the team: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   return unreadable

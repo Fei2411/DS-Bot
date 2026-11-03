@@ -39,7 +39,7 @@ export function requestAllowed(value, origin) {
 }
 
 const keyOf = (key) => {
-  if (typeof key !== 'string' || key.length === 0 || key.length > KEY_MAX) throw new Error('DeepSeek Bot: a browser storage key is required')
+  if (typeof key !== 'string' || key.length === 0 || key.length > KEY_MAX) throw new Error('DS Bot: a browser storage key is required')
   return key
 }
 
@@ -85,10 +85,10 @@ export class BotBrowserGuests {
 
   /** Close a lease's guest; its partition's storage stays. */
   async release(owner, id) {
-    if (typeof id !== 'string') throw new Error('DeepSeek Bot: invalid browser lease')
+    if (typeof id !== 'string') throw new Error('DS Bot: invalid browser lease')
     const lease = this.#leases.get(id)
     if (lease === undefined) return
-    if (lease.owner !== owner) throw new Error('DeepSeek Bot: the browser lease belongs to another window')
+    if (lease.owner !== owner) throw new Error('DS Bot: the browser lease belongs to another window')
     this.#leases.delete(id)
     const guest = lease.guest
     if (guest !== undefined && !guest.isDestroyed()) {
