@@ -34,6 +34,7 @@ function render(roster) {
   hooks = 0
   const tree = ComposerPlus({
     sessionId: 'chief', useRoster: select => select(roster),
+    useInput: select => select({ phase: 'plain', draft: '', attachmentIds: [], queue: [] }),
     actions: { canReferenceChat: () => false },
   })
   return { tree, hooks }
