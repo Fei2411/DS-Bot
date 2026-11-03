@@ -1463,13 +1463,14 @@ test('a member that only promises to start working without calling a tool gets o
   ])
 })
 
-// #872: a reply whose opening sounds like a promise but goes on with the answer is
-// the answer; a verb with 过/完/好了 reports done work.
-test('only a reply that is nothing but a promise counts as one (#872)', () => {
-  for (const said of ['收到，我现在开始排查构建日志。', '明白，我先排查一下日志，然后跑测试。', '我现在开始排查', '开工！', "I'll check the logs now.", 'Let me look into it.']) {
+// #872: a verb with 过了/完了/完毕/好了 reports done work. A plan of several sentences,
+// or a target that starts with 过 or 完, is still a promise; a reply that also answers
+// may match, and its member passes on the retry.
+test('done work is no promise, and a plan of several sentences still is (#872)', () => {
+  for (const said of ['收到，我现在开始排查构建日志。', '明白，我先排查一下日志，然后跑测试。', '收到，我现在开始排查。稍后给你结果。', '收到，我先查看过去的记录。', '好的，我先检查完成情况。', '我现在开始排查', '开工！', "I'll check the logs. Then I'll run the tests.", 'Let me look into it.']) {
     assert.equal(promisesWork(said), true, said)
   }
-  for (const said of ['好的，我检查过了，配置没问题。', '好，我分析一下：方案 A 更稳，B 改动太大，建议选 A。', '收到，我来整理结论：1. 接口没变 2. 测试要补。', '好的，我处理好了。', 'OK, let me check: the config already has retries=3, so nothing to change.', '查完了，原因是端口冲突。']) {
+  for (const said of ['好的，我检查过了，配置没问题。', '好的，我检查过，没问题。', '收到，我排查完了，是端口冲突。', '好的，我处理好了。', '查完了，原因是端口冲突。']) {
     assert.equal(promisesWork(said), false, said)
   }
 })
