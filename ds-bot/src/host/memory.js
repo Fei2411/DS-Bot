@@ -1052,7 +1052,8 @@ export function install(rt) {
     if (decision.kind === 'reject' || signal?.aborted || !Array.isArray(decision.messages)) return decision
     await rt.load()
     const roomId = roomIdOf(agent.id)
-    if (roomId === undefined || rt.botOf(rt.selfOf(agent.id)) === undefined) return decision
+    const bot = rt.botOf(rt.selfOf(agent.id))
+    if (roomId === undefined || bot === undefined || !rt.roomOf(roomId)?.members.includes(bot.id)) return decision
     if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return decision
     try {
       if (agent.session?.deriveMessages?.().some(isGroupMemory)) return decision
