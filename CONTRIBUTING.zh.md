@@ -56,7 +56,7 @@
 
 ### Pull Request
 
-1. 向 `dev` 提 Pull Request，按模板填写。用 `Fixes #<号>` 关联 Issue；修 bug 的 PR 一定要写明修的是哪个 bug。
+1. 向 `dev` 提 Pull Request，按模板填写。用 `Fixes #<号>` 关联 Issue；修 bug 的 PR 一定要写明修的是哪个 bug。从 fork 提 Pull Request 时，请保持勾选 **Allow edits from maintainers**，方便维护者在合并前解决冲突或做小调整。
 2. 在模板的 **Changelog** 一栏写一句用户能看到的变化，没有就写「无」。不要改 `CHANGELOG.md`：维护者发版时根据这些句子统一写。
 3. CI 通过后，自己用 **Create a merge commit** 合并，然后删除分支。不强制审查；想让人看一眼，在 Pull Request 里 @ 队友。
 4. 合进 `dev` 的修复不会关闭对应的 Issue：`Fixes #<号>` 只在合入默认分支时生效。Issue 会一直开着，直到发版，意思是「已在 `dev` 修复，尚未发版」。
