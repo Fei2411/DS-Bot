@@ -95,8 +95,18 @@ export async function removeComputer(hostDeviceId: string): Promise<StoredComput
 }
 
 export async function readPrefs(): Promise<Record<string, string>> {
-  return (await read(PREFS) as Record<string, string> | undefined) ?? {}
+  if (prefsCache !== null) return prefsCache
+  prefsCache = (await read(PREFS) as Record<string, string> | undefined) ?? {}
+  return prefsCache
+}
+let prefsCache: Record<string, string> | null = null
+const prefListeners = new Set<() => void>()
+export function onPrefsChange(listener: () => void): () => void {
+  prefListeners.add(listener)
+  return () => prefListeners.delete(listener)
 }
 export async function writePrefs(patch: Record<string, string>): Promise<void> {
-  await SecureStore.setItemAsync(PREFS, JSON.stringify({ ...(await readPrefs()), ...patch }), LOCAL)
+  prefsCache = { ...(await readPrefs()), ...patch }
+  await SecureStore.setItemAsync(PREFS, JSON.stringify(prefsCache), LOCAL)
+  prefListeners.forEach(listener => listener())
 }

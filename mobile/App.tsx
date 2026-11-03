@@ -5,16 +5,27 @@ import { ActivityIndicator, Text, useColorScheme, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { forgetComputer, loadComputer, loadIdentity, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { forgetComputer, loadComputer, loadIdentity, onPrefsChange, readPrefs, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { errorText } from './src/team/link.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
 import ShellB from './src/nav/ShellB.tsx'
 
-// Colors follow the computer's prefs plus the phone's light/dark mode.
+// Colors follow the computer's prefs plus the phone's light/dark mode. The
+// local appearance pref overrides the system scheme.
+function useDark(): boolean {
+  const system = useColorScheme() === 'dark'
+  const [override, setOverride] = useState<string | null>(null)
+  useEffect(() => {
+    void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system'))
+    return onPrefsChange(() => void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system')))
+  }, [])
+  return override === 'dark' || (override !== 'light' && system)
+}
+
 function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const dark = useColorScheme() === 'dark'
+  const dark = useDark()
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
@@ -23,7 +34,7 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
 // The navigator lives inside the palette provider so its container theme can
 // follow the computer's theme instead of flashing the default white.
 function ThemedShell({ onForget }: { onForget: () => void }) {
-  const dark = useColorScheme() === 'dark'
+  const dark = useDark()
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
   const navTheme = useMemo(() => ({
@@ -79,7 +90,7 @@ function Boot() {
 }
 
 export default function App() {
-  const dark = useColorScheme() === 'dark'
+  const dark = useDark()
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
