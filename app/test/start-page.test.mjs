@@ -100,6 +100,41 @@ test('the start page draws the progress as a ring of three arcs and a closing ci
   assert.doesNotMatch(read('start.css'), /\.(?:trace|elapsed)\b/u)
 })
 
+// A round cap is drawn wherever a dash touches its path, even a dash of no length: an empty arc
+// must keep every dash off its path (pathLength 100), or it leaves a dot at one of its ends.
+test('an empty or hidden arc leaves no dot: no dash touches its path', () => {
+  const css = uncommented(read('start.css'))
+  // The body of the rule whose selector is exactly `selector`.
+  const rule = selector => css.split('}').map(part => part.trim().split('{')).find(([head]) => head === selector)?.[1] ?? ''
+  const dashes = (body) => {
+    const [dash, gap] = body.match(/stroke-dasharray:([\d.]+) ([\d.]+)/u).slice(1).map(Number)
+    return { dash, gap }
+  }
+  const offsetOf = body => Number(body.match(/stroke-dashoffset:(-?[\d.]+)/u)[1])
+  // Dashes start at -offset + k * (dash + gap); one touches the path when it overlaps [0, 100].
+  const touches = ({ dash, gap }, offset) => {
+    for (let k = -3; k <= 3; k += 1) {
+      const start = -offset + k * (dash + gap)
+      if (start <= 100 && start + dash >= 0) return true
+    }
+    return false
+  }
+  const fill = rule('.arc-fill')
+  const glow = rule('.arc-glow')
+  const full = rule('.ring-full')
+  const base = rule('.arc-base')
+  assert.equal(touches(dashes(fill), offsetOf(fill)), false, 'an empty fill touches its arc')
+  assert.equal(touches(dashes(full), offsetOf(full)), false, 'the closing circle touches the ring before it closes')
+  assert.equal(touches(dashes(glow), offsetOf(glow)), false, 'the resting glow touches its arc')
+  const run = css.match(/@keyframes bt-arc\{from\{stroke-dashoffset:(-?[\d.]+)\}to\{stroke-dashoffset:(-?[\d.]+)\}\}/u).slice(1).map(Number)
+  for (const at of run) assert.equal(touches(dashes(glow), at), false, `the glow touches its arc at ${String(at)}`)
+  const draw = Number(css.match(/@keyframes bt-ring-draw\{from\{stroke-dashoffset:(-?[\d.]+)\}\}/u)[1])
+  assert.equal(touches(dashes(base), draw), false, 'the ring touches its arcs before it draws in')
+  // Shown, they cover the arc.
+  assert.equal(touches(dashes(fill), 0), true)
+  assert.equal(touches(dashes(base), offsetOf(base)), true)
+})
+
 // docs/plans/2026-10-29-start-copy.md §2: the first part of a key says where the line is.
 const LAYERS = ['voice', 'say', 'hint', 'card', 'reason', 'btn', 'note', 'foot', 'status', 'dialog']
 const layerOf = key => key.split('.')[0]
