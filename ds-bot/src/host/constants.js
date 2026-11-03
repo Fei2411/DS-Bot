@@ -54,6 +54,8 @@ export const ROOM_MODES = ['everyone', 'admin']
 export const ROOM_NAME_MAX = 60
 export const ROOM_NOTICE_MAX = 2000
 export const ROOM_MAX_MEMBERS = 12
+export const SECTION_NAME_MAX = 32
+export const SECTION_COLORS = ['blue', 'orange', 'green', 'violet', 'rose']
 
 // A team's one DSH Agent: a plain dsh entry in the sidebar, not a Bot. Its Sessions
 // are ordinary root Sessions, so the team tools must not be offered to them.
