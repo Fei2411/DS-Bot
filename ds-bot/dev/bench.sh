@@ -33,6 +33,12 @@ fi
 
 alive() { [ -f "$HOME_DIR/$1.pid" ] && kill -0 "-$(cat "$HOME_DIR/$1.pid")" 2>/dev/null; }
 
+# macOS has no setsid; python does the same syscall and execs the command, so the
+# pid each process writes is still its own process group for stop_one.
+if ! command -v setsid >/dev/null 2>&1; then
+  setsid() { python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"; }
+fi
+
 # Each process runs in its own session (setsid), so its pid is also its process group, which
 # outlives it: pnpm exits before the dsh it started. The process writes its own pid: the `$!`
 # of a background job is the subshell that runs setsid, not the session leader it forks, so
