@@ -54,12 +54,13 @@ function renderStatic() {
   for (const st of document.querySelectorAll('.station')) st.querySelector('.sr').textContent = say(`status.state.${st.dataset.state}`)
   if (s) { fillBlock(shown); placeUI(s.place); timeUI() }
 }
-// Where the data goes, at the footer's right end with 「换个位置…」 (first starts; the main
-// process sends no place on a reinstall or once a copied team lives there). The drive and its
-// free space on Windows, the folder elsewhere.
+// Where the data goes, centred in the footer with a grey 〔换个位置…〕: on a first start (the main
+// process sends no place on a reinstall or once a copied team lives there), and on a later start
+// whose drive is down to a fifth of its room at the start. The drive and its free space on
+// Windows, the folder elsewhere.
 function placeUI(place) {
   // The failure page has its own buttons; the 180 s question still lets the place change.
-  const on = first && place !== null && typeof place === 'object' && !['failed', 'viewFailed'].includes(s?.view)
+  const on = START !== 'moving' && place !== null && typeof place === 'object' && !['failed', 'viewFailed'].includes(s?.view)
   placeEl.hidden = !on
   if (!on) return
   const key = place.drive ? (place.free ? 'foot.place.drive' : 'foot.place.driveOnly') : place.free ? 'foot.place.path' : 'foot.place.pathOnly'
@@ -70,7 +71,7 @@ function varsOf(snap) {
   const update = snap.update ?? {}
   const vars = { ...card }
   if (snap.view === 'failed' || snap.view === 'viewFailed') vars.reason = snap.failure?.reason ?? 'other'
-  if (card.kind === 'importFailed') vars.reason = say(`reason.copy.${card.reason}`)
+  if ((card.kind === 'importFailed' || card.kind === 'moveFailed') && card.reason) vars.reason = say(`reason.copy.${card.reason}`)
   if (card.kind === 'newerUpdating') vars.p = card.percent ?? 0
   if (update.version) Object.assign(vars, { version: update.version, p: update.percent ?? 0, a: update.received ?? 0, b: update.total ?? 0 })
   return vars
@@ -284,12 +285,19 @@ function fillBlock(name) {
   const el = blockEl(name)
   if (!el || !s) return
   const vars = varsOf(s)
-  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.steps, .copied')) render(node, vars)
+  // A card with variants shows the parts of its own (data-why) only; the others stay empty, so
+  // that a screen reader does not read them.
+  for (const node of el.querySelectorAll('[data-why]')) {
+    node.hidden = node.dataset.why !== s.card?.why
+    if (node.hidden && node.dataset.t) { node.textContent = ''; sigs.delete(node) }
+  }
+  for (const node of el.querySelectorAll('[data-t]')) if (!node.closest('.steps, .copied, [data-why][hidden]')) render(node, vars)
   if (name === 'missing') missing(el)
   if (name === 'recommend' || name === 'rejected') recommend(el)
   if (name === 'import') importCard(el)
   if (name === 'copying') copying(el)
   if (name === 'failed') failed(el)
+  if (name === 'moveFailed') el.querySelector('[data-old]').dataset.look = s.card?.why === 'copy' ? 'soft' : 'primary'
 }
 let missSeen = 0
 let missTimer = 0

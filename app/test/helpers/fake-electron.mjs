@@ -113,7 +113,8 @@ class FakeWebContents extends EventEmitter {
     this.isDestroyed = () => this.win.destroyed
     this.getURL = () => this.win.url
     this.getTitle = () => 'DS Bot'
-    this.send = () => {}
+    this.sent = []
+    this.send = (...args) => { this.sent.push(args) }
     this.setWindowOpenHandler = () => {}
     this.insertCSS = async () => {}
     this.toggleDevTools = () => {}

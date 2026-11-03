@@ -1,6 +1,6 @@
-// Where a first start puts the data: the line on the start page that says so, and the root rule
-// of 「换个位置…」 (windows-onboarding §3, 一个位置; start-window §6). No Electron here, so the
-// tests run without it.
+// Where a first start puts the data: the line on the start page that says so (and when a later
+// start shows it again), and the root rule of 「换个位置…」 (windows-onboarding §3, 一个位置;
+// start-window §6). No Electron here, so the tests run without it.
 import { existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve, sep } from 'node:path'
@@ -36,6 +36,15 @@ export function formatBytes(bytes) {
   if (gb >= 10) return `${String(Math.floor(gb))} GB`
   if (gb >= 1) return `${(Math.floor(gb * 10) / 10).toFixed(1)} GB`
   return `${String(Math.floor(bytes / 2 ** 20))} MB`
+}
+
+// A later start shows the place line again once the drive is down to this share of the free
+// space it had when the data went there (start-window §5).
+export const LOW_SHARE = 0.2
+
+/** Whether `free` is down to LOW_SHARE of `freeAtStart`; an unknown size is not low. */
+export function runningLow(free, freeAtStart) {
+  return Number.isFinite(free) && Number.isFinite(freeAtStart) && freeAtStart > 0 && free <= freeAtStart * LOW_SHARE
 }
 
 /** The drive letter of a Windows path ('C'), or undefined. */

@@ -211,14 +211,14 @@ html[data-sheet=none] .sheet{pointer-events:none}
 .disclose svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:rotate var(--spring-tap-ms) var(--spring-tap)}
 .disclose[aria-expanded=true] svg{rotate:180deg}
 
-/* The footer row: the note at the left, and where the data goes with 「换个位置…」 at the right
-   (first starts with a place). The note never gives way; the place's text is cut with an
-   ellipsis where the two would meet (English, a long folder). */
-.footrow{position:absolute;left:calc(50% - 312px);right:calc(50% - 312px);top:calc(100% - 36px);display:flex;justify-content:space-between;align-items:baseline;gap:16px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.note{flex:none;white-space:nowrap}
-.place{flex:0 1 auto;min-width:0;margin:0;display:flex;align-items:baseline;gap:6px;white-space:nowrap}
+/* The footer row: where the data goes, centred, with a grey 〔换个位置…〕 (a first start with a
+   place, a later start whose drive runs low). The button never gives way; the text is cut with
+   an ellipsis when the two do not fit (English, a long folder). It ends 4 px under the sheet. */
+.footrow{position:absolute;left:calc(50% - 312px);right:calc(50% - 312px);top:calc(100% - 40px);display:flex;justify-content:center;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.place{flex:0 1 auto;min-width:0;margin:0;display:flex;align-items:center;gap:8px;white-space:nowrap;transition:opacity .22s ease-out}
+@starting-style{.place{opacity:0}}
 .place-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
-html:is([data-start=later],[data-start=moving]) .footrow{display:none}
+html[data-start=moving] .footrow{display:none}
 /* A work area under 588 px gets a 500 px window: the stage rises 8 px and the sheet still ends
    above the footer. */
 @media (max-height:520px){.stage{top:-8px}html[data-frame=system] .stage{top:-32px}.sheet{height:calc(100% - 296px)}}
@@ -239,7 +239,7 @@ html[data-start=first]:not([data-resume],[data-settled],[data-tier=quiet]) .ripp
 html[data-start=first]:not([data-resume],[data-settled]) .voice{animation:bt-veil .22s ease-out .16s backwards}
 html:not([data-resume],[data-settled]) .water{animation:bt-veil .22s ease-out .22s backwards}
 html:not([data-resume],[data-settled]) .arc-base{animation:bt-ring-draw .5s cubic-bezier(.3,.7,.4,1) .18s backwards}
-html[data-start=first]:not([data-resume],[data-settled]) :is(.note,.place){animation:bt-veil .22s ease-out .42s backwards}
+html[data-start=first]:not([data-resume],[data-settled]) .place{animation:bt-veil .22s ease-out .42s backwards}
 html:is([data-start=later],[data-start=moving]):not([data-resume],[data-entered]) .whale-move{animation:bt-enter-later var(--spring-tap-ms) var(--spring-tap) backwards}
 html:is([data-start=later],[data-start=moving]):not([data-resume],[data-settled]) .voice{animation:bt-veil .22s ease-out .06s backwards}
 
@@ -264,7 +264,7 @@ html[data-tail=dash]:not([data-tier=quiet]) #tail{animation:bt-tail-dash .55s ea
 @keyframes bt-tail-dash{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}
 
 /* hand-off: window-level content fades */
-html[data-exit~=caption] .caption,html[data-exit~=all] :is(.voice,.water,.ring,.spout,.sheet,.note,.place){opacity:0;transition:opacity .16s}
+html[data-exit~=caption] .caption,html[data-exit~=all] :is(.voice,.water,.ring,.spout,.sheet,.place){opacity:0;transition:opacity .16s}
 html[data-hidden] *{animation-play-state:paused!important}
 
 /* reduced motion (ui-standard 9.6, styles.js:106): static whale, fades only */
@@ -274,7 +274,7 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-eyes=happy] .bt-eye-happy{opacity:1}
 @media (prefers-reduced-motion:reduce){
 :root :is(.whale-x,.whale-gaze,.whale,.whale-move,.whale-loop,#tail,#gaze,#eye-pair,.bt-eye,.bt-eye-happy,.ripple,.stage){animation:none!important;transition:none!important}
-:root :is(.voice,.water,.note,.place,.arc-base,.arc-glow,.ring){animation:none!important}
+:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring){animation:none!important}
 :root :is(.arc-fill,.ring-full){transition-duration:.12s!important}
 :root .voice>span{animation:none!important;background:none!important;color:var(--bt-ink)!important}
 :root :is(.voice,.caption>*,.card,.miss,.banner,.log,.confirm,.models,[data-u]){filter:none!important;scale:none!important;transition-property:opacity!important;transition-duration:.12s!important;transition-delay:0s!important}

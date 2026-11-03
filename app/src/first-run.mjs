@@ -4,9 +4,10 @@
 import { app, dialog } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { findTeam, newerSessions, teamInUse, userDshHome } from './import.mjs'
 import { installFolder } from './move-data.mjs'
+import { freeSpace } from './place.mjs'
 import { langOf, t } from './start/text.mjs'
 
 // The system dialogs speak the language of the start page (main.mjs gives it the same locale).
@@ -98,13 +99,31 @@ async function offerImport(dataDir, signal, ui) {
   return { offered: true, import: { from, profile } }
 }
 
-/** Write the chosen places once the first run is finished; quitting before that asks again. */
+/**
+ * Write the chosen places once the first run is finished; quitting before that asks again. The
+ * free space of the data's drive when the data goes to a folder is kept as long as it stays
+ * there: a later start shows the place line again once a fifth of it is left (start-window §5).
+ */
 export function saveLocations({ dataDir, workspace }) {
   const file = locationsFile()
   mkdirSync(dirname(file), { recursive: true })
+  const saved = readSaved(file)
+  const kept = saved !== undefined && typeof saved.dataDir === 'string' && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
+  // A full drive gives no room to measure a fifth of: the next save measures again.
+  const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
   // A write that fails half way leaves the places that were there.
-  writeFileSync(`${file}.tmp`, `${JSON.stringify({ dataDir, workspace }, null, 2)}\n`)
+  writeFileSync(`${file}.tmp`, `${JSON.stringify({ dataDir, workspace, freeAtStart }, null, 2)}\n`)
   renameSync(`${file}.tmp`, file)
+}
+
+const roomOf = bytes => (Number.isFinite(bytes) && bytes > 0 ? bytes : undefined)
+
+function readSaved(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -112,17 +131,19 @@ export function saveLocations({ dataDir, workspace }) {
  * default ones without a question (the start page says where the data goes and offers
  * 「换个位置…」; windows-onboarding §3). The offer to copy a team is still a dialog that belongs
  * to `ui.owner()`. A run on throwaway folders (DS_BOT_HOME, for development and tests) asks
- * nothing and copies nothing. `offered` says whether the first run offered to copy a team.
+ * nothing and copies nothing. `offered` says whether the first run offered to copy a team;
+ * `freeAtStart` is the free space of the data's drive that saveLocations() kept, none when it
+ * kept none yet.
  * @param {AbortSignal} signal
  * @param {{ owner: () => import('electron').BrowserWindow | undefined, asking: <T>(answer: Promise<T>) => Promise<T> }} ui
- * @returns {Promise<{ dataDir: string, workspace?: string, import?: { from: string, profile?: string }, offered?: boolean, quit?: true }>}
+ * @returns {Promise<{ dataDir: string, workspace?: string, freeAtStart?: number, import?: { from: string, profile?: string }, offered?: boolean, quit?: true }>}
  */
 export async function chooseLocations(signal, ui) {
   if (process.env.DS_BOT_HOME) return { dataDir: process.env.DS_BOT_HOME, workspace: process.env.DS_BOT_WORKSPACE || undefined }
   const file = locationsFile()
   if (existsSync(file)) {
     const saved = JSON.parse(readFileSync(file, 'utf8'))
-    return { dataDir: saved.dataDir, workspace: saved.workspace }
+    return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
   }
   const { dataDir, workspace } = defaultPlaces()
   let offered
