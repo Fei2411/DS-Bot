@@ -4,6 +4,28 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Added
+
+- A group's admin can set a goal with you, split it into checked stages for its members and run it to the end; the header shows the current stage and who is working on it, and you can pause, resume, stop or clear the goal. ([#791](https://github.com/Fei2411/DS-Bot/issues/791), [#795](https://github.com/Fei2411/DS-Bot/pull/795))
+- The desktop app opens a start window while it starts up: the Main Bot's whale swims across three stages, first-run setup shows where your data lives and lets you pick another folder, and a startup failure turns into a recovery card in place. ([#559](https://github.com/Fei2411/DS-Bot/issues/559), [#702](https://github.com/Fei2411/DS-Bot/pull/702))
+- The memory panel lists each memory's change history and lets you restore a single change from the journal. ([#464](https://github.com/Fei2411/DS-Bot/issues/464), [#822](https://github.com/Fei2411/DS-Bot/pull/822))
+- You can set a default model for new Bots in Settings without changing existing Bots. ([#227](https://github.com/Fei2411/DS-Bot/issues/227), [#823](https://github.com/Fei2411/DS-Bot/pull/823))
+- You can choose whether Enter sends a message or inserts a new line in Bot chats, and while a Bot is working, pressing Enter again on an empty message box sends your queued messages into the running turn right away. ([#680](https://github.com/Fei2411/DS-Bot/issues/680), [#816](https://github.com/Fei2411/DS-Bot/pull/816), [#839](https://github.com/Fei2411/DS-Bot/issues/839), [#841](https://github.com/Fei2411/DS-Bot/pull/841))
+
+### Changed
+
+- The sidebar slides in and out smoothly with more room between icons in the folded rail, the Bot avatar flies between details and a side chat, consecutive group messages from the same Bot chain together, and floating surfaces use frosted glass. ([#502](https://github.com/Fei2411/DS-Bot/issues/502), [#802](https://github.com/Fei2411/DS-Bot/pull/802), [#805](https://github.com/Fei2411/DS-Bot/pull/805), [#806](https://github.com/Fei2411/DS-Bot/pull/806), [#819](https://github.com/Fei2411/DS-Bot/pull/819))
+- Private chats show when messages were sent, the reply button stays at the bottom of long messages, and a Bot's scheduled tasks show their status, next run and full prompt. ([#391](https://github.com/Fei2411/DS-Bot/issues/391), [#533](https://github.com/Fei2411/DS-Bot/issues/533), [#590](https://github.com/Fei2411/DS-Bot/issues/590), [#817](https://github.com/Fei2411/DS-Bot/pull/817), [#820](https://github.com/Fei2411/DS-Bot/pull/820), [#821](https://github.com/Fei2411/DS-Bot/pull/821))
+- Group memory keeps only what outlasts the current task and is passed as a message so group turns share the Bot's prompt cache; skill proposals stay free of file names from that task, and AGENTS.md proposals tolerate small format slips. ([#797](https://github.com/Fei2411/DS-Bot/issues/797), [#827](https://github.com/Fei2411/DS-Bot/pull/827), [#828](https://github.com/Fei2411/DS-Bot/pull/828), [#830](https://github.com/Fei2411/DS-Bot/pull/830), [#832](https://github.com/Fei2411/DS-Bot/pull/832))
+- DS Bot tracks DeepSeek Harness 0.2.1-rc.5 and hides leading reasoning signature blocks in Bot chats. ([#812](https://github.com/Fei2411/DS-Bot/pull/812))
+
+### Fixed
+
+- A group chat no longer goes silent after DeepSeek Harness restarts; if a message cannot be passed on, the group says so. ([#826](https://github.com/Fei2411/DS-Bot/issues/826), [#840](https://github.com/Fei2411/DS-Bot/pull/840))
+- Word, Excel and PowerPoint previews work again in the desktop app on Windows and macOS. ([#679](https://github.com/Fei2411/DS-Bot/issues/679), [#705](https://github.com/Fei2411/DS-Bot/pull/705))
+- Quitting during first-run setup exits even if the folder picker stops answering, and button focus rings and long model names are no longer clipped by their containers. ([#401](https://github.com/Fei2411/DS-Bot/issues/401), [#824](https://github.com/Fei2411/DS-Bot/pull/824), [#847](https://github.com/Fei2411/DS-Bot/pull/847))
+- Linux hosts with an older glibc have documented Docker fallback and compatibility guidance. ([#683](https://github.com/Fei2411/DS-Bot/issues/683), [#825](https://github.com/Fei2411/DS-Bot/pull/825))
+
 ## [0.2.6] - 2026-11-02
 
 ### Fixed
