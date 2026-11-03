@@ -5,6 +5,7 @@ import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { Drawer, useDrawer } from './Drawer.tsx'
+import { ForgetCtx } from './forget.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -134,13 +135,13 @@ function NeedsScreenB({ navigation }: any) {
   )
 }
 
-function SettingsScreenB({ onForget, navigation }: any) {
+function SettingsScreenB({ navigation }: any) {
   const { p } = useTheme()
   const drawer = useDrawer()
   return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       <Header title={t('Settings')} onMenu={() => drawer.open()} />
-      <Settings onForget={onForget} navigation={navigation} />
+      <Settings navigation={navigation} />
     </View>
   )
 }
@@ -178,6 +179,7 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
   return (
     <View style={{ flex: 1 }}>
     <NoticeBanner />
+    <ForgetCtx.Provider value={onForget}>
     <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="Chat" component={ChatScreenB} initialParams={initial ?? undefined} />
       <Stack.Screen name="Needs">{(props: any) => <NeedsScreenB {...props} />}</Stack.Screen>
@@ -214,6 +216,7 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       )}</Stack.Screen>
       <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
     </Stack.Navigator>
+    </ForgetCtx.Provider>
     </View>
   )
 }

@@ -1,12 +1,13 @@
 // Bot and group management screens, mirroring the desktop details drawer and
 // settings forms: Bot details, Edit Bot, Create Bot, group settings, and the
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, setActiveComputer, type StoredComputer } from '../store.ts'
+import { ForgetCtx } from '../nav/forget.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
@@ -813,7 +814,7 @@ const fingerprint = async (key: string): Promise<string> => {
   return hex.slice(0, 16).toUpperCase().match(/.{4}/g)?.join(' ') ?? hex.slice(0, 16).toUpperCase()
 }
 
-export function Computers({ route, navigation }: any) {
+export function Computers({ navigation }: any) {
   const { p } = useTheme()
   const { online, computer } = useTeam()
   const [list, setList] = useState<StoredComputer[]>([])
@@ -826,7 +827,8 @@ export function Computers({ route, navigation }: any) {
     })
     return null
   })
-  const forget = (id: string) => { if (armed !== id) { setArmed(id); return } setArmed(null); void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) route.params?.onForget?.() }) }
+  const onForget = useContext(ForgetCtx)
+  const forget = (id: string) => { if (armed !== id) { setArmed(id); return } setArmed(null); void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) onForget() }) }
   return (
     <Screen title="">
       <BackRow title={t('Computers')} onBack={() => navigation.goBack()} />
@@ -841,7 +843,7 @@ export function Computers({ route, navigation }: any) {
                   <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{active ? (online ? t('Connected') : t('Connecting…')) : t('Not connected')} · {prints[item.hostDeviceId] ?? '…'}</Text>
                 </View>
                 {active ? null : (
-                  <Pressable accessibilityRole="button" onPress={() => void setActiveComputer(item.hostDeviceId).then(() => route.params?.onSwitch?.(item))} hitSlop={8}>
+                  <Pressable accessibilityRole="button" onPress={() => void setActiveComputer(item.hostDeviceId)} hitSlop={8}>
                     <Text style={[typeScale.settingsRow, { color: p.accent }]}>{t('Switch')}</Text>
                   </Pressable>
                 )}
@@ -851,7 +853,7 @@ export function Computers({ route, navigation }: any) {
               </View>
             )
           })}
-          <Row label={t('Add a computer')} onPress={() => route.params?.onForget?.()} />
+          <Row label={t('Add a computer')} onPress={onForget} />
         </Section>
       </ScrollView>
     </Screen>

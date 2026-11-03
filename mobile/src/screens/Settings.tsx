@@ -29,7 +29,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-export function Settings({ navigation, onForget }: { navigation?: any; onForget?: () => void }) {
+export function Settings({ navigation }: { navigation?: any }) {
   const { p } = useTheme()
   const { team, computer } = useTeam()
   const [prefs, setPrefs] = useState<Record<string, string>>({})
@@ -41,7 +41,7 @@ export function Settings({ navigation, onForget }: { navigation?: any; onForget?
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
       <Section label={t('Phone')}>
-        <Row label={t('Computers')} value={computer?.name ?? ''} onPress={() => navigation?.navigate('Computers', { onForget })} />
+        <Row label={t('Computers')} value={computer?.name ?? ''} onPress={() => navigation?.navigate('Computers')} />
         <Row label={t('Appearance')} value={{ light: t('Light'), dark: t('Dark'), system: t('System') }[theme] ?? t('System')}
           onPress={() => set('theme', theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')} />
         <Row label={t('Language')} value={{ system: t('Follow system'), zh: '简体中文', en: 'English' }[lang] ?? t('Follow system')}
