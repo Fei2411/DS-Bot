@@ -21,6 +21,9 @@
 }
 /* /springs */
 
+/* The corners DSH gives every element (dsh-client-ui-theme corner-shape.css), so the buttons here
+   are shaped like the plugin's; the circles stay round. */
+@supports (corner-shape:superellipse(1.5)){*,::before,::after{corner-shape:superellipse(1.5)}.whale-hit,.ripple,.drop{corner-shape:round}}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;background:transparent}
 /* The stage hangs 45 px below the window until a card needs the sheet; body clips it rather
