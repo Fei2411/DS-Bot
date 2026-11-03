@@ -13,6 +13,14 @@ box. The container is the sandbox boundary — see [Permissions](#permissions).
 - A DeepSeek API key (or another Anthropic-Messages-compatible endpoint through
   `DEEPSEEK_BASE_URL`).
 
+The image is a Debian Bookworm userland, so the host's glibc does not decide
+anything: this is also the supported route on hosts too old to run the desktop
+app or a host-installed `dsh` (CentOS 7, glibc 2.17 — see [known
+issues](../docs/known-issues.md)). The container brings its own DSH and native
+libraries, so keep the host's `libghostty-vt.so` and other system libraries
+out of it; the only host requirement is a Docker (or Podman) that can run a
+Bookworm image.
+
 ## Quick start
 
 From the repository root, edit `docker-compose.yml`: fill in
@@ -48,6 +56,10 @@ docker compose up -d --build
 
 That file publishes host port **3080** by default. Choose one deployment
 method; do not run both against the same data directory.
+
+Stop it with `docker compose down` (run in the directory that holds the
+Compose file you started). The container gets 15 s to flush sessions; data and
+workspace stay in their host folders.
 
 ## Permissions
 

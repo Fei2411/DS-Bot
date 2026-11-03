@@ -46,7 +46,12 @@ function rig() {
   const mask = raw.slice(raw.indexOf('<mask'), raw.indexOf('</mask>') + 7)
     .replace('<g class="bt-gaze">', '<g id="gaze" class="bt-gaze">')
     .replace('<g class="bt-eyes" fill="#000">', '<g id="eye-pair" class="bt-eyes" fill="#000">')
-  let layers = group(raw, '<g fill-rule="evenodd">')
+  // The start whale keeps the highlight layer and the stronger shade it was designed
+  // with; the runtime characters draw the body without them.
+  let layers = `<g fill-rule="evenodd"><path d="${whale.body}" fill="var(--bt-ink-deepseek)"/>`
+    + (whale.paints ?? []).map(([d, fill, opacity]) => `<path d="${d}" fill="${fill}" fill-opacity="${opacity}"/>`).join('')
+    + `<path d="${whale.shade}" fill="#000" fill-opacity=".14"/>`
+    + `<path d="${whale.light}" fill="#fff" fill-opacity=".16"/></g>`
   layers = wrap(layers, 'w-body', `<path d="${whale.body}"`)
   layers = wrap(layers, 'w-belly', `<path d="${whale.paints[0][0]}"`)
   layers = wrap(layers, 'w-shade', `<path d="${whale.shade}"`)

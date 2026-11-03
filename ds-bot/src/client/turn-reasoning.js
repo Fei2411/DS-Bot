@@ -24,4 +24,15 @@ const thinkingLive = step => step.status === 'running' && texts(step).length ===
 
 const texts = step => step.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '')
 
-const stepReasoning = step => step.blocks.filter(block => block.kind === 'reasoning').map(block => block.text).join('\n').trim()
+// Reasoning can open with a `<signature>` block meant for the model, not the
+// reader; DSH's chat hides it since 0.2.1-rc.5 and the Bot chat strips it the
+// same way, keeping the raw record in the session.
+const visibleReasoning = text => {
+  if (text[0] !== '<') return text
+  if ('<signature>'.startsWith(text)) return ''
+  if (!text.startsWith('<signature>')) return text
+  const end = text.indexOf('</signature>')
+  return end === -1 ? '' : text.slice(end + '</signature>'.length).replace(/^(\r?\n)+/, '')
+}
+
+const stepReasoning = step => step.blocks.filter(block => block.kind === 'reasoning').map(block => visibleReasoning(block.text)).join('\n').trim()

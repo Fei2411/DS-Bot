@@ -23,8 +23,8 @@ export const SUMS = 'SHA256SUMS.txt'
 const START = '<!-- downloads -->'
 const END = '<!-- /downloads -->'
 
-export const packageName = (version, entry) => `DeepSeek-Bot-${version}-${entry.file}`
-export const copyName = entry => `DeepSeek-Bot-${entry.file}`
+export const packageName = (version, entry) => `DS-Bot-${version}-${entry.file}`
+export const copyName = entry => `DS-Bot-${entry.file}`
 
 /** @returns {string[]} the packages of `version` that are not among `names` */
 export function missingPackages(version, names) {

@@ -4,7 +4,7 @@
 // DSH, no data of the user.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { state } from './helpers/fake-electron.mjs'
+import { app, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
 import { state as updaterState, updater } from './helpers/fake-updater.mjs'
 import { messageBoxes, startAct, startApp, startState, waitFor } from './helpers/app-harness.mjs'
@@ -59,4 +59,11 @@ test('a failed start offers the downloading update on its banner and installs it
   await waitFor(() => updaterState.quitAndInstall.length === 1, 'install the update')
   assert.equal(startState().update.state, 'installing')
   assert.deepEqual(messageBoxes(), [], 'no message box on the way')
+})
+
+test('the app ends after the update', async () => {
+  let left = false
+  app.once('will-quit', () => { left = true })
+  app.quit()
+  await waitFor(() => left, 'leave')
 })

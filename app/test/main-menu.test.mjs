@@ -18,10 +18,10 @@ test('the application menu of macOS has no Quit', async () => {
   await waitFor(() => state.tray !== undefined, 'build the tray')
   const menu = state.menus.at(-1).template
   const items = menu[0].submenu
-  assert.equal(menu[0].label, 'DeepSeek Bot', 'the menu of the app')
+  assert.equal(menu[0].label, 'DS Bot', 'the menu of the app')
   assert.equal(items.some(item => item.role === 'quit'), false, 'no Quit of its own')
   assert.equal(items.some(item => item.accelerator === 'CmdOrCtrl+Q' || item.accelerator === 'Command+Q'), false, 'no shortcut for it')
-  assert.equal(items.some(item => item.label === 'Quit DeepSeek Bot'), false, 'no entry for it')
+  assert.equal(items.some(item => item.label === 'Quit DS Bot'), false, 'no entry for it')
   // The menu keeps the rest of macOS: about, services and the hiding of the app.
   const roles = items.map(item => item.role).filter(Boolean)
   for (const role of ['about', 'services', 'hide', 'hideOthers', 'unhide']) assert.ok(roles.includes(role), `the menu keeps ${role}`)
