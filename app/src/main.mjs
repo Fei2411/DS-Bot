@@ -13,6 +13,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { canonicalExecPath } from './canonical-path.mjs'
+import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
 import { Pickers } from './picker-host.mjs'
@@ -63,13 +64,14 @@ const iconFile = join(assets, process.platform === 'win32' ? 'icon.ico' : 'icon.
 const trayIconFile = () => join(assets, process.platform === 'win32' ? 'tray.ico' : process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
 // Windows 11 draws Mica behind the page; mica.css lets it through the sidebar.
 const mica = micaAvailable(process.platform, release())
+configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -179,7 +181,7 @@ if (canonical !== undefined) {
   logs = new LogFile({ dir: join(app.getPath('userData'), 'logs') })
   rawOutput = captureStdio(logs)
   app.once('will-quit', () => { logs.flush() })
-  console.log(`DeepSeek Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
+  console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
@@ -282,7 +284,7 @@ async function loadModules() {
   ;({ downloadSaver } = downloads)
   ;({ chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
   ;({ HostProcess } = hostProcess)
-  ;({ copySessions, findTeam, importTeam, teamInUse, teamSizes, userDshHome } = imports)
+  ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome } = imports)
   ;({ ImportFlow } = flows)
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ CHECK_PROFILE, PROFILE } = profile)
@@ -477,7 +479,7 @@ async function pickAndPlace() {
     return
   }
   if (root.reason !== undefined) {
-    console.log(`DeepSeek Bot: the place ${root.at} cannot be used (${root.reason})`)
+    console.log(`DS Bot: the place ${root.at} cannot be used (${root.reason})`)
     proposed = undefined
     startWindow.card({ kind: 'rejected', reason: root.reason, path: root.at })
     return
@@ -520,7 +522,7 @@ async function startOver(root) {
     if (stopping || mine !== attempt) return
     setPlaces({ dataDir: root.dataDir, workspace: root.workspace })
     saveLocations(places)
-    console.log(`DeepSeek Bot: the data goes to ${places.dataDir}`)
+    console.log(`DS Bot: the data goes to ${places.dataDir}`)
   } finally {
     restarting = false
   }
@@ -583,6 +585,15 @@ async function startEngine(mine) {
     updatesStarted = true
     updates = startUpdates()
     updates?.subscribe((state) => { mainWindow?.webContents.send(IPC.appUpdateChanged, state) })
+
+  }
+  // Before a new Host, which reads the Sessions; the engine warmed on an import that was not
+  // taken has nothing left out.
+  if (warm === undefined) {
+    await restoreSessions(places.dataDir).then(({ copied, newer }) => {
+      if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
+      if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
+    }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
   }
   host = warm?.host ?? newHost()
   host.onMessage(message => {
@@ -660,7 +671,7 @@ async function importStep(mine) {
   saveLocations(where)
   if (result.outcome === 'copied') {
     const { summary } = result
-    console.log(`DeepSeek Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
+    console.log(`DS Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
     // The team lives here now; moving it is Settings' job (the data move).
     startWindow.place(undefined)
     return {}
@@ -682,7 +693,7 @@ async function importElsewhere(signal) {
     const root = rootOf(picked, { dshHome: userDshHome(), program: app.isPackaged ? programFolder() : undefined, current: places })
     if (root.same) return false
     if (root.reason !== undefined) {
-      console.log(`DeepSeek Bot: the place ${root.at} cannot be used (${root.reason})`)
+      console.log(`DS Bot: the place ${root.at} cannot be used (${root.reason})`)
       if (await askCard({ kind: 'rejected', reason: root.reason, path: root.at }, { signal }) === 'pick') continue
       return false
     }
@@ -697,6 +708,7 @@ async function importElsewhere(signal) {
 }
 
 function handleIpc() {
+
   // A throwaway run (DS_BOT_HOME) keeps its folders where it was told.
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
@@ -769,7 +781,7 @@ function handleIpc() {
   ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close) => {
     assertWindow(event)
     const source = (await listSources()).find((item) => item.id === sourceId)
-    if (!source) throw new Error('DeepSeek Bot: an unknown browser profile')
+    if (!source) throw new Error('DS Bot: an unknown browser profile')
     let outcome
     try {
       outcome = await importFromBrowser(source, { close: close === true })
@@ -786,9 +798,9 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportApply, async (event, key, id) => {
     assertWindow(event)
-    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DeepSeek Bot: a Bot storage key is required')
+    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DS Bot: a Bot storage key is required')
     const pending = cookieImports.take(typeof id === 'string' ? id : '')
-    if (!pending) throw new Error('DeepSeek Bot: this import is no longer pending')
+    if (!pending) throw new Error('DS Bot: this import is no longer pending')
     const storage = session.fromPartition(partitionOf(key))
     return applyCookies(storage, pending.cookies)
   })
@@ -858,14 +870,14 @@ async function checkTeam(where, signal, onProgress) {
     try {
       signal.throwIfAborted()
       const { unreadable } = await check.start()
-      if (unreadable.length > 0) console.warn(`DeepSeek Bot: this DSH cannot read ${unreadable.join(', ')}`)
+      if (unreadable.length > 0) console.warn(`DS Bot: this DSH cannot read ${unreadable.join(', ')}`)
       return unreadable.length
     } finally {
       signal.removeEventListener('abort', stop)
       await check.stop()
     }
   } catch (error) {
-    if (!signal.aborted) console.error('DeepSeek Bot: the chats were not checked before the copy:', error)
+    if (!signal.aborted) console.error('DS Bot: the chats were not checked before the copy:', error)
     return 0
   } finally {
     await rm(home, { recursive: true, force: true, maxRetries: 5 }).catch((error) => { console.error(error) })
@@ -911,7 +923,7 @@ async function pickMove() {
 function moveCard(to) {
   const reason = moveReason(to)
   if (reason !== undefined) {
-    console.log(`DeepSeek Bot: the data cannot move to ${to} (${reason})`)
+    console.log(`DS Bot: the data cannot move to ${to} (${reason})`)
     startWindow.card({ kind: 'rejected', reason, path: to })
     return
   }
@@ -1063,7 +1075,7 @@ function startUpdates() {
     const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
     return watchReleases({
       current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
-      asset: version => `DeepSeek-Bot-${version}-linux-${debArch}.deb`,
+      asset: version => `DS-Bot-${version}-linux-${debArch}.deb`,
     })
   }
   if (process.platform === 'win32' || process.platform === 'linux') {
@@ -1214,7 +1226,7 @@ function createWindow() {
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
     ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
-    title: 'DeepSeek Bot', show: false, icon: iconFile,
+    title: 'DS Bot', show: false, icon: iconFile,
     backgroundColor: mica ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
     // Frameless as in DSH Desktop: the caption buttons overlay the page's band. They keep the
     // sidebar's colors until the page sends the colors of the surface under them.
@@ -1396,7 +1408,7 @@ function shellText() {
 function assertWindow(event) {
   const contents = mainWindow?.webContents
   if (contents === undefined || event.sender !== contents || event.senderFrame !== contents.mainFrame
-    || !event.senderFrame.url.startsWith(`${origin}/`)) throw new Error('DeepSeek Bot: rejected IPC from an unknown page')
+    || !event.senderFrame.url.startsWith(`${origin}/`)) throw new Error('DS Bot: rejected IPC from an unknown page')
 }
 
 function fromWindow(event) {
@@ -1435,7 +1447,7 @@ async function offerUpdate(mine) {
   }
   progress(updates.state())
   const unsubscribe = updates.subscribe(progress)
-  const downloaded = await Promise.race([found.downloaded, sleep(UPDATE_DOWNLOAD_WAIT_MS).then(() => false)]).finally(unsubscribe)
+  const downloaded = await Promise.race([found.downloaded, sleep(UPDATE_DOWNLOAD_WAIT_MS, undefined, { ref: false }).then(() => false)]).finally(unsubscribe)
   if (!still()) return
   if (!downloaded) { startWindow.update({ state: 'failed', version }); return }
   startWindow.update({ state: 'installing', version })

@@ -20,16 +20,17 @@ export const waitFor = async (check, what, timeout = 10_000) => {
 /**
  * Start the app on throwaway folders: the places are chosen already and the one-time notice
  * is answered, so that the app asks nothing. The Host answers when the test lets it.
- * @param {{ packaged?: boolean, saved?: object, acknowledged?: boolean }} options whether the app
- *   is a packaged one, with an updater; what else locations.json keeps beside the places; whether
- *   the tray notice was answered already
+ * @param {{ packaged?: boolean, saved?: object, acknowledged?: boolean, firstRun?: boolean }} options
+ *   whether the app is a packaged one, with an updater; what else locations.json keeps beside the
+ *   places; whether the tray notice was answered already; a first run keeps its places unchosen,
+ *   so that it asks
  */
-export const startApp = async ({ packaged = true, saved = {}, acknowledged = true } = {}) => {
+export const startApp = async ({ packaged = true, saved = {}, acknowledged = true, firstRun = false } = {}) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-main-home-'))
   const workspace = join(home, 'workspace')
   mkdirSync(workspace, { recursive: true })
   mkdirSync(paths.userData, { recursive: true })
-  writeFileSync(join(paths.userData, 'locations.json'), JSON.stringify({ dataDir: home, workspace, ...saved }))
+  if (!firstRun) writeFileSync(join(paths.userData, 'locations.json'), JSON.stringify({ dataDir: home, workspace, ...saved }))
   if (acknowledged) writeFileSync(join(paths.userData, 'tray-close-acknowledged'), '')
   hold()
   await import('../../src/main.mjs')
@@ -39,7 +40,7 @@ export const startApp = async ({ packaged = true, saved = {}, acknowledged = tru
   // A Linux build updates itself only from inside an AppImage; outside one the app asks about
   // the newest GitHub release, which a test must never fetch. The faked electron-updater
   // answers for the AppImage, as it does on Windows.
-  if (process.platform === 'linux') process.env.APPIMAGE ??= '/tmp/deepseek-bot.AppImage'
+  if (process.platform === 'linux') process.env.APPIMAGE ??= '/tmp/ds-bot.AppImage'
   return { home, workspace }
 }
 

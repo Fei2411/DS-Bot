@@ -33,7 +33,7 @@ export function downloadSaver({ window, ask, staging, getPath, homedir = osHomed
     try {
       mkdirSync(holding, { recursive: true })
     } catch (error) {
-      log.warn(`DeepSeek Bot: a download could not start: ${message(error)}`)
+      log.warn(`DS Bot: a download could not start: ${message(error)}`)
       event.preventDefault()
       return
     }
@@ -45,7 +45,7 @@ export function downloadSaver({ window, ask, staging, getPath, homedir = osHomed
       try {
         target = await ask(name, folder)
       } catch (error) {
-        log.warn(`DeepSeek Bot: the save picker failed: ${message(error)}`)
+        log.warn(`DS Bot: the save picker failed: ${message(error)}`)
         target = null
       }
       if (target === null) item.cancel()
@@ -54,7 +54,7 @@ export function downloadSaver({ window, ask, staging, getPath, homedir = osHomed
       try {
         if (state === 'completed' && typeof target === 'string') move(staged, target)
       } catch (error) {
-        log.warn(`DeepSeek Bot: a download could not be moved to ${target}: ${message(error)}`)
+        log.warn(`DS Bot: a download could not be moved to ${target}: ${message(error)}`)
       } finally {
         rmSync(holding, { recursive: true, force: true })
       }
