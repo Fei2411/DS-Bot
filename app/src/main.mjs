@@ -13,6 +13,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { canonicalExecPath } from './canonical-path.mjs'
+import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf } from './place.mjs'
@@ -43,6 +44,7 @@ const IPC = {
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
 const MOVE_PROBLEMS = { drive: 'dialog.move.drive', nested: 'dialog.move.nested', workspace: 'dialog.move.workspace', program: 'dialog.move.inProgram', notEmpty: 'dialog.move.notEmpty' }
+const CHOOSING_QUIT_WAIT_MS = 1_000
 const UPDATE_CHECK_WAIT_MS = 15_000
 const UPDATE_DOWNLOAD_WAIT_MS = 15 * 60_000
 // Under this, the start page notes the drive's free space for the first 10 s (onboarding §3).
@@ -57,13 +59,14 @@ const iconFile = join(assets, process.platform === 'win32' ? 'icon.ico' : 'icon.
 const trayIconFile = () => join(assets, process.platform === 'win32' ? 'tray.ico' : process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
 // Windows 11 draws Mica behind the page; mica.css lets it through the sidebar.
 const mica = micaAvailable(process.platform, release())
+configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, teamInUse, userDshHome, copyData, moveProblem, CHECK_PROFILE, PROFILE
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, userDshHome, copyData, moveProblem, CHECK_PROFILE, PROFILE
 let watchReleases, watchUpdates, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -159,7 +162,7 @@ if (canonical !== undefined) {
   logs = new LogFile({ dir: join(app.getPath('userData'), 'logs') })
   rawOutput = captureStdio(logs)
   app.once('will-quit', () => { logs.flush() })
-  console.log(`DeepSeek Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
+  console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, mica, devTools: !app.isPackaged,
@@ -182,7 +185,11 @@ if (canonical !== undefined) {
       // A first-run dialog is open: the quit waits for it, and the app goes on meanwhile.
       event.preventDefault()
       shell.cancelQuit()
+      const stuck = choosing
       choosing.abort()
+      // A first run whose dialog never answers would hold every later quit the same
+      // way; the app still leaves when it stays silent.
+      setTimeout(() => { if (choosing === stuck) app.exit(0) }, CHOOSING_QUIT_WAIT_MS).unref()
       return
     }
     if (copying !== undefined) {
@@ -256,7 +263,7 @@ async function loadModules() {
   ;({ downloadSaver } = downloads)
   ;({ chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
   ;({ HostProcess } = hostProcess)
-  ;({ copySessions, findTeam, importTeam, teamInUse, userDshHome } = imports)
+  ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, userDshHome } = imports)
   ;({ copyData, moveProblem } = moves)
   ;({ CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates } = updatesModule)
@@ -398,7 +405,7 @@ async function pickAndPlace() {
     return
   }
   if (root.reason !== undefined) {
-    console.log(`DeepSeek Bot: the place ${root.at} cannot be used (${root.reason})`)
+    console.log(`DS Bot: the place ${root.at} cannot be used (${root.reason})`)
     proposed = undefined
     startWindow.card({ kind: 'rejected', reason: root.reason, path: root.at })
     return
@@ -440,7 +447,7 @@ async function startOver(root) {
     if (stopping || mine !== attempt) return
     setPlaces({ dataDir: root.dataDir, workspace: root.workspace })
     saveLocations(places)
-    console.log(`DeepSeek Bot: the data goes to ${places.dataDir}`)
+    console.log(`DS Bot: the data goes to ${places.dataDir}`)
   } finally {
     restarting = false
   }
@@ -510,7 +517,13 @@ async function startEngine(mine) {
     updatesStarted = true
     updates = startUpdates()
     updates?.subscribe((state) => { mainWindow?.webContents.send(IPC.appUpdateChanged, state) })
+
   }
+  // Before the Host, which reads the Sessions.
+  await restoreSessions(places.dataDir).then(({ copied, newer }) => {
+    if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
+    if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
+  }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
   host = newHost()
   host.onMessage(message => {
     if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
@@ -527,6 +540,7 @@ async function startEngine(mine) {
 }
 
 function handleIpc() {
+
   // A throwaway run (DS_BOT_HOME) keeps its folders where it was told.
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
@@ -599,7 +613,7 @@ function handleIpc() {
   ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close) => {
     assertWindow(event)
     const source = (await listSources()).find((item) => item.id === sourceId)
-    if (!source) throw new Error('DeepSeek Bot: an unknown browser profile')
+    if (!source) throw new Error('DS Bot: an unknown browser profile')
     let outcome
     try {
       outcome = await importFromBrowser(source, { close: close === true })
@@ -616,9 +630,9 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportApply, async (event, key, id) => {
     assertWindow(event)
-    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DeepSeek Bot: a Bot storage key is required')
+    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DS Bot: a Bot storage key is required')
     const pending = cookieImports.take(typeof id === 'string' ? id : '')
-    if (!pending) throw new Error('DeepSeek Bot: this import is no longer pending')
+    if (!pending) throw new Error('DS Bot: this import is no longer pending')
     const storage = session.fromPartition(partitionOf(key))
     return applyCookies(storage, pending.cookies)
   })
@@ -670,13 +684,13 @@ const setProgress = (value) => { owner()?.setProgressBar(value) }
 // without the copied Sessions' folders, so the old team's folders are not offered as projects.
 // Before that, the app's own DSH reads every chat of the team once: a newer DSH can write
 // records that this one refuses while the log format stays the same. Such a chat stops the
-// copy, as a newer log format does; 'quit' means the user updates DeepSeek Bot first, and
+// copy, as a newer log format does; 'quit' means the user updates DS Bot first, and
 // 'stopped' that the app quit during the copy.
 async function copyTeam(where, signal) {
   const unreadable = await checkTeam(where, signal)
   if (signal.aborted) return 'stopped'
   if (unreadable > 0) {
-    const { response } = await startWindow.asking(dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', noLink: true, message: tx('dialog.import.newer', { n: unreadable }), buttons: [tx('btn.quit'), tx('btn.startWithout')], defaultId: 0, cancelId: 0, signal }))
+    const { response } = await startWindow.asking(dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', noLink: true, message: tx('dialog.import.newer', { n: unreadable }), buttons: [tx('btn.quit'), tx('btn.startWithout')], defaultId: 0, cancelId: 0, signal }))
     if (signal.aborted) return 'stopped'
     if (response === 0) return 'quit'
     saveLocations(where)
@@ -693,11 +707,11 @@ async function copyTeam(where, signal) {
     await warm.stop()
     host = undefined
     const summary = await importTeam({ ...where.import, to: where.dataDir, workspace: where.workspace, dsh: getDshRuntimeVersion(), signal })
-    console.log(`DeepSeek Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
+    console.log(`DS Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
   } catch (error) {
     if (signal.aborted) return 'stopped'
     console.error(error)
-    await startWindow.asking(dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: tx('dialog.import.failed', { message: error instanceof Error ? error.message : String(error) }), signal }))
+    await startWindow.asking(dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', message: tx('dialog.import.failed', { message: error instanceof Error ? error.message : String(error) }), signal }))
     if (signal.aborted) return 'stopped'
   } finally {
     signal.removeEventListener('abort', stopWarm)
@@ -727,14 +741,14 @@ async function checkTeam(where, signal) {
     try {
       signal.throwIfAborted()
       const { unreadable } = await check.start()
-      if (unreadable.length > 0) console.warn(`DeepSeek Bot: this DSH cannot read ${unreadable.join(', ')}`)
+      if (unreadable.length > 0) console.warn(`DS Bot: this DSH cannot read ${unreadable.join(', ')}`)
       return unreadable.length
     } finally {
       signal.removeEventListener('abort', stop)
       await check.stop()
     }
   } catch (error) {
-    if (!signal.aborted) console.error('DeepSeek Bot: the chats were not checked before the copy:', error)
+    if (!signal.aborted) console.error('DS Bot: the chats were not checked before the copy:', error)
     return 0
   } finally {
     setProgress(-1)
@@ -755,13 +769,13 @@ async function moveData(workspace) {
     for (const current of new Set([workspace, places.workspace])) {
       const problem = moveProblem({ from: places.dataDir, to, workspace: current, dshHome, program: app.isPackaged ? programFolder() : undefined })
       if (problem === undefined) continue
-      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: problem === 'dsh' ? tx('dialog.move.inDsh', { home: dshHome }) : tx(MOVE_PROBLEMS[problem]), buttons: [tx('btn.ok')] })
+      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', message: problem === 'dsh' ? tx('dialog.move.inDsh', { home: dshHome }) : tx(MOVE_PROBLEMS[problem]), buttons: [tx('btn.ok')] })
       return true
     }
     return false
   }
   if (await refused()) return false
-  const { response } = await dialog.showMessageBox(owner(), { type: 'question', title: 'DeepSeek Bot', noLink: true, message: tx('dialog.move.confirm', { to }), detail: tx('dialog.move.detail', { from: places.dataDir }), buttons: [tx('btn.move'), tx('btn.cancel')], defaultId: 0, cancelId: 1 })
+  const { response } = await dialog.showMessageBox(owner(), { type: 'question', title: 'DS Bot', noLink: true, message: tx('dialog.move.confirm', { to }), detail: tx('dialog.move.detail', { from: places.dataDir }), buttons: [tx('btn.move'), tx('btn.cancel')], defaultId: 0, cancelId: 1 })
   if (response !== 0 || stopping || await refused()) return false
   const signal = copyAbort.signal
   copying = (async () => {
@@ -778,7 +792,7 @@ async function moveData(workspace) {
     }
     // Another DSH on the same data would go on writing while the copy is made.
     if (teamInUse(places.dataDir)) {
-      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: tx('dialog.move.inUse') })
+      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', message: tx('dialog.move.inUse') })
       app.relaunch()
       return
     }
@@ -795,7 +809,7 @@ async function moveData(workspace) {
     } catch (error) {
       if (signal.aborted) return
       console.error(error)
-      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DeepSeek Bot', message: tx('dialog.move.failed', { message: error instanceof Error ? error.message : String(error) }) })
+      await dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', message: tx('dialog.move.failed', { message: error instanceof Error ? error.message : String(error) }) })
     } finally {
       setProgress(-1)
     }
@@ -825,7 +839,7 @@ function startUpdates() {
     const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
     return watchReleases({
       current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
-      asset: version => `DeepSeek-Bot-${version}-linux-${debArch}.deb`,
+      asset: version => `DS-Bot-${version}-linux-${debArch}.deb`,
     })
   }
   if (process.platform === 'win32' || process.platform === 'linux') {
@@ -851,13 +865,13 @@ const afterHandoff = async () => { await startWindow.teamShown; return !failed }
 
 async function askRestartNow(version) {
   if (failed || !await afterHandoff()) return false
-  const { response } = await dialog.showMessageBox(owner(), { type: 'info', title: 'DeepSeek Bot', message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [tx('btn.restart'), tx('btn.notNowRestart')], defaultId: 0, cancelId: 1, noLink: true })
+  const { response } = await dialog.showMessageBox(owner(), { type: 'info', title: 'DS Bot', message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [tx('btn.restart'), tx('btn.notNowRestart')], defaultId: 0, cancelId: 1, noLink: true })
   return response === 0
 }
 
 async function askDownloadNow(version) {
   if (failed || !await afterHandoff()) return false
-  const { response } = await dialog.showMessageBox(owner(), { type: 'info', title: 'DeepSeek Bot', message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [tx('btn.download'), tx('btn.notNowDownload')], defaultId: 0, cancelId: 1, noLink: true })
+  const { response } = await dialog.showMessageBox(owner(), { type: 'info', title: 'DS Bot', message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [tx('btn.download'), tx('btn.notNowDownload')], defaultId: 0, cancelId: 1, noLink: true })
   return response === 0
 }
 
@@ -888,7 +902,7 @@ function createWindow() {
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
     ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
-    title: 'DeepSeek Bot', show: false, icon: iconFile,
+    title: 'DS Bot', show: false, icon: iconFile,
     backgroundColor: mica ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
     // Frameless as in DSH Desktop: the caption buttons overlay the page's band. They keep the
     // sidebar's colors until the page sends the colors of the surface under them.
@@ -1063,7 +1077,7 @@ function shellText() {
 function assertWindow(event) {
   const contents = mainWindow?.webContents
   if (contents === undefined || event.sender !== contents || event.senderFrame !== contents.mainFrame
-    || !event.senderFrame.url.startsWith(`${origin}/`)) throw new Error('DeepSeek Bot: rejected IPC from an unknown page')
+    || !event.senderFrame.url.startsWith(`${origin}/`)) throw new Error('DS Bot: rejected IPC from an unknown page')
 }
 
 function fromWindow(event) {
@@ -1086,7 +1100,7 @@ async function fail(error) {
   startWindow.fail(error, startKind())
   const found = await Promise.race([updates?.latest() ?? null, sleep(UPDATE_CHECK_WAIT_MS).then(() => null)])
   if (!found || mine !== attempt) return
-  await dialog.showMessageBox(owner(), { type: 'info', title: 'DeepSeek Bot', message: tx(found.page ? 'dialog.update.onFailurePage' : 'dialog.update.onFailure', { version: found.version }) })
+  await dialog.showMessageBox(owner(), { type: 'info', title: 'DS Bot', message: tx(found.page ? 'dialog.update.onFailurePage' : 'dialog.update.onFailure', { version: found.version }) })
   if (found.page) {
     if (!process.env.DS_BOT_HOME) await electronShell.openExternal(found.page)
     return

@@ -1,9 +1,11 @@
 import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChatsIcon, ClockIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
+import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
+import { canSetGoal } from './goal.js'
 import { BotMark } from './mark.js'
 import { useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
+import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -53,7 +55,16 @@ export function useDictation(onText) {
   return { listening, note, start, stop }
 }
 
-export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
+export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
+  const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
+  const composerRoot = useRef(null)
+  useEffect(() => {
+    const root = composerRoot.current?.closest('[data-composer-card]')
+    if (enterToSend || !inputActions || !root) return undefined
+    const onKey = event => insertComposerNewline(event, inputActions)
+    root.addEventListener('keydown', onKey, true)
+    return () => root.removeEventListener('keydown', onKey, true)
+  }, [enterToSend, inputActions])
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion())
   })
@@ -83,7 +94,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       onMouseDown: keepComposerFocus, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()),
     }, h(MicIcon)),
     h('button', {
-      type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
+      ref: composerRoot, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
       onMouseDown: keepComposerFocus, onClick: () => actions.openVoice(sessionId),
     }, h(WaveIcon, { size: 18 })),
     dictation.note ? h('span', { className: 'bt-mic-note', role: 'status' }, dictation.note) : null)
@@ -121,6 +132,15 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown, true); window.removeEventListener('keydown', onKey, true) }
   }, [open])
+  // Hooks stay above the early return below: the roster may not know the Bot yet, and a
+  // render that skips a hook breaks the composer's slot when the roster arrives.
+  // Anchored to the "+" each render: the visible viewport can move (on-screen
+  // keyboard) while the menu is open.
+  const place = useMemo(() => {
+    if (!shown || !button.current) return null
+    const rect = button.current.getBoundingClientRect()
+    return { left: rect.left, bottom: viewBottom() - rect.top + 8 }
+  }, [shown, open, tick])
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id
   if (sessionId === undefined || target === undefined) return null
   const fileInput = () => button.current?.closest('[data-composer-card]')?.querySelector('input[type=file]')
@@ -144,13 +164,11 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     actions.referenceChat(sessionId, inputActions?.captureInsertion?.())
   }
   const canReference = typeof inputActions?.captureInsertion === 'function' && actions.canReferenceChat()
-  // Anchored to the "+" each render: the visible viewport can move (on-screen
-  // keyboard) while the menu is open.
-  const place = useMemo(() => {
-    if (!shown || !button.current) return null
-    const rect = button.current.getBoundingClientRect()
-    return { left: rect.left, bottom: viewBottom() - rect.top + 8 }
-  }, [shown, open, tick])
+  const room = roster.roomsById?.[sessionId]
+  const goal = () => {
+    setOpen(null)
+    actions.composeGoal(room.id)
+  }
   return h(Fragment, null,
     h('button', {
       ref: button, type: 'button', className: 'bt-plus', 'aria-label': t('Add'), title: t('Add'),
@@ -162,5 +180,6 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     },
     shown.files ? h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))) : null,
     canReference ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: reference }, h(ChatsIcon), h('span', { className: 'bt-menu-label' }, t('Reference a chat'))) : null,
+    canSetGoal(room, roster) ? h('button', { type: 'button', role: 'menuitem', onClick: goal }, h(GoalIcon), h('span', { className: 'bt-menu-label' }, t('Set a goal'))) : null,
     h('button', { type: 'button', role: 'menuitem', onClick: schedule }, h(ClockIcon), h('span', { className: 'bt-menu-label' }, t('Scheduled task')))), document.body) : null)
 }
