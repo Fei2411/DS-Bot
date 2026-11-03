@@ -8,12 +8,11 @@ export function freshBotName(roster, base = 'New Bot') {
   return `${base} ${index}`
 }
 
-// The form starts on the DSH default model when it is usable, else the first usable
-// one. A model whose provider has no key fails every turn, so with none usable the form
-// starts on none and the new Bot waits for a pick.
+// The form starts on the team default model from settings when it is served, then
+// the DSH default, else the first one.
 export function startModel(roster) {
-  const usable = (roster.models ?? []).filter(model => !model.needsKey)
-  return (usable.find(model => model.ref === roster.defaultModel) ?? usable[0])?.ref ?? ''
+  const usable = (roster.models ?? []).filter(model => model.needsKey !== true)
+  return (usable.find(model => model.ref === roster.prefs?.defaultBotModel) ?? usable.find(model => model.ref === roster.defaultModel) ?? usable[0])?.ref ?? ''
 }
 
 // A chosen model is always sent: the host fixes it on the Bot at creation.

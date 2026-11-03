@@ -98,7 +98,8 @@ export function FeedbackPage({ actions, run, Section, Row }) {
   }))
   const clearLog = () => run(actions.diagnosticsClear().then(clearClientErrors).then(load).then(() => setNote(t('Cleared the error log.'))))
 
-  const browserErrors = report ? clientErrors().map(entry => ({ ...entry, source: 'browser' })) : []
+  // The report needs the Bot API; this window's own errors show without it.
+  const browserErrors = clientErrors().map(entry => ({ ...entry, source: 'browser' }))
   const entries = [...(report?.entries ?? []), ...browserErrors].sort((a, b) => new Date(b.time) - new Date(a.time))
   const total = (report?.total ?? 0) + browserErrors.length
   const shown = entries.slice(0, 8)

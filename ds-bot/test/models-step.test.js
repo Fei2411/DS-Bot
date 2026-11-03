@@ -108,14 +108,11 @@ function advanced(actions) {
   }
   const roster = { byId: {}, roomsById: {}, bots: [], rooms: [], models: [], prefs: {} }
   const tree = SettingsDialog({ page: 'general', id: null, roster, actions: all, useUpdate: pick => pick({}) })
-  const [button] = walk(tree, node => node.type === 'button' && textOf(node) === 'Advanced settings (DeepSeek Harness)')
+  const [button] = walk(tree, node => node.type === 'button' && textOf(node) === 'Harness settings')
   return { button, calls }
 }
 
-test('Advanced settings opens DSH settings on Models, or on their first page without that opener', () => {
-  const models = advanced(calls => ({ openHarnessModels: () => calls.push('models') }))
-  models.button.props.onClick()
-  assert.deepEqual(models.calls, ['close', 'models'])
+test('Harness settings opens DSH settings', () => {
   const plain = advanced(() => ({}))
   plain.button.props.onClick()
   assert.deepEqual(plain.calls, ['close', 'settings'])

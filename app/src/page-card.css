@@ -1,4 +1,4 @@
-/* DeepSeek Bot's own questions in the team window: one card over the page in place of a message
+/* DS Bot's own questions in the team window: one card over the page in place of a message
    box (main.mjs askInWindow, preload.cjs showCard). The main process inserts this sheet; the
    colors and springs are the start window's, scoped to the card's layer so that the page's own
    stay as they are. */
