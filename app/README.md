@@ -143,18 +143,20 @@ The launch URL of the Host is good for one use only. When the first load never c
 
 | File | What it does |
 |---|---|
-| `src/main.mjs` | Main process: one instance, the window, which loads the Host's loopback address as DSH Web does, and the sign-in page DSH opens, which goes to the system browser |
+| `src/main.mjs` | Main process: one instance, the start window and the team window, which loads the Host's loopback address as DSH Web does, and the sign-in page DSH opens, which goes to the system browser |
+| `src/start/`, `src/start-window.mjs`, `src/start-frame.mjs`, `scripts/start-assets.mjs` | The start window (720 × 540, Mica on Windows 11): the whale swims across the waterline as the real startup phases finish, cards morph in place, and the window grows to the team window's rectangle on hand-off |
 | `src/shell.mjs`, `src/tray.mjs`, `src/background-notice.mjs` | The window and the tray: the window hides instead of closing, the tray opens it again and quits the app, and the one-time confirmation before the window hides |
 | `src/update-prompt.mjs` | An update prompt that waits for the window to be shown again |
 | `src/host-port.mjs` | The Host's port, kept between starts, since the page keeps its storage per address |
-| `src/preload.cjs` | Hands DS Bot's settings the data location and its move, and DS Bot's Bot browsers their webview leases and cookie imports. On Windows it marks the page for the frameless window and sends the caption buttons the colors of the surface under them |
-| `src/bot-browser.mjs` | The Bot browsers' webviews: only a leased one attaches, with fixed preferences; each Bot's logins stay on disk until the Bot is deleted; pages cannot reach the Host |
+| `src/logs.mjs`, `src/downloads.mjs` | Rotating `main.log` (2 MB × 3 in userData) with key, token and home-path redaction; downloads folder lookup that falls back cleanly when the OS Downloads path is missing |
+| `src/preload.cjs` | Hands the start page `dsBotStart`, DS Bot's settings the data location and its move, and DS Bot's Bot browsers their webview leases and cookie imports. On Windows it marks the page for the frameless window and sends the caption buttons the colors of the surface under them |
+| `src/bot-browser.mjs`, `src/bot-views.mjs` | The Bot browsers' webviews and native views: only a leased one attaches, with fixed preferences; each Bot's logins stay on disk until the Bot is deleted; pages cannot reach the Host |
 | `src/cookie-parse.mjs`, `src/cookie-import.mjs`, `src/browser-sources.mjs` | Cookie imports: the cookie-file parser (Cookie-Editor JSON, Netscape, Playwright storageState), the write into a Bot's partition with read-back and flush, and the installed-browser profiles a source is cloned from — the source browser itself decrypts its own store over a CDP pipe; values never leave the main process |
-| `src/window-frame.mjs`, `src/mica.css` | The frameless Windows window: the caption band, when Mica is available (Windows 11 22H2 and later), and the stylesheet that lets Mica through the sidebar |
+| `src/window-frame.mjs`, `src/mica.css`, `src/fonts.css` | The frameless Windows window: the caption band, when Mica is available (Windows 11 22H2 and later), the stylesheet that lets Mica through the sidebar, and the font sheet that leaves CJK fallback to the OS |
 | `src/host-process.mjs` | Starts the Host in the bundled plain Node on Linux, Electron's Node mode elsewhere, and owns its exit |
 | `src/host.mjs` | The Host: boots the profile with `runProfile()` and reports the launch URL and the page injections; for the first-run check (`DS_BOT_CHECK`), the chats it cannot read |
-| `src/profile.mjs` | The profiles: the app's own and the first-run check's, their bundles, and their creation and update |
-| `src/app-patch.mjs` | The app's own profile overlay (`profiles/app-onboarding.patch.yml`, passed through `patchFiles`): it turns off DSH Web's automatic credential step (`credentialOnboarding: false`), since models are set up in DS Bot's Models page and the Main Bot's key card |
+| `src/profile.mjs`, `src/legacy.mjs` | The profiles: the app's own and the first-run check's, their bundles, creation and update, and the migration / encryption identity compatibility with earlier installs |
+| `src/app-patch.mjs`, `src/office-patch.mjs`, `src/goal-patch.mjs`, `src/search-patch.mjs` | The app's profile overlays (passed through `patchFiles`): turns off DSH Web's automatic credential step (`credentialOnboarding: false`), wires the bundled Office runtime when present, removes DSH's `/goal` command and tool from presets in favor of DS Bot's group Goal, and restores a working search provider when `web-search-auto` was disabled |
 | `src/session-check.mjs` | Which chats the pinned DSH refuses because a newer DSH wrote them |
 | `src/first-run.mjs` | The first start's places (the defaults, the saved ones, the folder picker of 「换个位置…」), its offer to import, and the texts of the data move |
 | `src/place.mjs` | The place line of the start page (drive, free space) and the root rule of a picked folder |

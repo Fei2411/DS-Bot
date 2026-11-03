@@ -218,6 +218,8 @@ const ZH = {
   // Header
   'Message {name}': '给 {name} 发消息',
   Message: '发消息',
+  'Press Enter to steer queued messages': '按 Enter 插话发送排队的消息',
+  'Couldn’t steer the queued messages. Try again.': '插话发送失败，请重试。',
   'View conversation details': '查看对话详情',
   '1 new message': '1 条新消息',
   '{count} new messages': '{count} 条新消息',

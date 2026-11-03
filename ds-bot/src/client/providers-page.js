@@ -188,7 +188,8 @@ export const PROVIDERS_CSS = `
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin}
+/* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
+.bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
