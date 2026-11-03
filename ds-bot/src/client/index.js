@@ -40,6 +40,7 @@ import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
 import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
 import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
+import { steerQueued } from './enter-steer.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
@@ -774,6 +775,15 @@ export function apply(ctx) {
       return () => { offChat(); offOpen() }
     } catch {
       return () => {}
+    }
+  }
+  // Enter on an empty composer while the Bot works sends the user's queued
+  // messages into the running turn (the "+" owns the key; #839).
+  actions.steerQueued = async (sessionId) => {
+    const session = ctx.sessions.binding(sessionId)?.session
+    if (session === undefined) return
+    if (await steerQueued(session) === 'failed') {
+      actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
   }
   // A terminal tab in DSH's right column, only where the terminal plugin

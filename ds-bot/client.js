@@ -253,6 +253,8 @@ var ZH = {
   // Header
   "Message {name}": "给 {name} 发消息",
   Message: "发消息",
+  "Press Enter to steer queued messages": "按 Enter 插话发送排队的消息",
+  "Couldn’t steer the queued messages. Try again.": "插话发送失败，请重试。",
   "View conversation details": "查看对话详情",
   "1 new message": "1 条新消息",
   "{count} new messages": "{count} 条新消息",
@@ -2651,6 +2653,8 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}
+/* Inset: the .bt-list scroll box clips anything drawn outside the row. */
+.bt-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-row[aria-current=page] .bt-row-name{font-weight:500}
 .bt-row-body{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
 .bt-row-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:400}
@@ -3072,6 +3076,8 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-set-hint{font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3))}
 .bt-set-control{flex:none;display:flex;align-items:center;gap:6px}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
+/* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
+.bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
@@ -3177,7 +3183,9 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-msg-line{position:relative;display:flex;align-items:flex-end;gap:8px;max-width:100%}
 .bt-msg-line>.bt-bubble{max-width:none;min-width:0}
 /* The same bubble width as beside an avatar column: the share of (100% - 30px), plus the 30px. */
-.bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 52px))}
+.bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 82px))}
+/* The indent of earlier rows comes out of their line, so their toolbar keeps its 82px too. */
+.bt-astack[data-lead]>.bt-msg:not(:last-child)>.bt-msg-line{max-width:calc(100% - 30px)}
 .bt-tools{position:absolute;bottom:0;z-index:0;left:100%;margin-left:6px;display:flex;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 /* The hover bridge spans only the 6px gap (plus a little overlap) between the
    bubble's edge and the toolbar: wider, it sits over the bubble's tail and
@@ -3452,6 +3460,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-settings-scroll{overflow-x:clip}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-model .bt-set-control{max-width:none}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
@@ -4270,7 +4279,8 @@ function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
   (0, import_react5.useEffect)(() => {
     const box = stepper.current;
     if (box === null || typeof ResizeObserver !== "function") return void 0;
-    const measure = () => box.querySelectorAll(".bt-goal-step").forEach((node) => node.classList.toggle("bt-goal-mini", node.clientWidth < 14));
+    const min = view.stages.length >= 10 ? 17 : 14;
+    const measure = () => box.querySelectorAll(".bt-goal-step").forEach((node) => node.classList.toggle("bt-goal-mini", node.clientWidth < min));
     const observer = new ResizeObserver(measure);
     observer.observe(box);
     measure();
@@ -4523,12 +4533,13 @@ var GOAL_CSS = `
 .bt-goal-step:first-child::before{left:50%}
 .bt-goal-step:last-child::before{right:50%}
 .bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
-.bt-goal-node>svg{width:12px;height:12px}
+.bt-goal-node>svg{flex:none;width:min(12px,70%);height:auto}
 .bt-goal-step[data-step=passed]>.bt-goal-node{background:var(--bt-green);border-color:var(--bt-green);color:var(--bt-main)}
 .bt-goal-step[data-step=current]>.bt-goal-node{border-color:var(--bt-accent);color:var(--bt-accent);font-weight:600}
 .bt-goal-step[data-step=waiting]>.bt-goal-node{border-color:var(--bt-star);color:var(--bt-star);font-weight:600}
 .bt-goal-step[data-sel]:not([aria-current])>.bt-goal-node{box-shadow:0 0 0 1.5px var(--bt-ink)}
 .bt-goal-step.bt-goal-mini .bt-goal-node{font-size:0}
+.bt-goal-step.bt-goal-mini .bt-goal-node>svg{display:none}
 /* The selected stage below the stepper. */
 .bt-goal-bstage{display:flex;flex-direction:column;padding:4px 14px 14px;font-size:13px;line-height:18px;animation:bt-veil-in .22s ease-out backwards}
 .bt-goal-bline{display:flex;align-items:baseline;gap:8px}
@@ -11122,6 +11133,8 @@ var SIDEBAR_CSS = `
 .bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
+/* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
+.bt-agent-sub-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-agent-sub-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-agent-sub-time{flex:none;font-size:11px;color:var(--bt-ink-3)}
 .bt-agent-new{color:var(--bt-ink-3)}
@@ -11386,6 +11399,24 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   );
 }
 
+// src/client/enter-steer.js
+var steerable = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0 && input.queue.some((message) => message.source?.kind === "user");
+var enterSteers = (event, input) => event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
+var steerQueued = async (session) => {
+  try {
+    const queued = session.projections.faceOf("inbox").getSnapshot()?.["next-turn"] ?? [];
+    for (const item of queued) {
+      if (item.source?.kind !== "user") continue;
+      const result = await session.updateQueue(item.id, { kind: "steer" });
+      if (result.ok) continue;
+      return result.error.code === "session/steer-unavailable" || result.error.code === "session/queue-item-not-found" ? "done" : "failed";
+    }
+    return "done";
+  } catch {
+    return "failed";
+  }
+};
+
 // src/client/composer.js
 var import_react23 = require("react");
 var import_react_dom5 = require("react-dom");
@@ -11511,13 +11542,18 @@ function menuIcons(roster) {
     return marks.get(id);
   };
 }
-function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
+function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const [open, setOpen] = (0, import_react23.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react23.useRef)(null);
   const menu = (0, import_react23.useRef)(null);
   const tick = useViewport();
+  const inputNow = (0, import_react23.useRef)(void 0);
+  const ready = useInput?.((state) => {
+    inputNow.current = state;
+    return steerable(state);
+  }) === true;
   (0, import_react23.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
@@ -11536,6 +11572,34 @@ function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  (0, import_react23.useEffect)(() => {
+    const card = button.current?.closest("[data-composer-card]");
+    if (!ready || card === null || card === void 0) return void 0;
+    card.style.setProperty("--bt-placeholder", JSON.stringify(t("Press Enter to steer queued messages")));
+    return () => card.style.removeProperty("--bt-placeholder");
+  });
+  (0, import_react23.useEffect)(() => {
+    let steering = false;
+    const onKey = (event) => {
+      if (steering || event.defaultPrevented || open) return;
+      const target2 = event.target;
+      if (typeof target2?.closest !== "function") return;
+      const card = button.current?.closest("[data-composer-card]");
+      if (card === null || card === void 0 || target2.closest("[data-composer-card]") !== card) return;
+      if (target2.closest("[contenteditable=true]") === null) return;
+      if (target2.closest("[data-composer-composing]")) return;
+      if (target2.ownerDocument?.querySelector('[role="listbox"]')) return;
+      if (!enterSteers(event, inputNow.current)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      steering = true;
+      void Promise.resolve(actions.steerQueued(sessionId)).finally(() => {
+        steering = false;
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, sessionId]);
   const place = (0, import_react23.useMemo)(() => {
     if (!shown || !button.current) return null;
     const rect = button.current.getBoundingClientRect();
@@ -12630,7 +12694,8 @@ var MODEL_CSS = `
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 /* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
 .bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
-.bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:30px;max-width:min(560px,calc(100% - 30px));max-height:min(240px,36vh);max-height:min(240px,36dvh);overflow-y:auto;scrollbar-width:thin}
+/* The scroll box clips at its padding edge, so 3px of padding keeps the chips' focus rings visible; the negative margins cancel it so the chips stay in place. */
+.bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;box-sizing:border-box;padding:3px;margin:-3px 0 -3px 27px;max-width:min(566px,calc(100% - 27px));max-height:min(246px,calc(36vh + 6px));max-height:min(246px,calc(36dvh + 6px));overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-model-choice-chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -13990,6 +14055,7 @@ var AVATAR_LIBRARY_CSS = `
 .bt-lib-del{position:absolute;right:0;top:0;width:28px;height:28px;padding:0;border:1px solid var(--bt-line-2);border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .bt-lib-del:hover{color:var(--bt-ink)}
 .bt-lib-del svg{width:14px;height:14px}
+.bt-lib-pick:focus-visible,.bt-lib-del:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-lib-more{display:flex;align-items:center;gap:8px}
 .bt-lib-report{display:flex;flex-direction:column;gap:4px}
 `;
@@ -16929,7 +16995,10 @@ function UsagePage({ roster, actions, focusId }) {
 var USAGE_CSS = `
 .bt-us{--bt-us-ease:cubic-bezier(.22,1,.36,1);--bt-us-rest:color-mix(in srgb,var(--bt-ink) 30%,var(--bt-card));--bt-us-more:color-mix(in srgb,var(--bt-ink) 16%,var(--bt-card));display:flex;flex-direction:column;gap:14px;padding-bottom:4px}
 .bt-us-top{position:relative;z-index:4;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.bt-us-tabs{position:relative;display:inline-flex;flex:none;padding:3px;border-radius:999px;background:var(--bt-hover)}
+/* Scrolls instead of running past the page when the column is narrower than the tabs. */
+.bt-us-tabs{position:relative;display:inline-flex;flex:none;max-width:100%;overflow-x:auto;scrollbar-width:none;padding:3px;border-radius:999px;background:var(--bt-hover)}
+.bt-us-tabs::-webkit-scrollbar{display:none}
+.bt-us-tabs button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-us-tabs button{position:relative;z-index:1;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 12px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:26px;white-space:nowrap;cursor:pointer;transition:color .15s ease}
 .bt-us-tabs button svg{flex:none;width:13px;height:13px;margin-left:-2px}
 .bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
@@ -17083,7 +17152,6 @@ button.bt-us-row:hover{background:var(--bt-hover)}
   .bt-us-stat{padding:12px}
   .bt-us-stat-value{font-size:19px;line-height:24px;white-space:normal;flex-wrap:wrap}
   .bt-us-stat-main .bt-us-stat-value{font-size:26px;line-height:32px}
-  .bt-us-tabs{max-width:100%;overflow-x:auto}
   .bt-us-month{width:min(252px,100%)}
   .bt-us-weekdays,.bt-us-days{grid-template-columns:repeat(7,minmax(0,1fr))}
   .bt-us-pair{grid-template-columns:1fr}
@@ -17983,7 +18051,8 @@ var PROVIDERS_CSS = `
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin}
+/* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
+.bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
@@ -18108,7 +18177,7 @@ function GeneralPage({ roster, actions, run: run2 }) {
       { key: "new", title: t("New Bots") },
       (0, import_react47.createElement)(
         SetRow,
-        { label: t("Default model") },
+        { label: t("Default model"), className: "bt-set-model" },
         (0, import_react47.createElement)(ModelMenu, {
           bot: { id: "new-bots", name: t("New Bots"), model: prefs.defaultBotModel },
           roster,
@@ -20112,7 +20181,8 @@ var BROWSER_CSS = `
 .bt-bcard{position:relative;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-main);animation:bt-bcard-in .24s cubic-bezier(.16,1,.3,1) both;transition:border-color .12s ease,box-shadow .12s ease}
 @keyframes bt-bcard-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
 .bt-bcard[data-active]{border-color:var(--bt-accent,#4D6BFE);box-shadow:0 0 0 1px var(--bt-accent,#4D6BFE)}
-.bt-bcard-shot{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;background:var(--bt-hover);padding:0;cursor:pointer}
+.bt-bcard-shot{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;border-radius:12px 12px 0 0;background:var(--bt-hover);padding:0;cursor:pointer}
+.bt-bcard-shot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-bcard-blank{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--bt-ink-3);font-size:12px}
 .bt-bcard-blank svg{width:20px;height:20px}
 .bt-bcard-preview{position:absolute;inset:0;display:flex;flex-direction:column;gap:6px;padding:14px 16px;text-align:left;background:linear-gradient(to bottom,var(--bt-main),var(--bt-hover));overflow:hidden}
@@ -22447,6 +22517,13 @@ function apply(ctx) {
     } catch {
       return () => {
       };
+    }
+  };
+  actions.steerQueued = async (sessionId) => {
+    const session = ctx.sessions.binding(sessionId)?.session;
+    if (session === void 0) return;
+    if (await steerQueued(session) === "failed") {
+      actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
     }
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
