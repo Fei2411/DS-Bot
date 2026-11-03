@@ -193,6 +193,52 @@ test('a question keeps its custom answer and selection while submitting, after f
   assert.equal(count('chief', 'question', question.id), 0)
 })
 
+// The Bot ask_user card shares the composer preference: while Enter sends, a plain
+// Enter answers; off, it is the field's own newline and the Submit button answers.
+test('the own-answer field honors the Enter preference', async () => {
+  const enter = (extra = {}) => ({
+    key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false }, prevented: false,
+    preventDefault() { this.prevented = true }, ...extra,
+  })
+  const cards = []
+  const mountCard = (enterToSend) => {
+    const { actions } = lease()
+    const sent = []
+    actions.answerQuestion = (...args) => { sent.push(args); return Promise.resolve() }
+    const pending = mount(PendingQuestion, { actions, sessionId: 'chief', question: { ...question, multiSelect: false }, inline: false, enterToSend })
+    const view = mount(childOf(pending.render()).type, childOf(pending.render()).props)
+    cards.push(pending, view)
+    const form = view.render()
+    field(form).props.onChange({ target: { value: 'My own words' } })
+    return { sent, form: () => view.render() }
+  }
+  const sending = mountCard(true)
+  const on = enter()
+  field(sending.form()).props.onKeyDown(on)
+  await tick()
+  assert.equal(on.prevented, true)
+  assert.deepEqual(plain(sending.sent), [['chief', 'question', { selected: [], custom: 'My own words' }]])
+  const keeping = mountCard(false)
+  const off = enter()
+  field(keeping.form()).props.onKeyDown(off)
+  await tick()
+  assert.equal(off.prevented, false)
+  assert.deepEqual(plain(keeping.sent), [])
+  keeping.form().props.onSubmit({ preventDefault() {} })
+  await tick()
+  assert.deepEqual(plain(keeping.sent), [['chief', 'question', { selected: [], custom: 'My own words' }]])
+  const shifted = mountCard(true)
+  for (const extra of [{ shiftKey: true }, { nativeEvent: { isComposing: true } }]) {
+    const event = enter(extra)
+    field(shifted.form()).props.onKeyDown(event)
+    assert.equal(event.prevented, false)
+  }
+  await tick()
+  assert.deepEqual(plain(shifted.sent), [])
+  // Mounted cards count as open for the letter keys; leave none behind.
+  for (const instance of cards) instance.unmount()
+})
+
 test('keyboard selection owns a dock card and busy questions cannot submit or dismiss twice', async () => {
   const { actions, count } = lease()
   const wait = deferred()

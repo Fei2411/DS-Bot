@@ -46,6 +46,7 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals, throwOn }
       session: { id },
       ctx: {
         tools: {
+          register: () => () => {},
           restrict: (filter) => {
             if (throwOn !== undefined && filter.deny.includes(throwOn)) throw new Error(`"${throwOn}" is registered in this scope`)
             hidden.push([id, [...filter.deny]])
@@ -211,7 +212,7 @@ test('a goal started in a Bot chat or a group is blocked; one elsewhere runs', a
   await until(() => goals.blocked.length === 3)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(goals.blocked.map(entry => entry.sessionId), ['writer', 'room', 'room-writer'])
-  for (const entry of goals.blocked) assert.deepEqual([entry.code, entry.message], ['not-supported', 'DS Bot does not run goals. Ask the Bot in a message instead.'])
+  for (const entry of goals.blocked) assert.deepEqual([entry.code, entry.message], ['not-supported', 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'])
   assert.equal(goals.current.get('plain').phase, 'active')
 })
 

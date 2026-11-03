@@ -1,28 +1,6 @@
 // Windows and a Linux AppImage download and install updates; macOS and a Linux deb ask before
-// opening the release page.
-
-export const UPDATE_TEXT = {
-  en: {
-    ready: version => `DS Bot ${version} is ready to install.`,
-    readyDetail: 'Restart now to update, or it is installed the next time you quit.',
-    restart: 'Restart now', later: 'Later',
-    onFailure: version => `DS Bot ${version} is installed when its download is done, and then DS Bot opens again.`,
-    available: version => `DS Bot ${version} is available.`,
-    availableDetail: 'This version cannot update itself. Download the new version from its release page, then replace DS Bot in Applications.',
-    download: 'Download',
-    onFailurePage: version => `DS Bot ${version} is available. After this box, its download page opens.`,
-  },
-  zh: {
-    ready: version => `DS Bot ${version} 已经下载好。`,
-    readyDetail: '现在重启就能更新；不重启的话，下次退出时安装。',
-    restart: '立即重启', later: '稍后',
-    onFailure: version => `DS Bot ${version} 下载完会自动安装，然后重新打开。`,
-    available: version => `DS Bot ${version} 已经发布。`,
-    availableDetail: '这个版本不能自己更新。请到发布页下载新版，再用它替换「应用程序」里的 DS Bot。',
-    download: '下载',
-    onFailurePage: version => `DS Bot ${version} 已经发布。关掉这个对话框后，会打开它的下载页面。`,
-  },
-}
+// opening the release page. main.mjs asks the questions, in the dialog.update.* copy of
+// start/text.mjs.
 
 const CHECK_EVERY_MS = 4 * 60 * 60_000
 export const RELEASES_URL = 'https://api.github.com/repos/Fei2411/DS-Bot/releases?per_page=20'

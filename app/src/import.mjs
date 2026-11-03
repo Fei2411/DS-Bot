@@ -70,22 +70,31 @@ function modelProfiles(from) {
   })
 }
 
-/** Whether a running DSH holds the team, as ds-bot's own lock tells (src/host/home-lock.js). */
-export function teamInUse(from, { host = hostname(), now = Date.now() } = {}) {
+/**
+ * Whether a running DSH holds the team, by the rule of ds-bot's own lock (src/host/home-lock.js):
+ * the holder bumps the lock's mtime, so a stale lock is a holder that is gone, even when its pid
+ * now belongs to another process.
+ */
+export function teamInUse(from, { host = hostname(), now = Date.now(), isAlive = pidAlive } = {}) {
   const path = join(from, 'bot', 'state.lock')
-  if (!existsSync(path)) return false
-  const fresh = now - statSync(path).mtimeMs < LOCK_STALE_MS
+  const lock = statSync(path, { throwIfNoEntry: false })
+  if (lock === undefined || now - lock.mtimeMs >= LOCK_STALE_MS) return false
   let holder
   try {
     holder = JSON.parse(readFileSync(path, 'utf8'))
   } catch {
-    return fresh
+    // Being written right now.
+    return true
   }
-  if (holder?.host !== host) return fresh
+  return holder?.host !== host || isAlive(holder.pid)
+}
+
+function pidAlive(pid) {
   try {
-    process.kill(holder.pid, 0)
+    process.kill(pid, 0)
     return true
   } catch (error) {
+    // EPERM: the process exists but belongs to someone else.
     return error?.code === 'EPERM'
   }
 }
@@ -111,6 +120,16 @@ async function copySessionDirs(from, to, sessions, signal) {
   }
 }
 
+async function moveSessionDirs(stage, to, sessions, signal) {
+  for (const { id, group } of sessions) {
+    signal?.throwIfAborted()
+    await mkdir(join(to, 'sessions', group), { recursive: true })
+    // A copy that stopped can have moved the Session in already.
+    await rm(join(to, 'sessions', group, id), { recursive: true, force: true })
+    await rename(join(stage, 'sessions', group, id), join(to, 'sessions', group, id))
+  }
+}
+
 /**
  * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort stops it between Sessions.
  * @param {string} from @param {any} team @param {string} to @param {AbortSignal} [signal]
@@ -123,20 +142,80 @@ export async function copySessions(from, team, to, signal) {
 }
 
 const logVersion = name => parseSessionFormatLogFilename(name.replace(/\.(zstd|zst|gz|br)$/u, ''))
+const isNewer = (from, { id, group }) => readdirSync(join(from, 'sessions', group, id))
+  .some(name => (logVersion(name) ?? 0) > sessionFormatCatalog.currentVersion)
 
 /** The Sessions whose log is in a newer format than the pinned DSH reads. */
 export function newerSessions(from, team) {
   const { found } = sessionDirs(from, sessionIdsOf(team))
-  return found.filter(({ id, group }) => readdirSync(join(from, 'sessions', group, id))
-    .some(name => (logVersion(name) ?? 0) > sessionFormatCatalog.currentVersion)).map(({ id }) => id)
+  return found.filter(session => isNewer(from, session)).map(({ id }) => id)
 }
 
+/**
+ * Copy into the data location `to` the Sessions its team names that are not there, from the DSH
+ * home the team was imported from. Imports before 0.2.3 left out each group's own Session, and
+ * such a group does not open (#551). Each Session is put together beside the data and moved in
+ * whole; one this DSH cannot read stays where it is. Nothing in the old home changes.
+ * @param {string} to @param {AbortSignal} [signal]
+ * @returns {Promise<{ copied: string[], newer: string[] }>} the ids copied, and those left for their newer format
+ */
+export async function restoreSessions(to, signal) {
+  const record = join(to, 'bot', 'imported.json')
+  const statePath = join(to, 'bot', 'state.json')
+  const none = { copied: [], newer: [] }
+  if (!existsSync(record) || !existsSync(statePath)) return none
+  const { from } = readJson(record)
+  if (typeof from !== 'string' || resolve(from) === resolve(to)) return none
+  for (const name of readdirSync(to).filter(entry => /^\.restore-\d+$/u.test(entry))) {
+    await rm(join(to, name), { recursive: true, force: true })
+  }
+  const { missing } = sessionDirs(to, sessionIdsOf(readJson(statePath)))
+  const { found } = sessionDirs(from, missing)
+  const newer = found.filter(session => isNewer(from, session))
+  const sessions = found.filter(session => !newer.includes(session))
+  if (sessions.length > 0) {
+    const stage = join(to, `.restore-${String(Date.now())}`)
+    await copySessionDirs(from, stage, sessions, signal)
+    await moveSessionDirs(stage, to, sessions, signal)
+    await rm(stage, { recursive: true, force: true })
+  }
+  return { copied: sessions.map(({ id }) => id), newer: newer.map(({ id }) => id) }
+}
+
+// The Host's first start on the data location writes a .credentials.yaml of its own: the browser
+// session grant of the connection plugin, under client-connection/. A file with nothing else in
+// it holds no key of the user's.
+async function onlyHostRecords(file) {
+  let document
+  try {
+    document = parse(await readFile(file, 'utf8')) ?? {}
+  } catch {
+    // A file that does not read as DSH's is the user's to fix, not ours to replace.
+    return false
+  }
+  if (typeof document !== 'object' || Array.isArray(document)) return false
+  const { version, refs, records, ...other } = document
+  return (version === undefined || version === 1) && Object.keys(other).length === 0
+    && Object.keys(refs ?? {}).length === 0
+    && Object.keys(records ?? {}).every(key => key.startsWith('client-connection/'))
+}
+
+// A key file the data location has already is the user's own, saved there since, and stays;
+// a .credentials.yaml that only the Host wrote is not.
+// Returns 'copied', 'kept', or undefined when the old home has none.
 async function copyKey(from, to, name) {
   const source = join(from, name)
-  if (!existsSync(source)) return false
-  await cp(source, join(to, name))
-  if (process.platform !== 'win32') await chmod(join(to, name), 0o600)
-  return true
+  if (!existsSync(source)) return undefined
+  const target = join(to, name)
+  const replace = name === '.credentials.yaml' && existsSync(target) && await onlyHostRecords(target)
+  try {
+    await cp(source, target, { force: replace, errorOnExist: !replace })
+  } catch (error) {
+    if (error?.code === 'ERR_FS_CP_EEXIST') return 'kept'
+    throw error
+  }
+  if (process.platform !== 'win32') await chmod(target, 0o600)
+  return 'copied'
 }
 
 async function writeModelRows(to, rows) {
@@ -151,10 +230,11 @@ async function writeModelRows(to, rows) {
 /**
  * Copy the team of `from` into the data location `to`, which the Host has started on once,
  * so that DSH does not take the copied Sessions' folders for its own projects. The old team's
- * workspace files go into `workspace`, without replacing a file that is there.
+ * workspace files go into `workspace`, without replacing a file that is there, and the key
+ * files only where the data location has none of the user's own.
  * Everything but the keys, the model settings and the workspace files is put together in a
- * folder beside the data and moved in at the end; a copy that stopped or failed leaves that
- * folder behind, and the next copy removes it.
+ * folder beside the data and moved in at the end. A copy that stops or fails removes that
+ * folder; one that was killed leaves it behind, and the next copy removes it.
  * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string, signal?: AbortSignal }} options
  */
 export async function importTeam({ from, to, workspace, profile, dsh, signal }) {
@@ -166,6 +246,14 @@ export async function importTeam({ from, to, workspace, profile, dsh, signal }) 
     await rm(join(to, name), { recursive: true, force: true })
   }
   const stage = join(to, `.import-${String(Date.now())}`)
+  try {
+    return await copyThroughStage({ found, from, to, workspace, profile, dsh, signal, stage })
+  } finally {
+    await rm(stage, { recursive: true, force: true, maxRetries: 5 }).catch((error) => { console.error(error) })
+  }
+}
+
+async function copyThroughStage({ found, from, to, workspace, profile, dsh, signal, stage }) {
   const oldBot = join(from, 'bot')
   signal?.throwIfAborted()
   await cp(oldBot, join(stage, 'bot'), { recursive: true, filter: path => !LEFT_BEHIND.has(relative(oldBot, path).split(/[\\/]/u)[0]) })
@@ -190,29 +278,28 @@ export async function importTeam({ from, to, workspace, profile, dsh, signal }) 
   }
   signal?.throwIfAborted()
   const keys = []
-  for (const name of ['.credentials.yaml', '.env']) if (await copyKey(from, to, name)) keys.push(name)
+  const keptKeys = []
+  for (const name of ['.credentials.yaml', '.env']) {
+    const done = await copyKey(from, to, name)
+    if (done === 'copied') keys.push(name)
+    if (done === 'kept') keptKeys.push(name)
+  }
+  if (keptKeys.length > 0) console.warn(`DS Bot: the import kept the ${keptKeys.join(' and ')} that the data location has`)
   const rows = found.profiles.find(entry => entry.name === profile)?.rows ?? []
   if (rows.length > 0) await writeModelRows(to, rows)
 
-  for (const { id, group } of sessions) {
-    signal?.throwIfAborted()
-    await mkdir(join(to, 'sessions', group), { recursive: true })
-    // A copy that stopped can have moved the Session in already.
-    await rm(join(to, 'sessions', group, id), { recursive: true, force: true })
-    await rename(join(stage, 'sessions', group, id), join(to, 'sessions', group, id))
-  }
+  await moveSessionDirs(stage, to, sessions, signal)
   signal?.throwIfAborted()
   if (existsSync(join(stage, 'attachments'))) await cp(join(stage, 'attachments'), join(to, 'attachments'), { recursive: true, force: false })
   const summary = {
     from, at: new Date().toISOString(), ...(dsh ? { dsh } : {}),
     bots: found.bots, rooms: found.rooms, sessions: sessions.length, missingSessions: missing,
-    keys, modelSettings: rows.length > 0 ? profile : null,
+    keys, keptKeys, modelSettings: rows.length > 0 ? profile : null,
   }
   signal?.throwIfAborted()
   await writeFile(join(stage, 'bot', 'imported.json'), `${JSON.stringify(summary, null, 2)}\n`)
   // Until this rename the data has no Bot team, so a copy that stopped can run again.
   await rm(join(to, 'bot'), { recursive: true, force: true })
   await rename(join(stage, 'bot'), join(to, 'bot'))
-  await rm(stage, { recursive: true, force: true })
   return summary
 }

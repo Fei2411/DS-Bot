@@ -594,7 +594,10 @@ export function UsagePage({ roster, actions, focusId }) {
 export const USAGE_CSS = `
 .bt-us{--bt-us-ease:cubic-bezier(.22,1,.36,1);--bt-us-rest:color-mix(in srgb,var(--bt-ink) 30%,var(--bt-card));--bt-us-more:color-mix(in srgb,var(--bt-ink) 16%,var(--bt-card));display:flex;flex-direction:column;gap:14px;padding-bottom:4px}
 .bt-us-top{position:relative;z-index:4;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.bt-us-tabs{position:relative;display:inline-flex;flex:none;padding:3px;border-radius:999px;background:var(--bt-hover)}
+/* Scrolls instead of running past the page when the column is narrower than the tabs. */
+.bt-us-tabs{position:relative;display:inline-flex;flex:none;max-width:100%;overflow-x:auto;scrollbar-width:none;padding:3px;border-radius:999px;background:var(--bt-hover)}
+.bt-us-tabs::-webkit-scrollbar{display:none}
+.bt-us-tabs button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-us-tabs button{position:relative;z-index:1;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 12px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:26px;white-space:nowrap;cursor:pointer;transition:color .15s ease}
 .bt-us-tabs button svg{flex:none;width:13px;height:13px;margin-left:-2px}
 .bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
@@ -748,7 +751,6 @@ button.bt-us-row:hover{background:var(--bt-hover)}
   .bt-us-stat{padding:12px}
   .bt-us-stat-value{font-size:19px;line-height:24px;white-space:normal;flex-wrap:wrap}
   .bt-us-stat-main .bt-us-stat-value{font-size:26px;line-height:32px}
-  .bt-us-tabs{max-width:100%;overflow-x:auto}
   .bt-us-month{width:min(252px,100%)}
   .bt-us-weekdays,.bt-us-days{grid-template-columns:repeat(7,minmax(0,1fr))}
   .bt-us-pair{grid-template-columns:1fr}

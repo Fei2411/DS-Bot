@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignOutIcon } from './icons.js'
-import { MAIN_LOOK } from './characters.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon } from './icons.js'
+import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
@@ -12,6 +12,7 @@ import { SPRING_GLIDE, SPRING_SHAPE, stepMenuFocus, useLinger, useViewport, view
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
+import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 
@@ -345,6 +346,7 @@ export function TeamSidebar(props) {
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, wideContent, order.map(entry => entry.item.id).join(','))
   useLandOnMainBot(roster, useSessions, actions)
+  useReportReady(roster.ready, roster)
 
   // Our column pushes the conversation over by what it takes beyond the shell's
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
@@ -727,6 +729,23 @@ export function openHarnessOnboarding(id) {
   })
 }
 
+// The launcher seat can only open DSH's settings on their first section. This onboarding
+// step of DS Bot's own, opened by id, hands the shell's openSection the Models page; the
+// first-run pass meets it last and it steps aside at once.
+export const MODELS_STEP = 'ds-bot-models'
+export const MODELS_STEP_ORDER = 1000
+
+export function OpenModelsStep({ explicit, complete, openSection }) {
+  useEffect(() => {
+    if (explicit) {
+      if (typeof openSection === 'function') openSection('models')
+      else openHarnessSettings()
+    }
+    complete()
+  }, [explicit])
+  return null
+}
+
 function openThroughMenu(trigger) {
   const before = new Set(document.querySelectorAll('[role="menu"]'))
   trigger.click()
@@ -812,6 +831,7 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
   const accountSource = ops.hooks?.account
   const account = useSyncExternalStore(accountSource?.subscribe ?? NO_SUBSCRIBE, accountSource ? () => accountSource.getSnapshot() : NO_SNAPSHOT)
   const signedIn = signIn !== null && typeof ops.signOut === 'function' && account?.view?.status === 'credential-stored'
+  const signedOut = signIn !== null && typeof actions.signIn === 'function' && account?.view?.status === 'signed-out'
   const accountT = actions.accountT?.() ?? (key => key)
   const [confirm, setConfirm] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -852,18 +872,22 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
     setSignOutError('')
     setBusy(false)
   }, [open])
+  // DS Bot's Models page where the host serves the providers, else DSH's own.
+  const openModels = actions.providers ? actions.openModels : actions.openHarnessModels
   const groups = [
     [
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
+      openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Bot settings'), GearIcon, () => actions.openSettings('general')],
-    ],
+    ].filter(Boolean),
     [
       [t('Switch to classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')],
     ],
   ]
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
+  else if (signedOut) groups.push([[t('Sign in to DeepSeek'), SignInIcon, () => actions.signIn()]])
   return h(Fragment, null,
     h('button', { ref: button, type: 'button', className: 'bt-account', 'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle },
       h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon))),
@@ -880,6 +904,42 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
             key: label, type: 'button', role: 'menuitem',
             onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
           }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
+}
+
+// The desktop app keeps its main window hidden until the team interface has drawn
+// the first state, and shows its failure page when that never comes. The report
+// says where the Main Bot's avatar is when it wears the start window's whale: the
+// whale there jumps onto it as the team window takes over.
+let readyReported = false
+function useReportReady(drawn, roster) {
+  useEffect(() => {
+    if (!drawn || readyReported) return
+    readyReported = true
+    void Promise.resolve().then(() => {
+      const ready = globalThis.dsBotApp?.ready
+      if (typeof ready !== 'function') return undefined
+      // The place is a nicety: whatever goes wrong measuring it, the report still goes.
+      let place
+      try { place = mainAvatarPlace(roster) } catch { place = undefined }
+      return place === undefined ? ready() : ready(place)
+    }).catch(quietly('app ready'))
+  }, [drawn])
+}
+
+// The Main Bot's avatar in the team column, in CSS px of the page, with the page's size.
+// Only the default look: a photo or another character would not match the start window's whale.
+function mainAvatarPlace(roster) {
+  const main = roster?.byId?.[roster.mainBotId]
+  if (main === undefined || main.avatar?.image || typeof document === 'undefined') return undefined
+  const look = lookOf(main)
+  if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return undefined
+  const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(main.id) : main.id
+  const mark = document.querySelector(`.bt-side [data-bot-id="${id}"] .bt-mark`)
+  // Not the opacity: the column fades in as it first draws, which is when this is measured.
+  if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return undefined
+  const box = mark.getBoundingClientRect()
+  const view = document.documentElement
+  return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
 }
 
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way
@@ -928,8 +988,11 @@ export function FooterAccount(props) {
 
 // The only entry registered in every mode: in Agent mode the whole Bot surface is
 // withdrawn, and this button in the shell's own footer is the way back.
-export function BotReturn({ wide, useSurface, actions }) {
+export function BotReturn({ wide, useSurface, useRoster, actions }) {
   const mode = useSurface(value => value.mode)
+  const ready = useRoster(value => value.ready)
+  // Agent mode draws no team sidebar; there this button is the team interface.
+  useReportReady(mode === 'agent' && ready)
   if (mode !== 'agent') return null
   return h('button', { type: 'button', className: 'bt-return', 'aria-label': t('DS Bot'), title: t('DS Bot'), onClick: () => actions.setSurface('bot') },
     h(BotMark, { look: MAIN_LOOK, size: 20 }),
@@ -1015,6 +1078,8 @@ export const SIDEBAR_CSS = `
 .bt-agent-sub-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .bt-agent-sub-row:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sub-row[aria-current=page]{background:var(--bt-hover);color:var(--bt-ink);font-weight:500}
+/* .bt-agent-sub-in clips for the expand animation and the rows touch its edges, so the ring goes inside. */
+.bt-agent-sub-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-agent-sub-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-agent-sub-time{flex:none;font-size:11px;color:var(--bt-ink-3)}
 .bt-agent-new{color:var(--bt-ink-3)}

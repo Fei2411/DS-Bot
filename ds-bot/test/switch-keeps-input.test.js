@@ -79,6 +79,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
       agents.set(sessionId, {
         id: sessionId,
         session: { id: sessionId, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
+        ctx: { tools: { register: () => () => {} } },
         calls,
         status: 'idle',
         followup(message) { calls.push(['followup', message]) },

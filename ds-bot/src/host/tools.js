@@ -14,7 +14,7 @@ import { checkShownView, showViewDescription, showViewParameters } from 'deep-vi
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
-// DS Bot carries no goal across conversation parts, so Bot Sessions do not run DSH goals.
+// DS Bot has its own group goals; DSH's session goal still does not survive conversation parts.
 const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
 // DSH's delegation tools start child agents the user cannot watch or stop, and they
 // end with the conversation part that started them; Bots hand work to other Bots.
@@ -25,7 +25,7 @@ const HIDDEN_TOOL_GROUPS = [[BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS], DELEGATION_
 const HIDDEN_TOOLS = HIDDEN_TOOL_GROUPS.flat()
 // The guidance DSH writes into the prompt for the hidden tools.
 const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal'])
-const GOAL_REFUSAL = 'DS Bot does not run goals. Ask the Bot in a message instead.'
+const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'
 const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
@@ -57,6 +57,7 @@ export function install(rt) {
       room.notice ? `notice: ${room.notice.split('\n')[0].slice(0, 100)}` : '',
       room.workDir ? `members work in ${room.workDir} here` : '',
       room.permission ? `members work with the ${room.permission} permissions here` : '',
+      room.goal !== undefined ? `goal: "${room.goal.title}" (${room.goal.status}${room.goal.status === 'active' || room.goal.status === 'paused' ? `, stage ${Math.min(room.goal.current + 1, room.goal.stages.length)}/${room.goal.stages.length}` : ''})` : '',
     ].filter(Boolean)
     return `- "${room.name}" — ${parts.join('; ')}`
   }
@@ -315,7 +316,7 @@ export function install(rt) {
       role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
-      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
+      model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the team default model from DS Bot settings, or the model you run on.' },
       effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
       work_dir: WORK_DIR_PARAM,
       avatar: AVATAR_PARAM,
@@ -329,11 +330,13 @@ export function install(rt) {
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
-        // Without a named model the new Bot takes its creator's: the DSH default may be
-        // a provider that has no key, and then the new Bot fails on its first reply.
+        // Without a named model the team's default applies; without one the new Bot
+        // takes its creator's: the DSH default may be a provider that has no key, and
+        // then the new Bot fails on its first reply.
         const creator = callerBot(exec)
-        const served = creator?.model && (await rt.catalog()).some(entry => entry.ref === creator.model)
-        const model = args.model || (served ? creator.model : undefined)
+        const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true).map(entry => entry.ref))
+        const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
+        const model = args.model || fallback
         const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, createdBy: creator?.id })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
@@ -750,7 +753,7 @@ export function install(rt) {
   // the live Agents back: a reload lifts their scope while they are still
   // live, and agent/created does not fire for them again, so without the walk
   // their next request would come without the team tools.
-  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>}>} */
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, filtered: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
   const scoped = new Map()
   const unscope = (id) => {
     const held = scoped.get(id)
@@ -777,6 +780,9 @@ export function install(rt) {
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
+  // A wanted Session whose Agent cannot take scoped tools yet is warned about
+  // once; held.tools stays unset, so the next step's check tries again.
+  const registerless = new WeakSet()
   const shareBotTools = (agent) => {
     if (agent === undefined) return
     const id = agent.session?.id
@@ -791,26 +797,37 @@ export function install(rt) {
       held = undefined
     }
     if (!wanted || held?.tools === true) return
-    if (typeof agent.ctx?.tools?.register !== 'function') return
+    if (typeof agent.ctx?.tools?.register !== 'function') {
+      if (!registerless.has(agent)) {
+        registerless.add(agent)
+        rt.warn('ds-bot: %s needs the team tools but its Agent cannot register them yet', id)
+      }
+      return
+    }
     const disposers = []
     const failed = []
+    const registered = []
     for (const def of rt.teamTools) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') disposers.push(dispose)
+        registered.push(def.name)
       } catch (error) {
         // A tool another plugin already scoped onto this agent stays missing
         // rather than stopping the team; the rest still land.
         failed.push(`${def.name}: ${error.message ?? error}`)
       }
     }
-    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [] }
+    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
     held.disposers.push(...disposers)
     scoped.set(id, held)
+    // A scope made outside creation never reached a collected tool list; the
+    // assemble adds the pending names to the step's list once, then clears them.
+    for (const name of registered) held.unlisted.add(name)
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
   }
 
@@ -874,13 +891,13 @@ export function install(rt) {
     // the team lifts them like the rest, and the Agent can be scoped again.
     const shadows = rt.shadowShells?.(agent) ?? []
     if (shadows.length > 0) {
-      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
       held.agent = agent
       held.disposers.push(...shadows)
       scoped.set(id, held)
     }
     if (agent === undefined || !rt.isBotSession(id)) return
-    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [] }
+    const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     scoped.set(id, held)
     filterBotAssembly(agent, held)
@@ -901,8 +918,58 @@ export function install(rt) {
     try {
       await rt.load()
       hideBotUnusedTools(agent)
+      // Creation runs before the first step collects the tool list, so the
+      // names just registered will already be in it; nothing stays pending.
+      scoped.get(agent?.session?.id)?.unlisted?.clear()
     } catch (error) {
       rt.warn('ds-bot: hiding %s on agent/created failed: %s', HIDDEN_TOOLS.join(', '), error)
+    }
+  })
+
+  // A live Agent the creation path missed — after a restart, agent/created may
+  // run before this plugin's listeners are back — is scoped by the load or
+  // here, before the step's request. The request's tool list was collected
+  // before this waterfall, so names scoped since are added now: a same-named
+  // global entry is replaced by the scoped schema, and a PTC list that reaches
+  // team tools through run_code is left alone.
+  ctx.on('system-prompt/assemble', async function scopeTeamTools(_assembly, context, next) {
+    const agent = context.agent
+    if (agent === undefined) return next()
+    try {
+      await rt.load()
+      hideBotUnusedTools(agent)
+    } catch (error) {
+      rt.warn('ds-bot: scoping the tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+    }
+    const assembled = await next()
+    const held = scoped.get(agent.session?.id)
+    if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
+    const pending = [...held.unlisted]
+    // Cleared whatever happens below: the names are offered once, not on
+    // every step.
+    held.unlisted.clear()
+    if ((assembled.tools ?? []).some(tool => tool.name === 'run_code')) return assembled
+    if (typeof ctx.tools?.schemas !== 'function') return assembled
+    try {
+      const wanted = new Set(pending)
+      const current = new Map(ctx.tools.schemas(agent).filter(schema => wanted.has(schema.name)).map(schema => [schema.name, schema]))
+      let changed = false
+      const tools = (assembled.tools ?? []).map((tool) => {
+        const schema = current.get(tool.name)
+        if (schema === undefined) return tool
+        changed = true
+        return schema
+      })
+      const present = new Set((assembled.tools ?? []).map(tool => tool.name))
+      for (const name of pending) {
+        if (present.has(name) || !current.has(name)) continue
+        changed = true
+        tools.push(current.get(name))
+      }
+      return changed ? { ...assembled, tools } : assembled
+    } catch (error) {
+      rt.warn('ds-bot: listing the scoped tools of %s failed: %s', agent.session?.id ?? agent.id, error)
+      return assembled
     }
   })
 
