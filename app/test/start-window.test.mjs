@@ -324,13 +324,14 @@ function startWindow(t) {
   t.mock.method(console, 'log', () => {})
   const fake = fakeElectron()
   const main = new fake.electron.BrowserWindow({ show: false })
-  const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [] }
+  const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [], saveAs: [], saveTo: undefined }
   const start = new StartWindow({
     electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', mica: false, devTools: false,
     lang: () => 'en', motion: 'normal', version: '0.0.0', program: [], log: { dir: 'logs', tail: () => ['a log line'] },
     mainWindow: () => main,
     onRetry: () => { calls.retry += 1 }, onReload: () => { calls.reload += 1 }, onClose: () => { calls.close += 1 },
     onPick: (value) => { calls.pick.push(value) }, onAnswer: (value) => { calls.answer.push(value) }, onUpdate: (name) => { calls.update.push(name) },
+    saveAs: (win, name) => { calls.saveAs.push(name); return Promise.resolve(calls.saveTo) },
   })
   const win = () => fake.windows.at(-1)
   const page = () => ({ sender: win().webContents, senderFrame: win().webContents.mainFrame })
@@ -359,6 +360,24 @@ test('the start window takes acts only from its own page, each in its own view',
   assert.equal(s.act('retry', undefined, ownFrame), false)
   assert.equal(s.act('freshStart', undefined, ownFrame), false)
   assert.equal(s.calls.retry, 0)
+})
+
+// 〔保存日志…〕 asks the app's own picker (main.mjs saveAs) where, never a system box.
+test('〔保存日志…〕 writes the log where the app\'s picker says, and nothing when it is cancelled', async (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.fail(new Error('The DSH Host stopped (exit 1)'))
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-log-'))
+  t.after(() => { rmSync(dir, { recursive: true, force: true }) })
+  assert.equal(s.act('saveLog'), true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(s.calls.saveAs, ['DeepSeek-Bot-log.txt'])
+  assert.deepEqual(readdirSync(dir), [])
+  s.calls.saveTo = join(dir, 'log.txt')
+  s.act('saveLog')
+  const saved = () => (readdirSync(dir).length > 0 ? readFileSync(join(dir, 'log.txt'), 'utf8') : '')
+  for (let i = 0; i < 500 && !saved().includes('a log line'); i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.match(saved(), /^DeepSeek Bot 0\.0\.0 \([\s\S]*a log line/u)
 })
 
 test('the 180 s question comes on the start\'s clock while the engine is not up', async (t) => {

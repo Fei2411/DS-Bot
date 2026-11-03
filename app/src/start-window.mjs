@@ -290,13 +290,14 @@ export class StartWindow {
 
   /**
    * @param {{
-   *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, dialog?: any, nativeTheme: any, systemPreferences: any },
+   *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, nativeTheme: any, systemPreferences: any },
    *   page: string, preload: string, icon: string, mica: boolean, devTools: boolean, css?: string,
    *   lang: () => 'zh' | 'en', motion: string, version: string, program: string[],
    *   log: { dir: string, tail: (count: number) => string[] },
    *   mainWindow: () => any,
    *   onRetry: () => void, onReload: () => void, onClose: () => void,
    *   onPick?: (value?: string) => void, onAnswer?: (value?: string) => void,
+   *   saveAs?: (win: any, name: string) => Promise<string | undefined>,
    *   onUpdate?: (name: 'installUpdate' | 'manualDownload') => void,
    *   onImport?: (name: 'importModel' | 'importOption' | 'stopCopy' | 'keepCopying', value: unknown) => void,
    * }} options `lang` is asked at each open; `program` names the folders of the app's own files;
@@ -756,14 +757,15 @@ export class StartWindow {
     void Promise.resolve(this.#o.electron.clipboard.writeText(text)).catch((error) => { note(`the details were not copied: ${error instanceof Error ? error.message : String(error)}`) })
   }
 
+  // The app's own picker on the page (saveAs), not a system box.
   async #saveLog() {
-    const { version, electron } = this.#o
-    if (!electron.dialog) return
+    const { version, saveAs } = this.#o
+    if (saveAs === undefined) return
     const reason = this.#state.failure?.reason ?? 'other'
     const text = detailsText({ version, platform: process.platform, arch: process.arch, reason, lines: this.#o.log.tail(SAVED_LINES) })
     try {
-      const { canceled, filePath } = await electron.dialog.showSaveDialog(this.#window, { defaultPath: 'DeepSeek-Bot-log.txt', filters: [{ name: 'Text', extensions: ['txt'] }] })
-      if (canceled || !filePath) return
+      const filePath = await saveAs(this.#window, 'DeepSeek-Bot-log.txt')
+      if (!filePath) return
       await writeFile(filePath, text, 'utf8')
       note(`the log was saved to ${filePath}`)
     } catch (error) {

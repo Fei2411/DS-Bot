@@ -181,7 +181,9 @@ if (canonical !== undefined) {
   app.once('will-quit', () => { logs.flush() })
   console.log(`DeepSeek Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   startWindow = new StartWindow({
-    electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, dialog, nativeTheme, systemPreferences },
+    electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
+    // 〔保存日志…〕 on the start window's failure cards.
+    saveAs: (win, name) => askPicker(win, { mode: 'save', title: tx('dialog.saveLog'), start: knownFolder('desktop'), name }),
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, mica, devTools: !app.isPackaged,
     css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.

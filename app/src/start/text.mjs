@@ -153,6 +153,7 @@ export const TEXT = {
     'dialog.pickMove': '选择 DeepSeek Bot 数据的新文件夹',
     'dialog.pickCookies': '选择 cookie 文件',
     'dialog.saveAs': '保存下载的文件',
+    'dialog.saveLog': '保存日志',
     // The app's own picker (preload.cjs showPicker): labels, then what went wrong, in place.
     'picker.places': '位置',
     'picker.drives': '磁盘',
@@ -336,6 +337,7 @@ export const TEXT = {
     'dialog.pickMove': 'Choose a new folder for DeepSeek Bot’s data',
     'dialog.pickCookies': 'Choose a cookie file',
     'dialog.saveAs': 'Save the download',
+    'dialog.saveLog': 'Save the log',
     'picker.places': 'Places',
     'picker.drives': 'Drives',
     'picker.home': 'Home',

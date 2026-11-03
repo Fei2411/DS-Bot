@@ -192,7 +192,7 @@ test('each layer ends its lines as its rule says', () => {
   const BARE = new Set(['voice', 'say', 'hint', 'btn', 'foot', 'status', 'picker'])
   // Not sentences: picker titles, progress lines and labels.
   const NOT_SENTENCES = new Set([
-    'card.update.slow', 'card.update.downloading', 'dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs',
+    'card.update.slow', 'card.update.downloading', 'dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs', 'dialog.saveLog',
     'card.copying.step1', 'card.copying.step2', 'card.copying.step3', 'card.copying.eta', 'card.copying.etaSoon',
     'card.import.model', 'card.import.optRegen', 'card.import.optSkipWork',
   ])
@@ -212,7 +212,7 @@ test('each layer ends its lines as its rule says', () => {
       assert.match(zh, ends[0], `${key}: zh is not a whole sentence`)
       assert.match(en, ends[1], `${key}: en is not a whole sentence`)
     }
-    if (['dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs'].includes(key)) {
+    if (['dialog.pickRoot', 'dialog.pickMove', 'dialog.pickCookies', 'dialog.saveAs', 'dialog.saveLog'].includes(key)) {
       assert.doesNotMatch(zh, /。$/u, `${key}: a picker title ends with a full stop`)
       assert.doesNotMatch(en, /\.$/u, `${key}: a picker title ends with a full stop`)
     }
