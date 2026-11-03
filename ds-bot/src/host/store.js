@@ -1,8 +1,8 @@
 // Store: the saved team (state.json), its migrations, the lock that keeps a second dsh
 // host on the same data from writing it, and the indexes that map a Session to the Bot
 // or group chat it belongs to.
-import { mkdirSync, statSync } from 'node:fs'
-import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
@@ -34,6 +34,9 @@ export function install(rt) {
   let stopped = false
   // mtime and size of the state.json this host last read or wrote.
   let seen = ''
+  // Bumped each time the in-memory state is replaced from the file, so a queued
+  // save cannot write a snapshot taken of the state it replaced.
+  let lockEpoch = 0
   const stamp = () => {
     try {
       const { mtimeMs, size } = statSync(statePath)
@@ -63,10 +66,12 @@ export function install(rt) {
     return `The Bot team in ${home} is open in another dsh (Web or Desktop, ${where}). This window shows the team but cannot change it; close the other one and reload.`
   }
 
-  const readFileState = async () => {
+  // Synchronous on purpose: the saved team and the session indexes built from it
+  // exist before the first tool or shell env call can resolve a Session.
+  const readFileState = () => {
     let contents
     try {
-      contents = await readFile(statePath, 'utf8')
+      contents = readFileSync(statePath, 'utf8')
     } catch (error) {
       seen = stamp()
       if (error?.code === 'ENOENT') {
@@ -84,7 +89,7 @@ export function install(rt) {
     } catch (error) {
       const backup = `${statePath}.broken-${Date.now()}`
       try {
-        await copyFile(statePath, backup)
+        copyFileSync(statePath, backup)
         stuck = undefined
         warn('ds-bot: unreadable state %s: %s; backed up as %s', statePath, error, backup)
       } catch (copyError) {
@@ -104,6 +109,7 @@ export function install(rt) {
   // Fill `state` from the saved file and bring an older team up to date. Returns the
   // groups whose Session titles still need the new name.
   const adopt = (parsed) => {
+    lockEpoch += 1
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
@@ -176,13 +182,15 @@ export function install(rt) {
       delete room.botRounds
       migrated = true
     }
-    // LEGACY: the late-round limit went with the round caps; a group counts relays to
-    // its pause now.
+    // LEGACY: the late-round limit went with the round caps, and the relay limit that
+    // followed it went too. Calls it parked stay until the group's next round runs them.
     for (const room of Object.values(state.rooms)) {
-      if (room.lateRounds === undefined && room.quietNoticed === undefined && room.quietShown === undefined) continue
+      if (['lateRounds', 'quietNoticed', 'quietShown', 'relays', 'relayLimit'].every(key => room[key] === undefined)) continue
       delete room.lateRounds
       delete room.quietNoticed
       delete room.quietShown
+      delete room.relays
+      delete room.relayLimit
       migrated = true
     }
     // Groups from before group settings existed reply in turn, led by a Main Bot member.
@@ -230,7 +238,7 @@ export function install(rt) {
   const load = () => loaded ??= (async () => {
     claimLock()
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
-    const { migrated, stale } = adopt(await readFileState())
+    const { migrated, stale } = adopt(readFileState())
     if (holder !== undefined) return
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
@@ -245,6 +253,41 @@ export function install(rt) {
     for (const room of stale) void rt.retitleRoom(room)
   })()
 
+  // An outside edit of state.json while this host held the lock, found at a
+  // reclaim or by a queued write that saw the file change: this host's in-memory
+  // state goes aside first, then the file on disk is adopted. Queued behind
+  // `writing` — and behind any adopt already queued — so no save or second
+  // refresh slips between finding the change and the adopt.
+  let adopting
+  const adoptAfterReclaim = () => {
+    const run = (adopting ?? writing).then(async () => {
+      if (stamp() !== seen) {
+        const aside = `${statePath}.replaced-${Date.now()}`
+        try {
+          await writeFile(aside, JSON.stringify(state))
+          warn('ds-bot: %s changed while no host held the team; it is adopted and this host\'s state is kept as %s', statePath, aside)
+        } catch (error) {
+          warn('ds-bot: %s changed while no host held the team; it is adopted, and this host\'s state is lost because it could not be kept aside: %s', statePath, error)
+        }
+      }
+      adopt(readFileState())
+    })
+    writing = run.catch(() => {})
+    const tracked = run.finally(() => { if (adopting === tracked) adopting = undefined })
+    adopting = tracked
+    return tracked
+  }
+
+  // The lock was this host's and is its own again. An adopt still queued is
+  // awaited; otherwise the file is compared with what this host last saw:
+  // unchanged means nothing external happened and the in-memory state stays,
+  // changed means an outside edit is adopted the usual way.
+  const reclaimHeld = () => {
+    warnedReadOnly = false
+    if (adopting !== undefined) return adopting
+    return stamp() === seen ? undefined : adoptAfterReclaim()
+  }
+
   // A reading host follows the file and takes over once the other host has gone.
   const refresh = async () => {
     await load()
@@ -254,7 +297,7 @@ export function install(rt) {
       if (holder === undefined) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
-        adopt(await readFileState())
+        adopt(readFileState())
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -264,15 +307,13 @@ export function install(rt) {
       claimLock()
       if (lockBroken) return
       if (holder === undefined) {
-        // The lock was free: still the writer, but the file may carry changes
-        // written while no host held it.
-        warnedReadOnly = false
-        adopt(await readFileState())
+        await reclaimHeld()
         return
       }
       warn('ds-bot: %s', readOnly())
     }
-    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(await readFileState())
+    if (adopting !== undefined) return adopting
+    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
   }
 
   const warnReadOnly = () => {
@@ -290,7 +331,12 @@ export function install(rt) {
     // another host took it over and this one stops writing.
     if (holder === undefined) {
       claimLock()
-      if (holder === undefined) return true
+      if (holder === undefined) {
+        // A changed file is adopted first; the save queues behind that adopt.
+        const pending = reclaimHeld()
+        if (pending !== undefined) void pending.catch(() => {})
+        return true
+      }
     }
     return warnReadOnly()
   }
@@ -300,17 +346,34 @@ export function install(rt) {
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
-    state.revision += 1
-    state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
-    const snapshot = JSON.stringify(state)
     const run = writing.then(async () => {
+      // Re-check writability once the queued write runs: an adopt queued before
+      // it may have made this host read-only (e.g. a file a newer DS Bot wrote).
+      if (stuck !== undefined || holder !== undefined) {
+        if (required) throw new Error(`This host cannot save the Bot team: ${readOnly()}`)
+        warnReadOnly()
+        return
+      }
+      // The snapshot is taken here, so a save made while an adopt was pending
+      // writes the adopted state, not the stale one it had.
+      const epoch = lockEpoch
+      state.revision += 1
+      state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
+      const snapshot = JSON.stringify(state)
       const temp = `${statePath}.${process.pid}.tmp`
       try {
         await mkdir(home, { recursive: true })
         const ensureLock = () => {
           if (lockBroken) return
-          if (!lock.owns()) {
-            const error = new Error('ds-bot lost the state lock to another dsh')
+          const owned = lock.owns()
+          // An outside edit under this host's lock goes through the adopt step
+          // instead of being written over; a removed file is just written again.
+          const changed = owned && stamp() !== '' && stamp() !== seen
+          if (changed) void adoptAfterReclaim().catch(() => {})
+          // A different epoch means an adopt replaced the state this snapshot was
+          // taken from — another host's writes, or an outside edit it adopted.
+          if (!owned || changed || lockEpoch !== epoch) {
+            const error = new Error(changed ? 'ds-bot: the Bot team file changed under this host\'s lock' : 'ds-bot lost the state lock to another dsh')
             error.code = 'ELOCKLOST'
             throw error
           }
@@ -340,7 +403,11 @@ export function install(rt) {
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
-  const roomOf = id => (id === undefined ? undefined : own(state.rooms, id))
+  // A group's own Session moves on to a fresh part when the group's folder no longer
+  // matches the one it was made in (parts.js), like a Bot's own chat: `room.id` stays
+  // the first Session's id and `room.sessionId` the current one, so the group keeps
+  // one identity while its Session moves. `roomOwners` maps the current Session.
+  const roomOf = id => (id === undefined ? undefined : own(state.rooms, id) ?? own(state.rooms, roomOwners.get(id)))
   const isMain = id => id !== undefined && state.mainBotIds.includes(id)
 
   // Group Sessions. A member speaks in each group from a hidden Session of its own,
@@ -349,33 +416,45 @@ export function install(rt) {
   // member's private context. Created on the member's first turn in the group.
   //
   // Segments. A long conversation moves to a fresh Session at a context line (see
-  // parts.js). A Bot's id is the Session id of its first own-chat segment and
-  // never changes; `bot.sessionId` is the current one. Earlier segments, of the own
-  // chat (`bot.segments`) and of each group Session (`room.segments[botId]`), are
+  // parts.js), and a group's own Session to a fresh part when the group's folder
+  // changes. A Bot's id is the Session id of its first own-chat segment and never
+  // changes; `bot.sessionId` is the current one, and `room.sessionId` the group's.
+  // Earlier segments, of the own chat (`bot.segments`), of each group Session
+  // (`room.segments[botId]`) and of the group's own Session (`room.parts`), are
   // archived and stay readable.
   /** @type {Map<string, string>} */
   const chatOwners = new Map()
   /** @type {Map<string, {botId:string, roomId:string}>} */
   const groupOwners = new Map()
-  /** @type {Map<string, {botId:string, roomId?:string}>} */
+  /** @type {Map<string, string>} */
+  const roomOwners = new Map()
+  /** @type {Map<string, {botId?:string, roomId?:string}>} */
   const pastOwners = new Map()
   const chatOf = botId => botOf(botId)?.sessionId ?? botId
+  const sessionOfRoom = room => (room === undefined ? undefined : room.sessionId ?? room.id)
   const indexSessions = () => {
     chatOwners.clear()
     groupOwners.clear()
+    roomOwners.clear()
     pastOwners.clear()
     for (const bot of Object.values(state.bots)) {
       for (const segment of bot.segments ?? []) pastOwners.set(segment.sessionId, { botId: bot.id })
       chatOwners.set(chatOf(bot.id), bot.id)
     }
     for (const room of Object.values(state.rooms)) {
+      const sessionId = sessionOfRoom(room)
+      if (sessionId !== undefined) roomOwners.set(sessionId, room.id)
+      for (const segment of room.parts ?? []) pastOwners.set(segment.sessionId, { roomId: room.id })
       for (const [botId, segments] of Object.entries(room.segments ?? {})) {
         for (const segment of segments) pastOwners.set(segment.sessionId, { botId, roomId: room.id })
       }
       for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) groupOwners.set(sessionId, { botId, roomId: room.id })
     }
-    // The agents module owns the DSH Agent session index; it installs after this.
+    // The agents module owns the DSH Agent session index, and tools.js re-syncs
+    // the scoped tools with this ownership (drops Sessions that left, scopes
+    // live Agents that joined); both install after this.
     rt.indexAgents?.()
+    rt.syncScopedTools?.()
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
   // earlier segment of either.
@@ -384,6 +463,7 @@ export function install(rt) {
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
+    if (room.memberDirs !== undefined) delete room.memberDirs[botId]
     const sessionId = room.sessions?.[botId]
     if (sessionId === undefined) return
     delete room.sessions[botId]
@@ -410,7 +490,7 @@ export function install(rt) {
     if (ref === undefined) return undefined
     const byId = own(state.bots, ref)
     if (byId) return byId
-    const wanted = normalize(ref).replace(/^@/, '')
+    const wanted = normalize(unquote(ref)).replace(/^@/, '')
     return Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
   }
   // Every group chat whose id or name matches; callers refuse an ambiguous name.
@@ -425,8 +505,8 @@ export function install(rt) {
 
   Object.assign(rt, {
     state, load, save, refresh, readOnly, own,
-    botOf, roomOf, isMain, chatOf, selfOf, isBotSession,
-    chatOwners, groupOwners, pastOwners,
+    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
+    chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }

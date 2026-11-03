@@ -59,19 +59,26 @@ export const ROOM_MAX_MEMBERS = 12
 // are ordinary root Sessions, so the team tools must not be offered to them.
 export const AGENT_NAME = 'DSH Agent'
 export const AGENT_SESSION_TITLE_MAX = 80
-// Every tool this plugin registers for Bots. `read_browser` only exists in the
-// Desktop profile, so a restriction filters this list down to registered names.
+// Every tool this plugin defines for Bot Sessions; tools.js registers them in
+// each Bot session's own scope. `read_browser` only exists in the Desktop
+// profile, so the list served to one session can be shorter.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'show_view',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
   'list_capabilities', 'save_capability', 'delete_capability',
-  'attach_capability', 'detach_capability',
+  'attach_capability', 'detach_capability', 'group_goal',
 ]
+// Consecutive automatic admin wakes with no goal progress before the goal waits
+// for the user instead of waking the admin again.
+export const GOAL_IDLE_NUDGES = 2
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000
+// Consecutive Bot-to-Bot relays with no tool call and only repetitive or ack text
+// before the round parks the remaining calls and asks the user before continuing.
+export const ROOM_IDLE_RELAY_LIMIT = 6
 
 export const OWN_CHAT_LINE_MAX = 400
 // The message an anchor points at is shown whole (up to this), so a long draft takes

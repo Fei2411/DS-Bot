@@ -1,4 +1,4 @@
-/* DeepSeek Bot start window. Geometry in DIP of the 720 x 540 window content (40 px band on top). */
+/* DS Bot start window. Geometry in DIP of the 720 x 540 window content (40 px band on top). */
 /* tokens */
 /* Generated from the DeepSeek theme in ds-bot/src/client/themes.js, inks.js and styles.js by scripts/start-assets.mjs; do not edit. */
 :root{color-scheme:light dark;--bt-main:#fcfcfc;--bt-card:#ffffff;--bt-ink:#141414;--bt-ink-2:rgba(20,20,20,0.6);--bt-line:rgba(20,20,20,0.08);--bt-line-2:rgba(20,20,20,0.15);--bt-hover:rgba(119,119,119,.09);--bt-accent:#4d6bfe;--bt-accent-ink:#ffffff;--bt-ink-deepseek:#4D6BFE;--bt-green:#00c972;--bt-danger:#e02135}

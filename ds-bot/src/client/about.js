@@ -21,7 +21,7 @@ function botHint(update) {
   if (update.phase === 'updated') return t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
   if (update.phase === 'failed') return t('The update did not finish: {reason}', { reason: hostText(update.error ?? '') })
   if (update.available) return t('DS Bot {version} is available', { version: update.latest })
-  if (update.source === 'app') return t('Updates come with the DeepSeek Bot app.')
+  if (update.source === 'app') return t('Updates come with the DS Bot app.')
   if (update.enabled === false) return t('Update checks are off.')
   if (update.source === 'path') return t('Installed from a local folder; update it there.')
   if (!update.checkedAt) return null

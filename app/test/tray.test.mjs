@@ -16,7 +16,7 @@ function harness({ platform = 'win32' } = {}) {
   }
   const calls = { open: 0, quit: 0 }
   const tray = createTray({
-    Tray, Menu, platform, image: { empty: false }, tooltip: 'DeepSeek Bot',
+    Tray, Menu, platform, image: { empty: false }, tooltip: 'DS Bot',
     open: { label: 'Open', run: () => { calls.open += 1 } },
     quit: { label: 'Quit', run: () => { calls.quit += 1 } },
     log: { warn: () => {} },
@@ -28,7 +28,7 @@ describe('the tray', () => {
   test('the icon carries the tooltip and a menu with Open and Quit', () => {
     const app = harness()
     assert.equal(app.trays.length, 1)
-    assert.equal(app.trays[0].tooltip, 'DeepSeek Bot')
+    assert.equal(app.trays[0].tooltip, 'DS Bot')
     assert.deepEqual(app.menus[0].map(item => item.label ?? 'separator'), ['Open', 'separator', 'Quit'])
   })
 

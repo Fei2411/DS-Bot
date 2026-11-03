@@ -265,9 +265,9 @@ export function startSnapshot(state, now) {
   return snapshot
 }
 
-export const detailsText = ({ version, platform, arch, reason, lines }) => [`DeepSeek Bot ${version} (${platform} ${arch})`, `reason: ${reason}`, '', ...lines].join('\n')
+export const detailsText = ({ version, platform, arch, reason, lines }) => [`DS Bot ${version} (${platform} ${arch})`, `reason: ${reason}`, '', ...lines].join('\n')
 
-const note = message => { console.log(`DeepSeek Bot: start window: ${message}`) }
+const note = message => { console.log(`DS Bot: start window: ${message}`) }
 // The page sends a button's detail as { value }; anything else counts as none.
 const valueOf = payload => (payload !== null && typeof payload === 'object' && typeof payload.value === 'string' ? payload.value.slice(0, 40) : undefined)
 // An option of the import card: its name and whether it is ticked.
@@ -350,7 +350,7 @@ export class StartWindow {
     const win = new BrowserWindow({
       ...rect,
       useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, minimizable: true,
-      show: false, title: 'DeepSeek Bot', icon: this.#o.icon,
+      show: false, title: 'DS Bot', icon: this.#o.icon,
       backgroundColor: mica ? '#00000000' : colors.main,
       // Frameless with the system minimize and close buttons over the page's empty 40 px band.
       ...(win32 ? {
@@ -809,7 +809,7 @@ export class StartWindow {
     const reason = this.#state.failure?.reason ?? 'other'
     const text = detailsText({ version, platform: process.platform, arch: process.arch, reason, lines: this.#o.log.tail(SAVED_LINES) })
     try {
-      const filePath = await saveAs(this.#window, 'DeepSeek-Bot-log.txt')
+      const filePath = await saveAs(this.#window, 'DS-Bot-log.txt')
       if (!filePath) return
       await writeFile(filePath, text, 'utf8')
       note(`the log was saved to ${filePath}`)

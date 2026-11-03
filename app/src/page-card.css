@@ -1,4 +1,4 @@
-/* DeepSeek Bot's own questions and pickers: one card over the page in place of a message box
+/* DS Bot's own questions and pickers: one card over the page in place of a message box
    or a system picker (main.mjs askInWindow and askPicker, preload.cjs showCard and showPicker).
    The main process inserts this sheet into the team window and the start window; the
    colors and springs are the start window's, scoped to the card's layer so that the page's own

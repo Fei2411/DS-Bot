@@ -14,7 +14,7 @@ export function install(rt) {
     return resolved.agent
   }
 
-  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, asker } = {}) => {
+  const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, asker } = {}) => {
     // What came back for work another Bot gave this one says where its answer goes.
     const goesOn = asker === undefined ? '' : ` · for the work ${asker} asked you for; your answer goes to ${asker} once everything you handed on is back`
     if (deferred && role === 'reply') return `[Reply from ${fromName} · you read it during your last task; go on with the work it is for now${goesOn}]`
@@ -23,6 +23,8 @@ export function install(rt) {
     if (retried && role !== 'room') return '[Your last reply wrote a tool call as text, so nothing ran]'
     if (resumed && role === 'resume') return '[DeepSeek Harness restarted while you were working]'
     if (resumed && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted while you were working on it]`
+    if (resent && role === 'reply') return `[Reply from ${fromName} · DeepSeek Harness restarted before it could reach you]`
+    if (resent && role !== 'room') return `[Message from ${fromName} · DeepSeek Harness restarted before it could reach you]`
     if (role === 'reply') return `[Reply from ${fromName}${goesOn}]`
     if (role === 'stopped') return `[Stopped by ${fromName}]`
     if (role === 'room') return `[Group chat "${roomName}" · ${note}]`
@@ -44,14 +46,15 @@ export function install(rt) {
   // `deferred`: a request the Bot already read mid-turn, handed back to answer in a
   // turn of its own; its exchange was recorded when it first arrived. `resumed` and
   // `retried` carry on a turn that a restart cut off or that wrote its tool call as
-  // text (resume.js, turns.js), and `resent` is a message a shutdown cancelled; their
-  // exchange is recorded already too. `askedBy` is the member whose @mention called a
-  // group turn (groups.js). `fromRoomId`: the group whose Session the sender wrote
-  // from; the reply goes back to that Session (turns.js). `files` go along as file
-  // blocks, which DSH turns into a read-only path the recipient's tools can read.
-  // `length`: the whole message's length when it went as a file (attachLong). `work`:
-  // the work (handoffs.js) a result that came back goes on with. `merged`: a request
-  // that takes in an earlier one its recipient had not read, under that one's exchange.
+  // text (resume.js, turns.js); their exchange is recorded already too. `resent` is
+  // a message a shutdown cancelled; its first send may not have been recorded.
+  // `askedBy` is the member whose @mention called a group turn (groups.js).
+  // `fromRoomId`: the group whose Session the sender wrote from; the reply goes back
+  // to that Session (turns.js). `files` go along as file blocks, which DSH turns into
+  // a read-only path the recipient's tools can read. `length`: the whole message's
+  // length when it went as a file (attachLong). `work`: the work (handoffs.js) a
+  // result that came back goes on with. `merged`: a request that takes in an earlier
+  // one its recipient had not read, under that one's exchange.
   async function deliver({ fromId, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, askedBy, fromRoomId, files = [], length, work }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
@@ -78,24 +81,13 @@ export function install(rt) {
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
     }
     const targetSessionId = sessionId ?? rt.chatOf(toId)
-    if (EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried && !resent) {
-      // The whole text is in its file, or in the Session it goes to; exchangeText reads
-      // it back there.
-      const kept = headOf(text, TEXT_KEPT)
-      const whole = length !== undefined ? { length, files } : kept.length < text.length ? { length: text.length, sessionId: targetSessionId } : {}
-      const entry = { id: exchangeId, from: fromId, to: toId, text: kept, ...whole, role, time: Date.now(), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) }
-      const earlier = merged ? state.exchanges.findIndex(other => other.id === exchangeId) : -1
-      if (earlier === -1) state.exchanges.push(entry)
-      else state.exchanges[earlier] = entry
-      void rt.save().catch(() => {})
-    }
     await rt.ensureCapabilities(targetSessionId)
     const agent = await resolveAgent(targetSessionId)
     // A steered message cuts into a running turn at its next step; a follow-up
     // queues for the next turn (see turns.js for how each is routed).
     const message = createUserMessage({
       content: [
-        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, asker })}\n${text}` },
+        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, asker })}\n${text}` },
         ...files.map(attachment => ({ type: 'file', attachment })),
       ],
       source,
@@ -103,6 +95,19 @@ export function install(rt) {
     if (steer) agent.steer(message)
     else agent.followup(message)
     await ctx.sessions.flush(agent.session)
+    if (EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried) {
+      // Recorded once the message is in the Session: an earlier record would show
+      // a failed delivery as delivered. The whole text is in its file, or in the
+      // Session it goes to; exchangeText reads it back there. Resends keep any
+      // existing record; only a merged request replaces it with its added text.
+      const kept = headOf(text, TEXT_KEPT)
+      const whole = length !== undefined ? { length, files } : kept.length < text.length ? { length: text.length, sessionId: targetSessionId } : {}
+      const entry = { id: exchangeId, from: fromId, to: toId, text: kept, ...whole, role, time: Date.now(), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) }
+      const earlier = state.exchanges.findIndex(other => other.id === exchangeId)
+      if (earlier === -1) state.exchanges.push(entry)
+      else if (merged) state.exchanges[earlier] = entry
+      void rt.save().catch(() => {})
+    }
     return exchangeId
   }
 

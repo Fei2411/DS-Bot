@@ -61,20 +61,20 @@ test('a failure gets one of the five reasons of the failure page', () => {
   assert.equal(failureReason(new Error('The DSH Host stopped (exit 1):\nError: EACCES: permission denied, open \'state.json\'')), 'permission')
   assert.equal(failureReason(new Error('The DSH Host stopped (exit 3221225477)')), 'engine')
   assert.equal(failureReason(new Error('The profile in D:\\x does not start the engine\'s web server and connection.')), 'engine')
-  assert.equal(failureReason(new Error('DeepSeek Bot: no free port on 127.0.0.1')), 'other')
+  assert.equal(failureReason(new Error('DS Bot: no free port on 127.0.0.1')), 'other')
   assert.equal(failureReason('a string'), 'other')
   assert.equal(failureReason(undefined), 'other')
 })
 
 test('only a missing file of the app\'s own says that the install is incomplete', () => {
-  const program = join(tmpdir(), 'DeepSeek Bot')
+  const program = join(tmpdir(), 'DS Bot')
   const where = { program: [join(tmpdir(), 'electron'), program] }
   const missing = (path, message) => Object.assign(new Error(message), { code: 'ENOENT', path })
-  const exe = join(program, 'DeepSeek Bot.exe')
+  const exe = join(program, 'DS Bot.exe')
   assert.equal(failureReason(missing(exe, `spawn ${exe} ENOENT`), where), 'files')
   assert.equal(failureReason(missing(exe, `spawn ${exe} ENOENT`)), 'other')
   // A saved data folder on a drive that is gone.
-  const data = join(tmpdir(), 'gone', 'DeepSeek Bot', 'data', 'profiles', 'ds-bot')
+  const data = join(tmpdir(), 'gone', 'DS Bot', 'data', 'profiles', 'ds-bot')
   assert.equal(failureReason(missing(data, `ENOENT: no such file or directory, mkdir '${data}'`), where), 'other')
   // A Host that stopped: its error output names the missing file.
   const bundle = join(program, 'resources', 'app.asar.unpacked', 'node_modules', 'x', 'index.js')
@@ -128,9 +128,9 @@ test('the main process takes only its own acts, each in its own views', () => {
 test('acts come only from the start page that was loaded', () => {
   // A Windows path is a file URL only on Windows.
   const win32 = process.platform === 'win32'
-  const page = win32 ? 'C:\\Program Files\\DeepSeek Bot\\resources\\app.asar\\src\\start\\start.html' : '/opt/DeepSeek Bot/resources/app.asar/src/start/start.html'
+  const page = win32 ? 'C:\\Program Files\\DS Bot\\resources\\app.asar\\src\\start\\start.html' : '/opt/DS Bot/resources/app.asar/src/start/start.html'
   const loaded = startUrl(page, 'first')
-  assert.equal(loaded, win32 ? 'file:///C:/Program%20Files/DeepSeek%20Bot/resources/app.asar/src/start/start.html?start=first' : 'file:///opt/DeepSeek%20Bot/resources/app.asar/src/start/start.html?start=first')
+  assert.equal(loaded, win32 ? 'file:///C:/Program%20Files/DS%20Bot/resources/app.asar/src/start/start.html?start=first' : 'file:///opt/DS%20Bot/resources/app.asar/src/start/start.html?start=first')
   assert.equal(isStartPage(loaded, loaded), true)
   assert.equal(isStartPage(`${loaded}#x`, loaded), false)
   assert.equal(isStartPage(loaded.replace('first', 'later'), loaded), false)
@@ -168,7 +168,7 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   assert.deepEqual(startSnapshot(state({ hint: { drive: 'C', free: '1.2 GB' } }), now).hint, { drive: 'C', free: '1.2 GB' })
   assert.equal('place' in startSnapshot(state(), now), false)
   assert.deepEqual(startSnapshot(state({ place: { drive: 'C', free: '412 GB' } }), now).place, { drive: 'C', free: '412 GB' })
-  assert.deepEqual(startSnapshot(state({ view: 'card', card: { kind: 'picked', path: 'D:\\DeepSeek Bot' } }), now).card, { kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  assert.deepEqual(startSnapshot(state({ view: 'card', card: { kind: 'picked', path: 'D:\\DS Bot' } }), now).card, { kind: 'picked', path: 'D:\\DS Bot' })
   // The page gets copies: it cannot change the main process's state.
   const source = state({ failure: { reason: 'other', log: ['x'] } })
   const sent = startSnapshot(source, now)
@@ -193,7 +193,7 @@ test('what the hint row can prepare for: a new team, a reinstall or an import', 
 })
 
 test('the copied details name the version and the reason before the log', () => {
-  assert.equal(detailsText({ version: '0.2.2', platform: 'win32', arch: 'x64', reason: 'engine', lines: ['l1', 'l2'] }), 'DeepSeek Bot 0.2.2 (win32 x64)\nreason: engine\n\nl1\nl2')
+  assert.equal(detailsText({ version: '0.2.2', platform: 'win32', arch: 'x64', reason: 'engine', lines: ['l1', 'l2'] }), 'DS Bot 0.2.2 (win32 x64)\nreason: engine\n\nl1\nl2')
 })
 
 test('the start window remembers the theme and the motion tier in its own file', (t) => {
@@ -384,13 +384,13 @@ test('〔保存日志…〕 writes the log where the app\'s picker says, and not
   t.after(() => { rmSync(dir, { recursive: true, force: true }) })
   assert.equal(s.act('saveLog'), true)
   await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(s.calls.saveAs, ['DeepSeek-Bot-log.txt'])
+  assert.deepEqual(s.calls.saveAs, ['DS-Bot-log.txt'])
   assert.deepEqual(readdirSync(dir), [])
   s.calls.saveTo = join(dir, 'log.txt')
   s.act('saveLog')
   const saved = () => (readdirSync(dir).length > 0 ? readFileSync(join(dir, 'log.txt'), 'utf8') : '')
   for (let i = 0; i < 500 && !saved().includes('a log line'); i += 1) await new Promise(resolve => setImmediate(resolve))
-  assert.match(saved(), /^DeepSeek Bot 0\.0\.0 \([\s\S]*a log line/u)
+  assert.match(saved(), /^DS Bot 0\.0\.0 \([\s\S]*a log line/u)
 })
 
 test('a dialog of the start window turns it opaque while it waits see-through', (t) => {
@@ -656,7 +656,7 @@ test('the landing takes the start window\'s title bar into account, and waits wi
   s.start.placeMain()
   s.start.done('data')
   s.start.done('engine')
-  s.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  s.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
   s.start.ready(AVATAR)
   assert.equal(s.state().view, 'card')
   s.start.card(undefined)
@@ -725,9 +725,9 @@ test('the place line, its picker and its cards, and a start over in another fold
   assert.deepEqual(s.calls.pick, ['changePlace'])
   assert.equal(s.act('answer', { value: 'use' }), false)
   // A layer the app added: the 「会放在…」 card waits for the answer, and the clock with it.
-  s.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  s.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
   assert.equal(s.state().view, 'card')
-  assert.deepEqual(s.state().card, { kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  assert.deepEqual(s.state().card, { kind: 'picked', path: 'D:\\DS Bot' })
   assert.equal(s.state().clock.running, false)
   assert.equal(s.act('pick', undefined), true)
   assert.deepEqual(s.calls.pick, ['changePlace', undefined])
@@ -746,7 +746,7 @@ test('the place line, its picker and its cards, and a start over in another fold
   s.tick(180_000)
   assert.equal(s.state().view, 'watchdog')
   assert.equal(s.act('pick', { value: 'changePlace' }), true)
-  s.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  s.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
   assert.equal(s.state().view, 'card')
   s.start.card(undefined)
   s.tick(1)
@@ -770,7 +770,7 @@ test('the place line, its picker and its cards, and a start over in another fold
   assert.deepEqual(s.state().done, ['data', 'engine'])
   // No card after a failure: the failure page has its own buttons.
   s.start.fail(new Error('The DSH Host stopped (exit 1)'))
-  s.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  s.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
   assert.equal(s.state().view, 'failed')
   assert.equal(s.act('pick', { value: 'changePlace' }), false)
 })
@@ -798,7 +798,7 @@ test('a card holds the hand-off the same way, and the ready is not lost when the
   c.start.open('first')
   c.start.done('data')
   c.start.done('engine')
-  c.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  c.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
   c.start.ready()
   assert.equal(c.state().view, 'card')
   c.start.card(undefined)
@@ -810,7 +810,7 @@ test('a start over in another folder drops the old engine\'s held ready', (t) =>
   o.start.open('first')
   o.start.done('data')
   o.start.done('engine')
-  o.start.card({ kind: 'picked', path: 'D:\\DeepSeek Bot' })
+  o.start.card({ kind: 'picked', path: 'D:\\DS Bot' })
   o.start.ready()
   o.start.restart()
   assert.equal(o.state().view, 'boot')
