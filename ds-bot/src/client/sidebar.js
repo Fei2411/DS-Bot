@@ -8,8 +8,9 @@ import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_POP, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
+import { springEasing, SPRING_POP, SPRING_SHAPE, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
+import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
@@ -111,13 +112,15 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
 
 function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
   const id = room.id
-  const fallback = useSessions(list => previewOf(list, id))
+  // The group's own Session is a chain of parts; the row shows the current one.
+  const sessionId = room.sessionId ?? id
+  const fallback = useSessions(list => previewOf(list, sessionId))
   const preview = room.preview?.replace(/\s+/g, ' ').trim() || fallback
-  const active = useSessionRetainInfo(id, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(id)?.completionUnread === true) || (marked && !active)
+  const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const approval = useApproval(useWork, entry => entry.roomId === id)
-  const members = workKeys(useGroupWork(useWork, rooms => (rooms[id] ?? []).map(entry => ({ id: entry.botId, ...doingOf(entry) }))))
+  const members = workKeys(useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) }))))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
   if (room.hidden && !active) return null
@@ -267,8 +270,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, style: { width: `${width}px` } },
+function LeftColumn({ mode, width, onGrip, leaving, children }) {
+  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -285,6 +288,17 @@ function TitleToggle({ hidden, onToggle }) {
   return createPortal(h('button', {
     type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'aria-label': label, title: label, onClick: onToggle,
   }, h(SidebarIcon)), document.body)
+}
+
+// The Bot-API-down hint cannot send the user to Settings → Feedback: its
+// diagnostics request needs the same API. What still works in this state is
+// the last error this window recorded, and the engine's own startup output —
+// its console, or the app's startup error box (#516).
+const bootHint = () => {
+  const last = clientErrors().at(-1)?.text
+  return last === undefined
+    ? t('The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.')
+    : t('The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.', { error: last })
 }
 
 export function TeamSidebar(props) {
@@ -304,7 +318,10 @@ export function TeamSidebar(props) {
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
   const mode = drag?.left ?? layout.left
-  const wideContent = mode !== 'rail'
+  // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
+  const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
+  const shown = held ?? mode
+  const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
@@ -329,7 +346,7 @@ export function TeamSidebar(props) {
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
   // as the rail and the chat stays put when it opens or closes.
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
-  const ourWidth = mode === 'rail' ? RAIL_WIDTH : openWidth
+  const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
@@ -338,31 +355,96 @@ export function TeamSidebar(props) {
   useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
 
   // The edge drag: live while the pointer moves, the column's new state on release.
+  // Per frame the drag writes the column's own inline style and each conversation
+  // column's inline margin — the same path the panel's resize takes — so nothing
+  // re-renders or restyles the chat while the pointer moves. A render only happens
+  // when the drag crosses the rail's snap line, and the spring (`data-folding`)
+  // rides that switch alone: it comes off when the switch settles, so a drag that
+  // keeps going afterwards follows the cursor frame by frame again.
+  const settleTimer = useRef(0)
+  const springTimer = useRef(0)
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
+    clearTimeout(settleTimer.current)
+    clearTimeout(springTimer.current)
     const grip = event.currentTarget
+    const column = grip.parentElement
+    // A re-grab can land while a previous spring still stands: the new drag owns
+    // the column from here, so its fold state starts clean.
+    delete column.dataset.folding
     grip.setPointerCapture?.(event.pointerId)
     chatRoom.hold(true)
+    const columns = chatRoom.columns()
+    for (const col of columns) col.style.setProperty('transition', 'none', 'important')
+    const offLeft = frameSnap.collapsedWidth ?? 0
     let last = null
+    let liveLeft = mode
     let done = false
-    const onMove = (move) => { last = dragColumn(move.clientX, window.innerWidth); setDrag(last) }
+    const write = (at) => {
+      const width = at.left === 'rail' ? RAIL_WIDTH : at.width
+      column.style.width = `${width}px`
+      column.style.setProperty('--bt-lc-w', `${width}px`)
+      const push = Math.max(0, (at.left === 'open' ? width : RAIL_WIDTH) - offLeft)
+      for (const col of columns) col.style.setProperty('margin-left', `${push}px`, 'important')
+    }
+    // A snap crossing arms the spring for the switch's glide; the timer takes it
+    // back off once the switch has had its duration.
+    let springUntil = 0
+    const springOff = () => {
+      springUntil = 0
+      delete column.dataset.folding
+      for (const col of columns) col.style.setProperty('transition', 'none', 'important')
+    }
+    const springOn = () => {
+      column.dataset.folding = ''
+      for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, 'important')
+      springUntil = performance.now() + SPRING_SHAPE.duration
+      clearTimeout(springTimer.current)
+      springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
+    }
+    const track = (x) => {
+      last = dragColumn(x, window.innerWidth)
+      if (last.left !== liveLeft) {
+        liveLeft = last.left
+        if (!reducedMotion()) springOn()
+        setDrag(last)
+      }
+      write(last)
+    }
+    const onMove = (move) => track(move.clientX)
+    // The rules and props take the landed geometry back over; while the fold's
+    // spring still runs this waits it out so the landing does not snap. The
+    // inline `width` stays: it is the landed geometry, and React writes its width
+    // prop only when the value changes, so removing it would leave the edge at
+    // its CSS fallback (57px on the rail).
+    const finish = () => {
+      clearTimeout(springTimer.current)
+      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === 'open' ? last.width : RAIL_WIDTH) - offLeft))
+      for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
+      column.style.removeProperty('--bt-lc-w')
+      delete column.dataset.folding
+      chatRoom.hold(false)
+    }
     const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
     const onEnd = (end) => {
       if (done) return
       done = true
-      if (end.type === 'pointerup') last = dragColumn(end.clientX, window.innerWidth)
+      if (end.type === 'pointerup') track(end.clientX)
       grip.removeEventListener('pointermove', onMove)
       for (const name of ends) grip.removeEventListener(name, onEnd)
       setDrag(null)
-      chatRoom.hold(false)
-      if (last === null) return
+      if (last === null) { finish(); return }
       // The drag is the latest explicit gesture: it takes back a yielded panel's room.
       actions.setPanelYield?.(false)
-      if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail'); return }
-      actions.setSidebarWidth?.(last.width)
-      actions.setSidebarPref?.('open')
-      actions.setLeftDrawer?.(last.left === 'drawer')
+      if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail') }
+      else {
+        actions.setSidebarWidth?.(last.width)
+        actions.setSidebarPref?.('open')
+        actions.setLeftDrawer?.(last.left === 'drawer')
+      }
+      if (springUntil === 0) finish()
+      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60)
     }
     grip.addEventListener('pointermove', onMove)
     for (const name of ends) grip.addEventListener(name, onEnd)
@@ -477,7 +559,7 @@ export function TeamSidebar(props) {
   }, [])
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
-        h('span', { className: 'bt-brand' }, h(BrandMark, { size: 22 }), h(BrandName)),
+        h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
@@ -485,7 +567,7 @@ export function TeamSidebar(props) {
     : h('div', { className: 'bt-rail-top' },
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
-        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
+        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, uiNow.bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
@@ -498,7 +580,7 @@ export function TeamSidebar(props) {
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', { ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
-      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))) : null,
+      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, uiNow.bootFailed ? bootHint() : t('Setting up your Main Bot…'))) : null,
       order.map(entry => (entry.kind === 'bot'
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'
@@ -507,7 +589,7 @@ export function TeamSidebar(props) {
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    mode === 'hidden' ? null : h(LeftColumn, { mode, width: ourWidth, onGrip: startDrag }, content))
+    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -605,7 +687,7 @@ function UpdateButton({ useUpdate, actions }) {
 // Account seat of the Settings trigger: the visible label stays for assistive tech only.
 export function YouAvatar() {
   return h('span', { className: 'bt-you-wrap' },
-    h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 })),
+    h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon)),
     h('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' } }, t('Settings')))
 }
 
@@ -797,7 +879,7 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
   else if (signedOut) groups.push([[t('Sign in to DeepSeek'), SignInIcon, () => actions.signIn()]])
   return h(Fragment, null,
     h('button', { ref: button, type: 'button', className: 'bt-account', 'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle },
-      h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 }))),
+      h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon))),
     open && box ? createPortal(h('div', { className: 'bt-menu bt-menu-up bt-account-menu', role: 'menu', 'aria-label': t('Account'), style: box },
       confirm !== null ? h('div', { className: 'bt-confirm', role: 'alertdialog', 'aria-label': accountT('signOut') },
         h('p', { className: 'bt-confirm-text' }, accountT(confirm === 'running' ? 'signOutRunningDescription' : confirm === 'unknown' ? 'signOutUnknownDescription' : 'signOutDescription')),
@@ -918,8 +1000,16 @@ function useLandOnMainBot(roster, useSessions, actions) {
       if (currentPart(bot) !== id) actions.landOn(bot.id)
       return undefined
     }
+    // The group's own Session moves on like a Bot's chat does: the part it archived
+    // is cleared, and the view goes on in the fresh one.
+    const room = id === '' ? undefined : roster.roomsById[id]
+    if (room !== undefined) {
+      lastBot.current = null
+      if ((room.sessionId ?? room.id) !== id) actions.openSession(room.id)
+      return undefined
+    }
     // A DSH Agent Session, blank or not, is a real destination: it stays.
-    if (id !== '' && (roster.roomsById[id] || (actions.isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
+    if (id !== '' && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
       lastBot.current = null
       return undefined
     }

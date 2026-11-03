@@ -15,7 +15,7 @@ function harness({ inUse = () => false, free = 100 * GB, check = async () => 0, 
   let respond
   const io = {
     offer: {
-      from: '/home/u/.dsh', bots: 6, rooms: 2, names: ['Chief', 'Writer', 'Coder', 'Tester'], sessions: 3,
+      from: '/home/user/.dsh', bots: 6, rooms: 2, names: ['Chief', 'Writer', 'Coder', 'Tester'], sessions: 3,
       sizes: sizes ?? { sessions: 3, chats: 1.2 * GB, work: 3.4 * GB, regen: 0.4 * GB },
       profiles: profiles ?? [{ name: 'web', rows: [{ id: 'llm-deepseek' }] }, { name: 'desktop', rows: [{ id: 'agent-default-model', config: { model: 'deepseek/v4' } }] }],
     },
@@ -33,7 +33,7 @@ function harness({ inUse = () => false, free = 100 * GB, check = async () => 0, 
     until: async (check, signal) => { while (!signal.aborted && !check()) await tick() },
     check: async (signal, onProgress) => { onProgress(3, 3); return check(signal) },
     warmed: async () => {},
-    copy: copy ?? (async ({ onProgress }) => { onProgress(2.6 * GB); return { bots: 6, sessions: 3, from: '/home/u/.dsh' } }),
+    copy: copy ?? (async ({ onProgress }) => { onProgress(2.6 * GB); return { bots: 6, sessions: 3, from: '/home/user/.dsh' } }),
     reasonOf: () => 'other',
     lang: 'zh',
     signal: new AbortController().signal,
@@ -78,7 +78,7 @@ test('the import card says what it found, what the copy takes and which model se
   await tick()
   const card = cards[0]
   assert.equal(card.kind, 'import')
-  assert.deepEqual([card.bots, card.groups, card.sessions, card.path], [6, 2, 3, '/home/u/.dsh'])
+  assert.deepEqual([card.bots, card.groups, card.sessions, card.path], [6, 2, 3, '/home/user/.dsh'])
   assert.equal(card.names, 'Chief、Writer、Coder')
   assert.deepEqual([card.chats, card.work, card.total, card.bare], ['1.2 GB', '3.0 GB', '4.2 GB', ''])
   assert.equal(card.model, 'DSH Desktop · deepseek/v4')

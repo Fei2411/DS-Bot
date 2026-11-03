@@ -15,13 +15,13 @@ import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
-import { VOICE_BUNDLE } from './speech.js'
+import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
 import { installHeaderNavigation } from './header-navigation.js'
-import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, TurnTailCell, ToolCell } from './cells.js'
+import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
 import { Overlays } from './overlays.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
@@ -44,6 +44,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
@@ -52,8 +53,13 @@ export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'th
 
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
-  const roster = createSource(EMPTY_ROSTER)
   migrateStorage()
+  // The window's cached prefs stand in until the first pull answers: a saved
+  // `enterToSend: false` then already holds, instead of Enter sending meanwhile.
+  const PREFS_KEY = STORAGE.prefs
+  let savedPrefs = {}
+  try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
+  const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
   const unreadStore = sharedMap(STORAGE.unread)
   const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new turns against it.
@@ -61,7 +67,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -93,7 +99,7 @@ export function apply(ctx) {
   // panels would follow it and report it is not on the team, so they close.
   const dropPanels = () => ui.set(state => (state.details || state.renaming ? { ...state, details: null, view: 'details', renaming: false, tab: null } : state))
   // A Bot's chat spans several parts, so when it was last left is kept per Bot.
-  const seenKey = id => roster.getSnapshot().byId?.[id]?.id ?? id
+  const seenKey = id => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id
   const leaveVisits = (ids) => {
     seenAt = seenStore.update(seen => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt)
   }
@@ -118,6 +124,9 @@ export function apply(ctx) {
   // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
   const work = createSource({ bots: {}, approvals: [] })
   let workKey = ''
+  // The version of the live fields this window last got; while it still names the
+  // host's answer, the poll leaves those fields out.
+  let liveKey
   // Per Session, what its transcript has in flight (running tools, a streaming reply).
   const live = createSource({})
   // Per Session, the ask_user and request_secret calls its transcript draws; the
@@ -142,9 +151,6 @@ export function apply(ctx) {
     memoryNews.set(state => Object.fromEntries(Object.entries(next).map(([id, entry]) => [id,
       state[id]?.at === entry.at ? state[id] : { ...entry, seen: opening ? 0 : Date.now() }])))
   }
-  const PREFS_KEY = STORAGE.prefs
-  let savedPrefs = {}
-  try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
   const writeUnread = (id, value) => {
     const unread = unreadStore.update(marks => setUnread(marks, id, value), ui.getSnapshot().unread)
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
@@ -156,14 +162,19 @@ export function apply(ctx) {
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', locale: language() })
+    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
-    const nextActivity = JSON.stringify(value.activity ?? {})
-    if (nextActivity !== activityKey) { activityKey = nextActivity; activity.set(value.activity ?? {}) }
-    const nextWork = JSON.stringify(value.work ?? null)
-    if (nextWork !== workKey) { workKey = nextWork; work.set(value.work ?? { bots: {}, approvals: [] }) }
-    noteMemoryNews(value.memoryNews ?? {})
+    if (value.liveKey !== undefined) liveKey = value.liveKey
+    if (value.activity !== undefined) {
+      const nextActivity = JSON.stringify(value.activity)
+      if (nextActivity !== activityKey) { activityKey = nextActivity; activity.set(value.activity) }
+    }
+    if (value.work !== undefined) {
+      const nextWork = JSON.stringify(value.work)
+      if (nextWork !== workKey) { workKey = nextWork; work.set(value.work) }
+    }
+    if (value.memoryNews !== undefined) noteMemoryNews(value.memoryNews)
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
     const live = {}
@@ -187,7 +198,7 @@ export function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.id)]) {
+    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
       if (refreshed.has(id)) continue
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
@@ -198,11 +209,28 @@ export function apply(ctx) {
     let stopped = false
     let running = false
     let timer
+    let misses = 0
     const loop = async () => {
       clearTimeout(timer)
       if (running || stopped) return
       running = true
-      try { await pull() } catch (error) { if (!stopped) console.warn('[ds-bot] state', error) } finally { running = false }
+      try {
+        await pull()
+        misses = 0
+        // A late-arriving API clears the failure the misses reported.
+        ui.set(state => (state.bootFailed ? { ...state, bootFailed: false } : state))
+      } catch (error) {
+        if (!stopped) {
+          console.warn('[ds-bot] state', error)
+          // Only a missing Bot API counts toward a failed start: while the
+          // host plugin stays unmounted the route answers 404. A network miss
+          // is the host reconnecting, not a start-up failure (#516).
+          if (error?.code === 'HTTP_404') {
+            misses += 1
+            if (misses >= 10 && !roster.getSnapshot().ready) ui.set(state => (state.bootFailed ? state : { ...state, bootFailed: true }))
+          }
+        }
+      } finally { running = false }
       if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
     }
     const wake = () => { if (!document.hidden) void loop() }
@@ -244,7 +272,7 @@ export function apply(ctx) {
     }, 'ds-bot: app update status')
   }
 
-  // The DeepSeek Bot app's own updater; its state goes beside the host's answer as ownApp,
+  // The DS Bot app's own updater; its state goes beside the host's answer as ownApp,
   // which the About row turns into the app's update state and buttons.
   const ownAppUpdates = globalThis.dsBotApp?.updates ?? null
   if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
@@ -339,7 +367,7 @@ export function apply(ctx) {
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
-        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking })) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
       }
     }
     render()
@@ -375,10 +403,13 @@ export function apply(ctx) {
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
 
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
-  // A Bot id, or any part of its chat, opens the Bot's current part.
+  // A Bot id or a group chat id, or any part of either's chat, opens the current part.
   const partFor = (id) => {
-    const bot = roster.getSnapshot().byId[id]
-    return bot ? currentPart(bot) : id
+    const snapshot = roster.getSnapshot()
+    const bot = snapshot.byId[id]
+    if (bot !== undefined) return currentPart(bot)
+    const room = snapshot.roomsById[id]
+    return room === undefined ? id : (room.sessionId ?? room.id)
   }
   // Sessions owned by an Agent, including ones adopted before the roster caught up.
   const agentSessions = (agentId) => {
@@ -640,9 +671,27 @@ export function apply(ctx) {
     if (step) openHarnessOnboarding(MODELS_STEP)
     else openHarnessSettings()
   }
-  actions.voiceSetup = () => {
+  // With the plugin manager mounted, setup is its bundle page (the model's size
+  // and download notes live there). Where it is not mounted — the desktop app's
+  // profile has no plugin manager — the speech Remote prepares the provider
+  // itself, and the voice pane follows its progress.
+  actions.voiceSetup = (providerId) => {
     const navigation = ctx.get('pluginNavigation')
-    return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null
+    if (navigation !== undefined) return { navigate: () => navigation.openBundle(VOICE_BUNDLE) }
+    const speech = ctx.get('remote.speech')
+    return speech === undefined || providerId === undefined ? null : { prepare: () => requestPreparation(speech, providerId) }
+  }
+  // The full text the voice chat reads aloud: the turn's closing Assistant
+  // message, not the turn outline's bounded preview. undefined while the chat
+  // view has not materialized the turn; null when the Session is not bound.
+  actions.closingReply = (sessionId, turn) => {
+    try {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) return null
+      return closingReplyText(ctx.uiConversation.binding(binding).target('chat').getSnapshot(), turn)
+    } catch {
+      return null
+    }
   }
   actions.seatAccount = on => ui.set(state => (state.accountSeated === on ? state : { ...state, accountSeated: on }))
   // The install runs on the host; the check loop follows it every two seconds.
@@ -871,6 +920,7 @@ export function apply(ctx) {
     () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
     () => installCompiledStyles(ABOUT_CSS, 'about'),
     () => installCompiledStyles(MEMBER_CSS, 'members'),
+    () => installCompiledStyles(GOAL_CSS, 'goal'),
     () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
     () => installCompiledStyles(WIDGET_CSS, 'widgets'),
     () => installCompiledStyles(HANDOFF_CSS, 'handoff'),
@@ -915,10 +965,10 @@ export function apply(ctx) {
     // A Bot condenses its conversation without telling anyone; the chat keeps showing
     // every message.
     () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredReply),
-    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
-    () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),

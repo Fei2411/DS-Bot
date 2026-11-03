@@ -571,7 +571,7 @@ if (out > 0) {
     serial += 1
     const holes = c.eyes.map(([ex, ey, w, h, tilt]) => `<g transform="translate(${ex} ${ey}) rotate(${tilt})"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}" fill="#000"/></g>`).join('')
     const paint = (c.paints ?? []).map(([d, fill, opacity]) => `<path d="${d}" fill="${fill}" fill-opacity="${opacity}"/>`).join('')
-    return `<svg width="${size}" height="${size}" viewBox="0 0 100 100"><defs><mask id="m${serial}" maskUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300"><rect x="-100" y="-100" width="300" height="300" fill="#fff"/>${holes}</mask></defs><g mask="url(#m${serial})" fill-rule="evenodd"><path d="${c.body}" fill="${color}"/>${paint}<path d="${c.shade}" fill="#000" fill-opacity=".14"/><path d="${c.light}" fill="#fff" fill-opacity=".16"/></g></svg>`
+    return `<svg width="${size}" height="${size}" viewBox="0 0 100 100"><defs><mask id="m${serial}" maskUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300"><rect x="-100" y="-100" width="300" height="300" fill="#fff"/>${holes}</mask></defs><g mask="url(#m${serial})" fill-rule="evenodd"><path d="${c.body}" fill="${color}"/>${paint}<path d="${c.shade}" fill="#000" fill-opacity=".07"/></g></svg>`
   }
   const cells = dark => Object.entries(CHARACTERS).map(([id, c], index) => {
     const color = (dark && INK_DARK[id]) || INK[id] || colors[index % colors.length]

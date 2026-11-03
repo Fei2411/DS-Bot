@@ -6,6 +6,7 @@ import { useEscape, usePaneLeft } from './overlay-hooks.js'
 import { CreateBot } from './create-bot.js'
 import { QUICK_EDGES, useFlip, useGlide, useMorph } from './motion.js'
 import { t } from './i18n.js'
+import { sendsOnEnter } from './enter-key.js'
 
 export function NewChat({ mode, roster, actions }) {
   const [query, setQuery] = useState('')
@@ -173,7 +174,7 @@ export function NewChat({ mode, roster, actions }) {
             rows: 1, value: message, placeholder, 'aria-label': placeholder,
             onChange: event => setMessage(event.target.value),
             onKeyDown: (event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage() }
+              if (event.key === 'Enter' && sendsOnEnter(roster.prefs) && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage() }
             },
           }),
           h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || message.trim() === '' || picked.length === 0, onClick: sendMessage }, h(ArrowUpIcon))))))
