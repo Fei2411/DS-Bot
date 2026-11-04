@@ -1,11 +1,10 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useEffect, useState } from 'react'
-import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { Drawer, useDrawer } from './Drawer.tsx'
-import { ForgetCtx } from './forget.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -83,12 +82,12 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
   const insets = useSafeAreaInsets()
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 4, paddingBottom: 8, paddingHorizontal: 10, backgroundColor: p.main }}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Open team list" onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Open team list')} onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <SidebarIcon size={20} color={p.ink2} />
         {pending ? <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent }} /> : null}
       </Pressable>
       <View style={{ flex: 1, alignItems: 'center' }}>
-        {onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
+        {title === '' ? null : onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
       </View>
       {onSide !== undefined ? (
         <Pressable accessibilityRole="button" accessibilityLabel={t('Side chat')} onPress={onSide} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
@@ -100,7 +99,7 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
 }
 
 function ChatScreenB({ route, navigation }: any) {
-  const { team } = useTeam()
+  const { team, error } = useTeam()
   const { p, dark } = useTheme()
   const drawer = useDrawer()
   const params = route.params as ChatTarget | undefined
@@ -119,7 +118,18 @@ function ChatScreenB({ route, navigation }: any) {
     if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id })
   }, [missing])
   const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupSettings', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
-  if (team === null) return <View style={{ flex: 1, backgroundColor: p.main }}>{header}</View>
+  if (team === null) return (
+    <View style={{ flex: 1, backgroundColor: p.main }}>
+      {header}
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
+        <ActivityIndicator color={p.accent} />
+        <Text style={[typeScale.caption, { color: p.ink3, textAlign: 'center' }]}>{error ?? t('Connecting…')}</Text>
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Computers')} hitSlop={8} style={{ minHeight: 44, justifyContent: 'center' }}>
+          <Text style={[typeScale.caption, { color: p.accent }]}>{t('Computers')}</Text>
+        </Pressable>
+      </View>
+    </View>
+  )
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id }) }
   return <ChatView bot={bot} room={room} header={header} onMissing={onMissing} />
 }
@@ -174,16 +184,15 @@ function NoticeBanner() {
   )
 }
 
-function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: () => void }) {
+function Inner({ initial }: { initial: ChatTarget | null }) {
   const { p } = useTheme()
   return (
     <View style={{ flex: 1 }}>
     <NoticeBanner />
-    <ForgetCtx.Provider value={onForget}>
     <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="Chat" component={ChatScreenB} initialParams={initial ?? undefined} />
       <Stack.Screen name="Needs">{(props: any) => <NeedsScreenB {...props} />}</Stack.Screen>
-      <Stack.Screen name="Settings">{(props: any) => <SettingsScreenB onForget={onForget} {...props} />}</Stack.Screen>
+      <Stack.Screen name="Settings">{(props: any) => <SettingsScreenB {...props} />}</Stack.Screen>
       {/* Home is only a background color while Chat resolves the first Main Bot. */}
       <Stack.Screen name="BotDetails">{(props: any) => <BotDetails {...props} />}</Stack.Screen>
       <Stack.Screen name="BotEdit">{(props: any) => <BotEdit {...props} />}</Stack.Screen>
@@ -216,12 +225,11 @@ function Inner({ initial, onForget }: { initial: ChatTarget | null; onForget: ()
       )}</Stack.Screen>
       <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
     </Stack.Navigator>
-    </ForgetCtx.Provider>
     </View>
   )
 }
 
-export default function ShellB({ onForget }: { onForget: () => void }) {
+export default function ShellB() {
   const { p } = useTheme()
   const width = Math.min(Dimensions.get('window').width * 0.85, 340)
   // Render the navigator only once the saved chat is known, so it can start on it.
@@ -248,7 +256,7 @@ export default function ShellB({ onForget }: { onForget: () => void }) {
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
     <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'}>
-      <Inner initial={saved} onForget={onForget} />
+      <Inner initial={saved} />
     </Drawer>
   )
 }

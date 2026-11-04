@@ -6,8 +6,8 @@ import { useIsFocused } from '@react-navigation/native'
 import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Crypto from 'expo-crypto'
-import { listComputers, removeComputer, setActiveComputer, type StoredComputer } from '../store.ts'
-import { ForgetCtx } from '../nav/forget.ts'
+import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
+import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
@@ -827,8 +827,8 @@ export function Computers({ navigation }: any) {
     })
     return null
   })
-  const onForget = useContext(ForgetCtx)
-  const forget = (id: string) => { if (armed !== id) { setArmed(id); return } setArmed(null); void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) onForget() }) }
+  const actions = useContext(ComputersCtx)
+  const forget = (id: string) => { if (armed !== id) { setArmed(id); return } setArmed(null); void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) actions.reload() }) }
   return (
     <Screen title="">
       <BackRow title={t('Computers')} onBack={() => navigation.goBack()} />
@@ -843,7 +843,7 @@ export function Computers({ navigation }: any) {
                   <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{active ? (online ? t('Connected') : t('Connecting…')) : t('Not connected')} · {prints[item.hostDeviceId] ?? '…'}</Text>
                 </View>
                 {active ? null : (
-                  <Pressable accessibilityRole="button" onPress={() => void setActiveComputer(item.hostDeviceId)} hitSlop={8}>
+                  <Pressable accessibilityRole="button" onPress={() => actions.switchTo(item.hostDeviceId)} hitSlop={8}>
                     <Text style={[typeScale.settingsRow, { color: p.accent }]}>{t('Switch')}</Text>
                   </Pressable>
                 )}
@@ -853,7 +853,7 @@ export function Computers({ navigation }: any) {
               </View>
             )
           })}
-          <Row label={t('Add a computer')} onPress={onForget} />
+          <Row label={t('Add a computer')} onPress={actions.add} />
         </Section>
       </ScrollView>
     </Screen>

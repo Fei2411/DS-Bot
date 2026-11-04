@@ -4,12 +4,12 @@ import { ActivityIndicator, KeyboardAvoidingView, Linking, Pressable, StyleSheet
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { parsePairingUri } from '../../../link/src/index.ts'
 import { openLink } from '../connection.ts'
-import { saveComputer, type PhoneIdentity, type SavedComputer } from '../store.ts'
+import { addComputer, type PhoneIdentity, type SavedComputer } from '../store.ts'
 import { errorText } from '../team/link.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 
-export function Pair({ identity, onPaired }: { identity: PhoneIdentity; onPaired: (computer: SavedComputer) => void }) {
+export function Pair({ identity, onPaired, onCancel }: { identity: PhoneIdentity; onPaired: (computer: SavedComputer) => void; onCancel?: () => void }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
   const [permission, requestPermission] = useCameraPermissions()
@@ -25,7 +25,7 @@ export function Pair({ identity, onPaired }: { identity: PhoneIdentity; onPaired
       const offer = parsePairingUri(uri.trim())
       const client = await openLink(offer, identity, offer.code)
       await client.close()
-      onPaired(await saveComputer(offer))
+      onPaired(await addComputer(offer))
     } catch (failure) { setError(errorText(failure)) }
     finally { busyRef.current = false; setBusy(false) }
   }, [identity, onPaired])
@@ -60,6 +60,11 @@ export function Pair({ identity, onPaired }: { identity: PhoneIdentity; onPaired
       </View>
       {busy ? <ActivityIndicator style={{ marginTop: 20 }} color={p.accent} /> : null}
       {error ? <Text style={[typeScale.settingsRow, { color: p.danger, marginTop: 12, textAlign: 'center' }]} accessibilityRole="alert">{error}</Text> : null}
+      {onCancel !== undefined ? (
+        <Pressable accessibilityRole="button" onPress={onCancel} hitSlop={8} style={{ marginTop: 20, minHeight: 44, justifyContent: 'center' }}>
+          <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{t('Cancel')}</Text>
+        </Pressable>
+      ) : null}
     </KeyboardAvoidingView>
   )
 }

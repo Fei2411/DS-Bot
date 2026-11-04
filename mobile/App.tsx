@@ -5,7 +5,8 @@ import { ActivityIndicator, Text, useColorScheme, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { forgetComputer, loadComputer, loadIdentity, onPrefsChange, readPrefs, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { errorText } from './src/team/link.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
@@ -33,7 +34,7 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 // The navigator lives inside the palette provider so its container theme can
 // follow the computer's theme instead of flashing the default white.
-function ThemedShell({ onForget }: { onForget: () => void }) {
+function ThemedShell() {
   const dark = useDark()
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
@@ -52,16 +53,16 @@ function ThemedShell({ onForget }: { onForget: () => void }) {
   return (
     <ThemeContext.Provider value={value}>
       <NavigationContainer theme={navTheme}>
-        <ShellB onForget={onForget} />
+        <ShellB />
       </NavigationContainer>
     </ThemeContext.Provider>
   )
 }
 
-function Linked({ computer, identity, onForget }: { computer: SavedComputer; identity: PhoneIdentity; onForget: () => void }) {
+function Linked({ computer, identity }: { computer: SavedComputer; identity: PhoneIdentity }) {
   return (
     <TeamProvider computer={computer} identity={identity}>
-      <ThemedShell onForget={onForget} />
+      <ThemedShell />
     </TeamProvider>
   )
 }
@@ -71,6 +72,7 @@ function Boot() {
   const [identity, setIdentity] = useState<PhoneIdentity | null>(null)
   const [computer, setComputer] = useState<SavedComputer | null | undefined>(undefined)
   const [bootError, setBootError] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
     Promise.all([loadIdentity(), loadComputer()])
@@ -78,15 +80,20 @@ function Boot() {
       .catch(failure => setBootError(errorText(failure)))
   }, [])
 
-  const forget = useCallback(() => { void forgetComputer().then(() => setComputer(null)) }, [])
+  const actions = useMemo<ComputerActions>(() => ({
+    add: () => setAdding(true),
+    switchTo: id => void setActiveComputer(id).then(loadComputer).then(next => setComputer(next ?? null)),
+    reload: () => void loadComputer().then(next => setComputer(next ?? null)),
+  }), [])
+  const paired = useCallback((next: SavedComputer) => { setAdding(false); setComputer(next) }, [])
 
   if (DEMO) {
-    return <DemoProvider><ThemedShell onForget={forget} /></DemoProvider>
+    return <ComputersCtx.Provider value={actions}><DemoProvider><ThemedShell /></DemoProvider></ComputersCtx.Provider>
   }
   if (bootError !== null) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><Text style={{ color: p.danger }}>{bootError}</Text></View>
   if (identity === null || computer === undefined) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><ActivityIndicator color={p.accent} /></View>
-  if (computer === null) return <ThemeProvider><Pair identity={identity} onPaired={setComputer} /></ThemeProvider>
-  return <Linked computer={computer} identity={identity} onForget={forget} />
+  if (computer === null || adding) return <ThemeProvider><Pair identity={identity} onPaired={paired} onCancel={computer !== null ? () => setAdding(false) : undefined} /></ThemeProvider>
+  return <ComputersCtx.Provider value={actions}><Linked computer={computer} identity={identity} /></ComputersCtx.Provider>
 }
 
 export default function App() {
