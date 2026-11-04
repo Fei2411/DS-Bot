@@ -216,11 +216,16 @@ export function install(rt) {
     const asked = exec.arguments ?? {}
     const limit = asked.limit ?? LIST_PAGE
     const offset = asked.offset ?? 0
-    // An invalid page gets DSH's own input error.
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > LIST_READ_LIMIT || !Number.isSafeInteger(offset) || offset < 0) return next()
     const mine = entry => {
       const target = sessionOf(entry)
       return target !== undefined && sameOwner(own, ownerOf(target))
+    }
+    // An invalid page gets DSH's own input error; a page it accepts anyway is still narrowed.
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > LIST_READ_LIMIT || !Number.isSafeInteger(offset) || offset < 0) {
+      const result = await next()
+      if (result.isError || !Array.isArray(result.value?.items)) return result
+      const items = result.value.items.filter(mine)
+      return { ...result, value: { ...result.value, items, shown: items.length } }
     }
     const pool = (await service.catalog()).filter(entry => asked.active === undefined || (entry.status === 'active') === asked.active)
     const positions = pool.flatMap((entry, at) => (mine(entry) ? [at] : []))

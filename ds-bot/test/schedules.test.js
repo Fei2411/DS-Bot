@@ -244,6 +244,10 @@ test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', asyn
   assert.deepEqual(asked.at(-1), { limit: 4, offset: 0 })
   assert.deepEqual(both.result.value.items.map(task => task.id), ['own', 'own2'])
   assert.deepEqual((await run('w2', { offset: 5 })).result.value, { items: [], shown: 0, total: 2, limit: 100, offset: 5 })
+  // A page out of DSH's range goes to DSH as asked, and what comes back is still narrowed.
+  const wide = await run('w2', { limit: 501 })
+  assert.deepEqual(asked.at(-1), { limit: 501 })
+  assert.deepEqual(wide.result.value.items.map(task => task.id), ['own', 'own2'])
   assert.deepEqual((await run('m1', {})).result.value.items.map(task => task.id), ['chief'])
   assert.equal((await run('outside', {})).result.value.items.length, 4)
 })
