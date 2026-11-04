@@ -91,6 +91,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/status',
     'effect ds-bot: learning',
     'on tools/pre-execute',
+    'on tools/execute',
     'effect ds-bot: usage ledger',
     'on llm/stream',
     'effect ds-bot: update check',

@@ -219,6 +219,26 @@ test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', asyn
   assert.deepEqual(await check('schedule_edit', 'missing', 'w2'), { kind: 'allow' })
   assert.deepEqual(await check('schedule_list', 'chief', 'w2'), { kind: 'allow' })
   assert.deepEqual(await check('schedule_edit', 'chief', 'outside'), { kind: 'allow' })
+
+  // schedule_list reads the widest Host page and keeps the caller's own tasks.
+  // Other modules wrap tools/execute too.
+  const list = ctx.listeners.get('tools/execute').find(listener => listener.name === 'listOwnSchedules')
+  const item = (id, target) => ({ id, title: id, target })
+  const host = [item('a', { kind: 'session', sessionId: 'w1' }), item('b', { kind: 'session', sessionId: 'm1' }), item('c', { kind: 'session', sessionId: 'w2' }), item('d', { kind: 'new_once' })]
+  const asked = []
+  const run = (sessionId, args) => {
+    const exec = { name: 'schedule_list', arguments: args, agent: { id: sessionId } }
+    return list(exec, async () => {
+      asked.push(exec.arguments)
+      return { isError: false, value: { items: host, shown: host.length, total: host.length, limit: exec.arguments.limit ?? 100, offset: exec.arguments.offset ?? 0 } }
+    }).then(result => ({ result, args: exec.arguments }))
+  }
+  const writer = await run('w2', { active: true, limit: 1, offset: 1 })
+  assert.deepEqual(asked.at(-1), { active: true, limit: 500, offset: 0 })
+  assert.deepEqual(writer.args, { active: true, limit: 1, offset: 1 })
+  assert.deepEqual(writer.result.value, { items: [host[2]], shown: 1, total: 2, limit: 1, offset: 1 })
+  assert.deepEqual((await run('m1', {})).result.value.items.map(task => task.id), ['b'])
+  assert.equal((await run('outside', {})).result.value.items.length, 4)
 })
 
 test('a failed task move can resume without losing identical remaining tasks', async (t) => {

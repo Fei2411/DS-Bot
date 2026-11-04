@@ -46,6 +46,9 @@ const hostWide = service => typeof service.edit === 'function'
 const sessionOf = entry => entry.target === undefined ? entry.sessionId : entry.target.kind === 'session' ? entry.target.sessionId : undefined
 const TIMING_KINDS = { at: 'at', every_seconds: 'every', daily: 'daily', weekly: 'weekly' }
 const OWN_TASK_TOOLS = ['schedule_edit', 'schedule_view']
+// DSH 0.2.2's list page: 100 by default, at most 500.
+const LIST_PAGE = 100
+const LIST_READ_LIMIT = 500
 const OTHER_TASK_REFUSAL = 'This task belongs to another chat. A Bot reads and changes only the tasks of its own chat.'
 const sameOwner = (a, b) => a !== undefined && b !== undefined && a.botId === b.botId && a.roomId === b.roomId
 const timingOf = (selector) => {
@@ -199,6 +202,31 @@ export function install(rt) {
     const target = sessionOf(entry)
     if (target !== undefined && sameOwner(ownerOf(caller), ownerOf(target))) return decision
     return { kind: 'deny', reason: OTHER_TASK_REFUSAL }
+  })
+  // The Host-wide list is read in one widest page and narrowed to the caller's own
+  // tasks; the page the Bot asked for is then cut from those.
+  ctx.on('tools/execute', async function listOwnSchedules(exec, next) {
+    if (exec.name !== 'schedule_list' || service === null || !hostWide(service)) return next()
+    await rt.load()
+    const own = rt.isBotSession(exec.agent?.id) ? ownerOf(exec.agent.id) : undefined
+    if (own === undefined) return next()
+    const asked = exec.arguments ?? {}
+    exec.arguments = { ...asked, limit: LIST_READ_LIMIT, offset: 0 }
+    let result
+    try {
+      result = await next()
+    } finally {
+      exec.arguments = asked
+    }
+    if (result.isError || !Array.isArray(result.value?.items)) return result
+    const mine = result.value.items.filter(item => {
+      const target = sessionOf(item)
+      return target !== undefined && sameOwner(own, ownerOf(target))
+    })
+    const limit = asked.limit ?? LIST_PAGE
+    const offset = asked.offset ?? 0
+    const items = mine.slice(offset, offset + limit)
+    return { ...result, value: { ...result.value, items, shown: items.length, total: mine.length, limit, offset } }
   })
 
   Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules })
