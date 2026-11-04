@@ -13,7 +13,7 @@
 
 // The OAuth client id DS Bot is registered as on GitHub. Filled in at release;
 // overridable for development. Empty keeps the pasted-token form only.
-export const GITHUB_CLIENT_ID = process.env.DS_BOT_GITHUB_OAUTH_CLIENT_ID ?? ''
+export const GITHUB_CLIENT_ID = process.env.DS_BOT_GITHUB_OAUTH_CLIENT_ID ?? 'Ov23liin4waZGLSJJgn5'
 
 const oauth = url => ({ remote: { url }, auth: { kind: 'oauth' } })
 
