@@ -65,7 +65,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
-          setError('Update DS Bot on the computer to use this phone.')
+          setError(t('Update DS Bot on the computer to use this phone.'))
           void client.close()
           later(() => void connect(), RETRY_MS)
           return
@@ -109,6 +109,7 @@ export function errorText(error: unknown): string {
   const code = (error as { code?: unknown })?.code
   if (rejected(error)) return t('The computer did not accept this phone. Show a new QR code on the computer and scan it again.')
   if (code === 'HOST_OFFLINE') return t('The computer is not connected to the Server. Check that DS Bot is open and phone access is on.')
+  if (code === 'SERVER_UNREACHABLE') return t('Could not reach the Server. Check the network. If the computer\'s Server address changed, pair again under Computers.')
   return t(error instanceof Error ? error.message : String(error))
 }
 

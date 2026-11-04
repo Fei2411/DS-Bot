@@ -63,7 +63,7 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
       this.readyResolve = resolve
       this.readyReject = reject
       this.handshakeTimer = setTimeout(
-        () => this.failConnection(new Error('Relay control handshake timed out')),
+        () => this.failConnection(Object.assign(new Error('Relay control handshake timed out'), { code: 'SERVER_UNREACHABLE' })),
         this.options.handshakeTimeoutMs ?? 10_000,
       )
       const socket = this.socket!
@@ -78,9 +78,9 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
           capabilities: this.offeredCapabilities(),
         } satisfies HelloPayload)
       }
-      socket.onerror = () => this.failConnection(new Error(`RelayTransport failed to connect to ${this.url}`))
+      socket.onerror = () => this.failConnection(Object.assign(new Error(`RelayTransport failed to connect to ${this.url}`), { code: 'SERVER_UNREACHABLE' }))
       socket.onclose = () => {
-        if (this.readyReject !== undefined) this.failConnection(new Error('Relay control channel closed before it was ready'))
+        if (this.readyReject !== undefined) this.failConnection(Object.assign(new Error('Relay control channel closed before it was ready'), { code: 'SERVER_UNREACHABLE' }))
         this.socket = undefined
         this.connectionId = undefined
         this.emitClose()

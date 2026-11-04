@@ -7873,7 +7873,7 @@ var RelayTransport = class extends BaseTransport {
       this.readyResolve = resolve;
       this.readyReject = reject;
       this.handshakeTimer = setTimeout(
-        () => this.failConnection(new Error("Relay control handshake timed out")),
+        () => this.failConnection(Object.assign(new Error("Relay control handshake timed out"), { code: "SERVER_UNREACHABLE" })),
         this.options.handshakeTimeoutMs ?? 1e4
       );
       const socket = this.socket;
@@ -7888,9 +7888,9 @@ var RelayTransport = class extends BaseTransport {
           capabilities: this.offeredCapabilities()
         });
       };
-      socket.onerror = () => this.failConnection(new Error(`RelayTransport failed to connect to ${this.url}`));
+      socket.onerror = () => this.failConnection(Object.assign(new Error(`RelayTransport failed to connect to ${this.url}`), { code: "SERVER_UNREACHABLE" }));
       socket.onclose = () => {
-        if (this.readyReject !== void 0) this.failConnection(new Error("Relay control channel closed before it was ready"));
+        if (this.readyReject !== void 0) this.failConnection(Object.assign(new Error("Relay control channel closed before it was ready"), { code: "SERVER_UNREACHABLE" }));
         this.socket = void 0;
         this.connectionId = void 0;
         this.emitClose();
