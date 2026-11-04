@@ -96,7 +96,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   const references = openFile && openSkill ? { openFile, openSkill } : undefined
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const via = viaOf(data.source) ?? roster.imVia?.[sessionId]?.[node.anchorSeq]
+  const via = viaOf(data.source) ?? roster.imVia?.[sessionId]?.[data.seq]
   const { shown, folded, control } = useFold(text, { markdown: false })
   const body = h(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions })
   const row = useRef(null)
