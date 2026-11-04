@@ -12445,31 +12445,30 @@ var ResetIcon = () => (0, import_react25.createElement)(
 function EffortBar({ reasoning, current, onPick }) {
   const stops = effortStops(reasoning);
   const track = (0, import_react25.useRef)(null);
+  const drag = (0, import_react25.useRef)(null);
   const [picked, setPicked] = (0, import_react25.useState)(current);
+  const [dragRatio, setDragRatio] = (0, import_react25.useState)(null);
   (0, import_react25.useEffect)(() => {
-    setPicked(current);
+    if (!drag.current) setPicked(current);
   }, [current]);
   if (stops.length === 0) return null;
   const hasDefault = (reasoning?.efforts ?? []).some((effort) => effort.id === reasoning?.defaultEffort);
   const activeEffort = picked ?? (hasDefault ? reasoning.defaultEffort : void 0);
   const activeIndex = Math.max(0, stops.findIndex((stop) => (stop.effort ?? null) === (activeEffort ?? null)));
   const active = stops[activeIndex];
-  const ratio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1);
-  const choose = (effort) => {
+  const stopRatio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1);
+  const ratio = dragRatio ?? stopRatio;
+  const commit = (effort) => {
     setPicked(effort);
-    if ((effort ?? null) !== (picked ?? null)) onPick(effort);
+    if ((effort ?? null) !== (current ?? null)) onPick(effort);
   };
-  const pickAt = (clientX) => {
+  const ratioAt = (clientX) => {
     const rect = track.current?.getBoundingClientRect();
-    if (!rect || stops.length <= 1) {
-      if (stops[0]) choose(stops[0].effort);
-      return;
-    }
+    if (!rect || stops.length <= 1) return 1;
     const span = Math.max(1, rect.width - 22);
-    const clamped = Math.max(0, Math.min(1, (clientX - rect.left - 11) / span));
-    const next = stops[Math.round(clamped * (stops.length - 1))];
-    if (next) choose(next.effort);
+    return Math.max(0, Math.min(1, (clientX - rect.left - 11) / span));
   };
+  const nearestStop = (r) => stops[Math.round(r * (stops.length - 1))] ?? stops[0];
   const onPointerDown = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -12477,11 +12476,29 @@ function EffortBar({ reasoning, current, onPick }) {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     } catch {
     }
-    pickAt(event.clientX);
+    const r = ratioAt(event.clientX);
+    const next = nearestStop(r);
+    drag.current = { id: event.pointerId, startX: event.clientX, moved: false, effort: next?.effort };
+    if (next) setPicked(next.effort);
   };
   const onPointerMove = (event) => {
-    if (event.buttons !== 1 && !event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
-    pickAt(event.clientX);
+    const state = drag.current;
+    if (!state || state.id !== event.pointerId) return;
+    if (!state.moved && Math.abs(event.clientX - state.startX) > 2) state.moved = true;
+    const r = ratioAt(event.clientX);
+    const next = nearestStop(r);
+    if (state.moved) setDragRatio(r);
+    if (next) {
+      state.effort = next.effort;
+      setPicked(next.effort);
+    }
+  };
+  const finishDrag = (event) => {
+    const state = drag.current;
+    if (!state || event && state.id !== event.pointerId) return;
+    drag.current = null;
+    setDragRatio(null);
+    commit(state.effort);
   };
   const onKeyDown = (event) => {
     if (!["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -12489,7 +12506,7 @@ function EffortBar({ reasoning, current, onPick }) {
     event.stopPropagation();
     const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? stops.length - 1 : event.key === "ArrowLeft" || event.key === "ArrowDown" ? Math.max(0, activeIndex - 1) : Math.min(stops.length - 1, activeIndex + 1);
     const next = stops[nextIndex];
-    if (next) choose(next.effort);
+    if (next) commit(next.effort);
   };
   return (0, import_react25.createElement)(
     "div",
@@ -12509,7 +12526,7 @@ function EffortBar({ reasoning, current, onPick }) {
           "aria-label": t("Default"),
           title: t("Default"),
           disabled: picked === void 0,
-          onClick: () => choose(void 0)
+          onClick: () => commit(void 0)
         }, (0, import_react25.createElement)(ResetIcon)) : null
       )
     ),
@@ -12525,19 +12542,23 @@ function EffortBar({ reasoning, current, onPick }) {
         "aria-valuemax": stops.length - 1,
         "aria-valuenow": activeIndex,
         "aria-valuetext": active.label,
+        "data-dragging": dragRatio !== null ? "" : void 0,
         style: { "--bt-effort-p": ratio },
         onPointerDown,
         onPointerMove,
+        onPointerUp: finishDrag,
+        onPointerCancel: finishDrag,
+        onLostPointerCapture: finishDrag,
         onKeyDown
       },
       (0, import_react25.createElement)("span", { className: "bt-effort-fill", "aria-hidden": true }),
       stops.map((stop, index) => {
-        const stopRatio = stops.length <= 1 ? 1 : index / (stops.length - 1);
+        const dotRatio = stops.length <= 1 ? 1 : index / (stops.length - 1);
         return (0, import_react25.createElement)("span", {
           key: stop.effort ?? "default",
           className: "bt-effort-dot",
-          "data-filled": index <= activeIndex || void 0,
-          style: { "--bt-dot-p": stopRatio },
+          "data-filled": dotRatio <= ratio + 1e-3 || void 0,
+          style: { "--bt-dot-p": dotRatio },
           title: stop.label,
           "aria-hidden": true
         });
@@ -12855,7 +12876,8 @@ var MODEL_CSS = `
 .bt-effort-dot{position:absolute;top:50%;left:calc(11px + (100% - 22px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-3) 45%,transparent);pointer-events:none;transition:background-color .12s ease}
 .bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 65%,transparent)}
 .bt-effort-knob{position:absolute;top:2px;left:calc(11px + (100% - 22px) * var(--bt-effort-p,0) - 9px);width:18px;height:18px;border-radius:50%;background:var(--bt-accent-ink);box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.06);pointer-events:none;transition:${spring(SPRING_TAP, "left")},${spring(SPRING_TAP, "scale")}}
-.bt-effort-track:hover .bt-effort-knob{scale:1.06}
+.bt-effort-track[data-dragging] .bt-effort-fill,.bt-effort-track[data-dragging] .bt-effort-knob{transition:none}
+.bt-effort-track:hover .bt-effort-knob,.bt-effort-track[data-dragging] .bt-effort-knob{scale:1.08}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
