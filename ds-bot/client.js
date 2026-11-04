@@ -11133,10 +11133,10 @@ function FooterAccount(props) {
   return (0, import_react21.createElement)("span", { className: "bt-foot-account" }, (0, import_react21.createElement)(AccountLauncher, { ...props, seat: false }));
 }
 function BotReturn({ wide, useSurface, useRoster, actions }) {
-  const mode = useSurface((value) => value.mode);
+  const visible = useSurface((value) => value.mode === "agent" || value.panel != null);
   const ready = useRoster((value) => value.ready);
-  useReportReady(mode === "agent" && ready);
-  if (mode !== "agent") return null;
+  useReportReady(visible && ready);
+  if (!visible) return null;
   return (0, import_react21.createElement)(
     "button",
     { type: "button", className: "bt-return", "aria-label": t("DS Bot"), title: t("DS Bot"), onClick: () => actions.setSurface("bot") },
@@ -12299,8 +12299,49 @@ function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
 }
 
 // src/client/surface.js
-function groupsFor({ mode, plain = false }) {
-  return { shell: mode === "bot", conversation: mode === "bot" && !plain };
+function groupsFor({ mode, plain = false, panel = null }) {
+  const active = mode === "bot" && panel === null;
+  return { shell: active, conversation: active && !plain };
+}
+function installPanelSync(layout, surface, suspend) {
+  const source = layout?.panelInfo;
+  if (!source?.subscribe || !source?.getSnapshot) return () => {
+  };
+  const sync = () => {
+    const panel = source.getSnapshot().activePanelId ?? null;
+    const before = surface.getSnapshot();
+    if (before.panel === panel) return;
+    surface.set((state) => ({ ...state, panel }));
+    if (panel !== null && before.mode === "bot") suspend();
+  };
+  const off = source.subscribe(sync);
+  sync();
+  return off;
+}
+function createBotHomeNavigation(roster, active, land) {
+  let off = null;
+  const cancel = () => {
+    off?.();
+    off = null;
+  };
+  const ensure = () => {
+    cancel();
+    if (!active()) return;
+    if (roster.getSnapshot().ready) {
+      land();
+      return;
+    }
+    off = roster.subscribe(() => {
+      if (!active()) {
+        cancel();
+        return;
+      }
+      if (!roster.getSnapshot().ready) return;
+      cancel();
+      land();
+    });
+  };
+  return { ensure, cancel };
 }
 var GROUPS = ["shell", "conversation"];
 function disposeAll(disposers, label) {
@@ -22038,7 +22079,7 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 function listedOpener({ list, open, refresh, current }) {
   let drop = () => {
   };
-  return (target) => {
+  const openListed = (target) => {
     drop();
     drop = () => {
     };
@@ -22064,6 +22105,12 @@ function listedOpener({ list, open, refresh, current }) {
     drop = off;
     refresh?.();
   };
+  openListed.cancel = () => {
+    drop();
+    drop = () => {
+    };
+  };
+  return openListed;
 }
 
 // src/client/index.js
@@ -22087,7 +22134,7 @@ function apply(ctx) {
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
-  const surface = createSource({ mode: readMode(), plain: false });
+  const surface = createSource({ mode: readMode(), plain: false, panel: ctx.layout.panelInfo?.getSnapshot?.().activePanelId ?? null });
   let agentSessionCache = /* @__PURE__ */ new Set();
   try {
     agentSessionCache = new Set(JSON.parse(localStorage.getItem(STORAGE.agentSessions) ?? "[]"));
@@ -22453,16 +22500,9 @@ function apply(ctx) {
       actions.openSession(snapshot.mainBotId);
     }
   };
-  const ensureBotHome = () => {
-    if (roster.getSnapshot().ready) homeToMainBot();
-    else {
-      const off = roster.subscribe(() => {
-        if (!roster.getSnapshot().ready) return;
-        off();
-        homeToMainBot();
-      });
-    }
-  };
+  const homeNavigation = createBotHomeNavigation(roster, () => groupsFor(surface.getSnapshot()).shell, homeToMainBot);
+  const ensureBotHome = homeNavigation.ensure;
+  ctx.effect(() => () => homeNavigation.cancel(), "ds-bot: pending home navigation");
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
@@ -22536,6 +22576,7 @@ function apply(ctx) {
     landOn: async (id, last) => {
       if (last) await pull().catch(() => {
       });
+      if (!groupsFor(surface.getSnapshot()).shell) return;
       const bot = last ? roster.getSnapshot().byId[last.botId] : void 0;
       setPlain(false);
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id);
@@ -22570,6 +22611,9 @@ function apply(ctx) {
     // surface closes first so nothing stale reopens on the way back.
     setSurface: (mode) => {
       if (mode !== "bot" && mode !== "agent") return;
+      homeNavigation.cancel();
+      show2.cancel();
+      if (mode === "bot") ctx.layout.selectPanel(null);
       if (surface.getSnapshot().mode === mode) {
         if (mode === "bot") ensureBotHome();
         return;
@@ -22579,7 +22623,7 @@ function apply(ctx) {
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
-      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame.getSnapshot().collapsed) ctx.layout.toggleSidebar();
+      if (mode === "agent" && window.innerWidth >= DSH_NARROW && dshCollapsed() === true) ctx.layout.toggleSidebar();
       if (mode !== "bot") return;
       ensureBotHome();
     },
@@ -22978,6 +23022,13 @@ function apply(ctx) {
     () => shadow("conversation.input.dock", { id: "bot-handoff", order: -85, inject: face }, HandoffDock),
     () => shadow("conversation.input.dock", { id: "bot-learning", order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock)
   ];
+  ctx.effect(() => installPanelSync(ctx.layout, surface, () => {
+    homeNavigation.cancel();
+    show2.cancel();
+    expected2 = null;
+    ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, leftDrawer: false, panelYield: false }));
+    if (window.innerWidth >= DSH_NARROW && dshCollapsed() === true) ctx.layout.toggleSidebar();
+  }), "ds-bot: native panel navigation");
   ctx.effect(() => installCompiledStyles(RETURN_CSS, "return"), "ds-bot: return styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from '../src/client/surface.js'
+import { createBotHomeNavigation, freePriority, groupsFor, installPanelSync, readMode, surfaceGroups, writeMode } from '../src/client/surface.js'
 import { STORAGE } from '../src/client/storage.js'
 
 test('Bot mode mounts both groups; Agent mode mounts neither', () => {
@@ -12,6 +12,68 @@ test('Bot mode mounts both groups; Agent mode mounts neither', () => {
 
 test('a plain Bot-mode view keeps the shell but drops the conversation', () => {
   assert.deepEqual(groupsFor({ mode: 'bot', plain: true }), { shell: true, conversation: false })
+})
+
+test('a native panel owns the shell and withdraws the Bot groups', () => {
+  assert.deepEqual(groupsFor({ mode: 'bot', panel: 'schedules' }), { shell: false, conversation: false })
+  assert.deepEqual(groupsFor({ mode: 'bot', plain: true, panel: 'plugins' }), { shell: false, conversation: false })
+})
+
+const source = initial => {
+  let value = initial
+  const listeners = new Set()
+  return {
+    getSnapshot: () => value,
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
+    set: update => {
+      value = typeof update === 'function' ? update(value) : update
+      for (const listener of listeners) listener()
+    },
+    count: () => listeners.size,
+  }
+}
+
+test('panel sync records the active native panel and suspends Bot navigation once', () => {
+  const panelInfo = source({ activePanelId: null })
+  const surface = source({ mode: 'bot', panel: null })
+  let suspended = 0
+  const off = installPanelSync({ panelInfo }, surface, () => { suspended += 1 })
+  panelInfo.set({ activePanelId: 'schedules' })
+  panelInfo.set({ activePanelId: 'schedules' })
+  assert.equal(surface.getSnapshot().panel, 'schedules')
+  assert.equal(suspended, 1)
+  panelInfo.set({ activePanelId: null })
+  assert.equal(surface.getSnapshot().panel, null)
+  off()
+  assert.equal(panelInfo.count(), 0)
+})
+
+test('panel sync is a no-op on hosts without panelInfo', () => {
+  const surface = source({ mode: 'bot', panel: null })
+  assert.doesNotThrow(() => installPanelSync({}, surface, () => assert.fail()))
+})
+
+test('pending Bot-home navigation cancels when the surface stops being active', () => {
+  const roster = source({ ready: false })
+  let active = true
+  let landed = 0
+  const nav = createBotHomeNavigation(roster, () => active, () => { landed += 1 })
+  nav.ensure()
+  active = false
+  roster.set({ ready: true })
+  assert.equal(landed, 0)
+  assert.equal(roster.count(), 0)
+})
+
+test('pending Bot-home navigation lands once when roster becomes ready', () => {
+  const roster = source({ ready: false })
+  let landed = 0
+  const nav = createBotHomeNavigation(roster, () => true, () => { landed += 1 })
+  nav.ensure()
+  roster.set({ ready: true })
+  assert.equal(landed, 1)
+  roster.set({ ready: true })
+  assert.equal(landed, 1)
 })
 
 test('the saved surface mode survives reloads and defaults to bot', () => {

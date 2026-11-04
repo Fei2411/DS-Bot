@@ -4,8 +4,54 @@ import { STORAGE } from './storage.js'
 // 'agent' withdraws every replacement so the shell's own interface comes back.
 // `plain` marks a Bot-mode view whose main view is a plain session — only the
 // conversation replacements come off then, the shell stays.
-export function groupsFor({ mode, plain = false }) {
-  return { shell: mode === 'bot', conversation: mode === 'bot' && !plain }
+export function groupsFor({ mode, plain = false, panel = null }) {
+  const active = mode === 'bot' && panel === null
+  return { shell: active, conversation: active && !plain }
+}
+
+// A native DSH panel owns the visible shell. Keep the Bot surface in sync with
+// that shared selection so its sidebar cannot paint over the panel.
+export function installPanelSync(layout, surface, suspend) {
+  const source = layout?.panelInfo
+  if (!source?.subscribe || !source?.getSnapshot) return () => {}
+  const sync = () => {
+    const panel = source.getSnapshot().activePanelId ?? null
+    const before = surface.getSnapshot()
+    if (before.panel === panel) return
+    surface.set(state => ({ ...state, panel }))
+    if (panel !== null && before.mode === 'bot') suspend()
+  }
+  const off = source.subscribe(sync)
+  sync()
+  return off
+}
+
+// Roster readiness can lag a navigation. The cancellation hook prevents a
+// stale Bot-home redirect from firing after a native panel or Agent mode wins.
+export function createBotHomeNavigation(roster, active, land) {
+  let off = null
+  const cancel = () => {
+    off?.()
+    off = null
+  }
+  const ensure = () => {
+    cancel()
+    if (!active()) return
+    if (roster.getSnapshot().ready) {
+      land()
+      return
+    }
+    off = roster.subscribe(() => {
+      if (!active()) {
+        cancel()
+        return
+      }
+      if (!roster.getSnapshot().ready) return
+      cancel()
+      land()
+    })
+  }
+  return { ensure, cancel }
 }
 
 const GROUPS = ['shell', 'conversation']

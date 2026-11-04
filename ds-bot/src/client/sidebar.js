@@ -1037,14 +1037,14 @@ export function FooterAccount(props) {
   return h('span', { className: 'bt-foot-account' }, h(AccountLauncher, { ...props, seat: false }))
 }
 
-// The only entry registered in every mode: in Agent mode the whole Bot surface is
-// withdrawn, and this button in the shell's own footer is the way back.
+// The only entry registered in every mode: in Agent mode, or while a native DSH
+// panel owns the shell, this button is the way back to the Bot surface.
 export function BotReturn({ wide, useSurface, useRoster, actions }) {
-  const mode = useSurface(value => value.mode)
+  const visible = useSurface(value => value.mode === 'agent' || value.panel != null)
   const ready = useRoster(value => value.ready)
   // Agent mode draws no team sidebar; there this button is the team interface.
-  useReportReady(mode === 'agent' && ready)
-  if (mode !== 'agent') return null
+  useReportReady(visible && ready)
+  if (!visible) return null
   return h('button', { type: 'button', className: 'bt-return', 'aria-label': t('DS Bot'), title: t('DS Bot'), onClick: () => actions.setSurface('bot') },
     h(BotMark, { look: MAIN_LOOK, size: 20 }),
     wide ? h('span', { className: 'bt-return-name' }, t('DS Bot')) : null)
