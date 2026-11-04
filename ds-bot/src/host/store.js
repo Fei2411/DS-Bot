@@ -384,7 +384,9 @@ export function install(rt) {
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
         rt.capabilitiesStateSaved?.()
-        rt.stateSaved?.()
+        for (const listener of savedListeners) {
+          try { listener() } catch (error) { warn('ds-bot: saved listener failed: %s', error) }
+        }
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -503,8 +505,14 @@ export function install(rt) {
   }
   const isAdminOf = (room, id) => id !== undefined && room.admin === id
 
+  const savedListeners = new Set()
+  const onSaved = (listener) => {
+    savedListeners.add(listener)
+    return () => savedListeners.delete(listener)
+  }
+
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, own,
+    state, load, save, refresh, readOnly, own, onSaved,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

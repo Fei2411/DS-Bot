@@ -83,6 +83,8 @@ export function install(rt) {
     memory: rt.memoryEnabled !== false,
     // Set while another dsh host holds the team (store.js): why this one cannot change it.
     readOnly: rt.readOnly() ?? null,
+    // IM connections (settings → IM): one per chat-app bot the user added.
+    im: rt.imView?.() ?? { connections: [], platforms: [] },
   })
   // What changes without a new revision, sent with every state answer. `learning`:
   // each Bot's pending skill proposals. `memoryNews`:
@@ -98,6 +100,7 @@ export function install(rt) {
     learning: rt.learningView(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
+    imStatus: rt.imStatusView?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -433,25 +436,7 @@ export function install(rt) {
         case 'answer-question': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
-          const past = rt.pastOwners.get(body.sessionId)
-          const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
-          const question = rt.own(state.questions, sessionId)
-          if (question === undefined || question.id !== body.questionId) return fail('This question is no longer open', 'bot/stale')
-          const reply = questionReply(question, body.answer)
-          if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
-          // Claim the question before queueing so a second answer is refused.
-          delete state.questions[sessionId]
-          try {
-            await rt.ensureCapabilities(sessionId)
-            const agent = await rt.resolveAgent(sessionId)
-            agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
-            await ctx.sessions.flush(agent.session)
-          } catch (error) {
-            state.questions[sessionId] ??= question
-            throw error
-          }
-          await rt.save()
-          return ok(true)
+          return ok(await rt.answerQuestion(body.sessionId, body.questionId, body.answer))
         }
         case 'view-reply': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
@@ -482,21 +467,7 @@ export function install(rt) {
           const text = String(body.text ?? '').trim()
           if (text === '' || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
-          // A Bot id, a group chat's id, or an earlier part of either means the
-          // current part.
-          const past = rt.pastOwners.get(body.sessionId)
-          const room = rt.roomOf(body.sessionId)
-          const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId)
-            : room !== undefined ? rt.sessionOfRoom(room)
-              : past?.roomId === undefined && past !== undefined ? rt.chatOf(past.botId)
-                : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : body.sessionId
-          await rt.ensureCapabilities(sessionId)
-          await ctx.sessionController.prompt({
-            requestId: randomUUID(),
-            sessionId,
-            mode: 'queue',
-            content: [{ type: 'text', text }],
-          }, AbortSignal.timeout(30_000))
+          await rt.sendUser({ sessionId: body.sessionId, content: [{ type: 'text', text }] })
           return ok(true)
         }
         case 'btw-delete': {
@@ -605,6 +576,17 @@ export function install(rt) {
           rt.browserChannel?.setHold(botId, { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' })
           return ok(true)
         }
+        case 'im-add':
+        case 'im-update':
+        case 'im-remove':
+        case 'im-pair':
+        case 'im-unpair':
+        case 'im-chat':
+        case 'im-retry':
+        case 'im-login-start':
+        case 'im-login-wait':
+          await rt.load()
+          return ok(await rt.imEndpoint(endpoint, body))
         case 'diagnostics':
           await rt.load()
           return ok(await rt.diagnostics.report(body))
@@ -623,6 +605,51 @@ export function install(rt) {
       return fail(message, code)
     }
   }
+
+  // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
+  // part of either resolves to its current part. `content` is the prompt blocks DSH
+  // takes (text, image, file receipts); `requestId` lands on the message's source.
+  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+    const past = rt.pastOwners.get(ref)
+    const room = rt.roomOf(ref)
+    const sessionId = rt.botOf(ref) ? rt.chatOf(ref)
+      : room !== undefined ? rt.sessionOfRoom(room)
+        : past?.roomId === undefined && past !== undefined ? rt.chatOf(past.botId)
+          : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref
+    await rt.ensureCapabilities(sessionId)
+    await ctx.sessionController.prompt({
+      requestId,
+      sessionId,
+      mode: 'queue',
+      content,
+    }, AbortSignal.timeout(30_000))
+  }
+
+  // The user's answer to an ask_user card, from the web or an IM chat. A Bot id or an
+  // earlier part of its own chat means the current one.
+  async function answerQuestion(sessionRef, questionId, answer) {
+    const past = rt.pastOwners.get(sessionRef)
+    const sessionId = rt.botOf(sessionRef) ? rt.chatOf(sessionRef) : past && past.roomId === undefined ? rt.chatOf(past.botId) : sessionRef
+    const question = rt.own(state.questions, sessionId)
+    if (question === undefined || question.id !== questionId) throw Object.assign(new Error('This question is no longer open'), { code: 'bot/stale' })
+    const reply = questionReply(question, answer)
+    if (reply === undefined) throw Object.assign(new Error('Nothing to send'), { code: 'bot/invalid' })
+    // Claim the question before queueing so a second answer is refused.
+    delete state.questions[sessionId]
+    try {
+      await rt.ensureCapabilities(sessionId)
+      const agent = await rt.resolveAgent(sessionId)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
+      await ctx.sessions.flush(agent.session)
+    } catch (error) {
+      state.questions[sessionId] ??= question
+      throw error
+    }
+    await rt.save()
+    return true
+  }
+
+  Object.assign(rt, { sendUser, answerQuestion })
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => ctx.connection.fetch.register({

@@ -134,16 +134,18 @@ test('a group Session\'s approval waits in the team view, frees the round, and t
   assert.equal(text(post), '[Group post from Writer]\nCopied the doc to E:/docs.')
 })
 
-test('an own chat\'s approval stays with DSH and is listed while it waits', async (t) => {
+test('an own chat\'s approval races DSH\'s card and is listed while it waits', async (t) => {
   const host = await start()
   t.after(host.stop)
   let release
   const outcome = host.askApproval('a', {}, () => new Promise((resolve) => { release = resolve }))
   const [approval] = (await host.call('state', {})).value.work.approvals
-  assert.deepEqual([approval.botId, approval.roomId, approval.answerable], ['a', undefined, false])
-  assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).error.code, 'bot/stale')
+  assert.deepEqual([approval.botId, approval.roomId, approval.answerable], ['a', undefined, true])
+  assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).ok, true)
+  assert.equal(await outcome, 'allowed-once')
+  // DSH's card answering late is ignored once DS Bot settled the race.
   release('rejected')
-  assert.equal(await outcome, 'rejected')
+  assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).error.code, 'bot/stale')
   assert.deepEqual((await host.call('state', {})).value.work.approvals, [])
   // Sessions off the team are not DS Bot's to answer.
   assert.equal(await host.askApproval('elsewhere'), 'from-dsh')

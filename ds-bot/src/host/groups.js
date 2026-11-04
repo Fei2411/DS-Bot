@@ -232,15 +232,25 @@ export function install(rt) {
     return length > shown.length ? `${shown}… (cut; ${length} characters in all)` : shown
   }
 
+  const roomLineListeners = new Set()
   const appendRoom = (room, line) => {
     room.seq += 1
-    const log = [...room.log, keepGroupLine(room.id, { ...line, seq: room.seq }, line.text ?? '')]
+    const whole = { ...line, seq: room.seq }
+    const log = [...room.log, keepGroupLine(room.id, whole, line.text ?? '')]
     for (const gone of log.slice(0, -ROOM_LOG_MAX)) dropGroupLine(room.id, gone)
     room.log = log.slice(-ROOM_LOG_MAX)
+    // Listeners see the whole line, before keepGroupLine cut it for the log.
+    for (const listener of roomLineListeners) {
+      try { listener(room, whole) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
+    }
   }
   Object.assign(rt, {
     keepGroupLine, dropGroupLines,
     logRoom: (room, line) => { ensureRoomLog(room); appendRoom(room, line) },
+    onRoomLine: (listener) => {
+      roomLineListeners.add(listener)
+      return () => roomLineListeners.delete(listener)
+    },
   })
 
   // The folder a group was set to work in is gone: its members' Sessions move on in
