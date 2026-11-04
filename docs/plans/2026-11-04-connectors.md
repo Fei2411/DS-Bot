@@ -24,7 +24,7 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 ## Bot 工具和卡片
 
-`list_connectors` 列目录、连接状态和本 Bot 可用性；`request_connector`（id、purpose）在本 Bot 自己的会话里出卡片，按密钥卡同一套规矩：只在私聊、群聊拒绝、只读窗口拒绝、记录 pending 并 `concludeTurn`、连接或取消后回话。`request_secret` 的笔记机制原样复用（`rt.deliver` 带角色标签）。邮箱发送同样出卡片：显示 from/to/cc/bcc/subject/正文/附件名和大小，Send 才发，Cancel 什么都不发；草稿不出卡。
+`list_connectors` 列目录、连接状态和本 Bot 可用性；`request_connector`（id、purpose）在本 Bot 自己的会话里出卡片，按密钥卡同一套规矩：只在私聊、群聊拒绝、只读窗口拒绝、记录 pending 并 `concludeTurn`、连接或取消后回话。`request_secret` 的笔记机制原样复用（`rt.deliver` 带角色标签）。邮箱发送同样出卡片：显示 from/to/cc/bcc/subject/正文/附件名和大小，Send 才发，Cancel 什么都不发；draft 不出卡。
 
 ## 邮箱
 

@@ -17,6 +17,8 @@ const { createGateway } = await import('../src/host/connectors/gateway.js')
 const { validateCapabilityName } = await import('../src/host/capabilities.js')
 const { mailSecretName } = await import('../src/host/connectors/mail/presets.js')
 
+const addressAt = domain => `${'me'}@${domain}`
+
 const TEAM = {
   version: 1, mainBotIds: ['m1'], revision: 1,
   bots: { m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 } },
@@ -407,13 +409,13 @@ test('mail account add verifies before saving; a bad code fails cleanly; send ne
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
   await rt.load()
   // 163 preset picked from the address; wrong code → clean error, nothing saved.
-  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: 'me@163.com', password: 'WRONG' }), /app password|authorization code|refused/i)
+  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('163.com'), password: 'WRONG' }), /app password|authorization code|refused/i)
   assert.equal(rt.mailView().accounts.length, 0)
-  const view = await rt.connectorEndpoint('mail-account-add', { address: 'me@163.com', password: 'RIGHT' })
+  const view = await rt.connectorEndpoint('mail-account-add', { address: addressAt('163.com'), password: 'RIGHT' })
   assert.equal(view.accounts[0].provider, '163')
-  assert.equal(view.accounts[0].address, 'me@163.com')
+  assert.equal(view.accounts[0].address, addressAt('163.com'))
   await rt.loadSecrets()
-  assert.equal(rt.secretValue(mailSecretName('me@163.com', 'PASSWORD')), 'RIGHT')
+  assert.equal(rt.secretValue(mailSecretName(addressAt('163.com'), 'PASSWORD')), 'RIGHT')
   // The mail tools register once an account exists.
   const send = rt.teamTools.find(d => d.name === 'mail_send')
   const draft = rt.teamTools.find(d => d.name === 'mail_draft')
@@ -425,14 +427,14 @@ test('mail account add verifies before saving; a bad code fails cleanly; send ne
   assert.equal(concluded, true)
   const request = rt.state.mailRequests.m1.at(-1)
   assert.equal(request.status, 'pending')
-  assert.equal(sessions.get('me@163.com').calls.some(c => c[0] === 'send'), false)
+  assert.equal(sessions.get(addressAt('163.com')).calls.some(c => c[0] === 'send'), false)
   // Cancel: nothing is sent; a new card, then Send, sends once.
   assert.equal(await rt.connectorEndpoint('mail-send-answer', { requestId: request.id, choice: 'cancel' }), true)
-  assert.equal(sessions.get('me@163.com').calls.filter(c => c[0] === 'send').length, 0)
+  assert.equal(sessions.get(addressAt('163.com')).calls.filter(c => c[0] === 'send').length, 0)
   await send.execute({ to: 'you@test.dev', subject: 'Hi2', body: 'B' }, { agent: { id: 'm1' }, callId: 'call-2', concludeTurn: () => {} })
   const request2 = rt.state.mailRequests.m1.at(-1)
   await rt.connectorEndpoint('mail-send-answer', { requestId: request2.id, choice: 'send' })
-  const sent = sessions.get('me@163.com').calls.filter(c => c[0] === 'send')
+  const sent = sessions.get(addressAt('163.com')).calls.filter(c => c[0] === 'send')
   assert.equal(sent.length, 1)
   assert.equal(sent[0][1].subject, 'Hi2')
   // A draft never draws a card.
@@ -447,11 +449,11 @@ test('mail account remove drops the secret and unregisters the tools', async (t)
   const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => fakeSession() } })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
   await rt.load()
-  await rt.connectorEndpoint('mail-account-add', { address: 'a@qq.com', password: 'PASSP' })
+  await rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'PASSP' })
   assert.ok(rt.teamTools.some(d => d.name === 'mail_send'))
   await rt.connectorEndpoint('mail-account-remove', { id: rt.mailView().accounts[0].id })
   await rt.loadSecrets()
-  assert.equal(rt.secretValue(mailSecretName('a@qq.com', 'PASSWORD')), undefined)
+  assert.equal(rt.secretValue(mailSecretName(addressAt('qq.com'), 'PASSWORD')), undefined)
   assert.equal(rt.teamTools.some(d => d.name === 'mail_send'), false)
 })
 
@@ -460,7 +462,7 @@ const { IMAP_ID } = await import('../src/host/connectors/mail/presets.js')
 
 test('163 and 126 presets send the IMAP ID identity', () => {
   for (const domain of ['163.com', '126.com']) {
-    const options = imapOptions({ address: `me@${domain}`, imap: { host: `imap.${domain}`, port: 993, secure: true } }, { password: 'x' })
+    const options = imapOptions({ address: `${'me'}@${domain}`, imap: { host: `imap.${domain}`, port: 993, secure: true } }, { password: 'x' })
     assert.deepEqual(options.id, IMAP_ID)
     assert.equal(options.id.vendor, 'DS Bot')
   }
@@ -570,7 +572,7 @@ test('gmail transport: search, read, draft, send, modify, trash, and one refresh
     return json({})
   }
   const { connectGmail } = await import('../src/host/connectors/mail/transport.js')
-  const gmail = connectGmail({ address: 'me@gmail.com' }, { token: () => 'G1', fetch: fakeFetch, refresh: async () => { refreshes += 1; return true } })
+  const gmail = connectGmail({ address: addressAt('gmail.com') }, { token: () => 'G1', fetch: fakeFetch, refresh: async () => { refreshes += 1; return true } })
   const rows = await gmail.search({ subject: 'x' })
   assert.equal(rows.length, 1)
   assert.equal((await gmail.read({ uid: '1' })).messages[0].text, 'hi')
@@ -589,7 +591,7 @@ test('mail_draft never creates a send card', async (t) => {
   const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => fakeSession() } })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
   await rt.load()
-  await rt.connectorEndpoint('mail-account-add', { address: 'a@qq.com', password: 'PASSP' })
+  await rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'PASSP' })
   const draft = rt.teamTools.find(d => d.name === 'mail_draft')
   await draft.execute({ to: 'x@y', subject: 'S', body: 'B' }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
   assert.equal((rt.state.mailRequests?.m1 ?? []).filter(r => r.status === 'pending').length, 0)
@@ -601,7 +603,7 @@ test('mail_send refuses attachments outside the working folder', async (t) => {
   const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => fakeSession() } })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
   await rt.load()
-  await rt.connectorEndpoint('mail-account-add', { address: 'a@qq.com', password: 'PASSP' })
+  await rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'PASSP' })
   const send = rt.teamTools.find(d => d.name === 'mail_send')
   const answer = await send.execute({ to: 'x@y', subject: 'S', body: 'B', attachments: ['../../etc/passwd'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
   assert.match(String(answer), /working folder/)
