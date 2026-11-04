@@ -842,9 +842,11 @@ export function install(rt) {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
+      // older assembly still carries tools to drop here.
       return {
         ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
         sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
       }
     })
@@ -944,6 +946,11 @@ export function install(rt) {
     const assembled = await next()
     const held = scoped.get(agent.session?.id)
     if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
+    // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
+    if (!Array.isArray(assembled.tools)) {
+      held.unlisted.clear()
+      return assembled
+    }
     const pending = [...held.unlisted]
     // Cleared whatever happens below: the names are offered once, not on
     // every step.
