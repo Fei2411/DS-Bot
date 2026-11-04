@@ -855,12 +855,27 @@ export function install(rt) {
     return result
   }
 
+  // ------------------------------------------------------------------ im via
+  // IM-originated user messages, keyed by session and event seq, so the client
+  // can tag a message with the platform it came from. A Session's entries go
+  // when it stops being the chat's current part.
+  const imVia = new Map()
+  const imViaView = () => {
+    for (const sessionId of imVia.keys()) if (!rt.chatOwners.has(sessionId)) imVia.delete(sessionId)
+    return Object.fromEntries([...imVia.entries()].map(([sessionId, seqs]) => [sessionId, { ...seqs }]))
+  }
+
   // ----------------------------------------------------------------- outbound
-  // Prepended so the feed stays the last session/event listener, as its tests and
-  // the delivery order around it assume.
   ctx.on('session/event', (session, event) => {
     const botId = rt.chatOwners.get(session.id)
-    if (botId === undefined) return
+    if (botId === undefined) {
+      imVia.delete(session.id)
+      return
+    }
+    const rpcId = event.type === 'user/message' ? event.data?.source?.rpcId : undefined
+    if (typeof rpcId === 'string' && rpcId.startsWith('im:') && Number.isInteger(event.seq)) {
+      imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
+    }
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
@@ -927,5 +942,5 @@ export function install(rt) {
   const imView = () => ({ connections: Object.values(connections()).map(viewOf), platforms: IM_PLATFORMS.filter(platform => adaptersFor().includes(platform.id)).map(platform => platform.id) })
   const imStatusView = () => Object.fromEntries([...statuses.entries()].map(([id, status]) => [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]))
 
-  Object.assign(rt, { imView, imStatusView, imEndpoint })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint })
 }

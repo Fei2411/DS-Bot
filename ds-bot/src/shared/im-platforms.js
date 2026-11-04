@@ -81,3 +81,6 @@ export const IM_PLATFORMS = [
 ]
 
 export const imPlatform = id => IM_PLATFORMS.find(platform => platform.id === id)
+
+// The platform a user message came in over: IM messages carry im:<platform>:<uuid> as their requestId.
+export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)

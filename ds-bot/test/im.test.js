@@ -224,6 +224,22 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   assert.equal(s.fake.sent[1].chat.key, 'g1')
 })
 
+test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const fire = (sessionId, seq, rpcId) => {
+    for (const listener of s.ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id: sessionId }, { type: 'user/message', seq, data: { source: { kind: 'user', rpcId }, content: [{ type: 'text', text: 'x' }] }, time: Date.now() })
+    }
+  }
+  fire('a', 5, 'im:telegram:1')
+  fire('a', 6, 'web-request')
+  fire('a', 7, 'im:feishu:2')
+  assert.deepEqual(s.rt.imViaView(), { a: { 5: 'telegram', 7: 'feishu' } })
+  s.rt.chatOwners.delete('a')
+  assert.deepEqual(s.rt.imViaView(), {})
+})
+
 test('question card: buttons answer it, a stranger press is ignored, settled elsewhere edits the card', async (t) => {
   const s = await start()
   t.after(s.stop)
