@@ -6,7 +6,8 @@ import { CheckIcon, CopyIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
 import { noHover } from './motion.js'
 import { clockLabel, messageClock } from './text.js'
-import { useFold } from './fold.js'
+import { FOLD_AT, FOLD_HUGE, useFold } from './fold.js'
+import { expandMessages } from './themes.js'
 
 // -------------------------------------------------------------------------
 // The user's own messages. DSH draws every "@word" in them as a file reference, and
@@ -91,7 +92,8 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   const references = openFile && openSkill ? { openFile, openSkill } : undefined
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const { shown, folded, control } = useFold(text, { markdown: false })
+  const expand = expandMessages(roster?.prefs)
+  const { shown, folded, control } = useFold(text, { markdown: false, limit: expand ? FOLD_HUGE : FOLD_AT })
   const body = h(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.

@@ -22,7 +22,7 @@ import { noHover, useViewport, viewBottom } from './motion.js'
 import { heldCardKey } from './sources.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
-import { layoutOf, thinkingShown } from './themes.js'
+import { expandMessages, layoutOf, thinkingShown } from './themes.js'
 
 export { clockLabel }
 
@@ -36,7 +36,9 @@ const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied')
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
+export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold, whole, time }) {
+  const expand = expandMessages(roster?.prefs)
+  const limit = fold ?? (expand ? FOLD_HUGE : FOLD_AT)
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -49,7 +51,7 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     texts.map((text, index) => {
       const last = index === texts.length - 1
       return h(Bubble, {
-        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold,
+        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold: limit,
         picked: msgKey ? reactions?.[index] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -464,8 +466,9 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row, actions }) {
-  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
+function EarlierUser({ row, actions, roster }) {
+  const expand = expandMessages(roster?.prefs)
+  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '', { limit: expand ? FOLD_HUGE : FOLD_AT })
   const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
   const area = foldArea(body, code, codeHead, actions)
   return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
@@ -586,7 +589,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, actions })
+    case 'user': return h(EarlierUser, { key, row, actions, roster })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })

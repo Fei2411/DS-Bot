@@ -546,6 +546,7 @@ var ZH = {
   "Bubble width": "气泡宽度",
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
+  "Expand long messages": "默认展开长消息",
   "Enter sends message": "回车发送消息",
   "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
@@ -2022,6 +2023,7 @@ var MESSAGE_WIDTH = { min: 50, max: 100, step: 5 };
 var percent = (value, initial) => Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial;
 var layoutOf = (prefs) => prefs?.layout === "flat" ? "flat" : "bubble";
 var thinkingShown = (prefs) => prefs?.thinking === true;
+var expandMessages = (prefs) => prefs?.expandMessages === true;
 var widthOf = (prefs) => percent(prefs?.width, 80);
 var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
 
@@ -8513,7 +8515,9 @@ function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
 var import_react19 = require("react");
 var import_react_dom = require("react-dom");
 var mdLabels3 = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold, whole, time }) {
+  const expand = expandMessages(roster?.prefs);
+  const limit = fold ?? (expand ? FOLD_HUGE : FOLD_AT);
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -8537,7 +8541,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         sessionId,
         msgKey,
         mentions,
-        fold,
+        fold: limit,
         picked: msgKey ? reactions?.[index] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -8984,8 +8988,9 @@ var scrollParent = (node) => {
   }
   return null;
 };
-function EarlierUser({ row, actions }) {
-  const { shown, folded, control, code, codeHead } = useFold(row.text ?? "");
+function EarlierUser({ row, actions, roster }) {
+  const expand = expandMessages(roster?.prefs);
+  const { shown, folded, control, code, codeHead } = useFold(row.text ?? "", { limit: expand ? FOLD_HUGE : FOLD_AT });
   const body = row.text && shown !== "" ? (0, import_react19.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels3(), variant: "compact" }) : null;
   const area = foldArea(body, code, codeHead, actions);
   return (0, import_react19.createElement)("div", { className: "bt-urow" }, (0, import_react19.createElement)(
@@ -9100,7 +9105,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case "divider":
       return (0, import_react19.createElement)(PartLine, { key, time: row.time });
     case "user":
-      return (0, import_react19.createElement)(EarlierUser, { key, row, actions });
+      return (0, import_react19.createElement)(EarlierUser, { key, row, actions, roster });
     case "answer":
       return (0, import_react19.createElement)(AnsweredReply, { key, node: { data: row } });
     // A display-only view replays from the blueprint the host kept on the call.
@@ -18410,7 +18415,8 @@ function GeneralPage({ roster, actions, run: run2 }) {
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === "flat" ? (0, import_react47.createElement)(SetRow, { label: t("Text width") }, (0, import_react47.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
       (0, import_react47.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react47.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
-      (0, import_react47.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react47.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) }))
+      (0, import_react47.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react47.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
+      (0, import_react47.createElement)(SetRow, { label: t("Expand long messages") }, (0, import_react47.createElement)(Switch, { label: t("Expand long messages"), on: expandMessages(prefs), onChange: (expandMessages2) => run2(actions.setPrefs({ expandMessages: expandMessages2 })) }))
     ),
     (0, import_react47.createElement)(
       SetSection,
@@ -21943,7 +21949,8 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
   const steering = node.kind === "steering";
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
-  const { shown, folded, control } = useFold(text, { markdown: false });
+  const expand = expandMessages(roster?.prefs);
+  const { shown, folded, control } = useFold(text, { markdown: false, limit: expand ? FOLD_HUGE : FOLD_AT });
   const body = (0, import_react54.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
   const row = (0, import_react54.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react54.useState)(false);
@@ -22373,7 +22380,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, expandMessages: prefs.expandMessages, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
         } catch {
         }
       }

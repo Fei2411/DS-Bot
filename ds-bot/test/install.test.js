@@ -160,6 +160,13 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal('thinking' in (await call('set-prefs', { thinking: false })).value, false)
   await call('set-prefs', { thinking: true })
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
+  // The expandMessages switch stores only true; false, null and unknown values leave nothing.
+  assert.equal('expandMessages' in (await call('set-prefs', { expandMessages: 'yes' })).value, false)
+  assert.equal('expandMessages' in (await call('set-prefs', { expandMessages: 1 })).value, false)
+  assert.equal((await call('set-prefs', { expandMessages: true })).value.expandMessages, true)
+  assert.equal('expandMessages' in (await call('set-prefs', { expandMessages: false })).value, false)
+  await call('set-prefs', { expandMessages: true })
+  assert.equal('expandMessages' in (await call('set-prefs', { expandMessages: null })).value, false)
   // Enter sends by default; false persists until the user turns it back on.
   assert.equal((await call('set-prefs', { enterToSend: false })).value.enterToSend, false)
   assert.equal((await call('set-prefs', { enterToSend: 'no' })).value.enterToSend, false)

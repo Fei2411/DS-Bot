@@ -159,6 +159,10 @@ export function install(rt) {
       if (body.thinking === true) state.prefs.thinking = true
       else if (body.thinking === false || body.thinking === null) delete state.prefs.thinking
     }
+    if (body.expandMessages !== undefined) {
+      if (body.expandMessages === true) state.prefs.expandMessages = true
+      else if (body.expandMessages === false || body.expandMessages === null) delete state.prefs.expandMessages
+    }
     if (body.enterToSend !== undefined) {
       if (body.enterToSend === false) state.prefs.enterToSend = false
       else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend

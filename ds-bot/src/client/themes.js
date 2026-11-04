@@ -124,5 +124,6 @@ export const MESSAGE_WIDTH = { min: 50, max: 100, step: 5 }
 const percent = (value, initial) => (Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial)
 export const layoutOf = prefs => (prefs?.layout === 'flat' ? 'flat' : 'bubble')
 export const thinkingShown = prefs => prefs?.thinking === true
+export const expandMessages = prefs => prefs?.expandMessages === true
 export const widthOf = prefs => percent(prefs?.width, 80)
 export const flatWidthOf = prefs => percent(prefs?.flatWidth, 100)
