@@ -32,9 +32,9 @@ export function install(rt) {
     for (const controller of clients) send(controller, chunk)
   }
 
-  rt.stateSaved = () => {
+  const offSaved = rt.onSaved(() => {
     if (clients.size > 0) publish('revision', { revision: state.revision })
-  }
+  })
 
   let liveTimer
   const live = () => {
@@ -109,6 +109,7 @@ export function install(rt) {
     return () => {
       clearInterval(keepalive)
       clearTimeout(liveTimer)
+      offSaved()
       for (const controller of clients) leave(controller)
     }
   }, 'ds-bot: live feed')

@@ -24,6 +24,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
+import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { failureLine } from './turns.js'
@@ -232,15 +233,25 @@ export function install(rt) {
     return length > shown.length ? `${shown}… (cut; ${length} characters in all)` : shown
   }
 
+  const roomLineListeners = new Set()
   const appendRoom = (room, line) => {
     room.seq += 1
-    const log = [...room.log, keepGroupLine(room.id, { ...line, seq: room.seq }, line.text ?? '')]
+    const whole = { ...line, seq: room.seq }
+    const log = [...room.log, keepGroupLine(room.id, whole, line.text ?? '')]
     for (const gone of log.slice(0, -ROOM_LOG_MAX)) dropGroupLine(room.id, gone)
     room.log = log.slice(-ROOM_LOG_MAX)
+    // Listeners see the whole line, before keepGroupLine cut it for the log.
+    for (const listener of roomLineListeners) {
+      try { listener(room, whole) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
+    }
   }
   Object.assign(rt, {
     keepGroupLine, dropGroupLines,
     logRoom: (room, line) => { ensureRoomLog(room); appendRoom(room, line) },
+    onRoomLine: (listener) => {
+      roomLineListeners.add(listener)
+      return () => roomLineListeners.delete(listener)
+    },
   })
 
   // The folder a group was set to work in is gone: its members' Sessions move on in
@@ -637,7 +648,7 @@ export function install(rt) {
       const content = Array.isArray(message.content) ? message.content : []
       const text = textOf(content)
       if (text === '' || content.some(block => block?.type !== 'text') || text.includes('dsh-session:')) break
-      lines.push({ id: message.id, text })
+      lines.push({ id: message.id, text, ...(viaOf(message.source) ? { via: viaOf(message.source) } : {}) })
     }
     return lines
   })
@@ -656,8 +667,8 @@ export function install(rt) {
     rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const line of lines) {
-      appendRoom(room, { who: 'User', text: line.text })
-      round.replies.push({ kind: 'user', text: line.text, time: Date.now() })
+      appendRoom(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      round.replies.push({ kind: 'user', text: line.text, time: Date.now(), ...(line.via ? { via: line.via } : {}) })
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       const { speakers, ordered } = openingCall(room, { text: line.text })
@@ -911,6 +922,7 @@ export function install(rt) {
           ...(post.botId ? { who: rt.botOf(post.botId)?.name ?? post.name ?? 'Bot', botId: post.botId } : { who: 'User' }),
           text,
           ...(post.files === undefined ? {} : { files: post.files }),
+          ...(post.via === undefined ? {} : { via: post.via }),
         })
       }
       await rt.save()

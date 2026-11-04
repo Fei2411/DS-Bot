@@ -65,7 +65,8 @@
   },
   "devDependencies": {
     "@xmldom/xmldom": "0.9.12",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "qrcode-generator": "2.0.4"
   },
   "dependencies": {
     "deep-view": "0.1.0"

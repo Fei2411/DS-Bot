@@ -41,6 +41,7 @@ import * as dshUpdate from './src/host/dsh-update.js'
 import * as thinking from './src/host/thinking.js'
 import * as channel from './src/host/channel.js'
 import * as feed from './src/host/feed.js'
+import * as im from './src/host/im/index.js'
 import * as officeSkills from './src/host/office-skills.js'
 import * as goalSkills from './src/host/goal-skills.js'
 
@@ -54,7 +55,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
-const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills, goalSkills]
+const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, im, channel, officeSkills, goalSkills]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

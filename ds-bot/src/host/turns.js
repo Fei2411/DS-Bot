@@ -8,6 +8,7 @@ import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIN
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
+import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 
 // Failures only the user can fix: a key, a sign-in, a balance. They block the Bot
@@ -262,6 +263,23 @@ export function install(rt) {
     for (const message of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
       if (message.source?.exchangeId === exchangeId && agent.inbox.remove(message.id)) stoppedRoomTurns.delete(exchangeId)
     }
+  }
+
+  // The phone's Stop for a Bot's own-chat turn: the same cancel the group's
+  // member stop uses — end the running turn and any subagents it spawned.
+  async function stopChat(botId) {
+    await rt.load()
+    const sessionId = rt.chatOf(botId)
+    if (sessionId === undefined) return false
+    const turnRunning = live.get(sessionId)?.turn !== undefined
+    const subRunning = hasSubagents?.(sessionId) === true
+    if (!turnRunning && !subRunning) return false
+    await stopSubagents(sessionId)
+    if (turnRunning) {
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      agent?.cancel?.({ kind: 'user' })
+    }
+    return true
   }
 
   const liveOf = id => {
@@ -821,7 +839,7 @@ export function install(rt) {
             const content = Array.isArray(event.data.content) ? event.data.content : []
             const images = content.filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
             const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
+            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}), ...(viaOf(source) ? { via: viaOf(source) } : {}) })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.userWrote(own)
@@ -1122,5 +1140,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
 }

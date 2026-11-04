@@ -133,6 +133,10 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 ![Usage page](docs/images/usage.png)
 
+### IM
+
+Bots talk to you in your chat apps. In Settings → IM you can link a bot to Telegram, WeChat, Feishu, DingTalk, WeCom, QQ, Discord or Slack — pairing, group chats, approval cards and replies all work there without any public address or open port on your computer.
+
 ### Office files
 
 Bots work with Office documents. They can create and edit .docx, .pptx and .xlsx, read a document's structure with stable ids, check a package for the defects Office would refuse, make targeted edits (comments, tracked changes, fields, table cells), reorder or duplicate slides, list workbook errors, and review rendered pages on a contact sheet. The desktop app includes everything needed; in DSH Desktop Bots use DSH's Office runtime plus DS Bot's commands; in DSH Web the inspect, check and edit commands work, while creating files from scratch and rendering pages need the desktop app or DSH Desktop.
