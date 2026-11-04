@@ -133,6 +133,10 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ![用量页](docs/images/usage.zh.png)
 
+### IM
+
+你可以在聊天应用里直接和 Bot 对话。设置 → IM 可以把 Bot 连接到 Telegram、微信、飞书、钉钉、企业微信、QQ、Discord 或 Slack——配对、群聊、审批卡片和回复都能用，电脑不需要公网地址或开放端口。
+
 ### Office 文件
 
 Bot 可以处理 Office 文档：创建和编辑 .docx、.pptx、.xlsx；按稳定 id 读文档结构；检查会让 Office 拒开的包缺陷；定点编辑（批注、修订、域、表格单元格）；幻灯片重排与复制；列出工作簿错误；渲染成图片并按拼图检查。桌面应用已全部带上；在 DSH Desktop 里用 DSH 自己的 Office 运行时加 DS Bot 的命令；在 DSH Web 里检查、校验、编辑类命令可用，从头建文件和渲染页面需要桌面应用或 DSH Desktop。

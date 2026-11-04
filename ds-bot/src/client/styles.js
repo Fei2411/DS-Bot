@@ -605,6 +605,11 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-connector-form-row{display:flex;align-items:center;gap:6px}
 .bt-connector-link{flex:1;font-size:12px;color:var(--bt-ink-2)}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
+.bt-im-mark{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--bt-im-mark-ink)}
+.bt-im-line{display:flex;align-items:center;gap:8px}
+.bt-im-label{flex:1;font-size:12px;color:var(--bt-ink-2)}
+.bt-im-qr-panel{display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0}
+.bt-im-qr{width:180px;height:180px;color:var(--bt-ink);background:var(--bt-card);border:.5px solid var(--bt-line);border-radius:10px;padding:8px}
 
 /* Shell chrome reshaped for the team view. Selectors use stable data attributes where the
    shell offers them and CSS-module name suffixes elsewhere. */

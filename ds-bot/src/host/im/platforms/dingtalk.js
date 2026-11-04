@@ -3,8 +3,8 @@
 // code 200, system pings get a pong, and the robot callback carries the
 // sessionWebhook for passive replies. Outside that window the OpenAPI
 // batchSend/groupMessages path answers instead. No buttons — the core
-// numbers choices. Wire details ported from dingtalk-stream (Apache 2.0,
-// see NOTICE).
+// numbers choices. Wire details ported from dingtalk-stream (MIT, see
+// NOTICE).
 import { chunkMarkdown } from '../format.js'
 
 const GATEWAY = 'https://api.dingtalk.com'

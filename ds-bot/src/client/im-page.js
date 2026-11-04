@@ -1,4 +1,5 @@
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
+import qrcode from 'qrcode-generator'
 import { IM_PLATFORMS } from '../shared/im-platforms.js'
 import { MaskedInput } from './secret-card.js'
 import { t } from './i18n.js'
@@ -10,9 +11,73 @@ const SHORT = {
   telegram: 'Tg', weixin: '微', feishu: '飞', dingtalk: '钉',
   wecom: '企', qq: 'QQ', discord: 'Dc', slack: 'Sl',
 }
-const LINKS = { telegram: ['https://t.me/BotFather', 'BotFather'] }
+const LINKS = {
+  telegram: ['https://t.me/BotFather', 'BotFather'],
+  feishu: ['https://open.feishu.cn/app', 'open.feishu.cn'],
+  lark: ['https://open.larksuite.com/app', 'open.larksuite.com'],
+  dingtalk: ['https://open-dev.dingtalk.com/', 'open-dev.dingtalk.com'],
+  wecom: ['https://work.weixin.qq.com/', 'work.weixin.qq.com'],
+  qq: ['https://q.qq.com/qqbot/', 'q.qq.com'],
+  discord: ['https://discord.com/developers/applications', 'discord.com'],
+  slack: ['https://api.slack.com/apps', 'api.slack.com'],
+}
 
 const Mark = ({ id }) => h('span', { className: 'bt-im-mark', style: { background: `var(--bt-im-${id}, var(--bt-hover))` } }, SHORT[id] ?? id.slice(0, 2))
+
+const QUIET = 4
+function QrCode({ text }) {
+  const qr = qrcode(0, 'M')
+  qr.addData(text)
+  qr.make()
+  const count = qr.getModuleCount()
+  const size = count + QUIET * 2
+  let path = ''
+  for (let y = 0; y < count; y += 1) {
+    for (let x = 0; x < count; x += 1) if (qr.isDark(y, x)) path += `M${x + QUIET} ${y + QUIET}h1v1h-1z`
+  }
+  return h('svg', { className: 'bt-im-qr', viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': t('Pairing QR code'), shapeRendering: 'crispEdges' },
+    h('rect', { width: size, height: size }),
+    h('path', { d: path }))
+}
+
+// QR-login platforms (WeChat iLink): im-login-start returns the code text,
+// then im-login-wait long-polls until the owner scans and confirms or the
+// code expires.
+function QrPanel({ actions, platform, botId, onDone }) {
+  const [login, setLogin] = useState(null)
+  const [status, setStatus] = useState('waiting')
+  const [error, setError] = useState(null)
+  useEffect(() => {
+    let live = true
+    let loginId
+    void (async () => {
+      try {
+        const started = await actions.imLoginStart({ platform, botId })
+        if (!live) return
+        loginId = started.loginId
+        setLogin(started)
+        for (;;) {
+          const answer = await actions.imLoginWait({ platform, botId, loginId })
+          if (!live) return
+          if (answer.status === 'done') { onDone(); return }
+          setStatus(answer.status)
+          if (answer.status === 'expired') return
+        }
+      } catch (failure) {
+        if (live) setError(failure?.message ?? String(failure))
+      }
+    })()
+    return () => { live = false }
+  }, [])
+  return h('div', { className: 'bt-im-qr-panel' },
+    login === null && error === null ? h('p', { className: 'bt-mid' }, t('Connecting…')) : null,
+    login !== null && status !== 'expired' ? h(QrCode, { text: login.qr }) : null,
+    login !== null && status === 'scanned' ? h('p', { className: 'bt-mid' }, t('Scanned — confirm on the phone')) : null,
+    status === 'expired' ? h('p', { className: 'bt-mid' }, t('Code expired')) : null,
+    error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null,
+    h('div', { className: 'bt-connector-form-row' },
+      status === 'expired' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDone }, t('Done')) : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDone }, t('Cancel'))))
+}
 
 function statusText(status) {
   if (status === undefined) return t('Off')
@@ -101,7 +166,7 @@ function AddForm({ roster, actions, onDone }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const shown = IM_PLATFORMS.find(entry => entry.id === platform)
-  const link = LINKS[platform]
+  const link = platform === 'feishu' && fields.domain === 'lark' ? LINKS.lark : LINKS[platform]
   const add = () => {
     if (busy || botId === '') return
     setBusy(true)
@@ -118,7 +183,9 @@ function AddForm({ roster, actions, onDone }) {
         platforms.map(entry => h('option', { key: entry.id, value: entry.id }, entry.name))),
       h('select', { className: 'bt-select', 'aria-label': t('Talks to'), value: botId, onChange: event => setBotId(event.target.value) },
         roster.bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))),
-    (shown?.fields ?? []).map(field => field.options !== undefined
+    shown?.login === 'qr'
+      ? h(QrPanel, { key: `${platform}:${botId}`, actions, platform, botId, onDone })
+      : (shown?.fields ?? []).map(field => field.options !== undefined
       ? h('div', { key: field.key, className: 'bt-im-line' },
         h('span', { className: 'bt-im-label' }, field.label),
         h('select', { className: 'bt-select', 'aria-label': field.label, value: fields[field.key] ?? field.options[0][0], onChange: event => setFields(current => ({ ...current, [field.key]: event.target.value })) },
@@ -127,11 +194,11 @@ function AddForm({ roster, actions, onDone }) {
         field.secret
           ? h(MaskedInput, { value: fields[field.key] ?? '', onChange: value => setFields(current => ({ ...current, [field.key]: value })), onEnter: add, label: field.hint ? `${field.label} (${field.hint}…)` : field.label })
           : h('input', { className: 'bt-input', 'aria-label': field.label, placeholder: field.label, value: fields[field.key] ?? '', onChange: event => setFields(current => ({ ...current, [field.key]: event.target.value })) }))),
-    h('div', { className: 'bt-connector-form-row' },
+    shown?.login === 'qr' ? null : h('div', { className: 'bt-connector-form-row' },
       link ? h('a', { className: 'bt-connector-link', href: link[0], target: '_blank', rel: 'noopener noreferrer' }, link[1]) : null,
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDone }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: add }, busy ? t('Connecting…') : t('Connect'))),
-    error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null)
+    shown?.login === 'qr' ? null : error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null)
 }
 
 export function ImPage({ roster, actions }) {

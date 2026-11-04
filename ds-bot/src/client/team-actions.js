@@ -148,6 +148,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     imUnpair: (id, senderId) => after(call('im-unpair', { id, senderId })),
     imChat: (id, body) => after(call('im-chat', { id, ...body })),
     imRetry: id => after(call('im-retry', { id })),
+    imLoginStart: payload => call('im-login-start', payload),
+    imLoginWait: payload => call('im-login-wait', payload),
     saveCapability: capability => after(call('capability-save', capability)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
