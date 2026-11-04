@@ -287,7 +287,7 @@ export function install(rt) {
       }
       const handle = typeof params.appHandle === 'string' ? params.appHandle : undefined
       if (handle === undefined) return undefined
-      return appsOfSession(sessionId).get(`handle:${handle}`) ?? { key: `handle:${handle}`, name: 'the selected app' }
+      return appsOfSession(sessionId).get(`handle:${handle}`) ?? { key: `handle:${handle}`, name: 'the selected app', unknown: true }
     }
     const args = exec.arguments ?? {}
     const pid = [args.pid, args.appPid, args.windowPid, args.target_pid].find(value => Number.isInteger(value))
@@ -429,6 +429,7 @@ export function install(rt) {
       return 'allow'
     }
     decisions.set(app.key, answer === 'once' ? 'once' : 'deny')
+    if (normName(app.name) !== app.key) decisions.set(normName(app.name), answer === 'once' ? 'once' : 'deny')
     return answer === 'once' ? 'allow' : `The user did not allow ${bot.name} to use ${app.name}.`
   }
 
@@ -462,14 +463,20 @@ export function install(rt) {
     }
     // Every refusal is decided before a lease is taken.
     if (call.provider === 'cua' && app !== undefined && app.tentative !== true) {
-      // macOS: DSH's per-Session decision is not enough; DS Bot requires its own
-      // Always grant or a "This time" for this Session, so a revoke bites at once.
-      const decision = decisionsOf(bot.id, sessionId).get(app.key) ?? decisionsOf(bot.id, sessionId).get(normName(app.name))
+      if (app.unknown === true) {
+        return { kind: 'deny', reason: `Access to ${app.name} was revoked. Select it again with getApp.` }
+      }
+      // macOS: DS Bot requires its own Always grant or a "This time" for this
+      // Session, so a revoke bites at once. A saved DSH decision can let getApp
+      // through without asking here; then the first real call asks by card.
+      const decisions = decisionsOf(bot.id, sessionId)
+      const decision = decisions.get(app.key) ?? decisions.get(normName(app.name))
       if (decision === 'deny') {
         return { kind: 'deny', reason: `The user did not allow ${bot.name} to use ${app.name}.` }
       }
       if (decision !== 'once' && grantFor(bot, app) === undefined) {
-        return { kind: 'deny', reason: `Access to ${app.name} was revoked. Select it again with getApp.` }
+        const verdict = await driverConsent(exec, bot, sessionId, app)
+        if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
     }
     if (call.provider === 'cua-driver' && app !== undefined) {
@@ -729,9 +736,17 @@ export function install(rt) {
     // the provider's decision too or the Bot keeps using the app. Other Bots'
     // grants are unaffected: their next getApp is answered by DS Bot again.
     const access = ctx.get?.('cuaAccess')
-    const wanted = normName(grant?.name ?? appKey)
-    const knownId = grant?.id ?? [...sessionApps.values()].flatMap(map => [...map.values()])
-      .find(app => app.id !== undefined && (normName(app.name) === wanted || app.key === appKey))?.id
+    const recorded = [...sessionApps.values()].flatMap(map => [...map.values()])
+      .find(app => app.key === appKey || app.id === appKey || normName(app.name) === normName(grant?.name ?? appKey))
+    const wanted = normName(grant?.name ?? recorded?.name ?? appKey)
+    // A "This time" must not outlive the revoke, in any of this Bot's Sessions.
+    for (const [key, decisions] of sessionDecisions) {
+      if (!key.startsWith(`${botId}:`)) continue
+      for (const entry of [...decisions.keys()]) {
+        if (entry === appKey || normName(entry) === wanted) decisions.delete(entry)
+      }
+    }
+    const knownId = grant?.id ?? recorded?.id
     if (access !== undefined && knownId !== undefined && typeof access.revoke === 'function') {
       await access.revoke(knownId).catch(error => rt.warn('ds-bot: revoking %s in the provider failed: %s', knownId, error))
     }

@@ -382,14 +382,17 @@ test('a revoke removes the grant, aborts the call, revokes in the provider and t
   const allow = async () => 'allowed'
   const call = args => gate({ name: 'cua', arguments: args, agent: { id: 'w1' }, callId: 'c1' }, allow)
   assert.equal(await call({ method: 'click', params: { appHandle: 'h1' } }), 'allowed')
-  // revoke: grant gone, provider revoked, guard refuses the old handle
+  // revoke: grant gone, provider revoked, the old handle asks again instead of running
   assert.equal(await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: 'notes' }), true)
   assert.equal(rt.botOf('w1').computer.apps, undefined)
   assert.deepEqual(revoked, ['com.apple.Notes'])
-  const after = await call({ method: 'click', params: { appHandle: 'h1' } })
-  assert.equal(after.kind, 'deny')
-  assert.match(after.reason, /revoked|Select it again/)
-  // and a fresh getApp asks through the card again
+  const pending = call({ method: 'click', params: { appHandle: 'h1' } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  const [id] = Object.entries(rt.computerLive().asks)[0]
+  await rt.computerEndpoint('app-answer', { id, answer: 'deny' })
+  assert.match((await pending).reason, /did not allow/)
+  // a fresh getApp asks through the card again
   const answerer = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
   void answerer({ agent: { id: 'w1' }, questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } }, options: [] }] }, async () => 'next')
   await new Promise(resolve => setImmediate(resolve))
@@ -572,4 +575,73 @@ test('computer_handoff: the hold answers done, skip and takeover', async (t) => 
   assert.equal(reply.kind, 'answer_to_pending_handoff')
   assert.equal(reply.outcome, 'done')
   assert.match(reply.message, /gave the computer back|handed/)
+})
+
+test('a cua call DS Bot never decided asks by card instead of saying revoked', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  // DSH's saved decision let getApp through; DS Bot never saw a consent question.
+  await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g1' },
+    async () => ({ appHandle: 'h1', pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+  const pending = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1' } }, agent: { id: 'w1' }, callId: 'c1' }, allow)
+  await new Promise(resolve => setImmediate(resolve))
+  const [id, ask] = Object.entries(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id, answer: 'once' })
+  assert.equal(await pending, 'allowed')
+  // the Session decision now covers later calls without a new card
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1' } }, agent: { id: 'w1' }, callId: 'c2' }, allow), 'allowed')
+  // an explicit Deny is still a refusal, not a card
+  const denied = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1' } }, agent: { id: 'w1' }, callId: 'c3' }, allow)
+  assert.equal(await denied, 'allowed')
+  // but a deny recorded for another app refuses outright
+  await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Mail' } }, agent: { id: 'w1' }, callId: 'g2' },
+    async () => ({ appHandle: 'h2', pid: 10, authorization: { id: 'com.apple.Mail', name: 'Mail' } }))
+  const ask2 = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h2' } }, agent: { id: 'w1' }, callId: 'c4' }, allow)
+  await new Promise(resolve => setImmediate(resolve))
+  const [id2] = Object.entries(rt.computerLive().asks)[0]
+  await rt.computerEndpoint('app-answer', { id: id2, answer: 'deny' })
+  assert.match((await ask2).reason, /did not allow/)
+  const again = await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h2' } }, agent: { id: 'w1' }, callId: 'c5' }, allow)
+  assert.match(again.reason, /did not allow/)
+})
+
+test('a revoke clears the Bot’s session decisions for the app in every Session', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const other = 'w1-part2'
+  rt.isBotSession = id => id === 'w1' || id === other
+  const selfOf = rt.selfOf
+  rt.selfOf = id => (id === other ? 'w1' : selfOf(id))
+  for (const sessionId of ['w1', other]) {
+    await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: sessionId }, callId: `g-${sessionId}` },
+      async () => ({ appHandle: `h-${sessionId}`, pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+    const pending = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: `h-${sessionId}` } }, agent: { id: sessionId }, callId: `c-${sessionId}` }, allow)
+    await new Promise(resolve => setImmediate(resolve))
+    const [id] = Object.entries(rt.computerLive().asks)[0]
+    await rt.computerEndpoint('app-answer', { id, answer: 'once' })
+    assert.equal(await pending, 'allowed')
+  }
+  // revoke: the next call in each Session asks again rather than reusing the decision
+  await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: 'com.apple.Notes' })
+  for (const sessionId of ['w1', other]) {
+    const pending = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: `h-${sessionId}` } }, agent: { id: sessionId }, callId: `d-${sessionId}` }, allow)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(Object.keys(rt.computerLive().asks).length, 1, sessionId)
+    const [id] = Object.entries(rt.computerLive().asks)[0]
+    await rt.computerEndpoint('app-answer', { id, answer: 'deny' })
+    await pending
+  }
 })
