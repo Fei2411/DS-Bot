@@ -137,6 +137,27 @@ function forceCut(block, limit) {
 
 // Chunks of one Markdown message, each under `limit` rendered characters. Block
 // boundaries are kept where possible; a fence is only split when it alone is too big.
+// Plain markdown chunks at a byte-pair limit: paragraphs and lines first, a
+// hard cut at the limit for one over-long run. For platforms that take
+// markdown as-is (Discord, QQ, WeCom, DingTalk, Slack has its own converter).
+export function chunkMarkdown(markdown, limit) {
+  const chunks = []
+  let rest = String(markdown ?? '')
+  while (rest !== '') {
+    if (points(rest) <= limit) { chunks.push(rest); break }
+    let at = limit
+    const newline = rest.lastIndexOf('\n', at)
+    if (newline > limit / 2) at = newline
+    else {
+      const space = rest.lastIndexOf(' ', at)
+      if (space > limit / 2) at = space
+    }
+    chunks.push(rest.slice(0, at))
+    rest = rest.slice(at).replace(/^\s+/, '')
+  }
+  return chunks
+}
+
 export function chunkTelegram(markdown, limit = 4096) {
   const chunks = []
   let html = ''
