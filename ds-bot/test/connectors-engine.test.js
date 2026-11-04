@@ -498,10 +498,8 @@ test('gateway destroys the upstream stream when the client disconnects', async (
   await gw.listen()
   t.after(() => gw.close())
   const controller = new AbortController()
-  const pending = fetch(gw.urlFor('svc'), { headers: { Authorization: `Bearer ${gw.nonce}` }, signal: controller.signal })
-  const response = await pending.catch(e => e)
   // The GET answer headers arrived; abort the body read.
-  const res = await pending
+  const res = await fetch(gw.urlFor('svc'), { headers: { Authorization: `Bearer ${gw.nonce}` }, signal: controller.signal })
   controller.abort()
   await res.body?.cancel().catch(() => {})
   await new Promise(resolve => setTimeout(resolve, 50))
@@ -551,11 +549,11 @@ test('connector-sign-in-code refuses a wrong state and accepts the pasted URL or
   assert.equal(rt.secretValue('CONNECTOR_NOTION_TOKEN'), 'AT-9')
 })
 
-test('gmail transport: search, read, draft, send, modify, trash, and one refresh on 401', async (t) => {
+test('gmail transport: search, read, draft, send, modify, trash, and one refresh on 401', async () => {
   const calls = []
   let refreshes = 0
   let authed = false
-  const fakeFetch = async (url, init = {}) => {
+  const fakeFetch = async (url) => {
     const u = String(url?.url ?? url)
     calls.push(u)
     if (!authed && u.includes('/messages/1?format=full')) {

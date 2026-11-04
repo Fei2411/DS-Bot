@@ -52,7 +52,7 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     'data-bwignore': '',
     'data-form-type': 'other',
     'aria-label': label,
-    placeholder: t('Paste or type the key'),
+    placeholder: label ?? t('Paste or type the key'),
     onChange: event => onChange(event.target.value),
     onKeyDown: (event) => {
       if (event.key !== 'Enter' || event.nativeEvent.isComposing) return

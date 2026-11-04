@@ -4,6 +4,7 @@
 import { createElement as h, useRef, useState } from 'react'
 import { useMorph } from './motion.js'
 import { MaskedInput } from './secret-card.js'
+import { Switch } from './bot-settings.js'
 import { BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
 import { useDockHold } from './card-hold.js'
@@ -112,14 +113,14 @@ export function ConnectorRow({ connector, actions }) {
       h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector })),
       h('span', { className: 'bt-connector-text' },
         h('span', { className: 'bt-connector-name' }, connector.name, connector.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null),
-        h('span', { className: 'bt-connector-status' }, statusText(connector))),
+        h('span', { className: 'bt-connector-status' }, t(statusText(connector)))),
       h('span', { className: 'bt-connector-actions' },
         connector.state === 'error' || connector.state === 'needs-sign-in' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorRetry(connector.id)) }, connector.state === 'needs-sign-in' ? t('Sign in again') : t('Try again')) : null,
         on && !pending
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorDisconnect(connector.id)) }, connector.custom ? t('Remove') : t('Disconnect'))
           : pending || form ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, t('Connect')))),
     connector.readOnly !== undefined && on ? h('label', { className: 'bt-connector-ro' },
-      h('input', { type: 'checkbox', checked: connector.readOnly === true, onChange: e => void run(actions.connectorSet(connector.id, { readOnly: e.target.checked })) }),
+      h(Switch, { on: connector.readOnly === true, label: t('Read-only'), onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) }),
       t('Read-only')) : null,
     pending?.kind === 'browser' ? h(BrowserPanel, { connector, actions, run }) : null,
     pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run }) : null,
@@ -158,7 +159,7 @@ function MailSection({ mail, actions, run }) {
         h('a', { className: 'bt-connector-link', href: p.url, target: '_blank', rel: 'noopener noreferrer' }, t('Open the Google sign-in page'))))) ?? null,
     form ? h('div', { className: 'bt-connector-form bt-mail-form' },
       h('input', { className: 'bt-input', 'aria-label': t('Email address'), placeholder: t('Email address'), value: address, autoComplete: 'off', onChange: e => setAddress(e.target.value) }),
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: password, onChange: setPassword, label: t('App password / authorization code') })),
+      h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: password, onChange: setPassword, label: t('App password') })),
       h('div', { className: 'bt-mail-providers', role: 'radiogroup', 'aria-label': t('Provider') },
         [['qq', 'QQ'], ['163', '163'], ['126', '126'], ['gmail', 'Gmail'], ['icloud', 'iCloud'], ['other', t('Other')]].map(([id, label]) =>
           h('button', { key: id, type: 'button', role: 'radio', 'aria-checked': chosen === id, className: 'bt-secret-seg', onClick: () => setProvider(id) }, label))),
@@ -221,10 +222,12 @@ export function ConnectorsPage({ roster, actions }) {
     .filter(c => query === '' || `${c.name} ${c.about}`.toLowerCase().includes(query.toLowerCase()))
   return h('section', { className: 'bt-set-section' },
     error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null,
+    h('div', { className: 'bt-section-title' }, t('Connected')),
     h('div', { className: 'bt-set-card bt-connectors-card' },
       connected.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No connectors connected'))) : null,
       connected.map(connector => h(ConnectorRow, { key: connector.id, connector, actions })),
       h(MailSection, { mail: data.mail, actions, run })),
+    h('div', { className: 'bt-section-title' }, t('Catalog')),
     h('div', { className: 'bt-set-card bt-connectors-card' },
       h('div', { className: 'bt-connector-search' },
         h('input', { className: 'bt-input', 'aria-label': t('Search connectors'), placeholder: t('Search'), value: query, onChange: e => setQuery(e.target.value) }),
@@ -247,12 +250,11 @@ export function BotConnectors({ bot, roster, actions, run }) {
     rows.map((connector) => {
       const off = (connector.offFor ?? []).includes(bot.id)
       return h('div', { key: connector.id, className: 'bt-connector-bot' },
-        h('label', null,
-          h('input', { type: 'checkbox', checked: !off, onChange: (e) => {
-            const next = e.target.checked ? (connector.offFor ?? []).filter(id => id !== bot.id) : [...(connector.offFor ?? []), bot.id]
-            void run(actions.connectorSet(connector.id, { offFor: next }))
-          } }),
-          connector.name))
+        h('span', null, connector.name),
+        h(Switch, { on: !off, label: connector.name, onChange: (checked) => {
+          const next = checked ? (connector.offFor ?? []).filter(id => id !== bot.id) : [...(connector.offFor ?? []), bot.id]
+          void run(actions.connectorSet(connector.id, { offFor: next }))
+        } }))
     }))
 }
 
@@ -271,6 +273,8 @@ function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
       h('button', { type: 'button', className: 'bt-q-btn', onClick: () => { hold(); void actions.connectorRequestCancel(request.id) } }, t('Dismiss')),
       h('button', { type: 'button', className: 'bt-q-submit', onClick: () => { hold(); actions.openConnectors() } }, t('Connect'))))
 }
+
+const humanSize = bytes => bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`
 
 const NONE = {}
 export function ConnectorToolCell({ sessionId, callId, done, content, roster, actions, heldCards = NONE }) {
@@ -310,11 +314,11 @@ export function MailSendCard({ sessionId, bot, request, actions, inline = false 
         h('p', { className: 'bt-q-title' }, t('{bot} wants to send an email', { bot: bot.name })),
         h('div', { className: 'bt-q-detail' }, request.subject))),
     h('div', { className: 'bt-mail-preview' },
-      h('div', null, h('b', null, t('To')), ' ', request.to),
-      request.cc ? h('div', null, h('b', null, t('Cc')), ' ', request.cc) : null,
-      request.bcc ? h('div', null, h('b', null, t('Bcc')), ' ', request.bcc) : null,
+      h('div', { className: 'bt-q-detail' }, t('To'), ' ', request.to),
+      request.cc ? h('div', { className: 'bt-q-detail' }, t('Cc'), ' ', request.cc) : null,
+      request.bcc ? h('div', { className: 'bt-q-detail' }, t('Bcc'), ' ', request.bcc) : null,
       h('div', { className: 'bt-mail-body' }, request.body),
-      request.attachmentDetails?.length ? h('div', { className: 'bt-q-detail' }, t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${a.size} B)` : a.name).join(', ') })) : null),
+      request.attachmentDetails?.length ? h('div', { className: 'bt-q-detail' }, t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${humanSize(a.size)})` : a.name).join(', ') })) : null),
     h('div', { className: 'bt-q-foot' },
       h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('cancel') }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('send') }, t('Send'))))
@@ -363,8 +367,7 @@ export const CONNECTOR_CSS = `
 .bt-mail-providers{display:flex;gap:4px;flex-wrap:wrap}
 .bt-mail-providers .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
-.bt-connector-bot{padding:4px 0;font-size:13px}
-.bt-connector-bot label{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
-.bt-mail-preview{display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-connector-bot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
+.bt-mail-preview{display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:18px;color:var(--bt-ink);margin:6px 0}
 .bt-mail-body{white-space:pre-wrap;max-height:160px;overflow-y:auto;padding:8px 10px;border-radius:8px;background:var(--bt-hover);font-size:13px}
 `
