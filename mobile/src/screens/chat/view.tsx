@@ -2,7 +2,8 @@ import { useMemo, useRef, useState } from 'react'
 import { Linking, Modal, PanResponder, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import Svg, { Circle, Line, Path, Polygon, Rect } from 'react-native-svg'
+import { INKS } from '../../../../ds-bot/src/client/inks.js'
+import Svg, { Circle, Line, Path, Polygon, Polyline, Rect } from 'react-native-svg'
 import { compileFormula, createScope, evaluate, isFormula, choiceValue, show } from 'deep-view/core'
 import { t } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
@@ -84,7 +85,8 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
   const kids = () => (Array.isArray(n.children) ? n.children.map((c, i) => <Node key={i} node={c} val={val} p={p} readOnly={readOnly} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />) : null)
   switch (n.type) {
     case 'stack': return <View style={{ gap: 10 }}>{kids()}</View>
-    case 'row': return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{kids()}</View>
+    // Each cell takes an even share and wraps under the others when the card is too narrow.
+    case 'row': return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{(kids() ?? []).map((kid, i) => <View key={i} style={{ flexGrow: 1, flexBasis: 220, minWidth: 0 }}>{kid}</View>)}</View>
     case 'text': {
       const text = val(n.text)
       return text === undefined ? <Placeholder p={p} /> : <Markdown text={String(text)} p={p} textColor={n.tone === 'muted' ? p.ink2 : p.ink} />
@@ -107,7 +109,7 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
     case 'chart': {
       const categories = val(n.categories), series = val(n.series)
       if (!Array.isArray(categories) || !Array.isArray(series)) return <Placeholder p={p} />
-      return <Chart kind={String(val(n.kind) ?? 'bar')} categories={categories.map(String)} series={series as { name?: string; values?: unknown[]; data?: unknown[] }[]} unit={String(val(n.unit) ?? '')} p={p} />
+      return <Chart kind={String(val(n.kind) ?? 'bar')} categories={categories.map(String)} series={series as { name?: string; values?: unknown[]; data?: unknown[] }[]} unit={String(val(n.unit) ?? '')} caption={n.caption !== undefined ? String(val(n.caption) ?? '') : undefined} p={p} />
     }
     case 'progress': {
       const percent = val(n.percent)
@@ -137,7 +139,7 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
           {items.map((item: Record<string, unknown>, i: number) => {
             const href = String(item?.url ?? '')
             if (!/^https?:/i.test(href)) return null
-            return <Text key={i} style={[type.caption, { color: p.accent }]} onPress={() => void Linking.openURL(href).catch(() => {})}>{String(item?.title ?? href)}</Text>
+            return <Text key={i} style={[type.caption, { color: p.accent }]} onPress={() => void Linking.openURL(href).catch(() => {})}>{String(item?.label ?? item?.title ?? href)}</Text>
           })}
         </View>
       )
@@ -294,19 +296,27 @@ function SliderTrack({ p, percent, disabled, onPercent }: { p: Palette; percent:
 // bar/hbar/line/area/donut, theme-colored, first series on the accent. A tap on a
 // category shows its values and dims the rest; a legend tap hides the series;
 // the "…" menu swaps to a table or copies the data as CSV.
-function Chart({ kind, categories, series, unit, p }: { kind: string; categories: string[]; series: { name?: string; values?: unknown[]; data?: unknown[] }[]; unit: string; p: Palette }) {
+function Chart({ kind, categories, series, unit, caption, p }: { kind: string; categories: string[]; series: { name?: string; values?: unknown[]; data?: unknown[] }[]; unit: string; caption?: string; p: Palette }) {
   const [pinned, setPinned] = useState(-1)
   const [hidden, setHidden] = useState<Set<number>>(new Set())
   const [menu, setMenu] = useState(false)
   const [asTable, setAsTable] = useState(false)
-  const rows = series.map((s, si) => ({ name: String(s?.name ?? `${si + 1}`), values: (s?.values ?? s?.data ?? []).map(Number), color: (p as unknown as Record<string, string>)[SERIES[si % SERIES.length]] ?? p.accent }))
+  const color = (i: number) => { const key = SERIES[i % SERIES.length]; return (p as unknown as Record<string, string>)[key] ?? (INKS as Record<string, string[]>)[key]?.[0] ?? p.accent }
+  const valuesOf = (s: { values?: unknown[]; data?: unknown[] } | undefined) => (s?.values ?? s?.data ?? []).map(Number)
+  // A donut's slices are the categories of its first series; the other kinds draw one mark set per series.
+  const rows = kind === 'donut'
+    ? categories.map((c, i) => ({ name: c, values: [valuesOf(series[0])[i] ?? 0], color: color(i) }))
+    : series.map((s, si) => ({ name: String(s?.name ?? `${si + 1}`), values: valuesOf(s), color: color(si) }))
   const visible = rows.filter((_, si) => !hidden.has(si))
+  const table = kind === 'donut'
+    ? { columns: ['', String(series[0]?.name ?? '')], body: categories.map((c, i) => [c, rows[i]?.values[0]]) }
+    : { columns: ['', ...rows.map(s => s.name)], body: categories.map((c, i) => [c, ...rows.map(s => s.values[i])]) }
   const max = Math.max(1, ...visible.flatMap(s => s.values))
   const W = 280, H = 160, pad = 6
   const pick = (i: number) => setPinned(prev => prev === i ? -1 : i)
   if (asTable) return (
     <View>
-      <DataTable columns={['', ...rows.map(s => s.name)]} rows={categories.map((c, i) => [c, ...rows.map(s => s.values[i] !== undefined ? `${s.values[i]}${unit}` : '—')])} p={p} />
+      <DataTable columns={table.columns} rows={table.body.map(([c, ...vs]) => [c, ...vs.map(v => v !== undefined ? `${v}${unit}` : '—')])} p={p} />
       <Text style={[type.caption, { color: p.accent }]} onPress={() => setAsTable(false)}>{t('View as chart')}</Text>
     </View>
   )
@@ -315,10 +325,13 @@ function Chart({ kind, categories, series, unit, p }: { kind: string; categories
     <View>
       <View style={{ position: 'relative', height: H }}>
         <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
-        {kind === 'donut' ? <Donut rows={visible} pinned={pinned} p={p} /> :
+        {kind === 'donut' ? <Donut rows={rows.map((r, i) => hidden.has(i) ? { ...r, values: [0] } : r)} pinned={pinned} p={p} /> :
          kind === 'line' || kind === 'area' ? visible.map((s, si) => {
-          const pts = s.values.map((v, i) => `${pad + (i + 0.5) * (W - 2 * pad) / categories.length},${H - pad - (v / max) * (H - 2 * pad)}`)
-          return <Polygon key={si} points={pts.join(' ')} fill={kind === 'area' ? s.color : 'none'} fillOpacity={kind === 'area' ? 0.25 : 0} stroke={s.color} strokeWidth={2} strokeLinejoin="round" />
+          const xs = s.values.map((_, i) => pad + (i + 0.5) * (W - 2 * pad) / categories.length)
+          const pts = s.values.map((v, i) => `${xs[i]},${H - pad - (v / max) * (H - 2 * pad)}`)
+          if (kind === 'line') return <Polyline key={si} points={pts.join(' ')} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          const base = xs.length === 0 ? [] : [`${xs[xs.length - 1]},${H - pad}`, `${xs[0]},${H - pad}`]
+          return <Polygon key={si} points={[...pts, ...base].join(' ')} fill={s.color} fillOpacity={0.25} stroke={s.color} strokeWidth={2} strokeLinejoin="round" />
         }) :
          visible.map((s, si) => s.values.map((v, i) => {
           const h = (v / max) * (H - 2 * pad)
@@ -333,7 +346,12 @@ function Chart({ kind, categories, series, unit, p }: { kind: string; categories
           {categories.map((_, i) => <Pressable key={i} style={{ flex: 1 }} onPress={() => pick(i)} />)}
         </View>
       </View>
-      {pinned >= 0 ? <Text style={[type.caption, { color: p.ink }]}>{categories[pinned]}: {visible.map(s => `${s.name} ${s.values[pinned] ?? '—'}${unit}`).join(' · ')}</Text> : null}
+      {kind !== 'donut' && kind !== 'hbar' ? (
+        <View style={{ flexDirection: 'row', paddingHorizontal: `${pad / W * 100}%` }}>
+          {categories.map((c, i) => <Text key={i} numberOfLines={1} style={[type.caption, { flex: 1, textAlign: 'center', color: pinned === i ? p.ink : p.ink3 }]}>{c}</Text>)}
+        </View>
+      ) : null}
+      {pinned >= 0 ? <Text style={[type.caption, { color: p.ink }]}>{kind === 'donut' ? `${categories[pinned]} ${rows[pinned]?.values[0] ?? '—'}${unit}` : `${categories[pinned]}: ${visible.map(s => `${s.name} ${s.values[pinned] ?? '—'}${unit}`).join(' · ')}`}</Text> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4, alignItems: 'center' }}>
         {rows.map((s, si) => (
           <Pressable key={si} onPress={() => setHidden(prev => { const h = new Set(prev); h.has(si) ? h.delete(si) : h.add(si); return h })} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, opacity: hidden.has(si) ? 0.35 : 1 }}>
@@ -343,11 +361,12 @@ function Chart({ kind, categories, series, unit, p }: { kind: string; categories
         ))}
         <Pressable accessibilityRole="button" onPress={() => setMenu(true)} style={{ marginLeft: 'auto', padding: 4 }}><Text style={{ color: p.ink3, fontSize: 18 }}>…</Text></Pressable>
       </View>
+      {caption ? <Text style={[type.caption, { color: p.ink3, marginTop: 2 }]}>{caption}</Text> : null}
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} onPress={() => setMenu(false)}>
           <View style={{ backgroundColor: p.card, borderRadius: 12, borderWidth: 1, borderColor: p.line, minWidth: 180 }}>
             <Pressable onPress={() => { setAsTable(true); setMenu(false) }} style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink }]}>{t('View as table')}</Text></Pressable>
-            <Pressable onPress={() => { void Clipboard.setStringAsync([['', ...rows.map(s => s.name)].join(','), ...categories.map((c, i) => [c, ...rows.map(s => s.values[i] ?? '')].join(','))].join('\n')); setMenu(false) }} style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink }]}>{t('Copy data (CSV)')}</Text></Pressable>
+            <Pressable onPress={() => { void Clipboard.setStringAsync([table.columns.join(','), ...table.body.map(r => r.map(v => v ?? '').join(','))].join('\n')); setMenu(false) }} style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink }]}>{t('Copy data (CSV)')}</Text></Pressable>
           </View>
         </Pressable>
       </Modal>
