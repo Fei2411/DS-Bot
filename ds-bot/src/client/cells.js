@@ -22,6 +22,7 @@ import { noHover, useViewport, viewBottom } from './motion.js'
 import { heldCardKey } from './sources.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
+import { ViaTag } from './user-message.js'
 import { layoutOf, thinkingShown } from './themes.js'
 
 export { clockLabel }
@@ -471,7 +472,8 @@ function EarlierUser({ row, actions }) {
   return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
     control ? h('div', { className: 'bt-fold-body' }, area) : area,
     control,
-    row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null))
+    row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null),
+    row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
 // The earlier parts of a Bot's own chat, above its current part as one conversation.

@@ -45,6 +45,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
@@ -184,6 +185,7 @@ export function apply(ctx) {
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live.learning = value.learning
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
+    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // On a browser with no visit record yet, everything already there counts as seen.
@@ -930,6 +932,7 @@ export function apply(ctx) {
     () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
     () => installCompiledStyles(ABOUT_CSS, 'about'),
     () => installCompiledStyles(MEMBER_CSS, 'members'),
+    () => installCompiledStyles(IM_CSS, 'im'),
     () => installCompiledStyles(GOAL_CSS, 'goal'),
     () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
     () => installCompiledStyles(WIDGET_CSS, 'widgets'),
