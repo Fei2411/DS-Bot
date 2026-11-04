@@ -455,6 +455,26 @@ test('saved active tabs restore their tab id and URL', async t => {
   t.after(() => socket.close())
 })
 
+test('the views stay hidden while the app’s card is up, and the shown ones come back after it', t => {
+  const { manager, views } = fixture()
+  t.after(() => manager.dispose())
+  manager.create('a', { tabId: 'A' })
+  manager.create('a', { tabId: 'B' })
+  const rect = { left: 0, top: 0, width: 400, height: 300 }
+  manager.place('A', rect, true)
+  manager.cover(true)
+  assert.deepEqual(views.map(view => view.visible), [false, false])
+  // The page places its view again while the card is up: it still waits.
+  manager.place('B', rect, true)
+  assert.equal(views[1].visible, false)
+  manager.cover(false)
+  assert.deepEqual(views.map(view => view.visible), [true, true])
+  manager.place('A', rect, false)
+  manager.cover(true)
+  manager.cover(false)
+  assert.deepEqual(views.map(view => view.visible), [false, true])
+})
+
 test('closing the active saved tab preserves the replacement after another page updates', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'bot-views-active-state-'))
   const statePath = join(directory, 'bot-views.json')

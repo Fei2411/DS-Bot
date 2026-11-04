@@ -182,6 +182,15 @@ test('an old paused round shows the pause as a plain line', () => {
   assert.equal(find(out, node => node.type === 'button'), undefined)
 })
 
+// #872: Bots that went back and forth without progress paused; the line names both
+// and says what lets them go on.
+test('a round the idle guard paused names the Bots and how they go on', () => {
+  const replies = [{ kind: 'paused', idle: true, botId: 'chief', name: 'Chief', names: ['Writer'], count: 6, limit: 6, time: at(0, 14, 5) }]
+  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room' })
+  const events = findAll(out, node => node.props?.className === 'bt-event').map(text)
+  assert.deepEqual(events, ['Chief and Writer went back and forth 6 times without progress and paused. Write here to go on'])
+})
+
 // The admin was alone with the user's message and passed: the round shows the
 // notice, so the user sees why nothing was answered.
 test('a group whose admin passed alone shows the notice', () => {

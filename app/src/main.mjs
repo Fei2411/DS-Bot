@@ -5,7 +5,7 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -16,6 +16,7 @@ import { canonicalExecPath } from './canonical-path.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
+import { Pickers } from './picker-host.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
 import { readStartFrame, writeStartFrame } from './start-frame.mjs'
@@ -27,7 +28,8 @@ import { CAPTION_HEIGHT, cssColor, micaAvailable, nativeThemeSource } from './wi
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
   dataLocation: 'ds-bot:data-location', moveData: 'ds-bot:move-data', teamWorkspace: 'ds-bot:team-workspace',
-  ready: 'ds-bot:ready', motion: 'ds-bot:motion',
+  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion',
+  card: 'ds-bot:app-card', cardShown: 'ds-bot:app-card-shown', cardAnswer: 'ds-bot:app-card-answer',
   browserAcquire: 'ds-bot:browser-acquire', browserRelease: 'ds-bot:browser-release', browserForget: 'ds-bot:browser-forget',
   browserViewChanged: 'ds-bot:browser-view-changed', browserViewCreate: 'ds-bot:browser-view-create',
   browserViewSync: 'ds-bot:browser-view-sync', browserViewPlace: 'ds-bot:browser-view-place',
@@ -46,7 +48,8 @@ const IMPORT_FILE_MAX = 32 * 1024 * 1024
 const MOVE_PROBLEMS = { drive: 'dialog.move.drive', nested: 'dialog.move.nested', workspace: 'dialog.move.workspace', program: 'dialog.move.inProgram', notEmpty: 'dialog.move.notEmpty' }
 // The same problems as the start page's 「这里放不了」 reasons (reason.place.*).
 const MOVE_REASONS = { drive: 'drive', nested: 'nested', workspace: 'workspace', dsh: 'dsh', program: 'program', notEmpty: 'foreign' }
-const CHOOSING_QUIT_WAIT_MS = 1_000
+// A team window that does not say within this time that it shows a card cannot show one.
+const CARD_SHOWN_MS = 2000
 const UPDATE_CHECK_WAIT_MS = 15_000
 const UPDATE_DOWNLOAD_WAIT_MS = 15 * 60_000
 // Under this, the start page notes the drive's free space for the first 10 s (onboarding §3).
@@ -67,9 +70,9 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
-let downloadSaver, chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, restoreSessions, teamInUse, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE
-let watchReleases, watchUpdates, getDshRuntimeVersion, electronUpdater
+let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
+let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
 // Settles once the hidden team window exists.
@@ -96,14 +99,21 @@ let picking = false
 let proposed
 // The folder a later start's move card asks about.
 let moveTo
-// Takes the answer of the card that askCard() put up.
+// Takes the answer of the card that askCard() put up, and that card's kind.
 let answering
+let asked
+// The new version that the failure page's update banner offers.
+let offered
 // A retry or a start over is stopping the old engine: no second one starts meanwhile.
 let restarting = false
-// The first run's answer to the import; only the first boot copies.
-let pendingImport
+// The team in the user's own DSH that the first run offers, until the import card has its
+// answer, and the import that runs meanwhile (import-flow.mjs).
+let importOffer
+let importFlow
 // Each boot of the engine; a retry starts a new one, and what an old one still reports is dropped.
 let attempt = 0
+// Aborted when the start begins again in another folder: the import card of the boot before goes.
+let bootAbort = new AbortController()
 // The Host answered and the window may talk to it without the launch URL.
 let hostReady = false
 // The Host's launch URL: the first window trades it for the Host's cookie.
@@ -116,15 +126,15 @@ let bootstrap
 let tokenSpent = false
 // The download handler of the app's session is bound once, not once per window.
 let downloadsBound = false
-// Quitting while a first-run dialog is open stops the first run, and during the copy (of the
-// first run or of a data move) it waits for the copy to stop at a safe point, so that it leaves
-// no half team and no temporary copy.
-let choosing
+// Quitting during the first run's import (its card or its copy) or a data move waits for it to
+// stop at a safe point, so that it leaves no half team and no temporary copy.
 let copying
 const copyAbort = new AbortController()
 let browserGuests
 let botViews
 let cookieImports
+// The app's own folder and file picker, on the page of the window that asks (picker-host.mjs).
+const pickers = new Pickers({ ipcMain, getPath: name => app.getPath(name) })
 
 // The team window and the tray: closing the window hides it, the tray is the way back to it and
 // the tray's Quit is the one ordinary way out. Until the hand-off the start window is the one
@@ -144,13 +154,16 @@ const shell = createShell({
     target.focus()
   },
   quit: () => { app.quit() },
-  busy: () => choosing !== undefined || copying !== undefined,
+  busy: () => copying !== undefined,
   // Before the first run has chosen its places there is no window to show, and before the
   // first load of the Host there is no address to load.
   ready: () => places !== undefined && origin !== undefined && bootstrap !== undefined,
-  notice: { marker: () => join(app.getPath('userData'), 'tray-close-acknowledged'), show: (options) => dialog.showMessageBox(options) },
-  // Without a tray the close asks whether the app should end.
-  fallback: { show: (options) => dialog.showMessageBox(options) },
+  // The one-time notice is a card in the team window; a page that cannot show it lets the window
+  // go to the tray, which is what the notice would have said.
+  // A second close while the card is up brings the window, and so the card, to the front.
+  notice: { marker: () => join(app.getPath('userData'), 'tray-close-acknowledged'), show: options => boxInWindow(options, 0), focus: () => { toFront(mainWindow) } },
+  // Without a tray the close asks whether the app should end; unasked, the window minimizes.
+  fallback: { show: options => boxInWindow(options, options.cancelId) },
 })
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.
 app.once('will-quit', () => { shell.dispose(); botViews?.dispose(); updates?.stop() })
@@ -171,7 +184,10 @@ if (canonical !== undefined) {
   console.log(`DS Bot ${app.getVersion()} (${process.platform} ${process.arch}), Electron ${process.versions.electron}`)
   startWindow = new StartWindow({
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
+    // 〔保存日志…〕 on the start window's failure cards.
+    saveAs: (win, name) => askPicker(win, { mode: 'save', title: tx('dialog.saveLog'), start: knownFolder('desktop'), name }),
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, mica, devTools: !app.isPackaged,
+    css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
@@ -181,27 +197,29 @@ if (canonical !== undefined) {
     // the tray with.
     onClose: () => { app.quit() },
     // 「换个位置…」: a first start picks the place again; a later start moves the data there.
-    onPick: () => { (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail) },
+    onPick: () => {
+      // On the import card and the cards of its own picker, the import picks the place itself.
+      if (answering !== undefined && ['import', 'importSpace', 'rejected', 'picked'].includes(asked)) { answering('pick'); return }
+      (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail)
+    },
     onAnswer: (value) => {
       if (answering !== undefined) { answering(value); return }
       (startWindow.kind === 'later' ? moveAnswer(value) : placeAnswer(value)).catch(fail)
     },
+    onUpdate: (name) => { updateAct(name) },
+    onImport: (name, value) => { importFlow?.act(name, value) },
   })
   // A second launch shows the window that is showing: the start window until the hand-off
   // (also after a failed start), then the team window, built anew when it is gone.
   app.on('second-instance', () => { if (!startWindow.focus()) shell.open() })
+  // An error that nothing caught would get Electron's own message box (start-window §7: nothing
+  // native). Until the team window shows, the failure page says it; after that it is logged, and
+  // the team goes on.
+  process.on('uncaughtException', (error) => {
+    if (startWindow.revealed) console.error(error)
+    else void fail(error)
+  })
   app.on('before-quit', (event) => {
-    if (choosing !== undefined) {
-      // A first-run dialog is open: the quit waits for it, and the app goes on meanwhile.
-      event.preventDefault()
-      shell.cancelQuit()
-      const stuck = choosing
-      choosing.abort()
-      // A first run whose dialog never answers would hold every later quit the same
-      // way; the app still leaves when it stays silent.
-      setTimeout(() => { if (choosing === stuck) app.exit(0) }, CHOOSING_QUIT_WAIT_MS).unref()
-      return
-    }
     if (copying !== undefined) {
       // A copy is under way: it stops at a safe point, and the app goes on meanwhile.
       event.preventDefault()
@@ -259,10 +277,10 @@ async function prepare() {
 }
 
 async function loadModules() {
-  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, moves, profile, updatesModule, boot, updater] = await Promise.all([
+  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, boot, updater] = await Promise.all([
     import('./bot-browser.mjs'), import('./bot-views.mjs'), import('./browser-sources.mjs'), import('./cookie-import.mjs'),
     import('./cookie-parse.mjs'), import('./downloads.mjs'), import('./first-run.mjs'), import('./host-process.mjs'),
-    import('./import.mjs'), import('./move-data.mjs'), import('./profile.mjs'), import('./updates.mjs'),
+    import('./import.mjs'), import('./import-flow.mjs'), import('./move-data.mjs'), import('./profile.mjs'), import('./updates.mjs'),
     import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
@@ -271,12 +289,13 @@ async function loadModules() {
   ;({ applyCookies, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
-  ;({ chooseLocations, defaultPlaces, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
+  ;({ chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
   ;({ HostProcess } = hostProcess)
-  ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, userDshHome } = imports)
+  ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome } = imports)
+  ;({ ImportFlow } = flows)
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ CHECK_PROFILE, PROFILE } = profile)
-  ;({ watchReleases, watchUpdates } = updatesModule)
+  ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
   browserGuests = new BotBrowserGuests({ session, origin: () => origin, devTools: !app.isPackaged })
@@ -289,6 +308,7 @@ async function loadModules() {
 }
 
 function run() {
+  bootAbort = new AbortController()
   const mine = (attempt += 1)
   boot(mine).catch((error) => { if (mine === attempt) void fail(error) })
 }
@@ -329,7 +349,7 @@ async function stopOld(options) {
 }
 
 // The dialogs of the first run belong to the start window and stop its clock.
-const ui = () => ({ owner: () => startWindow.owner(), asking: answer => startWindow.asking(answer) })
+const ui = () => ({ owner: () => startWindow.owner(), asking: answer => startWindow.asking(answer), pick: request => askPicker(startWindow.owner(), request) })
 
 /**
  * A card on the start page that waits for the user, in place of a message box: the value of the
@@ -345,11 +365,13 @@ function askCard(card, { signal, settle } = {}) {
     const done = (value) => {
       if (answering !== done) return
       answering = undefined
+      asked = undefined
       signal?.removeEventListener('abort', gone)
       resolve(value)
     }
     const gone = () => { done(undefined) }
     answering = done
+    asked = card.kind
     if (signal?.aborted || !startWindow.card(card)) { gone(); return }
     signal?.addEventListener('abort', gone, { once: true })
     void settle?.then(() => { done('settled') }, gone)
@@ -373,12 +395,10 @@ async function boot(mine) {
       // A reinstall goes on with its data where it is; a new or copied team can still move.
       if (teams.team === undefined) tellPlace(defaultPlaces().dataDir)
     }
-    choosing = new AbortController()
-    const where = await chooseLocations(choosing.signal, ui()).finally(() => { choosing = undefined })
-    if (where.quit) { app.exit(0); return }
+    const where = chooseLocations()
     setPlaces({ dataDir: where.dataDir, workspace: where.workspace })
-    pendingImport = where.import
-    if (first) startWindow.explain(explainOf({ offered: where.offered === true, team: teamIn(where.dataDir) }))
+    importOffer = where.offer
+    if (first) startWindow.explain(explainOf({ offered: importOffer !== undefined, team: teamIn(where.dataDir) }))
     else tellLowSpace(where.freeAtStart)
   }
   // Also the check that the data folder can be written.
@@ -409,13 +429,15 @@ function setPlaces(next) {
   made = { dataDir: !existsSync(places.dataDir), workspace: places.workspace !== undefined && !existsSync(places.workspace), root: root !== undefined && !existsSync(root) }
 }
 
-// The line on the start page that says where the data goes and how much room is there, and the
-// short drive's note for the first 10 s (start-window §2, §4).
+// The line on the start page that says where the data goes and how much room is left, and the
+// short drive's note for the first 10 s, both only on a short drive (start-window §2, §4).
 function tellPlace(dataDir) {
   const free = freeSpace(dataDir)
-  startWindow.place(placeOf(dataDir, { free }))
   const drive = driveOf(dataDir)
-  startWindow.hint(drive !== undefined && free !== undefined && free < SHORT_DRIVE_BYTES ? { drive, free: formatBytes(free) } : undefined)
+  const short = drive !== undefined && free !== undefined && free < SHORT_DRIVE_BYTES
+  // The page has no words while the start goes well: the line shows only when room runs short.
+  startWindow.place(short ? placeOf(dataDir, { free, lang: lang() }) : undefined)
+  startWindow.hint(short ? { drive, free: formatBytes(free, lang()) } : undefined)
 }
 
 // A later start shows the line again once the drive is down to a fifth of the free space it had
@@ -432,7 +454,7 @@ function tellLowSpace(freeAtStart) {
     return
   }
   const free = freeSpace(places.dataDir)
-  if (runningLow(free, freeAtStart)) startWindow.place(placeOf(places.dataDir, { free }))
+  if (runningLow(free, freeAtStart)) startWindow.place(placeOf(places.dataDir, { free, lang: lang() }))
 }
 
 // 「换个位置…」 on the start page and 〔重新选〕 on its cards: the system picker, then the root rule
@@ -441,7 +463,7 @@ function tellLowSpace(freeAtStart) {
 // A cancelled picker leaves things as they were: the line, or the card it came from. Not during
 // the first run's copy, whose team would be left behind.
 async function changePlace() {
-  if (startWindow.kind !== 'first' || places === undefined || choosing !== undefined || copying !== undefined || picking || restarting || stopping || failed) return
+  if (startWindow.kind !== 'first' || places === undefined || copying !== undefined || picking || restarting || stopping || failed) return
   picking = true
   try {
     // One wait for the picker and what follows it: a team view that becomes ready meanwhile
@@ -488,6 +510,7 @@ async function placeAnswer(value) {
 // that may be up on the default folder stops, what this start made there goes, and the boot runs
 // again. The places are saved at once: the import question has been answered by now.
 async function startOver(root) {
+  bootAbort.abort()
   const mine = (attempt += 1)
   forgetHost()
   failed = false
@@ -557,18 +580,11 @@ function newCheck(home, list) {
  *   during the copy, or when a retry during the copy starts the engine itself
  */
 async function startEngine(mine) {
-  if (pendingImport !== undefined) {
-    const where = { ...places, import: pendingImport }
-    pendingImport = undefined
-    // The team is about to live here; moving it is Settings' job (the data move).
-    startWindow.place(undefined)
-    // The copy's time is not the engine's: the start's clock stands still, and the 180 s
-    // question with it.
-    copying = startWindow.asking(copyTeam(where, copyAbort.signal))
-    const copied = await copying
-    copying = undefined
-    if (copied === 'quit') app.exit(0)
-    if (copied !== undefined || mine !== attempt) return undefined
+  let warm
+  if (importOffer !== undefined) {
+    const imported = await importStep(mine)
+    if (imported === undefined || mine !== attempt) return undefined
+    warm = imported.warm
   }
   // Not during the import, which a restart would cut short; before the Host, so that an
   // update can still come when this version's Host does not start.
@@ -578,12 +594,15 @@ async function startEngine(mine) {
     updates?.subscribe((state) => { mainWindow?.webContents.send(IPC.appUpdateChanged, state) })
 
   }
-  // Before the Host, which reads the Sessions.
-  await restoreSessions(places.dataDir).then(({ copied, newer }) => {
-    if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
-    if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
-  }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
-  host = newHost()
+  // Before a new Host, which reads the Sessions; the engine warmed on an import that was not
+  // taken has nothing left out.
+  if (warm === undefined) {
+    await restoreSessions(places.dataDir).then(({ copied, newer }) => {
+      if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
+      if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
+    }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
+  }
+  host = warm?.host ?? newHost()
   host.onMessage(message => {
     if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
     const downloadRoots = message.downloadRoots
@@ -595,7 +614,106 @@ async function startEngine(mine) {
       host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, url })
     }).catch(() => host?.send({ type: 'ds-bot:browser-endpoint-response', id: message.id, error: 'Could not create the browser endpoint.' }))
   })
-  return host.start()
+  const engine = await (warm?.up ?? host.start())
+  // The copying card stays on 「启动团队」 until the engine of the copied team is up.
+  if (mine === attempt) startWindow.card(undefined)
+  return engine
+}
+
+// The import card while the engine warms up on the new data location (windows-onboarding §4,
+// start-window §6). The places are saved once the card has its answer. Undefined when this start
+// gives way (a quit, another place, the failure page); else the engine that warmed up, when the
+// start goes on with it: 〔先不复制〕 takes it as it is, without a restart.
+async function importStep(mine) {
+  const offer = importOffer
+  const where = { ...places }
+  const signal = AbortSignal.any([copyAbort.signal, bootAbort.signal])
+  const warm = newHost()
+  host = warm
+  let warmStopped = false
+  const up = warm.start()
+  // The engine's arc fills once it is up and the import's has filled; the team's waits for the answer.
+  up.then(() => { if (mine === attempt && !warmStopped) startWindow.done('engine') }, () => {})
+  const sizes = await teamSizes(offer.from, offer.team).catch((error) => { console.error(error); return { sessions: 0 } })
+  let result
+  for (;;) {
+    if (signal.aborted || mine !== attempt) return undefined
+    const flow = new ImportFlow({
+      offer: { from: offer.from, bots: offer.bots, rooms: offer.rooms, names: botNames(offer.team), sessions: sizes.sessions, sizes, profiles: offer.profiles },
+      ask: (card, options) => askCard(card, { signal, ...options }),
+      show: (card) => { startWindow.card(card) },
+      room: () => ({ free: freeSpace(where.dataDir), drive: driveOf(where.dataDir) }),
+      inUse: () => teamInUse(offer.from),
+      until,
+      check: (checkSignal, onProgress) => checkTeam(where, checkSignal, onProgress),
+      // The copy goes into the data location that the engine has started on once, and with the
+      // engine stopped.
+      warmed: async () => {
+        await up
+        warmStopped = true
+        await warm.stop()
+        if (host === warm) host = undefined
+        if (mine === attempt) startWindow.engineDown()
+      },
+      copy: options => importTeam({ from: offer.from, to: where.dataDir, workspace: where.workspace, dsh: getDshRuntimeVersion(), ...options }),
+      reasonOf: copyReason,
+      progress: setProgress,
+      lang: lang(),
+      signal,
+    })
+    importFlow = flow
+    // The card's and the copy's time is not the engine's: the start's clock stands still, and
+    // the 180 s question with it.
+    copying = startWindow.asking(flow.run())
+    try {
+      result = await copying
+    } finally {
+      copying = undefined
+      importFlow = undefined
+    }
+    if (result.outcome !== 'pick') break
+    if (await importElsewhere(signal)) return undefined
+  }
+  if (result.outcome === 'gone' || signal.aborted || mine !== attempt) return undefined
+  importOffer = undefined
+  saveLocations(where)
+  if (result.outcome === 'copied') {
+    startWindow.done('import')
+    const { summary } = result
+    console.log(`DS Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
+    // The team lives here now; moving it is Settings' job (the data move).
+    startWindow.place(undefined)
+    return {}
+  }
+  startWindow.card(undefined)
+  return { warm: warmStopped ? undefined : { host: warm, up } }
+}
+
+const botNames = team => Object.values(team.bots ?? {}).map(bot => bot?.name).filter(name => typeof name === 'string' && name !== '')
+
+// 〔选择其他位置…〕 on the import's space card, or 「换个位置…」 while the import card is up: the
+// picker and the root rule as for 「换个位置…」 (changePlace), asked on cards that this import
+// waits for. True once the start begins again in the new root; false to go back to the import
+// card.
+async function importElsewhere(signal) {
+  for (;;) {
+    const picked = await pickRoot(pickFrom(places.dataDir), signal, ui())
+    if (signal.aborted || picked === undefined) return false
+    const root = rootOf(picked, { dshHome: userDshHome(), program: app.isPackaged ? programFolder() : undefined, current: places })
+    if (root.same) return false
+    if (root.reason !== undefined) {
+      console.log(`DS Bot: the place ${root.at} cannot be used (${root.reason})`)
+      if (await askCard({ kind: 'rejected', reason: root.reason, path: root.at }, { signal }) === 'pick') continue
+      return false
+    }
+    if (root.added) {
+      const answer = await askCard({ kind: 'picked', path: root.root }, { signal })
+      if (answer === 'pick') continue
+      if (answer !== 'use') return false
+    }
+    await startOver(root)
+    return true
+  }
 }
 
 function handleIpc() {
@@ -604,6 +722,10 @@ function handleIpc() {
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
+  // It has drawn the whale the start window hands over: the windows cross-fade.
+  ipcMain.on(IPC.handoffReady, (event) => { if (fromWindow(event)) startWindow.teamReady() })
+  ipcMain.on(IPC.cardShown, (event, id) => { if (fromWindow(event)) cards.get(id)?.shown() })
+  ipcMain.on(IPC.cardAnswer, (event, id, index) => { if (fromWindow(event)) cards.get(id)?.settle(Number.isInteger(index) ? index : -1) })
   // The start window takes the app's theme and the Bot animation tier at the next start, before
   // the team view has loaded; Mica and the caption buttons follow the theme at once.
   ipcMain.on(IPC.nativeTheme, (event, source) => {
@@ -658,16 +780,14 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
     assertWindow(event)
-    const picked = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: [{ name: 'Cookie files', extensions: ['txt', 'json', 'cookies'] }, { name: 'All files', extensions: ['*'] }],
-    })
-    if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
-    const buffer = await readFile(picked.filePaths[0])
+    // Any file: a cookie export can have any name, and the parser says what it is.
+    const picked = await askPicker(mainWindow, { mode: 'file', title: tx('dialog.pickCookies'), start: knownFolder('downloads') })
+    if (picked === undefined) return { canceled: true }
+    const buffer = await readFile(picked)
     if (buffer.length > IMPORT_FILE_MAX) return { error: 'too-large' }
     const parsed = parseCookieFile(buffer)
     if (!parsed.ok) return { error: parsed.error ?? 'unreadable', format: parsed.format }
-    return cookieImports.store(parsed, { kind: 'file', label: basename(picked.filePaths[0]) })
+    return cookieImports.store(parsed, { kind: 'file', label: basename(picked) })
   })
   ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close) => {
     assertWindow(event)
@@ -739,59 +859,20 @@ function handleIpc() {
 const owner = () => startWindow.owner() ?? mainWindow
 const setProgress = (value) => { owner()?.setProgressBar(value) }
 
-// The Host starts once on the new data location first: DSH then sets up its project list
-// without the copied Sessions' folders, so the old team's folders are not offered as projects.
-// Before that, the app's own DSH reads every chat of the team once: a newer DSH can write
-// records that this one refuses while the log format stays the same. Such a chat stops the
-// copy, as a newer log format does; 'quit' means the user updates DS Bot first, and
-// 'stopped' that the app quit during the copy.
-async function copyTeam(where, signal) {
-  const unreadable = await checkTeam(where, signal)
-  if (signal.aborted) return 'stopped'
-  if (unreadable > 0) {
-    const { response } = await startWindow.asking(dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', noLink: true, message: tx('dialog.import.newer', { n: unreadable }), buttons: [tx('btn.quit'), tx('btn.startWithout')], defaultId: 0, cancelId: 0, signal }))
-    if (signal.aborted) return 'stopped'
-    if (response === 0) return 'quit'
-    saveLocations(where)
-    return undefined
-  }
-  const warm = newHost()
-  host = warm
-  const stopWarm = () => { void warm.stop() }
-  signal.addEventListener('abort', stopWarm, { once: true })
-  try {
-    await warm.start()
-    if (signal.aborted) return 'stopped'
-    setProgress(2)
-    await warm.stop()
-    host = undefined
-    const summary = await importTeam({ ...where.import, to: where.dataDir, workspace: where.workspace, dsh: getDshRuntimeVersion(), signal })
-    console.log(`DS Bot: copied ${String(summary.bots)} Bots and ${String(summary.sessions)} Sessions from ${summary.from}`)
-  } catch (error) {
-    if (signal.aborted) return 'stopped'
-    console.error(error)
-    await startWindow.asking(dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', message: tx('dialog.import.failed', { message: error instanceof Error ? error.message : String(error) }), signal }))
-    if (signal.aborted) return 'stopped'
-  } finally {
-    signal.removeEventListener('abort', stopWarm)
-    setProgress(-1)
-  }
-  saveLocations(where)
-  return undefined
-}
-
-// A copy of the chats in a DSH home of its own, so that nothing of the check stays in the data.
-async function checkTeam(where, signal) {
+// Before the copy, the app's own DSH reads every chat of the team once, in a DSH home of its own
+// so that nothing of the check stays in the data: a newer DSH can write records that this one
+// refuses while the log format stays the same. The number of chats it cannot read; a check that
+// fails lets the copy go on unchecked. `onProgress` counts the chats copied for it.
+async function checkTeam(where, signal, onProgress) {
   // A run that was killed can leave its temporary check home behind.
   for (const name of readdirSync(where.dataDir).filter(entry => /^\.import-check-\d+$/u.test(entry))) {
     await rm(join(where.dataDir, name), { recursive: true, force: true }).catch((error) => { console.error(error) })
   }
   const home = join(where.dataDir, `.import-check-${String(Date.now())}`)
   try {
-    const found = findTeam(where.import.from)
-    const ids = found === undefined ? [] : await copySessions(where.import.from, found.team, home, signal)
+    const found = findTeam(importOffer?.from ?? userDshHome())
+    const ids = found === undefined ? [] : await copySessions(found.from, found.team, home, signal, onProgress)
     if (ids.length === 0) return 0
-    setProgress(2)
     const list = join(home, 'check.json')
     writeFileSync(list, JSON.stringify(ids))
     const check = newCheck(home, list)
@@ -810,7 +891,6 @@ async function checkTeam(where, signal) {
     if (!signal.aborted) console.error('DS Bot: the chats were not checked before the copy:', error)
     return 0
   } finally {
-    setProgress(-1)
     await rm(home, { recursive: true, force: true, maxRetries: 5 }).catch((error) => { console.error(error) })
   }
 }
@@ -841,14 +921,14 @@ async function moveFromStart() {
 // 「这里放不了」 with the reason, or 「搬到这个文件夹？」. A cancelled picker is no change: the card
 // that led here goes, and the start goes on.
 async function pickMove() {
-  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
+  const picked = await askPicker(owner(), { mode: 'folder', title: tx('dialog.pickMove'), start: dirname(places.dataDir) })
   if (stopping || startWindow.owner() === undefined) return
   moveTo = undefined
-  if (canceled || filePaths[0] === undefined) {
+  if (picked === undefined) {
     startWindow.card(undefined)
     return
   }
-  moveCard(resolve(filePaths[0]))
+  moveCard(resolve(picked))
 }
 
 function moveCard(to) {
@@ -895,13 +975,14 @@ async function moveAnswer(value) {
 }
 
 // The folder picker, the checks and the question of a move from Settings: the folder, or none.
+// The picker, the question and a refusal are all on the team window's page.
 async function askMove(workspace) {
-  const { canceled, filePaths } = await dialog.showOpenDialog(owner(), { title: tx('dialog.pickMove'), defaultPath: dirname(places.dataDir), properties: ['openDirectory', 'createDirectory', 'promptToCreate'] })
-  if (canceled || filePaths[0] === undefined) return undefined
-  const to = resolve(filePaths[0])
+  const picked = await askPicker(owner(), { mode: 'folder', title: tx('dialog.pickMove'), start: dirname(places.dataDir) })
+  if (picked === undefined) return undefined
+  const to = resolve(picked)
   if (await moveRefused(to, workspace)) return undefined
-  const { response } = await dialog.showMessageBox(owner(), { type: 'question', title: 'DS Bot', noLink: true, message: tx('dialog.move.confirm', { to }), detail: tx('dialog.move.detail', { from: places.dataDir }), buttons: [tx('btn.move'), tx('btn.cancel')], defaultId: 0, cancelId: 1 })
-  if (response !== 0 || stopping || await moveRefused(to, workspace)) return undefined
+  const answer = await askInWindow({ message: tx('dialog.move.confirm', { to }), detail: tx('dialog.move.detail', { from: places.dataDir }), buttons: [{ label: tx('btn.move'), primary: true }, { label: tx('btn.cancel') }], cancel: 1 })
+  if (answer !== 0 || stopping || await moveRefused(to, workspace)) return undefined
   return to
 }
 
@@ -918,7 +999,7 @@ function moveProblemOf(to, workspace) {
 async function moveRefused(to, workspace) {
   const problem = moveProblemOf(to, workspace)
   if (problem === undefined) return false
-  await dialog.showMessageBox(owner(), { type: 'warning', title: 'DS Bot', message: problem === 'dsh' ? tx('dialog.move.inDsh', { home: userDshHome() }) : tx(MOVE_PROBLEMS[problem]), buttons: [tx('btn.ok')] })
+  await askInWindow({ message: problem === 'dsh' ? tx('dialog.move.inDsh', { home: userDshHome() }) : tx(MOVE_PROBLEMS[problem]), buttons: [{ label: tx('btn.ok'), primary: true }], cancel: 0 })
   return true
 }
 
@@ -1029,16 +1110,104 @@ function windowShown() {
 // question on it would go with it. After a failed start, fail() takes the update over.
 const afterHandoff = async () => { await startWindow.teamShown; return !failed }
 
+// An update question that the page cannot show counts as 「以后再说」: the update installs at the
+// next quit, and the About row still offers it.
 async function askRestartNow(version) {
   if (failed || !await afterHandoff()) return false
-  const { response } = await dialog.showMessageBox(owner(), { type: 'info', title: 'DS Bot', message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [tx('btn.restart'), tx('btn.notNowRestart')], defaultId: 0, cancelId: 1, noLink: true })
-  return response === 0
+  return await askInWindow({ message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [{ label: tx('btn.restart'), primary: true }, { label: tx('btn.notNowRestart') }], cancel: 1 }) === 0
 }
 
 async function askDownloadNow(version) {
   if (failed || !await afterHandoff()) return false
-  const { response } = await dialog.showMessageBox(owner(), { type: 'info', title: 'DS Bot', message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [tx('btn.download'), tx('btn.notNowDownload')], defaultId: 0, cancelId: 1, noLink: true })
-  return response === 0
+  return await askInWindow({ message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [{ label: tx('btn.download'), primary: true }, { label: tx('btn.notNowDownload') }], cancel: 1 }) === 0
+}
+
+// The cards that the team window shows, by id, until they have their answer.
+const cards = new Map()
+let cardCount = 0
+// Pickers open on the team window; the Bot browser views wait until the last one goes.
+let pickerCount = 0
+
+/**
+ * A question of the app in the team window, on a card over its page instead of a message box
+ * (preload.cjs showCard, page-card.css): the index of the button the user clicks, -1 when a newer
+ * card took its place, undefined when the page cannot show it (not loaded, gone, or silent for
+ * CARD_SHOWN_MS) or goes away before the answer.
+ * `front` brings the window to the front first: a close waits on the answer, so its card must
+ * be where the user looks.
+ * @param {{ message: string, detail?: string, buttons: { label: string, primary?: boolean }[], cancel?: number }} card
+ * @param {{ front?: boolean }} [how]
+ * @returns {Promise<number | undefined>}
+ */
+function askInWindow(card, { front = false } = {}) {
+  const win = mainWindow
+  const contents = win?.webContents
+  if (win === undefined || win.isDestroyed() || contents.isLoading() || !contents.getURL().startsWith(`${origin}/`)) return Promise.resolve(undefined)
+  if (front) toFront(win)
+  const id = (cardCount += 1)
+  return new Promise((resolve) => {
+    let seen = false
+    const settle = (value) => {
+      if (!cards.has(id)) return
+      cards.delete(id)
+      clearTimeout(timer)
+      contents.off('did-start-loading', away)
+      contents.off('destroyed', away)
+      if (cards.size === 0 && pickerCount === 0) botViews?.cover(false)
+      resolve(value)
+    }
+    const away = () => { settle(undefined) }
+    const timer = setTimeout(() => { if (!seen) away() }, CARD_SHOWN_MS)
+    cards.set(id, { settle, shown: () => { seen = true } })
+    // The Bot browser views are drawn above the page and would cover the card.
+    botViews?.cover(true)
+    contents.once('did-start-loading', away)
+    contents.once('destroyed', away)
+    contents.send(IPC.card, { id, ...card })
+  })
+}
+
+// The shell's message-box questions (the tray notice, the close without a tray) on the team
+// window's card; `unasked` is the answer when the page cannot show it.
+async function boxInWindow(options, unasked) {
+  const buttons = options.buttons.map((label, index) => ({ label, primary: index === options.defaultId }))
+  const cancel = options.cancelId >= 0 ? options.cancelId : undefined
+  const answer = await askInWindow({ message: options.message, detail: options.detail, buttons, cancel }, { front: true })
+  return answer === undefined ? { response: unasked, unasked: true } : { response: answer }
+}
+
+/**
+ * The app's own picker on `win`'s page: the chosen path, null when the user cancels, undefined
+ * when the page cannot show it. The Bot browser views are drawn above the page and would cover
+ * it, so they wait, as for a card.
+ * @param {any} win
+ * @param {{ mode: 'folder' | 'file' | 'save', title: string, start?: string, name?: string }} request
+ * @returns {Promise<string | null | undefined>}
+ */
+async function pickOn(win, request) {
+  if (win === undefined || win === null || win.isDestroyed()) return undefined
+  const covers = win === mainWindow
+  if (covers) { pickerCount += 1; botViews?.cover(true) }
+  try {
+    return await pickers.ask(win.webContents, { ...request, labels: pickerLabels() })
+  } finally {
+    if (covers && (pickerCount -= 1) === 0 && cards.size === 0) botViews?.cover(false)
+  }
+}
+
+// app.getPath throws for a known folder that does not resolve; the picker then starts at home.
+function knownFolder(name) {
+  try { return app.getPath(name) } catch { return undefined }
+}
+
+/** The picker's path, or undefined when it was cancelled or could not be shown. */
+const askPicker = async (win, request) => (await pickOn(win, request)) ?? undefined
+
+function toFront(win) {
+  if (win === undefined || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 // What the updater does when the user says yes. The answer may come later, when the window
@@ -1102,7 +1271,12 @@ function createWindow() {
   // The session is the same for every window of the app, so the handler is bound once.
   if (!downloadsBound) {
     downloadsBound = true
-    contents.session.on('will-download', downloadSaver({ window: () => mainWindow, dialog, getPath: name => app.getPath(name) }))
+    contents.session.on('will-download', downloadSaver({
+      window: () => mainWindow,
+      ask: (name, folder) => pickOn(mainWindow, { mode: 'save', title: tx('dialog.saveAs'), start: folder, name }),
+      staging: () => join(app.getPath('userData'), 'downloading'),
+      getPath: name => app.getPath(name),
+    }))
   }
   if (win32) {
     // Fullscreen hides the caption buttons, and the page drops its band meanwhile. A reload
@@ -1118,6 +1292,8 @@ function createWindow() {
   }
   const fonts = readFileSync(join(here, 'fonts.css'), 'utf8')
   contents.on('dom-ready', () => { void contents.insertCSS(fonts) })
+  const card = readFileSync(join(here, 'page-card.css'), 'utf8')
+  contents.on('dom-ready', () => { void contents.insertCSS(card) })
   contents.setWindowOpenHandler(({ url }) => {
     // DSH's sign-in opens a blank window during the click and sends it to the sign-in page later.
     if (url === 'about:blank') return { action: 'allow', overrideBrowserWindowOptions: { show: false, webPreferences: { sandbox: true, webviewTag: false } } }
@@ -1255,9 +1431,7 @@ function openOutside(url) {
 }
 
 // The start window shows the failure page and stays. A new version may fix what keeps this one
-// from starting; until the page has its update row, a box on it says what comes: the release
-// page opens (macOS, a Linux deb), or the version that installs itself does so once it is
-// downloaded, unless the user has tried again meanwhile.
+// from starting: the page's update banner offers it.
 async function fail(error) {
   console.error(error)
   if (failed || stopping) return
@@ -1266,12 +1440,41 @@ async function fail(error) {
   startWindow.fail(error, startKind())
   // The failure page takes the place of a card that waited.
   answering?.(undefined)
+  await offerUpdate(mine).catch((failure) => { console.error(failure) })
+}
+
+// The update banner of the failure page (start-window §7): 〔下载〕 opens the release page of a
+// version that cannot install itself (macOS, a Linux deb); one that can is downloading already,
+// and installs once it is downloaded, unless the user has tried again meanwhile.
+async function offerUpdate(mine) {
   const found = await Promise.race([updates?.latest() ?? null, sleep(UPDATE_CHECK_WAIT_MS).then(() => null)])
-  if (!found || mine !== attempt) return
-  await dialog.showMessageBox(owner(), { type: 'info', title: 'DS Bot', message: tx(found.page ? 'dialog.update.onFailurePage' : 'dialog.update.onFailure', { version: found.version }) })
-  if (found.page) {
-    if (!process.env.DS_BOT_HOME) await electronShell.openExternal(found.page)
+  const still = () => failed && mine === attempt
+  offered = found ?? undefined
+  if (!found || !still()) return
+  const { version } = found
+  if (found.page) { startWindow.update({ state: 'available', version, page: true }); return }
+  const progress = (state) => {
+    if (still() && state.phase === 'downloading') startWindow.update({ state: 'downloading', version, percent: state.percent ?? 0, received: state.received ?? 0, total: state.total ?? 0 })
+  }
+  progress(updates.state())
+  const unsubscribe = updates.subscribe(progress)
+  const downloaded = await Promise.race([found.downloaded, sleep(UPDATE_DOWNLOAD_WAIT_MS, undefined, { ref: false }).then(() => false)]).finally(unsubscribe)
+  if (!still()) return
+  if (!downloaded) { startWindow.update({ state: 'failed', version }); return }
+  startWindow.update({ state: 'installing', version })
+  await updates.install()
+}
+
+// The banner's buttons: 〔下载〕 and 「手动下载」 open the release page; 〔重试〕 after a failed
+// download checks again.
+function updateAct(name) {
+  if (!failed) return
+  if (name === 'manualDownload' || offered?.page) {
+    const page = offered?.page ?? RELEASE_PAGE
+    if (!process.env.DS_BOT_HOME) void electronShell.openExternal(page)
     return
   }
-  if (await Promise.race([found.downloaded, sleep(UPDATE_DOWNLOAD_WAIT_MS).then(() => false)]) && failed && mine === attempt) await updates.install()
+  if (updates === undefined || updates.state().phase !== 'failed') return
+  updates.check()
+  void offerUpdate(attempt).catch((error) => { console.error(error) })
 }

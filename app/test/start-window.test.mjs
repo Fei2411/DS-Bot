@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { readStartFrame, writeStartFrame } from '../src/start-frame.mjs'
 import {
-  acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, GROWTH, GROWTH_EASING,
-  growthSteps, isStartPage, landingOf, MAIN_SIZE, mainRect, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
+  acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, CROSSFADE, handoffBox, HOLD_MS, TEAM_HANDOFF, TEAM_WAIT_MS,
+  isStartPage, landingOf, MAIN_SIZE, mainRect, OPEN_MS, PAINT_WAIT_MS, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
   TEAM_VIEW_MS, WATCHDOG_MS,
 } from '../src/start-window.mjs'
 
@@ -39,41 +39,8 @@ test('the team window is centred on the start window and stays inside the work a
 test('the easing is CSS cubic-bezier()', () => {
   const ease = cubicBezier(0.25, 0.1, 0.25, 1)
   assert.ok(Math.abs(ease(0.5) - 0.8024) < 1e-3)
-  assert.equal(GROWTH_EASING(0), 0)
-  assert.equal(GROWTH_EASING(1), 1)
-  let previous = 0
-  for (let step = 1; step <= 100; step += 1) {
-    const value = GROWTH_EASING(step / 100)
-    assert.ok(value >= previous && value <= 1, `at ${String(step)}%`)
-    previous = value
-  }
-  // cubic-bezier(.2, .7, .2, 1) is quick at first: most of the way in the first half.
-  assert.ok(GROWTH_EASING(0.5) > 0.9)
-})
-
-test('the start window grows into the team window in about 14 ms steps over 300 ms', () => {
-  const from = centred(startSize(AREA), AREA)
-  const to = mainRect(from, AREA)
-  const steps = growthSteps(from, to)
-  assert.equal(GROWTH.duration, 300)
-  assert.equal(GROWTH.delay, 160)
-  assert.equal(steps.length, 22)
-  assert.deepEqual(steps.at(-1), { at: 300, rect: to })
-  assert.ok(steps.every((step, index) => index === 0 || step.at > steps[index - 1].at))
-  assert.ok(steps.slice(0, -1).every(step => step.at % 14 === 0))
-  for (const key of ['x', 'y', 'width', 'height']) {
-    const toward = Math.sign(to[key] - from[key])
-    let previous = from[key]
-    for (const { rect } of steps) {
-      assert.ok((rect[key] - previous) * toward >= 0, `${key} turns back`)
-      previous = rect[key]
-    }
-  }
-  // At least one size between the two: a growth, not a jump.
-  assert.ok(steps.some(({ rect }) => rect.width > from.width && rect.width < to.width))
-  // The same rects from wherever the start window was dragged to.
-  const dragged = { x: 40, y: 30, width: 720, height: 540 }
-  assert.deepEqual(growthSteps(dragged, mainRect(dragged, AREA)).at(-1).rect, { x: 0, y: 0, ...MAIN_SIZE })
+  assert.equal(ease(0), 0)
+  assert.equal(ease(1), 1)
 })
 
 test('the team window shows by itself after 2.5 s on a first start or a celebration, else 0.8 s', () => {
@@ -83,7 +50,7 @@ test('the team window shows by itself after 2.5 s on a first start or a celebrat
   assert.equal(fallbackMs({ start: 'later', celebrate: false }), 800)
 })
 
-test('a failure gets one of the five reasons of the failure page', () => {
+test('a failure gets one of the six reasons of the failure page', () => {
   const coded = (code, message) => Object.assign(new Error(message), { code })
   assert.equal(failureReason(coded('EACCES', 'EACCES: permission denied, mkdir \'D:\\data\\profiles\'')), 'permission')
   assert.equal(failureReason(new Error('EPERM: operation not permitted, open \'x\'')), 'permission')
@@ -106,9 +73,9 @@ test('only a missing file of the app\'s own says that the install is incomplete'
   const exe = join(program, 'DS Bot.exe')
   assert.equal(failureReason(missing(exe, `spawn ${exe} ENOENT`), where), 'files')
   assert.equal(failureReason(missing(exe, `spawn ${exe} ENOENT`)), 'other')
-  // A saved data folder on a drive that is gone.
+  // A saved data folder on a drive that is gone: its own reason, with what to do about it.
   const data = join(tmpdir(), 'gone', 'DS Bot', 'data', 'profiles', 'ds-bot')
-  assert.equal(failureReason(missing(data, `ENOENT: no such file or directory, mkdir '${data}'`), where), 'other')
+  assert.equal(failureReason(missing(data, `ENOENT: no such file or directory, mkdir '${data}'`), where), 'missing')
   // A Host that stopped: its error output names the missing file.
   const bundle = join(program, 'resources', 'app.asar.unpacked', 'node_modules', 'x', 'index.js')
   assert.equal(failureReason(new Error(`The DSH Host stopped (exit 1):\nError: ENOENT: no such file or directory, open '${bundle}'`), where), 'files')
@@ -116,7 +83,12 @@ test('only a missing file of the app\'s own says that the install is incomplete'
 })
 
 test('the main process takes only its own acts, each in its own views', () => {
-  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'openLogs', 'pick', 'reloadView', 'retry', 'wait'])
+  assert.deepEqual([...START_ACTS].sort(), ['answer', 'copyDetails', 'handoffDone', 'handoffShow', 'importModel', 'importOption', 'installUpdate', 'manualDownload', 'painted', 'pick', 'reloadView', 'retry', 'saveLog', 'wait'])
+  // The import card's model and options, on a card only. The copy has no stop of its own.
+  for (const name of ['importModel', 'importOption']) {
+    assert.equal(acceptsAct(name, 'card'), true, name)
+    for (const view of ['boot', 'failed', 'watchdog', 'handoff', 'moving']) assert.equal(acceptsAct(name, view), false, `${name} in ${view}`)
+  }
   assert.equal(acceptsAct('handoffShow', 'handoff'), true)
   // 「换个位置…」 while the start boots and 〔重新选〕 on its cards; a card's answer only on a card.
   assert.equal(acceptsAct('pick', 'boot'), true)
@@ -136,12 +108,17 @@ test('the main process takes only its own acts, each in its own views', () => {
   assert.equal(acceptsAct('wait', 'failed'), false)
   assert.equal(acceptsAct('reloadView', 'viewFailed'), true)
   assert.equal(acceptsAct('reloadView', 'failed'), false)
+  // The failure page's update banner.
+  for (const name of ['installUpdate', 'manualDownload']) {
+    assert.equal(acceptsAct(name, 'failed'), true)
+    for (const view of ['boot', 'card', 'viewFailed', 'watchdog', 'handoff', 'moving']) assert.equal(acceptsAct(name, view), false, `${name} in ${view}`)
+  }
   for (const view of ['boot', 'failed', 'viewFailed', 'watchdog', 'handoff', 'moving']) {
-    assert.equal(acceptsAct('openLogs', view), true)
     assert.equal(acceptsAct('copyDetails', view), true)
+    assert.equal(acceptsAct('saveLog', view), true)
   }
   // The cards of later pull requests, and names that are not acts at all.
-  for (const name of ['reload', 'toggleDetails', 'freshStart', 'installUpdate', 'manualDownload', 'stopCopy', 'keepCopying', 'importModel', 'importOption', '__proto__', 'constructor', 'toString', '']) {
+  for (const name of ['reload', 'toggleDetails', 'freshStart', 'stopCopy', 'keepCopying', 'importModel', 'importOption', '__proto__', 'constructor', 'toString', '']) {
     assert.equal(acceptsAct(name, 'failed'), false, name)
   }
   assert.equal(acceptsAct(undefined, 'failed'), false)
@@ -172,9 +149,9 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   const now = 1_700_000_000_000
   const booting = startSnapshot(state({ clock: { base: 0, from: now - 6400, running: true } }), now)
   assert.deepEqual(booting, {
-    v: 1, lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', phase: 'data', done: [],
+    v: 1, lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', phases: ['data', 'engine', 'team'], phase: 'data', done: [],
     clock: { ms: 6400, at: now, running: true, rate: 1 },
-    explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true,
+    explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true, shown: false,
   })
   assert.equal(startSnapshot(state({ done: ['data'] }), now).phase, 'engine')
   const ready = startSnapshot(state({ view: 'handoff', done: ['team', 'data', 'engine'] }), now)
@@ -256,7 +233,8 @@ function fakeElectron() {
     sent = []
     reloads = 0
     mainFrame = { url: '' }
-    send(channel, state) { if (channel === START_STATE) this.sent.push(state) }
+    other = []
+    send(channel, state) { if (channel === START_STATE) this.sent.push(state); else this.other.push([channel, state]) }
     setWindowOpenHandler() {}
     toggleDevTools() {}
     reload() { this.reloads += 1; this.emit('dom-ready') }
@@ -280,6 +258,7 @@ function fakeElectron() {
     getContentBounds() { return { ...this.bounds } }
     getNormalBounds() { return { ...this.bounds } }
     isDestroyed() { return this.destroyed }
+    isVisible() { return this.visible }
     destroy() { if (!this.destroyed) { this.destroyed = true; this.emit('closed') } }
     isMinimized() { return this.minimized }
     isFocused() { return this.focused }
@@ -295,6 +274,8 @@ function fakeElectron() {
     setBackgroundColor() {}
     getMediaSourceId() { return 'window:1:0' }
     moveAbove() {}
+    moveTop() { this.calls.push('moveTop') }
+    setOpacity(value) { this.opacity = value; if (value === 0 || value === 1) this.calls.push(`opacity ${String(value)}`) }
   }
   const display = { workArea: AREA }
   const electron = {
@@ -314,13 +295,14 @@ function startWindow(t) {
   t.mock.method(console, 'log', () => {})
   const fake = fakeElectron()
   const main = new fake.electron.BrowserWindow({ show: false })
-  const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [] }
+  const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [], saveAs: [], saveTo: undefined }
   const start = new StartWindow({
     electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', mica: false, devTools: false,
     lang: () => 'en', motion: 'normal', version: '0.0.0', program: [], log: { dir: 'logs', tail: () => ['a log line'] },
     mainWindow: () => main,
     onRetry: () => { calls.retry += 1 }, onReload: () => { calls.reload += 1 }, onClose: () => { calls.close += 1 },
-    onPick: (value) => { calls.pick.push(value) }, onAnswer: (value) => { calls.answer.push(value) },
+    onPick: (value) => { calls.pick.push(value) }, onAnswer: (value) => { calls.answer.push(value) }, onUpdate: (name) => { calls.update.push(name) },
+    saveAs: (win, name) => { calls.saveAs.push(name); return Promise.resolve(calls.saveTo) },
   })
   const win = () => fake.windows.at(-1)
   const page = () => ({ sender: win().webContents, senderFrame: win().webContents.mainFrame })
@@ -339,16 +321,85 @@ test('the start window takes acts only from its own page, each in its own view',
   const own = s.win()
   const ownFrame = { sender: own.webContents, senderFrame: own.webContents.mainFrame }
   const other = s.other()
-  assert.equal(s.act('openLogs', undefined, { sender: other.webContents, senderFrame: other.webContents.mainFrame }), false)
-  assert.equal(s.act('openLogs', undefined, { sender: own.webContents, senderFrame: { url: own.webContents.mainFrame.url } }), false)
+  assert.equal(s.act('saveLog', undefined, { sender: other.webContents, senderFrame: other.webContents.mainFrame }), false)
+  assert.equal(s.act('saveLog', undefined, { sender: own.webContents, senderFrame: { url: own.webContents.mainFrame.url } }), false)
   const loaded = own.webContents.mainFrame.url
   own.webContents.mainFrame.url = loaded.replace('first', 'later')
-  assert.equal(s.act('openLogs', undefined, ownFrame), false)
+  assert.equal(s.act('saveLog', undefined, ownFrame), false)
   own.webContents.mainFrame.url = loaded
-  assert.equal(s.act('openLogs', undefined, ownFrame), true)
+  assert.equal(s.act('saveLog', undefined, ownFrame), true)
   assert.equal(s.act('retry', undefined, ownFrame), false)
   assert.equal(s.act('freshStart', undefined, ownFrame), false)
   assert.equal(s.calls.retry, 0)
+})
+
+// The page's whale and ring come about 1 s after the window: shown at once, it was an empty panel.
+// Windows draws a window it has just shown a few frames before its page, under its own opening
+// transition: the window shows see-through and turns opaque OPEN_MS later, and only then does the
+// snapshot say `shown`, which starts the whale's entrance (start.js).
+test('the start window shows once its page says it has painted, see-through until OPEN_MS', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  assert.equal(s.win().visible, false)
+  s.tick(PAINT_WAIT_MS - 1)
+  assert.equal(s.win().visible, false)
+  assert.equal(s.act('painted'), true)
+  assert.equal(s.win().visible, true)
+  assert.deepEqual(s.win().calls.filter(call => call === 'show' || call.startsWith('opacity')), ['opacity 0', 'show'])
+  s.tick(OPEN_MS - 1)
+  assert.notEqual(s.state()?.shown, true)
+  assert.equal(s.win().opacity, 0)
+  s.tick(1)
+  assert.equal(s.win().opacity, 1)
+  assert.equal(s.state().shown, true)
+  // The page's fallback and a second 'painted' change nothing.
+  s.tick(PAINT_WAIT_MS)
+  s.act('painted')
+  assert.deepEqual(s.win().calls.filter(call => call === 'show' || call.startsWith('opacity')), ['opacity 0', 'show', 'opacity 1'])
+})
+
+test('a start page that never says it painted is shown anyway, opaque at once', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.tick(PAINT_WAIT_MS)
+  assert.equal(s.win().visible, true)
+  assert.equal(s.state().shown, true)
+  assert.equal(s.win().calls.includes('opacity 0'), false)
+})
+
+test('a dialog of the start window shows it at once: it never opens over nothing', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  assert.equal(s.start.owner(), s.win())
+  assert.equal(s.win().visible, true)
+  assert.equal(s.state().shown, true)
+})
+
+// 〔保存日志…〕 asks the app's own picker (main.mjs saveAs) where, never a system box.
+test('〔保存日志…〕 writes the log where the app\'s picker says, and nothing when it is cancelled', async (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.fail(new Error('The DSH Host stopped (exit 1)'))
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-log-'))
+  t.after(() => { rmSync(dir, { recursive: true, force: true }) })
+  assert.equal(s.act('saveLog'), true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(s.calls.saveAs, ['DS-Bot-log.txt'])
+  assert.deepEqual(readdirSync(dir), [])
+  s.calls.saveTo = join(dir, 'log.txt')
+  s.act('saveLog')
+  const saved = () => (readdirSync(dir).length > 0 ? readFileSync(join(dir, 'log.txt'), 'utf8') : '')
+  for (let i = 0; i < 500 && !saved().includes('a log line'); i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.match(saved(), /^DS Bot 0\.0\.0 \([\s\S]*a log line/u)
+})
+
+test('a dialog of the start window turns it opaque while it waits see-through', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.act('painted')
+  assert.equal(s.start.owner(), s.win())
+  assert.equal(s.win().opacity, 1)
+  assert.equal(s.state().shown, true)
 })
 
 test('the 180 s question comes on the start\'s clock while the engine is not up', async (t) => {
@@ -380,6 +431,78 @@ test('the 180 s question comes on the start\'s clock while the engine is not up'
   assert.deepEqual(s.state().done, ['data', 'engine'])
   s.tick(2 * WATCHDOG_MS)
   assert.equal(s.state().view, 'boot')
+})
+
+// The copy is a stage of its own, between the data and the engine (§6), from the moment it runs:
+// the ring has three arcs while the import card asks, keeps the fourth once the copy is done, and
+// goes back to three when the copy stops. The engine that warmed up while the card waited stops
+// for the copy: its stage is open again until the copied team's engine is up.
+test("the copy is a stage of its own, and the engine's stage waits for the copied team's engine", (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.explain(explainOf({ offered: true }))
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'])
+  s.start.done('data')
+  s.start.card({ kind: 'import', bots: 4, groups: 0 })
+  s.start.done('engine')
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'], 'three arcs while the card asks')
+  const copying = (step, arc) => ({ kind: 'copying', step, fraction: 0, arc, steps: [{}, {}, {}] })
+  s.start.card(copying(1, 0))
+  assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
+  assert.equal(s.state().phase, 'import')
+  s.start.card(undefined)
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'], 'a copy that ends without the team goes back to three')
+  s.start.card(copying(2, 0.15))
+  s.start.engineDown()
+  assert.deepEqual(s.state().done, ['data'])
+  s.start.ready()
+  assert.notEqual(s.state().view, 'handoff', 'no hand-off while no engine is up')
+  s.start.done('import')
+  assert.equal(s.state().phase, 'engine')
+  s.start.card(undefined)
+  assert.equal(s.state().phases.length, 4, 'a done copy keeps its arc')
+  s.start.done('engine')
+  assert.deepEqual(s.state().done, ['data', 'import', 'engine'])
+  s.start.ready()
+  assert.equal(s.state().view, 'handoff')
+  assert.deepEqual(s.state().done, ['data', 'import', 'engine', 'team'])
+})
+
+// start-window §7: the stage that failed is the one the snapshot is at, and the page turns its arc
+// red: the data folder when it cannot be made or written, the engine when it or the Host stops.
+// §6: a failed copy keeps the copy's arc (the page turns it red); 〔先不带团队开始〕 takes the card
+// away and the ring goes back to three.
+test('a failed copy keeps its arc on the ring until the start goes on without the team', (t) => {
+  const s = startWindow(t)
+  s.start.open('first')
+  s.start.explain(explainOf({ offered: true }))
+  s.start.done('data')
+  s.start.card({ kind: 'copying', step: 2, fraction: 0.4, arc: 0.5, steps: [{}, {}, {}] })
+  s.start.card({ kind: 'importFailed', reason: 'inUse', log: ['EBUSY: resource busy or locked'] })
+  assert.deepEqual(s.state().phases, ['data', 'import', 'engine', 'team'])
+  assert.equal(s.state().phase, 'import')
+  assert.deepEqual(s.state().card.log, ['EBUSY: resource busy or locked'])
+  s.start.card(undefined)
+  assert.deepEqual(s.state().phases, ['data', 'engine', 'team'])
+})
+
+test('a data folder that cannot be written fails at the data stage, a stopped engine at the engine', async (t) => {
+  for (const [error, reason, phase, done] of [
+    [Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES' }), 'permission', 'data', []],
+    [Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }), 'space', 'data', []],
+    [new Error('The DSH Host stopped (exit 1)'), 'engine', 'engine', ['data']],
+  ]) {
+    await t.test(reason, (st) => {
+      const s = startWindow(st)
+      s.start.open('first')
+      for (const stage of done) s.start.done(stage)
+      s.start.fail(error)
+      assert.equal(s.state().view, 'failed')
+      assert.equal(s.state().failure.reason, reason)
+      assert.equal(s.state().phase, phase)
+      assert.ok(Array.isArray(s.state().failure.log), 'the log goes with it')
+    })
+  }
 })
 
 test('a retry after the engine was up guards the new engine, while the whale keeps its stop', (t) => {
@@ -441,43 +564,99 @@ for (const [kind, wait] of [['first', 2500], ['later', 800]]) {
     s.start.done('engine')
     s.start.ready()
     s.tick(wait - 1)
-    assert.equal(s.main.visible, false)
+    assert.equal(s.main.calls.includes('opacity 1'), false)
     s.tick(1)
-    assert.equal(s.main.visible, true)
-    assert.deepEqual(s.main.calls.slice(-2), ['show', 'focus'])
+    // It waited see-through under the start window; the two cross-fade.
+    assert.ok(s.main.calls.includes('skipTaskbar false'))
     assert.ok(s.win().calls.includes('skipTaskbar true'))
     await s.start.teamShown
-    s.tick(300)
-    assert.equal(s.win().destroyed, true)
+    const start = s.win()
+    for (let ms = 0; ms <= CROSSFADE.duration; ms += CROSSFADE.step) s.tick(CROSSFADE.step)
+    assert.equal(s.main.opacity, 1)
+    assert.equal(start.destroyed, true)
+    assert.equal(s.main.calls.at(-1), 'focus')
     // Gone after the hand-off, the start window does not quit the app.
     assert.equal(s.calls.close, 0)
   })
 }
 
-test('after handoffShow the start window grows into the team window\'s rect, and the team window shows on it', (t) => {
+test('the whale the start page hands over is put in the team page\'s own coordinates', () => {
+  const team = { x: 300, y: 90, width: 1280, height: 860 }
+  const start = { x: 580, y: 250 }
+  assert.deepEqual(handoffBox({ x: 304, y: 147, size: 112 }, { start, team, viewportWidth: 1280 }), { x: 584, y: 307, size: 112 })
+  // A team page zoomed to 125 %: its CSS px are larger than DIP.
+  assert.deepEqual(handoffBox({ x: 304, y: 147, size: 112 }, { start, team, viewportWidth: 1024 }), { x: 467, y: 245.5, size: 89.5 })
+  for (const whale of [undefined, null, 'whale', { x: 1 }, { x: 1, y: 1, size: 4 }, { x: Number.NaN, y: 1, size: 112 }]) {
+    assert.equal(handoffBox(whale, { start, team, viewportWidth: 1280 }), undefined, JSON.stringify(whale))
+  }
+})
+
+// The start window never resizes: the team window, see-through under it since ready(), takes the
+// whale, and the two windows cross-fade.
+function handingOver(t, { focused = true } = {}) {
   const s = startWindow(t)
   s.start.open('later')
+  s.win().focused = focused
+  s.start.placeMain()
   s.start.done('data')
   s.start.done('engine')
-  s.start.ready()
-  const from = s.win().getBounds()
-  assert.equal(s.act('handoffShow'), true)
-  const target = mainRect(from, AREA)
-  assert.deepEqual(s.main.bounds, target)
-  s.tick(GROWTH.delay - 1)
-  assert.deepEqual(s.win().bounds, from)
-  s.tick(1)
-  const widths = []
-  for (let step = 0; step < 40 && !s.main.visible; step += 1) {
-    s.tick(GROWTH.step)
-    widths.push(s.win().bounds.width)
-  }
+  s.start.ready(AVATAR)
+  return s
+}
+
+test('the team window waits see-through under the start window from ready() on', (t) => {
+  const s = handingOver(t)
+  assert.deepEqual(s.main.calls.slice(-3), ['skipTaskbar true', 'opacity 0', 'showInactive'])
+  assert.equal(s.win().calls.at(-1), 'moveTop')
   assert.equal(s.main.visible, true)
-  assert.deepEqual(s.win().bounds, target)
-  assert.ok(widths.some(width => width > from.width && width < target.width), 'the start window jumps instead of growing')
-  // A second handoffShow does nothing.
-  assert.equal(s.act('handoffShow'), true)
-  assert.equal(s.main.calls.filter(call => call === 'show').length, 1)
+})
+
+test('at handoffShow the team page gets the whale, and the windows cross-fade once it has drawn it', (t) => {
+  const s = handingOver(t)
+  const from = s.win().getBounds()
+  assert.equal(s.act('handoffShow', { whale: { x: 304, y: 147, size: 112 } }), true)
+  const [[channel, box]] = s.main.webContents.other
+  assert.equal(channel, TEAM_HANDOFF)
+  assert.equal(box.hold, HOLD_MS)
+  assert.deepEqual({ x: box.x, y: box.y, size: box.size }, handoffBox({ x: 304, y: 147, size: 112 }, { start: from, team: s.main.bounds, viewportWidth: AVATAR.viewportWidth }))
+  assert.equal(s.main.calls.includes('skipTaskbar false'), false, 'it shows before the team page has the whale')
+  s.start.teamReady()
+  assert.ok(s.main.calls.includes('skipTaskbar false'))
+  const start = s.win()
+  s.tick(CROSSFADE.duration / 2)
+  assert.ok(start.opacity > 0 && start.opacity < 1, 'the start window does not fade')
+  assert.ok(s.main.opacity > 0 && s.main.opacity < 1, 'the team window does not fade in')
+  assert.equal(s.main.calls.includes('focus'), false)
+  s.tick(CROSSFADE.duration)
+  assert.equal(start.opacity, 0)
+  assert.equal(s.main.opacity, 1)
+  assert.equal(start.destroyed, true)
+  assert.equal(s.main.calls.at(-1), 'focus')
+  // It never resized.
+  assert.equal(start.calls.includes('setBounds'), false)
+  assert.equal(s.calls.close, 0)
+})
+
+test('the cross-fade starts anyway when the team page does not say it drew the whale', (t) => {
+  const s = handingOver(t)
+  s.act('handoffShow', { whale: { x: 304, y: 147, size: 112 } })
+  s.tick(TEAM_WAIT_MS - 1)
+  assert.equal(s.main.calls.includes('skipTaskbar false'), false)
+  s.tick(1)
+  assert.ok(s.main.calls.includes('skipTaskbar false'))
+})
+
+test('without a whale to hand over (a dive, or no box) the windows cross-fade at once', (t) => {
+  for (const payload of [undefined, { whale: { x: 1 } }]) {
+    const s = handingOver(t)
+    s.act('handoffShow', payload)
+    assert.deepEqual(s.main.webContents.other, [])
+    assert.ok(s.main.calls.includes('skipTaskbar false'))
+    // A second handoffShow does nothing.
+    assert.equal(s.act('handoffShow'), true)
+    assert.equal(s.main.calls.filter(call => call === 'showInactive').length, 1)
+    t.mock.timers.reset()
+  }
 })
 
 for (const how of ['behind', 'minimized']) {
@@ -490,8 +669,9 @@ for (const how of ['behind', 'minimized']) {
     s.start.done('engine')
     s.start.ready()
     s.act('handoffShow')
-    for (let step = 0; step < 60 && !s.main.calls.includes('flash true'); step += 1) s.tick(GROWTH.step)
-    assert.deepEqual(s.main.calls.slice(-2), [how === 'behind' ? 'showInactive' : 'minimize', 'flash true'])
+    for (let step = 0; step < 60 && !s.main.calls.includes('flash true'); step += 1) s.tick(CROSSFADE.step)
+    // Behind: it waited under the start window and fades in; minimized: it comes up minimized.
+    assert.deepEqual(s.main.calls.slice(-2), how === 'behind' ? ['opacity 1', 'flash true'] : ['minimize', 'flash true'])
     assert.equal(s.main.calls.includes('focus'), false)
   })
 }
@@ -573,13 +753,14 @@ test('a failure during the hand-off draws the failure page on a fresh page', (t)
   s.start.done('data')
   s.start.done('engine')
   s.start.ready()
-  s.act('handoffShow')
-  s.tick(GROWTH.delay + GROWTH.step)
+  s.tick(300)
   s.start.fail(new Error('The DSH Host stopped (exit 1)'))
   assert.equal(s.state().view, 'failed')
   assert.equal(s.win().webContents.reloads, 1)
-  // The growth is undone, and the team window stays hidden.
+  // The team window that waited under the start window is hidden again.
   assert.deepEqual(s.win().bounds, centred(startSize(AREA), AREA))
+  assert.equal(s.main.visible, false)
+  assert.equal(s.main.opacity, 1)
   s.tick(5000)
   assert.equal(s.main.visible, false)
   assert.equal(s.act('handoffShow'), false)
@@ -733,7 +914,7 @@ test('a move from a later start turns the start window into the move\'s and drop
   assert.equal('place' in m.state(), false)
   assert.match(m.win().webContents.mainFrame.url, /\?start=moving$/u)
   assert.equal(m.act('pick', { value: 'changePlace' }), false)
-  assert.equal(m.act('openLogs'), true)
+  assert.equal(m.act('saveLog'), true)
   m.tick(WATCHDOG_MS)
   assert.equal(m.state().view, 'moving')
   // A move that does not go through asks on a card of the moving page; the clock stands still
@@ -747,6 +928,27 @@ test('a move from a later start turns the start window into the move\'s and drop
   assert.equal(m.state().view, 'moving')
   assert.equal(m.state().clock.running, true)
   assert.equal('card' in m.state(), false)
+})
+
+test('the failure page carries the update banner until a retry', (t) => {
+  const u = startWindow(t)
+  u.start.open('first')
+  // Not before the failure page.
+  u.start.done('data')
+  u.start.update({ state: 'available', version: '9.9.9', page: true })
+  assert.equal('update' in u.state(), false)
+  u.start.fail(new Error('the Host did not start'), 'first')
+  u.start.update({ state: 'downloading', version: '9.9.9', percent: 37, received: 78, total: 212 })
+  assert.deepEqual(u.state().update, { state: 'downloading', version: '9.9.9', percent: 37, received: 78, total: 212 })
+  u.start.update({ state: 'installing', version: '9.9.9' })
+  assert.deepEqual(u.state().update, { state: 'installing', version: '9.9.9' })
+  assert.equal(u.act('installUpdate'), true)
+  assert.equal(u.act('manualDownload'), true)
+  assert.deepEqual(u.calls.update, ['installUpdate', 'manualDownload'])
+  assert.equal(u.act('retry'), true)
+  assert.equal('update' in u.state(), false)
+  assert.equal(u.act('manualDownload'), false)
+  assert.deepEqual(u.calls.update, ['installUpdate', 'manualDownload'])
 })
 
 test('a card shows only while the start boots or the data moves', (t) => {

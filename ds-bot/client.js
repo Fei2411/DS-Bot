@@ -698,6 +698,7 @@ var ZH = {
   "{name} did not answer or call anyone; call a member with @Name": "{name} 没有回答，也没有叫谁；用 @名字 叫一个成员来回答",
   "The group replies could not be shown": "群里的回复显示不出来",
   "Paused after {count} Bot relays. Waiting: {names}": "Bot 之间已接力 {count} 次，先停下了。还在等：{names}",
+  "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} 来回 {count} 次没有进展，先停下了。你发言后继续",
   "{name} paused for your approval": "{name} 停下来等你批准",
   "{name} started on it": "{name} 开始做了",
   "You stopped {name}'s work": "你停下了 {name} 的工作",
@@ -9415,11 +9416,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     );
   }
   if (reply.kind === "paused") {
-    return (0, import_react19.createElement)(
-      "div",
-      { className: "bt-event" },
-      t("Paused after {count} Bot relays. Waiting: {names}", { count: reply.count, names: (reply.names ?? []).join(t(" and ")) })
-    );
+    return (0, import_react19.createElement)("div", { className: "bt-event" }, reply.idle ? t("{names} went back and forth {count} times without progress and paused. Write here to go on", { count: reply.count, names: [bot.name, ...reply.names ?? []].join(t(" and ")) }) : t("Paused after {count} Bot relays. Waiting: {names}", { count: reply.count, names: (reply.names ?? []).join(t(" and ")) }));
   }
   if (reply.kind === "resumed") {
     return (0, import_react19.createElement)("div", { className: "bt-event" }, t("{name} was cut off by a restart and picked its work back up", { name: bot.name }));
@@ -11029,29 +11026,74 @@ function useReportReady(drawn, roster) {
     if (!drawn || readyReported) return;
     readyReported = true;
     void Promise.resolve().then(() => {
-      const ready = globalThis.dsBotApp?.ready;
-      if (typeof ready !== "function") return void 0;
+      const app = globalThis.dsBotApp;
+      if (typeof app?.ready !== "function") return void 0;
       let place;
       try {
         place = mainAvatarPlace(roster);
       } catch {
         place = void 0;
       }
-      return place === void 0 ? ready() : ready(place);
+      if (place === void 0) return app.ready();
+      const mainId = roster.mainBotId;
+      app.onHandoff?.((from) => {
+        try {
+          glideOnto(mainMarkOf(mainId), from);
+        } catch (error) {
+          quietly("handoff")(error);
+        }
+      });
+      return app.ready(place);
     }).catch(quietly("app ready"));
   }, [drawn]);
+}
+function mainMarkOf(id) {
+  if (typeof document === "undefined") return null;
+  const key = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
+  return document.querySelector(`.bt-side [data-bot-id="${key}"] .bt-mark`);
 }
 function mainAvatarPlace(roster) {
   const main = roster?.byId?.[roster.mainBotId];
   if (main === void 0 || main.avatar?.image || typeof document === "undefined") return void 0;
   const look = lookOf(main);
   if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return void 0;
-  const id = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(main.id) : main.id;
-  const mark = document.querySelector(`.bt-side [data-bot-id="${id}"] .bt-mark`);
+  const mark = mainMarkOf(main.id);
   if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return void 0;
   const box = mark.getBoundingClientRect();
   const view = document.documentElement;
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight };
+}
+var GLIDE_MS = 460;
+function glideOnto(mark, from) {
+  if (!mark || reducedMotion()) return;
+  const box = mark.getBoundingClientRect();
+  if (!box.width) return;
+  const outer = document.createElement("div");
+  const inner = document.createElement("div");
+  const copy2 = mark.cloneNode(true);
+  copy2.removeAttribute("data-live");
+  Object.assign(outer.style, { position: "fixed", left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`, zIndex: "2147483647", pointerEvents: "none" });
+  Object.assign(inner.style, { width: "100%", height: "100%", transformOrigin: "0 0" });
+  Object.assign(copy2.style, { width: "100%", height: "100%" });
+  copy2.style.setProperty("--bt-ink-deepseek", getComputedStyle(mark).getPropertyValue("--bt-ink-deepseek"));
+  inner.append(copy2);
+  outer.append(inner);
+  outer.setAttribute("aria-hidden", "true");
+  document.body.append(outer);
+  mark.style.opacity = "0";
+  const timing = { delay: Math.max(0, Number(from.hold) || 0), duration: GLIDE_MS, fill: "both" };
+  outer.animate([{ transform: `translateX(${from.x - box.left}px)` }, { transform: "none" }], { ...timing, easing: "cubic-bezier(.45,0,.25,1)" });
+  const glide = inner.animate([{ transform: `translateY(${from.y - box.top}px) scale(${from.size / box.width})` }, { transform: "none" }], { ...timing, easing: "cubic-bezier(.2,.65,.3,1)" });
+  let landed = false;
+  const land = () => {
+    if (landed) return;
+    landed = true;
+    outer.remove();
+    mark.style.opacity = "";
+    mark.animate([{ transform: "scale(1.08, .92)" }, { transform: "none" }], { duration: SPRING_POP.duration, easing: SPRING_POP.easing });
+  };
+  glide.finished.then(land, land);
+  setTimeout(land, timing.delay + GLIDE_MS + 500);
 }
 function useLandOnMainBot(roster, useSessions, actions) {
   const mainView = useSessions((list) => {
