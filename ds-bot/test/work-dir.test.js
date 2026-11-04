@@ -114,7 +114,8 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
   }))).json()
   const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   // Runs the parts check, registered last; 'next' means the step goes on.
-  const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(-1)(
+  // The part-transition hook registers with prepend, so it is first in the list.
+  const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(0)(
     { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000) }, async () => 'next')
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   // Waits until the Bot's own chat runs in `dir` and its move has finished.
@@ -553,7 +554,7 @@ function folderService() {
 }
 const assemble = (ctx, agent) => {
   let passed = false
-  const run = ctx.listeners.get('system-prompt/assemble').at(-1)({ contexts: [] }, { agent, signal: AbortSignal.timeout(60_000) }, async () => { passed = true })
+  const run = ctx.listeners.get('system-prompt/assemble').at(0)({ contexts: [] }, { agent, signal: AbortSignal.timeout(60_000) }, async () => { passed = true })
   return run.then(() => passed)
 }
 

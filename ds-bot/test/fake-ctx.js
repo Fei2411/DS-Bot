@@ -48,7 +48,7 @@ export function fakeContext({ services = {} } = {}) {
     get: name => services[name],
     on(name, listener, options) {
       calls.push(`on ${name}${options?.prepend ? ' (prepend)' : ''}`)
-      listeners.set(name, [...(listeners.get(name) ?? []), listener])
+      listeners.set(name, options?.prepend ? [listener, ...(listeners.get(name) ?? [])] : [...(listeners.get(name) ?? []), listener])
       return () => {}
     },
     // Calls the plain listeners of an event; middleware (with `next`) is not run.
