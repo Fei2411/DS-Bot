@@ -5225,7 +5225,7 @@ function ComputerPage({ roster, actions, run: run2, Section, Row: Row3, Switch: 
   return [
     (0, import_react10.createElement)(
       Section,
-      { key: "switch", title: t("Computer use") },
+      { key: "switch" },
       (0, import_react10.createElement)(
         Row3,
         { label: t("Let Bots use the computer") },
@@ -5372,9 +5372,20 @@ var actionName = (method) => {
   const words = String(method ?? "").replace(/^cua_driver_native__/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
   return words === "" ? "Computer" : words[0].toUpperCase() + words.slice(1);
 };
+var callArgs = (call2) => {
+  const args = call2?.arguments;
+  if (args !== null && typeof args === "object") return args;
+  try {
+    return JSON.parse(args ?? "{}");
+  } catch {
+    return {};
+  }
+};
 function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks }) {
-  const method = call2?.arguments?.method ?? String(call2?.name ?? "").replace(/^cua_driver_native__/, "");
-  const app = hooks?.useComputer?.((map) => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find((step) => step.callId === call2?.callId)?.app);
+  const args = callArgs(call2);
+  const method = args.method ?? String(call2?.name ?? "").replace(/^cua_driver_native__/, "");
+  const stepApp = hooks?.useComputer?.((map) => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find((step) => step.callId === call2?.callId)?.app);
+  const app = stepApp ?? (method === "getApp" && typeof args.params?.selector === "string" && args.params.selector !== "" ? args.params.selector : void 0);
   const shot = (call2?.content ?? []).find((block) => (block?.type === "image" || block?.type === "file") && block.attachment !== void 0)?.attachment;
   const [url, setUrl] = (0, import_react10.useState)(null);
   const [open, setOpen] = (0, import_react10.useState)(false);
@@ -5396,7 +5407,7 @@ function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks }) {
   return (0, import_react10.createElement)(
     "div",
     { className: "bt-cstep" },
-    (0, import_react10.createElement)("span", { className: "bt-cstep-label" }, `${app ?? t("the computer")} · ${actionName(method)}`),
+    (0, import_react10.createElement)("span", { className: "bt-cstep-label" }, app !== void 0 ? `${app} · ${actionName(method)}` : actionName(method)),
     url !== null ? (0, import_react10.createElement)(
       "button",
       { type: "button", className: open ? "bt-cstep-shot bt-cstep-shot-open" : "bt-cstep-shot", onClick: () => setOpen((value) => !value) },

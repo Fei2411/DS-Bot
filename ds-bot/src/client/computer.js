@@ -55,7 +55,7 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       granted ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(Promise.resolve(actions.computerPermission(key)).then(refresh)) }, t('Grant')))
   }
   return [
-    h(Section, { key: 'switch', title: t('Computer use') },
+    h(Section, { key: 'switch' },
       h(Row, { label: t('Let Bots use the computer') },
         Switch === undefined ? null : h(Switch, { label: t('Let Bots use the computer'), on: computer.enabled === true, onChange: on => run(actions.computerSetEnabled(on)) }))),
     computer.enabled ? h(Section, { key: 'provider', title: t('Provider') },
@@ -158,9 +158,17 @@ const actionName = (method) => {
   const words = String(method ?? '').replace(/^cua_driver_native__/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim()
   return words === '' ? 'Computer' : words[0].toUpperCase() + words.slice(1)
 }
+const callArgs = (call) => {
+  const args = call?.arguments
+  if (args !== null && typeof args === 'object') return args
+  try { return JSON.parse(args ?? '{}') } catch { return {} }
+}
 export function ComputerCallRow({ sessionId, call, roster, actions, hooks }) {
-  const method = call?.arguments?.method ?? String(call?.name ?? '').replace(/^cua_driver_native__/, '')
-  const app = hooks?.useComputer?.(map => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find(step => step.callId === call?.callId)?.app)
+  const args = callArgs(call)
+  const method = args.method ?? String(call?.name ?? '').replace(/^cua_driver_native__/, '')
+  const stepApp = hooks?.useComputer?.(map => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find(step => step.callId === call?.callId)?.app)
+  // getApp names its target in the selector; a step record names the app later calls act on.
+  const app = stepApp ?? (method === 'getApp' && typeof args.params?.selector === 'string' && args.params.selector !== '' ? args.params.selector : undefined)
   const shot = (call?.content ?? []).find(block => (block?.type === 'image' || block?.type === 'file') && block.attachment !== undefined)?.attachment
   const [url, setUrl] = useState(null)
   const [open, setOpen] = useState(false)
@@ -172,7 +180,7 @@ export function ComputerCallRow({ sessionId, call, roster, actions, hooks }) {
     return () => { current = false }
   }, [shot?.attachmentId])
   return h('div', { className: 'bt-cstep' },
-    h('span', { className: 'bt-cstep-label' }, `${app ?? t('the computer')} · ${actionName(method)}`),
+    h('span', { className: 'bt-cstep-label' }, app !== undefined ? `${app} · ${actionName(method)}` : actionName(method)),
     url !== null ? h('button', { type: 'button', className: open ? 'bt-cstep-shot bt-cstep-shot-open' : 'bt-cstep-shot', onClick: () => setOpen(value => !value) },
       h('img', { src: url, alt: actionName(method) })) : null)
 }
