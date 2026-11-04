@@ -37,7 +37,8 @@ export default {
     let selfName = ''
 
     const call = async (method, params, { download = false, timeout = 30_000 } = {}) => {
-      abort?.abort()
+      // Only stop() aborts the call in flight; a send or a callback answer must not
+      // kill a long poll that is still waiting.
       abort = new AbortController()
       const timer = setTimeout(() => abort.abort(new Error('timeout')), timeout)
       try {
