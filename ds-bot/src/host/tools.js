@@ -26,6 +26,10 @@ const HIDDEN_TOOLS = HIDDEN_TOOL_GROUPS.flat()
 // The guidance DSH writes into the prompt for the hidden tools.
 const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal'])
 const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'
+// DSH 0.2.2's schedule tools can deliver to a new Session, which is outside the team and
+// has no Bot; a Bot's tasks deliver to its own chat, which DS Bot moves on with each part.
+const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
+const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
 const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
@@ -842,9 +846,11 @@ export function install(rt) {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
+      // older assembly still carries tools to drop here.
       return {
         ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
         sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
       }
     })
@@ -911,6 +917,8 @@ export function install(rt) {
   ctx.tools.guard((exec) => {
     if (!rt.isBotSession(exec.agent?.id)) return undefined
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    const target = exec.arguments?.target
+    if (SCHEDULE_TARGET_TOOLS.includes(exec.name) && target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
     return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined
   })
   // Creation waits for this listener, so the Agent's first step already lacks the tool.
@@ -944,6 +952,11 @@ export function install(rt) {
     const assembled = await next()
     const held = scoped.get(agent.session?.id)
     if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
+    // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
+    if (!Array.isArray(assembled.tools)) {
+      held.unlisted.clear()
+      return assembled
+    }
     const pending = [...held.unlisted]
     // Cleared whatever happens below: the names are offered once, not on
     // every step.

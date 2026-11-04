@@ -1167,6 +1167,7 @@ var ZH = {
   "Every weekday at {time}": "每个工作日 {time}",
   "Every weekend at {time}": "每个周末 {time}",
   "On the schedule {expression}": "按计划 {expression}",
+  "Custom schedule": "自定义计划",
   "Next: {time}": "下次 {time}",
   "Overdue: {time}": "已逾期 {time}",
   Finished: "已结束",
@@ -13885,12 +13886,15 @@ function timingText(task) {
     }
     case "cron":
       return `${t("On the schedule {expression}", { expression: task.expression })}${zone}`;
+    case "rrule":
+      return t("Custom schedule");
     default:
       return "";
   }
 }
 var nextText = (task) => {
   if (task.state === "overdue" || task.state === void 0 && task.status === "active" && Date.parse(task.scheduledAt) <= Date.now()) return t("Overdue: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) });
+  if (task.status === "paused") return t("Paused");
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
 };
 function TaskRow2({ task, actions, onView, showBot, roster }) {

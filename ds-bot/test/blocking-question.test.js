@@ -288,6 +288,28 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.tools.map(tool => tool.name), ['read', 'message_bot'])
   assert.deepEqual(filtered.contexts, [{ name: 'x' }])
   assert.deepEqual(filtered.variables, { a: 1 })
+  // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
+  // assembly it passes has none; the guidance is still filtered and no tools appear.
+  const current = await filters[0].listener({}, {}, async () => ({
+    sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
+    contexts: [],
+    variables: {},
+  }))
+  assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   await stop()
   for (const record of scopedListeners) assert.equal(record.disposed, true)
+})
+
+// DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.
+test('a Bot schedules only into its own chat', async (t) => {
+  const { ctx, stop } = await setup()
+  t.after(stop)
+  const guard = (name, sessionId, args) => ctx.guards.map(check => check({ name, arguments: args, agent: { id: sessionId } })).find(reason => reason !== undefined)
+  for (const target of ['new_once', 'new']) {
+    assert.match(guard('schedule_create', 'writer', { target }), /this_session/)
+    assert.match(guard('schedule_edit', 'room-writer', { id: 's1', action: 'update', target }), /this_session/)
+    assert.equal(guard('schedule_create', 'plain', { target }), undefined)
+  }
+  assert.equal(guard('schedule_create', 'writer', { target: 'this_session' }), undefined)
+  assert.equal(guard('schedule_edit', 'writer', { id: 's1', action: 'delete' }), undefined)
 })
