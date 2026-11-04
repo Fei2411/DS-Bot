@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../../legacy.mjs'
 import { classify, isComputerTool, levelAllows, LEVELS } from './catalog.js'
 import { createLeases } from './leases.js'
 import { REPLY_KIND } from '../constants.js'
@@ -43,17 +44,17 @@ const PROTECTED_IDS = new Set([
   'com.apple.keychainaccess',
   'com.apple.passwords',
 ])
-const PROTECTED_NAMES = /^(ds bot|deepseek bot|deepseek harness|dsh|dsh desktop|dsh computer use|system settings|settings|keychain access|passwords|credential manager|control panel)$/i
-const PROTECTED_EXES = /^(dsbot|deepseek-bot|dsh|dsh-desktop|dsh-cua-native|dsh computer use|systemsettings|keychain access|passwords|credentialmanager|credwiz|control)(\.exe?)?$/i
+const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
+const PROTECTED_EXES = new Set(['dsbot', 'dsh', 'dsh-desktop', 'dsh-cua-native', 'dsh computer use', 'systemsettings', 'keychain access', 'passwords', 'credentialmanager', 'credwiz', 'control', ...LEGACY_EXECUTABLES])
 
 export function isProtectedApp(app) {
   if (app === undefined || app === null) return false
   const id = String(app.id ?? '').toLowerCase()
   if (PROTECTED_IDS.has(id)) return true
-  const name = String(app.name ?? '').trim()
-  if (PROTECTED_NAMES.test(name)) return true
-  const base = String(app.path ?? app.executablePath ?? '').split(/[\\/]/).pop() ?? ''
-  return PROTECTED_EXES.test(base)
+  const name = String(app.name ?? '').trim().toLowerCase()
+  if (PROTECTED_NAMES.has(name)) return true
+  const base = (String(app.path ?? app.executablePath ?? '').split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.exe?$/i, '')
+  return PROTECTED_EXES.has(base)
 }
 
 const normName = name => String(name ?? '').trim().toLowerCase()
