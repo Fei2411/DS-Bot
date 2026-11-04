@@ -34,13 +34,17 @@ const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route
 
 export function install(rt) {
   const { ctx, state } = rt
-  state.localAgents ??= { custom: [], sessions: {} }
-  const store = state.localAgents
-  store.custom ??= []
-  store.sessions ??= {}
+  // state.localAgents is replaced by the state load after install; read it
+  // each time instead of holding the pre-load object.
+  const store = () => {
+    const live = state.localAgents ??= { custom: [], sessions: {} }
+    live.custom ??= []
+    live.sessions ??= {}
+    return live
+  }
 
-  const customAgents = () => store.custom
-  const customRouteId = () => store.custom.map(agent => customRoute(agent.id))
+  const customAgents = () => store().custom
+  const customRouteId = () => store().custom.map(agent => customRoute(agent.id))
   const allRoutes = () => [...Object.keys(ENGINES), ...customRouteId()]
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
@@ -69,9 +73,9 @@ export function install(rt) {
     customAgents,
     findExecutable,
     spawnEngine,
-    record: sessionId => store.sessions[sessionId],
+    record: sessionId => store().sessions[sessionId],
     saveRecord: (sessionId, record) => {
-      store.sessions[sessionId] = record
+      store().sessions[sessionId] = record
       void rt.save().catch(() => {})
     },
     presetFor: (sessionId) => {
@@ -111,9 +115,13 @@ export function install(rt) {
   // missing one fails at prompt time with a typed error.
   applyRoutes()
   void scan()
-  ctx.effect(() => {
+  // Custom agents arrive with the state load; their routes register then too.
+  void rt.load?.().then(() => applyRoutes()).catch(() => {})
+  // The callback returns the disposer: running adapter.dispose() inside the
+  // setup would leave the adapter disposed from the moment it installs.
+  ctx.effect(() => () => {
     void adapter.dispose()
-    return () => { registration?.() }
+    registration?.()
   }, 'ds-bot: local agents')
 
   // ---------------------------------------------------------------------------
@@ -166,7 +174,7 @@ export function install(rt) {
   // The Settings page's endpoints.
 
   const detected = () => [...found.values()].map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn }))
-  const customView = () => store.custom.map(agent => ({ ...agent, route: customRoute(agent.id) }))
+  const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id) }))
 
   async function localAgentsEndpoint(endpoint, body) {
     switch (endpoint) {
@@ -187,13 +195,13 @@ export function install(rt) {
           throw new Error(`No program named ${clean.command} was found`)
         }
         const entry = { id: `agent-${Date.now().toString(36)}`, ...clean }
-        store.custom.push(entry)
+        store().custom.push(entry)
         applyRoutes()
         await rt.save()
         return { ...entry, route: customRoute(entry.id) }
       }
       case 'local-agent-update': {
-        const entry = store.custom.find(agent => agent.id === body.id)
+        const entry = store().custom.find(agent => agent.id === body.id)
         if (entry === undefined) throw new Error('Unknown agent')
         const clean = validateCustom({ name: body.name ?? entry.name, command: body.command ?? entry.command, args: body.args ?? entry.args })
         Object.assign(entry, clean)
@@ -202,9 +210,9 @@ export function install(rt) {
         return { ...entry, route: customRoute(entry.id) }
       }
       case 'local-agent-remove': {
-        const at = store.custom.findIndex(agent => agent.id === body.id)
+        const at = store().custom.findIndex(agent => agent.id === body.id)
         if (at === -1) throw new Error('Unknown agent')
-        store.custom.splice(at, 1)
+        store().custom.splice(at, 1)
         applyRoutes()
         await rt.save()
         return customView()
