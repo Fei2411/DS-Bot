@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../../legacy.mjs'
+import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
 import { classify, isComputerTool, levelAllows, LEVELS } from './catalog.js'
 import { createLeases } from './leases.js'
 import { REPLY_KIND } from '../constants.js'
