@@ -119,8 +119,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     const sessionId = String(options.sessionId)
     let live = this.live.get(sessionId)
     const record = this.deps.record(sessionId)
-    if (live !== undefined && !live.dead && live.route === options.provider) return live
     const route = options.provider
+    if (live !== undefined && !live.dead && live.route === route) return live
+    if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
     const engine = this.engine(route)
@@ -136,6 +137,12 @@ export class LocalAgentAdapter extends LlmAdapter {
       waiters: [],
       pending: new Map(),   // dshCallId -> {name, mcpCallId?, reply?}
       started: false,
+      // 'idle': no CLI turn. 'running': a prompt is in flight. 'suspended': the
+      // turn waits on a bridged tool call or a permission answer.
+      state: 'idle',
+      // Prompts queued while a turn runs (ACP speaks one prompt at a time);
+      // the drain sends the next one when the turn ends.
+      queue: [],
       idle: undefined,
       cwd: record?.cwd,
       model: options.model,
@@ -210,23 +217,33 @@ export class LocalAgentAdapter extends LlmAdapter {
     const delta = fresh ? [] : messages.slice(at + 1)
 
     // Results of the calls the last step emitted answer the suspended CLI calls.
+    // A user message never resolves an approve_agent_action pending: only that
+    // tool's own result may. User text may answer a pending bridged MCP call
+    // whose DSH tool concluded the turn (a question-type card).
     for (const message of delta) {
       if (message.role !== 'tool') continue
-      const pending = live.pending.get(message.toolCallId ?? message.source?.callId)
+      const pending = live.pending.get(message.toolCallId)
       if (pending === undefined) continue
-      live.pending.delete(message.toolCallId ?? message.source?.callId)
+      live.pending.delete(message.toolCallId)
       pending.resolve({ text: textOf(message.content) || (message.isError ? 'the call failed' : ''), isError: message.isError === true })
     }
-    const users = delta.filter(message => message.role === 'user')
-    // A turn that ended with a question still open resolves it with the user's
-    // next message; the rest, if any, are new input.
-    const answers = [...live.pending.values()]
+    // The loop's runtime-context user messages are context, not input: they
+    // fold into the next prompt or steer, never start a prompt on their own.
+    const contextText = delta
+      .filter(message => message.role === 'user' && message.source?.kind === 'runtime-context')
+      .map(message => textOf(message.content)).filter(text => text !== '').join('\n')
+    const users = delta.filter(message => message.role === 'user' && message.source?.kind !== 'runtime-context')
+    // The first open bridged call that is not an approval may take the user's
+    // next message as its answer; the rest of the input is new.
+    const openCall = [...live.pending.entries()].find(([, entry]) => entry.name !== APPROVE_TOOL)
     const remaining = []
+    let answered = openCall === undefined
     for (const message of users) {
-      const pending = answers.shift()
-      if (pending !== undefined && ![...live.pending.values()].includes(pending)) { remaining.push(message); continue }
-      if (pending !== undefined) {
-        for (const [id, entry] of live.pending) if (entry === pending) { live.pending.delete(id); pending.resolve({ text: textOf(message.content) }) }
+      if (!answered && openCall !== undefined) {
+        const [id, pending] = openCall
+        live.pending.delete(id)
+        pending.resolve({ text: textOf(message.content) })
+        answered = true
       } else {
         remaining.push(message)
       }
@@ -275,9 +292,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
 
     let promptText = fresh ? renderReplay(messages, system)
-      : remaining.map(message => textOf(message.content)).filter(text => text !== '').join('\n\n')
+      : [contextText, ...remaining.map(message => textOf(message.content))].filter(text => text !== '').join('\n\n')
     let sentInstructions = live.spec.kind !== 'acp' && freshCli && instructions !== undefined
-    if (instructions !== undefined && live.promptHash !== promptHash) {
+    // A new CLI session gets its instructions in the open args or the replay;
+    // the "updated" line is only for a session that saw older ones.
+    if (instructions !== undefined && !freshCli && live.promptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -288,13 +307,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
     if (promptText !== '') {
-      this.sendPrompt(live, promptText, options.signal)
+      this.sendInput(live, promptText, options.signal)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
     }
     if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
-      this.sendPrompt(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal)
+      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal)
       live.promptHash = promptHash
     }
 
@@ -308,11 +327,24 @@ export class LocalAgentAdapter extends LlmAdapter {
     yield* this.drain(live, options)
   }
 
-  // Prompt the engine. The request stays open for the whole turn (ACP
-  // session/prompt ends when the agent's turn does), so it is sent but not
-  // awaited: the drain below consumes the turn's events, bridged calls
-  // included. A send failure lands in the queue as an error event.
-  sendPrompt(live, text, signal) {
+  // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
+  // waits on a bridged call, steering for Codex and Claude, or a queued prompt
+  // for ACP (it speaks one prompt at a time; the drain sends it when the turn
+  // ends, inside the same stream). The prompt request itself stays open for
+  // the whole turn (ACP session/prompt ends when the agent's turn does), so it
+  // is sent but not awaited; a send failure lands in the queue as an error.
+  sendInput(live, text, signal) {
+    if (live.state !== 'idle') {
+      if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      try {
+        Promise.resolve(live.engine.steer?.(live.engineSession, text))
+          .catch(error => live.push({ type: 'error', error }))
+      } catch (error) {
+        live.push({ type: 'error', error })
+      }
+      return
+    }
+    live.state = 'running'
     try {
       Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal }))
         .catch(error => live.push({ type: 'error', error }))
@@ -346,16 +378,19 @@ export class LocalAgentAdapter extends LlmAdapter {
       index += calls.length
       return chunks
     }
-    const abortable = promise => Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        if (options.signal?.aborted) reject(options.signal.reason ?? new Error('aborted'))
-        else options.signal?.addEventListener('abort', () => reject(options.signal.reason ?? new Error('aborted')), { once: true })
-      }),
-    ])
+    // One abort promise for the whole drain: the earlier version added a
+    // listener per event and never removed it.
+    let abortReject
+    const abortPromise = new Promise((_, reject) => { abortReject = reject })
+    const onAbort = () => abortReject(options.signal?.reason ?? new Error('aborted'))
+    if (options.signal?.aborted) onAbort()
+    else options.signal?.addEventListener('abort', onAbort)
+    try {
     for (;;) {
-      const event = await abortable(live.next()).catch(error => ({ type: 'abort', error }))
+      const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
+        live.state = 'idle'
+        live.queue.length = 0
         live.engine.cancel?.(live.engineSession)
         live.mcp?.failAll(new Error('the turn was stopped'))
         for (const pending of live.pending.values()) pending.resolve({ text: 'the turn was stopped', isError: true })
@@ -389,6 +424,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'usage': yield { type: 'usage', usage: event.usage }; break
         case 'call': {
           yield* closeBlocks()
+          live.state = 'suspended'
           // A team tool the CLI invoked over the loopback MCP server.
           for (const chunk of emitCalls([{ name: event.name, args: event.args, dshCallId: event.dshCallId }])) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
@@ -396,6 +432,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'permission': {
           yield* closeBlocks()
+          live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
           const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}) }, dshCallId: event.id }
           live.pending.set(event.id, { name: APPROVE_TOOL, resolve: (result) => event.reply(pickAllowOption(event.options, result)) })
@@ -406,31 +443,45 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'done': {
           yield* closeBlocks()
           if (event.usage !== undefined) yield { type: 'usage', usage: event.usage }
+          live.state = 'idle'
+          // Input queued while this turn ran goes out as the next prompt
+          // inside the same drain (ACP takes one prompt at a time).
+          const next = live.queue.shift()
+          if (next !== undefined) {
+            this.sendInput(live, next, options.signal)
+            break
+          }
           yield { type: 'finish', reason: { kind: 'stop' } }
           return
         }
         case 'error': {
+          live.state = 'idle'
           throw toLlmError(event.error, live)
         }
         default: break
       }
     }
+    } finally {
+      options.signal?.removeEventListener('abort', onAbort)
+    }
   }
 
   async dispose() {
     this.disposed = true
-    for (const live of [...this.live.values()]) await this.closeLive(live)
     for (const live of Array.from(this.live.values())) await this.closeLive(live)
     for (const engine of Array.from(this.engines.values())) await engine.close?.().catch(() => {})
     this.engines.clear()
   }
 }
 
-// The result DSH gives approve_agent_action decides the agent's option:
-// 'allow' picks the first allow-kind option; anything else fails closed.
+// The result DSH gives approve_agent_action decides the agent's option: only
+// the structured {"decision":"allow"} the tool returns on approval counts;
+// free text, a parse failure, an error or a denial rejects the action.
 function pickAllowOption(options, result) {
-  const allowed = result.isError !== true && /allow|yes|approve/i.test(result.text ?? '')
-  if (!allowed) return null
+  if (result.isError === true) return null
+  let decision
+  try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
+  if (decision !== 'allow') return null
   const option = (options ?? []).find(entry => /allow/.test(entry.kind ?? ''))
   return option?.optionId ?? null
 }

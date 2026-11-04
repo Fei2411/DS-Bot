@@ -152,7 +152,9 @@ export function install(rt) {
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
       })
-      return outcome === 'allowed-once' ? 'allowed' : outcome
+      // The adapter decides the CLI's option from this structured result;
+      // only an explicit {"decision":"allow"} counts.
+      return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
     },
   })]
 

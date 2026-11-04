@@ -127,9 +127,18 @@ test('a permission prompt bridges to approve_agent_action and fails closed', asy
   const ask = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
   assert.equal(ask.finish.kind, 'tool-calls')
   assert.equal(ask.calls[0].name, 'approve_agent_action')
-  // An allowed answer picks the agent's allow option.
-  const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, 'allowed')])))
+  // An allowed answer picks the agent's allow option: the tool returns its
+  // structured decision, and only {"decision":"allow"} counts.
+  const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
   assert.match(allowed.text, /allowed via allow-once/)
+})
+test('a permission answer that is not the structured allow fails closed', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const ask = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
+  // Free text that reads like an approval is not an approval.
+  const loose = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, 'yes, allow it')])))
+  assert.match(loose.text, /denied/)
 })
 test('a denied answer rejects the agent\'s action', async (t) => {
   const adapter = makeAdapter()
