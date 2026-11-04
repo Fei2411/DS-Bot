@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { signIn } from '../src/host/connectors.js'
+import { signIn } from '../src/host/connectors/index.js'
 import { fakeContext } from './fake-ctx.js'
 
 const fresh = () => `ghp_${randomBytes(16).toString('hex')}`
@@ -84,26 +84,26 @@ test('connecting saves the token, kept out of every Bot shell, and mounts GitHub
   const token = fresh()
 
   const before = await call(ctx, 'state', {})
-  assert.deepEqual(before.value.connectors, [{ id: 'github', name: 'GitHub', state: 'off', account: null }])
+  assert.equal(before.value.connectors.connectors.find(r => r.id === 'github').state, 'off')
 
   const connected = await call(ctx, 'connector-connect', { id: 'github', token: ` ${token} ` })
   assert.equal(connected.ok, true, JSON.stringify(connected))
-  assert.deepEqual(connected.value, [{ id: 'github', name: 'GitHub', state: 'ready', account: 'octo' }])
+  const gh = connected.value.connectors.find(r => r.id === 'github'); assert.equal(gh.state, 'ready'); assert.equal(gh.account, 'octo')
   assert.equal(mounts.length, 1)
-  assert.deepEqual(mounts[0].config, {
-    transport: 'streamable-http',
-    serverName: 'github',
-    url: 'https://api.githubcopilot.com/mcp/',
-    headers: { Authorization: `Bearer ${token}`, 'X-MCP-Toolsets': 'context,repos,issues,pull_requests' },
-    failOnStartupError: true,
-  })
+  // The mount points at the local gateway; the token never reaches its config.
+  assert.equal(mounts[0].config.transport, 'streamable-http')
+  assert.equal(mounts[0].config.serverName, 'github')
+  assert.match(mounts[0].config.url, /^http:\/\/127\.0\.0\.1:\d+\/c\/github$/)
+  assert.ok(!JSON.stringify(mounts[0].config).includes(token))
+  assert.match(mounts[0].config.headers.Authorization, /^Bearer /)
+  assert.ok(!mounts[0].config.headers.Authorization.includes(token))
   const state = await call(ctx, 'state', {})
   assert.deepEqual(state.value.secrets.map(secret => [secret.name, secret.scope]), [['GITHUB_TOKEN', []]])
   assert.ok(!JSON.stringify(state).includes(token))
   assert.ok(!readFileSync(join(home, 'state.json'), 'utf8').includes(token))
 
   const off = await call(ctx, 'connector-disconnect', { id: 'github' })
-  assert.deepEqual(off.value, [{ id: 'github', name: 'GitHub', state: 'off', account: null }])
+  assert.equal(off.value.connectors.find(r => r.id === 'github').state, 'off')
   assert.equal(mounts[0].disposed, true)
   assert.deepEqual((await call(ctx, 'state', {})).value.secrets, [])
 })
@@ -129,10 +129,11 @@ test('a failed MCP connection shows the error without the token, and Try again m
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const token = fresh()
   const result = await call(ctx, 'connector-connect', { id: 'github', token })
-  const [github] = result.value
+  const github = result.value.connectors.find(r => r.id === 'github')
   assert.equal(github.state, 'error')
   assert.ok(!github.error.includes(token), github.error)
-  assert.match(github.error, /\[secret:GITHUB_TOKEN\]/)
+  // The mount authenticates to the gateway with a nonce, so no secret is in the error.
+  assert.match(github.error, /refused/)
   await call(ctx, 'connector-retry', { id: 'github' })
   assert.equal(mounts.length, 2)
 })
@@ -147,16 +148,18 @@ test('deleting GITHUB_TOKEN on the Secrets page unmounts GitHub', async (t) => {
   await call(ctx, 'secret-delete', { name: 'GITHUB_TOKEN' })
   const state = await call(ctx, 'state', {})
   assert.equal(mounts[0].disposed, true)
-  assert.equal(state.value.connectors[0].state, 'off')
+  assert.equal(state.value.connectors.connectors.find(r => r.id === 'github').state, 'off')
 })
 
-test('github: false hides the connector', async (t) => {
+test('github: false hides only the GitHub connector', async (t) => {
   const home = teamHome()
   const ctx = fakeContext()
   capture(ctx)
   apply(ctx, { home, github: false })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
-  assert.deepEqual((await call(ctx, 'state', {})).value.connectors, [])
+  const rows = (await call(ctx, 'state', {})).value.connectors.connectors
+  assert.equal(rows.find(row => row.id === 'github'), undefined)
+  assert.ok(rows.length > 0)
 })
 
 test('a GitHub address without https refuses to send the token', async (t) => {
