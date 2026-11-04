@@ -811,7 +811,10 @@ export function install(rt) {
     const disposers = []
     const failed = []
     const registered = []
-    for (const def of rt.teamTools) {
+    // The local-agent tools (the CLI permission bridge) join the scope only of
+    // a Bot whose route is a local agent; they are not in rt.teamTools.
+    const localBot = rt.isLocalAgentRef?.(rt.botOf(rt.selfOf(id))?.appliedModel ?? rt.botOf(rt.selfOf(id))?.model) === true
+    for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
         const dispose = agent.ctx.tools.register(def)
