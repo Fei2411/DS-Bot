@@ -1,7 +1,13 @@
 // Copying a folder of the user's whole, with its links, for the first-run import and the data move.
-import { existsSync, realpathSync } from 'node:fs'
-import { cp, lstat, readlink, realpath, stat, symlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+
+// Electron's fs takes every path that ends in .asar for an archive: a file that is none cannot be
+// read, one that is looks like a folder and stays locked on Windows, and a name that is not there
+// yet is an error that fs.cp stops at. original-fs is the disk as it is, but for a recursive
+// readdir, which still goes through Electron; plain Node has only fs.
+export const disk = process.getBuiltinModule('original-fs') ?? process.getBuiltinModule('node:fs')
+const { existsSync, realpathSync } = disk
+const { cp, lstat, readlink, realpath, stat, symlink } = disk.promises
 
 export const within = (inner, outer) => {
   const path = relative(resolve(outer), resolve(inner))
