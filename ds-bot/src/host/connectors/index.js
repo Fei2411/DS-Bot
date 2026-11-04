@@ -415,11 +415,11 @@ export function install(rt) {
           : undefined
         if (client === undefined) { statuses.set(id, { state: 'needs-client' }); return false }
         const tokens = await oauth.refreshTokens(discovery, client, refresh, { scope: saved.oauth.scope })
-        const entry = entryFor(id)
-        await writeSecret(tokenSecretOf(id), tokens.access_token, `${entry.name} connector`)
+        const purpose = `${entryFor(id)?.name ?? id} connector`
+        await writeSecret(tokenSecretOf(id), tokens.access_token, purpose)
         if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '' && tokens.refresh_token !== refresh) {
           // Rotation: the old refresh token stays if this write fails.
-          await writeSecret(refreshSecretOf(id), tokens.refresh_token, `${entry.name} connector`).catch(() => {})
+          await writeSecret(refreshSecretOf(id), tokens.refresh_token, purpose).catch(() => {})
         }
         await saveState(id, { tokenExpiresAt: Number.isFinite(tokens.expires_in) ? Date.now() + tokens.expires_in * 1000 : undefined })
         statuses.delete(id)

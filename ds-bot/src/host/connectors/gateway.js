@@ -7,6 +7,7 @@
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
+import { request as httpRequest } from 'node:http'
 
 const FORWARD_HEADERS = ['mcp-session-id', 'mcp-protocol-version', 'last-event-id', 'accept', 'content-type']
 const RETURN_HEADERS = ['content-type', 'mcp-session-id', 'mcp-protocol-version']
@@ -28,6 +29,11 @@ const sseMessage = (body) => {
   }
   return frames.length === 1 ? frames[0] : null
 }
+
+// Upstreams are https; loopback HTTP is allowed for local custom servers.
+const loopbackHttp = url => /^http:\/\/(127\.|localhost|::1)/i.test(String(url))
+const upstreamRequest = (target, init, onResponse) =>
+  (target.protocol === 'http:' && loopbackHttp(target) ? httpRequest : httpsRequest)(target, init, onResponse)
 
 const readAll = stream => new Promise((resolve, reject) => {
   const chunks = []
@@ -71,7 +77,7 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       const outgoing = { ...entry.headers }
       for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
       if (body !== undefined) outgoing['content-length'] = body.length
-      const req = httpsRequest(target, { method, headers: outgoing }, resolve)
+      const req = upstreamRequest(target, { method, headers: outgoing }, resolve)
       req.on('error', reject)
       if (body !== undefined) req.write(body)
       req.end()
@@ -85,7 +91,7 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       res.end(JSON.stringify({ error: 'connector not connected' }))
       return
     }
-    if (!/^https:\/\//i.test(entry.url)) {
+    if (!/^https:\/\//i.test(entry.url) && !loopbackHttp(entry.url)) {
       res.writeHead(502, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: 'connector address must be https' }))
       return

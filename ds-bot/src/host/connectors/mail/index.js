@@ -82,7 +82,9 @@ export function install(rt, host) {
     }
   }
 
-  const workDir = (exec) => rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
+  const workDir = (exec) => {
+    try { return rt.sessionFolder?.(exec.agent?.session ?? exec.agent) } catch { return undefined }
+  }
 
   const toolExec = async (exec, args, run) => {
     await rt.load()

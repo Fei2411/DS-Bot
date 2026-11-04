@@ -121,10 +121,10 @@ export async function exchange(discovery, clientInformation, { code, codeVerifie
 }
 
 const invalidGrant = (error) => {
-  const code = error?.error ?? error?.code
-  if (code === 'invalid_grant') return true
-  const text = String(error?.message ?? error)
-  return /invalid_grant/.test(text)
+  for (const field of [error?.error, error?.code, error?.name]) {
+    if (typeof field === 'string' && /invalid_grant/i.test(field)) return true
+  }
+  return /invalid_grant/i.test(String(error?.message ?? error))
 }
 export { invalidGrant }
 
