@@ -1,7 +1,7 @@
 # 电脑操控：Bot 按用户给的权限用电脑上的应用
 
 - 日期：2026-11-04
-- 相关：Issue #917；代替旧草稿 PR #32；前提是升级到 DSH 0.2.2-rc.1（PR #908）
+- 相关：Issue #917；代替旧的 PR #32；前提是升级到 DSH 0.2.2-rc.1（PR #908）
 - 代码：`ds-bot/src/host/computer/`、`ds-bot/src/client/computer-*.js`、`app/src/computer-*.mjs`
 
 ## 为什么
