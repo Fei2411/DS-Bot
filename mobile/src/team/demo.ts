@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
 import { ensureUnlock } from './gate.ts'
+import { validateViewAnswer } from 'deep-view/core'
 import type { ChatItem } from '../screens/chat/items.tsx'
 
 // Demo mode (EXPO_PUBLIC_DSB_DEMO=1): no computer, no link. The fixture answers
@@ -44,7 +45,11 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       }
       case 'view-reply': {
         const sid = String(body.sessionId ?? '')
-        if (state.views?.[sid] !== undefined) { delete state.views[sid]; touch() }
+        const pending = state.views?.[sid]
+        // Same check as the computer, so a wrong answer shape fails here too.
+        const checked = pending === undefined ? { error: 'This view is no longer open' } : validateViewAnswer(pending.view, body.action, body.values)
+        if (checked.error !== undefined) throw Object.assign(new Error(checked.error), { code: 'bot/invalid' })
+        delete state.views![sid]; touch()
         return { ok: true }
       }
       case 'dismiss-view': {

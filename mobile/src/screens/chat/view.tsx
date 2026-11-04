@@ -21,6 +21,7 @@ export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { se
   const [inputs, setInputs] = useState<Map<string, unknown>>(() => collectInputs(root))
   const [lets] = useState<Map<string, unknown>>(() => collectLets(root))
   const [done, setDone] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
   const { call } = useTeam()
   const lookup = useMemo(() => createScope(inputs, lets), [inputs, lets])
   const val = (v: unknown) => {
@@ -32,11 +33,14 @@ export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { se
       return 'error' in out ? undefined : out.value
     } catch { return undefined }
   }
-  const answer = (id: string, action: string, values: unknown) => {
+  // The answer names the component that sent it (deep-view's validateViewAnswer);
+  // the card's inputs ride along so the Bot sees what the slider or choice was set to.
+  const answer = (component: string, _kind: string, values: unknown) => {
     if (readOnly || done !== null) return
-    call('view-reply', { sessionId, viewId: id, action, values })
-      .then(() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setDone(id) })
-      .catch(() => {})
+    const sent = { ...(values as Record<string, unknown>), ...(inputs.size > 0 ? { inputs: Object.fromEntries(inputs) } : {}) }
+    call('view-reply', { sessionId, viewId: id, action: component, values: sent })
+      .then(() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setFailed(null); setDone(component) })
+      .catch((failure: { message?: string }) => setFailed(failure?.message ?? String(failure)))
   }
   const dismiss = () => void call('dismiss-view', { sessionId }).catch(() => {})
   return (
@@ -44,6 +48,7 @@ export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { se
       {bare !== true && title ? <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{title}</Text> : null}
       <Node node={root} val={val} p={p} readOnly={readOnly === true || done !== null} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />
       {done === null && readOnly !== true ? <Pressable accessibilityRole="button" onPress={dismiss} style={styles.dismiss}><Text style={[type.caption, { color: p.ink3 }]}>{t('Dismiss')}</Text></Pressable> : null}
+      {failed !== null ? <Text style={[type.caption, { color: p.danger, marginTop: 4 }]}>{failed}</Text> : null}
       {done !== null ? <Text style={[type.caption, { color: p.green, marginTop: 4 }]}>{t('Done')}</Text> : null}
     </View>
   )
@@ -226,7 +231,7 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
     case 'form':
       return <FormNode n={n} val={val} p={p} readOnly={readOnly} answer={answer} />
     case 'submit':
-      return <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(String(n.id), 'submit', Object.fromEntries(inputs))} style={[styles.submit, { backgroundColor: p.accent, marginTop: 4 }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.label) ?? t('Submit'))}</Text></Pressable>
+      return <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(String(n.id), 'submit', {})} style={[styles.submit, { backgroundColor: p.accent, marginTop: 4 }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.label) ?? t('Submit'))}</Text></Pressable>
     default: return null
   }
 }
@@ -261,7 +266,7 @@ function FormNode({ n, val, p, readOnly, answer }: { n: Record<string, unknown>;
           value={values[String(f?.id ?? i)] ?? ''} onChangeText={v => setValues(prev => ({ ...prev, [String(f?.id ?? i)]: v }))}
           style={[styles.field, { color: p.ink, backgroundColor: p.hover }]} />
       ))}
-      <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'form', { values })} style={[styles.submit, { backgroundColor: p.accent }]}>
+      <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'form', { fields: values })} style={[styles.submit, { backgroundColor: p.accent }]}>
         <Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.submitLabel) ?? t('Submit'))}</Text>
       </Pressable>
     </View>

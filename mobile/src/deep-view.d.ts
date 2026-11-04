@@ -6,4 +6,5 @@ declare module 'deep-view/core' {
   export function choiceValue(option: unknown): unknown
   export function show(value: unknown): string
   export function viewAnswerText(view: unknown, answer: unknown): string
+  export function validateViewAnswer(view: unknown, action: unknown, values: unknown): { error?: string }
 }
