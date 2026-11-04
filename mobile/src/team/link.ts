@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
+import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
 // Feed events keep the app live; the poll only stays as a foreground fallback.
@@ -33,9 +34,9 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
 
   const call = useCallback(async (endpoint: string, payload: unknown = {}) => {
     const client = clientRef.current
-    if (client === undefined) throw new Error('Not connected to the computer yet.')
+    if (client === undefined) throw offline()
     await ensureUnlock(endpoint)
-    return callBot(client, endpoint, payload)
+    try { return await callBot(client, endpoint, payload) } catch (failure) { throw localized(failure) }
   }, [])
 
   useEffect(() => {
@@ -106,7 +107,17 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
 
 export function errorText(error: unknown): string {
   const code = (error as { code?: unknown })?.code
-  if (rejected(error)) return 'The computer did not accept this phone. Show a new QR code on the computer and scan it again.'
-  if (code === 'HOST_OFFLINE') return 'The computer is not connected to the Server. Check that DS Bot is open and phone access is on.'
-  return error instanceof Error ? error.message : String(error)
+  if (rejected(error)) return t('The computer did not accept this phone. Show a new QR code on the computer and scan it again.')
+  if (code === 'HOST_OFFLINE') return t('The computer is not connected to the Server. Check that DS Bot is open and phone access is on.')
+  return t(error instanceof Error ? error.message : String(error))
+}
+
+export const offline = () => Object.assign(new Error(t('Not connected to the computer yet.')), { code: 'link/offline' })
+
+// Host errors arrive in the plugin's English; screens show error.message as is.
+function localized(failure: unknown): unknown {
+  // The link dropping mid-call is the same state as being offline.
+  if ((failure as { code?: unknown })?.code === 'TRANSPORT_CLOSED') return offline()
+  if (failure instanceof Error) failure.message = t(failure.message)
+  return failure
 }

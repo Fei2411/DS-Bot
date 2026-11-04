@@ -3,7 +3,7 @@ import type { PhoneIdentity, SavedComputer } from '../store.ts'
 import { listComputers } from '../store.ts'
 import * as SecureStore from 'expo-secure-store'
 import type { TeamState } from '../connection.ts'
-import { useTeamLink } from './link.ts'
+import { offline, useTeamLink } from './link.ts'
 import { demoLink } from './demo.ts'
 
 export const DEMO = process.env.EXPO_PUBLIC_DSB_DEMO === '1'
@@ -18,7 +18,7 @@ export interface TeamCtx {
   onFeed?: (handler: (event: string, data: any) => void) => () => void
 }
 
-const Ctx = createContext<TeamCtx>({ team: null, online: false, error: null, call: async () => { throw new Error('Not connected to the computer yet.') }, computer: null })
+const Ctx = createContext<TeamCtx>({ team: null, online: false, error: null, call: async () => { throw offline() }, computer: null })
 export const useTeam = () => useContext(Ctx)
 
 export function TeamProvider({ computer, identity, children }: { computer: SavedComputer; identity: PhoneIdentity; children: ReactNode }) {

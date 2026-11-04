@@ -28,6 +28,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [gone, setGone] = useState(false)
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
+  // A failed load clears itself on the next good one; a failed send stays until the next send.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   // Each poll loop owns a generation number; a chat switch bumps it so stale
   // loops and in-flight refreshes stop writing instead of fighting the new chat.
@@ -43,12 +45,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       const next = (room !== undefined
         ? await call('room-chat', { roomId: room.id, steps: true })
         : await call('chat', { botId: id, steps: true })) as ChatPage
-      if (generation.current === gen) setPage(next)
+      if (generation.current === gen) { setPage(next); setLoadError(null) }
     } catch (failure) {
       if (generation.current !== gen) return
       const code = (failure as { code?: string })?.code
       if (code === 'bot/not-found') { setGone(true); onMissing?.() }
-      else setError(failure instanceof Error ? failure.message : String(failure))
+      // Offline is the link's state, not this chat's; the reconnect refreshes.
+      else if (code !== 'link/offline') setLoadError(failure instanceof Error ? failure.message : String(failure))
     }
   }, [call, id])
 
@@ -118,8 +121,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // with the 'message' event when the turn's text is saved.
   const [streamText, setStreamText] = useState('')
   const streamAttempts = useRef(new Map<string, string>())
-  const { onFeed } = useTeam()
+  const { onFeed, online } = useTeam()
   useEffect(() => { markSeen(id) }, [id])
+  useEffect(() => { if (online) void refresh(generation.current) }, [online, refresh])
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
@@ -169,10 +173,10 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       {header}
       {gone
         ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
-        : page === null && error !== null
+        : page === null && loadError !== null
           ? <View style={{ alignItems: 'center', marginTop: 24 }}>
-              <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{error}</Text>
-              <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setError(null); void refresh(generation.current) }}>{t('Retry')}</Text>
+              <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{loadError}</Text>
+              <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setLoadError(null); void refresh(generation.current) }}>{t('Retry')}</Text>
             </View>
         : page === null
           ? <ActivityIndicator style={styles.loading} color={p.accent} />
@@ -202,7 +206,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
       <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
-      {error ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
+      {error ?? (page !== null ? loadError : null) ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error ?? loadError}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
