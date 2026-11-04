@@ -1,5 +1,6 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
+import { imPlatform } from '../shared/im-platforms.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { BotMark } from './mark.js'
 import { CheckIcon, CopyIcon } from './icons.js'
@@ -84,7 +85,7 @@ const clock = time => (typeof time === 'number' ? new Date(time).toLocaleTimeStr
 
 // A message that came in over IM names its platform: "via Telegram" by the time.
 export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)
-export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: via }))
+export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: imPlatform(via)?.name ?? via }))
 
 // A sent message, or one that joined a running turn ("steering").
 export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {

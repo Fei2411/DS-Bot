@@ -71,6 +71,7 @@ var ZH = {
   Admin: "管理员",
   Add: "添加",
   Close: "关闭",
+  Collapse: "收起",
   Copy: "复制",
   Copied: "已复制",
   Content: "内容",
@@ -4165,7 +4166,8 @@ var FolderIcon = lineIcon(["M3 6A1.5 1.5 0 0 1 4.5 4.5h3.2l1.8 2h6A1.5 1.5 0 0 1
 var SideIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9L5.5 16v-3h-1A1.5 1.5 0 0 1 3 11.5v-6A1.5 1.5 0 0 1 4.5 4z", "M6.5 7h7", "M6.5 10h4.5"]);
 var GoalIcon = lineIcon(["M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9", "M9 8a3 3 0 1 0 0 6 3 3 0 1 0 0-6", "M9 11l7.5-7.5", "M14.6 2.8v2.6h2.6"]);
 var ChatsIcon = lineIcon(["M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z", "M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13"]);
-var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, usage: GaugeIcon };
+var ImIcon = lineIcon(["M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z", "M8 15.8h4", "M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z"]);
+var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: ImIcon, usage: GaugeIcon };
 
 // src/client/overlay-hooks.js
 var import_react4 = require("react");
@@ -8536,6 +8538,85 @@ function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
   return (0, import_react18.createElement)("div", { className: "bt-btw-stack" }, cards.map((card) => (0, import_react18.createElement)(BtwCardView, { key: card.id, card, sessionId, actions })));
 }
 
+// src/shared/im-platforms.js
+var IM_PLATFORMS = [
+  {
+    id: "telegram",
+    name: "Telegram",
+    fields: [{ key: "token", label: "Bot token", secret: true }],
+    buttons: true,
+    groups: true,
+    help: "https://t.me/BotFather"
+  },
+  {
+    id: "weixin",
+    name: "微信",
+    fields: [],
+    buttons: false,
+    groups: false,
+    login: "qr"
+  },
+  {
+    id: "feishu",
+    name: "飞书 / Lark",
+    fields: [
+      { key: "domain", label: "Domain", options: [["feishu", "飞书"], ["lark", "Lark"]] },
+      { key: "appId", label: "App ID" },
+      { key: "appSecret", label: "App Secret", secret: true }
+    ],
+    buttons: true,
+    groups: true
+  },
+  {
+    id: "dingtalk",
+    name: "钉钉",
+    fields: [
+      { key: "clientId", label: "Client ID" },
+      { key: "clientSecret", label: "Client Secret", secret: true }
+    ],
+    buttons: false,
+    groups: true
+  },
+  {
+    id: "wecom",
+    name: "企业微信",
+    fields: [
+      { key: "botId", label: "Bot ID" },
+      { key: "secret", label: "Secret", secret: true }
+    ],
+    buttons: true,
+    groups: true
+  },
+  {
+    id: "qq",
+    name: "QQ",
+    fields: [
+      { key: "appId", label: "App ID" },
+      { key: "appSecret", label: "App Secret", secret: true }
+    ],
+    buttons: false,
+    groups: true
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    fields: [{ key: "token", label: "Bot token", secret: true }],
+    buttons: true,
+    groups: true
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    fields: [
+      { key: "appToken", label: "App-Level Token", secret: true, hint: "xapp-" },
+      { key: "botToken", label: "Bot Token", secret: true, hint: "xoxb-" }
+    ],
+    buttons: true,
+    groups: true
+  }
+];
+var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id);
+
 // src/client/user-message.js
 var import_react19 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
@@ -8604,7 +8685,7 @@ function CopyButton({ text }) {
 }
 var clock2 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
-var ViaTag = ({ via }) => (0, import_react19.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: via }));
+var ViaTag = ({ via }) => (0, import_react19.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: imPlatform(via)?.name ?? via }));
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
   const roster = useRoster((value) => value);
   const data = node.data ?? {};
@@ -17657,85 +17738,6 @@ function ConnectorsPage({ roster, actions }) {
   );
 }
 
-// src/shared/im-platforms.js
-var IM_PLATFORMS = [
-  {
-    id: "telegram",
-    name: "Telegram",
-    fields: [{ key: "token", label: "Bot token", secret: true }],
-    buttons: true,
-    groups: true,
-    help: "https://t.me/BotFather"
-  },
-  {
-    id: "weixin",
-    name: "微信",
-    fields: [],
-    buttons: false,
-    groups: false,
-    login: "qr"
-  },
-  {
-    id: "feishu",
-    name: "飞书 / Lark",
-    fields: [
-      { key: "domain", label: "Domain", options: [["feishu", "飞书"], ["lark", "Lark"]] },
-      { key: "appId", label: "App ID" },
-      { key: "appSecret", label: "App Secret", secret: true }
-    ],
-    buttons: true,
-    groups: true
-  },
-  {
-    id: "dingtalk",
-    name: "钉钉",
-    fields: [
-      { key: "clientId", label: "Client ID" },
-      { key: "clientSecret", label: "Client Secret", secret: true }
-    ],
-    buttons: false,
-    groups: true
-  },
-  {
-    id: "wecom",
-    name: "企业微信",
-    fields: [
-      { key: "botId", label: "Bot ID" },
-      { key: "secret", label: "Secret", secret: true }
-    ],
-    buttons: true,
-    groups: true
-  },
-  {
-    id: "qq",
-    name: "QQ",
-    fields: [
-      { key: "appId", label: "App ID" },
-      { key: "appSecret", label: "App Secret", secret: true }
-    ],
-    buttons: false,
-    groups: true
-  },
-  {
-    id: "discord",
-    name: "Discord",
-    fields: [{ key: "token", label: "Bot token", secret: true }],
-    buttons: true,
-    groups: true
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    fields: [
-      { key: "appToken", label: "App-Level Token", secret: true, hint: "xapp-" },
-      { key: "botToken", label: "Bot Token", secret: true, hint: "xoxb-" }
-    ],
-    buttons: true,
-    groups: true
-  }
-];
-var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id);
-
 // src/client/im-page.js
 var import_react44 = require("react");
 var SHORT = {
@@ -17798,13 +17800,13 @@ function ConnectionRow({ conn, status, roster, actions }) {
         "span",
         { className: "bt-connector-text" },
         (0, import_react44.createElement)("span", { className: "bt-connector-name" }, conn.account?.name ?? platform.name),
-        (0, import_react44.createElement)("span", { className: "bt-connector-status" }, conn.enabled ? statusText3(status) : t("Disabled"))
+        (0, import_react44.createElement)("span", { className: "bt-connector-status" }, conn.enabled ? `${platform.name} · ${statusText3(status)}` : `${platform.name} · ${t("Disabled")}`)
       ),
       (0, import_react44.createElement)(
         "span",
         { className: "bt-connector-actions" },
         status?.state === "error" ? (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imRetry(conn.id)) }, t("Try again")) : null,
-        (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setOpen((value) => !value) }, open ? t("Close") : t("Manage"))
+        (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setOpen((value) => !value) }, open ? t("Collapse") : t("Manage"))
       )
     ),
     open ? (0, import_react44.createElement)(

@@ -34,6 +34,7 @@ const ZH = {
   Admin: '管理员',
   Add: '添加',
   Close: '关闭',
+  Collapse: '收起',
   Copy: '复制',
   Copied: '已复制',
   Content: '内容',
