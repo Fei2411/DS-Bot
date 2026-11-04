@@ -17,6 +17,12 @@
  */
 export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, preload, onAction = () => {}, log = console }) {
   let win = null
+  // One listener for the indicator's whole life: a listener per open() would
+  // multiply each click on reopen. The check pins it to the current window.
+  ipcMain?.on?.('ds-bot:computer-indicator:act', (event, action, botId) => {
+    if (event?.sender !== win?.webContents) return
+    onAction(String(action ?? ''), botId === '' || botId === undefined || botId === null ? null : String(botId))
+  })
   let entries = []
   let labels = {}
   const open = () => {
@@ -45,12 +51,6 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch (error) { log.warn(`DS Bot: the indicator could not join every workspace: ${error instanceof Error ? error.message : String(error)}`) }
     win.once('ready-to-show', () => { win?.showInactive() })
     win.on('closed', () => { win = null })
-    // Button clicks reach the main process over a dedicated channel through the
-    // indicator's own preload; nothing else may send on it.
-    ipcMain?.on?.('ds-bot:computer-indicator:act', (event, action, botId) => {
-      if (event?.sender !== win?.webContents) return
-      onAction(String(action ?? ''), botId === '' || botId === undefined || botId === null ? null : String(botId))
-    })
     const page = html(entries, labels)
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`).catch((error) => {
       log.warn(`DS Bot: the indicator did not load: ${error instanceof Error ? error.message : String(error)}`)

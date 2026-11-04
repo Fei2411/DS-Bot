@@ -861,3 +861,33 @@ test('browser tools need a resolvable target, and the driver-refused methods den
   await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'once' })
   assert.equal(await pending, 'allowed')
 })
+
+test('launch_app resolves by its own name or path: consent, protected check, recorded app', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (args = {}) => gate({ name: 'cua_driver_native__launch_app', arguments: args, agent: { id: 'w1' }, callId: 'launch' }, allow)
+  // no identifying argument: refused
+  const blind = await call({})
+  assert.equal(blind.kind, 'deny')
+  // a protected path is refused without a card
+  const protectedCall = await call({ path: '/Applications/DSH Computer Use.app' })
+  assert.equal(protectedCall.kind, 'deny')
+  assert.match(protectedCall.reason, /protected/)
+  // an unprotected app asks by card, then runs
+  const pending = call({ name: 'Notes', path: '/Applications/Notes.app' })
+  await new Promise(resolve => setImmediate(resolve))
+  const [id, ask] = Object.entries(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id, answer: 'once' })
+  assert.equal(await pending, 'allowed')
+  // the launched app is recorded: a later call on its window resolves without a card
+  await track({ name: 'cua_driver_native__launch_app', arguments: { path: '/Applications/Notes.app' }, agent: { id: 'w1' }, callId: 'launch-2' },
+    async () => ({ pid: 50, name: 'Notes', path: '/Applications/Notes.app', window_id: 9 }))
+  assert.equal(await gate({ name: 'cua_driver_native__click', arguments: { window_id: 9 }, agent: { id: 'w1' }, callId: 'c9' }, allow), 'allowed')
+})

@@ -107,3 +107,23 @@ test('button actions go over the dedicated channel and only from the indicator',
   assert.deepEqual(calls, [['stop', 'w1']])
   indicator.dispose()
 })
+
+test('a reopen keeps exactly one action listener, so one click acts once', () => {
+  const { windows, BrowserWindow, screen } = fakeElectron()
+  const listeners = {}
+  const ipcMain = { on: (channel, fn) => { (listeners[channel] ??= []).push(fn) } }
+  const calls = []
+  const indicator = createComputerIndicator({
+    BrowserWindow, screen, html: () => '<html></html>', ipcMain,
+    onAction: (kind, botId) => calls.push(kind),
+    log: { warn: () => {} },
+  })
+  indicator.update({ rows: [{ label: 'Chief · Notes', botId: 'w1' }], labels: {} })
+  windows[0].close()
+  indicator.update({ rows: [{ label: 'Chief · Notes', botId: 'w1' }], labels: {} })
+  assert.equal(windows.length, 2)
+  assert.equal(listeners['ds-bot:computer-indicator:act'].length, 1)
+  listeners['ds-bot:computer-indicator:act'][0]({ sender: windows[1].webContents }, 'stop', 'w1')
+  assert.deepEqual(calls, ['stop'])
+  indicator.dispose()
+})

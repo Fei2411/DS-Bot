@@ -53,7 +53,7 @@ export function isProtectedApp(app) {
   if (PROTECTED_IDS.has(id)) return true
   const name = String(app.name ?? '').trim().toLowerCase()
   if (PROTECTED_NAMES.has(name)) return true
-  const base = (String(app.path ?? app.executablePath ?? '').split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.exe?$/i, '')
+  const base = (String(app.path ?? app.executablePath ?? '').split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.(exe|app)$/i, '')
   return PROTECTED_EXES.has(base)
 }
 
@@ -301,6 +301,13 @@ export function install(rt) {
       return appsOfSession(sessionId).get(`handle:${handle}`) ?? { key: `handle:${handle}`, name: 'the selected app', unknown: true }
     }
     const args = exec.arguments ?? {}
+    if (call.method === 'launch_app') {
+      const id = [args.bundle_id, args.bundleId, args.app_id, args.appId].find(value => typeof value === 'string' && value !== '')
+      const path = [args.path, args.app_path, args.executable_path, args.executablePath].find(value => typeof value === 'string' && value !== '')
+      const name = [args.name, args.app_name, args.appName, args.app].find(value => typeof value === 'string' && value !== '')
+      if (id === undefined && path === undefined && name === undefined) return undefined
+      return { key: appKeyOf({ id, path, name }), name: name ?? path ?? id, id, path, tentative: true }
+    }
     const pid = [args.pid, args.appPid, args.windowPid, args.target_pid].find(value => Number.isInteger(value))
     if (pid !== undefined) {
       const known = appsOfSession(sessionId).get(`pid:${pid}`)
@@ -370,6 +377,11 @@ export function install(rt) {
     // record both so a later call on either resolves to the window's app.
     const stateWindow = [result.window_id, result.windowId, result.wid, result.window?.window_id, result.window?.id].find(value => value !== undefined && value !== null)
     const statePid = [result.pid, result.appPid, result.app_pid, result.window?.pid, result.window?.app_pid].find(value => Number.isInteger(value))
+    if (call.method === 'launch_app') {
+      const app = recordPid(result)
+      const windowId = [result.window_id, result.windowId, result.wid].find(value => value !== undefined && value !== null)
+      if (app !== undefined && windowId !== undefined) apps.set(`window:${windowId}`, app)
+    }
     let stateApp = statePid !== undefined ? recordPid(result) ?? apps.get(`pid:${statePid}`) : undefined
     if (stateApp === undefined && stateWindow !== undefined) stateApp = apps.get(`window:${stateWindow}`)
     if (stateApp === undefined && result?.window && typeof result.window === 'object') stateApp = recordPid(result.window)
