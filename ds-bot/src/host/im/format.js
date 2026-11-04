@@ -19,7 +19,7 @@ function inlineHtml(line) {
     .replace(/\*([^*]+)\*/g, '<i>$1</i>')
     .replace(/\b_([^_]+)_\b/g, '<i>$1</i>')
     .replace(/~~([^~]+)~~/g, '<s>$1</s>')
-  return html.replace(/\x00(\d+)\x00/g, (_all, index) => spans[Number(index)])
+  return html.replace(/\u0000(\d+)\u0000/g, (_all, index) => spans[Number(index)])
 }
 
 function inlinePlain(line) {

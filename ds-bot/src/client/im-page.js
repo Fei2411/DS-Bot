@@ -112,6 +112,7 @@ function ConnectionRow({ conn, status, roster, actions }) {
     if (value === null || !value.startsWith('b:')) return
     void run(actions.imUpdate(conn.id, { botId: value.slice(2) }))
   }
+  const removeChat = chatKey => () => void run(actions.imChat(conn.id, { chatKey, remove: true }))
   const setChatTarget = (chatKey, value) => {
     const target = value === null ? null : value.startsWith('b:') ? { botId: value.slice(2) } : { roomId: value.slice(2) }
     void run(actions.imChat(conn.id, { chatKey, target }))
@@ -149,12 +150,12 @@ function ConnectionRow({ conn, status, roster, actions }) {
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.imUnpair(conn.id, entry.id)) }, t('Remove'))))) : null,
       chats.length > 0 ? h('div', { className: 'bt-im-block' },
         h('div', { className: 'bt-im-label' }, t('Chats')),
-        chats.map(([key, chat]) => h('div', { key, className: 'bt-im-line' },
-          h('span', { className: 'bt-im-name' }, chat.title ?? key),
+        chats.map(([chatKey, chat]) => h('div', { key: chatKey, className: 'bt-im-line' },
+          h('span', { className: 'bt-im-name' }, chat.title ?? chatKey),
           chat.kind === 'group'
-            ? h(TargetPicker, { roster, value: targetValue(chat), label: t('Bound to'), onChange: value => setChatTarget(key, value) })
-            : h('span', { className: 'bt-im-label' }, t('Direct'))),
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.imChat(conn.id, { chatKey: key, remove: true })) }, t('Remove')))) : null) : null,
+            ? h(TargetPicker, { roster, value: targetValue(chat), label: t('Bound to'), onChange: value => setChatTarget(chatKey, value) })
+            : h('span', { className: 'bt-im-label' }, t('Direct')),
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: removeChat(chatKey) }, t('Remove'))))) : null) : null,
     error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null)
 }
 

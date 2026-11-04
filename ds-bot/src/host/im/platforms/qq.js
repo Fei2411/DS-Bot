@@ -13,7 +13,7 @@ const TEXT_LIMIT = 2000
 const INTENTS = 1 << 25
 
 const apiBase = env => String(env.config?.api ?? API).replace(/\/+$/, '')
-const tokenBase = env => String(env.config?.token ?? apiBase(env))
+const tokenBase = env => String(env.config?.token ?? TOKEN_API)
 
 const getToken = async (fields, env) => {
   const response = await env.fetch(`${tokenBase(env)}/app/getAppAccessToken`, {

@@ -9,7 +9,6 @@ import { fakeWsServer } from './fake-ws.js'
 async function fakeDiscord() {
   const calls = []
   const replies = {}
-  const sockets = []
   const packets = []
   const http = createServer((req, res) => {
     let body = ''
@@ -74,7 +73,7 @@ const until = async (fn, tries = 80) => {
   return undefined
 }
 
-test('check validates the bot token and names the account', async (t) => {
+test('check validates the bot token and names the account', async () => {
   const fake = await fakeDiscord()
   const { account } = await discord.check({ token: 'tok' }, env(fake))
   assert.deepEqual(account, { id: '81', name: '@fakebot' })

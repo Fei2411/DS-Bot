@@ -35,7 +35,7 @@ export function fakeWsServer({ onSocket, onRequest } = {}) {
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
     const ws = {
       send: data => socket.write(encode(data, Buffer.isBuffer(data) ? 0x82 : 0x81)),
-      close: (code = 1000) => {
+      close: () => {
         try { socket.write(encode('', 0x88)) } catch { /* down */ }
         try { socket.destroy() } catch { /* down */ }
       },

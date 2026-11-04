@@ -509,8 +509,8 @@ test('a weixin QR login creates the connection paired with the scanning owner', 
   const s = await start({ platform: 'weixin', adapter: {
     ...fakeAdapter(),
     id: 'weixin',
-    async loginStart(env) { return { loginId: 'l1', qr: 'weixin://qr/abc', expiresAt: Date.now() + 60_000 } },
-    async loginWait(loginId, env) {
+    async loginStart() { return { loginId: 'l1', qr: 'weixin://qr/abc', expiresAt: Date.now() + 60_000 } },
+    async loginWait() {
       this.waits = (this.waits ?? 0) + 1
       if (this.waits < 2) return { status: 'waiting' }
       return {

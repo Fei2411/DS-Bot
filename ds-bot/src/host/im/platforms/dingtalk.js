@@ -18,7 +18,7 @@ export default {
   id: 'dingtalk',
 
   async check(fields, env) {
-    const { accessToken } = await appToken(fields, env)
+    await appToken(fields, env)
     return { account: { id: String(fields.clientId ?? '').trim(), name: String(fields.clientId ?? '').trim() } }
   },
 
@@ -30,6 +30,13 @@ export default {
     let reconnectTimer
     let token
     let tokenExpiresAt = 0
+    const ensureToken = async () => {
+      if (token !== undefined && tokenExpiresAt > Date.now() + 30_000) return token
+      const answer = await appToken(fields, env)
+      token = answer.accessToken
+      tokenExpiresAt = Date.now() + (Number(answer.expiresIn ?? 7200) * 1000)
+      return token
+    }
     // Passive replies reuse the inbound sessionWebhook while it lives.
     const sessionWebhooks = new Map()
 
@@ -59,13 +66,13 @@ export default {
           continue
         }
         if (chat.kind === 'direct') {
-          const answer = await robot(env, token, clientId, '/v1.0/robot/oToMessages/batchSend', {
+          const answer = await robot(env, await ensureToken(), clientId, '/v1.0/robot/oToMessages/batchSend', {
             robotCode: clientId, userIds: [chat.key],
             msgKey: 'sampleMarkdown', msgParam: { title: chunk.slice(0, 30), text: chunk },
           })
           messageId = String(answer?.processQueryKey ?? messageId ?? '')
         } else {
-          const answer = await robot(env, token, clientId, '/v1.0/robot/groupMessages/send', {
+          const answer = await robot(env, await ensureToken(), clientId, '/v1.0/robot/groupMessages/send', {
             robotCode: clientId, openConversationId: chat.key,
             msgKey: 'sampleMarkdown', msgParam: { title: chunk.slice(0, 30), text: chunk },
           })

@@ -234,7 +234,6 @@ export function install(rt) {
 
   // The newest open card for this chat, and how to answer it.
   const openCard = (conn, chatKey, kind) => {
-    const runner = runners.get(conn.id)
     const data = runtimes.get(conn.id)?.data
     if (data === undefined) return undefined
     for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
@@ -470,7 +469,7 @@ export function install(rt) {
     const runner = runners.get(conn.id)
     const data = runtimes.get(conn.id)?.data
     if (runner?.handle.edit === undefined || data === undefined) return
-    for (const [cardKey, entries] of Object.entries(data.cards)) {
+    for (const entries of Object.values(data.cards)) {
       for (const entry of entries) {
         if (entry.answer === undefined || entry.messageId === undefined || entry.edited === true) continue
         const chat = conn.chats?.[entry.chatKey]

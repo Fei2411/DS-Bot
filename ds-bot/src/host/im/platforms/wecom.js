@@ -84,7 +84,6 @@ export default {
       const direct = body.chattype === 'single'
       // Groups only count when the bot was @-ed: the text keeps the mention.
       const text = String(body.text?.content ?? '').trim()
-      const mentioned = direct ? false : /@/.test(text) && text.includes('@')
       const images = []
       if (body.msgtype === 'image' && body.image?.url !== undefined) {
         const bytes = await downloadImage(body.image, env).catch(() => undefined)

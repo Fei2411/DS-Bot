@@ -15,9 +15,9 @@ var __export = (target, all) => {
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
-    for (let key2 of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key2) && key2 !== except)
-        __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
   }
   return to;
 };
@@ -1364,8 +1364,8 @@ function installLocale(locale) {
     if (typeof off === "function") off();
   };
 }
-function t(key2, params) {
-  return bound ? bound(key2, params) : fill(key2, params);
+function t(key, params) {
+  return bound ? bound(key, params) : fill(key, params);
 }
 function hostText(message) {
   if (!language().startsWith("zh")) return message;
@@ -1613,8 +1613,8 @@ var markSerial = 0;
 var nextMarkSerial = () => markSerial += 1;
 var markupCache = /* @__PURE__ */ new Map();
 function characterMarkup(shape, color) {
-  const key2 = `${shape}|${color}`;
-  let markup = markupCache.get(key2);
+  const key = `${shape}|${color}`;
+  let markup = markupCache.get(key);
   if (markup === void 0) {
     const def = shapeOf(shape);
     const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join("")}${def.eyes.map(happyEyeMarkup).join("")}</g></g>`;
@@ -1622,7 +1622,7 @@ function characterMarkup(shape, color) {
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join("")}</linearGradient>` : "";
     const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`;
     markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`;
-    markupCache.set(key2, markup);
+    markupCache.set(key, markup);
   }
   return markup;
 }
@@ -1895,14 +1895,14 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
     dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
-    noteTurnTime: (sessionId, turn, key2, time) => {
+    noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
         const turns = state[sessionId] ?? {};
         const entry = turns[turn] ?? {};
-        const next = key2 === "first" && entry.first !== void 0 ? Math.min(entry.first, time) : time;
-        if (entry[key2] === next) return state;
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key2]: next } } };
+        const next = key === "first" && entry.first !== void 0 ? Math.min(entry.first, time) : time;
+        if (entry[key] === next) return state;
+        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } };
       });
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
@@ -2014,7 +2014,7 @@ function registerShape(id, shape) {
   const at = shape.eyes?.at;
   if (!Array.isArray(at) || at.length !== 2 || !at.every(isPoint)) throw new Error("A shape needs eyes.at: two [x, y] points");
   const size = Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 100;
-  const pick2 = (key2, fallback) => Number.isFinite(shape.eyes[key2]) ? shape.eyes[key2] : fallback;
+  const pick2 = (key, fallback) => Number.isFinite(shape.eyes[key]) ? shape.eyes[key] : fallback;
   const eyes = at.map(([x, y]) => [x, y, pick2("w", size * 0.1), pick2("h", size * 0.23), pick2("tilt", -27)]);
   const previous = SHAPES[id];
   SHAPES[id] = {
@@ -2039,7 +2039,7 @@ function registerShape(id, shape) {
 function registerTheme(id, theme) {
   if (typeof id !== "string" || !/^[a-z][\w-]{0,31}$/.test(id)) throw new Error("Theme ids are lowercase words");
   for (const mode of ["light", "dark"]) {
-    for (const key2 of THEME_KEYS) if (!isHex(theme?.[mode]?.[key2])) throw new Error(`Theme ${mode}.${key2} must be a #rrggbb color`);
+    for (const key of THEME_KEYS) if (!isHex(theme?.[mode]?.[key])) throw new Error(`Theme ${mode}.${key} must be a #rrggbb color`);
   }
   const previous = customThemes[id];
   customThemes[id] = { label: String(theme.label ?? id), light: theme.light, dark: theme.dark, css: typeof theme.css === "string" ? theme.css : "" };
@@ -2208,7 +2208,7 @@ function isHiddenTurn(roster, sessionId, turn) {
 var toolName = (root) => root.name || root.call?.name;
 function toolArgs(root) {
   if (typeof root.args?.text === "function") {
-    return { text: (key2) => root.args.text(key2) ?? void 0, value: (key2) => typeof root.args.value === "function" ? root.args.value(key2) : void 0 };
+    return { text: (key) => root.args.text(key) ?? void 0, value: (key) => typeof root.args.value === "function" ? root.args.value(key) : void 0 };
   }
   let parsed;
   const object = () => {
@@ -2223,11 +2223,11 @@ function toolArgs(root) {
     return parsed;
   };
   return {
-    text: (key2) => {
-      const value = object()?.[key2];
+    text: (key) => {
+      const value = object()?.[key];
       return typeof value === "string" ? value : void 0;
     },
-    value: (key2) => object()?.[key2]
+    value: (key) => object()?.[key]
   };
 }
 var RELAY_ROLES = /* @__PURE__ */ new Set(["request", "reply", "stopped"]);
@@ -2389,7 +2389,7 @@ function liveSprings(apply2) {
     const steps = Math.ceil(dt * 240);
     const h53 = dt / steps;
     let moving = false;
-    for (const [key2, value] of values) {
+    for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
         value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h53;
         value.x += value.v * h53;
@@ -2398,7 +2398,7 @@ function liveSprings(apply2) {
         value.x = value.to;
         value.v = 0;
       } else moving = true;
-      current[key2] = value.x;
+      current[key] = value.x;
     }
     apply2(current);
     frame = moving ? requestAnimationFrame(step) : 0;
@@ -2407,16 +2407,16 @@ function liveSprings(apply2) {
     target: () => {
       if (!values.size) return null;
       const out = {};
-      for (const [key2, value] of values) out[key2] = value.to;
+      for (const [key, value] of values) out[key] = value.to;
       return out;
     },
     set(targets, curves, jump) {
-      for (const [key2, to] of Object.entries(targets)) {
-        const value = values.get(key2);
-        const { stiffness: k, damping: c } = curves[key2];
+      for (const [key, to] of Object.entries(targets)) {
+        const value = values.get(key);
+        const { stiffness: k, damping: c } = curves[key];
         if (!value || jump) {
-          values.set(key2, { x: to, v: 0, to, k, c });
-          current[key2] = to;
+          values.set(key, { x: to, v: 0, to, k, c });
+          current[key] = to;
         } else Object.assign(value, { to, k, c });
       }
       if (jump) {
@@ -2434,7 +2434,7 @@ function liveSprings(apply2) {
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
-function useGlide(key2, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trail = SPRING_TRAIL, box: given } = {}) {
+function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trail = SPRING_TRAIL, box: given } = {}) {
   const ownBox = (0, import_react.useRef)(null);
   const box = given ?? ownBox;
   const thumb = (0, import_react.useRef)(null);
@@ -2475,9 +2475,9 @@ function useGlide(key2, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, tra
   (0, import_react.useLayoutEffect)(() => {
     const state = own.current;
     const node = box.current;
-    if (node === state.node && key2 === state.key) return;
+    if (node === state.node && key === state.key) return;
     const fresh = node !== state.node;
-    state.key = key2;
+    state.key = key;
     if (fresh) {
       state.observer?.disconnect();
       state.node = node;
@@ -2501,7 +2501,7 @@ function Segmented({ label, value, className, children }) {
     children
   );
 }
-function useFlip(list, key2, selector, id = (node) => node.dataset.flip) {
+function useFlip(list, key, selector, id = (node) => node.dataset.flip) {
   const tops = (0, import_react.useRef)(null);
   (0, import_react.useLayoutEffect)(() => {
     const container = list.current;
@@ -2521,16 +2521,16 @@ function useFlip(list, key2, selector, id = (node) => node.dataset.flip) {
       }
     }
     tops.current = next;
-  }, [key2]);
+  }, [key]);
 }
-function useMorph(box, key2) {
-  const last = (0, import_react.useRef)({ key: key2, height: null, node: null, observer: null });
+function useMorph(box, key) {
+  const last = (0, import_react.useRef)({ key, height: null, node: null, observer: null });
   (0, import_react.useLayoutEffect)(() => {
     const node = box.current;
     const state = last.current;
     if (node !== state.node) {
       state.observer?.disconnect();
-      Object.assign(state, { key: key2, height: null, node, observer: null });
+      Object.assign(state, { key, height: null, node, observer: null });
       if (!node || typeof ResizeObserver !== "function") return;
       state.observer = new ResizeObserver(([entry]) => {
         if (node.dataset.morph === void 0) state.height = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight;
@@ -2538,12 +2538,12 @@ function useMorph(box, key2) {
       state.observer.observe(node);
       return;
     }
-    if (!node || key2 === state.key) return;
+    if (!node || key === state.key) return;
     const running = node.getAnimations().filter((animation2) => animation2.id === "bt-morph");
     const from = running.length ? node.offsetHeight : state.height;
     for (const animation2 of running) animation2.cancel();
     const to = node.offsetHeight;
-    Object.assign(state, { key: key2, height: to });
+    Object.assign(state, { key, height: to });
     if (from === null || Math.abs(from - to) < 1 || reducedMotion()) return;
     node.dataset.morph = "";
     const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: "bt-morph" });
@@ -4026,7 +4026,7 @@ function clusterSeats(count, frame) {
 function RoomAvatar({ room: room2, roster, size = 36 }) {
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const people = members.length === 1 ? [members[0], null] : members;
-  const seat = (bot, seatSize, key2) => bot ? (0, import_react2.createElement)(BotMark, { key: key2, bot, size: seatSize }) : (0, import_react2.createElement)("span", { key: key2, className: "bt-cluster-you", style: { width: seatSize * 0.92, height: seatSize * 0.92, margin: seatSize * 0.04 } });
+  const seat = (bot, seatSize, key) => bot ? (0, import_react2.createElement)(BotMark, { key, bot, size: seatSize }) : (0, import_react2.createElement)("span", { key, className: "bt-cluster-you", style: { width: seatSize * 0.92, height: seatSize * 0.92, margin: seatSize * 0.04 } });
   if (people.length === 0) return (0, import_react2.createElement)(BotMark, { size });
   if (size <= 20 && people.length > 1) {
     return (0, import_react2.createElement)(
@@ -4358,9 +4358,9 @@ function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
   }, [view.stages.length]);
   const control = (action) => void Promise.resolve(actions.goalControl(room2.id, goal.id, action)).catch((error) => actions.reportError(error, "goal"));
   const stage = selected >= 0 ? view.stages[selected] : void 0;
-  const sec = (key2, label, ...body) => (0, import_react5.createElement)(
+  const sec = (key, label, ...body) => (0, import_react5.createElement)(
     "div",
-    { key: key2, className: "bt-goal-sec" },
+    { key, className: "bt-goal-sec" },
     (0, import_react5.createElement)("div", { className: "bt-goal-sub" }, label),
     ...body.map((line, i) => (0, import_react5.createElement)("div", { key: i, className: "bt-goal-text" }, line))
   );
@@ -5112,7 +5112,7 @@ var HANDOFF_CSS = `
 // node_modules/deep-view/src/react/ui.js
 var import_react10 = require("react");
 var FallbackMarkdown = ({ text }) => (0, import_react10.createElement)("span", null, String(text ?? ""));
-var ViewUi = (0, import_react10.createContext)({ t: (key2) => key2, Markdown: FallbackMarkdown });
+var ViewUi = (0, import_react10.createContext)({ t: (key) => key, Markdown: FallbackMarkdown });
 var useViewUi = () => (0, import_react10.useContext)(ViewUi);
 var lineIcon2 = (paths) => function LineIcon() {
   return (0, import_react10.createElement)(
@@ -5522,7 +5522,7 @@ function normalizeView(value) {
     if (Array.isArray(inner)) return inner;
   }
   const out = {};
-  for (const key2 of keys) Object.defineProperty(out, key2, { value: normalizeView(value[key2]), writable: true, enumerable: true, configurable: true });
+  for (const key of keys) Object.defineProperty(out, key, { value: normalizeView(value[key]), writable: true, enumerable: true, configurable: true });
   for (const field of NUMERIC) if (Object.hasOwn(out, field)) out[field] = numeric(out[field]);
   if (Array.isArray(out.values)) out.values = out.values.map(numeric);
   return out;
@@ -5555,9 +5555,9 @@ function checkNode(node, path, depth, ctx) {
   const type = node.type;
   if (!COMPONENTS.includes(type)) return `${path}.type: unknown component ${quoted(type)}; allowed: ${allowed(COMPONENTS)}`;
   const props = PROPS[type];
-  for (const key2 of Object.keys(node)) {
-    if (key2 === "type" || props.includes(key2)) continue;
-    return `${path}.${key2}: unknown property ${quoted(key2)}; allowed: ${allowed(props)}`;
+  for (const key of Object.keys(node)) {
+    if (key === "type" || props.includes(key)) continue;
+    return `${path}.${key}: unknown property ${quoted(key)}; allowed: ${allowed(props)}`;
   }
   if (INTERACTIVE.has(type)) ctx.interactive = true;
   switch (type) {
@@ -5615,9 +5615,9 @@ function checkLayout(node, path, depth, ctx) {
   }
   return void 0;
 }
-function checkValue(node, key2, path, ctx, kind, { required = false, max = MAX_TEXT } = {}) {
-  const value = node[key2];
-  const at = `${path}.${key2}`;
+function checkValue(node, key, path, ctx, kind, { required = false, max = MAX_TEXT } = {}) {
+  const value = node[key];
+  const at = `${path}.${key}`;
   if (value === void 0) return required ? `${at}: ${expected(kind)}` : void 0;
   if (isFormula(value)) {
     ctx.formulas.push({ source: value["="], path: at, kind });
@@ -5649,8 +5649,8 @@ function checkTable(node, path, ctx) {
     const column = node.columns[index];
     const at = `${path}.columns[${index}]`;
     if (!isRecord(column)) return `${at}: expected a column object`;
-    for (const key2 of Object.keys(column)) {
-      if (key2 !== "key" && key2 !== "label") return `${at}.${key2}: unknown property ${quoted(key2)}; allowed: key, label`;
+    for (const key of Object.keys(column)) {
+      if (key !== "key" && key !== "label") return `${at}.${key}: unknown property ${quoted(key)}; allowed: key, label`;
     }
     if (typeof column.key !== "string" || column.key === "") return `${at}.key: expected a non-empty string`;
     if (typeof column.label !== "string") return `${at}.label: expected a string`;
@@ -5685,8 +5685,8 @@ function checkChart(node, path, ctx) {
     const series = node.series[index];
     const at = `${path}.series[${index}]`;
     if (!isRecord(series)) return `${at}: expected a series object`;
-    for (const key2 of Object.keys(series)) {
-      if (key2 !== "name" && key2 !== "values") return `${at}.${key2}: unknown property ${quoted(key2)}; allowed: name, values`;
+    for (const key of Object.keys(series)) {
+      if (key !== "name" && key !== "values") return `${at}.${key}: unknown property ${quoted(key)}; allowed: name, values`;
     }
     if (series.name !== void 0 && typeof series.name !== "string") return `${at}.name: expected a string`;
     if (!Array.isArray(series.values)) return `${at}.values: expected an array of numbers`;
@@ -5720,8 +5720,8 @@ function checkSources(node, path) {
     const item = node.items[index];
     const at = `${path}.items[${index}]`;
     if (!isRecord(item)) return `${at}: expected a { label, url } object`;
-    for (const key2 of Object.keys(item)) {
-      if (key2 !== "label" && key2 !== "url") return `${at}.${key2}: unknown property ${quoted(key2)}; allowed: label, url`;
+    for (const key of Object.keys(item)) {
+      if (key !== "label" && key !== "url") return `${at}.${key}: unknown property ${quoted(key)}; allowed: label, url`;
     }
     if (typeof item.label !== "string" || item.label.trim() === "") return `${at}.label: expected a non-empty string`;
     if (typeof item.url !== "string" || !/^https?:\/\/[^\s]+$/i.test(item.url)) return `${at}.url: expected an http(s) address`;
@@ -5744,8 +5744,8 @@ function checkInputId(node, path, ctx) {
 function checkNumberInput(node, path, ctx) {
   const idError = checkInputId(node, path, ctx);
   if (idError !== void 0) return idError;
-  for (const key2 of ["min", "max", "step"]) {
-    if (node[key2] !== void 0 && !isNumber(node[key2])) return `${path}.${key2}: expected a number`;
+  for (const key of ["min", "max", "step"]) {
+    if (node[key] !== void 0 && !isNumber(node[key])) return `${path}.${key}: expected a number`;
   }
   if (node.type === "slider" && (node.min === void 0 || node.max === void 0)) return `${path}: a slider needs min and max`;
   if (node.min !== void 0 && node.max !== void 0 && node.max <= node.min) return `${path}.max: expected more than min (${node.min})`;
@@ -5766,8 +5766,8 @@ function checkChoice(node, path, ctx) {
     const option = node.options[index];
     const at = `${path}.options[${index}]`;
     if (!isRecord(option)) return `${at}: expected a { label, value } object`;
-    for (const key2 of Object.keys(option)) {
-      if (key2 !== "label" && key2 !== "value") return `${at}.${key2}: unknown property ${quoted(key2)}; allowed: label, value`;
+    for (const key of Object.keys(option)) {
+      if (key !== "label" && key !== "value") return `${at}.${key}: unknown property ${quoted(key)}; allowed: label, value`;
     }
     if (typeof option.label !== "string" || option.label.trim() === "") return `${at}.label: expected a non-empty string`;
     if (labels.has(option.label)) return `${at}.label: duplicate label ${quoted(option.label)}`;
@@ -5800,8 +5800,8 @@ function checkOptions(node, path, ctx) {
     const option = node.options[index];
     const at = `${path}.options[${index}]`;
     if (!isRecord(option)) return `${at}: expected an option object`;
-    for (const key2 of Object.keys(option)) {
-      if (key2 !== "label" && key2 !== "description") return `${at}.${key2}: unknown property ${quoted(key2)}; allowed: label, description`;
+    for (const key of Object.keys(option)) {
+      if (key !== "label" && key !== "description") return `${at}.${key}: unknown property ${quoted(key)}; allowed: label, description`;
     }
     if (typeof option.label !== "string" || option.label.trim() === "") return `${at}.label: expected a non-empty string`;
     if (labels.has(option.label)) return `${at}.label: duplicate label ${quoted(option.label)}`;
@@ -5828,8 +5828,8 @@ function checkForm(node, path, ctx) {
     const field = node.fields[index];
     const at = `${path}.fields[${index}]`;
     if (!isRecord(field)) return `${at}: expected a field object`;
-    for (const key2 of Object.keys(field)) {
-      if (key2 !== "id" && key2 !== "label" && key2 !== "placeholder") return `${at}.${key2}: unknown property ${quoted(key2)}; allowed: id, label, placeholder`;
+    for (const key of Object.keys(field)) {
+      if (key !== "id" && key !== "label" && key !== "placeholder") return `${at}.${key}: unknown property ${quoted(key)}; allowed: id, label, placeholder`;
     }
     if (typeof field.id !== "string" || field.id === "") return `${at}.id: expected a non-empty string`;
     if (field.id === "__proto__") return `${at}.id: "__proto__" cannot be an id`;
@@ -6035,7 +6035,7 @@ function validateInputs(view, sent) {
   if (sent !== void 0 && !isRecord(sent)) return { error: "values.inputs: expected an object of input ids to values" };
   const given = sent ?? {};
   const ids = nodes.map((node) => node.id);
-  const unknown = Object.keys(given).find((key2) => !ids.includes(key2));
+  const unknown = Object.keys(given).find((key) => !ids.includes(key));
   if (unknown !== void 0) return { error: `values.inputs.${unknown}: unknown input; allowed: ${allowed(ids)}` };
   const inputs = {};
   for (const node of nodes) {
@@ -6068,11 +6068,11 @@ function validateForm(node, values) {
   const declared = (node.fields ?? []).map((field) => field?.id).filter((id) => typeof id === "string");
   const allowedIds = new Set(declared);
   const fields = {};
-  for (const [key2, value] of Object.entries(values.fields)) {
-    if (!allowedIds.has(key2)) return { error: `values.fields.${key2}: unknown field; allowed: ${allowed(declared)}` };
-    if (typeof value !== "string") return { error: `values.fields.${key2}: expected a string` };
-    if (value.length > MAX_TEXT) return { error: `values.fields.${key2}: ${value.length} characters exceeds the limit of ${MAX_TEXT}` };
-    fields[key2] = value;
+  for (const [key, value] of Object.entries(values.fields)) {
+    if (!allowedIds.has(key)) return { error: `values.fields.${key}: unknown field; allowed: ${allowed(declared)}` };
+    if (typeof value !== "string") return { error: `values.fields.${key}: expected a string` };
+    if (value.length > MAX_TEXT) return { error: `values.fields.${key}: ${value.length} characters exceeds the limit of ${MAX_TEXT}` };
+    fields[key] = value;
   }
   return { fields };
 }
@@ -6130,7 +6130,7 @@ function chartData(node, lookup) {
   return { kind: node.kind ?? "bar", categories, series, unit: typeof node.unit === "string" ? node.unit : "" };
 }
 var csvCell = (value) => /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-function chartCsv({ categories, series, unit }, t2 = (key2) => key2) {
+function chartCsv({ categories, series, unit }, t2 = (key) => key) {
   const head = ["", ...series.map((item, index) => item.name || (series.length === 1 ? unit || t2("Value") : `${t2("Series")} ${index + 1}`))];
   const rows2 = categories.map((label, at) => [label, ...series.map((item) => String(item.values[at]))]);
   return [head, ...rows2].map((row) => row.map((cell) => csvCell(String(cell))).join(",")).join("\n");
@@ -7062,11 +7062,11 @@ function useChartHandles() {
   if (fns.current === null) {
     const refresh = () => bump((value) => value + 1);
     fns.current = {
-      registerChart: (key2, handle) => {
-        charts.current.set(key2, handle);
+      registerChart: (key, handle) => {
+        charts.current.set(key, handle);
         refresh();
         return () => {
-          charts.current.delete(key2);
+          charts.current.delete(key);
           refresh();
         };
       },
@@ -7104,14 +7104,14 @@ function ViewMenu({ charts }) {
     const away = (event) => {
       if (!root.current?.contains(event.target)) setOpen(false);
     };
-    const key2 = (event) => {
+    const key = (event) => {
       if (event.key === "Escape") setOpen(false);
     };
     document.addEventListener("pointerdown", away, true);
-    document.addEventListener("keydown", key2);
+    document.addEventListener("keydown", key);
     return () => {
       document.removeEventListener("pointerdown", away, true);
-      document.removeEventListener("keydown", key2);
+      document.removeEventListener("keydown", key);
     };
   }, [open]);
   const pick2 = (run2) => () => {
@@ -7411,7 +7411,7 @@ function viewAnswerText(view, answer) {
   if (Array.isArray(values.selected)) {
     const labels = /* @__PURE__ */ new Map();
     eachNode(view, (node) => {
-      for (const option of Array.isArray(node.options) ? node.options : []) for (const key2 of [option?.label, option?.value]) if (key2 !== void 0) labels.set(key2, option?.label);
+      for (const option of Array.isArray(node.options) ? node.options : []) for (const key of [option?.label, option?.value]) if (key !== void 0) labels.set(key, option?.label);
     });
     parts.push(...values.selected.map((value) => labels.get(value) ?? String(value)));
   } else if (typeof values.confirmed === "boolean") {
@@ -7428,14 +7428,14 @@ function viewAnswerText(view, answer) {
     eachNode(view, (node) => {
       for (const field of Array.isArray(node.fields) ? node.fields : []) labels.set(field?.id, field?.label ?? field?.id);
     });
-    parts.push(...Object.entries(values.fields).map(([key2, value]) => `${labels.get(key2) ?? key2}: ${value}`));
+    parts.push(...Object.entries(values.fields).map(([key, value]) => `${labels.get(key) ?? key}: ${value}`));
   }
   if (isRecord2(values.inputs)) {
     const labels = /* @__PURE__ */ new Map();
     eachNode(view, (node) => {
       if (typeof node.id === "string" && node.label !== void 0) labels.set(node.id, node.label);
     });
-    parts.push(...Object.entries(values.inputs).map(([key2, value]) => `${labels.get(key2) ?? key2}=${value}`));
+    parts.push(...Object.entries(values.inputs).map(([key, value]) => `${labels.get(key) ?? key}=${value}`));
   }
   const text = parts.join("; ");
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
@@ -7462,7 +7462,7 @@ function actionSummary(answer, view) {
   let text;
   if (Array.isArray(values.selected)) text = `selected: ${values.selected.join(", ")}`;
   else if (typeof values.confirmed === "boolean") text = values.confirmed ? "confirmed" : "cancelled";
-  else if (isRecord2(values.fields)) text = Object.entries(values.fields).map(([key2, value]) => `${key2}: ${value}`).join("; ");
+  else if (isRecord2(values.fields)) text = Object.entries(values.fields).map(([key, value]) => `${key}: ${value}`).join("; ");
   else if (inputs !== "") text = "";
   else text = typeof answer.action === "string" && answer.action !== "" ? answer.action : "(skipped)";
   if (inputs !== "") text = text === "" ? inputs : `${text}; ${inputs}`;
@@ -7481,7 +7481,7 @@ Answer: ${actionSummary(answer, view.view)}`;
 
 // src/client/widget-cell.js
 var import_react14 = require("react");
-var viewT = (key2, params) => key2 === "Send" ? t("Send to Bot") : t(key2, params);
+var viewT = (key, params) => key === "Send" ? t("Send to Bot") : t(key, params);
 var VIEW_UI = { t: viewT, Markdown: import_dsh_client_ui_primitives.MarkdownText };
 var Card = (props) => (0, import_react14.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react14.createElement)(WidgetCard, props));
 var withUi = (Component) => (props) => (0, import_react14.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react14.createElement)(Component, props));
@@ -8827,7 +8827,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
 );
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
-  const key2 = msgKey ? `${msgKey}:${index}` : void 0;
+  const key = msgKey ? `${msgKey}:${index}` : void 0;
   const body = shown === "" ? null : (0, import_react20.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels3(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react20.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react20.useState)(false);
@@ -8850,7 +8850,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
         control ? (0, import_react20.createElement)("div", { className: "bt-fold-body" }, area) : area,
         control
       ),
-      live ? null : (0, import_react20.createElement)(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t("Bot"), sessionId, react: key2 ? (emoji) => actions.toggleReaction(msgKey, index, emoji) : void 0, actions, open: toolsOpen })
+      live ? null : (0, import_react20.createElement)(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t("Bot"), sessionId, react: key ? (emoji) => actions.toggleReaction(msgKey, index, emoji) : void 0, actions, open: toolsOpen })
     ),
     picked.length ? (0, import_react20.createElement)("div", { className: "bt-reacts" }, picked.map((emoji) => (0, import_react20.createElement)("button", {
       key: emoji,
@@ -8947,21 +8947,21 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
 }
 var thinkingTimes = /* @__PURE__ */ new Map();
 function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
-  const key2 = `${sessionId}:${turn}:${settledSteps}`;
-  const [ms, setMs] = (0, import_react20.useState)(() => thinkingTimes.get(key2));
+  const key = `${sessionId}:${turn}:${settledSteps}`;
+  const [ms, setMs] = (0, import_react20.useState)(() => thinkingTimes.get(key));
   (0, import_react20.useEffect)(() => {
-    if (skip || thinkingTimes.has(key2)) {
-      setMs(thinkingTimes.get(key2));
+    if (skip || thinkingTimes.has(key)) {
+      setMs(thinkingTimes.get(key));
       return void 0;
     }
     const control = new AbortController();
     call("thinking", { sessionId, turn }, control.signal).then((value) => {
-      thinkingTimes.set(key2, value?.ms);
+      thinkingTimes.set(key, value?.ms);
       setMs(value?.ms);
     }).catch(() => {
     });
     return () => control.abort();
-  }, [key2, skip]);
+  }, [key, skip]);
   return ms;
 }
 var rowViews = /* @__PURE__ */ new Map();
@@ -9346,39 +9346,39 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
   }
   let before;
   return rows2.flatMap((row, index) => {
-    const key2 = rows2.length - index;
-    const shown = chatRow(row, key2, { sessionId, selfId, roster, actions, useUi, onBtwDelete });
+    const key = rows2.length - index;
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];
     }
     const pause = clock4 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
     if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
-    return pause ? [(0, import_react20.createElement)("div", { key: `${key2}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
+    return pause ? [(0, import_react20.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
 }
-function chatRow(row, key2, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
   switch (row.kind) {
     case "divider":
-      return (0, import_react20.createElement)(PartLine, { key: key2, time: row.time });
+      return (0, import_react20.createElement)(PartLine, { key, time: row.time });
     case "user":
-      return (0, import_react20.createElement)(EarlierUser, { key: key2, row, actions });
+      return (0, import_react20.createElement)(EarlierUser, { key, row, actions });
     case "answer":
-      return (0, import_react20.createElement)(AnsweredReply, { key: key2, node: { data: row } });
+      return (0, import_react20.createElement)(AnsweredReply, { key, node: { data: row } });
     // A display-only view replays from the blueprint the host kept on the call.
     case "view":
-      return (0, import_react20.createElement)(WidgetCell, { key: key2, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
+      return (0, import_react20.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react20.createElement)(Bubbles, { key: key2, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE });
+      const bubbles = (0, import_react20.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
-      return speaker ? (0, import_react20.createElement)(import_react20.Fragment, { key: key2 }, (0, import_react20.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
+      return speaker ? (0, import_react20.createElement)(import_react20.Fragment, { key }, (0, import_react20.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
     }
     case "btw":
-      return (0, import_react20.createElement)(BtwCardView, { key: key2, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
+      return (0, import_react20.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
     case "post": {
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
       return (0, import_react20.createElement)(GroupMessage, {
-        key: key2,
+        key,
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
         texts: row.texts,
@@ -9394,13 +9394,13 @@ function chatRow(row, key2, { sessionId, selfId, roster, actions, useUi, onBtwDe
     case "relay": {
       const reply = row.reply;
       const speaker = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name ?? t("a Bot"), color: reply.color ?? "gray" };
-      return (0, import_react20.createElement)(RelayEvent, { key: key2, reply, bot: speaker, sessionId, actions });
+      return (0, import_react20.createElement)(RelayEvent, { key, reply, bot: speaker, sessionId, actions });
     }
     case "event": {
-      if (row.role === "report") return (0, import_react20.createElement)(GroupEvent, { key: key2, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
+      if (row.role === "report") return (0, import_react20.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
       const prefix = { stopped: t("Stopped by"), reply: t("Reply from") }[row.role] ?? t("Message from");
-      return (0, import_react20.createElement)(EventLine, { key: key2, prefix, bots: [other], onOpen: () => {
+      return (0, import_react20.createElement)(EventLine, { key, prefix, bots: [other], onOpen: () => {
         if (selfId && other.id) actions.openExchange(selfId, other.id);
       }, whole: true });
     }
@@ -9426,7 +9426,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   const peers = useTurnClock((state) => {
     if (!relayed) return "";
     const turns = state[sessionId] ?? {};
-    return Object.keys(turns).filter((key2) => turns[key2].peer !== void 0).map((key2) => `${key2}:${turns[key2].peer}`).join(",");
+    return Object.keys(turns).filter((key) => turns[key].peer !== void 0).map((key) => `${key}:${turns[key].peer}`).join(",");
   });
   const visit = useUi((state) => state.visits?.[sessionId]);
   const hiddenTurns = roster.exchangeTurns[sessionId];
@@ -9522,9 +9522,9 @@ function Nothing() {
 var SEPARATOR_GAP_MS = 30 * 60 * 1e3;
 function nextTurnStart(turns, turn) {
   let next;
-  for (const key2 in turns) {
-    const candidate = Number(key2);
-    if (candidate > turn && turns[key2].first !== void 0 && (next === void 0 || candidate < next)) next = candidate;
+  for (const key in turns) {
+    const candidate = Number(key);
+    if (candidate > turn && turns[key].first !== void 0 && (next === void 0 || candidate < next)) next = candidate;
   }
   return next === void 0 ? void 0 : turns[next].first;
 }
@@ -9532,7 +9532,7 @@ function openingTurn(turns, firstTurns, hiddenTurns) {
   if (!turns || !firstTurns) return null;
   const start = nextTurnStart(turns, -Infinity);
   if (start === void 0) return null;
-  const turn = Number(Object.keys(turns).filter((key2) => turns[key2].first === start)[0]);
+  const turn = Number(Object.keys(turns).filter((key) => turns[key].first === start)[0]);
   const listed = firstTurns.split(",").map(Number);
   const earlier = listed.filter((entry) => entry < turn);
   return listed.includes(turn) && earlier.every((entry) => hiddenTurns?.includes(entry)) ? { turn, start } : null;
@@ -9647,12 +9647,12 @@ function workPhrase(doing) {
   return target ? `${label} · ${target}` : label;
 }
 function useLiveNote(actions, sessionId, id, entry) {
-  const key2 = entry ? JSON.stringify(entry) : "";
+  const key = entry ? JSON.stringify(entry) : "";
   (0, import_react20.useEffect)(() => {
-    if (!key2) return void 0;
-    actions.noteLive(sessionId, id, JSON.parse(key2));
+    if (!key) return void 0;
+    actions.noteLive(sessionId, id, JSON.parse(key));
     return () => actions.noteLive(sessionId, id, null);
-  }, [sessionId, id, key2]);
+  }, [sessionId, id, key]);
 }
 function RelayEvent({ reply, bot, sessionId, actions }) {
   if (reply.kind === "failed") {
@@ -9722,9 +9722,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       const result = await actions.roomProgress(sessionId);
       if (stop) return;
       const entry = (result ?? []).find((item) => item.callId === callId) ?? (result ?? [])[0];
-      const key2 = entry ? JSON.stringify([entry.replies, entry.speaking]) : "";
-      if (entry && key2 !== seen) {
-        seen = key2;
+      const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : "";
+      if (entry && key !== seen) {
+        seen = key;
         setLive({ replies: entry.replies ?? [], speaking: [entry.speaking ?? []].flat() });
       }
       timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
@@ -9761,7 +9761,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           "div",
           { key: `user-${index}`, className: "bt-urow" },
           (0, import_react20.createElement)("div", { className: "bt-ububble" }, (0, import_react20.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: reply.text, labels: mdLabels3(), variant: "compact" })),
-          Number.isFinite(time) ? (0, import_react20.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, messageClock(time)) : null
+          reply.via !== void 0 || Number.isFinite(time) ? (0, import_react20.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, ...reply.via !== void 0 ? [(0, import_react20.createElement)(ViaTag, { key: "via", via: reply.via })] : [], Number.isFinite(time) ? messageClock(time) : null) : null
         );
       }
       if (reply.kind !== void 0) {
@@ -9806,13 +9806,13 @@ function callTree(root) {
   return calls;
 }
 function useShownCards(actions, sessionId, callIds) {
-  const key2 = JSON.stringify(callIds);
+  const key = JSON.stringify(callIds);
   (0, import_react20.useLayoutEffect)(() => {
-    const ids = JSON.parse(key2);
+    const ids = JSON.parse(key);
     if (ids.length === 0 || !actions.noteCards) return void 0;
     actions.noteCards(sessionId, ids, 1);
     return () => actions.noteCards(sessionId, ids, -1);
-  }, [sessionId, key2]);
+  }, [sessionId, key]);
 }
 function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks }) {
   const tool = toolName(call2);
@@ -10121,19 +10121,19 @@ var STORAGE = {
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
 var LEGACY_THEMES = { grok: "mono" };
-function legacyKeys(key2) {
-  if (key2 === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
-  const name = key2.slice(key2.indexOf(":") + 1);
+function legacyKeys(key) {
+  if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
+  const name = key.slice(key.indexOf(":") + 1);
   return LEGACY_PREFIXES.map((prefix) => `${prefix}${name}`);
 }
 var migrateBrowsers = (storage) => {
   if (storage.getItem(STORAGE.browsers) !== null) {
-    for (const key2 of LEGACY_BROWSER_KEYS) storage.removeItem(key2);
+    for (const key of LEGACY_BROWSER_KEYS) storage.removeItem(key);
     return;
   }
-  for (const key2 of LEGACY_BROWSER_KEYS) {
+  for (const key of LEGACY_BROWSER_KEYS) {
     try {
-      const value = storage.getItem(key2);
+      const value = storage.getItem(key);
       if (value === null) continue;
       const previous = JSON.parse(value) ?? {};
       const tabs = Object.fromEntries(Object.entries(previous).filter(([, page]) => page && typeof page === "object").map(([botId, page]) => {
@@ -10148,12 +10148,12 @@ var migrateBrowsers = (storage) => {
   }
 };
 function migrateStorage(storage = globalThis.localStorage) {
-  for (const key2 of Object.values(STORAGE)) {
-    if (key2 === STORAGE.browsers) continue;
-    for (const legacy of legacyKeys(key2)) {
+  for (const key of Object.values(STORAGE)) {
+    if (key === STORAGE.browsers) continue;
+    for (const legacy of legacyKeys(key)) {
       try {
         const value = storage.getItem(legacy);
-        if (value !== null && storage.getItem(key2) === null) storage.setItem(key2, value);
+        if (value !== null && storage.getItem(key) === null) storage.setItem(key, value);
         storage.removeItem(legacy);
       } catch {
       }
@@ -10608,7 +10608,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
     )
   );
 }
-function useListGlide(listRef, layout, key2) {
+function useListGlide(listRef, layout, key) {
   const tops = (0, import_react22.useRef)({ layout, map: /* @__PURE__ */ new Map() });
   (0, import_react22.useLayoutEffect)(() => {
     const list = listRef.current;
@@ -10625,7 +10625,7 @@ function useListGlide(listRef, layout, key2) {
       }
     }
     tops.current = { layout, map: next };
-  }, [layout, key2]);
+  }, [layout, key]);
 }
 function LeftColumn({ mode, width, onGrip, leaving, children }) {
   return (0, import_react_dom3.createPortal)((0, import_react22.createElement)(
@@ -11179,7 +11179,7 @@ function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboardi
   const account = (0, import_react22.useSyncExternalStore)(accountSource?.subscribe ?? NO_SUBSCRIBE, accountSource ? () => accountSource.getSnapshot() : NO_SNAPSHOT);
   const signedIn = signIn !== null && typeof ops.signOut === "function" && account?.view?.status === "credential-stored";
   const signedOut = signIn !== null && typeof actions.signIn === "function" && account?.view?.status === "signed-out";
-  const accountT = actions.accountT?.() ?? ((key2) => key2);
+  const accountT = actions.accountT?.() ?? ((key) => key);
   const [confirm, setConfirm] = (0, import_react22.useState)(null);
   const [busy, setBusy] = (0, import_react22.useState)(false);
   const [signOutError, setSignOutError] = (0, import_react22.useState)("");
@@ -11313,8 +11313,8 @@ function useReportReady(drawn, roster) {
 }
 function mainMarkOf(id) {
   if (typeof document === "undefined") return null;
-  const key2 = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
-  return document.querySelector(`.bt-side [data-bot-id="${key2}"] .bt-mark`);
+  const key = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
+  return document.querySelector(`.bt-side [data-bot-id="${key}"] .bt-mark`);
 }
 function mainAvatarPlace(roster) {
   const main = roster?.byId?.[roster.mainBotId];
@@ -11652,7 +11652,7 @@ function useTranscriptView() {
         top: Math.round(headerBottom + 8),
         bottom: Math.round(viewBottom() - box.bottom + composer + 8)
       };
-      setView((prev) => prev && Object.keys(next).every((key2) => prev[key2] === next[key2]) ? prev : next);
+      setView((prev) => prev && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -12623,9 +12623,9 @@ function surfaceGroups(install, { onError } = {}) {
   };
   return api;
 }
-function freePriority(entries2, { priority, key: key2, id }) {
+function freePriority(entries2, { priority, key, id }) {
   if (priority === void 0) return void 0;
-  const taken = entries2.filter((entry) => (key2 === void 0 || entry.options?.key === key2) && (id === void 0 || entry.options?.id === id)).map((entry) => (entry.options?.priority ?? 0) - 1);
+  const taken = entries2.filter((entry) => (key === void 0 || entry.options?.key === key) && (id === void 0 || entry.options?.id === id)).map((entry) => (entry.options?.priority ?? 0) - 1);
   return Math.min(priority, ...taken);
 }
 function readMode(storage = globalThis.localStorage) {
@@ -14202,7 +14202,7 @@ function Field({ label, value, onChange, multiline = false, disabled = false, pl
 }
 function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
   const [error, setError] = (0, import_react31.useState)("");
-  const set = (key2, value) => setDraft((previous) => ({ ...previous, [key2]: value }));
+  const set = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
   const submit = async (event) => {
     event.preventDefault();
     setError("");
@@ -14659,10 +14659,10 @@ function Summary({ owner, view, regenerate }) {
   );
 }
 var groupEntries = (entries2) => entries2.reduce((groups, entry) => {
-  const key2 = `${entry.scope}:${entry.topic ?? ""}`;
-  const group = groups.find((item) => item.key === key2);
+  const key = `${entry.scope}:${entry.topic ?? ""}`;
+  const group = groups.find((item) => item.key === key);
   if (group) group.entries.push(entry);
-  else groups.push({ key: key2, scope: entry.scope, topic: entry.topic, entries: [entry] });
+  else groups.push({ key, scope: entry.scope, topic: entry.topic, entries: [entry] });
   return groups;
 }, []);
 function EntryRow({ entry, remove }) {
@@ -15900,9 +15900,9 @@ function ExchangeDialog({ pair, roster, actions }) {
     const load = async () => {
       const result = await actions.exchange(pair[0], pair[1]);
       if (stop) return;
-      const key2 = JSON.stringify(result ?? []);
-      if (key2 !== seen) {
-        seen = key2;
+      const key = JSON.stringify(result ?? []);
+      if (key !== seen) {
+        seen = key;
         setEntries(result ?? []);
       }
       timer = setTimeout(load, document.hidden ? 8e3 : 2e3);
@@ -16668,7 +16668,7 @@ var RANGES = [
   { id: "12w", unit: "week", count: 12, stride: 2 },
   { id: "12m", unit: "month", count: 12, stride: 1 }
 ];
-var hourMs = (key2) => Date.UTC(Number(key2.slice(0, 4)), Number(key2.slice(5, 7)) - 1, Number(key2.slice(8, 10)), Number(key2.slice(11, 13)) || 0);
+var hourMs = (key) => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)), Number(key.slice(11, 13)) || 0);
 var dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 var hourKey = (ms) => new Date(ms).toISOString().slice(0, 13).replace("T", " ");
 var mondayOf = (ms) => ms - (new Date(ms).getUTCDay() + 6) % 7 * DAY_MS;
@@ -16732,8 +16732,8 @@ function addRow(sum, row) {
   sum.total += tokensOf(row);
   return sum;
 }
-function addTo(map, key2, row) {
-  map.set(key2, addRow(map.get(key2) ?? blank2(), row));
+function addTo(map, key, row) {
+  map.set(key, addRow(map.get(key) ?? blank2(), row));
 }
 function summarize(view, range, keep = () => true, seriesOf = () => "all") {
   const { buckets, from, to, before } = spanOf(range, view.now);
@@ -16983,7 +16983,7 @@ function Chart({ range, columns: columns2, series, tipSeries, by, onBy, onPick }
           }, column.total > 0 ? (0, import_react42.createElement)(
             "div",
             { className: "bt-us-stack", style: { height: `${column.total / top * 100}%`, "--i": at } },
-            column.parts.map(([key2, value]) => value > 0 ? (0, import_react42.createElement)("i", { key: key2, style: { flexGrow: value, background: fillOf.get(key2) } }) : null)
+            column.parts.map(([key, value]) => value > 0 ? (0, import_react42.createElement)("i", { key, style: { flexGrow: value, background: fillOf.get(key) } }) : null)
           ) : (0, import_react42.createElement)("div", { className: "bt-us-stub" })))
         ),
         tip ? (0, import_react42.createElement)(
@@ -16991,11 +16991,11 @@ function Chart({ range, columns: columns2, series, tipSeries, by, onBy, onPick }
           { className: "bt-us-tip", style: tipSide },
           (0, import_react42.createElement)("div", { className: "bt-us-tip-title" }, tip.title),
           (0, import_react42.createElement)("div", { className: "bt-us-tip-total" }, t("{count} tokens", { count: full(tip.total) })),
-          tip.tip.filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1]).map(([key2, value]) => (0, import_react42.createElement)(
+          tip.tip.filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1]).map(([key, value]) => (0, import_react42.createElement)(
             "div",
-            { key: key2, className: "bt-us-tip-row" },
-            (0, import_react42.createElement)("i", { className: "bt-us-dot", style: { background: tipOf.get(key2)?.fill } }),
-            (0, import_react42.createElement)("span", null, tipOf.get(key2)?.name),
+            { key, className: "bt-us-tip-row" },
+            (0, import_react42.createElement)("i", { className: "bt-us-dot", style: { background: tipOf.get(key)?.fill } }),
+            (0, import_react42.createElement)("span", null, tipOf.get(key)?.name),
             (0, import_react42.createElement)("b", null, compact(value))
           ))
         ) : null
@@ -17113,12 +17113,12 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
     };
   }, []);
   const [low, high] = anchor ? [anchor, hover ?? anchor].sort() : span ? [span.from, span.to] : [null, null];
-  const press = (key2) => {
+  const press = (key) => {
     if (!anchor) {
-      setAnchor(key2);
+      setAnchor(key);
       return;
     }
-    const [from, to] = [anchor, key2].sort();
+    const [from, to] = [anchor, key].sort();
     onPick(from, to);
   };
   const weekdays = (0, import_react42.useMemo)(() => Array.from({ length: 7 }, (_, at) => dates({ weekday: "narrow" }).format(Date.UTC(2024, 0, 1 + at))), []);
@@ -17128,25 +17128,25 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
     const cells = Array.from({ length: lead }, (_, at) => (0, import_react42.createElement)("span", { key: `b${at}` }));
     for (let day = 1; day <= length; day += 1) {
       const ms = start + (day - 1) * DAY_MS;
-      const key2 = dayKey(ms);
+      const key = dayKey(ms);
       const weekday = (lead + day - 1) % 7;
       const flag = (on) => on ? "" : void 0;
       cells.push((0, import_react42.createElement)("button", {
-        key: key2,
+        key,
         type: "button",
         className: "bt-us-day",
         disabled: ms > todayMs,
         "aria-label": dates({ year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(ms),
-        "aria-pressed": key2 === low || key2 === high,
-        "data-in": flag(low !== null && key2 >= low && key2 <= high),
-        "data-start": flag(key2 === low),
-        "data-end": flag(key2 === high),
+        "aria-pressed": key === low || key === high,
+        "data-in": flag(low !== null && key >= low && key <= high),
+        "data-start": flag(key === low),
+        "data-end": flag(key === high),
         "data-l": flag(weekday === 0 || day === 1),
         "data-r": flag(weekday === 6 || day === length),
-        "data-today": flag(key2 === today),
-        "data-has": flag(active.has(key2)),
-        onMouseEnter: () => setHover(key2),
-        onClick: () => press(key2)
+        "data-today": flag(key === today),
+        "data-has": flag(active.has(key)),
+        onMouseEnter: () => setHover(key),
+        onClick: () => press(key)
       }, (0, import_react42.createElement)("b", null, day)));
     }
     const nav = side === "left" ? (0, import_react42.createElement)("button", { type: "button", className: "bt-us-month-nav", "data-side": "left", "aria-label": t("Previous month"), disabled: start <= oldest, onClick: () => setRight(addMonths(right, -1)) }, (0, import_react42.createElement)(ChevronLeftIcon)) : (0, import_react42.createElement)("button", { type: "button", className: "bt-us-month-nav", "data-side": "right", "aria-label": t("Next month"), disabled: start >= thisMonth, onClick: () => setRight(addMonths(right, 1)) }, (0, import_react42.createElement)(ChevronRightIcon));
@@ -17351,12 +17351,12 @@ function UsagePage({ roster, actions, focusId }) {
         entry.fill = soften(entry.paint, [1, 0.6, 0.36][seen % 3]);
       }
     }
-    const tipSeries2 = face2 ? PARTS.map(([key2, strength]) => ({ key: key2, name: partLabel(key2), fill: soften(face2.paint, strength) })) : series2;
+    const tipSeries2 = face2 ? PARTS.map(([key, strength]) => ({ key, name: partLabel(key), fill: soften(face2.paint, strength) })) : series2;
     const fillOf2 = new Map(series2.map((entry) => [entry.key, entry.fill]));
     const shownKeys = new Set(series2.map((entry) => entry.key));
     const columns3 = part2.buckets.map((bucket) => {
-      const parts = face2 ? [["all", bucket.sum.total]] : series2.map((entry) => [entry.key, entry.key === "more" ? [...bucket.stacks].filter(([key2]) => key2 !== "rest" && !shownKeys.has(key2)).reduce((sum, [, value]) => sum + value, 0) : bucket.stacks.get(entry.key) ?? 0]);
-      const tip = face2 ? PARTS.map(([key2]) => [key2, bucket.sum[key2]]) : parts;
+      const parts = face2 ? [["all", bucket.sum.total]] : series2.map((entry) => [entry.key, entry.key === "more" ? [...bucket.stacks].filter(([key]) => key !== "rest" && !shownKeys.has(key)).reduce((sum, [, value]) => sum + value, 0) : bucket.stacks.get(entry.key) ?? 0]);
+      const tip = face2 ? PARTS.map(([key]) => [key, bucket.sum[key]]) : parts;
       return { key: bucket.key, tick: tickOf(range, bucket), title: titleOf2(range, bucket), total: bucket.sum.total, parts, tip };
     });
     return { faces: faces2, models: models2, ownerAt: ownerAt2, modelAt, face: face2, keep: keep2, all: all2, part: part2, series: series2, tipSeries: tipSeries2, fillOf: fillOf2, columns: columns3, ranked: ranked2, isBot: isBot2, activeDays: activeDays2, oldest: oldest2 };
@@ -19343,21 +19343,21 @@ var gifImage = function(width, height) {
     const _map = {};
     let _size = 0;
     const _this2 = {};
-    _this2.add = function(key2) {
-      if (_this2.contains(key2)) {
-        throw "dup key:" + key2;
+    _this2.add = function(key) {
+      if (_this2.contains(key)) {
+        throw "dup key:" + key;
       }
-      _map[key2] = _size;
+      _map[key] = _size;
       _size += 1;
     };
     _this2.size = function() {
       return _size;
     };
-    _this2.indexOf = function(key2) {
-      return _map[key2];
+    _this2.indexOf = function(key) {
+      return _map[key];
     };
-    _this2.contains = function(key2) {
-      return typeof _map[key2] != "undefined";
+    _this2.contains = function(key) {
+      return typeof _map[key] != "undefined";
     };
     return _this2;
   };
@@ -19502,6 +19502,7 @@ function ConnectionRow({ conn, status, roster, actions }) {
     if (value === null || !value.startsWith("b:")) return;
     void run2(actions.imUpdate(conn.id, { botId: value.slice(2) }));
   };
+  const removeChat = (chatKey) => () => void run2(actions.imChat(conn.id, { chatKey, remove: true }));
   const setChatTarget = (chatKey, value) => {
     const target = value === null ? null : value.startsWith("b:") ? { botId: value.slice(2) } : { roomId: value.slice(2) };
     void run2(actions.imChat(conn.id, { chatKey, target }));
@@ -19575,15 +19576,13 @@ function ConnectionRow({ conn, status, roster, actions }) {
         "div",
         { className: "bt-im-block" },
         (0, import_react44.createElement)("div", { className: "bt-im-label" }, t("Chats")),
-        chats.map(
-          ([key2, chat]) => (0, import_react44.createElement)(
-            "div",
-            { key: key2, className: "bt-im-line" },
-            (0, import_react44.createElement)("span", { className: "bt-im-name" }, chat.title ?? key2),
-            chat.kind === "group" ? (0, import_react44.createElement)(TargetPicker, { roster, value: targetValue(chat), label: t("Bound to"), onChange: (value) => setChatTarget(key2, value) }) : (0, import_react44.createElement)("span", { className: "bt-im-label" }, t("Direct"))
-          ),
-          (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imChat(conn.id, { chatKey: key, remove: true })) }, t("Remove"))
-        )
+        chats.map(([chatKey, chat]) => (0, import_react44.createElement)(
+          "div",
+          { key: chatKey, className: "bt-im-line" },
+          (0, import_react44.createElement)("span", { className: "bt-im-name" }, chat.title ?? chatKey),
+          chat.kind === "group" ? (0, import_react44.createElement)(TargetPicker, { roster, value: targetValue(chat), label: t("Bound to"), onChange: (value) => setChatTarget(chatKey, value) }) : (0, import_react44.createElement)("span", { className: "bt-im-label" }, t("Direct")),
+          (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: removeChat(chatKey) }, t("Remove"))
+        ))
       ) : null
     ) : null,
     error ? (0, import_react44.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null
@@ -19829,12 +19828,12 @@ function BrowserPage({ roster, actions, run: run2, Section, Row: Row3 }) {
           (0, import_react45.createElement)(
             "div",
             { className: "bt-browser-duration", role: "group", "aria-label": t("Duration") },
-            DURATIONS.map(([key2, label]) => (0, import_react45.createElement)("button", {
-              key: key2,
+            DURATIONS.map(([key, label]) => (0, import_react45.createElement)("button", {
+              key,
               type: "button",
               className: "bt-browser-duration-choice",
-              "aria-pressed": duration === key2,
-              onClick: () => setDuration(key2)
+              "aria-pressed": duration === key,
+              onClick: () => setDuration(key)
             }, t(label)))
           )
         ),
@@ -20252,10 +20251,10 @@ function ProvidersPage({ actions, run: run2, Section }) {
     adding ? null : (0, import_react48.createElement)("div", { key: "add", className: "bt-actions" }, (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAdding(true) }, t("Add a provider")))
   ];
 }
-function keyState(key2) {
-  if (key2 === null) return null;
-  if (!key2.configured) return ["missing", t("Needs an API key")];
-  return key2.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
+function keyState(key) {
+  if (key === null) return null;
+  if (!key.configured) return ["missing", t("Needs an API key")];
+  return key.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
 }
 function ProviderRow({ provider, apply: apply2, actions, open, onToggle }) {
   const [confirm, setConfirm] = (0, import_react48.useState)(false);
@@ -20362,11 +20361,11 @@ function AddProvider({ view, apply: apply2, actions, onDone }) {
 }
 function KnownForm({ view, apply: apply2, actions, onDone }) {
   const [provider, setProvider] = (0, import_react48.useState)("");
-  const [key2, setKey] = (0, import_react48.useState)("");
+  const [key, setKey] = (0, import_react48.useState)("");
   const options = [...view.addable].sort((a, b) => a.name.localeCompare(b.name));
   const add = () => {
     if (provider === "") return;
-    void apply2(actions.addProvider({ provider, key: key2 })).then((ok) => {
+    void apply2(actions.addProvider({ provider, key })).then((ok) => {
       if (ok) onDone();
     });
   };
@@ -20379,7 +20378,7 @@ function KnownForm({ view, apply: apply2, actions, onDone }) {
       (0, import_react48.createElement)("option", { value: "", disabled: true }, t("Choose a provider")),
       options.map((option) => (0, import_react48.createElement)("option", { key: option.id, value: option.id }, option.name))
     ),
-    (0, import_react48.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react48.createElement)(KeyIcon), (0, import_react48.createElement)(MaskedInput, { value: key2, onChange: setKey, onEnter: add, label: t("API key") })),
+    (0, import_react48.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react48.createElement)(KeyIcon), (0, import_react48.createElement)(MaskedInput, { value: key, onChange: setKey, onEnter: add, label: t("API key") })),
     (0, import_react48.createElement)(FormActions, { onCancel: onDone, onAdd: add, ready: provider !== "" })
   );
 }
@@ -20822,10 +20821,10 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
   });
   const bot = page === "bots" && id ? roster.byId[id] : void 0;
   const room2 = page === "groups" && id ? roster.roomsById[id] : void 0;
-  const pages = SETTINGS_PAGES.filter(([key2]) => key2 !== "models" || actions.providers !== void 0);
-  const shown = pages.some(([key2]) => key2 === page) ? page : "general";
+  const pages = SETTINGS_PAGES.filter(([key]) => key !== "models" || actions.providers !== void 0);
+  const shown = pages.some(([key]) => key === page) ? page : "general";
   const usageFocus = shown === "usage" && id ? id : null;
-  const label = t(pages.find(([key2]) => key2 === shown)[1]);
+  const label = t(pages.find(([key]) => key === shown)[1]);
   const back = bot ? t("Back to Bots") : room2 ? t("Back to group chats") : usageFocus ? t("All usage") : null;
   const nav = useGlide(shown, { axis: "y" });
   const pageKey = `${shown}:${bot?.id ?? room2?.id ?? ""}`;
@@ -20848,13 +20847,13 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
         "nav",
         { ref: nav.box, className: "bt-settings-nav", "aria-label": t("Settings pages") },
         (0, import_react49.createElement)("span", { ref: nav.thumb, className: "bt-thumb", "aria-hidden": true }),
-        pages.map(([key2, text]) => (0, import_react49.createElement)("button", {
-          key: key2,
+        pages.map(([key, text]) => (0, import_react49.createElement)("button", {
+          key,
           type: "button",
           className: "bt-settings-item",
-          "aria-current": shown === key2 ? "page" : void 0,
-          onClick: () => actions.openSettings(key2)
-        }, (0, import_react49.createElement)(PAGE_ICONS[key2]), t(text))),
+          "aria-current": shown === key ? "page" : void 0,
+          onClick: () => actions.openSettings(key)
+        }, (0, import_react49.createElement)(PAGE_ICONS[key]), t(text))),
         actions.openHarnessSettings ? (0, import_react49.createElement)("button", {
           type: "button",
           className: "bt-settings-item bt-settings-shell",
@@ -21106,11 +21105,11 @@ function Face({ bot, ask, state }) {
     (0, import_react51.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state })
   );
 }
-function useFitWidth(inner, key2) {
+function useFitWidth(inner, key) {
   const [width, setWidth] = (0, import_react51.useState)(null);
   (0, import_react51.useLayoutEffect)(() => {
-    setWidth(key2 && inner.current ? inner.current.offsetWidth : null);
-  }, [key2]);
+    setWidth(key && inner.current ? inner.current.offsetWidth : null);
+  }, [key]);
   return width;
 }
 function MemberDock({ sessionId, useRoster, useWork, actions }) {
@@ -21577,7 +21576,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     canBrowse: bot !== void 0 && roster.browser === true && actions.openBrowser !== void 0,
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
-  }).map((key2) => menuItemFor(key2, actions, sessionId));
+  }).map((key) => menuItemFor(key, actions, sessionId));
   const top = (0, import_react52.createElement)(
     "div",
     { className: "bt-drawer-top", "data-move": side },
@@ -21633,7 +21632,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
       "div",
       { key: "tabs", ref: glide.box, className: "bt-tabs", role: "tablist", "data-move": side },
       (0, import_react52.createElement)("span", { ref: glide.thumb, className: "bt-thumb", "aria-hidden": true }),
-      tabs.map((key2) => (0, import_react52.createElement)("button", { key: key2, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key2, onClick: () => setTab(key2) }, t(TAB_LABELS[key2])))
+      tabs.map((key) => (0, import_react52.createElement)("button", { key, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))
     ) : null,
     (0, import_react52.createElement)(
       "div",
@@ -21777,21 +21776,21 @@ function PanelMenu({ items, className, "aria-label": label }) {
     ) : null
   );
 }
-function menuItemFor(key2, actions, subject) {
+function menuItemFor(key, actions, subject) {
   const report = (run2) => () => {
     void Promise.resolve(run2()).catch((error) => actions.reportError(error, "panel-menu"));
   };
-  switch (key2) {
+  switch (key) {
     case "browser":
-      return { key: key2, icon: GlobeIcon2, label: t("Browser"), onPick: report(() => actions.openBrowser(subject)) };
+      return { key, icon: GlobeIcon2, label: t("Browser"), onPick: report(() => actions.openBrowser(subject)) };
     case "new-tab":
-      return { key: key2, icon: PlusTabIcon, label: t("New browser tab"), onPick: report(() => actions.browserNewTab(subject)) };
+      return { key, icon: PlusTabIcon, label: t("New browser tab"), onPick: report(() => actions.browserNewTab(subject)) };
     case "side":
-      return { key: key2, icon: SideIcon, label: t("Side chat"), onPick: report(() => actions.newSideChat(subject)) };
+      return { key, icon: SideIcon, label: t("Side chat"), onPick: report(() => actions.newSideChat(subject)) };
     case "terminal":
-      return { key: key2, icon: TerminalIcon, label: t("Terminal"), onPick: report(() => actions.newTerminal()) };
+      return { key, icon: TerminalIcon, label: t("Terminal"), onPick: report(() => actions.newTerminal()) };
     case "files":
-      return { key: key2, icon: FolderIcon, label: t("Files"), onPick: report(() => actions.openFiles()) };
+      return { key, icon: FolderIcon, label: t("Files"), onPick: report(() => actions.openFiles()) };
     default:
       return { sep: true };
   }
@@ -21860,7 +21859,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     canBrowse,
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
-  }).map((key2) => menuItemFor(key2, actions, subject));
+  }).map((key) => menuItemFor(key, actions, subject));
   return (0, import_react53.createElement)(
     "div",
     { className: "bt-ptabs", role: "tablist", "aria-label": t("Panel tabs") },
@@ -23094,11 +23093,11 @@ var readPageScript = (limits = READ_LIMITS) => `(${readPage})(${JSON.stringify(l
 var READ_PAGE_SCRIPT = readPageScript();
 
 // src/client/shared-map.js
-function sharedMap(key2, storage = globalThis.localStorage) {
+function sharedMap(key, storage = globalThis.localStorage) {
   const read = (fallback = {}) => {
     if (!storage) return fallback;
     try {
-      const value = JSON.parse(storage.getItem(key2) ?? "{}");
+      const value = JSON.parse(storage.getItem(key) ?? "{}");
       return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
     } catch {
       return fallback;
@@ -23109,12 +23108,12 @@ function sharedMap(key2, storage = globalThis.localStorage) {
     const next = change(base);
     if (next === base) return next;
     try {
-      storage?.setItem(key2, JSON.stringify(next));
+      storage?.setItem(key, JSON.stringify(next));
     } catch {
     }
     return next;
   };
-  return { key: key2, read, update };
+  return { key, read, update };
 }
 function setEntry(map, id, value) {
   if (value === void 0) {
@@ -23124,14 +23123,14 @@ function setEntry(map, id, value) {
   }
   return { ...map, [id]: value };
 }
-function toggleReaction(reactions, key2, index, emoji) {
-  const entry = { ...reactions[key2] };
+function toggleReaction(reactions, key, index, emoji) {
+  const entry = { ...reactions[key] };
   const list = entry[index] ?? [];
   entry[index] = list.includes(emoji) ? list.filter((item) => item !== emoji) : [...list, emoji];
   if (entry[index].length === 0) delete entry[index];
   const next = { ...reactions };
-  if (Object.keys(entry).length) next[key2] = entry;
-  else delete next[key2];
+  if (Object.keys(entry).length) next[key] = entry;
+  else delete next[key];
   return next;
 }
 function setUnread(unread, id, value) {
@@ -24200,10 +24199,10 @@ function apply(ctx) {
   const memoryNews = createSource({});
   let memoryNewsKey;
   const noteMemoryNews = (next) => {
-    const key2 = JSON.stringify(next);
-    if (key2 === memoryNewsKey) return;
+    const key = JSON.stringify(next);
+    if (key === memoryNewsKey) return;
     const opening = memoryNewsKey === void 0;
-    memoryNewsKey = key2;
+    memoryNewsKey = key;
     memoryNews.set((state) => Object.fromEntries(Object.entries(next).map(([id, entry]) => [
       id,
       state[id]?.at === entry.at ? state[id] : { ...entry, seen: opening ? 0 : Date.now() }
@@ -24414,7 +24413,7 @@ function apply(ctx) {
   };
   const installTheme = () => {
     const style = installStyles("", "theme");
-    let key2 = "";
+    let key = "";
     let releaseTokens = null;
     const render = () => {
       const snapshot = roster.getSnapshot();
@@ -24431,8 +24430,8 @@ function apply(ctx) {
       document.body.style.setProperty("--bt-msg-w", String(width / 100));
       document.body.style.setProperty("--bt-flat-w", String(flatWidth / 100));
       const next = `${id}|${accent ?? ""}|${motion}|${layout}|${width}|${flatWidth}|${registry.getSnapshot()}`;
-      if (next === key2) return;
-      key2 = next;
+      if (next === key) return;
+      key = next;
       style.textContent = themeCss(themes[id], accent);
       const release = releaseTokens;
       releaseTokens = ctx.theme.overrideTokens("ds-bot", shellTokens(themes[id]));
@@ -24664,8 +24663,8 @@ function apply(ctx) {
         return { ...state, visits };
       });
     },
-    toggleReaction: (key2, index, emoji) => {
-      const reactions = reactionStore.update((saved) => toggleReaction(saved, key2, index, emoji), ui2.getSnapshot().reactions);
+    toggleReaction: (key, index, emoji) => {
+      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui2.getSnapshot().reactions);
       ui2.set((state) => ({ ...state, reactions }));
     },
     clearUnread: (id) => writeUnread(id, false)
@@ -25022,7 +25021,7 @@ function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow("conversation.chat.node", { key: "context", priority: BOT_PRIORITY, locale: "chat" }, CellEmpty),
-    ...canDrawUserMessages() ? ["user", "steering"].map((key2) => () => shadow("conversation.chat.node", { key: key2, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell)) : [],
+    ...canDrawUserMessages() ? ["user", "steering"].map((key) => () => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell)) : [],
     () => shadow("conversation.input.permission", { priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.input.plan", { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
