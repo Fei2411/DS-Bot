@@ -12,7 +12,7 @@ import { SettledQuestion, PendingQuestion } from './questions.js'
 import { AnsweredReply, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
 import { HandoffCall } from './handoff-card.js'
-import { AppAccessCall, ComputerHandoffCall } from './computer.js'
+import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.js'
 import { t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
@@ -1020,9 +1020,10 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
+const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
 const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
-const CARDS = new Set(['ask_user', 'request_secret', 'show_view', 'browser_handoff', 'computer_handoff', 'cua', 'cua_driver'])
+const CARDS = new Set(['ask_user', 'request_secret', 'show_view', 'browser_handoff', 'computer_handoff'])
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {
@@ -1130,8 +1131,10 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     case 'forget':
       return done ? h(MemoryEvent, { sessionId, scope: arg('scope'), tool, result: contentText(call.content), failed: call.isError === true, code: call.error?.code, roster, actions, findBot }) : h(CellEmpty)
     default:
-      if (tool === 'cua' || tool.startsWith('cua_driver_native__')) {
-        return h(AppAccessCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
+      if (isComputerCall(tool)) {
+        return h(Fragment, null,
+          h(ComputerCallRow, { sessionId, call, roster, actions, hooks }),
+          h(AppAccessCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks }))
       }
       return h(CellEmpty)
   }
@@ -1145,7 +1148,7 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   const hidden = isHiddenTurn(roster, sessionId, turn)
   const findBot = nameOrId => roster.byId[nameOrId] ?? roster.bots.find(bot => bot.name.toLowerCase() === String(nameOrId ?? '').toLowerCase())
   const calls = hidden ? [] : callTree(root)
-  const drawn = calls.filter(call => DRAWN.has(toolName(call)))
+  const drawn = calls.filter(call => DRAWN.has(toolName(call)) || isComputerCall(toolName(call)))
   // The newest call still running names the work, so a program reads as the tool it is in.
   const running = root.kind === 'tool-result' ? undefined : calls.findLast(call => call.kind !== 'tool-result')
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null

@@ -25,7 +25,7 @@ export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, c
       click: () => { computer?.onAction('stop', entry.botId ?? null) },
     }))
     if (entries.length > 1) rows.push({
-      label: 'Stop all', click: () => { computer?.onAction('stopall', null) },
+      label: computer?.stopAll?.() ?? 'Stop all', click: () => { computer?.onAction('stopall', null) },
     })
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: open.label, click: () => { open.run() } },

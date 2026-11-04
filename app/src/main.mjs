@@ -732,8 +732,9 @@ function handleIpc() {
   })
   ipcMain.on(IPC.computer, (event, entries) => {
     if (!fromWindow(event)) return
-    const list = Array.isArray(entries) ? entries.filter(entry => entry && typeof entry.label === 'string').slice(0, 12) : []
-    computerIndicator.update(list)
+    const list = Array.isArray(entries?.rows) ? entries.rows.filter(entry => entry && typeof entry.label === 'string').slice(0, 12) : []
+    const labels = entries?.labels ?? {}
+    computerIndicator.update({ rows: list, labels })
     shell.setComputer(list)
   })
   ipcMain.handle(IPC.idleSeconds, (event) => (fromWindow(event) ? powerMonitor.getSystemIdleTime() : 0))

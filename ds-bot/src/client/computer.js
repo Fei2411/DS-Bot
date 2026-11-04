@@ -145,8 +145,36 @@ export function PendingAppAccess({ ask, actions, inline }) {
           h('div', { className: 'bt-q-detail' }, t('Always lets it use {app} without asking again.', { app: ask.appName })))),
       h('div', { className: 'bt-q-foot' },
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('deny') }, t('Deny')),
-        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('always') }, t('Always')),
-        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('once') }, t('This time')))))
+        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('once') }, t('This time')),
+        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('always') }, t('Always')))))
+}
+
+// One line per computer call: the app and the action. A screenshot result adds a
+// thumbnail that opens larger on click.
+const ACTION_NAMES = { click: 'Click', doubleClick: 'Double click', rightClick: 'Right click', drag: 'Drag', typeText: 'Type', pressKey: 'Key', hotkey: 'Hotkey', scroll: 'Scroll', screenshot: 'Screenshot', getScreenSize: 'Screen size', getCapabilities: 'Capabilities', listApps: 'List apps', listWindows: 'List windows', getState: 'State', getAccessibilityTree: 'Accessibility tree', launchApp: 'Launch', killApp: 'Kill', bringToFront: 'Bring to front', invokeMenu: 'Menu', setValue: 'Set value', getWindowState: 'Window state', verifyState: 'Verify state' }
+const actionName = (method) => {
+  const known = ACTION_NAMES[method]
+  if (known !== undefined) return known
+  const words = String(method ?? '').replace(/^cua_driver_native__/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim()
+  return words === '' ? 'Computer' : words[0].toUpperCase() + words.slice(1)
+}
+export function ComputerCallRow({ sessionId, call, roster, actions, hooks }) {
+  const method = call?.arguments?.method ?? String(call?.name ?? '').replace(/^cua_driver_native__/, '')
+  const app = hooks?.useComputer?.(map => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find(step => step.callId === call?.callId)?.app)
+  const shot = (call?.content ?? []).find(block => (block?.type === 'image' || block?.type === 'file') && block.attachment !== undefined)?.attachment
+  const [url, setUrl] = useState(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const id = shot?.attachmentId
+    if (id === undefined || !actions.computerShot) { setUrl(null); return undefined }
+    let current = true
+    void Promise.resolve(actions.computerShot(id)).then(value => { if (current) setUrl(value?.dataUrl ?? null) }, () => {})
+    return () => { current = false }
+  }, [shot?.attachmentId])
+  return h('div', { className: 'bt-cstep' },
+    h('span', { className: 'bt-cstep-label' }, `${app ?? t('the computer')} · ${actionName(method)}`),
+    url !== null ? h('button', { type: 'button', className: open ? 'bt-cstep-shot bt-cstep-shot-open' : 'bt-cstep-shot', onClick: () => setOpen(value => !value) },
+      h('img', { src: url, alt: actionName(method) })) : null)
 }
 
 // The call the ask waits on: drawn at it in the chat, like the handoff card.
@@ -263,7 +291,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
     h(MonitorIcon),
     leases.map((entry, index) => h('span', { key: index, className: 'bt-cbar-entry' },
       h('span', { className: 'bt-cbar-name' }, entry.kind === 'foreground' ? t('{name} · foreground', { name: nameOf(entry.botId) }) : `${nameOf(entry.botId)} · ${entry.appName}`),
-      h('button', { type: 'button', className: 'bt-cbar-stop', 'aria-label': t('Stop {name}', { name: nameOf(entry.botId) }), onClick: () => void actions.computerStop(entry.botId) }, '×'))),
+      h('button', { type: 'button', className: 'bt-cbar-stop', onClick: () => void actions.computerStop(entry.botId) }, t('Stop')))),
     waiting.map(([botId]) => h('span', { key: botId, className: 'bt-cbar-entry bt-cbar-wait' },
       h('span', { className: 'bt-cbar-name' }, t('{name} waits for the computer', { name: nameOf(botId) })),
       h('button', { type: 'button', className: 'bt-cbar-go', onClick: () => void actions.computerAllowForeground(botId) }, t('Let it continue')))),
@@ -291,5 +319,10 @@ export const COMPUTER_CSS = `
 .bt-cbar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-stop{flex:none;width:18px;height:18px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;line-height:1;font-size:12px}
 .bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cstep{display:flex;align-items:center;gap:10px;padding:3px 0;color:var(--bt-ink-2);font-size:12.5px}
+.bt-cstep-shot{flex:none;border:1px solid var(--bt-line);border-radius:8px;padding:0;background:none;cursor:zoom-in;overflow:hidden;max-height:40px}
+.bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
+.bt-cstep-shot-open{max-height:none;cursor:zoom-out}
+.bt-cstep-shot-open img{max-height:280px;max-width:480px}
 .bt-cbar-go,.bt-cbar-all{border:0;background:none;color:var(--bt-accent);font:inherit;cursor:pointer;white-space:nowrap}
 `

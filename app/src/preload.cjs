@@ -71,15 +71,23 @@ if (startPage !== undefined) {
     return place
   }
   const computerEntriesOf = (value) => {
-    if (!Array.isArray(value)) return []
-    return value.map((entry) => {
-      if (entry === null || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined
-      return {
-        label: String(entry.label).slice(0, 80),
-        botId: typeof entry.botId === 'string' ? entry.botId : null,
-        waiting: entry.waiting === true,
-      }
-    }).filter(entry => entry !== undefined)
+    const rows = Array.isArray(value?.rows) ? value.rows : []
+    const labels = value?.labels ?? {}
+    return {
+      rows: rows.map((entry) => {
+        if (entry === null || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined
+        return {
+          label: String(entry.label).slice(0, 80),
+          botId: typeof entry.botId === 'string' ? entry.botId : null,
+          waiting: entry.waiting === true,
+        }
+      }).filter(entry => entry !== undefined),
+      labels: {
+        stop: typeof labels.stop === 'string' ? String(labels.stop).slice(0, 30) : undefined,
+        stopAll: typeof labels.stopAll === 'string' ? String(labels.stopAll).slice(0, 30) : undefined,
+        letGo: typeof labels.letGo === 'string' ? String(labels.letGo).slice(0, 30) : undefined,
+      },
+    }
   }
   const handoffOf = (value) => {
     if (value === null || typeof value !== 'object') return undefined

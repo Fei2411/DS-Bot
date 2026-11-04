@@ -1386,6 +1386,7 @@ var HOST_ZH = {
   "Always lets it use {app} without asking again.": "选总是允许后它用这个应用就不再问了。",
   "This time": "这一次",
   "Always": "总是",
+  "the computer": "电脑",
   "Needs your confirmation": "需要你确认",
   "Help needed on the computer": "电脑上需要你帮忙",
   "You control the computer": "你在操控电脑",
@@ -5358,10 +5359,49 @@ function PendingAppAccess({ ask, actions, inline }) {
         "div",
         { className: "bt-q-foot" },
         (0, import_react10.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("deny") }, t("Deny")),
-        (0, import_react10.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("always") }, t("Always")),
-        (0, import_react10.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer("once") }, t("This time"))
+        (0, import_react10.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("once") }, t("This time")),
+        (0, import_react10.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer("always") }, t("Always"))
       )
     )
+  );
+}
+var ACTION_NAMES = { click: "Click", doubleClick: "Double click", rightClick: "Right click", drag: "Drag", typeText: "Type", pressKey: "Key", hotkey: "Hotkey", scroll: "Scroll", screenshot: "Screenshot", getScreenSize: "Screen size", getCapabilities: "Capabilities", listApps: "List apps", listWindows: "List windows", getState: "State", getAccessibilityTree: "Accessibility tree", launchApp: "Launch", killApp: "Kill", bringToFront: "Bring to front", invokeMenu: "Menu", setValue: "Set value", getWindowState: "Window state", verifyState: "Verify state" };
+var actionName = (method) => {
+  const known = ACTION_NAMES[method];
+  if (known !== void 0) return known;
+  const words = String(method ?? "").replace(/^cua_driver_native__/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
+  return words === "" ? "Computer" : words[0].toUpperCase() + words.slice(1);
+};
+function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks }) {
+  const method = call2?.arguments?.method ?? String(call2?.name ?? "").replace(/^cua_driver_native__/, "");
+  const app = hooks?.useComputer?.((map) => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find((step) => step.callId === call2?.callId)?.app);
+  const shot = (call2?.content ?? []).find((block) => (block?.type === "image" || block?.type === "file") && block.attachment !== void 0)?.attachment;
+  const [url, setUrl] = (0, import_react10.useState)(null);
+  const [open, setOpen] = (0, import_react10.useState)(false);
+  (0, import_react10.useEffect)(() => {
+    const id = shot?.attachmentId;
+    if (id === void 0 || !actions.computerShot) {
+      setUrl(null);
+      return void 0;
+    }
+    let current = true;
+    void Promise.resolve(actions.computerShot(id)).then((value) => {
+      if (current) setUrl(value?.dataUrl ?? null);
+    }, () => {
+    });
+    return () => {
+      current = false;
+    };
+  }, [shot?.attachmentId]);
+  return (0, import_react10.createElement)(
+    "div",
+    { className: "bt-cstep" },
+    (0, import_react10.createElement)("span", { className: "bt-cstep-label" }, `${app ?? t("the computer")} · ${actionName(method)}`),
+    url !== null ? (0, import_react10.createElement)(
+      "button",
+      { type: "button", className: open ? "bt-cstep-shot bt-cstep-shot-open" : "bt-cstep-shot", onClick: () => setOpen((value) => !value) },
+      (0, import_react10.createElement)("img", { src: url, alt: actionName(method) })
+    ) : null
   );
 }
 function AppAccessCall({ sessionId, callId, roster, actions, heldCards, hooks }) {
@@ -5496,7 +5536,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
       "span",
       { key: index, className: "bt-cbar-entry" },
       (0, import_react10.createElement)("span", { className: "bt-cbar-name" }, entry.kind === "foreground" ? t("{name} · foreground", { name: nameOf(entry.botId) }) : `${nameOf(entry.botId)} · ${entry.appName}`),
-      (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-stop", "aria-label": t("Stop {name}", { name: nameOf(entry.botId) }), onClick: () => void actions.computerStop(entry.botId) }, "×")
+      (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-stop", onClick: () => void actions.computerStop(entry.botId) }, t("Stop"))
     )),
     waiting.map(([botId]) => (0, import_react10.createElement)(
       "span",
@@ -5528,6 +5568,11 @@ var COMPUTER_CSS = `
 .bt-cbar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-stop{flex:none;width:18px;height:18px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;line-height:1;font-size:12px}
 .bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cstep{display:flex;align-items:center;gap:10px;padding:3px 0;color:var(--bt-ink-2);font-size:12.5px}
+.bt-cstep-shot{flex:none;border:1px solid var(--bt-line);border-radius:8px;padding:0;background:none;cursor:zoom-in;overflow:hidden;max-height:40px}
+.bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
+.bt-cstep-shot-open{max-height:none;cursor:zoom-out}
+.bt-cstep-shot-open img{max-height:280px;max-width:480px}
 .bt-cbar-go,.bt-cbar-all{border:0;background:none;color:var(--bt-accent);font:inherit;cursor:pointer;white-space:nowrap}
 `;
 
@@ -10214,8 +10259,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     })
   );
 }
+var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
 var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "remember", "forget"]);
-var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "show_view", "browser_handoff", "computer_handoff", "cua", "cua_driver"]);
+var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "show_view", "browser_handoff", "computer_handoff"]);
 function callTree(root) {
   const calls = [];
   const seen = /* @__PURE__ */ new Set();
@@ -10319,8 +10365,13 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
     case "forget":
       return done ? (0, import_react21.createElement)(MemoryEvent, { sessionId, scope: arg("scope"), tool, result: contentText(call2.content), failed: call2.isError === true, code: call2.error?.code, roster, actions, findBot }) : (0, import_react21.createElement)(CellEmpty);
     default:
-      if (tool === "cua" || tool.startsWith("cua_driver_native__")) {
-        return (0, import_react21.createElement)(AppAccessCall, { sessionId, callId: call2.callId, roster, actions, heldCards, hooks });
+      if (isComputerCall(tool)) {
+        return (0, import_react21.createElement)(
+          import_react21.Fragment,
+          null,
+          (0, import_react21.createElement)(ComputerCallRow, { sessionId, call: call2, roster, actions, hooks }),
+          (0, import_react21.createElement)(AppAccessCall, { sessionId, callId: call2.callId, roster, actions, heldCards, hooks })
+        );
       }
       return (0, import_react21.createElement)(CellEmpty);
   }
@@ -10333,7 +10384,7 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   const hidden = isHiddenTurn(roster, sessionId, turn);
   const findBot = (nameOrId) => roster.byId[nameOrId] ?? roster.bots.find((bot) => bot.name.toLowerCase() === String(nameOrId ?? "").toLowerCase());
   const calls = hidden ? [] : callTree(root);
-  const drawn = calls.filter((call2) => DRAWN.has(toolName(call2)));
+  const drawn = calls.filter((call2) => DRAWN.has(toolName(call2)) || isComputerCall(toolName(call2)));
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
@@ -25249,7 +25300,10 @@ function apply(ctx) {
         for (const [botId, entry] of Object.entries(live2.bots ?? {})) {
           if (entry.waitingFor === "user-idle") rows2.push({ botId, waiting: true, label: t("{name} waits for the computer", { name: name(botId) }) });
         }
-        appComputer.computer(rows2);
+        appComputer.computer({
+          rows: rows2,
+          labels: { stop: t("Stop"), stopAll: t("Stop all"), letGo: t("Let it continue") }
+        });
       };
       sync();
       return computer.subscribe(sync);

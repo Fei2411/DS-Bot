@@ -755,7 +755,10 @@ export function apply(ctx) {
         for (const [botId, entry] of Object.entries(live.bots ?? {})) {
           if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, label: t('{name} waits for the computer', { name: name(botId) }) })
         }
-        appComputer.computer(rows)
+        appComputer.computer({
+          rows,
+          labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
+        })
       }
       sync()
       return computer.subscribe(sync)

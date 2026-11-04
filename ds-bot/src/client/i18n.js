@@ -1342,6 +1342,7 @@ const HOST_ZH = {
   'Always lets it use {app} without asking again.': '选总是允许后它用这个应用就不再问了。',
   'This time': '这一次',
   'Always': '总是',
+  'the computer': '电脑',
   'Needs your confirmation': '需要你确认',
   'Help needed on the computer': '电脑上需要你帮忙',
   'You control the computer': '你在操控电脑',
