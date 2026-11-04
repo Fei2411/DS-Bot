@@ -488,3 +488,35 @@ test('a permanent send error shows in the status and is not retried; a network e
   await delay(20)
   await s.rt.imEndpoint('im-retry', { id: conn.id })
 })
+
+test('a weixin QR login creates the connection paired with the scanning owner', async (t) => {
+  const s = await start({ platform: 'weixin', adapter: {
+    ...fakeAdapter(),
+    id: 'weixin',
+    async loginStart(env) { return { loginId: 'l1', qr: 'weixin://qr/abc', expiresAt: Date.now() + 60_000 } },
+    async loginWait(loginId, env) {
+      this.waits = (this.waits ?? 0) + 1
+      if (this.waits < 2) return { status: 'waiting' }
+      return {
+        status: 'done',
+        connection: { settings: { baseUrl: 'http://ilink/' }, secrets: { token: 'wx-tok' }, account: { id: 'bot-9', name: 'wxbot' } },
+        owner: { id: 'owner-1', name: 'Fei' },
+      }
+    },
+  } })
+  t.after(s.stop)
+  const login = await s.rt.imEndpoint('im-login-start', { platform: 'weixin', botId: 'a' })
+  assert.equal(login.qr, 'weixin://qr/abc')
+  const waiting = await s.rt.imEndpoint('im-login-wait', { platform: 'weixin', botId: 'a', loginId: 'l1' })
+  assert.deepEqual(waiting, { status: 'waiting' })
+  const done = await s.rt.imEndpoint('im-login-wait', { platform: 'weixin', botId: 'a', loginId: 'l1' })
+  assert.equal(done.status, 'done')
+  const conn = s.rt.state.im.connections[done.id]
+  assert.ok(conn, 'connection created on confirm')
+  assert.equal(conn.platform, 'weixin')
+  assert.deepEqual(conn.paired, [{ id: 'owner-1', name: 'Fei', at: conn.paired[0].at }])
+  assert.equal(conn.chats['owner-1'].kind, 'direct')
+  assert.equal(conn.secrets.token, `IM_WEIXIN_${conn.id.slice(3, 9).toUpperCase()}_TOKEN`, 'the token is stored as a secret')
+  assert.equal(s.rt.secretValue(conn.secrets.token), 'wx-tok')
+  assert.equal(conn.settings.baseUrl, 'http://ilink/')
+})

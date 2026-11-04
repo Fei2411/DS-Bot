@@ -48,6 +48,32 @@ const until = async (fn, tries = 80) => {
   return undefined
 }
 
+test('check subscribes over a throwaway socket: success returns the account, failure throws the reason', async () => {
+  const fake = await fakeWecom()
+  const { account } = await wecom.check(FIELDS, env(fake))
+  assert.deepEqual(account, { id: 'bot-1', name: 'bot-1' })
+  assert.ok(fake.packets.some(packet => packet.cmd === 'aibot_subscribe' && packet.body.secret === 'sec-1'))
+  await fake.close()
+  const refused = await fakeWsServer({
+    onSocket(ws) {
+      ws.on('message', (raw) => {
+        const packet = JSON.parse(raw)
+        if (packet.cmd === 'aibot_subscribe') {
+          ws.send(JSON.stringify({ headers: { req_id: packet.headers.req_id }, errcode: 60111, errmsg: 'invalid bot' }))
+        }
+      })
+    },
+  })
+  await assert.rejects(
+    () => wecom.check(FIELDS, {
+      fetch: globalThis.fetch, WebSocket: globalThis.WebSocket,
+      config: { gateway: refused.url.replace('/wss', '') }, runtime: { get: () => ({}), set: () => {} },
+    }),
+    /invalid bot/,
+  )
+  refused.close()
+})
+
 test('the socket subscribes with the bot id and secret and goes ready', async (t) => {
   const fake = await fakeWecom()
   const statuses = []

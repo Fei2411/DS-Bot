@@ -19,7 +19,35 @@ export default {
   // The subscription itself is the credential check: a bad bot id or secret
   // fails the aibot_subscribe response.
   async check(fields, env) {
-    return { account: { id: String(fields.botId ?? '').trim(), name: String(fields.botId ?? '').trim() } }
+    const botId = String(fields.botId ?? '').trim()
+    const secret = String(fields.secret ?? '').trim()
+    if (env.WebSocket === undefined) throw new Error('This dsh runs on a Node without WebSocket')
+    return await new Promise((resolve, reject) => {
+      let socket
+      const finish = (error, account) => {
+        clearTimeout(timer)
+        try { socket?.close(1000, 'check') } catch { /* not open */ }
+        if (error === undefined) resolve({ account })
+        else reject(error)
+      }
+      const timer = setTimeout(() => finish(new Error('WeCom did not answer the subscription')), 10_000)
+      try { socket = new env.WebSocket(`${wsBase(env)}/wss`) } catch (error) {
+        finish(new Error(`WeCom could not open a socket: ${error?.message ?? error}`))
+        return
+      }
+      socket.addEventListener('open', () => {
+        socket.send(JSON.stringify({ cmd: 'aibot_subscribe', headers: { req_id: 'check-1' }, body: { secret, bot_id: botId } }))
+      })
+      socket.addEventListener('message', (event) => {
+        let packet
+        try { packet = JSON.parse(String(event.data)) } catch { return }
+        if (packet.errcode === undefined) return
+        if (packet.errcode === 0) finish(undefined, { id: botId, name: botId })
+        else finish(new Error(String(packet.errmsg ?? `WeCom answered ${packet.errcode}`)))
+      })
+      socket.addEventListener('error', () => finish(new Error('WeCom refused the socket')))
+      socket.addEventListener('close', () => {})
+    })
   },
 
   connect(fields, env, handlers) {

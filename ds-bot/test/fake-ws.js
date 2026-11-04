@@ -34,7 +34,7 @@ export function fakeWsServer({ onSocket, onRequest } = {}) {
     const accept = createHash('sha1').update(key + GUID).digest('base64')
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
     const ws = {
-      send: text => socket.write(encode(text)),
+      send: data => socket.write(encode(data, Buffer.isBuffer(data) ? 0x82 : 0x81)),
       close: (code = 1000) => {
         try { socket.write(encode('', 0x88)) } catch { /* down */ }
         try { socket.destroy() } catch { /* down */ }
@@ -74,9 +74,10 @@ export function fakeWsServer({ onSocket, onRequest } = {}) {
         if (opcode === 9) { socket.write(encode('', 0x8a)); continue }
         pieces.push(payload)
         if (!fin) continue
-        const text = Buffer.concat(pieces).toString('utf8')
+        const joined = Buffer.concat(pieces)
         pieces.length = 0
-        for (const fn of ws.listeners.message) fn(text)
+        const body = opcode === 2 ? joined : joined.toString('utf8')
+        for (const fn of ws.listeners.message) fn(body)
       }
     })
     socket.on('close', () => { for (const fn of ws.listeners.close) fn() })

@@ -797,11 +797,49 @@ export function install(rt) {
       await sync()
       return true
     },
-    async 'im-login-start'() {
-      throw new Error('This platform is not available yet')
+    async 'im-login-start'(body) {
+      const platform = imPlatform(String(body.platform ?? ''))
+      const adapter = platform === undefined ? undefined : adapters[platform.id]
+      if (platform === undefined || typeof adapter?.loginStart !== 'function') throw new Error('This platform has no QR login')
+      const bot = rt.botOf(String(body.botId ?? ''))
+      if (bot === undefined) throw new Error('Choose a Bot first')
+      const env = await envFor({ id: 'im_login', platform: platform.id, settings: {}, secrets: {} }, { get: () => ({}), set: () => {} })
+      const login = await adapter.loginStart(env)
+      return { loginId: login.loginId, qr: login.qr, expiresAt: login.expiresAt, botId: bot.id }
     },
-    async 'im-login-wait'() {
-      throw new Error('This platform is not available yet')
+    async 'im-login-wait'(body) {
+      const platform = imPlatform(String(body.platform ?? 'weixin'))
+      const adapter = platform === undefined ? undefined : adapters[platform.id]
+      if (platform === undefined || typeof adapter?.loginWait !== 'function') throw new Error('This platform has no QR login')
+      const bot = rt.botOf(String(body.botId ?? ''))
+      if (bot === undefined) throw new Error('Choose a Bot first')
+      const env = await envFor({ id: 'im_login', platform: platform.id, settings: {}, secrets: {} }, { get: () => ({}), set: () => {} })
+      const login = await adapter.loginWait(String(body.loginId ?? ''), env)
+      if (login.status !== 'done') return { status: login.status }
+      // Confirmed: create the connection with the platform credentials the
+      // login returned, paired with the scanning owner — no review needed.
+      const conn = {
+        id: `im_${randomBytes(4).toString('hex')}`,
+        platform: platform.id,
+        account: login.connection.account,
+        botId: bot.id,
+        settings: login.connection.settings ?? {},
+        secrets: {},
+        enabled: true,
+        paired: login.owner === undefined ? [] : [{ id: login.owner.id, name: login.owner.name, at: Date.now() }],
+        requests: [],
+        chats: login.owner === undefined ? {} : { [login.owner.id]: { kind: 'direct', title: login.owner.name, at: Date.now() } },
+        createdAt: Date.now(),
+      }
+      for (const [key, value] of Object.entries(login.connection.secrets ?? {})) {
+        const name = secretName(conn, key)
+        await rt.secretEndpoint('secret-set', { name, value, purpose: `${platform.name} IM bot`, scope: [] })
+        conn.secrets[key] = name
+      }
+      connections()[conn.id] = conn
+      await rt.save()
+      await sync()
+      return { status: 'done', id: conn.id }
     },
   }
 
