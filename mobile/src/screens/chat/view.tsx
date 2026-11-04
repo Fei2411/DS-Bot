@@ -262,9 +262,12 @@ function FormNode({ n, val, p, readOnly, answer }: { n: Record<string, unknown>;
   return (
     <View style={{ gap: 8, marginTop: 4 }}>
       {fields.map((f: Record<string, unknown>, i: number) => (
-        <TextInput key={i} editable={!readOnly} placeholder={String(f?.label ?? '')} placeholderTextColor={p.ink3} multiline={f?.kind === 'multiline'}
+        <View key={i} style={{ gap: 4 }}>
+        {f?.label !== undefined ? <Text style={[type.caption, { color: p.ink2 }]}>{String(val(f.label) ?? '')}</Text> : null}
+        <TextInput editable={!readOnly} placeholder={f?.placeholder !== undefined ? String(val(f.placeholder) ?? '') : undefined} placeholderTextColor={p.ink3} multiline={f?.kind === 'multiline'}
           value={values[String(f?.id ?? i)] ?? ''} onChangeText={v => setValues(prev => ({ ...prev, [String(f?.id ?? i)]: v }))}
           style={[styles.field, { color: p.ink, backgroundColor: p.hover }]} />
+        </View>
       ))}
       <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'form', { fields: values })} style={[styles.submit, { backgroundColor: p.accent }]}>
         <Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.submitLabel) ?? t('Submit'))}</Text>
