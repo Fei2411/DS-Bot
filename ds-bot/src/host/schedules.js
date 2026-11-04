@@ -203,15 +203,30 @@ export function install(rt) {
     if (target !== undefined && sameOwner(ownerOf(caller), ownerOf(target))) return decision
     return { kind: 'deny', reason: OTHER_TASK_REFUSAL }
   })
-  // The Host-wide list is read in one widest page and narrowed to the caller's own
-  // tasks; the page the Bot asked for is then cut from those.
+  // schedule_list pages over every Host task and cannot filter by Session, and only the
+  // tool formats its items. So the tool is asked for the Host range that holds the
+  // caller's page (catalog() keeps list()'s order), and the other chats' tasks in that
+  // range are dropped. A page whose tasks span more than one Host page comes back
+  // short; total still counts all of the caller's tasks, so the next offset goes on.
   ctx.on('tools/execute', async function listOwnSchedules(exec, next) {
     if (exec.name !== 'schedule_list' || service === null || !hostWide(service)) return next()
     await rt.load()
     const own = rt.isBotSession(exec.agent?.id) ? ownerOf(exec.agent.id) : undefined
     if (own === undefined) return next()
     const asked = exec.arguments ?? {}
-    exec.arguments = { ...asked, limit: LIST_READ_LIMIT, offset: 0 }
+    const limit = asked.limit ?? LIST_PAGE
+    const offset = asked.offset ?? 0
+    // An invalid page gets DSH's own input error.
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > LIST_READ_LIMIT || !Number.isSafeInteger(offset) || offset < 0) return next()
+    const mine = entry => {
+      const target = sessionOf(entry)
+      return target !== undefined && sameOwner(own, ownerOf(target))
+    }
+    const pool = (await service.catalog()).filter(entry => asked.active === undefined || (entry.status === 'active') === asked.active)
+    const positions = pool.flatMap((entry, at) => (mine(entry) ? [at] : []))
+    const page = positions.slice(offset, offset + limit)
+    const from = page[0] ?? pool.length
+    exec.arguments = { ...asked, offset: from, limit: page.length === 0 ? 1 : Math.min(LIST_READ_LIMIT, page.at(-1) - from + 1) }
     let result
     try {
       result = await next()
@@ -219,14 +234,8 @@ export function install(rt) {
       exec.arguments = asked
     }
     if (result.isError || !Array.isArray(result.value?.items)) return result
-    const mine = result.value.items.filter(item => {
-      const target = sessionOf(item)
-      return target !== undefined && sameOwner(own, ownerOf(target))
-    })
-    const limit = asked.limit ?? LIST_PAGE
-    const offset = asked.offset ?? 0
-    const items = mine.slice(offset, offset + limit)
-    return { ...result, value: { ...result.value, items, shown: items.length, total: mine.length, limit, offset } }
+    const items = result.value.items.filter(mine).slice(0, limit)
+    return { ...result, value: { ...result.value, items, shown: items.length, total: positions.length, limit, offset } }
   })
 
   Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules })

@@ -220,24 +220,31 @@ test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', asyn
   assert.deepEqual(await check('schedule_list', 'chief', 'w2'), { kind: 'allow' })
   assert.deepEqual(await check('schedule_edit', 'chief', 'outside'), { kind: 'allow' })
 
-  // schedule_list reads the widest Host page and keeps the caller's own tasks.
-  // Other modules wrap tools/execute too.
+  // schedule_list asks the tool for the Host range that holds the caller's page and
+  // keeps the caller's own tasks. Other modules wrap tools/execute too.
+  schedule.tasks.set('own2', { record: { id: 'own2', kind: 'at', title: 'Mine too', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w2' }, status: 'active' })
   const list = ctx.listeners.get('tools/execute').find(listener => listener.name === 'listOwnSchedules')
-  const item = (id, target) => ({ id, title: id, target })
-  const host = [item('a', { kind: 'session', sessionId: 'w1' }), item('b', { kind: 'session', sessionId: 'm1' }), item('c', { kind: 'session', sessionId: 'w2' }), item('d', { kind: 'new_once' })]
   const asked = []
+  // The tool's own page: the catalog order, cut at offset and limit.
   const run = (sessionId, args) => {
     const exec = { name: 'schedule_list', arguments: args, agent: { id: sessionId } }
     return list(exec, async () => {
       asked.push(exec.arguments)
-      return { isError: false, value: { items: host, shown: host.length, total: host.length, limit: exec.arguments.limit ?? 100, offset: exec.arguments.offset ?? 0 } }
+      const { limit = 100, offset = 0 } = exec.arguments
+      const all = (await schedule.catalog()).map(entry => ({ id: entry.id, title: entry.title, target: entry.target }))
+      const items = all.slice(offset, offset + limit)
+      return { isError: false, value: { items, shown: items.length, total: all.length, limit, offset } }
     }).then(result => ({ result, args: exec.arguments }))
   }
-  const writer = await run('w2', { active: true, limit: 1, offset: 1 })
-  assert.deepEqual(asked.at(-1), { active: true, limit: 500, offset: 0 })
-  assert.deepEqual(writer.args, { active: true, limit: 1, offset: 1 })
-  assert.deepEqual(writer.result.value, { items: [host[2]], shown: 1, total: 2, limit: 1, offset: 1 })
-  assert.deepEqual((await run('m1', {})).result.value.items.map(task => task.id), ['b'])
+  const second = await run('w2', { active: true, limit: 1, offset: 1 })
+  assert.deepEqual(asked.at(-1), { active: true, limit: 1, offset: 3 })
+  assert.deepEqual(second.args, { active: true, limit: 1, offset: 1 })
+  assert.deepEqual(second.result.value, { items: [{ id: 'own2', title: 'Mine too', target: { kind: 'session', sessionId: 'w2' } }], shown: 1, total: 2, limit: 1, offset: 1 })
+  const both = await run('w2', {})
+  assert.deepEqual(asked.at(-1), { limit: 4, offset: 0 })
+  assert.deepEqual(both.result.value.items.map(task => task.id), ['own', 'own2'])
+  assert.deepEqual((await run('w2', { offset: 5 })).result.value, { items: [], shown: 0, total: 2, limit: 100, offset: 5 })
+  assert.deepEqual((await run('m1', {})).result.value.items.map(task => task.id), ['chief'])
   assert.equal((await run('outside', {})).result.value.items.length, 4)
 })
 
