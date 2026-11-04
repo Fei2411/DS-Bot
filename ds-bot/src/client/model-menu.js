@@ -84,6 +84,10 @@ export function effortStops(reasoning) {
     : [{ effort: undefined, label: t('Default') }, ...efforts.map(effort => ({ effort: effort.id, label: effort.name }))]
 }
 
+const ResetIcon = () => h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+  h('path', { d: 'M2.8 6.5A5.5 5.5 0 1 1 4 11.8' }),
+  h('path', { d: 'M2.5 3.2v3.4h3.4' }))
+
 export function EffortBar({ reasoning, current, onPick }) {
   const stops = effortStops(reasoning)
   const track = useRef(null)
@@ -105,8 +109,8 @@ export function EffortBar({ reasoning, current, onPick }) {
       if (stops[0]) choose(stops[0].effort)
       return
     }
-    const span = Math.max(1, rect.width - 14)
-    const clamped = Math.max(0, Math.min(1, (clientX - rect.left - 7) / span))
+    const span = Math.max(1, rect.width - 22)
+    const clamped = Math.max(0, Math.min(1, (clientX - rect.left - 11) / span))
     const next = stops[Math.round(clamped * (stops.length - 1))]
     if (next) choose(next.effort)
   }
@@ -135,13 +139,14 @@ export function EffortBar({ reasoning, current, onPick }) {
     h('div', { className: 'bt-effort-head' },
       h('span', { className: 'bt-effort-label' }, t('Thinking level')),
       h('span', { className: 'bt-effort-meta' },
-        picked !== undefined && hasDefault
+        picked === undefined && hasDefault ? h('span', { className: 'bt-effort-tag' }, t('Default')) : null,
+        h('span', { className: 'bt-effort-val' }, active.label),
+        picked !== undefined || !hasDefault
           ? h('button', {
               type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'), title: t('Default'),
-              onClick: () => choose(undefined),
-            }, t('Default'))
-          : hasDefault ? h('span', { className: 'bt-effort-tag' }, t('Default')) : null,
-        h('span', { className: 'bt-effort-val' }, active.label))),
+              disabled: picked === undefined, onClick: () => choose(undefined),
+            }, h(ResetIcon))
+          : null)),
     h('div', {
       ref: track, className: 'bt-effort-track', role: 'slider', tabIndex: 0,
       'aria-label': t('Thinking level'), 'aria-valuemin': 0, 'aria-valuemax': stops.length - 1,
@@ -149,8 +154,7 @@ export function EffortBar({ reasoning, current, onPick }) {
       style: { '--bt-effort-p': ratio },
       onPointerDown, onPointerMove, onKeyDown,
     },
-    h('span', { className: 'bt-effort-rail', 'aria-hidden': true },
-      h('span', { className: 'bt-effort-fill' })),
+    h('span', { className: 'bt-effort-fill', 'aria-hidden': true }),
     stops.map((stop, index) => {
       const stopRatio = stops.length <= 1 ? 1 : index / (stops.length - 1)
       return h('span', {
@@ -424,23 +428,24 @@ export const MODEL_CSS = `
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
-.bt-effort-bar{display:flex;flex-direction:column;gap:4px;padding:4px 8px 3px}
-.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:16px}
+.bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:4px 6px 5px}
+.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:18px;padding:0 2px}
 .bt-effort-label{font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3)}
-.bt-effort-meta{display:inline-flex;align-items:center;gap:6px;min-width:0}
-.bt-effort-tag,.bt-menu button.bt-effort-reset{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
-.bt-menu button.bt-effort-reset{width:auto;min-height:0;padding:1px 5px;border:0;border-radius:4px;background:var(--bt-hover);cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.bt-menu button.bt-effort-reset:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-effort-meta{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.bt-effort-tag{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
+.bt-effort-val{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap}
+.bt-menu button.bt-effort-reset{flex:none;width:18px;height:18px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing};transition:background-color .12s ease,color .12s ease}
+.bt-menu button.bt-effort-reset svg{width:11px;height:11px;margin:0}
+.bt-menu button.bt-effort-reset:hover:not(:disabled){background:var(--bt-active);color:var(--bt-ink)}
+.bt-menu button.bt-effort-reset:disabled{opacity:.35;cursor:default;background:none}
 .bt-menu button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-effort-val{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink);white-space:nowrap}
-.bt-effort-track{position:relative;height:18px;display:flex;align-items:center;cursor:pointer;user-select:none;touch-action:none}
-.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:999px}
-.bt-effort-rail{position:absolute;left:7px;right:7px;height:4px;border-radius:999px;background:var(--bt-active);overflow:hidden}
-.bt-effort-fill{position:absolute;left:0;top:0;bottom:0;width:calc(100% * var(--bt-effort-p,0));border-radius:999px;background:var(--bt-accent);transition:${spring(SPRING_TAP, 'width')}}
-.bt-effort-dot{position:absolute;top:50%;left:calc(7px + (100% - 14px) * var(--bt-dot-p,0));width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--bt-line-2);box-shadow:0 0 0 2px var(--bt-main);pointer-events:none;transition:background-color .12s ease}
-.bt-effort-dot[data-filled]{background:var(--bt-accent)}
-.bt-effort-knob{position:absolute;top:50%;left:calc(7px + (100% - 14px) * var(--bt-effort-p,0));width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--bt-card);box-shadow:inset 0 0 0 2px var(--bt-accent),0 1px 3px rgba(0,0,0,.18);pointer-events:none;transition:${spring(SPRING_TAP, 'left')},${spring(SPRING_TAP, 'scale')}}
-.bt-effort-track:hover .bt-effort-knob{scale:1.12}
+.bt-effort-track{position:relative;height:22px;border-radius:999px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);cursor:pointer;user-select:none;touch-action:none}
+.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-effort-fill{position:absolute;left:0;top:0;bottom:0;width:calc(22px + (100% - 22px) * var(--bt-effort-p,0));border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--bt-accent) 76%,var(--bt-main)),var(--bt-accent));transition:${spring(SPRING_TAP, 'width')}}
+.bt-effort-dot{position:absolute;top:50%;left:calc(11px + (100% - 22px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-3) 45%,transparent);pointer-events:none;transition:background-color .12s ease}
+.bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 65%,transparent)}
+.bt-effort-knob{position:absolute;top:2px;left:calc(11px + (100% - 22px) * var(--bt-effort-p,0) - 9px);width:18px;height:18px;border-radius:50%;background:var(--bt-accent-ink);box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.06);pointer-events:none;transition:${spring(SPRING_TAP, 'left')},${spring(SPRING_TAP, 'scale')}}
+.bt-effort-track:hover .bt-effort-knob{scale:1.06}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
