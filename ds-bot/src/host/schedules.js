@@ -225,7 +225,8 @@ export function install(rt) {
       const result = await next()
       if (result.isError || !Array.isArray(result.value?.items)) return result
       const items = result.value.items.filter(mine)
-      return { ...result, value: { ...result.value, items, shown: items.length } }
+      const total = (await service.catalog()).filter(entry => mine(entry) && (asked.active === undefined || (entry.status === 'active') === asked.active)).length
+      return { ...result, value: { ...result.value, items, shown: items.length, total } }
     }
     const pool = (await service.catalog()).filter(entry => asked.active === undefined || (entry.status === 'active') === asked.active)
     const positions = pool.flatMap((entry, at) => (mine(entry) ? [at] : []))
