@@ -44,7 +44,7 @@ const PROTECTED_IDS = new Set([
   'com.apple.passwords',
 ])
 const PROTECTED_NAMES = /^(ds bot|deepseek bot|deepseek harness|dsh|dsh desktop|dsh computer use|system settings|settings|keychain access|passwords|credential manager|control panel)$/i
-const PROTECTED_EXES = /^(dsbot|deepseek-bot|dsh|dsh-desktop|dsh-cua-native|dsh computer use|systemsettings|keychain access|passwords|credentialmanager|credwiz|control)\.exe?$/i
+const PROTECTED_EXES = /^(dsbot|deepseek-bot|dsh|dsh-desktop|dsh-cua-native|dsh computer use|systemsettings|keychain access|passwords|credentialmanager|credwiz|control)(\.exe?)?$/i
 
 export function isProtectedApp(app) {
   if (app === undefined || app === null) return false
@@ -384,7 +384,7 @@ export function install(rt) {
   // macOS: the provider's own getApp consent reaches us as a user-questions request.
   // For Bot Sessions DS Bot answers it itself, by the card's rules; anything else
   // passes to the next answerer.
-  ctx.on('user-questions/request', async (request, next) => {
+  ctx.on('user-questions/request', async function computerConsent(request, next) {
     const question = request?.questions?.find(item => item?.id === 'cua-app-access')
     const agent = request?.agent
     if (question === undefined || agent === undefined) return next()
@@ -427,7 +427,7 @@ export function install(rt) {
   const userBusy = () => userActive !== undefined && Date.now() - userActive.at < USER_ACTIVE_STALE_MS && userActive.idleSeconds * 1000 < IDLE_GATE_MS
 
   // ---- The guard ----
-  ctx.on('tools/pre-execute', async (exec, next) => {
+  ctx.on('tools/pre-execute', async function computerGate(exec, next) {
     const call = classify(exec.name, exec.arguments)
     if (call === undefined) return next()
     await rt.load()
@@ -491,7 +491,7 @@ export function install(rt) {
       call.abort.abort(new Error('Stopped'))
     }
   }
-  ctx.on('tools/execute', async (exec, next) => {
+  ctx.on('tools/execute', async function computerTrack(exec, next) {
     const call = classify(exec.name, exec.arguments)
     const sessionId = exec.agent?.id
     if (call === undefined || sessionId === undefined) return next()
@@ -835,6 +835,11 @@ export function install(rt) {
     for (const { resolve } of pendingAsks.values()) resolve('deny')
     pendingAsks.clear()
     for (const { abort } of inFlight.values()) abort.abort(new Error('DS Bot stopped'))
+    for (const held of applied.values()) {
+      for (const lift of held.lifts) { try { lift() } catch {} }
+      try { held.handoffLift?.() } catch {}
+    }
+    applied.clear()
     return teardownProvider()
   }, 'ds-bot: computer use')
 

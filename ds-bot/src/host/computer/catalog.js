@@ -28,12 +28,18 @@ const DRIVER_OBSERVE = new Set([
   'get_agent_cursor_state', 'get_recording_state', 'get_config', 'check_permissions', 'health_report',
 ])
 // Tools that exist to bring a window to the user or to take over the visible pointer.
-const DRIVER_FOREGROUND = new Set([
-  'activate_window', 'activate_app', 'focus_window', 'focus_app', 'raise_window',
-  'move_cursor', 'set_cursor_position', 'foreground_input',
+
+// Raising windows and moving the visible cursor are foreground; so is session
+// escalation. Anything the driver adds that DS Bot does not know fails closed to
+// foreground — never silently allowed.
+const DRIVER_BACKGROUND = new Set([
+  'launch_app', 'kill_app', 'set_window_frame', 'invoke_menu', 'click', 'double_click',
+  'right_click', 'drag', 'type_text', 'press_key', 'hotkey', 'set_value', 'scroll',
+  'clipboard_read', 'clipboard_write', 'page', 'browser_prepare', 'browser_navigate',
+  'browser_click', 'browser_type', 'browser_dialog', 'browser_set_input_files',
+  'browser_download', 'browser_pointer', 'start_recording', 'stop_recording',
+  'replay_trajectory', 'install_ffmpeg', 'start_session', 'end_session', 'set_config',
 ])
-// A foreground kind also when the caller asks for foreground delivery in its args.
-const FOREGROUND_ARGS = /foreground|activate|focus/i
 
 // Classify one call. Returns undefined for a tool computer use does not own.
 // `args` is the parsed tool-call arguments object (cua: {method, params}).
@@ -48,9 +54,7 @@ export function classify(name, args = {}) {
   if (typeof name === 'string' && name.startsWith(DRIVER_PREFIX)) {
     const method = name.slice(DRIVER_PREFIX.length)
     const kind = DRIVER_OBSERVE.has(method) ? 'observe'
-      : DRIVER_FOREGROUND.has(method)
-        || (typeof args?.foreground === 'boolean' ? args.foreground : FOREGROUND_ARGS.test(method))
-        ? 'foreground' : 'background'
+      : args?.foreground === true || !DRIVER_BACKGROUND.has(method) ? 'foreground' : 'background'
     return { provider: PROVIDERS.driver, kind, method }
   }
   return undefined
