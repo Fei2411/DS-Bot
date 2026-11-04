@@ -26,8 +26,8 @@ export interface ChatItem {
   file?: string
   length?: number
   title?: string
-  view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
-  views?: { id: string; title: string; view: { id?: string; title?: string; children?: unknown[] } }[]
+  view?: unknown
+  views?: { id: string; title: string; view: unknown }[]
   questions?: { question: string }[]
   answers?: { id?: string; action?: string; values?: { selected?: string[]; inputs?: Record<string, unknown>; fields?: Record<string, string>; confirmed?: boolean }; selected?: string[]; custom?: string }[]
   tools?: { name: string; label?: string | null; ok?: boolean }[]
@@ -69,7 +69,7 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
   }
   if (item.kind === 'view') {
     return item.view !== undefined
-      ? <ViewCard sessionId={sessionId ?? ''} view={item.view} p={p} readOnly />
+      ? <ViewCard sessionId={sessionId ?? ''} title={item.title} root={item.view} p={p} readOnly />
       : <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
           <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
         </View>

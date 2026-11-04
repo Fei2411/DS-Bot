@@ -81,7 +81,7 @@ export interface TeamState {
   models?: { key?: string; name: string; ref?: string }[]
   memory?: boolean
   questions?: Record<string, Question>
-  views?: Record<string, { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }>
+  views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]
   capabilities?: { name: string; description?: string; kind?: string; transport?: string; command?: string; url?: string; content?: string; items?: string[]; status?: string }[]
@@ -109,6 +109,9 @@ function phoneName(): string {
   if (Platform.OS === 'android') return [constants.Manufacturer, constants.Model].filter(Boolean).join(' ') || 'Android phone'
   return constants.interfaceIdiom === 'pad' ? 'iPad' : 'iPhone'
 }
+
+/** A card as the computer keeps it: `view` is the root node of the blueprint. */
+export interface ShownView { id?: string; title?: string; view?: unknown }
 
 /** Opens the encrypted link to the computer. The pairing code goes only with the first connection. */
 export async function openLink(computer: SavedComputer, identity: PhoneIdentity, pairingCode?: string): Promise<RpcClient> {

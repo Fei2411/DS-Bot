@@ -18,6 +18,7 @@ const MOBILE_ZH: Record<string, string> = {
   'The computer did not accept this phone. Show a new QR code on the computer and scan it again.': '电脑没有接受这台手机。在电脑上出示新的二维码，再扫一次。',
   'The computer is not connected to the Server. Check that DS Bot is open and phone access is on.': '电脑没有连上服务器。确认 DS Bot 已打开且手机访问已开启。',
   'Not connected to the computer yet.': '还没有连上电脑。',
+  'Card': '卡片',
   "Could not reach the Server. Check the network. If the computer's Server address changed, pair again under Computers.": '连不上服务器。请检查网络；如果电脑的服务器地址改了，在「电脑」里重新配对。',
   'Update DS Bot on the computer to use this phone.': '请先更新电脑上的 DS Bot，再用这台手机。',
   'Open team list': '打开团队列表',

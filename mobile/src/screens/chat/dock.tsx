@@ -5,7 +5,7 @@ import { ViewCard } from './view.tsx'
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
 import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
-import type { Approval, Question } from '../../connection.ts'
+import type { Approval, Question, ShownView } from '../../connection.ts'
 import { t } from '../../ui/i18n.ts'
 import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Avatar } from '../../ui/marks.tsx'
@@ -40,7 +40,7 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
 }
 
 export function Dock({ question, sessionId, approvals, secrets = [], btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
-  view?: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }
+  view?: ShownView
   secrets?: SecretRequest[]; btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
   maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
@@ -51,7 +51,7 @@ export function Dock({ question, sessionId, approvals, secrets = [], btw = [], h
   if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
   for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
   if (handoff !== undefined) cards.push({ key: 'handoff', title: t('Browser handoff'), needs: true, order: 3, body: <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} bare /> })
-  if (view !== undefined) cards.push({ key: `view-${view.id ?? 'view'}`, title: view.title ?? 'View', needs: true, order: 4, body: <ViewCard sessionId={sessionId} view={view} p={p} bare /> })
+  if (view !== undefined) cards.push({ key: `view-${view.id ?? 'view'}`, title: view.title || t('Card'), needs: true, order: 4, body: <ViewCard sessionId={sessionId} id={view.id} title={view.title} root={view.view} p={p} bare /> })
   for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })
   if (cards.length === 0) return null
   const chosen = cards.find(card => card.key === expanded)
@@ -235,7 +235,7 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
       {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Browser handoff')}</Text>}
       {handoff.note || handoff.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{handoff.note ?? handoff.reason}</Text> : null}
       <View style={styles.answerRow}>
-        {onView !== undefined ? <Pressable accessibilityRole="button" onPress={onView} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('View')}</Text></Pressable> : null}
+        {onView !== undefined ? <Pressable accessibilityRole="button" onPress={onView} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Card')}</Text></Pressable> : null}
         <Pressable accessibilityRole="button" disabled={busy} onPress={() => answer('skip')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Skip')}</Text></Pressable>
         <Pressable accessibilityRole="button" disabled={busy} onPress={() => answer('done')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Done')}</Text></Pressable>
       </View>
@@ -260,9 +260,9 @@ export function ActionRow({ bot, doing, p, dark }: { bot: Bot; doing: string; p:
 }
 
 const type = typeScale
-function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionId: string; view: { id?: string; title?: string; children?: unknown[]; blueprint?: { id?: string; title?: string; children?: unknown[] } }; p: Palette; cap?: number; collapsed: boolean | null; onCollapse?: (id: string, value: boolean) => void }) {
+function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionId: string; view: ShownView; p: Palette; cap?: number; collapsed: boolean | null; onCollapse?: (id: string, value: boolean) => void }) {
   const id = view.id ?? ''
-  const title = (view.blueprint?.title ?? view.title) ?? 'View'
+  const title = view.title || t('Card')
   const shut = collapsed === true
   const reduced = useReducedMotion()
   const spin = useSharedValue(shut ? 0 : 90)
@@ -276,7 +276,7 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
       </Pressable>
       {shut ? null : (
         <View style={{ paddingBottom: 14 }} onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>
-          <ViewCard sessionId={sessionId} view={view} p={p} bare />
+          <ViewCard sessionId={sessionId} id={view.id} title={view.title} root={view.view} p={p} bare />
         </View>
       )}
     </View>
