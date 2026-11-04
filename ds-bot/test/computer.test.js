@@ -656,3 +656,179 @@ test("the macOS consent answerer is prepended ahead of DSH answerer", async (t) 
   await rt.load()
   assert.ok(ctx.calls.includes('on user-questions/request (prepend)'))
 })
+
+test('a provider status change saves, so the view reaches the next poll', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
+  ctx.get = name => services[name]
+  withProvider(ctx, services)
+  await rt.load()
+  const saves = []
+  const save = rt.save
+  rt.save = async () => { saves.push(1); return save() }
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  const before = saves.length
+  await rt.computerEndpoint('provider-retry', {})
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(rt.computerView().provider.state, 'ready')
+  assert.ok(saves.length > before, 'the status change did not advance the revision')
+})
+
+test('a group computer_handoff docks by its hold id and the answer reaches the Bot chat', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
+  ctx.get = name => services[name]
+  withProvider(ctx, services)
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('provider-retry', {})
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const agent = ctx.scopeAgent('w1')
+  await ctx.emitAsync('agent/created', { agent })
+  const handoff = ctx.registeredTools.get('computer_handoff')
+  const group = 'w1-group'
+  const selfOf = rt.selfOf
+  rt.selfOf = id => (id === group ? 'w1' : selfOf(id))
+  const isBotSession = rt.isBotSession
+  rt.isBotSession = id => (id === group ? true : isBotSession(id))
+  const followups = []
+  ctx.sessions = { flush: async () => {} }
+  rt.resolveAgent = async () => ({ followup: message => followups.push(message), session: { id: 'w1' } })
+  rt.chatOf = () => 'w1'
+  // the group call has no callId for the Bot's own chat
+  await handoff.execute({ reason: 'login' }, { agent: { id: group }, callId: 'call-group' })
+  const [, hold] = Object.entries(rt.computerLive().holds ?? {})[0]
+  assert.equal(typeof hold.id, 'string')
+  assert.equal(hold.callId, undefined)
+  await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'skip' })
+  const reply = JSON.parse(followups.at(-1).content[0].text)
+  assert.equal(reply.kind, 'answer_to_pending_handoff')
+  assert.equal(reply.callId, hold.id)
+  assert.equal(reply.outcome, 'skipped')
+  assert.equal(rt.computerLive().holds?.w1, undefined)
+})
+
+test('cua-driver resolves a window_id or an element token to the app, and refuses what it cannot', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (name, args = {}) => gate({ name, arguments: args, agent: { id: 'w1' }, callId: `c-${name}` }, allow)
+  // a targeted call with nothing to resolve against is refused before consent
+  const blind = await call('cua_driver_native__click', {})
+  assert.equal(blind.kind, 'deny')
+  assert.match(blind.reason, /list_windows/)
+  // untargeted capture and desktop-state reads are refused at every level
+  assert.equal((await call('cua_driver_native__get_desktop_state', {})).kind, 'deny')
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'view' })
+  assert.equal((await call('cua_driver_native__zoom', {})).kind, 'deny')
+  // list_windows stays allowed metadata
+  assert.equal(await call('cua_driver_native__list_windows', {}), 'allowed')
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  // get_window_state records the window and its element tokens
+  await track({ name: 'cua_driver_native__get_window_state', arguments: { window_id: 7 }, agent: { id: 'w1' }, callId: 'state-1' },
+    async () => ({ window_id: 7, pid: 42, name: 'Notes', path: '/Applications/Notes.app', elements: [{ token: 'el-9' }] }))
+  // a window_id call resolves to Notes and asks once, then runs
+  const pending = call('cua_driver_native__click', { window_id: 7 })
+  await new Promise(resolve => setImmediate(resolve))
+  const [id, ask] = Object.entries(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id, answer: 'once' })
+  assert.equal(await pending, 'allowed')
+  // an element token from the same window resolves to the same app
+  assert.equal(await call('cua_driver_native__click', { target: 'el-9' }), 'allowed')
+  // an unknown window is refused
+  const unknown = await call('cua_driver_native__click', { window_id: 99 })
+  assert.equal(unknown.kind, 'deny')
+})
+
+test('revoke clears a This time under every key, so the next call asks again', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (args = {}) => gate({ name: 'cua_driver_native__click', arguments: args, agent: { id: 'w1' }, callId: 'c-revoke' }, allow)
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'list-1' }, async () => ({ windows: [{ pid: 42, name: 'Notes', path: '/Applications/Notes.app' }] }))
+  // Always grant, then a This time decision in the same Session
+  const grantAsk = call({ pid: 42 })
+  await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'always' })
+  assert.equal(await grantAsk, 'allowed')
+  // revoke the grant and record a Session decision under a different key, then revoke again
+  await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: '/Applications/Notes.app' })
+  const onceAsk = call({ pid: 42 })
+  await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'once' })
+  assert.equal(await onceAsk, 'allowed')
+  await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: '/Applications/Notes.app' })
+  // the This time is gone with it: the next call opens the card again
+  const again = call({ pid: 42 })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+  assert.equal((await again).kind, 'deny')
+})
+
+test('computer-shot serves only screenshots the module recorded, with a safe MIME', async (t) => {
+  const services = { attachments: { readFileStream: async function* () { yield Buffer.from('img') } } }
+  const { ctx, home, rt } = setup({ services })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  // an arbitrary attachment id is not readable
+  assert.equal(await rt.computerEndpoint('shot', { attachmentId: 'any-1' }), null)
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  // a screenshot result with a hostile MIME is served as png
+  await track({ name: 'cua', arguments: { method: 'screenshot', params: {} }, agent: { id: 'w1' }, callId: 'shot-1' },
+    async () => ({ attachment: { attachmentId: 'rec-1', mimeType: 'text/html' } }))
+  const shot = await rt.computerEndpoint('shot', { attachmentId: 'rec-1' })
+  assert.match(shot.dataUrl, /^data:image\/png;base64,/)
+  // a real image MIME survives
+  await track({ name: 'cua', arguments: { method: 'screenshot', params: {} }, agent: { id: 'w1' }, callId: 'shot-2' },
+    async () => ({ attachment: { attachmentId: 'rec-2', mimeType: 'image/jpeg' } }))
+  assert.match((await rt.computerEndpoint('shot', { attachmentId: 'rec-2' })).dataUrl, /^data:image\/jpeg;base64,/)
+})
+
+test('same-named apps do not share an approval; a name-only consent still matches', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (args = {}) => gate({ name: 'cua_driver_native__click', arguments: args, agent: { id: 'w1' }, callId: `c-${args.pid}` }, allow)
+  // app A at path X gets an Always grant
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'list-a' }, async () => ({ windows: [{ pid: 42, name: 'Notes', path: '/a/Notes.app' }] }))
+  const askA = call({ pid: 42 })
+  await new Promise(resolve => setImmediate(resolve))
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'always' })
+  assert.equal(await askA, 'allowed')
+  // app B: same name, another path — it asks again
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'list-b' }, async () => ({ windows: [{ pid: 43, name: 'Notes', path: '/b/Notes.app' }] }))
+  const askB = call({ pid: 43 })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'deny' })
+  assert.equal((await askB).kind, 'deny')
+  // the macOS consent question carries only a name; that path stays name-matched
+  const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+  const w1 = rt.botOf('w1')
+  const question = { questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } } }], agent: { id: 'w1', session: { id: 'w1' } }, signal: new AbortController().signal }
+  // drop the path-keyed grants and keep a name-only Always grant
+  w1.computer = { apps: { notes: { name: 'Notes', grantedAt: 0 } } }
+  const answer = await consent(question, async () => 'next')
+  assert.deepEqual(answer.answers[0].selected, ['Allow for this session'])
+})

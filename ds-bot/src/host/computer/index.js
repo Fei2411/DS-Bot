@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS } from './catalog.js'
+import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL } from './catalog.js'
 import { createLeases } from './leases.js'
 import { REPLY_KIND } from '../constants.js'
 import { output } from '../tools.js'
@@ -74,6 +74,7 @@ export function install(rt) {
   /** @type {Map<string, Map<string, 'once'|'deny'>>} `${botId}:${sessionId}` -> appKey -> this-session decision */
   const sessionDecisions = new Map()
   const shotMimes = new Map()
+  const SHOT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
   /** @type {Map<string, {by:string, reason:string, note:string, callId?:string, surface:'computer'}>} */
   const holds = new Map()
   /** @type {Map<string, {botId:string, sessionId:string, appKey?:string, abort:AbortController}>} callId -> in-flight call */
@@ -82,6 +83,13 @@ export function install(rt) {
   const applied = new Map()
   let userActive
   let providerStatus = { state: 'off' }
+  // The provider status is volatile, but it rides in the view payload: the poll
+  // only re-sends the view after a new revision, so a status change must save.
+  const setProviderStatus = (next) => {
+    if (next.state === providerStatus.state && next.name === providerStatus.name && next.message === providerStatus.message) return
+    providerStatus = next
+    void rt.save().catch(error => rt.warn('ds-bot: computer-use status not saved: %s', error))
+  }
   let mountedByUs = false
   let registryFiber
   let providerFiber
@@ -129,15 +137,15 @@ export function install(rt) {
       await rt.load()
       if (!enabled()) {
         await unmountProvider()
-        providerStatus = { state: 'off' }
+        setProviderStatus({ state: 'off' })
         return
       }
       const name = PROVIDER_PACKAGES[process.platform]
       if (name === undefined) {
-        providerStatus = { state: 'unsupported' }
+        setProviderStatus({ state: 'unsupported' })
         return
       }
-      providerStatus = { state: 'loading' }
+      setProviderStatus({ state: 'loading' })
       try {
         if (service('computerUse') === undefined) {
           const registry = await importPackage(REGISTRY_PACKAGE).catch(error => { throw missing(error, REGISTRY_PACKAGE) })
@@ -147,7 +155,7 @@ export function install(rt) {
         if (stopped || !enabled()) return
         const existing = service('computerUse').providerName
         if (existing !== undefined && !mountedByUs) {
-          providerStatus = { state: 'occupied', name: String(existing) }
+          setProviderStatus({ state: 'occupied', name: String(existing) })
           return
         }
         const provider = await importPackage(name).catch(error => { throw missing(error, name) })
@@ -157,13 +165,13 @@ export function install(rt) {
         await providerFiber.await?.()
         if (stopped || !enabled()) return
         mountedByUs = true
-        providerStatus = { state: 'ready', name: service('computerUse').providerName ?? 'dsh-cua' }
+        setProviderStatus({ state: 'ready', name: service('computerUse').providerName ?? 'dsh-cua' })
         refreshComputer()
       } catch (error) {
         await unmountProvider().catch(() => {})
-        providerStatus = error?.code === 'bot/missing'
+        setProviderStatus(error?.code === 'bot/missing'
           ? { state: 'missing', message: error.message }
-          : { state: 'error', message: rt.redactSecrets?.(String(error?.message ?? error)) ?? String(error) }
+          : { state: 'error', message: rt.redactSecrets?.(String(error?.message ?? error)) ?? String(error) })
       }
     })().finally(() => { ensuring = undefined })
     return ensuring
@@ -294,9 +302,24 @@ export function install(rt) {
     }
     const args = exec.arguments ?? {}
     const pid = [args.pid, args.appPid, args.windowPid, args.target_pid].find(value => Number.isInteger(value))
-    if (pid === undefined) return undefined
-    const known = appsOfSession(sessionId).get(`pid:${pid}`)
-    return known ?? { key: `pid:${pid}`, name: `pid ${pid}`, pid, unknown: true }
+    if (pid !== undefined) {
+      const known = appsOfSession(sessionId).get(`pid:${pid}`)
+      return known ?? { key: `pid:${pid}`, name: `pid ${pid}`, pid, unknown: true }
+    }
+    // A window_id resolves to the app that owns the window, recorded from a
+    // list_windows/get_window_state result.
+    const windowId = [args.window_id, args.windowId, args.wid, args.window].find(value => value !== undefined && value !== null)
+    if (windowId !== undefined) {
+      const known = appsOfSession(sessionId).get(`window:${windowId}`)
+      return known ?? { key: `window:${windowId}`, name: `window ${windowId}`, unknown: true }
+    }
+    // An element token resolves to the window it was read from.
+    const token = [args.target, args.element, args.element_id, args.elementId, args.token, args.ref].find(value => value !== undefined && value !== null)
+    if (token !== undefined) {
+      const known = appsOfSession(sessionId).get(`token:${token}`)
+      return known ?? { key: `token:${token}`, name: 'an element', unknown: true }
+    }
+    return undefined
   }
   // What a result tells DS Bot about apps: getApp returns the handle plus the app's
   // identity; driver lists name pids.
@@ -319,19 +342,43 @@ export function install(rt) {
       return
     }
     if (call.provider !== 'cua-driver') return
+    const apps = appsOfSession(sessionId)
+    const recordPid = (item) => {
+      const pid = [item?.pid, item?.appPid, item?.app_pid, item?.processId].find(value => Number.isInteger(value))
+      if (pid === undefined) return undefined
+      const app = {
+        key: appKeyOf({ id: item.bundleId ?? item.id, path: item.path ?? item.executablePath, name: item.name ?? item.title }),
+        name: String(item.name ?? item.title ?? `pid ${pid}`),
+        id: item.bundleId ?? item.id,
+        path: item.path ?? item.executablePath,
+        pid,
+      }
+      apps.set(`pid:${pid}`, app)
+      return app
+    }
     const lists = [result.apps, result.windows, result.items, result]
     for (const list of lists) {
       if (!Array.isArray(list)) continue
       for (const item of list) {
-        const pid = [item?.pid, item?.appPid, item?.processId].find(value => Number.isInteger(value))
-        if (pid === undefined) continue
-        appsOfSession(sessionId).set(`pid:${pid}`, {
-          key: appKeyOf({ id: item.bundleId ?? item.id, path: item.path ?? item.executablePath, name: item.name ?? item.title }),
-          name: String(item.name ?? item.title ?? `pid ${pid}`),
-          id: item.bundleId ?? item.id,
-          path: item.path ?? item.executablePath,
-          pid,
-        })
+        const app = recordPid(item) ?? (typeof item?.title === 'string' ? { key: `title:${normName(item.title)}`, name: item.title } : undefined)
+        if (app === undefined) continue
+        const windowId = [item?.window_id, item?.windowId, item?.wid].find(value => value !== undefined && value !== null)
+        if (windowId !== undefined) apps.set(`window:${windowId}`, app)
+      }
+    }
+    // get_window_state reports one window and the element tokens inside it;
+    // record both so a later call on either resolves to the window's app.
+    const stateWindow = [result.window_id, result.windowId, result.wid, result.window?.window_id, result.window?.id].find(value => value !== undefined && value !== null)
+    const statePid = [result.pid, result.appPid, result.app_pid, result.window?.pid, result.window?.app_pid].find(value => Number.isInteger(value))
+    let stateApp = statePid !== undefined ? recordPid(result) ?? apps.get(`pid:${statePid}`) : undefined
+    if (stateApp === undefined && stateWindow !== undefined) stateApp = apps.get(`window:${stateWindow}`)
+    if (stateApp === undefined && result?.window && typeof result.window === 'object') stateApp = recordPid(result.window)
+    if (stateWindow !== undefined && stateApp !== undefined) apps.set(`window:${stateWindow}`, stateApp)
+    if (stateApp !== undefined) {
+      const elements = [result.elements, result.interactive_elements, result.targets, result.items].find(list => Array.isArray(list)) ?? []
+      for (const element of elements) {
+        const token = [element?.token, element?.element_id, element?.elementId, element?.id, element?.ref, element?.handle].find(value => value !== undefined && value !== null)
+        if (token !== undefined) apps.set(`token:${token}`, stateApp)
       }
     }
   }
@@ -355,8 +402,12 @@ export function install(rt) {
     const grants = grantsOf(bot)
     const byKey = grants[app.key]
     if (byKey !== undefined) return byKey
+    if (app.id !== undefined) return Object.values(grants).find(grant => grant.id === app.id)
+    // The name decides only when no id or path can: the macOS consent question
+    // carries a name alone. A same-named app with its own identity asks again.
+    if (app.path !== undefined) return undefined
     const wanted = normName(app.name)
-    return Object.values(grants).find(grant => normName(grant.name) === wanted || (app.id !== undefined && grant.id === app.id))
+    return Object.values(grants).find(grant => normName(grant.name) === wanted)
   }
   const recordGrant = async (bot, app) => {
     bot.computer ??= {}
@@ -433,7 +484,6 @@ export function install(rt) {
       return 'allow'
     }
     decisions.set(app.key, answer === 'once' ? 'once' : 'deny')
-    if (normName(app.name) !== app.key) decisions.set(normName(app.name), answer === 'once' ? 'once' : 'deny')
     return answer === 'once' ? 'allow' : `The user did not allow ${bot.name} to use ${app.name}.`
   }
 
@@ -483,12 +533,17 @@ export function install(rt) {
         if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
     }
-    if (call.provider === 'cua-driver' && app !== undefined) {
-      if (app.unknown === true) {
-        return { kind: 'deny', reason: `${bot.name} does not know which application pid ${app.pid ?? ''} is. List the windows or apps first.` }
+    if (call.provider === 'cua-driver') {
+      if (app === undefined) {
+        if (!DRIVER_GLOBAL.has(call.method) && !call.method.startsWith('browser_')) {
+          return { kind: 'deny', reason: 'Name the window from list_windows first.' }
+        }
+      } else if (app.unknown === true) {
+        return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
+      } else {
+        const verdict = await driverConsent(exec, bot, sessionId, app)
+        if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
-      const verdict = await driverConsent(exec, bot, sessionId, app)
-      if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
     }
     if (call.kind !== 'observe' && app !== undefined) {
       const held = leases.holderOfApp(app.key)
@@ -573,7 +628,7 @@ export function install(rt) {
   const handoffReplyText = (hold, outcome) => JSON.stringify({
     kind: 'answer_to_pending_handoff',
     tool: HANDOFF_TOOL,
-    callId: hold.callId,
+    callId: hold.callId ?? hold.id,
     reason: hold.reason,
     ...(hold.note ? { note: hold.note } : {}),
     outcome,
@@ -587,7 +642,7 @@ export function install(rt) {
     holds.delete(botId)
     controlOf(botId).waitingFor = undefined
     settleControl(botId)
-    if (hold.callId === undefined || outcome === 'takeover') return true
+    if (outcome === 'takeover') return true
     const settled = outcome === 'done' ? 'done' : 'skipped'
     try {
       const sessionId = rt.chatOf(botId)
@@ -595,7 +650,7 @@ export function install(rt) {
       const agent = await rt.resolveAgent(sessionId)
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: handoffReplyText(hold, settled) }],
-        source: { kind: REPLY_KIND, callId: hold.callId, outcome: 'answered' },
+        source: { kind: REPLY_KIND, callId: hold.callId ?? hold.id, outcome: 'answered' },
       }))
       await ctx.sessions.flush(agent.session)
     } catch (error) {
@@ -611,7 +666,7 @@ export function install(rt) {
     ctl.state = 'user'
     ctl.waitingFor = undefined
     const hold = holds.get(botId)
-    holds.set(botId, { by: 'user', surface: 'computer', reason: hold?.reason ?? 'takeover', note: hold?.note ?? 'The user is operating the computer.', ...(hold?.callId !== undefined ? { callId: hold.callId } : {}) })
+    holds.set(botId, { id: hold?.id ?? randomUUID(), by: 'user', surface: 'computer', reason: hold?.reason ?? 'takeover', note: hold?.note ?? 'The user is operating the computer.', ...(hold?.callId !== undefined ? { callId: hold.callId } : {}) })
     return true
   }
   const handBack = async (botId) => {
@@ -646,6 +701,7 @@ export function install(rt) {
       if (!enabled() || levelOf(bot) === 'off') return 'Computer use is off for you.'
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
+        id: randomUUID(),
         by: 'bot', surface: 'computer',
         reason: HANDOFF_REASONS.includes(args.reason) ? args.reason : 'other',
         note: String(args.note ?? '').slice(0, 500),
@@ -693,10 +749,10 @@ export function install(rt) {
     }
     if (next) {
       void ensureProvider()
-      providerStatus = providerStatus.state === 'off' ? { state: 'loading' } : providerStatus
+      setProviderStatus(providerStatus.state === 'off' ? { state: 'loading' } : providerStatus)
     } else {
       await teardownProvider()
-      providerStatus = { state: 'off' }
+      setProviderStatus({ state: 'off' })
     }
     refreshComputer()
     return rt.computerView()
@@ -743,11 +799,17 @@ export function install(rt) {
     const recorded = [...sessionApps.values()].flatMap(map => [...map.values()])
       .find(app => app.key === appKey || app.id === appKey || normName(app.name) === normName(grant?.name ?? appKey))
     const wanted = normName(grant?.name ?? recorded?.name ?? appKey)
+    const aliases = new Set([appKey])
+    for (const map of sessionApps.values()) {
+      for (const [key, app] of map) {
+        if (app.key === appKey || app.id === appKey || normName(app.name) === wanted) aliases.add(key)
+      }
+    }
     // A "This time" must not outlive the revoke, in any of this Bot's Sessions.
     for (const [key, decisions] of sessionDecisions) {
       if (!key.startsWith(`${botId}:`)) continue
       for (const entry of [...decisions.keys()]) {
-        if (entry === appKey || normName(entry) === wanted) decisions.delete(entry)
+        if (aliases.has(entry) || normName(entry) === wanted) decisions.delete(entry)
       }
     }
     const knownId = grant?.id ?? recorded?.id
@@ -778,7 +840,7 @@ export function install(rt) {
       case 'revoke-app':
         return revokeApp(String(body.botId ?? ''), String(body.appKey ?? ''))
       case 'provider-retry':
-        providerStatus = { state: 'loading' }
+        setProviderStatus({ state: 'loading' })
         await ensureProvider()
         return rt.computerView()
       case 'system-status': {
@@ -833,10 +895,12 @@ export function install(rt) {
       case 'shot': {
         const attachments = service('attachments')
         const id = String(body.attachmentId ?? '')
-        if (attachments === undefined || id === '') return null
+        // Only screenshots this module recorded are served — an arbitrary
+        // attachment id is not readable through this endpoint.
+        if (attachments === undefined || !shotMimes.has(id)) return null
         const chunks = []
         for await (const chunk of attachments.readFileStream({ attachmentId: id }, AbortSignal.timeout(5000))) chunks.push(chunk)
-        const mime = shotMimes.get(id) ?? 'image/png'
+        const mime = SHOT_MIMES.has(shotMimes.get(id)) ? shotMimes.get(id) : 'image/png'
         return { dataUrl: `data:${mime};base64,${Buffer.concat(chunks).toString('base64')}` }
       }
       case 'app-answer':

@@ -5372,20 +5372,12 @@ var actionName = (method) => {
   const words = String(method ?? "").replace(/^cua_driver_native__/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
   return words === "" ? "Computer" : words[0].toUpperCase() + words.slice(1);
 };
-var callArgs = (call2) => {
-  const args = call2?.arguments;
-  if (args !== null && typeof args === "object") return args;
-  try {
-    return JSON.parse(args ?? "{}");
-  } catch {
-    return {};
-  }
-};
 function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks }) {
-  const args = callArgs(call2);
-  const method = args.method ?? String(call2?.name ?? "").replace(/^cua_driver_native__/, "");
+  const { value: argValue } = toolArgs(call2);
+  const method = argValue("method") ?? String(call2?.name ?? "").replace(/^cua_driver_native__/, "");
   const stepApp = hooks?.useComputer?.((map) => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find((step) => step.callId === call2?.callId)?.app);
-  const app = stepApp ?? (method === "getApp" && typeof args.params?.selector === "string" && args.params.selector !== "" ? args.params.selector : void 0);
+  const selector = argValue("params")?.selector;
+  const app = stepApp ?? (method === "getApp" && typeof selector === "string" && selector !== "" ? selector : void 0);
   const shot = (call2?.content ?? []).find((block) => (block?.type === "image" || block?.type === "file") && block.attachment !== void 0)?.attachment;
   const [url, setUrl] = (0, import_react10.useState)(null);
   const [open, setOpen] = (0, import_react10.useState)(false);
@@ -5442,7 +5434,7 @@ function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }) {
   const [closed, setClosed] = (0, import_react10.useState)(false);
   const busyRef = (0, import_react10.useRef)(false);
   const titleId = (0, import_react10.useId)();
-  const keep = useDockHold(sessionId, "handoff", hold.callId, actions, inline);
+  const keep = useDockHold(sessionId, "handoff", hold.callId ?? hold.id, actions, inline);
   const taken = hold.by === "user";
   const run2 = (make, close) => {
     if (busyRef.current) return;
@@ -5456,7 +5448,7 @@ function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }) {
       busyRef.current = false;
     });
   };
-  const answer = (outcome) => run2(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId, outcome }), true);
+  const answer = (outcome) => run2(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId ?? hold.id, outcome }), true);
   const takeOver = () => run2(async () => {
     await actions.computerTakeover(bot.id);
     actions.openDetails?.(sessionId, "computer");
@@ -5508,10 +5500,11 @@ function ComputerHandoffCall({ sessionId, callId, roster, actions, heldCards, ho
 function ComputerHandoffDock({ sessionId, useRoster, useCards, useHeldCards, useComputer, actions }) {
   const bot = useRoster((value) => value.byId[sessionId]);
   const hold = useComputer?.((map) => bot ? map.holds?.[bot.id] : void 0);
-  const drawn = useCards?.((state) => state[sessionId]?.[hold?.callId] > 0) === true;
-  const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("handoff", hold?.callId)] > 0) === true;
-  if (!bot || hold?.callId === void 0 || !actions.computerHoldAnswer || drawn && !held) return null;
-  return (0, import_react10.createElement)(PendingComputerHandoff, { key: JSON.stringify([sessionId, hold.callId]), sessionId, bot, hold, actions, inline: false });
+  const holdKey = hold?.callId ?? hold?.id;
+  const drawn = useCards?.((state) => state[sessionId]?.[holdKey] > 0) === true;
+  const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("handoff", holdKey)] > 0) === true;
+  if (!bot || holdKey === void 0 || !actions.computerHoldAnswer || drawn && !held) return null;
+  return (0, import_react10.createElement)(PendingComputerHandoff, { key: JSON.stringify([sessionId, holdKey]), sessionId, bot, hold, actions, inline: false });
 }
 function SettledComputerHandoff({ handoff }) {
   const skipped = handoff.outcome === "skipped";
@@ -10399,7 +10392,7 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
-  useShownCards(actions, sessionId, drawn.filter((call2) => CARDS.has(toolName(call2)) && call2.callId).map((call2) => call2.callId));
+  useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
   if (drawn.length === 0) return (0, import_react21.createElement)(CellEmpty);
   const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
   return (0, import_react21.createElement)(import_react21.Fragment, null, drawn.map((call2, index) => (0, import_react21.createElement)(import_react21.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
@@ -21368,11 +21361,11 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
           back ? (0, import_react50.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": back, title: back, onClick: () => actions.openSettings(shown) }, (0, import_react50.createElement)(ChevronLeftIcon)) : null,
           (0, import_react50.createElement)("h2", { key: bot?.id ?? room2?.id ?? shown }, bot?.name ?? room2?.name ?? label)
         ),
-        shown === "computer" ? (0, import_react50.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
         shown === "usage" ? null : (0, import_react50.createElement)(
           "div",
           { key: pageKey, className: "bt-settings-scroll bt-settings-page", "data-move": last.current.move },
           errorLine,
+          shown === "computer" ? (0, import_react50.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === "general" ? (0, import_react50.createElement)(GeneralPage, { roster, actions, run: run2 }) : null,
           shown === "models" ? (0, import_react50.createElement)(ProvidersPage, { actions, run: run2, Section: SetSection }) : null,
           bot ? (0, import_react50.createElement)("div", { className: "bt-settings-form" }, (0, import_react50.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
@@ -25600,11 +25593,8 @@ function apply(ctx) {
     () => shadow("conversation.input.dock", { id: "bot-computer-app", order: -83, inject: face }, AppAccessDock),
     () => shadow("conversation.input.dock", { id: "bot-learning", order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock)
   ];
-  ctx.effect(
-    () => installCompiledStyles(RETURN_CSS, "return"),
-    () => installCompiledStyles(COMPUTER_CSS, "computer"),
-    "ds-bot: return styles"
-  );
+  ctx.effect(() => installCompiledStyles(RETURN_CSS, "return"), "ds-bot: return styles");
+  ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
     let previous;

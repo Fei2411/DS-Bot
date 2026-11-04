@@ -49,13 +49,15 @@ test('the indicator window is frameless, unfocusable, protected and centered', (
 test('empty entries hide the window; button clicks reach onAction', async () => {
   const { BrowserWindow, screen, windows } = fakeElectron()
   const actions = []
-  const indicator = createComputerIndicator({ BrowserWindow, screen, html: indicatorHtml, onAction: (kind, botId) => actions.push([kind, botId]), log: { warn: () => {} } })
+  const listeners = {}
+  const ipcMain = { on: (channel, fn) => { listeners[channel] = fn } }
+  const indicator = createComputerIndicator({ BrowserWindow, screen, html: indicatorHtml, ipcMain, onAction: (kind, botId) => actions.push([kind, botId]), log: { warn: () => {} } })
   indicator.update({ rows: [{ label: 'River · Notes', botId: 'w1' }], labels: {} })
   const [win] = windows
-  win.web['console-message'](null, 3, 'dsbot-computer:stop:w1')
-  win.web['console-message'](null, 3, 'dsbot-computer:stopall:')
-  win.web['console-message'](null, 3, 'dsbot-computer:letgo:m1')
-  win.web['console-message'](null, 3, 'console noise')
+  const act = listeners['ds-bot:computer-indicator:act']
+  act({ sender: win.webContents }, 'stop', 'w1')
+  act({ sender: win.webContents }, 'stopall', '')
+  act({ sender: win.webContents }, 'letgo', 'm1')
   assert.deepEqual(actions, [['stop', 'w1'], ['stopall', null], ['letgo', 'm1']])
   indicator.update({ rows: [], labels: {} })
   assert.equal(win.closed, true)
@@ -77,4 +79,31 @@ test('the page lists every entry, escapes markup and uses the passed labels', ()
   assert.doesNotMatch(one, /stopall/)
   const zh = indicatorHtml([{ label: 'River · Notes', botId: 'w1' }], { stop: '停止' })
   assert.match(zh, />停止</)
+})
+
+test('button actions go over the dedicated channel and only from the indicator', () => {
+  const { windows, BrowserWindow } = fakeElectron()
+  const listeners = {}
+  const ipcMain = { on: (channel, fn) => { listeners[channel] = fn } }
+  const calls = []
+  const indicator = createComputerIndicator({
+    BrowserWindow,
+    screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 800, height: 600 }, workArea: { x: 0, y: 0 } }) },
+    html: () => '<html></html>',
+    ipcMain,
+    preload: '/tmp/preload.cjs',
+    onAction: (kind, botId) => calls.push([kind, botId]),
+    log: { warn: () => {} },
+  })
+  indicator.update({ rows: [{ label: 'Chief · Notes', botId: 'w1' }], labels: {} })
+  const win = windows[0]
+  assert.equal(win.options.webPreferences.preload, '/tmp/preload.cjs')
+  const handler = listeners['ds-bot:computer-indicator:act']
+  assert.equal(typeof handler, 'function')
+  // another window's webContents may not send
+  handler({ sender: {} }, 'stop', 'w1')
+  assert.deepEqual(calls, [])
+  handler({ sender: win.webContents }, 'stop', 'w1')
+  assert.deepEqual(calls, [['stop', 'w1']])
+  indicator.dispose()
 })

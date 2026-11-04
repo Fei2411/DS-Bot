@@ -726,7 +726,8 @@ function handleIpc() {
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
   const computerIndicator = createComputerIndicator({
-    BrowserWindow, screen, html: indicatorHtml,
+    BrowserWindow, screen, html: indicatorHtml, ipcMain,
+    preload: join(here, 'computer-indicator-preload.cjs'),
     onAction: (kind, botId) => { mainWindow?.webContents.send(IPC.computerAction, { kind, botId }) },
     log: logs,
   })

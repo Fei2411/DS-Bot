@@ -4,6 +4,7 @@ import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { t } from './i18n.js'
+import { toolArgs } from './text.js'
 
 // -------------------------------------------------------------------------
 // Computer use: the switch page, a Bot's Control card, its Computer drawer page,
@@ -158,17 +159,13 @@ const actionName = (method) => {
   const words = String(method ?? '').replace(/^cua_driver_native__/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim()
   return words === '' ? 'Computer' : words[0].toUpperCase() + words.slice(1)
 }
-const callArgs = (call) => {
-  const args = call?.arguments
-  if (args !== null && typeof args === 'object') return args
-  try { return JSON.parse(args ?? '{}') } catch { return {} }
-}
 export function ComputerCallRow({ sessionId, call, roster, actions, hooks }) {
-  const args = callArgs(call)
-  const method = args.method ?? String(call?.name ?? '').replace(/^cua_driver_native__/, '')
+  const { value: argValue } = toolArgs(call)
+  const method = argValue('method') ?? String(call?.name ?? '').replace(/^cua_driver_native__/, '')
   const stepApp = hooks?.useComputer?.(map => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find(step => step.callId === call?.callId)?.app)
+  const selector = argValue('params')?.selector
   // getApp names its target in the selector; a step record names the app later calls act on.
-  const app = stepApp ?? (method === 'getApp' && typeof args.params?.selector === 'string' && args.params.selector !== '' ? args.params.selector : undefined)
+  const app = stepApp ?? (method === 'getApp' && typeof selector === 'string' && selector !== '' ? selector : undefined)
   const shot = (call?.content ?? []).find(block => (block?.type === 'image' || block?.type === 'file') && block.attachment !== undefined)?.attachment
   const [url, setUrl] = useState(null)
   const [open, setOpen] = useState(false)
@@ -219,7 +216,7 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
   const [closed, setClosed] = useState(false)
   const busyRef = useRef(false)
   const titleId = useId()
-  const keep = useDockHold(sessionId, 'handoff', hold.callId, actions, inline)
+  const keep = useDockHold(sessionId, 'handoff', hold.callId ?? hold.id, actions, inline)
   const taken = hold.by === 'user'
   const run = (make, close) => {
     if (busyRef.current) return
@@ -231,7 +228,7 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
       actions.reportError?.(error, 'handoff')
     }).finally(() => { busyRef.current = false })
   }
-  const answer = outcome => run(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId, outcome }), true)
+  const answer = outcome => run(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId ?? hold.id, outcome }), true)
   const takeOver = () => run(async () => {
     await actions.computerTakeover(bot.id)
     actions.openDetails?.(sessionId, 'computer')
@@ -267,10 +264,11 @@ export function ComputerHandoffCall({ sessionId, callId, roster, actions, heldCa
 export function ComputerHandoffDock({ sessionId, useRoster, useCards, useHeldCards, useComputer, actions }) {
   const bot = useRoster(value => value.byId[sessionId])
   const hold = useComputer?.(map => (bot ? map.holds?.[bot.id] : undefined))
-  const drawn = useCards?.(state => state[sessionId]?.[hold?.callId] > 0) === true
-  const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('handoff', hold?.callId)] > 0) === true
-  if (!bot || hold?.callId === undefined || !actions.computerHoldAnswer || (drawn && !held)) return null
-  return h(PendingComputerHandoff, { key: JSON.stringify([sessionId, hold.callId]), sessionId, bot, hold, actions, inline: false })
+  const holdKey = hold?.callId ?? hold?.id
+  const drawn = useCards?.(state => state[sessionId]?.[holdKey] > 0) === true
+  const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('handoff', holdKey)] > 0) === true
+  if (!bot || holdKey === undefined || !actions.computerHoldAnswer || (drawn && !held)) return null
+  return h(PendingComputerHandoff, { key: JSON.stringify([sessionId, holdKey]), sessionId, bot, hold, actions, inline: false })
 }
 
 // The settled card, for a persisted computer handoff reply.

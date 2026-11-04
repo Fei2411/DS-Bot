@@ -8,12 +8,14 @@
  *   BrowserWindow: new (options: object) => object,
  *   screen: { getPrimaryDisplay: () => { workAreaSize: { width: number, height: number }, workArea: { x: number, y: number } } },
  *   html: (entries: object[]) => string,
+ *   ipcMain?: { on: (channel: string, listener: (event: { sender: object }, ...args: any[]) => void) => void },
+ *   preload?: string,
  *   onAction?: (action: string, botId: string | null) => void,
  *   log?: Pick<Console, 'warn'>,
  * }} options injected Electron surface and a renderer for the bar
  * @returns {{ update: (entries: object[]) => void, dispose: () => void }}
  */
-export function createComputerIndicator({ BrowserWindow, screen, html, onAction = () => {}, log = console }) {
+export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, preload, onAction = () => {}, log = console }) {
   let win = null
   let entries = []
   let labels = {}
@@ -36,19 +38,18 @@ export function createComputerIndicator({ BrowserWindow, screen, html, onAction 
       skipTaskbar: true,
       hasShadow: false,
       show: false,
-      webPreferences: { sandbox: true },
+      webPreferences: { sandbox: true, preload },
     })
     // The bar must never appear inside a screenshot the provider hands a Bot.
     try { win.setContentProtection(true) } catch (error) { log.warn(`DS Bot: the indicator could not hide from screenshots: ${error instanceof Error ? error.message : String(error)}`) }
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch (error) { log.warn(`DS Bot: the indicator could not join every workspace: ${error instanceof Error ? error.message : String(error)}`) }
     win.once('ready-to-show', () => { win?.showInactive() })
     win.on('closed', () => { win = null })
-    // Button clicks in the bar page post a message back; the main process turns
-    // them into client actions. The page is data: only, no preload.
-    win.webContents?.on?.('console-message', (_event, _level, message) => {
-      if (typeof message !== 'string' || !message.startsWith('dsbot-computer:')) return
-      const [, action, botId] = message.split(':')
-      onAction(action, botId === '' || botId === undefined ? null : botId)
+    // Button clicks reach the main process over a dedicated channel through the
+    // indicator's own preload; nothing else may send on it.
+    ipcMain?.on?.('ds-bot:computer-indicator:act', (event, action, botId) => {
+      if (event?.sender !== win?.webContents) return
+      onAction(String(action ?? ''), botId === '' || botId === undefined || botId === null ? null : String(botId))
     })
     const page = html(entries, labels)
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`).catch((error) => {
@@ -93,7 +94,7 @@ export function indicatorHtml(entries, labels = {}) {
   const rows = entries.map(entry => entry.waiting ? waiting(entry) : row(entry)).join('')
   const stopAll = entries.filter(entry => !entry.waiting).length > 1
     ? `<button data-act="stopall:" style="border:0;background:none;color:#2563eb;cursor:pointer;font:inherit;white-space:nowrap">${escapeHtml(labels.stopAll ?? 'Stop all')}</button>` : ''
-  return `<!doctype html><html><body style="margin:0;display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-radius:20px;background:rgba(28,28,30,.92);color:#fff;font:12.5px -apple-system,sans-serif;-webkit-app-region:no-drag;user-select:none" onclick="const a=event.target.dataset&&event.target.dataset.act;if(a)console.log('dsbot-computer:'+a)">${rows}${stopAll}</body></html>`
+  return `<!doctype html><html><body style="margin:0;display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-radius:20px;background:rgba(28,28,30,.92);color:#fff;font:12.5px -apple-system,sans-serif;-webkit-app-region:no-drag;user-select:none" onclick="const a=event.target.dataset&&event.target.dataset.act;if(a&&window.computerIndicator){const i=a.indexOf(':');computerIndicator.act(a.slice(0,i),a.slice(i+1)||null)}">${rows}${stopAll}</body></html>`
 }
 
 function escapeHtml(value) {
