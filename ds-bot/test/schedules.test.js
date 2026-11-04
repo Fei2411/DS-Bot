@@ -199,6 +199,28 @@ test('on DSH 0.2.2 tasks target the Bot’s current part, list by target, delete
   assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'delete' })
 })
 
+// DSH 0.2.2's task ids are Host-wide, so schedule_edit could reach another Bot's task.
+test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, rt } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  schedule.tasks.set('own', { record: { id: 'own', kind: 'at', title: 'Mine', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w1' }, status: 'active' })
+  schedule.tasks.set('chief', { record: { id: 'chief', kind: 'at', title: 'Chief', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'm1' }, status: 'active' })
+  schedule.tasks.set('elsewhere', { record: { id: 'elsewhere', kind: 'at', title: 'New', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'new_once' }, status: 'active' })
+  const [gate] = ctx.listeners.get('tools/pre-execute')
+  const check = (name, id, sessionId) => gate({ name, arguments: { id, action: 'delete' }, agent: { id: sessionId } }, async () => ({ kind: 'allow' }))
+  assert.deepEqual(await check('schedule_edit', 'own', 'w2'), { kind: 'allow' })
+  assert.deepEqual(await check('schedule_view', 'own', 'w2'), { kind: 'allow' })
+  for (const id of ['chief', 'elsewhere']) {
+    for (const name of ['schedule_edit', 'schedule_view']) assert.equal((await check(name, id, 'w2')).kind, 'deny')
+  }
+  assert.deepEqual(await check('schedule_edit', 'chief', 'm1'), { kind: 'allow' })
+  assert.deepEqual(await check('schedule_edit', 'missing', 'w2'), { kind: 'allow' })
+  assert.deepEqual(await check('schedule_list', 'chief', 'w2'), { kind: 'allow' })
+  assert.deepEqual(await check('schedule_edit', 'chief', 'outside'), { kind: 'allow' })
+})
+
 test('a failed task move can resume without losing identical remaining tasks', async (t) => {
   const schedule = scheduleService()
   const { ctx, home, rt } = setup({ schedule })

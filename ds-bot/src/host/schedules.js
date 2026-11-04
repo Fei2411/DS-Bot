@@ -45,6 +45,9 @@ const hostWide = service => typeof service.edit === 'function'
 // The existing Session a task delivers to; a task that opens new Sessions has none.
 const sessionOf = entry => entry.target === undefined ? entry.sessionId : entry.target.kind === 'session' ? entry.target.sessionId : undefined
 const TIMING_KINDS = { at: 'at', every_seconds: 'every', daily: 'daily', weekly: 'weekly' }
+const OWN_TASK_TOOLS = ['schedule_edit', 'schedule_view']
+const OTHER_TASK_REFUSAL = 'This task belongs to another chat. A Bot reads and changes only the tasks of its own chat.'
+const sameOwner = (a, b) => a !== undefined && b !== undefined && a.botId === b.botId && a.roomId === b.roomId
 const timingOf = (selector) => {
   const [key] = Object.keys(selector)
   return { kind: TIMING_KINDS[key], [key]: selector[key] }
@@ -181,6 +184,22 @@ export function install(rt) {
       }
     }
   }
+
+  // DSH 0.2.2's task ids are Host-wide, so a Bot's schedule tools reach only the tasks
+  // that deliver to its own chat, or to the same group place, in any of its parts.
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next()
+    if (decision.kind !== 'allow' || !OWN_TASK_TOOLS.includes(exec.name) || service === null || !hostWide(service)) return decision
+    await rt.load()
+    const caller = exec.agent?.id
+    if (!rt.isBotSession(caller)) return decision
+    const entry = (await service.catalog()).find(task => task.id === exec.arguments?.id)
+    // An unknown id gets DSH's own not-found result.
+    if (entry === undefined) return decision
+    const target = sessionOf(entry)
+    if (target !== undefined && sameOwner(ownerOf(caller), ownerOf(target))) return decision
+    return { kind: 'deny', reason: OTHER_TASK_REFUSAL }
+  })
 
   Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules })
 }
