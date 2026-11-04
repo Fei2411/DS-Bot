@@ -1096,6 +1096,7 @@ const ZH = {
   'Every weekday at {time}': '每个工作日 {time}',
   'Every weekend at {time}': '每个周末 {time}',
   'On the schedule {expression}': '按计划 {expression}',
+  'Custom schedule': '自定义计划',
   'Next: {time}': '下次 {time}',
   'Overdue: {time}': '已逾期 {time}',
   Finished: '已结束',
