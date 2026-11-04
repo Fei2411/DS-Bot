@@ -46,6 +46,18 @@ if (startPage !== undefined) {
     browser: browserBridge(),
     // The app's own updater, for the About row's state and buttons.
     updates: updatesBridge(),
+    // Computer use: the OS idle time behind the foreground gate, and the floating
+    // indicator's entries; the window answers its buttons.
+    idleSeconds: () => ipcRenderer.invoke('ds-bot:idle-seconds'),
+    computer: (entries) => { ipcRenderer.send('ds-bot:computer', computerEntriesOf(entries)) },
+    onComputerAction: (run) => {
+      if (typeof run !== 'function') return
+      ipcRenderer.removeAllListeners('ds-bot:computer-action')
+      ipcRenderer.on('ds-bot:computer-action', (_event, action) => {
+        if (action === null || typeof action !== 'object' || typeof action.kind !== 'string') return
+        run({ kind: action.kind, botId: typeof action.botId === 'string' ? action.botId : null })
+      })
+    },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
   const placeOf = (value) => {
@@ -57,6 +69,17 @@ if (startPage !== undefined) {
       place[key] = number
     }
     return place
+  }
+  const computerEntriesOf = (value) => {
+    if (!Array.isArray(value)) return []
+    return value.map((entry) => {
+      if (entry === null || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined
+      return {
+        label: String(entry.label).slice(0, 80),
+        botId: typeof entry.botId === 'string' ? entry.botId : null,
+        waiting: entry.waiting === true,
+      }
+    }).filter(entry => entry !== undefined)
   }
   const handoffOf = (value) => {
     if (value === null || typeof value !== 'object') return undefined

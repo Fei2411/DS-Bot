@@ -133,6 +133,7 @@ export function createShell(options) {
         image, tooltip: text().tooltip,
         open: { label: text().open, run: () => { open() } },
         quit: { label: text().quit, run: () => { quit() } },
+        computer: { onAction: (kind, botId) => { options.computer?.(kind, botId) } },
         log,
       })
     } catch (error) {
@@ -225,6 +226,8 @@ export function createShell(options) {
     beginQuit,
     cancelQuit,
     dispose,
+    /** The same computer-use entries the floating indicator carries. */
+    setComputer: entries => { tray?.setComputer(entries) },
     hasTray: () => tray !== undefined,
     isQuitting: () => quitting,
     isHidden: (target) => hidden.has(target),
