@@ -84,6 +84,8 @@ test('a loaded DSH clock gets no second clock in either listener order', async (
       },
     })
     ctx.sessionProjections = ctx.get('sessionProjections')
+    // DSH 0.2.2's clock checks that its plugin is still loaded before each step.
+    ctx.fiber = { assertActive() {} }
     // Prepended listeners run last-registered first.
     ctx.on = (name, listener) => { ctx.listeners.set(name, [listener, ...(ctx.listeners.get(name) ?? [])]) }
     const rt = { ctx, config: { timeZone: 'UTC' }, load: async () => {}, isBotSession: () => true, async* eventsBackwards() {} }
