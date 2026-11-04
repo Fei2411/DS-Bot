@@ -4,7 +4,7 @@
 import { createElement as h, useRef, useState } from 'react'
 import { useMorph } from './motion.js'
 import { MaskedInput } from './secret-card.js'
-import { Switch } from './bot-settings.js'
+import { SwitchRow } from './bot-settings.js'
 import { BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
 import { useDockHold } from './card-hold.js'
@@ -119,9 +119,8 @@ export function ConnectorRow({ connector, actions }) {
         on && !pending
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorDisconnect(connector.id)) }, connector.custom ? t('Remove') : t('Disconnect'))
           : pending || form ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, t('Connect')))),
-    connector.readOnly !== undefined && on ? h('label', { className: 'bt-connector-ro' },
-      h(Switch, { on: connector.readOnly === true, label: t('Read-only'), onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) }),
-      t('Read-only')) : null,
+    connector.readOnly !== undefined && on ? h('div', { className: 'bt-connector-ro' },
+      h(SwitchRow, { label: t('Read-only'), on: connector.readOnly === true, onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) })) : null,
     pending?.kind === 'browser' ? h(BrowserPanel, { connector, actions, run }) : null,
     pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run }) : null,
     connector.state === 'needs-client' && !pending?.kind ? h(ClientPanel, { connector, actions, run }) : null,
@@ -249,12 +248,10 @@ export function BotConnectors({ bot, roster, actions, run }) {
     h('div', { key: 't', className: 'bt-section-title' }, t('Connectors')),
     rows.map((connector) => {
       const off = (connector.offFor ?? []).includes(bot.id)
-      return h('div', { key: connector.id, className: 'bt-connector-bot' },
-        h('span', null, connector.name),
-        h(Switch, { on: !off, label: connector.name, onChange: (checked) => {
-          const next = checked ? (connector.offFor ?? []).filter(id => id !== bot.id) : [...(connector.offFor ?? []), bot.id]
-          void run(actions.connectorSet(connector.id, { offFor: next }))
-        } }))
+      return h(SwitchRow, { key: connector.id, label: connector.name, on: !off, onChange: (checked) => {
+        const next = checked ? (connector.offFor ?? []).filter(id => id !== bot.id) : [...(connector.offFor ?? []), bot.id]
+        void run(actions.connectorSet(connector.id, { offFor: next }))
+      } })
     }))
 }
 
@@ -317,7 +314,7 @@ export function MailSendCard({ sessionId, bot, request, actions, inline = false 
       h('div', { className: 'bt-q-detail' }, t('To'), ' ', request.to),
       request.cc ? h('div', { className: 'bt-q-detail' }, t('Cc'), ' ', request.cc) : null,
       request.bcc ? h('div', { className: 'bt-q-detail' }, t('Bcc'), ' ', request.bcc) : null,
-      h('div', { className: 'bt-mail-body' }, request.body),
+      h('div', { className: 'bt-mail-body bt-q-detail' }, request.body),
       request.attachmentDetails?.length ? h('div', { className: 'bt-q-detail' }, t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${humanSize(a.size)})` : a.name).join(', ') })) : null),
     h('div', { className: 'bt-q-foot' },
       h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('cancel') }, t('Cancel')),
@@ -358,7 +355,7 @@ export const CONNECTOR_CSS = `
 .bt-connector-chips .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-connector-chips .bt-secret-seg[aria-pressed=true]{background:var(--bt-active)}
 .bt-connector-add{padding:0 12px 12px}
-.bt-connector-ro{display:inline-flex;align-items:center;gap:6px;padding-left:48px;font-size:12px;color:var(--bt-ink-2);cursor:pointer}
+.bt-connector-ro{padding-left:48px}
 .bt-connector-device{display:flex;align-items:center;gap:10px}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
 .bt-connector-import{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer}
@@ -367,7 +364,7 @@ export const CONNECTOR_CSS = `
 .bt-mail-providers{display:flex;gap:4px;flex-wrap:wrap}
 .bt-mail-providers .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
-.bt-connector-bot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
+.bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-preview{display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:18px;color:var(--bt-ink);margin:6px 0}
 .bt-mail-body{white-space:pre-wrap;max-height:160px;overflow-y:auto;padding:8px 10px;border-radius:8px;background:var(--bt-hover);font-size:13px}
 `

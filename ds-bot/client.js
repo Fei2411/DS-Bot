@@ -10580,10 +10580,9 @@ function ConnectorRow({ connector, actions }) {
       )
     ),
     connector.readOnly !== void 0 && on ? (0, import_react24.createElement)(
-      "label",
+      "div",
       { className: "bt-connector-ro" },
-      (0, import_react24.createElement)(Switch, { on: connector.readOnly === true, label: t("Read-only"), onChange: (checked) => void run2(actions.connectorSet(connector.id, { readOnly: checked })) }),
-      t("Read-only")
+      (0, import_react24.createElement)(SwitchRow, { label: t("Read-only"), on: connector.readOnly === true, onChange: (checked) => void run2(actions.connectorSet(connector.id, { readOnly: checked })) })
     ) : null,
     pending?.kind === "browser" ? (0, import_react24.createElement)(BrowserPanel, { connector, actions, run: run2 }) : null,
     pending?.kind === "device" ? (0, import_react24.createElement)(DevicePanel, { connector, actions, run: run2 }) : null,
@@ -10789,15 +10788,10 @@ function BotConnectors({ bot, roster, actions, run: run2 }) {
     (0, import_react24.createElement)("div", { key: "t", className: "bt-section-title" }, t("Connectors")),
     rows2.map((connector) => {
       const off = (connector.offFor ?? []).includes(bot.id);
-      return (0, import_react24.createElement)(
-        "div",
-        { key: connector.id, className: "bt-connector-bot" },
-        (0, import_react24.createElement)("span", null, connector.name),
-        (0, import_react24.createElement)(Switch, { on: !off, label: connector.name, onChange: (checked) => {
-          const next = checked ? (connector.offFor ?? []).filter((id) => id !== bot.id) : [...connector.offFor ?? [], bot.id];
-          void run2(actions.connectorSet(connector.id, { offFor: next }));
-        } })
-      );
+      return (0, import_react24.createElement)(SwitchRow, { key: connector.id, label: connector.name, on: !off, onChange: (checked) => {
+        const next = checked ? (connector.offFor ?? []).filter((id) => id !== bot.id) : [...connector.offFor ?? [], bot.id];
+        void run2(actions.connectorSet(connector.id, { offFor: next }));
+      } });
     })
   );
 }
@@ -10885,7 +10879,7 @@ function MailSendCard({ sessionId, bot, request, actions, inline = false }) {
       (0, import_react24.createElement)("div", { className: "bt-q-detail" }, t("To"), " ", request.to),
       request.cc ? (0, import_react24.createElement)("div", { className: "bt-q-detail" }, t("Cc"), " ", request.cc) : null,
       request.bcc ? (0, import_react24.createElement)("div", { className: "bt-q-detail" }, t("Bcc"), " ", request.bcc) : null,
-      (0, import_react24.createElement)("div", { className: "bt-mail-body" }, request.body),
+      (0, import_react24.createElement)("div", { className: "bt-mail-body bt-q-detail" }, request.body),
       request.attachmentDetails?.length ? (0, import_react24.createElement)("div", { className: "bt-q-detail" }, t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${humanSize(a.size)})` : a.name).join(", ") })) : null
     ),
     (0, import_react24.createElement)(
@@ -10929,7 +10923,7 @@ var CONNECTOR_CSS = `
 .bt-connector-chips .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-connector-chips .bt-secret-seg[aria-pressed=true]{background:var(--bt-active)}
 .bt-connector-add{padding:0 12px 12px}
-.bt-connector-ro{display:inline-flex;align-items:center;gap:6px;padding-left:48px;font-size:12px;color:var(--bt-ink-2);cursor:pointer}
+.bt-connector-ro{padding-left:48px}
 .bt-connector-device{display:flex;align-items:center;gap:10px}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
 .bt-connector-import{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer}
@@ -10938,7 +10932,7 @@ var CONNECTOR_CSS = `
 .bt-mail-providers{display:flex;gap:4px;flex-wrap:wrap}
 .bt-mail-providers .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
-.bt-connector-bot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
+.bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-preview{display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:18px;color:var(--bt-ink);margin:6px 0}
 .bt-mail-body{white-space:pre-wrap;max-height:160px;overflow-y:auto;padding:8px 10px;border-radius:8px;background:var(--bt-hover);font-size:13px}
 `;
