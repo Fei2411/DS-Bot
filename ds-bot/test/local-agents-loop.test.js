@@ -79,12 +79,12 @@ test('a bridged team tool round-trips through real DSH dispatch', async (t) => {
     description: 'Message another Bot',
     parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } },
     output,
-    async execute(args) { calls.push(args); return `delivered to ${args.bot}` },
+    async execute(args) { calls.push(args); return `delivered to ${args.to ?? args.bot}` },
   })
   send(agent, 'call-tool please')
   await waitForIdle(ctx, agent)
   assert.equal(calls.length, 1)
-  assert.match(texts(agent), /tool said: delivered to Kai/)
+  assert.match(texts(agent), /tool said: delivered to Chief/)
   const types = eventTypes(agent)
   assert.ok(types.includes('tool/call') && types.includes('tool/result'))
 })

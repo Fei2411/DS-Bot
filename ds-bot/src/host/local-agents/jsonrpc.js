@@ -58,7 +58,7 @@ export class JsonRpcPeer {
       }
       const onAbort = () => call.reject(signal.reason ?? new Error('aborted'))
       this.pending.set(id, call)
-      if (timeout !== undefined) timer = setTimeout(() => { if (this.pending.delete(id)) call.reject(new Error(`${method} timed out`)) }, timeout)
+      if (timeout > 0) timer = setTimeout(() => { if (this.pending.delete(id)) call.reject(new Error(`${method} timed out`)) }, timeout)
       if (signal !== undefined) signal.addEventListener('abort', onAbort, { once: true })
       try {
         this.write({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) })

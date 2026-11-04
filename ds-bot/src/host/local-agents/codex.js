@@ -135,7 +135,7 @@ export class CodexEngine {
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
       input: blocks.map(block => block.type === 'image' ? { type: 'image', url: block.url ?? block.data } : { type: 'text', text: block.text ?? '' }),
-    }, { signal, timeout: 60_000 })
+    }, { signal, timeout: 0 })
     thread.turnId = reply?.turn?.id ?? reply?.id
     return thread.turnId
   }

@@ -151,7 +151,7 @@ export class AcpEngine {
 
   async prompt(session, blocks, { signal }) {
     const peer = await this.ensure()
-    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: undefined })
+    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
     reply.then(
       result => session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn' }),
       error => session.push({ type: 'error', error }),

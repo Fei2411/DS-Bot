@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
+import { JsonRpcPeer } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
@@ -354,4 +355,15 @@ test('a fresh part carries the deterministic handoff', async () => {
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
   assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
+})
+
+test('an open-ended request outlives the default deadline', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const open = peer.request('session/prompt', {}, { timeout: 0 })
+  const deadline = peer.request('session/load', {}, { timeout: 40 })
+  const settled = deadline.then(() => 'ok', () => 'timeout')
+  await new Promise(resolve => setTimeout(resolve, 90))
+  assert.equal(await settled, 'timeout', 'a positive timeout still fires')
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
+  assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
 })
