@@ -33,13 +33,16 @@ export default {
     const base = `${apiBase(env)}/bot${token}`
     const fileBase = `${apiBase(env)}/file/bot${token}`
     let stopped = false
-    let abort
+    // Every call in flight keeps its own controller, so stop() ends them all —
+    // a long poll must not outlive the adapter by ~65 s and collide with the
+    // restarted one (Telegram answers 409).
+    const inFlight = new Set()
     let selfName = ''
 
     const call = async (method, params, { download = false, timeout = 30_000 } = {}) => {
-      // Only stop() aborts the call in flight; a send or a callback answer must not
-      // kill a long poll that is still waiting.
-      abort = new AbortController()
+      const abort = new AbortController()
+      inFlight.add(abort)
+      if (stopped) abort.abort(stoppedError())
       const timer = setTimeout(() => abort.abort(new Error('timeout')), timeout)
       try {
         const response = await env.fetch(download ? `${fileBase}/${method}` : `${base}/${method}`, download ? { signal: abort.signal } : {
@@ -71,6 +74,7 @@ export default {
         throw error
       } finally {
         clearTimeout(timer)
+        inFlight.delete(abort)
       }
     }
     const stoppedError = () => Object.assign(new Error('stopped'), { stopped: true })
@@ -223,7 +227,7 @@ export default {
       typing: chat => call('sendChatAction', { chat_id: chat.key, action: 'typing' }).catch(() => {}),
       stop: () => {
         stopped = true
-        abort?.abort()
+        for (const abort of inFlight) abort.abort(stoppedError())
       },
     }
   },

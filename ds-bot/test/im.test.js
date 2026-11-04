@@ -26,6 +26,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
     connect(fields, env, handlers) {
       adapter.handlers = handlers
       adapter.env = env
+      adapter.connects = (adapter.connects ?? 0) + 1
       handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
       return {
         send: async (chat, body) => {
@@ -115,6 +116,38 @@ const dm = (s, senderId, text, extra = {}) => s.fake.handlers.onMessage({
 })
 const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'group', title: 'Group One' }, ...extra } = {}) => s.fake.handlers.onMessage({
   chat, sender: { id: senderId, name: `User ${senderId}` }, text, mentioned, ...extra,
+})
+
+test('two concurrent syncs start exactly one adapter', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  const conn = Object.values(s.rt.state.im.connections)[0]
+  s.fake.connects = 0
+  s.rt.state.im.connections[conn.id].enabled = false
+  await s.rt.save()
+  await s.flush()
+  assert.equal(s.fake.stopped, 1)
+  s.rt.state.im.connections[conn.id].enabled = true
+  await Promise.all([s.rt.save(), s.rt.save()])
+  await s.flush()
+  assert.equal(s.fake.connects, 1)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})
+
+test('im-update applies only the fields it is given and keeps the rest', async (t) => {
+  const s = await start({ platform: 'feishu', adapter: fakeAdapter() })
+  t.after(s.stop)
+  const conn = await add(s, { domain: 'lark', appId: 'app-1', appSecret: 'sec-1' })
+  const one = s.rt.state.im.connections[conn.id]
+  assert.deepEqual(one.settings, { domain: 'lark', appId: 'app-1' })
+  await s.rt.imEndpoint('im-update', { id: conn.id, fields: { appSecret: 'sec-2' } })
+  assert.deepEqual(s.rt.state.im.connections[conn.id].settings, { domain: 'lark', appId: 'app-1' }, 'untouched fields keep their values')
+  const view = s.rt.imView().connections.find(entry => entry.id === conn.id)
+  assert.deepEqual(view.settings, { domain: 'lark', appId: 'app-1' })
+  await s.rt.imEndpoint('im-update', { id: conn.id, fields: { domain: 'feishu' } })
+  assert.equal(s.rt.state.im.connections[conn.id].settings.domain, 'feishu')
+  assert.equal(s.rt.state.im.connections[conn.id].settings.appId, 'app-1')
 })
 
 test('unpaired DM asks once, allow pairs it, next message prompts the Bot', async (t) => {
@@ -223,6 +256,27 @@ test('question card: buttons answer it, a stranger press is ignored, settled els
   assert.equal(s.fake.edited.length, 2)
 })
 
+test('a settled card leaves the runtime file once its source is gone; an open one stays', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
+  await s.rt.save()
+  await s.flush()
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
+  s.rt.state.questions.a = { id: 'q2', question: 'Still open', options: [{ label: 'x' }] }
+  await s.rt.save()
+  await s.flush()
+  await delay(600)
+  const runtime = JSON.parse((await import('node:fs')).readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  assert.ok(runtime.cards['q:q1'] === undefined, 'settled and edited card is dropped')
+  assert.ok(runtime.cards['q:q2'] !== undefined, 'open card stays')
+})
+
 test('numbered reply answers the newest open card on a no-button platform', async (t) => {
   const s = await start({ platform: 'dingtalk', adapter: fakeAdapter({ buttons: false }) })
   t.after(s.stop)
@@ -239,6 +293,51 @@ test('numbered reply answers the newest open card on a no-button platform', asyn
   await dm(s, 'u1', '2')
   assert.ok(s.rt.state.questions.a === undefined)
   assert.equal(s.agents.get('a')?.followed, 1)
+})
+
+test('a bare number answers the newest card, which can be an approval after a question', async (t) => {
+  const s = await start({ platform: 'dingtalk', adapter: fakeAdapter({ buttons: false }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
+  await s.rt.save()
+  const racing = s.fireApprovals(
+    { agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: new AbortController().signal },
+    () => new Promise(() => {}),
+  )
+  await s.flush()
+  await dm(s, 'u1', '2')
+  assert.equal((await racing)[0], 'rejected', 'the newer approval card takes the number')
+  assert.ok(s.rt.state.questions.a !== undefined, 'the older question stays open')
+})
+
+test('an out-of-range or stale-card number goes to the Bot as a normal message', async (t) => {
+  const s = await start({ platform: 'dingtalk', adapter: fakeAdapter({ buttons: false }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
+  await s.rt.save()
+  await s.flush()
+  s.prompts.length = 0
+  await dm(s, 'u1', '9')
+  assert.ok(s.rt.state.questions.a !== undefined, 'out of range answers nothing')
+  assert.equal(s.prompts.length, 1, 'the number reaches the Bot as a message')
+  // Answered on the computer: the card is stale; a later number is a message too.
+  delete s.rt.state.questions.a
+  await s.rt.save()
+  await s.flush()
+  s.prompts.length = 0
+  await dm(s, 'u1', '1')
+  assert.equal(s.prompts.length, 1, 'the stale-card number reaches the Bot')
+  assert.ok(!s.fake.sent.some(entry => /already answered/.test(entry.text ?? '')), 'no stale reply for a bare number')
 })
 
 test('own-chat approval races DSH: IM allow resolves and withdraws the card; late press gets the stale text', async (t) => {

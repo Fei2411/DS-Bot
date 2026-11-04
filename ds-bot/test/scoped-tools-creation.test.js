@@ -259,7 +259,7 @@ test('a fresh part Session has the scoped tools before its first step', async (t
   const moved = await host.tool('update_bot', { work_dir: project }, 'b')
   assert.equal(String(moved).includes('From your next step on'), true)
   // The next step sees the folder change and switches to a fresh part.
-  const preStep = host.ctx.listeners.get('agent/pre-step').at(0)
+  const preStep = host.ctx.listeners.get('agent/pre-step').at(-1)
   const answer = await preStep(
     { agent: host.agentOf('b'), messages: [{ role: 'user', content: [{ type: 'text', text: 'go on' }], source: { kind: 'user' } }], step: 2, signal: AbortSignal.timeout(60_000) },
     async () => 'next',

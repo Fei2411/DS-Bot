@@ -57,7 +57,7 @@ export function install(rt) {
       const original = request.signal
       const linked = new AbortController()
       request.signal = linked.signal
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const complete = (outcome) => {
           if (!settle(outcome)) return
           resolve(outcome)
@@ -67,10 +67,20 @@ export function install(rt) {
         entry.answer = complete
         if (original?.aborted) entry.answer('cancelled')
         else original?.addEventListener('abort', () => entry.answer('cancelled'), { once: true })
-        Promise.resolve(next()).then((outcome) => {
-          if (!pending.has(id)) return
-          complete(outcome)
-        })
+        Promise.resolve(next()).then(
+          (outcome) => {
+            if (!pending.has(id)) return
+            complete(outcome)
+          },
+          // DSH's answerer threw: close the entry and give the caller the error
+          // the way the pre-race code did, instead of hanging forever.
+          (error) => {
+            if (!settle('cancelled')) return
+            reject(error)
+            linked.abort()
+            if (request.signal === linked.signal) request.signal = original
+          },
+        )
       })
     }
     rt.yieldRoomTurn?.(sessionId)

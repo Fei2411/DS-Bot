@@ -10,6 +10,7 @@ function fakeApi({ getMe = { id: 7, username: 'fakebot', is_bot: true } } = {}) 
   const updates = []
   const replies = {}
   const files = {}
+  let out
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://x')
     if (url.pathname.startsWith('/file/bot')) {
@@ -26,6 +27,10 @@ function fakeApi({ getMe = { id: 7, username: 'fakebot', is_bot: true } } = {}) 
       const [, , method] = url.pathname.split('/') // /bot<token>/<method>
       const params = JSON.parse(body || '{}')
       calls.push({ method, params })
+      if (method === 'getUpdates' && out?.holdPoll === true && updates.length === 0) {
+        out.heldPoll.push(res)
+        return
+      }
       let answer = replies[method]
       if (answer === undefined && method === 'getUpdates') answer = { result: updates.splice(0) }
       if (answer === undefined && method === 'getMe') answer = { result: getMe }
@@ -43,7 +48,8 @@ function fakeApi({ getMe = { id: 7, username: 'fakebot', is_bot: true } } = {}) 
   })
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => {
     const api = `http://127.0.0.1:${server.address().port}`
-    resolve({ api, calls, updates, replies, files, close: () => server.close() })
+    out = { api, calls, updates, replies, files, holdPoll: false, heldPoll: [], close: () => server.close() }
+    resolve(out)
   }))
 }
 
@@ -156,4 +162,20 @@ test('429 is honored with retry_after and 409 becomes a status error', async () 
     await until(() => statuses.some(next => next.state === 'error' && /webhook or another program/i.test(next.error ?? '')))
     handle.stop()
   } finally { api.close() }
+})
+
+test('stop ends a long poll promptly, and a send in flight does not kill it', async () => {
+  const api = await fakeApi()
+  api.holdPoll = true
+  const handle = telegram.connect({ token: 'tok' }, env(api.api), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  await until(() => api.calls.some(call => call.method === 'getUpdates'))
+  // A send while the poll waits goes on its own controller; the poll stays.
+  await handle.send({ key: '1', kind: 'direct' }, { text: 'hi' })
+  assert.ok(api.calls.some(call => call.method === 'sendMessage'))
+  assert.equal(api.heldPoll.length, 1)
+  const before = api.calls.length
+  await handle.stop()
+  await new Promise(done => setTimeout(done, 150))
+  assert.equal(api.calls.length, before, 'stop aborts the poll instead of retrying')
+  await api.close()
 })

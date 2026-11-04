@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { replaceFile } from '../files.js'
+import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { adapters } from './platforms/index.js'
 
@@ -130,11 +131,11 @@ export function install(rt) {
     for (const [key, name] of Object.entries(conn.secrets ?? {})) fields[key] = rt.secretValue(name)
     return fields
   }
-  const envFor = async (conn) => ({
+  const envFor = async (conn, runtime) => ({
     fetch: globalThis.fetch,
     WebSocket: globalThis.WebSocket,
     config: rt.config.im?.[conn.platform],
-    runtime: await runtimeEnv(conn.id),
+    runtime: runtime ?? await runtimeEnv(conn.id),
     log: { warn: (template, ...args) => rt.warn(template, ...args) },
     uploadFile: async (sessionId, file) => {
       const uploads = ctx.get?.('fileUploads')
@@ -182,7 +183,9 @@ export function install(rt) {
   const drain = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
-    if (runner === undefined || queue === undefined) return
+    // A reserved slot has no handle until connect() lands; start() re-kicks
+    // anything queued in the meantime.
+    if (runner?.handle === undefined || queue === undefined) return
     while (queue.jobs.length > 0) {
       const job = queue.jobs[0]
       try {
@@ -287,6 +290,19 @@ export function install(rt) {
   }
   const sendCardReply = async (conn, chat, body) => sendText(conn, { key: chat.key, kind: chat.kind, title: chat.title }, body)
 
+  // The chat's newest still-open card, questions and approvals together: a bare
+  // number answers whatever arrived last, not always a question.
+  const newestOpenCard = (conn, chatKey) => {
+    const data = runtimes.get(conn.id)?.data
+    if (data === undefined) return undefined
+    for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
+      if (!cardKey.startsWith('q:') && !cardKey.startsWith('a:')) continue
+      const entry = entries.find(item => item.chatKey === chatKey && item.answer === undefined)
+      if (entry !== undefined) return { cardKey, entry }
+    }
+    return undefined
+  }
+
   const onMessage = (conn) => async (msg) => {
     if (!paired(conn, msg.sender.id)) {
       if (msg.chat.kind === 'group' && !msg.mentioned) return
@@ -320,21 +336,22 @@ export function install(rt) {
     }
     if (NUMBERS.test(body)) {
       const picked = body.trim().split(/\s+/).map(Number)
-      const held = openCard(conn, msg.chat.key, 'q') ?? openCard(conn, msg.chat.key, 'a')
-      if (held !== undefined) {
-        if (held.cardKey.startsWith('q:')) {
-          const found = questionById(held.cardKey.slice(2))
-          if (found !== undefined) {
-            const options = found.question.options ?? []
-            const labels = (found.question.multiSelect === true ? picked : picked.slice(0, 1))
-              .map(index => options[index - 1]?.label)
-            if (labels.every(label => label !== undefined) && labels.length > 0 && await answerQuestionCard(conn, msg.chat, labels)) return
-            if (labels.length > 0 && labels.every(label => label !== undefined)) return
-            if (await answerQuestionCard(conn, msg.chat, [])) return
-          } else if (await sendCardReply(conn, msg.chat, text('stale')).then(() => true)) return
-        } else if (picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
-          if (await answerApprovalCard(conn, msg.chat, picked[0] === 1 ? 'allow' : 'reject')) return
+      const held = newestOpenCard(conn, msg.chat.key)
+      // Anything that does not clearly answer the newest open card — a stale
+      // source, an out-of-range pick, several picks on a single choice — is a
+      // normal message for the Bot, never swallowed and never 'stale'.
+      if (held !== undefined && held.cardKey.startsWith('q:')) {
+        const found = questionById(held.cardKey.slice(2))
+        if (found !== undefined) {
+          const options = found.question.options ?? []
+          const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
+            && picked.every(index => options[index - 1] !== undefined)
+          if (inRange && await answerQuestionCard(conn, msg.chat, picked.map(index => options[index - 1].label))) return
         }
+      } else if (held !== undefined && held.cardKey.startsWith('a:')
+        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
+        && rt.approvalsView().some(entry => `a:${entry.id}` === held.cardKey)) {
+        if (await answerApprovalCard(conn, msg.chat, picked[0] === 1 ? 'allow' : 'reject')) return
       }
     }
     if (target === undefined) {
@@ -438,7 +455,8 @@ export function install(rt) {
         const botId = rt.chatOwners.get(sessionId)
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
-        await sendCard(conn, cardKey, listeners(conn, { botId }), `${text('viewShow', { bot: bot.name })}${view.title ? `\n${view.title}` : ''}`)
+        const form = viewCardText({ title: view.title, view: view.view })
+        await sendCard(conn, cardKey, listeners(conn, { botId }), `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
       }
     }
   }
@@ -469,12 +487,12 @@ export function install(rt) {
       const openIds = new Set(Object.values(state.questions ?? {}).map(question => `q:${question.id}`))
       const openSecret = new Set(Object.values(state.secretRequests ?? {}).flat().filter(entry => entry.status === 'pending').map(entry => `s:${entry.id}`))
       const openViews = new Set(Object.values(state.views ?? {}).map(view => `v:${view.id}`))
+      const openCard = cardKey => cardKey.startsWith('q:') ? openIds.has(cardKey)
+        : cardKey.startsWith('a:') ? rt.approvalsView().some(entry => `a:${entry.id}` === cardKey)
+          : cardKey.startsWith('s:') ? openSecret.has(cardKey)
+            : cardKey.startsWith('v:') ? openViews.has(cardKey) : false
       for (const [cardKey, entries] of Object.entries(data.cards)) {
-        const open = cardKey.startsWith('q:') ? openIds.has(cardKey)
-          : cardKey.startsWith('a:') ? rt.approvalsView().some(entry => `a:${entry.id}` === cardKey)
-            : cardKey.startsWith('s:') ? openSecret.has(cardKey)
-              : cardKey.startsWith('v:') ? openViews.has(cardKey) : false
-        if (open) continue
+        if (openCard(cardKey)) continue
         for (const entry of entries) {
           if (entry.answer === undefined) {
             entry.answer = text('answered')
@@ -486,6 +504,20 @@ export function install(rt) {
         scheduleWrite(conn.id)
         await settledEdits(conn)
       }
+      // A card whose source is gone stays only until its copies are settled and
+      // edited where the platform can edit; keeping it forever grows the file.
+      const editable = runners.get(conn.id)?.handle?.edit !== undefined
+      let pruned = false
+      for (const [cardKey, entries] of Object.entries(data.cards)) {
+        if (openCard(cardKey)) continue
+        const droppable = entries.length === 0 || entries.every(entry => entry.answer !== undefined
+          && (entry.edited === true || entry.messageId === undefined || !editable || conn.chats?.[entry.chatKey] === undefined))
+        if (droppable) {
+          delete data.cards[cardKey]
+          pruned = true
+        }
+      }
+      if (pruned) scheduleWrite(conn.id)
     }
   }
 
@@ -510,18 +542,20 @@ export function install(rt) {
 
   const start = async (conn) => {
     const adapter = adapters[conn.platform]
-    if (adapter === undefined) return
+    if (adapter === undefined || runners.has(conn.id)) return
     const platform = imPlatform(conn.platform)
     if (platform?.ws === true && globalThis.WebSocket === undefined) {
       setStatus(conn.id, { state: 'error', error: 'This dsh runs on a Node without WebSocket', at: Date.now() })
       return
     }
-    setStatus(conn.id, { state: 'connecting', at: Date.now() })
-    const env = await envFor(conn)
+    // The slot is reserved before the async work: a concurrent sync cannot
+    // start a second adapter for the same connection.
     const runner = { handle: undefined, queues: new Map(), typing: undefined }
     runners.set(conn.id, runner)
+    setStatus(conn.id, { state: 'connecting', at: Date.now() })
     try {
-      runner.handle = adapter.connect(fieldsOf(conn), env, {
+      const env = await envFor(conn)
+      const handle = adapter.connect(fieldsOf(conn), env, {
         onMessage: (msg) => {
           const current = fresh(conn.id)
           return current === undefined ? undefined : onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error))
@@ -532,6 +566,14 @@ export function install(rt) {
         },
         onStatus: onStatus(conn.id),
       })
+      // A stop() during connect took the slot back: undo the just-started
+      // adapter instead of leaving it running unreachable.
+      if (runners.get(conn.id) !== runner) {
+        void Promise.resolve(handle?.stop?.()).catch(() => {})
+        return
+      }
+      runner.handle = handle
+      for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
           for (const { chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
@@ -555,40 +597,48 @@ export function install(rt) {
     if (statuses.get(id)?.state !== 'error') setStatus(id, { state: 'off', at: Date.now() })
   }
 
-  const sync = async () => {
-    const conns = connections()
-    for (const conn of Object.values(conns)) {
-      const wants = stopped !== true && adapters[conn.platform] !== undefined && conn.enabled !== false
-        && rt.readOnly() === undefined && hasSecrets(conn)
-      if (wants && !runners.has(conn.id)) await start(conn)
-      else if (!wants && runners.has(conn.id)) await stop(conn.id)
-      else if (wants && conn.enabled === false) await stop(conn.id)
-    }
-    for (const id of [...runners.keys()]) if (conns[id] === undefined) await stop(id)
-    for (const id of [...statuses.keys()]) if (conns[id] === undefined) statuses.delete(id)
-    for (const conn of Object.values(conns)) {
-      if (conn.enabled === false || !runners.has(conn.id)) {
-        if (statuses.get(conn.id)?.state !== 'error') setStatus(conn.id, { state: 'off', at: Date.now() })
+  // Syncs run one behind the other: endpoints, onSaved and the interval can all
+  // fire while a sync is still starting an adapter, and they must see its
+  // reserved slots rather than start a second adapter.
+  let syncing = Promise.resolve()
+  const sync = () => {
+    const run = syncing.then(async () => {
+      const conns = connections()
+      for (const conn of Object.values(conns)) {
+        const wants = stopped !== true && adapters[conn.platform] !== undefined && conn.enabled !== false
+          && rt.readOnly() === undefined && hasSecrets(conn)
+        if (wants && !runners.has(conn.id)) await start(conn)
+        else if (!wants && runners.has(conn.id)) await stop(conn.id)
       }
-    }
+      for (const id of [...runners.keys()]) if (conns[id] === undefined) await stop(id)
+      for (const id of [...statuses.keys()]) if (conns[id] === undefined) statuses.delete(id)
+      for (const conn of Object.values(conns)) {
+        if (conn.enabled === false || !runners.has(conn.id)) {
+          if (statuses.get(conn.id)?.state !== 'error') setStatus(conn.id, { state: 'off', at: Date.now() })
+        }
+      }
+    })
+    syncing = run.catch(() => {})
+    return run
   }
 
   let stopped = false
 
   // ---------------------------------------------------------------- endpoints
   const secretName = (conn, key) => `IM_${conn.platform.toUpperCase()}_${conn.id.slice(3, 9).toUpperCase()}_${secretField(key)}`
-  const cleanFields = (platform, fields) => {
+  const cleanFields = (platform, fields, base = {}) => {
     const given = fields !== null && typeof fields === 'object' ? fields : {}
     const out = {}
     for (const field of platform.fields) {
       const value = given[field.key]
       if (field.options !== undefined) {
-        out[field.key] = field.options.some(([id]) => id === value) ? value : field.options[0][0]
+        out[field.key] = field.options.some(([id]) => id === value) ? value
+          : (value === undefined && base[field.key] !== undefined ? base[field.key] : field.options[0][0])
       } else if (typeof value === 'string' && value.trim() !== '') {
         out[field.key] = value.trim()
       } else if (!field.secret) {
         if (value !== undefined && typeof value !== 'string') throw new Error(`${field.label} must be text`)
-        out[field.key] = ''
+        out[field.key] = value === undefined && base[field.key] !== undefined ? base[field.key] : ''
       }
       // Missing secret fields are allowed only on update, where the saved one stays.
     }
@@ -627,9 +677,9 @@ export function install(rt) {
       if (platform.login === 'qr') throw new Error('This platform signs in by scanning a code; not available yet')
       const fields = cleanFields(platform, body.fields)
       for (const field of platform.fields) {
-        if (!field.options && fields[field.key] === undefined) throw new Error(`${field.label} is required`)
+        if (!field.options && (fields[field.key] === undefined || String(fields[field.key]).trim() === '')) throw new Error(`${field.label} is required`)
       }
-      const env = await envFor({ id: 'im_check', platform: platform.id, settings: fields, secrets: {} })
+      const env = await envFor({ id: 'im_check', platform: platform.id, settings: fields, secrets: {} }, { get: () => ({}), set: () => {} })
       const { account } = await adapters[platform.id].check(fields, env)
       const conn = {
         id: `im_${randomBytes(4).toString('hex')}`,
@@ -662,7 +712,7 @@ export function install(rt) {
       }
       if (body.enabled !== undefined) conn.enabled = body.enabled === true
       if (body.fields !== undefined) {
-        const fields = cleanFields(platform, body.fields)
+        const fields = cleanFields(platform, body.fields, conn.settings)
         const env = await envFor(conn)
         const check = { ...fields }
         for (const field of platform.fields) {
@@ -771,13 +821,13 @@ export function install(rt) {
     if (botId === undefined) return
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
-      const body = item.kind === 'bot' ? item.text : `📋 ${item.title ?? ''}`
+      const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
       for (const conn of Object.values(connections())) {
         if (!runners.has(conn.id)) continue
         for (const { chatKey, chat } of listeners(conn, { botId })) sendTo(conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
       }
     }
-  }, { prepend: true })
+  })
 
   rt.onRoomLine((room, line) => {
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return

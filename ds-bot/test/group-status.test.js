@@ -75,7 +75,7 @@ async function start() {
   const askApproval = (sessionId, extra = {}, next = () => 'from-dsh') => ctx.listeners.get('approval/request')[0]({ agent: { session: { id: sessionId } }, toolName: 'pwsh', reason: 'escalate sandbox', ...extra }, next)
   const stop = async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
   await tool('list_bots', {}, 'a')
-  return { agentOf, emit, tool, call, askApproval, stop, archived }
+  return { agentOf, emit, tool, call, askApproval, stop, archived, rt }
 }
 
 // Waits on real I/O (state writes) without timers, which some tests mock.
@@ -149,6 +149,19 @@ test('an own chat\'s approval races DSH\'s card and is listed while it waits', a
   assert.deepEqual((await host.call('state', {})).value.work.approvals, [])
   // Sessions off the team are not DS Bot's to answer.
   assert.equal(await host.askApproval('elsewhere'), 'from-dsh')
+})
+
+test('an own chat\'s approval propagates a DSH answerer failure and settles', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  const settled = []
+  host.rt.onApproval((kind, payload) => { if (kind === 'settled') settled.push(payload) })
+  const outcome = host.askApproval('a', {}, () => Promise.reject(new Error('dsh card broke')))
+  const [approval] = host.rt.approvalsView()
+  assert.equal(approval.answerable, true)
+  await assert.rejects(outcome, /dsh card broke/)
+  assert.deepEqual((await host.call('state', {})).value.work.approvals, [])
+  assert.deepEqual(settled.map(entry => [entry.id, entry.outcome]), [[approval.id, 'cancelled']])
 })
 
 test('a member still going keeps its turn; one quiet for the whole wait is missed, and a later [PASS] stays out of the group', async (t) => {
