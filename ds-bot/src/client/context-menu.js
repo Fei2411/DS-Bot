@@ -3,17 +3,20 @@ import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
 import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
-import { useViewport, viewBottom } from './motion.js'
+import { stepMenuFocus, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
 export function ContextMenu({ menu, roster, actions, leaving = false }) {
   useEscape(() => actions.closeMenu())
+  const ref = useRef(null)
+  const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
   useEffect(() => {
     const onDown = (event) => { if (!(event.target instanceof Element) || !event.target.closest('.bt-menu')) actions.closeMenu() }
+    const onKey = (event) => { stepMenuFocus(ref.current, event, trigger.current) }
     window.addEventListener('mousedown', onDown)
-    return () => window.removeEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
   }, [])
-  const ref = useRef(null)
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   const tick = useViewport()
   useLayoutEffect(() => {
@@ -61,6 +64,12 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
 // Menus for the DSH Agent row and its Sessions; none of the Bot entries apply.
 function AgentMenu({ menu, roster, actions, leaving }) {
   const ref = useRef(null)
+  const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
+  useEffect(() => {
+    const onKey = (event) => { stepMenuFocus(ref.current, event, trigger.current) }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   const tick = useViewport()
   useLayoutEffect(() => {

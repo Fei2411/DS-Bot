@@ -1,5 +1,6 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
+import { reducedMotion } from './motion.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -19,7 +20,7 @@ export const toolState = name => (/^(message_bot|stop_bot|create_bot|update_bot|
 // Eyes follow the pointer on large marks.
 function useGaze(ref, enabled) {
   useEffect(() => {
-    if (!enabled) return undefined
+    if (!enabled || reducedMotion()) return undefined
     let frame = 0
     let point = null
     const place = () => {
@@ -31,7 +32,11 @@ function useGaze(ref, enabled) {
       node.style.setProperty('--bt-gx', clamp((point.x - box.left - box.width / 2) / 160).toFixed(2))
       node.style.setProperty('--bt-gy', clamp((point.y - box.top - box.height / 2) / 160).toFixed(2))
     }
-    const onMove = (event) => { point = { x: event.clientX, y: event.clientY }; if (!frame) frame = requestAnimationFrame(place) }
+    const onMove = (event) => {
+      if (document.body?.dataset.btMotion === 'quiet') return
+      point = { x: event.clientX, y: event.clientY }
+      if (!frame) frame = requestAnimationFrame(place)
+    }
     const onLeave = () => { point = null; ref.current?.style.setProperty('--bt-gx', '0'); ref.current?.style.setProperty('--bt-gy', '0') }
     window.addEventListener('pointermove', onMove, { passive: true })
     document.documentElement.addEventListener('pointerleave', onLeave)

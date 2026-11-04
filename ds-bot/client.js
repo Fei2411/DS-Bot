@@ -109,6 +109,7 @@ var ZH = {
   "Add capability": "添加能力",
   "No capabilities saved": "还没有保存能力",
   Type: "类型",
+  Description: "说明",
   "MCP server": "MCP 服务",
   Skill: "技能",
   Pack: "能力包",
@@ -1769,7 +1770,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
     deleteRoom: (id) => after(call2("delete-room", { id })),
     openMenu: (menu) => {
-      ui2.set((state) => ({ ...state, menu }));
+      ui2.set((state) => ({ ...state, menu, palette: null }));
     },
     closeMenu: () => {
       ui2.set((state) => state.menu ? { ...state, menu: null } : state);
@@ -2341,20 +2342,21 @@ var SPRING_STRETCH = springEasing(320, 20);
 var SPRING_POP = springEasing(500, 22);
 var SPRING_LEAD = springEasing(784, 48.2);
 var SPRING_TRAIL = springEasing(289, 29.2);
+var SPRING_GLIDE = springEasing(1e3, 63);
 var QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) };
 var spring = (curve, ...properties) => properties.map((property) => `${property} ${curve.duration}ms ${curve.easing}`).join(",");
 function liveSprings(apply2) {
   const values = /* @__PURE__ */ new Map();
+  const current = {};
   let frame = 0;
   let last = 0;
-  const read = () => Object.fromEntries([...values].map(([key, value]) => [key, value.x]));
   const step = (now) => {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
     const h52 = dt / steps;
     let moving = false;
-    for (const value of values.values()) {
+    for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
         value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h52;
         value.x += value.v * h52;
@@ -2363,23 +2365,31 @@ function liveSprings(apply2) {
         value.x = value.to;
         value.v = 0;
       } else moving = true;
+      current[key] = value.x;
     }
-    apply2(read());
+    apply2(current);
     frame = moving ? requestAnimationFrame(step) : 0;
   };
   return {
-    target: () => values.size ? Object.fromEntries([...values].map(([key, value]) => [key, value.to])) : null,
+    target: () => {
+      if (!values.size) return null;
+      const out = {};
+      for (const [key, value] of values) out[key] = value.to;
+      return out;
+    },
     set(targets, curves, jump) {
       for (const [key, to] of Object.entries(targets)) {
         const value = values.get(key);
         const { stiffness: k, damping: c } = curves[key];
-        if (!value || jump) values.set(key, { x: to, v: 0, to, k, c });
-        else Object.assign(value, { to, k, c });
+        if (!value || jump) {
+          values.set(key, { x: to, v: 0, to, k, c });
+          current[key] = to;
+        } else Object.assign(value, { to, k, c });
       }
       if (jump) {
         cancelAnimationFrame(frame);
         frame = 0;
-        apply2(read());
+        apply2(current);
         return;
       }
       if (!frame) {
@@ -2524,6 +2534,19 @@ function useLinger(value, ms) {
     return () => clearTimeout(timer);
   }, [value]);
   return [value || kept, !value && Boolean(kept)];
+}
+function stepMenuFocus(menu, event, trigger) {
+  if (!menu || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return false;
+  const items = Array.from(menu.querySelectorAll('button[role^="menuitem"]:not(:disabled)'));
+  if (items.length === 0) return false;
+  const target = document.activeElement;
+  const current = items.indexOf(target);
+  if (current === -1 && target !== menu && target !== trigger) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (current + 1) % items.length : current <= 0 ? items.length - 1 : current - 1;
+  items[next]?.focus();
+  return true;
 }
 
 // src/client/styles.js
@@ -2851,7 +2874,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-admin-star{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;corner-shape:round;background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar));vertical-align:-1px}
 .bt-to-star{display:inline-flex;margin-right:-2px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-to .bt-to-create{flex:none;height:28px;padding:0 12px;font-size:13px;animation:bt-q-submit-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
-.bt-drop{position:absolute;top:48px;left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;background:var(--bt-card);border:1px solid var(--bt-line-2);border-radius:12px;box-shadow:0 6px 20px -4px rgba(0,0,0,.12);box-sizing:border-box;z-index:1;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
+.bt-drop{position:absolute;top:48px;left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12px;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;z-index:1;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
 .bt-option{display:flex;align-items:center;gap:10px;border:0;background:none;border-radius:8px;padding:7px 8px;min-height:36px;box-sizing:border-box;font-size:13px;line-height:18px;color:var(--bt-ink);cursor:pointer;text-align:left;width:100%}
 .bt-option[aria-selected=true]{background:var(--bt-active)}
 .bt-drop-list>.bt-option:not([aria-selected=true]):hover{background:var(--bt-hover)}
@@ -2952,10 +2975,10 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
 .bt-drawer-role{font-size:12px;line-height:16px;color:var(--bt-ink-3);margin-top:6px;text-align:center}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
-.bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:9999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
+.bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
 .bt-tab[aria-selected=true]{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-tabs>.bt-thumb{top:0;bottom:0;border-radius:9999px;background:var(--bt-hover)}
+.bt-tabs>.bt-thumb{top:0;bottom:0;border-radius:999px;background:var(--bt-hover)}
 .bt-tabs[data-glide] .bt-tab[aria-selected=true]{background:transparent}
 .bt-drawer-body{flex:1;overflow-y:auto;padding:20px 16px 16px;font-size:13px;line-height:18px;display:flex;flex-direction:column;gap:16px}
 .bt-empty{text-align:center;color:var(--bt-ink-3);font-size:13px;line-height:18px;padding:8px 12px}
@@ -2985,6 +3008,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-avatar-trigger{position:relative;width:64px;height:64px;border:0;border-radius:50%;background:none;cursor:pointer;padding:0}
 .bt-avatar-pencil{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--bt-main);border:1px solid var(--bt-line-2);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.12)}
 .bt-avedit{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:288px;box-sizing:border-box;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:16px;box-shadow:var(--bt-glass-shadow),0 16px 40px rgba(0,0,0,.16);padding:12px;z-index:70;display:flex;flex-direction:column;gap:12px;color:var(--bt-ink);transform-origin:top center;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
+.bt-avedit[data-leaving]{animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-bs .bt-avedit{transform-origin:32px 0}
 .bt-avedit-top{display:flex;align-items:center;justify-content:space-between}
 .bt-avedit-tabs{position:relative;display:flex;gap:2px;background:var(--bt-hover);border-radius:999px;padding:2px}
@@ -3064,7 +3088,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-form{display:flex;flex-direction:column;gap:16px}
-.bt-set-section h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 8px;padding:0 4px}
+.bt-set-section{display:flex;flex-direction:column;gap:10px}
+.bt-set-section>h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 -2px;padding:0 4px}
+.bt-browser-settings{display:flex;flex-direction:column;gap:20px}
 .bt-set-card{border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);display:flex;flex-direction:column}
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
 .bt-set-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0}
@@ -3239,7 +3265,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-menu-hint{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
 .bt-palette-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:70;pointer-events:auto;font-family:var(--bt-font)}
 .bt-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.46);animation:bt-fade .22s ease-out}
-.bt-palette{position:absolute;top:50%;left:50%;width:min(560px,92vw);transform:translate(-50%,-50%);display:flex;flex-direction:column;border-radius:12px;background:var(--bt-main);border:1px solid var(--bt-line-2);box-shadow:0 24px 48px -12px rgba(0,0,0,.25);overflow:hidden;color:var(--bt-ink);animation:bt-palette-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-palette{position:absolute;top:50%;left:50%;width:min(560px,92vw);transform:translate(-50%,-50%);display:flex;flex-direction:column;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(28px) saturate(180%);backdrop-filter:blur(28px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);overflow:hidden;color:var(--bt-ink);animation:bt-palette-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-palette-layer[data-leaving]{pointer-events:none}
 .bt-palette-layer[data-leaving] .bt-backdrop{opacity:0;transition:opacity .16s ease-in}
 .bt-palette-layer[data-leaving] .bt-palette{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
@@ -3293,7 +3319,10 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-pick[aria-pressed=true]{border-color:var(--bt-line-2);background:var(--bt-hover)}
 .bt-pick>span:last-child:not(.bt-mark){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-pick:hover .bt-mark[data-state=idle] .bt-eye{animation:bt-blink .5s linear 1}
-.bt-select{width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:1px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink);padding:0 8px;font:inherit;font-size:13px}
+.bt-select{width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:1px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink);padding:0 8px;font:inherit;font-size:13px;outline:none}
+:is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
@@ -3834,7 +3863,7 @@ var botState = (running, activity, alert) => running ? STATES.includes(activity)
 var toolState = (name) => /^(message_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 function useGaze(ref, enabled) {
   (0, import_react2.useEffect)(() => {
-    if (!enabled) return void 0;
+    if (!enabled || reducedMotion()) return void 0;
     let frame = 0;
     let point = null;
     const place = () => {
@@ -3847,6 +3876,7 @@ function useGaze(ref, enabled) {
       node.style.setProperty("--bt-gy", clamp((point.y - box.top - box.height / 2) / 160).toFixed(2));
     };
     const onMove = (event) => {
+      if (document.body?.dataset.btMotion === "quiet") return;
       point = { x: event.clientX, y: event.clientY };
       if (!frame) frame = requestAnimationFrame(place);
     };
@@ -7909,7 +7939,7 @@ var SECRET_CSS = `
 .bt-secret-who{position:relative;flex:none;display:inline-flex}
 .bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
 .bt-secret-lock svg{width:11px;height:11px}
-.bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:5px;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-secret-body{display:flex;flex-direction:column;gap:8px}
 .bt-secret-field{align-items:center;min-height:36px}
 .bt-secret-input{flex:1;width:100%;min-width:0;margin:0;padding:0;border:0;outline:none;background:transparent;color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:20px;letter-spacing:.04em}
@@ -7930,7 +7960,7 @@ var SECRET_CSS = `
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:#b25e09;background:color-mix(in srgb,#f59e0b 12%,transparent)}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}
@@ -10049,8 +10079,10 @@ var nameIfCut = (event) => {
   else row.removeAttribute("title");
 };
 var useApproval = (useWork, match) => useWork ? useWork((work) => (work.approvals ?? []).some(match)) : false;
-var useGroupWork = (useWork, pick2) => useWork ? useWork((work) => JSON.stringify(pick2(work.rooms ?? {}))) : "[]";
-var workKeys = (text) => JSON.parse(text);
+var useGroupWork = (useWork, pick2) => {
+  const raw = useWork ? useWork((work) => JSON.stringify(pick2(work.rooms ?? {}))) : "[]";
+  return (0, import_react21.useMemo)(() => JSON.parse(raw), [raw]);
+};
 var doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching });
 var workLine = (lead, doing, more) => (0, import_react21.createElement)(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ""}`);
 var doingLine = (doing) => (0, import_react21.createElement)(Shimmer, null, `${workPhrase(doing)}…`);
@@ -10071,12 +10103,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const approval = useApproval(useWork, (entry) => entry.botId === id);
   const alert = roster.questions?.[part] !== void 0 || approval;
   const doing = useActivity((map) => map[id]);
-  const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
+  const groups = useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) }))));
   const away = !running && groups.length > 0;
   const state = botState(running || away, doing, alert);
   const runningLine = running && doing ? doingLine(doing) : null;
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
-  const waits = workKeys(useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null");
+  const waitsRaw = useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null";
+  const waits = (0, import_react21.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
   const waitsFor = state === "waiting" ? waitingFor(roster, waits) : "";
   if (bot.hidden && !active && !main) return null;
   const onContextMenu = (event) => {
@@ -10136,7 +10169,7 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
   const unread = useSessionStatus((map) => map.get(sessionId)?.completionUnread === true) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const approval = useApproval(useWork, (entry) => entry.roomId === id);
-  const members = workKeys(useGroupWork(useWork, (rooms) => (rooms[id] ?? []).filter((entry) => entry.botId !== void 0).map((entry) => ({ id: entry.botId, ...doingOf(entry) }))));
+  const members = useGroupWork(useWork, (rooms) => (rooms[id] ?? []).filter((entry) => entry.botId !== void 0).map((entry) => ({ id: entry.botId, ...doingOf(entry) })));
   const first = roster.byId[members[0]?.id];
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null;
   if (room2.hidden && !active) return null;
@@ -10169,6 +10202,7 @@ function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, 
     wide && approval && !active ? (0, import_react21.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react21.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (approval || unread) ? (0, import_react21.createElement)("span", { className: `bt-dot${approval ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
   );
 }
+var agentSessionTitle = (session) => session.title === "" ? t("New session") : session.title;
 function AgentSessionRow({ session, agent, actions, renaming, index }) {
   const input = (0, import_react21.useRef)(null);
   (0, import_react21.useLayoutEffect)(() => {
@@ -10222,7 +10256,7 @@ function AgentSessionRow({ session, agent, actions, renaming, index }) {
         actions.openMenu({ kind: "agent-session", id: session.id, agentId: agent.id, x: event.clientX, y: event.clientY });
       }
     },
-    (0, import_react21.createElement)("span", { className: "bt-agent-sub-title" }, session.title),
+    (0, import_react21.createElement)("span", { className: "bt-agent-sub-title" }, agentSessionTitle(session)),
     (0, import_react21.createElement)("span", { className: "bt-agent-sub-time" }, session.at > 0 ? relativeShort(session.at) : "")
   );
 }
@@ -10243,19 +10277,20 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
     running: map.get(id)?.running === true,
     unread: map.get(id)?.completionUnread === true
   }))));
-  const statuses = Object.fromEntries(JSON.parse(statusInfo).map((entry) => [entry.id, entry]));
-  const sessions = JSON.parse(info).map((session) => ({
-    ...session,
-    running: statuses[session.id]?.running ?? session.running,
-    unread: statuses[session.id]?.unread ?? false,
-    title: session.title === "" ? t("New session") : session.title
-  }));
+  const sessions = (0, import_react21.useMemo)(() => {
+    const statuses = Object.fromEntries(JSON.parse(statusInfo).map((entry) => [entry.id, entry]));
+    return JSON.parse(info).map((session) => ({
+      ...session,
+      running: statuses[session.id]?.running ?? session.running,
+      unread: statuses[session.id]?.unread ?? false
+    }));
+  }, [info, statusInfo]);
   const renaming = useUi((value) => value.renameAgent);
   const active = sessions.some((session) => session.active);
   const running = sessions.some((session) => session.running);
   const unread = sessions.some((session) => session.unread) || marked && !active;
   useMarkedUnread(agent.id, active, marked, actions);
-  const preview = sessions[0]?.title ?? t("New session");
+  const preview = sessions[0] === void 0 ? t("New session") : agentSessionTitle(sessions[0]);
   const label = ["DSH Agent", running ? t("Working") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
   const open = active && wide;
   return (0, import_react21.createElement)(
@@ -10311,7 +10346,6 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
     )
   );
 }
-var GLIDE = springEasing(1e3, 63);
 function useListGlide(listRef, layout, key) {
   const tops = (0, import_react21.useRef)({ layout, map: /* @__PURE__ */ new Map() });
   (0, import_react21.useLayoutEffect)(() => {
@@ -10325,7 +10359,7 @@ function useListGlide(listRef, layout, key) {
       next.set(id, top);
       const before = tops.current.map.get(id);
       if (!still && before !== void 0 && Math.abs(before - top) > 0.5) {
-        row.animate([{ transform: `translateY(${before - top}px)` }, { transform: "none" }], GLIDE);
+        row.animate([{ transform: `translateY(${before - top}px)` }, { transform: "none" }], SPRING_GLIDE);
       }
     }
     tops.current = { layout, map: next };
@@ -10361,7 +10395,11 @@ function TeamSidebar(props) {
   const listRef = (0, import_react21.useRef)(null);
   const roster = useRoster((value) => value);
   const markedUnread = useUi((value) => value.unread);
-  const uiNow = useUi((value) => value);
+  const leftDrawer = useUi((value) => value.leftDrawer === true);
+  const details = useUi((value) => value.details ?? null);
+  const view = useUi((value) => value.view ?? "details");
+  const panelYield = useUi((value) => value.panelYield === true);
+  const bootFailed = useUi((value) => value.bootFailed === true);
   props.useRegistry((value) => value);
   const frameSnap = props.useFrame ? props.useFrame((value) => value) : { viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = props.useSidebarPref ? props.useSidebarPref((value) => value) : "open";
@@ -10369,8 +10407,8 @@ function TeamSidebar(props) {
     viewport: frameSnap.viewport,
     sidebarWidth: frameSnap.sidebarWidth,
     pref,
-    drawer: uiNow.leftDrawer === true,
-    panel: uiNow.details ? { view: uiNow.view, yielded: uiNow.panelYield === true } : null
+    drawer: leftDrawer,
+    panel: details ? { view, yielded: panelYield } : null
   });
   const [drag, setDrag] = (0, import_react21.useState)(null);
   const mode = drag?.left ?? layout.left;
@@ -10559,7 +10597,7 @@ function TeamSidebar(props) {
   }, [mode]);
   const navigate = (open, id) => {
     const result = open(id);
-    if (uiNow.leftDrawer === true) actions.setLeftDrawer?.(false);
+    if (leftDrawer) actions.setLeftDrawer?.(false);
     return result;
   };
   const rowActions = {
@@ -10604,7 +10642,7 @@ function TeamSidebar(props) {
     { className: "bt-rail-top" },
     (0, import_react21.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     (0, import_react21.createElement)("button", { type: "button", className: "bt-round bt-side-collapse", "aria-label": t("Collapse sidebar"), title: t("Collapse sidebar"), onClick: onToggle }, (0, import_react21.createElement)(SidebarIcon)),
-    main ? (0, import_react21.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react21.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")),
+    main ? (0, import_react21.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react21.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react21.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
   const foot = wideContent ? (0, import_react21.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react21.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react21.createElement)(
@@ -10621,7 +10659,7 @@ function TeamSidebar(props) {
     (0, import_react21.createElement)(
       "div",
       { ref: listRef, className: "bt-list", role: "region", "aria-label": t("Bot list") },
-      wideContent ? main ? (0, import_react21.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react21.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
+      wideContent ? main ? (0, import_react21.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react21.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
       order.map((entry) => entry.kind === "bot" ? (0, import_react21.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react21.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : (0, import_react21.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))
     ),
     foot
@@ -10636,6 +10674,7 @@ function TeamSidebar(props) {
 function UpdateButton({ useUpdate, actions }) {
   const update = useUpdate((value) => value);
   const [open, setOpen] = (0, import_react21.useState)(false);
+  const [shown, leaving] = useLinger(open, 120);
   const [box, setBox] = (0, import_react21.useState)(null);
   const [error, setError] = (0, import_react21.useState)("");
   const [dshError, setDshError] = (0, import_react21.useState)("");
@@ -10699,9 +10738,9 @@ function UpdateButton({ useUpdate, actions }) {
       "aria-expanded": open,
       onClick: toggle
     }, (0, import_react21.createElement)(CloudDownloadIcon, { done: phase === "installed" || phase === "updated" }), phase === "failed" || dshPhase === "failed" ? (0, import_react21.createElement)("span", { className: "bt-update-dot", "aria-hidden": true }) : null),
-    open && box ? (0, import_react_dom3.createPortal)((0, import_react21.createElement)(
+    shown && box ? (0, import_react_dom3.createPortal)((0, import_react21.createElement)(
       "div",
-      { className: "bt-update-pop", role: "dialog", "aria-label": update?.available || phase !== "idle" ? t("DS Bot update") : t("DSH update"), style: box },
+      { className: "bt-update-pop", role: "dialog", "aria-label": update?.available || phase !== "idle" ? t("DS Bot update") : t("DSH update"), style: box, "data-leaving": leaving || void 0 },
       update?.available || phase !== "idle" ? (0, import_react21.createElement)(
         import_react21.Fragment,
         null,
@@ -10833,6 +10872,7 @@ function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboardi
   }, [seat]);
   const [box, setBox] = (0, import_react21.useState)(null);
   const button = (0, import_react21.useRef)(null);
+  const menuRef = (0, import_react21.useRef)(null);
   (0, import_react21.useEffect)(() => {
     if (settingsOpen) setOpen(false);
   }, [settingsOpen]);
@@ -10857,6 +10897,7 @@ function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboardi
       setOpen(false);
     };
     const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, button.current)) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         setOpen(false);
@@ -10950,7 +10991,7 @@ function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboardi
     ),
     open && box ? (0, import_react_dom3.createPortal)((0, import_react21.createElement)(
       "div",
-      { className: "bt-menu bt-menu-up bt-account-menu", role: "menu", "aria-label": t("Account"), style: box },
+      { ref: menuRef, className: "bt-menu bt-menu-up bt-account-menu", role: "menu", "aria-label": t("Account"), style: box },
       confirm !== null ? (0, import_react21.createElement)(
         "div",
         { className: "bt-confirm", role: "alertdialog", "aria-label": accountT("signOut") },
@@ -11149,13 +11190,14 @@ var SIDEBAR_CSS = `
 .bt-update[data-phase=installing] .bt-cloud-arrow{animation:bt-cloud-drop 1.1s cubic-bezier(.45,0,.55,1) infinite}
 @keyframes bt-cloud-drop{0%{transform:translateY(-3px);opacity:0}35%{opacity:1}70%{transform:translateY(1px);opacity:1}100%{transform:translateY(2px);opacity:0}}
 .bt-update-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:#E5484D;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
-.bt-update-pop{position:fixed;z-index:60;width:280px;padding:14px 14px 12px;border-radius:14px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 10px 20px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);color:var(--bt-ink);box-sizing:border-box;transform-origin:top left;font-family:var(--bt-font);animation:bt-update-pop ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-update-pop{position:fixed;z-index:60;width:280px;padding:14px 14px 12px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);box-sizing:border-box;transform-origin:top left;font-family:var(--bt-font);animation:bt-update-pop ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-update-pop[data-leaving]{animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 @keyframes bt-update-pop{from{opacity:0;transform:scale(.96);filter:blur(4px)}}
 .bt-update-title{font-size:14px;line-height:20px;font-weight:600}
-.bt-update-text{margin-top:2px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2)}
+.bt-update-text{margin-top:2px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-update-error{margin-top:8px;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere;max-height:90px;overflow:auto}
 .bt-update-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px}
-.bt-update-notes{margin-right:auto;font-size:12.5px;color:var(--bt-ink-2);text-decoration:none}
+.bt-update-notes{margin-right:auto;font-size:12px;color:var(--bt-ink-2);text-decoration:none}
 .bt-update-notes:hover{color:var(--bt-ink);text-decoration:underline}
 .bt-update-go{height:30px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-accent,#4D6BFE);color:var(--bt-accent-ink,#fff);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,transform .12s ease}
 .bt-update-go:hover:not(:disabled){opacity:.9}
@@ -11602,6 +11644,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       if (![button.current, menu.current].some((node) => node?.contains(event.target))) setOpen(null);
     };
     const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         setOpen(null);
@@ -12094,9 +12137,11 @@ var SIDE_CSS = `
 .bt-side-input:focus{border-color:var(--bt-accent)}
 .bt-side-input:disabled{opacity:.6}
 .bt-pmenu{position:relative;display:inline-flex;flex:none}
-.bt-pmenu-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:6;min-width:172px;padding:6px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 10px 32px -8px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;gap:2px;animation:bt-bcard-in .18s cubic-bezier(.16,1,.3,1) both}
+.bt-pmenu-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:6;min-width:172px;padding:6px;border-radius:12px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);display:flex;flex-direction:column;gap:2px;transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-pmenu-pop[data-leaving]{animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-pmenu-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:7px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:17px;text-align:left;cursor:pointer}
 .bt-pmenu-item:hover{background:var(--bt-hover)}
+.bt-pmenu-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-pmenu-item svg{flex:none;width:15px;height:15px;color:var(--bt-ink-3)}
 .bt-pmenu-sep{height:.5px;flex:none;margin:4px 8px;background:var(--bt-line-2)}
 `;
@@ -12429,24 +12474,141 @@ function effortRows(reasoning) {
     ...reasoning.efforts.map((effort) => ({ effort: effort.id, label: effort.name }))
   ];
 }
-function EffortRows({ reasoning, current, onPick }) {
+function effortStops(reasoning) {
+  const efforts = reasoning?.efforts ?? [];
+  if (efforts.length === 0) return [];
+  const hasDefault = efforts.some((effort) => effort.id === reasoning.defaultEffort);
+  return hasDefault ? efforts.map((effort) => ({ effort: effort.id, label: effort.name })) : [{ effort: void 0, label: t("Default") }, ...efforts.map((effort) => ({ effort: effort.id, label: effort.name }))];
+}
+var ResetIcon = () => (0, import_react25.createElement)(
+  "svg",
+  { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+  (0, import_react25.createElement)("path", { d: "M2.8 6.5A5.5 5.5 0 1 1 4 11.8" }),
+  (0, import_react25.createElement)("path", { d: "M2.5 3.2v3.4h3.4" })
+);
+function EffortBar({ reasoning, current, onPick }) {
+  const stops = effortStops(reasoning);
+  const track = (0, import_react25.useRef)(null);
+  const drag = (0, import_react25.useRef)(null);
+  const [picked, setPicked] = (0, import_react25.useState)(current);
+  const [dragRatio, setDragRatio] = (0, import_react25.useState)(null);
+  (0, import_react25.useEffect)(() => {
+    if (!drag.current) setPicked(current);
+  }, [current]);
+  if (stops.length === 0) return null;
+  const hasDefault = (reasoning?.efforts ?? []).some((effort) => effort.id === reasoning?.defaultEffort);
+  const activeEffort = picked ?? (hasDefault ? reasoning.defaultEffort : void 0);
+  const activeIndex = Math.max(0, stops.findIndex((stop) => (stop.effort ?? null) === (activeEffort ?? null)));
+  const active = stops[activeIndex];
+  const stopRatio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1);
+  const ratio = dragRatio ?? stopRatio;
+  const commit = (effort) => {
+    setPicked(effort);
+    if ((effort ?? null) !== (current ?? null)) onPick(effort);
+  };
+  const ratioAt = (clientX) => {
+    const rect = track.current?.getBoundingClientRect();
+    if (!rect || stops.length <= 1) return 1;
+    const span = Math.max(1, rect.width - 22);
+    return Math.max(0, Math.min(1, (clientX - rect.left - 11) / span));
+  };
+  const nearestStop = (r) => stops[Math.round(r * (stops.length - 1))] ?? stops[0];
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+    }
+    const r = ratioAt(event.clientX);
+    const next = nearestStop(r);
+    drag.current = { id: event.pointerId, startX: event.clientX, moved: false, effort: next?.effort };
+    if (next) setPicked(next.effort);
+  };
+  const onPointerMove = (event) => {
+    const state = drag.current;
+    if (!state || state.id !== event.pointerId) return;
+    if (!state.moved && Math.abs(event.clientX - state.startX) > 2) state.moved = true;
+    const r = ratioAt(event.clientX);
+    const next = nearestStop(r);
+    if (state.moved) setDragRatio(r);
+    if (next) {
+      state.effort = next.effort;
+      setPicked(next.effort);
+    }
+  };
+  const finishDrag = (event) => {
+    const state = drag.current;
+    if (!state || event && state.id !== event.pointerId) return;
+    drag.current = null;
+    setDragRatio(null);
+    commit(state.effort);
+  };
+  const onKeyDown = (event) => {
+    if (!["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? stops.length - 1 : event.key === "ArrowLeft" || event.key === "ArrowDown" ? Math.max(0, activeIndex - 1) : Math.min(stops.length - 1, activeIndex + 1);
+    const next = stops[nextIndex];
+    if (next) commit(next.effort);
+  };
   return (0, import_react25.createElement)(
-    import_react25.Fragment,
-    null,
-    (0, import_react25.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
-    (0, import_react25.createElement)("div", { className: "bt-model-group", role: "presentation" }, t("Thinking level")),
-    effortRows(reasoning).map((row) => (0, import_react25.createElement)(
-      "button",
+    "div",
+    { className: "bt-effort-bar", role: "group", "aria-label": t("Thinking level") },
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-effort-head" },
+      (0, import_react25.createElement)("span", { className: "bt-effort-label" }, t("Thinking level")),
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-effort-meta" },
+        picked === void 0 && hasDefault ? (0, import_react25.createElement)("span", { className: "bt-effort-tag" }, t("Default")) : null,
+        (0, import_react25.createElement)("span", { className: "bt-effort-val" }, active.label),
+        picked !== void 0 || !hasDefault ? (0, import_react25.createElement)("button", {
+          type: "button",
+          className: "bt-effort-reset",
+          "aria-label": t("Default"),
+          title: t("Default"),
+          disabled: picked === void 0,
+          onClick: () => commit(void 0)
+        }, (0, import_react25.createElement)(ResetIcon)) : null
+      )
+    ),
+    (0, import_react25.createElement)(
+      "div",
       {
-        key: row.effort ?? "default",
-        type: "button",
-        role: "menuitemradio",
-        "aria-checked": (row.effort ?? null) === (current ?? null),
-        onClick: () => onPick(row.effort)
+        ref: track,
+        className: "bt-effort-track",
+        role: "slider",
+        tabIndex: 0,
+        "aria-label": t("Thinking level"),
+        "aria-valuemin": 0,
+        "aria-valuemax": stops.length - 1,
+        "aria-valuenow": activeIndex,
+        "aria-valuetext": active.label,
+        "data-dragging": dragRatio !== null ? "" : void 0,
+        style: { "--bt-effort-p": ratio },
+        onPointerDown,
+        onPointerMove,
+        onPointerUp: finishDrag,
+        onPointerCancel: finishDrag,
+        onLostPointerCapture: finishDrag,
+        onKeyDown
       },
-      (0, import_react25.createElement)("span", { className: "bt-menu-label" }, row.label),
-      (0, import_react25.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, (row.effort ?? null) === (current ?? null) ? (0, import_react25.createElement)(CheckIcon) : null)
-    ))
+      (0, import_react25.createElement)("span", { className: "bt-effort-fill", "aria-hidden": true }),
+      stops.map((stop, index) => {
+        const dotRatio = stops.length <= 1 ? 1 : index / (stops.length - 1);
+        return (0, import_react25.createElement)("span", {
+          key: stop.effort ?? "default",
+          className: "bt-effort-dot",
+          "data-filled": dotRatio <= ratio + 1e-3 || void 0,
+          style: { "--bt-dot-p": dotRatio },
+          title: stop.label,
+          "aria-hidden": true
+        });
+      }),
+      (0, import_react25.createElement)("span", { className: "bt-effort-knob", "aria-hidden": true })
+    )
   );
 }
 function ModelRows({ roster, current, onPick }) {
@@ -12489,6 +12651,7 @@ function useAnchoredMenu() {
       close();
     };
     const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         close();
@@ -12541,12 +12704,12 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
     else if (ref !== current || !bot.model) void run2(actions.updateBot(bot.id, { model: ref }));
   };
   const pickEffort = (effort) => {
-    close();
     if (onPickEffort) onPickEffort(effort);
     else if (effort !== bot.effort) void run2(actions.updateBot(bot.id, { effort: effort ?? null }));
   };
   const models = roster.models ?? [];
   const manage = manageModels(actions);
+  const hasEfforts = withEfforts && effortStops(reasoning).length > 0;
   return (0, import_react25.createElement)(
     import_react25.Fragment,
     null,
@@ -12574,13 +12737,21 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
     shownPlace ? (0, import_react_dom6.createPortal)((0, import_react25.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": t("Model for {name}", { name: bot.name }), style: shownPlace, "data-leaving": leaving || void 0 },
-      models.length > 0 ? (0, import_react25.createElement)(ModelRows, { roster, current, onPick: pick2 }) : (0, import_react25.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
-      withEfforts && effortRows(reasoning).length > 0 ? (0, import_react25.createElement)(EffortRows, { reasoning, current: picked, onPick: pickEffort }) : null,
-      manage ? (0, import_react25.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      manage ? (0, import_react25.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
-        close();
-        manage();
-      } }, (0, import_react25.createElement)(SlidersIcon), (0, import_react25.createElement)("span", { className: "bt-menu-label" }, t("Models and providers…"))) : null
+      (0, import_react25.createElement)(
+        "div",
+        { className: "bt-model-scroll" },
+        models.length > 0 ? (0, import_react25.createElement)(ModelRows, { roster, current, onPick: pick2 }) : (0, import_react25.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet."))
+      ),
+      hasEfforts || manage ? (0, import_react25.createElement)(
+        "div",
+        { className: "bt-model-foot" },
+        hasEfforts ? (0, import_react25.createElement)(EffortBar, { reasoning, current: picked, onPick: pickEffort }) : null,
+        hasEfforts && manage ? (0, import_react25.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+        manage ? (0, import_react25.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
+          close();
+          manage();
+        } }, (0, import_react25.createElement)(SlidersIcon), (0, import_react25.createElement)("span", { className: "bt-menu-label" }, t("Models and providers…"))) : null
+      ) : null
     ), document.body) : null
   );
 }
@@ -12729,6 +12900,32 @@ var MODEL_CSS = `
 .bt-model-caret{flex:none;color:var(--bt-ink-3);transition:${spring(SPRING_SHAPE, "transform")}}
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
+.bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
+.bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
+.bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
+.bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:4px 6px 5px}
+.bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:18px;padding:0 2px}
+.bt-effort-label{font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3)}
+.bt-effort-meta{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.bt-effort-tag{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
+.bt-effort-val{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap}
+.bt-menu button.bt-effort-reset{flex:none;position:relative;width:28px;height:28px;min-height:0;margin:-5px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing};transition:color .12s ease}
+.bt-menu button.bt-effort-reset::before{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--bt-hover);transition:background-color .12s ease}
+.bt-menu button.bt-effort-reset svg{position:relative;width:11px;height:11px;margin:0}
+.bt-menu button.bt-effort-reset:hover:not(:disabled){color:var(--bt-ink)}
+.bt-menu button.bt-effort-reset:hover:not(:disabled)::before{background:var(--bt-active)}
+.bt-menu button.bt-effort-reset:disabled{opacity:.35;cursor:default}
+.bt-menu button.bt-effort-reset:disabled::before{background:none}
+.bt-menu button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-effort-track{position:relative;height:28px;margin:-3px 0;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
+.bt-effort-track::before{content:"";position:absolute;left:0;right:0;top:3px;bottom:3px;border-radius:999px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line)}
+.bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-effort-fill{position:absolute;left:0;top:3px;bottom:3px;width:calc(22px + (100% - 22px) * var(--bt-effort-p,0));border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--bt-accent) 76%,var(--bt-main)),var(--bt-accent));transition:${spring(SPRING_TAP, "width")}}
+.bt-effort-dot{position:absolute;top:50%;left:calc(11px + (100% - 22px) * var(--bt-dot-p,0));width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-3) 45%,transparent);pointer-events:none;transition:background-color .12s ease}
+.bt-effort-dot[data-filled]{background:color-mix(in srgb,var(--bt-accent-ink) 65%,transparent)}
+.bt-effort-knob{position:absolute;top:5px;left:calc(11px + (100% - 22px) * var(--bt-effort-p,0) - 9px);width:18px;height:18px;border-radius:50%;background:var(--bt-accent-ink);box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.06);pointer-events:none;transition:${spring(SPRING_TAP, "left")},${spring(SPRING_TAP, "scale")}}
+.bt-effort-track[data-dragging] .bt-effort-fill,.bt-effort-track[data-dragging] .bt-effort-knob{transition:none}
+.bt-effort-track:hover .bt-effort-knob,.bt-effort-track[data-dragging] .bt-effort-knob{scale:1.08}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
@@ -12761,7 +12958,7 @@ var MODEL_CSS = `
 @keyframes bt-model-in{from{opacity:0;transform:translateY(6px)}}
 .bt-model-spin{flex:none;width:14px;height:14px;border-radius:50%;border:1.5px solid var(--bt-line-2);border-top-color:var(--bt-ink-2);animation:bt-model-spin .7s linear infinite}
 @keyframes bt-model-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.bt-model-dock{animation:none}.bt-model-spin{animation-duration:2s}.bt-model-caret{transition:none}.bt-model-tick svg{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-model-dock{animation:none}.bt-model-spin{animation-duration:2s}.bt-model-caret,.bt-effort-fill,.bt-effort-knob{transition:none}.bt-model-tick svg{animation:none}}
 `;
 
 // src/client/turn-error.js
@@ -13775,47 +13972,47 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
   const available = items.filter((item) => item.name !== draft.name && ["mcp", "skill"].includes(item.kind));
   return (0, import_react30.createElement)(
     "form",
-    { className: "bt-connector-form", onSubmit: submit },
+    { className: "bt-set-card bt-task-form", onSubmit: submit },
     (0, import_react30.createElement)(Field, { label: "Name", value: draft.name, disabled: draft.originalName !== void 0, onChange: (value) => set("name", value), placeholder: "my-tool" }),
     (0, import_react30.createElement)(
       "label",
-      { className: "bt-set-row bt-bs-row bt-bs-stack" },
+      { className: "bt-set-row bt-bs-row" },
       (0, import_react30.createElement)("span", { className: "bt-set-copy" }, (0, import_react30.createElement)("span", { className: "bt-bs-label" }, t("Type"))),
       (0, import_react30.createElement)(
         "select",
-        { className: "bt-input", value: draft.kind, disabled: draft.originalName !== void 0, onChange: (event) => set("kind", event.target.value) },
+        { className: "bt-select bt-task-bot", value: draft.kind, disabled: draft.originalName !== void 0, onChange: (event) => set("kind", event.target.value) },
         ["mcp", "skill", "pack"].map((kind) => (0, import_react30.createElement)("option", { key: kind, value: kind }, t(kind === "mcp" ? "MCP server" : kind === "skill" ? "Skill" : "Pack")))
       )
     ),
     (0, import_react30.createElement)(Field, { label: "Description", value: draft.description, onChange: (value) => set("description", value) }),
     draft.kind === "mcp" ? (0, import_react30.createElement)(
       "label",
-      { className: "bt-set-row bt-bs-row bt-bs-stack" },
+      { className: "bt-set-row bt-bs-row" },
       (0, import_react30.createElement)("span", { className: "bt-set-copy" }, (0, import_react30.createElement)("span", { className: "bt-bs-label" }, t("Connection"))),
       (0, import_react30.createElement)(
         "select",
-        { className: "bt-input", value: draft.transport, onChange: (event) => set("transport", event.target.value) },
+        { className: "bt-select bt-task-bot", value: draft.transport, onChange: (event) => set("transport", event.target.value) },
         (0, import_react30.createElement)("option", { value: "stdio" }, t("Local command")),
         (0, import_react30.createElement)("option", { value: "streamable-http" }, t("HTTP server"))
       )
     ) : null,
     draft.kind === "mcp" && draft.transport === "stdio" ? (0, import_react30.createElement)(
-      "div",
+      import_react30.Fragment,
       null,
       (0, import_react30.createElement)(Field, { label: "Command", value: draft.command, onChange: (value) => set("command", value) }),
       (0, import_react30.createElement)(Field, { label: "Arguments (one per line)", value: draft.argsText, onChange: (value) => set("argsText", value), multiline: true }),
       (0, import_react30.createElement)(Field, { label: "Environment (JSON)", value: draft.envText, onChange: (value) => set("envText", value), multiline: true, placeholder: t('{"API_KEY": "$DSH_SECRET_MY_KEY"}') })
     ) : null,
     draft.kind === "mcp" && draft.transport === "streamable-http" ? (0, import_react30.createElement)(
-      "div",
+      import_react30.Fragment,
       null,
       (0, import_react30.createElement)(Field, { label: "URL", value: draft.url, onChange: (value) => set("url", value) }),
       (0, import_react30.createElement)(Field, { label: "Headers (JSON)", value: draft.headersText, onChange: (value) => set("headersText", value), multiline: true, placeholder: t('{"API_KEY": "$DSH_SECRET_MY_KEY"}') })
     ) : null,
     draft.kind === "skill" ? (0, import_react30.createElement)(Field, { label: "Skill instructions", value: draft.content, onChange: (value) => set("content", value), multiline: true }) : null,
     draft.kind === "pack" ? (0, import_react30.createElement)(
-      "div",
-      { className: "bt-set-card" },
+      import_react30.Fragment,
+      null,
       available.length === 0 ? (0, import_react30.createElement)("div", { className: "bt-set-row" }, (0, import_react30.createElement)("span", { className: "bt-set-hint" }, t("Save an MCP server or skill first."))) : available.map((item) => (0, import_react30.createElement)(
         "label",
         { key: item.name, className: "bt-set-row bt-bs-row" },
@@ -13823,12 +14020,12 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
         (0, import_react30.createElement)("input", { type: "checkbox", checked: draft.items.includes(item.name), onChange: (event) => set("items", event.target.checked ? [...draft.items, item.name] : draft.items.filter((name) => name !== item.name)) })
       ))
     ) : null,
-    error ? (0, import_react30.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null,
+    error ? (0, import_react30.createElement)("div", { className: "bt-set-row" }, (0, import_react30.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, error)) : null,
     (0, import_react30.createElement)(
       "div",
-      { className: "bt-connector-form-row" },
+      { className: "bt-set-row bt-task-foot" },
       (0, import_react30.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onClose }, t("Cancel")),
-      (0, import_react30.createElement)("button", { type: "submit", className: "bt-soft bt-soft-sm" }, draft.originalName ? t("Save changes") : t("Add capability"))
+      (0, import_react30.createElement)("button", { type: "submit", className: "bt-send bt-soft-sm" }, draft.originalName ? t("Save changes") : t("Add capability"))
     )
   );
 }
@@ -13888,12 +14085,11 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
     "section",
     { className: "bt-set-section" },
     (0, import_react30.createElement)("h3", null, t("Shared capabilities")),
-    (0, import_react30.createElement)(
+    draft ? (0, import_react30.createElement)(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : (0, import_react30.createElement)(
       "div",
       { className: "bt-actions" },
       (0, import_react30.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: startNew }, t("Add capability"))
     ),
-    draft ? (0, import_react30.createElement)(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     (0, import_react30.createElement)(
       "div",
       { className: "bt-set-card bt-connectors-card" },
@@ -14443,6 +14639,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       setMenu(false);
     };
     const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, dotsRef.current)) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         setMenu(false);
@@ -14687,7 +14884,7 @@ function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
     }, (0, import_react33.createElement)("span", { style: { background: paintCss(color) } }))))
   );
 }
-function AvatarEditor({ bot, actions, run: run2, onClose }) {
+function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
   const look = lookOf(bot);
   const [tab, setTab] = (0, import_react33.useState)(look.image ? "upload" : "bot");
   const [over, setOver] = (0, import_react33.useState)(false);
@@ -14730,7 +14927,7 @@ function AvatarEditor({ bot, actions, run: run2, onClose }) {
   const glide = useGlide(tab);
   return (0, import_react33.createElement)(
     "div",
-    { ref, className: "bt-avedit", role: "dialog", "aria-label": t("Avatar editor") },
+    { ref, className: "bt-avedit", role: "dialog", "aria-label": t("Avatar editor"), "data-leaving": leaving || void 0 },
     (0, import_react33.createElement)(
       "div",
       { className: "bt-avedit-top" },
@@ -14807,6 +15004,7 @@ function MemoryCard({ bot, actions }) {
 }
 function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const [editing, setEditing] = (0, import_react33.useState)(false);
+  const [editorShown, editorLeaving] = useLinger(editing, 120);
   const [confirming, setConfirming] = (0, import_react33.useState)(false);
   const closeEditor = (0, import_react33.useCallback)(() => setEditing(false), []);
   (0, import_react33.useEffect)(() => {
@@ -14844,7 +15042,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
           (0, import_react33.createElement)(BotMark, { bot, size: 64, live: true }),
           (0, import_react33.createElement)("span", { className: "bt-avatar-pencil", "aria-hidden": true }, (0, import_react33.createElement)(PencilIcon))
         ),
-        editing ? (0, import_react33.createElement)(AvatarEditor, { bot, actions, run: run2, onClose: closeEditor }) : null
+        editorShown ? (0, import_react33.createElement)(AvatarEditor, { bot, actions, run: run2, onClose: closeEditor, leaving: editorLeaving }) : null
       ),
       (0, import_react33.createElement)(
         "div",
@@ -17051,7 +17249,7 @@ var USAGE_CSS = `
 .bt-us-pick-months{display:flex;flex-wrap:wrap;gap:8px 28px}
 .bt-us-month{width:252px;animation:bt-us-fade .22s ease}
 .bt-us-month-head{position:relative;display:flex;align-items:center;justify-content:center;height:28px;margin-bottom:4px;font-size:13px;line-height:18px;font-weight:600}
-.bt-us-month-nav{position:absolute;top:0;width:28px;height:28px;padding:0;border:0;border-radius:9px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease}
+.bt-us-month-nav{position:absolute;top:0;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease}
 .bt-us-month-nav[data-side=left]{left:0}
 .bt-us-month-nav[data-side=right]{right:0}
 .bt-us-month-nav:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
@@ -17405,7 +17603,7 @@ function BrowserPage({ roster, actions, run: run2, Section, Row: Row3 }) {
           Row3,
           { label: t("Site") },
           (0, import_react43.createElement)("input", {
-            className: "bt-select bt-browser-site",
+            className: "bt-input bt-browser-site",
             type: "text",
             value: site,
             placeholder: t("example.com — leave empty for all sites"),
@@ -17450,7 +17648,7 @@ function BrowserPage({ roster, actions, run: run2, Section, Row: Row3 }) {
           { className: "bt-browser-form-foot" },
           (0, import_react43.createElement)("button", {
             type: "submit",
-            className: "bt-soft",
+            className: "bt-soft bt-soft-sm",
             disabled: busy || !selectedBot || kinds.length === 0
           }, busy ? t("Saving…") : t("Add"))
         )
@@ -18074,7 +18272,7 @@ function FormActions({ onCancel, onAdd, ready }) {
   );
 }
 var PROVIDERS_CSS = `
-.bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:var(--bt-ink-3)}
+.bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3)}
 .bt-provider .bt-set-hint[data-error]{color:var(--bt-danger)}
 .bt-provider-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 .bt-provider-state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3)}
@@ -18095,7 +18293,7 @@ var PROVIDERS_CSS = `
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
-.bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `;
@@ -18104,7 +18302,7 @@ var PROVIDERS_CSS = `
 var import_react47 = require("react");
 var capitalize2 = (word) => word[0].toUpperCase() + word.slice(1);
 var SETTINGS_PAGES = [["general", "General"], ["models", "Models"], ["bots", "Bots"], ["groups", "Group chats"], ["connectors", "Connectors"], ["capabilities", "Capabilities"], ["browser", "Browser"], ["schedules", "Scheduled tasks"], ["usage", "Usage"], ["secrets", "Secrets"], ["feedback", "Feedback"], ["about", "About DS Bot"]];
-var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, connectors: ConnectorIcon, capabilities: PlugIcon, browser: ConnectorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, connectors: ConnectorIcon, capabilities: PlugIcon, browser: GlobeIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 function SetSection({ title, className = "", children }) {
   return (0, import_react47.createElement)("section", { className: `bt-set-section ${className}`.trim() }, (0, import_react47.createElement)("h3", null, title), (0, import_react47.createElement)("div", { className: "bt-set-card" }, children));
 }
@@ -18515,14 +18713,22 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
 var import_react48 = require("react");
 function ContextMenu({ menu, roster, actions, leaving = false }) {
   useEscape(() => actions.closeMenu());
+  const ref = (0, import_react48.useRef)(null);
+  const trigger = (0, import_react48.useRef)(typeof document === "undefined" ? null : document.activeElement);
   (0, import_react48.useEffect)(() => {
     const onDown = (event) => {
       if (!(event.target instanceof Element) || !event.target.closest(".bt-menu")) actions.closeMenu();
     };
+    const onKey = (event) => {
+      stepMenuFocus(ref.current, event, trigger.current);
+    };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, []);
-  const ref = (0, import_react48.useRef)(null);
   const [place, setPlace] = (0, import_react48.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
   (0, import_react48.useLayoutEffect)(() => {
@@ -18583,6 +18789,14 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
 }
 function AgentMenu({ menu, roster, actions, leaving }) {
   const ref = (0, import_react48.useRef)(null);
+  const trigger = (0, import_react48.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  (0, import_react48.useEffect)(() => {
+    const onKey = (event) => {
+      stepMenuFocus(ref.current, event, trigger.current);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   const [place, setPlace] = (0, import_react48.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
   (0, import_react48.useLayoutEffect)(() => {
@@ -18840,7 +19054,7 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
 .bt-member-state.bt-mw-ask{color:#b7791f}
 body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
-.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:13px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
@@ -19276,8 +19490,6 @@ var MIN_WIDTH = 360;
 var READ_FLASH_MS = 2400;
 var EMPTY_PAGE = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, excerpt: "" };
 var EMPTY_TABS2 = { ids: [], active: null };
-var SPRING_LEAD2 = springEasing(576, 39.4);
-var SPRING_TRAIL2 = springEasing(144, 19.7);
 var icon = (paths) => function BrowserIcon() {
   return (0, import_react51.createElement)(
     "svg",
@@ -19316,13 +19528,16 @@ var reducedMotion2 = () => typeof matchMedia === "function" && matchMedia("(pref
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label }) {
   const [open, setOpen] = (0, import_react51.useState)(false);
+  const [shown, leaving] = useLinger(open, 120);
   const wrap = (0, import_react51.useRef)(null);
+  const button = (0, import_react51.useRef)(null);
   (0, import_react51.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (wrap.current && !wrap.current.contains(event.target)) setOpen(false);
     };
     const onKey = (event) => {
+      if (stepMenuFocus(wrap.current, event, button.current)) return;
       if (event.key !== "Escape") return;
       event.stopPropagation();
       setOpen(false);
@@ -19339,6 +19554,7 @@ function PanelMenu({ items, className, "aria-label": label }) {
     "span",
     { className: "bt-pmenu", ref: wrap },
     (0, import_react51.createElement)("button", {
+      ref: button,
       type: "button",
       className,
       "aria-label": label,
@@ -19347,9 +19563,9 @@ function PanelMenu({ items, className, "aria-label": label }) {
       "aria-expanded": open,
       onClick: () => setOpen((value) => !value)
     }, (0, import_react51.createElement)(DotsIcon)),
-    open ? (0, import_react51.createElement)(
+    shown ? (0, import_react51.createElement)(
       "div",
-      { className: "bt-pmenu-pop", role: "menu" },
+      { className: "bt-pmenu-pop", role: "menu", "data-leaving": leaving || void 0 },
       items.map((item, index) => item.sep ? (0, import_react51.createElement)("span", { key: `sep-${index}`, className: "bt-pmenu-sep", role: "separator" }) : (0, import_react51.createElement)("button", {
         key: item.key,
         type: "button",
@@ -19416,8 +19632,8 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     if (from === null || from.left === to.left && from.right === to.right || reducedMotion2()) return void 0;
     const ahead = to.left > from.left ? "right" : "left";
     const behind = ahead === "right" ? "left" : "right";
-    const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD2.duration, easing: SPRING_LEAD2.easing });
-    const trail = capsule.animate([{ [behind]: `${from[behind]}px` }, { [behind]: `${to[behind]}px` }], { duration: SPRING_TRAIL2.duration, easing: SPRING_TRAIL2.easing });
+    const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing });
+    const trail = capsule.animate([{ [behind]: `${from[behind]}px` }, { [behind]: `${to[behind]}px` }], { duration: SPRING_TRAIL.duration, easing: SPRING_TRAIL.easing });
     return () => {
       lead.cancel();
       trail.cancel();
@@ -20168,7 +20384,7 @@ var BROWSER_CSS = `
 .bt-ptabs-in>.bt-ptab-bot{position:sticky;left:0;z-index:2;background:var(--bt-main)}
 .bt-ptabs-in>.bt-ptab-bot[aria-selected=true]{background:transparent}
 .bt-ptabs-in::-webkit-scrollbar{display:none}
-.bt-ptab{position:relative;z-index:1;display:inline-flex;align-items:center;gap:6px;height:32px;max-width:180px;padding:0 8px;flex:none;border:0;border-radius:9px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;transition:color .12s ease}
+.bt-ptab{position:relative;z-index:1;display:inline-flex;align-items:center;gap:6px;height:32px;max-width:180px;padding:0 8px;flex:none;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;transition:color .12s ease}
 .bt-ptab:hover{color:var(--bt-ink)}
 .bt-ptab[aria-selected=true]{color:var(--bt-ink)}
 .bt-ptab-bot{padding:0 7px}
@@ -20182,10 +20398,10 @@ var BROWSER_CSS = `
 .bt-ptab-x{flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:var(--bt-ink-3);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
 .bt-ptab:hover .bt-ptab-x,.bt-ptab[aria-selected=true] .bt-ptab-x{opacity:1;pointer-events:auto}
 .bt-ptab-x:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-ptab-new{position:relative;z-index:1;flex:none;width:28px;height:32px;border:0;border-radius:9px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.bt-ptab-new{position:relative;z-index:1;flex:none;width:28px;height:32px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .bt-ptab-new:hover{color:var(--bt-ink)}
 .bt-ptab-new svg{width:15px;height:15px}
-.bt-ptab-ind{position:absolute;top:4px;bottom:4px;border-radius:9px;background:var(--bt-hover);opacity:0;pointer-events:none;z-index:0;transition:opacity .15s ease}
+.bt-ptab-ind{position:absolute;top:4px;bottom:4px;border-radius:8px;background:var(--bt-hover);opacity:0;pointer-events:none;z-index:0;transition:opacity .15s ease}
 .bt-ptab-close{flex:none;margin-left:2px}
 .bt-panel-ghost{position:absolute;top:calc(44px + var(--bt-caption-band,0px));right:0;bottom:0;overflow:hidden;pointer-events:none;z-index:2}
 .bt-panel-ghost>.bt-panel-view{position:absolute;inset:0}
@@ -20233,18 +20449,18 @@ var BROWSER_CSS = `
 .bt-bcard-row{display:flex;align-items:center;gap:7px;padding:8px 10px;min-width:0}
 .bt-bcard-fav{width:14px;height:14px;flex:none;border-radius:3px;color:var(--bt-ink-3)}
 .bt-bcard-row svg.bt-bcard-fav{width:14px;height:14px}
-.bt-bcard-title{flex:1;min-width:0;font-size:12.5px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink)}
+.bt-bcard-title{flex:1;min-width:0;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink)}
 .bt-bcard-host{flex:none;font-size:11px;line-height:15px;color:var(--bt-ink-3);max-width:38%;overflow:hidden;text-overflow:ellipsis}
-.bt-bcard-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border:0;border-radius:7px;background:color-mix(in srgb,var(--bt-main) 88%,transparent);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease;backdrop-filter:blur(4px)}
+.bt-bcard-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border:0;border-radius:6px;background:color-mix(in srgb,var(--bt-main) 88%,transparent);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease;backdrop-filter:blur(4px)}
 .bt-bcard:hover .bt-bcard-x{opacity:1;pointer-events:auto}
-.bt-bcard-new{display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border:.5px dashed var(--bt-line-2);border-radius:12px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12.5px;cursor:pointer}
+.bt-bcard-new{display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border:.5px dashed var(--bt-line-2);border-radius:12px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer}
 .bt-bcard-new:hover{color:var(--bt-ink);border-color:var(--bt-ink-3)}
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:236px;padding:6px;border-radius:16px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 10px 32px -8px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);animation:bt-bcard-in .18s cubic-bezier(.16,1,.3,1) both}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:236px;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
-.bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .bt-import-item:hover{background:var(--bt-hover)}
 .bt-import-item:disabled{opacity:.5;cursor:default}
 .bt-import-item-icon{flex:none;color:var(--bt-ink-3)}
@@ -20260,8 +20476,8 @@ var BROWSER_CSS = `
 .bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
 .bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
 .bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
-.bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11.5px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-import-line-reason{flex:1;min-width:0;font-size:11.5px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}

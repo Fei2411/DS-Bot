@@ -85,7 +85,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     deleteRoom: id => after(call('delete-room', { id })),
-    openMenu: (menu) => { ui.set(state => ({ ...state, menu })) },
+    openMenu: (menu) => { ui.set(state => ({ ...state, menu, palette: null })) },
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),

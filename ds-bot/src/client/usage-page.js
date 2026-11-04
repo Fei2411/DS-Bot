@@ -608,7 +608,7 @@ export const USAGE_CSS = `
 .bt-us-pick-months{display:flex;flex-wrap:wrap;gap:8px 28px}
 .bt-us-month{width:252px;animation:bt-us-fade .22s ease}
 .bt-us-month-head{position:relative;display:flex;align-items:center;justify-content:center;height:28px;margin-bottom:4px;font-size:13px;line-height:18px;font-weight:600}
-.bt-us-month-nav{position:absolute;top:0;width:28px;height:28px;padding:0;border:0;border-radius:9px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease}
+.bt-us-month-nav{position:absolute;top:0;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease}
 .bt-us-month-nav[data-side=left]{left:0}
 .bt-us-month-nav[data-side=right]{right:0}
 .bt-us-month-nav:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}

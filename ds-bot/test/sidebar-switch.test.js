@@ -548,3 +548,24 @@ test('after a snap the spring stops and the drag follows the cursor', async () =
     assert.equal(column.style.width, '330px')
   })
 })
+
+test('TeamSidebar subscribes to specific ui slices rather than the whole ui object', () => {
+  const selectors = []
+  const base = { unread: {}, leftDrawer: false, details: null, view: 'details', panelYield: false, bootFailed: false }
+  TeamSidebar({
+    wide: true,
+    useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+    useUi: (pick) => { selectors.push(pick); return pick(base) },
+    useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }),
+    useUpdate: () => ({}),
+    actions: { toggleSidebar() {} },
+  })
+  assert.ok(selectors.length > 0)
+  for (const pick of selectors) {
+    const before = pick(base)
+    const after = pick({ ...base, palette: { query: 'test', token: 1 }, settings: { page: 'general' }, menu: { kind: 'bot', id: 'b1' }, toast: { text: 'err' } })
+    assert.equal(Object.is(before, after), true)
+  }
+})
+

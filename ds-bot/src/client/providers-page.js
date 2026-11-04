@@ -169,7 +169,7 @@ function FormActions({ onCancel, onAdd, ready }) {
 }
 
 export const PROVIDERS_CSS = `
-.bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:var(--bt-ink-3)}
+.bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3)}
 .bt-provider .bt-set-hint[data-error]{color:var(--bt-danger)}
 .bt-provider-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 .bt-provider-state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3)}
@@ -190,7 +190,7 @@ export const PROVIDERS_CSS = `
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
-.bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `

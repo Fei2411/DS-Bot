@@ -73,6 +73,7 @@ const ZH = {
   'Add capability': '添加能力',
   'No capabilities saved': '还没有保存能力',
   Type: '类型',
+  Description: '说明',
   'MCP server': 'MCP 服务',
   Skill: '技能',
   Pack: '能力包',
