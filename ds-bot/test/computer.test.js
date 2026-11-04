@@ -648,3 +648,11 @@ test('a revoke clears the Bot’s session decisions for the app in every Session
     await pending
   }
 })
+
+
+test("the macOS consent answerer is prepended ahead of DSH answerer", async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  assert.ok(ctx.calls.includes('on user-questions/request (prepend)'))
+})

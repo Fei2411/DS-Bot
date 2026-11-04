@@ -394,12 +394,13 @@ export function install(rt) {
   }
   // macOS: the provider's own getApp consent reaches us as a user-questions request.
   // For Bot Sessions DS Bot answers it itself, by the card's rules; anything else
-  // passes to the next answerer.
+  // passes to the next answerer. Prepend like approvals.js: DSH's own answerer is
+  // registered first and would hold the request on a card DS Bot never draws.
   ctx.on('user-questions/request', async function computerConsent(request, next) {
     const question = request?.questions?.find(item => item?.id === 'cua-app-access')
     const agent = request?.agent
     if (question === undefined || agent === undefined) return next()
-    const sessionId = agent.id ?? agent.session?.id
+    const sessionId = agent.session?.id ?? agent.id
     await rt.load()
     const bot = rt.botOf(rt.selfOf(sessionId))
     if (bot === undefined || !rt.isBotSession(sessionId) || !enabled()) return next()
@@ -417,7 +418,7 @@ export function install(rt) {
     }
     decisionsOf(bot.id, sessionId).set(app.key, answer === 'once' ? 'once' : 'deny')
     return answer === 'once' ? allow() : deny()
-  })
+  }, { prepend: true })
   // Windows/Linux: no consent inside the provider, so the first call that targets an
   // app asks through the same card, before the call runs.
   const driverConsent = async (exec, bot, sessionId, app) => {
