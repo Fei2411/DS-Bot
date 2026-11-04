@@ -454,3 +454,157 @@ test('mail account remove drops the secret and unregisters the tools', async (t)
   assert.equal(rt.secretValue(mailSecretName('a@qq.com', 'PASSWORD')), undefined)
   assert.equal(rt.teamTools.some(d => d.name === 'mail_send'), false)
 })
+
+const { imapOptions } = await import('../src/host/connectors/mail/transport.js')
+const { IMAP_ID } = await import('../src/host/connectors/mail/presets.js')
+
+test('163 and 126 presets send the IMAP ID identity', () => {
+  for (const domain of ['163.com', '126.com']) {
+    const options = imapOptions({ address: `me@${domain}`, imap: { host: `imap.${domain}`, port: 993, secure: true } }, { password: 'x' })
+    assert.deepEqual(options.id, IMAP_ID)
+    assert.equal(options.id.vendor, 'DS Bot')
+  }
+})
+
+test('gateway keeps the entry path and merges queries', async (t) => {
+  const seen = []
+  const upstream = createServer((req, res) => { seen.push(req.url); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}') })
+  const port = await listen(upstream)
+  t.after(() => upstream.close())
+  const gw = createGateway({
+    credential: () => ({ url: `http://127.0.0.1:${port}/mcp?key=K1`, headers: {} }),
+    readOnly: () => false, onUnauthorized: async () => false,
+  })
+  await gw.listen()
+  t.after(() => gw.close())
+  const head = { Authorization: `Bearer ${gw.nonce}`, 'content-type': 'application/json' }
+  await fetch(gw.urlFor('svc'), { method: 'POST', headers: head, body: '{}' })
+  assert.equal(seen.at(-1), '/mcp?key=K1')
+  await fetch(`${gw.urlFor('svc')}?x=1&y=2`, { method: 'POST', headers: head, body: '{}' })
+  assert.match(seen.at(-1), /^\/mcp\?key=K1&x=1&y=2$|x=1.*key=K1/)
+})
+
+test('gateway destroys the upstream stream when the client disconnects', async (t) => {
+  let upstreamDestroyed = false
+  const upstream = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write('event: message\ndata: {}\n\n')
+    res.on('close', () => { upstreamDestroyed = true })
+    // never ends on its own
+  })
+  const port = await listen(upstream)
+  t.after(() => upstream.close())
+  const gw = createGateway({ credential: () => ({ url: `http://127.0.0.1:${port}`, headers: {} }), readOnly: () => false, onUnauthorized: async () => false })
+  await gw.listen()
+  t.after(() => gw.close())
+  const controller = new AbortController()
+  const pending = fetch(gw.urlFor('svc'), { headers: { Authorization: `Bearer ${gw.nonce}` }, signal: controller.signal })
+  const response = await pending.catch(e => e)
+  // The GET answer headers arrived; abort the body read.
+  const res = await pending
+  controller.abort()
+  await res.body?.cancel().catch(() => {})
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal(upstreamDestroyed, true)
+})
+
+test('gateway refuses JSON-RPC batches in read-only mode', async (t) => {
+  const upstream = createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('[]') })
+  const port = await listen(upstream)
+  t.after(() => upstream.close())
+  const gw = createGateway({ credential: () => ({ url: `http://127.0.0.1:${port}`, headers: {} }), readOnly: () => true, onUnauthorized: async () => false })
+  await gw.listen()
+  t.after(() => gw.close())
+  const batch = [{ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'write_thing' } }]
+  const answer = await (await fetch(gw.urlFor('svc'), { method: 'POST', headers: { Authorization: `Bearer ${gw.nonce}`, 'content-type': 'application/json' }, body: JSON.stringify(batch) })).json()
+  assert.match(answer.error.message, /read-only/)
+})
+
+test('a stored CIMD client is reused only with the fixed port', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { ...AS, client_id_metadata_document_supported: true }, resource: 'r' }
+  const entry = { auth: { kind: 'oauth' } }
+  const stored = { via: 'cimd', clientId: 'https://dsbot.app/oauth/client.json', redirectUris: [] }
+  const fixed = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, stored)
+  assert.equal(fixed.via, 'cimd')
+  const request = async (url, init) => url.toString() === 'https://as.test/register' ? json({ client_id: 'dcr-9', redirect_uris: JSON.parse(init.body).redirect_uris }) : notFound()
+  const random = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:9/callback', false, stored, { fetch: request })
+  assert.equal(random.via, 'dcr')
+})
+
+test('connector-sign-in-code refuses a wrong state and accepts the pasted URL or bare code', async (t) => {
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  const internals = rt.connectorsInternals
+  internals.pendings.set('notion', {
+    kind: 'browser', expectedState: 'STATE1', codeVerifier: 'v', redirectUri: 'http://127.0.0.1:9/callback',
+    discovery: { authorizationServerUrl: 'https://as.test', metadata: AS, resource: 'https://mcp.test/mcp' },
+    clientInformation: { client_id: 'c1' }, timer: setTimeout(() => {}, 60_000), listener: { close: cb => cb?.() },
+  })
+  await assert.rejects(rt.connectorEndpoint('connector-sign-in-code', { id: 'notion', input: 'http://x/?code=C&state=WRONG' }), /state/i)
+  const real = globalThis.fetch
+  globalThis.fetch = async (u) => String(u?.url ?? u) === 'https://as.test/token' ? json({ access_token: 'AT-9', token_type: 'Bearer' }) : notFound()
+  t.after(() => { globalThis.fetch = real })
+  await rt.connectorEndpoint('connector-sign-in-code', { id: 'notion', input: 'http://x/?code=C&state=STATE1' })
+  assert.equal(rt.secretValue('CONNECTOR_NOTION_TOKEN'), 'AT-9')
+})
+
+test('gmail transport: search, read, draft, send, modify, trash, and one refresh on 401', async (t) => {
+  const calls = []
+  let refreshes = 0
+  let authed = false
+  const fakeFetch = async (url, init = {}) => {
+    const u = String(url?.url ?? url)
+    calls.push(u)
+    if (!authed && u.includes('/messages/1?format=full')) {
+      authed = true
+      return new Response('unauth', { status: 401 })
+    }
+    if (u.includes('/messages?') || u.includes('maxResults')) return json({ messages: [{ id: '1' }] })
+    if (u.includes('metadataHeaders')) return json({ id: '1', labelIds: ['UNREAD'], payload: { headers: [{ name: 'Subject', value: 'S' }, { name: 'From', value: 'a@b' }] } })
+    if (u.includes('?format=full')) return json({ id: '1', threadId: 't1', payload: { headers: [{ name: 'Subject', value: 'S' }], parts: [{ mimeType: 'text/plain', body: { data: Buffer.from('hi').toString('base64') } }] } })
+    if (u.includes('/drafts')) return json({ id: 'd1' })
+    if (u.includes('/messages/send')) return json({ id: 's1' })
+    if (u.includes('/modify')) return json({})
+    if (u.includes('/trash')) return json({})
+    return json({})
+  }
+  const { connectGmail } = await import('../src/host/connectors/mail/transport.js')
+  const gmail = connectGmail({ address: 'me@gmail.com' }, { token: () => 'G1', fetch: fakeFetch, refresh: async () => { refreshes += 1; return true } })
+  const rows = await gmail.search({ subject: 'x' })
+  assert.equal(rows.length, 1)
+  assert.equal((await gmail.read({ uid: '1' })).messages[0].text, 'hi')
+  assert.ok((await gmail.draft({ to: 'a@b', subject: 'd', text: 'x' })).folder)
+  await gmail.send({ to: 'a@b', subject: 's', text: 'x' })
+  await gmail.update({ uid: '1', seen: true })
+  await gmail.update({ uid: '1', move: 'trash' })
+  // The 401 on the first read was refreshed exactly once, then retried.
+  assert.equal(refreshes, 1)
+  assert.ok(calls.some(c => c.includes('/drafts')) && calls.some(c => c.includes('/trash')) && calls.some(c => c.includes('/modify')))
+})
+
+test('mail_draft never creates a send card', async (t) => {
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => fakeSession() } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('mail-account-add', { address: 'a@qq.com', password: 'PASSP' })
+  const draft = rt.teamTools.find(d => d.name === 'mail_draft')
+  await draft.execute({ to: 'x@y', subject: 'S', body: 'B' }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
+  assert.equal((rt.state.mailRequests?.m1 ?? []).filter(r => r.status === 'pending').length, 0)
+})
+
+test('mail_send refuses attachments outside the working folder', async (t) => {
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => fakeSession() } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('mail-account-add', { address: 'a@qq.com', password: 'PASSP' })
+  const send = rt.teamTools.find(d => d.name === 'mail_send')
+  const answer = await send.execute({ to: 'x@y', subject: 'S', body: 'B', attachments: ['../../etc/passwd'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
+  assert.match(String(answer), /working folder/)
+})

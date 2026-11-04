@@ -314,7 +314,7 @@ export function MailSendCard({ sessionId, bot, request, actions, inline = false 
       request.cc ? h('div', null, h('b', null, t('Cc')), ' ', request.cc) : null,
       request.bcc ? h('div', null, h('b', null, t('Bcc')), ' ', request.bcc) : null,
       h('div', { className: 'bt-mail-body' }, request.body),
-      request.attachments?.length ? h('div', { className: 'bt-q-detail' }, t('Attachments: {names}', { names: request.attachments.join(', ') })) : null),
+      request.attachmentDetails?.length ? h('div', { className: 'bt-q-detail' }, t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${a.size} B)` : a.name).join(', ') })) : null),
     h('div', { className: 'bt-q-foot' },
       h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('cancel') }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('send') }, t('Send'))))

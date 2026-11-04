@@ -8523,7 +8523,7 @@ function MailSendCard({ sessionId, bot, request, actions, inline = false }) {
       request.cc ? (0, import_react17.createElement)("div", null, (0, import_react17.createElement)("b", null, t("Cc")), " ", request.cc) : null,
       request.bcc ? (0, import_react17.createElement)("div", null, (0, import_react17.createElement)("b", null, t("Bcc")), " ", request.bcc) : null,
       (0, import_react17.createElement)("div", { className: "bt-mail-body" }, request.body),
-      request.attachments?.length ? (0, import_react17.createElement)("div", { className: "bt-q-detail" }, t("Attachments: {names}", { names: request.attachments.join(", ") })) : null
+      request.attachmentDetails?.length ? (0, import_react17.createElement)("div", { className: "bt-q-detail" }, t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${a.size} B)` : a.name).join(", ") })) : null
     ),
     (0, import_react17.createElement)(
       "div",

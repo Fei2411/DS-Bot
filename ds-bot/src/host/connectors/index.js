@@ -85,7 +85,8 @@ export function install(rt) {
 
   const credentialOf = (id) => {
     const entry = entryFor(id)
-    if (entry === undefined || entry.auth.kind === 'none') return entry?.auth.kind === 'none' && entry.custom === undefined ? {} : {}
+    if (entry === undefined) return undefined
+    if (entry.auth.kind === 'none' || entry.auth.kind === 'custom') return {}
     if (entry.auth.kind === 'oauth') {
       const token = rt.secretValue(tokenSecretOf(id))
       return token === undefined ? undefined : { Authorization: `Bearer ${token}` }

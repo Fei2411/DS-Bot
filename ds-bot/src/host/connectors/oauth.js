@@ -65,7 +65,9 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
   if (stored?.clientId) {
     const expired = Number.isFinite(stored.secretExpiresAt) && stored.secretExpiresAt * 1000 <= Date.now()
     const uriMissing = Array.isArray(stored.redirectUris) && !stored.redirectUris.includes(redirectUri)
-    if (!expired && !uriMissing && stored.via !== 'dcr') return { via: stored.via, clientInformation: { client_id: stored.clientId } }
+    // A stored CIMD client still needs the fixed port its document names.
+    if (!expired && !uriMissing && stored.via === 'cimd' && fixedPort) return { via: 'cimd', clientInformation: { client_id: stored.clientId } }
+    if (!expired && !uriMissing && stored.via !== 'dcr' && stored.via !== 'cimd') return { via: stored.via, clientInformation: { client_id: stored.clientId } }
     if (!expired && !uriMissing && stored.via === 'dcr') return { via: 'dcr', clientInformation: { client_id: stored.clientId, ...(stored.clientSecret ? { client_secret: stored.clientSecret } : {}) } }
   }
   const metadata = discovery.metadata

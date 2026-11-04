@@ -3,7 +3,8 @@
 // send card, and the mail-* endpoints. Transports come from transport.js;
 // rt.config.mail.connect injects fakes in tests.
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
+import { realpathSync, statSync } from 'node:fs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
@@ -139,12 +140,19 @@ export function install(rt, host) {
           const saved = []
           if (args.save_attachments === true) {
             const dir = workDir(exec)
+            const taken = new Set()
+            const safe = (raw) => {
+              let name = basename(String(raw ?? '')).replace(/[\0-\x1f\\]/g, '_').replace(/^\.+/, '') || 'attachment'
+              while (taken.has(name)) name = `_${name}`
+              taken.add(name)
+              return name
+            }
             for (const message of messages) {
               for (const attachment of message.attachments ?? []) {
                 if (dir === undefined) break
-                const target = join(dir, attachment.filename)
-                await session.saveAttachment({ uid: message.uid, folder: message.folder, filename: attachment.filename, to: target })
-                saved.push(attachment.filename)
+                const name = safe(attachment.filename)
+                await session.saveAttachment({ uid: message.uid, folder: message.folder, filename: attachment.filename, to: join(dir, name) })
+                saved.push(name)
               }
             }
           }
@@ -196,6 +204,15 @@ export function install(rt, host) {
         if (!rt.chatOwners.has(exec.agent?.id)) return 'Send cards only work in your current own chat.'
         const readOnly = rt.readOnly()
         if (readOnly !== undefined) return `No card can be shown now. ${readOnly}`
+        const dir = workDir(exec)
+        const bad = (args.attachments ?? []).map(String).filter(name => name !== '').filter((name) => {
+          if (dir === undefined) return true
+          try {
+            const inside = realpathSync(resolve(dir, name))
+            return inside !== realpathSync(dir) && !inside.startsWith(realpathSync(dir) + sep)
+          } catch { return true }
+        })
+        if (bad.length > 0) return `Attachments must be files in your working folder: ${bad.join(', ')} is not.`
         const list = (state.mailRequests ??= {})[bot.id] ??= []
         const request = {
           id: randomUUID(),
@@ -204,8 +221,11 @@ export function install(rt, host) {
           account: account.id,
           to: String(args.to ?? ''), cc: String(args.cc ?? ''), bcc: String(args.bcc ?? ''),
           subject: String(args.subject ?? ''), body: String(args.body ?? ''),
-          attachments: (Array.isArray(args.attachments) ? args.attachments : []).map(String),
-          dir: workDir(exec),
+          attachments: (Array.isArray(args.attachments) ? args.attachments : []).map(String).filter(name => name !== ''),
+          dir,
+          attachmentDetails: (Array.isArray(args.attachments) ? args.attachments : []).map(String).filter(name => name !== '').map((name) => {
+            try { return { name, size: statSync(join(dir, name)).size } } catch { return { name } }
+          }),
           replyTo: args.reply_to ? String(args.reply_to) : undefined,
           status: 'pending', askedAt: Date.now(),
         }
@@ -329,7 +349,11 @@ export function install(rt, host) {
       }
       try {
         const session = await connect(account)
-        const attachments = (request.attachments ?? []).map(name => ({ filename: name, path: join(request.dir ?? '', name) }))
+        const attachments = (request.attachments ?? []).map((name) => {
+          const inside = realpathSync(resolve(request.dir ?? '', name))
+          if (request.dir === undefined || inside !== realpathSync(request.dir) && !inside.startsWith(realpathSync(request.dir) + sep)) throw new Error(`Attachment ${name} is outside the working folder`)
+          return { filename: name, path: inside }
+        })
         await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
         request.status = 'sent'; request.settledAt = Date.now()
         await rt.save()

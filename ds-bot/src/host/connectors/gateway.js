@@ -73,7 +73,11 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
 
   async function sendUpstream(entry, method, path, headers, body) {
     return new Promise((resolve, reject) => {
-      const target = new URL(path, entry.url)
+      const target = new URL(entry.url)
+      if (path !== '/' && path !== '') {
+        target.pathname = entry.pathBase + path.replace(/^\//, '')
+      }
+      for (const [key, value] of new URL(path, 'http://x').searchParams) target.searchParams.append(key, value)
       const outgoing = { ...entry.headers }
       for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
       if (body !== undefined) outgoing['content-length'] = body.length
@@ -96,13 +100,21 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       res.end(JSON.stringify({ error: 'connector address must be https' }))
       return
     }
-    const path = req.url.slice(`/c/${id}`.length) || '/'
+    const suffix = req.url.slice(`/c/${id}`.length)
+    const path = suffix === '' ? '/' : suffix
+    entry.pathBase = new URL(entry.url).pathname.replace(/\/$/, '') === '' ? '' : `${new URL(entry.url).pathname.replace(/\/$/, '')}/`
     const limited = readOnly(id) === true
     const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readAll(req)
     // Read-only: a write tools/call never reaches the server.
     if (limited && req.method === 'POST' && body !== undefined) {
       let rpc
       try { rpc = JSON.parse(body.toString('utf8')) } catch { rpc = null }
+      if (Array.isArray(rpc)) {
+        // A batch could hide a write call, so read-only refuses them outright.
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: `The ${id} connector is read-only: batched calls are refused.` } }))
+        return
+      }
       if (rpc?.method === 'tools/call' && !toolReadOnly(id, rpc.params?.name)) {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify(refuseCall(id, rpc)))
@@ -164,6 +176,9 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     const heads = {}
     for (const name of RETURN_HEADERS) if (upstream.headers[name] !== undefined) heads[name] = upstream.headers[name]
     if (!isList || limited) {
+      const close = () => { upstream.destroy() }
+      res.on('close', close)
+      upstream.on('end', () => res.off('close', close))
       res.writeHead(upstream.statusCode ?? 502, heads)
       upstream.pipe(res)
       return

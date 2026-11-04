@@ -7,16 +7,19 @@ import { IMAP_ID } from './presets.js'
 // IMAP + SMTP (imapflow + nodemailer). One live IMAP connection per account is
 // kept by the caller (QQ throttles frequent logins); on a dropped connection the
 // caller reconnects once.
+export const imapOptions = (account, deps = {}) => ({
+  host: account.imap.host, port: account.imap.port, secure: account.imap.secure !== false,
+  auth: { user: account.address, pass: deps.password },
+  // RFC 2971: 163/126 refuse logins without the client identity.
+  id: IMAP_ID,
+  logger: false,
+  socketTimeout: 60_000,
+})
+
 export async function connectImap(account, deps = {}) {
   const { ImapFlow } = await import('imapflow')
   const nodemailer = await import('nodemailer')
-  const imap = new ImapFlow({
-    host: account.imap.host, port: account.imap.port, secure: account.imap.secure !== false,
-    auth: { user: account.address, pass: deps.password },
-    id: IMAP_ID,
-    logger: false,
-    socketTimeout: 60_000,
-  })
+  const imap = new ImapFlow(imapOptions(account, deps))
   const smtp = nodemailer.createTransport({
     host: account.smtp.host, port: account.smtp.port, secure: account.smtp.secure === true,
     requireTLS: account.smtp.starttls === true,
@@ -151,7 +154,7 @@ export async function connectImap(account, deps = {}) {
 const strip = ({ _parsed, ...message }) => message
 
 const compose = async (from, { to, cc, bcc, subject, text }) => {
-  const MailComposer = (await import('nodemailer/lib/mail-composer.js')).default
+  const MailComposer = (await import('nodemailer/lib/mail-composer')).default
   return await new MailComposer({ from, to, cc, bcc, subject, text }).compile().build()
 }
 
@@ -240,7 +243,7 @@ export function connectGmail(account, deps = {}) {
 }
 
 const gmailRaw = async (from, { to, cc, bcc, subject, text, inReplyTo, references }) => {
-  const MailComposer = (await import('nodemailer/lib/mail-composer.js')).default
+  const MailComposer = (await import('nodemailer/lib/mail-composer')).default
   const raw = await new MailComposer({ from, to, cc, bcc, subject, text, ...(inReplyTo ? { inReplyTo, references: references ?? [inReplyTo] } : {}) }).compile().build()
   return raw.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
