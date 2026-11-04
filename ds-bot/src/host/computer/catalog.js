@@ -70,8 +70,15 @@ export const DRIVER_GLOBAL = new Set([
   'list_apps', 'list_windows', 'get_screen_size', 'get_cursor_position',
   'get_config', 'set_config', 'check_permissions', 'health_report',
   'get_session', 'list_sessions', 'get_session_state', 'get_recording_state',
-  'get_agent_cursor_state', 'get_browser_state', 'install_ffmpeg',
+  'get_agent_cursor_state',
   'start_session', 'end_session',
+])
+
+// Refused at every level: a Bot must not reconfigure the driver, and whole-screen
+// capture/replay bypasses per-app consent and the protected list. The session
+// lifecycle and the list/permission/health tools stay.
+export const DRIVER_REFUSED = new Set([
+  'set_config', 'start_recording', 'stop_recording', 'replay_trajectory', 'install_ffmpeg',
 ])
 
 // The kind a level admits. 'off' sees nothing.

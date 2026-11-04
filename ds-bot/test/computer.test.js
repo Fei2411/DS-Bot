@@ -832,3 +832,32 @@ test('same-named apps do not share an approval; a name-only consent still matche
   const answer = await consent(question, async () => 'next')
   assert.deepEqual(answer.answers[0].selected, ['Allow for this session'])
 })
+
+test('browser tools need a resolvable target, and the driver-refused methods deny at every level', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (name, args = {}) => gate({ name, arguments: args, agent: { id: 'w1' }, callId: `c-${name}` }, allow)
+  // the refused list denies at every level, before any consent or target work
+  for (const method of ['set_config', 'start_recording', 'stop_recording', 'replay_trajectory', 'install_ffmpeg']) {
+    const denied = await call(`cua_driver_native__${method}`, {})
+    assert.equal(denied.kind, 'deny', method)
+    assert.match(denied.reason, /may not use/, method)
+  }
+  // get_browser_state and the browser_* tools are no longer global: no target, no call
+  assert.match((await call('cua_driver_native__get_browser_state', {})).reason, /list_windows/)
+  assert.match((await call('cua_driver_native__browser_navigate', { url: 'https://example.com' })).reason, /list_windows/)
+  // with a recorded window they resolve their app and reach consent like any target
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'list-b' },
+    async () => ({ windows: [{ window_id: 5, pid: 44, name: 'Browser', path: '/Applications/Browser.app' }] }))
+  const pending = call('cua_driver_native__browser_navigate', { window_id: 5, url: 'https://example.com' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 1)
+  await rt.computerEndpoint('app-answer', { id: Object.keys(rt.computerLive().asks)[0], answer: 'once' })
+  assert.equal(await pending, 'allowed')
+})

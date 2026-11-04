@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL } from './catalog.js'
+import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { REPLY_KIND } from '../constants.js'
 import { output } from '../tools.js'
@@ -534,8 +534,11 @@ export function install(rt) {
       }
     }
     if (call.provider === 'cua-driver') {
+      if (DRIVER_REFUSED.has(call.method)) {
+        return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
+      }
       if (app === undefined) {
-        if (!DRIVER_GLOBAL.has(call.method) && !call.method.startsWith('browser_')) {
+        if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
         }
       } else if (app.unknown === true) {
