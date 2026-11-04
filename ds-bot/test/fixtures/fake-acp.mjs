@@ -102,9 +102,14 @@ process.stdin.on('data', (chunk) => {
         })
         break
       }
-      case 'session/load':
+      case 'session/load': {
+        let session = sessions.get(params.sessionId)
+        if (session === undefined) { session = { id: params.sessionId, mcp: undefined }; sessions.set(session.id, session) }
+        const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')
+        if (server !== undefined) session.mcp = { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
         reply(id, { sessionId: params.sessionId })
         break
+      }
       case 'session/set_config_option':
       case 'session/set_mode':
         reply(id, {})
