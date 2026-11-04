@@ -355,10 +355,12 @@ test('custom connectors get unique ids that never collide with the catalog', asy
 
 test('import scan returns env names only and never writes the source files', async (t) => {
   const fakeHome = mkdtempSync(join(tmpdir(), 'dsb-fakehome-'))
-  const claudeDir = join(fakeHome, 'Library', 'Application Support', 'Claude')
-  mkdirSync(claudeDir, { recursive: true })
-  const configPath = join(claudeDir, 'claude_desktop_config.json')
-  writeFileSync(configPath, JSON.stringify({ mcpServers: { jira: { command: 'npx', args: ['-y', 'jira-mcp'], env: { JIRA_TOKEN: 'RAW-SECRET' } }, docs: { url: 'https://docs.example.com/mcp' } } }))
+  const appData = join(fakeHome, 'AppData', 'Roaming')
+  // Every supported platform location sees the same file.
+  const dirs = [join(fakeHome, 'Library', 'Application Support', 'Claude'), join(fakeHome, '.config', 'Claude'), join(appData, 'Claude')]
+  for (const dir of dirs) mkdirSync(dir, { recursive: true })
+  const configPath = join(dirs[0], 'claude_desktop_config.json')
+  for (const dir of dirs) writeFileSync(join(dir, 'claude_desktop_config.json'), JSON.stringify({ mcpServers: { jira: { command: 'npx', args: ['-y', 'jira-mcp'], env: { JIRA_TOKEN: 'RAW-SECRET' } }, docs: { url: 'https://docs.example.com/mcp' } } }))
   const before = readFileSync(configPath, 'utf8')
   const home = teamHome()
   const ctx = fakeContext()
@@ -366,8 +368,10 @@ test('import scan returns env names only and never writes the source files', asy
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }); rmSync(fakeHome, { recursive: true, force: true }) })
   await rt.load()
   const realHome = process.env.HOME
+  const realAppData = process.env.APPDATA
   process.env.HOME = fakeHome
-  t.after(() => { process.env.HOME = realHome })
+  process.env.APPDATA = appData
+  t.after(() => { process.env.HOME = realHome; if (realAppData === undefined) delete process.env.APPDATA; else process.env.APPDATA = realAppData })
   const scanned = await rt.connectorEndpoint('connector-import-scan', {})
   const jira = scanned.find(s => s.name === 'jira')
   assert.deepEqual(jira.envNames, ['JIRA_TOKEN'])
