@@ -7,6 +7,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { hostExecutable } from '../src/host-process.mjs'
 import { app, paths, state } from './helpers/fake-electron.mjs'
 import { hold, state as hostState } from './helpers/fake-host-process.mjs'
 import { handOff, messageBoxes, startAct, startState, startWindows, waitFor, window } from './helpers/app-harness.mjs'
@@ -65,6 +67,11 @@ test('the first start offers the DSH team on the import card, copies it on cards
   assert.equal(JSON.parse(readFileSync(join(paths.userData, 'locations.json'), 'utf8')).dataDir, join(home, '.ds-bot'))
   assert.deepEqual(messageBoxes(), [], 'no message box on the way')
   assert.equal(hostState.starts, 3, 'the warm engine, the chats\' check and the team\'s engine')
+  // On Linux the check's Host runs from the runtime folder, as the team's does.
+  const runtime = fileURLToPath(new URL('../build/runtime', import.meta.url))
+  const check = hostState.envs.find(env => env.DS_BOT_CHECK)
+  assert.equal(check.DS_BOT_RUNTIME_DIR, runtime)
+  assert.equal(hostExecutable(check.DS_BOT_RUNTIME_DIR, 'linux'), join(runtime, 'primary-runtime', 'dependencies', 'node', 'bin', 'node'))
   await handOff()
   app.quit()
   await waitFor(() => state.tray?.destroyed === true, 'end the app')

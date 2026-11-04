@@ -18,6 +18,8 @@ let open
 
 export const state = {
   starts: 0,
+  // The env of every Host that was started, in order.
+  envs: [],
   stops: 0,
   fail: false,
   // The Host waits for the test to let it answer.
@@ -39,6 +41,7 @@ export class HostProcess {
 
   async start() {
     state.starts += 1
+    state.envs.push(this.#options.env)
     if (state.held) await gate
     if (state.fail) throw new Error('the Host did not start')
     // The check of an import's chats (DS_BOT_CHECK) reads them all.
