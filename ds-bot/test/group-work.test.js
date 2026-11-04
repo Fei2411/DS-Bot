@@ -282,7 +282,7 @@ test('read_group_chat reads textless events among messages and keeps seq reads c
     'Writer: ',
     '[Writer looked up its own chat for "release notes"]',
     'User: After the events',
-  ].join('\n')}`)
+  ].join('\n')}\n\nNext read: after_seq=12.`)
   for (const [i, [, expected]] of events.entries()) {
     assert.equal(await host.tool('read_group_chat', { group: 'Ops', seq: i + 2 }, 'a'), expected)
   }
