@@ -520,3 +520,22 @@ test('a weixin QR login creates the connection paired with the scanning owner', 
   assert.equal(s.rt.secretValue(conn.secrets.token), 'wx-tok')
   assert.equal(conn.settings.baseUrl, 'http://ilink/')
 })
+
+test('a platform status error is redacted of the stored secret', async (t) => {
+  const s = await start({ adapter: (() => {
+    const adapter = fakeAdapter()
+    const connect = adapter.connect
+    adapter.connect = (fields, env, handlers) => {
+      const handle = connect(fields, env, handlers)
+      handlers.onStatus({ state: 'error', error: 'platform echoed the token tok-1234 back' })
+      return handle
+    }
+    return adapter
+  })() })
+  t.after(s.stop)
+  const conn = await add(s)
+  await s.flush()
+  const status = s.rt.imStatusView()[conn.id]
+  assert.equal(status.state, 'error')
+  assert.ok(!status.error.includes('tok-1234'), 'the token is redacted')
+})

@@ -150,7 +150,11 @@ export function install(rt) {
   /** @type {Map<string, {handle:any, queues:Map<string, {jobs:any[], retry?:any}>, statuses:Map}>} */
   const runners = new Map()
   const statuses = new Map()
-  const setStatus = (id, next) => statuses.set(id, { at: Date.now(), ...next })
+  const setStatus = (id, next) => {
+    // Adapter errors can echo platform responses that quote the token; keep them out of the UI and logs.
+    if (typeof next.error === 'string' && next.error !== '') return statuses.set(id, { ...next, error: rt.redactSecrets(next.error), at: Date.now() })
+    return statuses.set(id, { ...next, at: Date.now() })
+  }
   const targetsOf = (conn) => {
     const out = []
     for (const [chatKey, chat] of Object.entries(conn.chats ?? {})) {
