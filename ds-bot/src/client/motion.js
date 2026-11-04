@@ -253,13 +253,15 @@ export function useLinger(value, ms) {
 }
 
 // Moves keyboard focus through enabled menu items on ArrowDown, ArrowUp, Home and End.
-export function stepMenuFocus(menu, event) {
+export function stepMenuFocus(menu, event, trigger) {
   if (!menu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return false
   const items = Array.from(menu.querySelectorAll('button[role^="menuitem"]:not(:disabled)'))
   if (items.length === 0) return false
+  const target = document.activeElement
+  const current = items.indexOf(target)
+  if (current === -1 && target !== menu && target !== trigger) return false
   event.preventDefault()
   event.stopPropagation()
-  const current = items.indexOf(document.activeElement)
   const next = event.key === 'Home' ? 0
     : event.key === 'End' ? items.length - 1
       : event.key === 'ArrowDown' ? (current + 1) % items.length

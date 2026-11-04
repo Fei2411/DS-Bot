@@ -5,12 +5,16 @@ import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
 const bundle = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/model-menu.js', import.meta.url))],
+  stdin: {
+    contents: "export * from './src/client/model-menu.js'\nexport { stepMenuFocus } from './src/client/motion.js'",
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+  },
   bundle: true, format: 'cjs', platform: 'node', write: false,
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const module = { exports: {} }
-runInNewContext(bundle.outputFiles[0].text, {
+const sandbox = {
+  document: { activeElement: null },
   module, exports: module.exports,
   require: name => {
     const platform = {
@@ -26,8 +30,9 @@ runInNewContext(bundle.outputFiles[0].text, {
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },
-})
-const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar } = module.exports
+}
+runInNewContext(bundle.outputFiles[0].text, sandbox)
+const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
@@ -123,6 +128,40 @@ test('the Thinking section always offers Default, so a picked level can be clear
   const reset = nodes(bar, node => node.props.className === 'bt-effort-reset')[0]
   reset.props.onClick()
   assert.deepEqual(picked, ['high', undefined])
+})
+
+test('menu focus stepping starts from menu items or the trigger, not other controls', () => {
+  const focused = []
+  const item = name => ({ name, focus: () => focused.push(name) })
+  const first = item('first')
+  const second = item('second')
+  const slider = item('slider')
+  const source = item('source')
+  const menu = {
+    querySelectorAll: () => [first, second],
+    contains: target => [first, second, slider].includes(target),
+  }
+  const trigger = source
+  const event = key => {
+    const out = { key, prevented: false, stopped: false }
+    out.preventDefault = () => { out.prevented = true }
+    out.stopPropagation = () => { out.stopped = true }
+    return out
+  }
+
+  sandbox.document.activeElement = slider
+  const arrow = event('ArrowDown')
+  assert.equal(stepMenuFocus(menu, arrow, trigger), false)
+  assert.equal(arrow.prevented, false)
+  assert.equal(arrow.stopped, false)
+
+  sandbox.document.activeElement = source
+  assert.equal(stepMenuFocus(menu, event('ArrowDown'), trigger), true)
+  sandbox.document.activeElement = first
+  assert.equal(stepMenuFocus(menu, event('ArrowDown'), trigger), true)
+  sandbox.document.activeElement = item('unrelated')
+  assert.equal(stepMenuFocus(menu, event('ArrowDown'), trigger), false)
+  assert.deepEqual(focused, ['first', 'second'])
 })
 
 const keyless = [

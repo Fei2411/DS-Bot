@@ -283,7 +283,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       setMenu(false)
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event)) return
+      if (stepMenuFocus(menuRef.current, event, dotsRef.current)) return
       if (event.key === 'Escape') { event.stopPropagation(); setMenu(false); dotsRef.current?.focus() }
     }
     window.addEventListener('mousedown', onDown)

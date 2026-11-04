@@ -133,7 +133,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     if (!open) return undefined
     const onDown = (event) => { if (![button.current, menu.current].some(node => node?.contains(event.target))) setOpen(null) }
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event)) return
+      if (stepMenuFocus(menu.current, event, button.current)) return
       if (event.key === 'Escape') { event.stopPropagation(); setOpen(null) }
     }
     window.addEventListener('mousedown', onDown, true)

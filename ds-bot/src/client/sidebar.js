@@ -144,6 +144,8 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
       : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
+const agentSessionTitle = session => (session.title === '' ? t('New session') : session.title)
+
 // One expanded DSH Agent Session row: title, relative stamp, rename field, and a
 // context menu for rename/archive.
 function AgentSessionRow({ session, agent, actions, renaming, index }) {
@@ -187,7 +189,7 @@ function AgentSessionRow({ session, agent, actions, renaming, index }) {
       actions.openMenu({ kind: 'agent-session', id: session.id, agentId: agent.id, x: event.clientX, y: event.clientY })
     },
   },
-  h('span', { className: 'bt-agent-sub-title' }, session.title),
+  h('span', { className: 'bt-agent-sub-title' }, agentSessionTitle(session)),
   h('span', { className: 'bt-agent-sub-time' }, session.at > 0 ? relativeShort(session.at) : ''))
 }
 
@@ -214,7 +216,6 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       ...session,
       running: statuses[session.id]?.running ?? session.running,
       unread: statuses[session.id]?.unread ?? false,
-      title: session.title === '' ? t('New session') : session.title,
     }))
   }, [info, statusInfo])
   const renaming = useUi(value => value.renameAgent)
@@ -222,7 +223,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
   const running = sessions.some(session => session.running)
   const unread = sessions.some(session => session.unread) || (marked && !active)
   useMarkedUnread(agent.id, active, marked, actions)
-  const preview = sessions[0]?.title ?? t('New session')
+  const preview = sessions[0] === undefined ? t('New session') : agentSessionTitle(sessions[0])
   const label = ['DSH Agent', running ? t('Working') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   const open = active && wide
   return h('div', { className: 'bt-agent' },
@@ -816,7 +817,7 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
       setOpen(false)
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event)) return
+      if (stepMenuFocus(menuRef.current, event, button.current)) return
       if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); button.current?.focus() }
     }
     window.addEventListener('mousedown', onDown)

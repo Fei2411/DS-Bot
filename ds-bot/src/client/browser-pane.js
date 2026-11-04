@@ -83,11 +83,12 @@ export function PanelMenu({ items, className, 'aria-label': label }) {
   const [open, setOpen] = useState(false)
   const [shown, leaving] = useLinger(open, 120)
   const wrap = useRef(null)
+  const button = useRef(null)
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => { if (wrap.current && !wrap.current.contains(event.target)) setOpen(false) }
     const onKey = (event) => {
-      if (stepMenuFocus(wrap.current, event)) return
+      if (stepMenuFocus(wrap.current, event, button.current)) return
       if (event.key !== 'Escape') return
       event.stopPropagation()
       setOpen(false)
@@ -99,7 +100,7 @@ export function PanelMenu({ items, className, 'aria-label': label }) {
   if (items.length === 0) return null
   return h('span', { className: 'bt-pmenu', ref: wrap },
     h('button', {
-      type: 'button', className, 'aria-label': label, title: label,
+      ref: button, type: 'button', className, 'aria-label': label, title: label,
       'aria-haspopup': 'menu', 'aria-expanded': open, onClick: () => setOpen(value => !value),
     }, h(DotsIcon)),
     shown ? h('div', { className: 'bt-pmenu-pop', role: 'menu', 'data-leaving': leaving || undefined },
