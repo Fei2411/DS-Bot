@@ -100,8 +100,12 @@ export function install(rt) {
   function applyRoutes() {
     if (!supported()) return
     const routes = [...found.keys(), ...customRouteId()]
-    if (registration === undefined) registration = ctx.llm.registerAdapter(routes, adapter)
-    else registration.replace(routes)
+    // The initial registration needs at least one provider; an empty replace
+    // is legal and keeps the adapter registered with zero routes.
+    if (registration === undefined) {
+      if (routes.length === 0) return
+      registration = ctx.llm.registerAdapter(routes, adapter)
+    } else registration.replace(routes)
   }
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
