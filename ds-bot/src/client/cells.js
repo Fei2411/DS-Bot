@@ -11,6 +11,7 @@ import { sendsOnEnter } from './enter-key.js'
 import { SettledQuestion, PendingQuestion } from './questions.js'
 import { AnsweredReply, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
+import { ConnectorToolCell, MailToolCell } from './connectors.js'
 import { HandoffCall } from './handoff-card.js'
 import { t } from './i18n.js'
 import { call } from './api.js'
@@ -1104,6 +1105,10 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       return h(WidgetCell, { sessionId, callId: call.callId, args: { text: arg, value: argValue }, done, isError: call.isError, roster, actions, heldCards })
     case 'request_secret':
       return h(SecretToolCell, { sessionId, callId: call.callId, name: arg('name'), done, content: call.content, roster, actions, heldCards })
+    case 'request_connector':
+      return h(ConnectorToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
+    case 'mail_send':
+      return h(MailToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
     case 'browser_handoff':
       return h(HandoffCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
     case 'ask_user_question': {
