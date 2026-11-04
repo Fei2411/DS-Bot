@@ -78,7 +78,11 @@ test('a loaded DSH clock gets no second clock in either listener order', async (
     const ctx = fakeContext({
       services: {
         sessionProjections: {
-          register: (definition) => { projections.set(definition.key, definition) },
+          // DSH 0.2.2's clock reads its state through the handle register returns.
+          register: (definition) => {
+            projections.set(definition.key, definition)
+            return { stateOf: () => definition.init() }
+          },
           stateOf: (_session, key) => projections.get(key)?.init(),
         },
       },

@@ -9,6 +9,12 @@ import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mountBrowserPlugin } from '../src/host/browser/mount.js'
 import { toolDefs as refsTools } from '../src/host/browser/refs.js'
 
+// DSH 0.2.2 executes a batch of model calls; each test runs one call.
+async function runTool(ctx, { signal, callId, name, arguments: args }) {
+  const batch = await ctx.tools.execute({ signal, calls: [{ id: callId, name, arguments: JSON.stringify(args) }] })
+  return batch.results[0].result
+}
+
 test('browser handoff and resume return valid DSH outputs and clear the Bot hold', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -50,7 +56,7 @@ test('browser handoff and resume return valid DSH outputs and clear the Bot hold
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
 
-  const execute = (name, args) => ctx.tools.execute({
+  const execute = (name, args) => runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId(name),
     name,
@@ -111,7 +117,7 @@ test('a screenshot degrades to text when no attachments service is mounted', asy
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
 
-  const screenshot = await ctx.tools.execute({
+  const screenshot = await runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('browser_screenshot'),
     name: 'browser_screenshot',
@@ -188,7 +194,7 @@ test('browser tools refuse every operation while a user hold is active', async t
   }
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
-  const execute = (name, args) => ctx.tools.execute({
+  const execute = (name, args) => runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId(name),
     name,
@@ -232,7 +238,7 @@ test('browser endpoint connection uses the execution Bot identity, not tool argu
   }
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
-  const result = await ctx.tools.execute({
+  const result = await runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('browser_open'),
     name: 'browser_open',
@@ -269,7 +275,7 @@ test('a channel user hold closes the cached Playwright session and give-back rec
   }
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
-  const execute = () => ctx.tools.execute({
+  const execute = () => runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('browser_snapshot'),
     name: 'browser_snapshot',
