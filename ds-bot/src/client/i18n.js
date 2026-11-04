@@ -117,6 +117,7 @@ const ZH = {
   Connect: '连接',
   'GitHub token': 'GitHub token',
   'Create a token on GitHub': '去 GitHub 生成 token',
+  'Use a token instead': '改用 token',
   'Could not reach GitHub': '连不上 GitHub',
   'GitHub did not accept this token': 'GitHub 不接受这个 token',
   'GitHub did not say who this token belongs to': 'GitHub 没有返回这个 token 的账号',

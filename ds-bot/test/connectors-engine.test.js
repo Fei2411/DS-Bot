@@ -301,6 +301,68 @@ test('refresh is single-flight, rotates the refresh token, and invalid_grant mea
   assert.equal(rt.secretValue('CONNECTOR_NOTION_REFRESH'), 'RT-2')
 })
 
+test('refresh uses the client that signed in: cimd, catalog, and legacy inference', async (t) => {
+  const seen = []
+  let asMeta = AS
+  const request = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url.includes('oauth-authorization-server')) return json(asMeta)
+    if (url === 'https://as.test/token') {
+      seen.push(new URLSearchParams(init?.body ?? '').get('client_id'))
+      return json({ access_token: `AT-${seen.length}`, token_type: 'Bearer' })
+    }
+    return notFound()
+  }
+  const real = globalThis.fetch
+  globalThis.fetch = request
+  t.after(() => { globalThis.fetch = real })
+  const make = async (connectors, secret, github = false) => {
+    const home = teamHome({ connectors })
+    const ctx = fakeContext()
+    const rt = createRuntime(ctx, { home, github })
+    await rt.load(); await rt.loadSecrets()
+    await rt.secretEndpoint('secret-set', secret)
+    return { rt, done: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) } }
+  }
+  // A CIMD sign-in refreshes with the published document id.
+  {
+    const { rt, done } = await make(
+      { notion: { oauth: { authorizationServerUrl: 'https://as.test' }, client: { via: 'cimd', clientId: 'https://dsbot.app/oauth/client.json' } } },
+      { name: 'CONNECTOR_NOTION_REFRESH', value: 'RT-1', scope: [] })
+    t.after(done)
+    assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true, JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
+    assert.equal(seen.at(-1), 'https://dsbot.app/oauth/client.json')
+  }
+  // A catalog sign-in refreshes with the current catalog client id.
+  {
+    const { rt, done } = await make(
+      { github: { oauth: { authorizationServerUrl: 'https://as.test' }, client: { via: 'catalog' } } },
+      { name: 'CONNECTOR_GITHUB_REFRESH', value: 'RT-2', scope: [] }, true)
+    t.after(done)
+    assert.equal(await rt.connectorsInternals.refreshConnector('github'), true, JSON.stringify(rt.connectorsInternals.statuses.get('github')))
+    assert.equal(seen.at(-1), 'test-gh-client')
+  }
+  // Legacy rows have no `client`: CIMD when the AS supports it, else needs-sign-in.
+  {
+    asMeta = { ...AS, client_id_metadata_document_supported: true }
+    const { rt, done } = await make(
+      { notion: { oauth: { authorizationServerUrl: 'https://as.test' } } },
+      { name: 'CONNECTOR_NOTION_REFRESH', value: 'RT-3', scope: [] })
+    t.after(done)
+    assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true, JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
+    assert.equal(seen.at(-1), 'https://dsbot.app/oauth/client.json')
+  }
+  {
+    asMeta = AS
+    const { rt, done } = await make(
+      { notion: { oauth: { authorizationServerUrl: 'https://as.test' } } },
+      { name: 'CONNECTOR_NOTION_REFRESH', value: 'RT-4', scope: [] })
+    t.after(done)
+    assert.equal(await rt.connectorsInternals.refreshConnector('notion'), false)
+    assert.equal(rt.connectorsInternals.statuses.get('notion').state, 'needs-sign-in', JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
+  }
+})
+
 test('read-only windows never refresh', async (t) => {
   const home = teamHome({ connectors: { notion: { oauth: { authorizationServerUrl: 'https://as.test' }, client: { via: 'dcr', clientId: 'c' } } } })
   const ctx = fakeContext()

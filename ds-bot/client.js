@@ -153,6 +153,7 @@ var ZH = {
   Connect: "连接",
   "GitHub token": "GitHub token",
   "Create a token on GitHub": "去 GitHub 生成 token",
+  "Use a token instead": "改用 token",
   "Could not reach GitHub": "连不上 GitHub",
   "GitHub did not accept this token": "GitHub 不接受这个 token",
   "GitHub did not say who this token belongs to": "GitHub 没有返回这个 token 的账号",
@@ -10472,7 +10473,7 @@ function BrowserPanel({ connector, actions, run: run2 }) {
     ) : null
   );
 }
-function DevicePanel({ connector, actions, run: run2 }) {
+function DevicePanel({ connector, actions, run: run2, onUseToken }) {
   const [copied, setCopied] = (0, import_react24.useState)(false);
   return (0, import_react24.createElement)(
     "div",
@@ -10492,6 +10493,7 @@ function DevicePanel({ connector, actions, run: run2 }) {
       "div",
       { className: "bt-connector-form-row" },
       (0, import_react24.createElement)("a", { className: "bt-connector-link", href: connector.pending.verificationUri, target: "_blank", rel: "noopener noreferrer" }, t("Open {host}", { host: connector.pending.verificationUri.replace(/^https?:\/\//, "") })),
+      connector.auth?.token === true && onUseToken ? (0, import_react24.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => void run2(actions.connectorCancel(connector.id), onUseToken) }, t("Use a token instead")) : null,
       (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.connectorCancel(connector.id)) }, t("Cancel"))
     )
   );
@@ -10576,7 +10578,8 @@ function ConnectorRow({ connector, actions }) {
         "span",
         { className: "bt-connector-actions" },
         connector.state === "error" || connector.state === "needs-sign-in" ? (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.connectorRetry(connector.id)) }, connector.state === "needs-sign-in" ? t("Sign in again") : t("Try again")) : null,
-        on && !pending ? (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.connectorDisconnect(connector.id)) }, connector.custom ? t("Remove") : t("Disconnect")) : pending || form ? null : (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, t("Connect"))
+        on && !pending ? (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.connectorDisconnect(connector.id)) }, connector.custom ? t("Remove") : t("Disconnect")) : pending || form ? null : (0, import_react24.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, t("Connect")),
+        !on && !pending && form === null && connector.auth?.kind === "oauth" && connector.auth.token === true && connector.auth.client?.id ? (0, import_react24.createElement)("button", { type: "button", className: "bt-connector-link", disabled: busy, onClick: () => setForm("token") }, t("Use a token instead")) : null
       )
     ),
     connector.readOnly !== void 0 && on ? (0, import_react24.createElement)(
@@ -10585,13 +10588,12 @@ function ConnectorRow({ connector, actions }) {
       (0, import_react24.createElement)(SwitchRow, { label: t("Read-only"), on: connector.readOnly === true, onChange: (checked) => void run2(actions.connectorSet(connector.id, { readOnly: checked })) })
     ) : null,
     pending?.kind === "browser" ? (0, import_react24.createElement)(BrowserPanel, { connector, actions, run: run2 }) : null,
-    pending?.kind === "device" ? (0, import_react24.createElement)(DevicePanel, { connector, actions, run: run2 }) : null,
+    pending?.kind === "device" ? (0, import_react24.createElement)(DevicePanel, { connector, actions, run: run2, onUseToken: () => setForm("token") }) : null,
     connector.state === "needs-client" && !pending?.kind ? (0, import_react24.createElement)(ClientPanel, { connector, actions, run: run2 }) : null,
     form === "token" ? (0, import_react24.createElement)(TokenPanel, { connector, actions, run: run2, onDone: () => {
       setForm(null);
       setError(null);
     } }) : null,
-    form === null && !pending && connector.state === "off" && connector.auth?.kind === "oauth" && connector.auth.token === true && connector.auth.client?.id ? null : null,
     error ? (0, import_react24.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null,
     connector.tools > 0 ? (0, import_react24.createElement)("div", { className: "bt-connector-status" }, t("{count} tools", { count: connector.tools })) : null
   );

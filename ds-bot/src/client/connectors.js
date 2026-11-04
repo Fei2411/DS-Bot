@@ -49,7 +49,7 @@ function BrowserPanel({ connector, actions, run }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorSignInCode(connector.id, input.trim())) }, t('Finish sign-in'))) : null)
 }
 
-function DevicePanel({ connector, actions, run }) {
+function DevicePanel({ connector, actions, run, onUseToken }) {
   const [copied, setCopied] = useState(false)
   return h('div', { className: 'bt-connector-form' },
     h('div', { className: 'bt-connector-device' },
@@ -57,6 +57,7 @@ function DevicePanel({ connector, actions, run }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void navigator.clipboard?.writeText(connector.pending.userCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600) }) } }, copied ? t('Copied') : t('Copy'))),
     h('div', { className: 'bt-connector-form-row' },
       h('a', { className: 'bt-connector-link', href: connector.pending.verificationUri, target: '_blank', rel: 'noopener noreferrer' }, t('Open {host}', { host: connector.pending.verificationUri.replace(/^https?:\/\//, '') })),
+      connector.auth?.token === true && onUseToken ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => void run(actions.connectorCancel(connector.id), onUseToken) }, t('Use a token instead')) : null,
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel'))))
 }
 
@@ -118,15 +119,16 @@ export function ConnectorRow({ connector, actions }) {
         connector.state === 'error' || connector.state === 'needs-sign-in' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorRetry(connector.id)) }, connector.state === 'needs-sign-in' ? t('Sign in again') : t('Try again')) : null,
         on && !pending
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorDisconnect(connector.id)) }, connector.custom ? t('Remove') : t('Disconnect'))
-          : pending || form ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, t('Connect')))),
+          : pending || form ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, t('Connect')),
+        !on && !pending && form === null && connector.auth?.kind === 'oauth' && connector.auth.token === true && connector.auth.client?.id
+          ? h('button', { type: 'button', className: 'bt-connector-link', disabled: busy, onClick: () => setForm('token') }, t('Use a token instead'))
+          : null)),
     connector.readOnly !== undefined && on ? h('div', { className: 'bt-connector-ro' },
       h(SwitchRow, { label: t('Read-only'), on: connector.readOnly === true, onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) })) : null,
     pending?.kind === 'browser' ? h(BrowserPanel, { connector, actions, run }) : null,
-    pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run }) : null,
+    pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run, onUseToken: () => setForm('token') }) : null,
     connector.state === 'needs-client' && !pending?.kind ? h(ClientPanel, { connector, actions, run }) : null,
     form === 'token' ? h(TokenPanel, { connector, actions, run, onDone: () => { setForm(null); setError(null) } }) : null,
-    form === null && !pending && connector.state === 'off' && connector.auth?.kind === 'oauth' && connector.auth.token === true && connector.auth.client?.id
-      ? null : null,
     error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null,
     connector.tools > 0 ? h('div', { className: 'bt-connector-status' }, t('{count} tools', { count: connector.tools })) : null)
 }

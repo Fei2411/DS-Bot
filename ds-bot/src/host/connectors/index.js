@@ -307,6 +307,8 @@ export function install(rt) {
       statuses.set(id, { state: 'needs-client' })
       return
     }
+    // Refresh needs to know which client signed in; DCR already persisted its result.
+    if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
     const stateParam = randomBytes(16).toString('base64url')
     const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
     pendings.set(id, {
@@ -411,10 +413,17 @@ export function install(rt) {
       if (refresh === undefined || saved?.oauth === undefined) { statuses.set(id, { state: 'needs-sign-in' }); return false }
       try {
         const discovery = await oauth.rediscover(saved.oauth)
-        const client = saved.client?.clientId !== undefined
-          ? { client_id: saved.client.clientId, ...(rt.secretValue(clientSecretOf(id)) !== undefined ? { client_secret: rt.secretValue(clientSecretOf(id)) } : {}) }
-          : undefined
-        if (client === undefined) { statuses.set(id, { state: 'needs-client' }); return false }
+        // Refresh with the client that signed in: catalog → the current catalog id,
+        // CIMD → the published document id, DCR/manual → the stored id (+ secret).
+        // Rows signed in before clients were persisted have no `client`: fall back to
+        // CIMD when the AS supports it, otherwise ask the user to sign in again.
+        const via = saved.client?.via
+        const clientId = via === 'catalog' ? entryFor(id)?.auth?.client?.id
+          : via === 'cimd' ? oauth.CIMD_CLIENT_ID
+          : saved.client?.clientId ?? (discovery.metadata?.client_id_metadata_document_supported === true ? oauth.CIMD_CLIENT_ID : undefined)
+        if (clientId === undefined) { statuses.set(id, { state: 'needs-sign-in' }); return false }
+        const secret = rt.secretValue(clientSecretOf(id))
+        const client = { client_id: clientId, ...(secret !== undefined ? { client_secret: secret } : {}) }
         const tokens = await oauth.refreshTokens(discovery, client, refresh, { scope: saved.oauth.scope })
         const purpose = `${entryFor(id)?.name ?? id} connector`
         await writeSecret(tokenSecretOf(id), tokens.access_token, purpose)
