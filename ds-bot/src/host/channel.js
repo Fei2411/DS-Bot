@@ -105,7 +105,9 @@ export function install(rt) {
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
     // Computer use live state: per-Bot control, leases, pending app cards and holds.
-    computer: rt.computerLive?.() ?? {},
+    // Named apart from the state view's `computer`: the live answer merges into the
+    // same object and would wipe its `enabled` and `provider` fields.
+    computerLive: rt.computerLive?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`

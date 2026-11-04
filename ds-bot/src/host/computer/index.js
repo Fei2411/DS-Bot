@@ -112,7 +112,10 @@ export function install(rt) {
   }
 
   // ---- Provider mount ----
-  const loaderOf = () => ctx.get?.('loader')
+  // Optional services resolve through reflect: ctx.get throws on an
+  // uninjected name, but these services mount only when enabled.
+  const service = name => ctx.reflect?.get(name)
+  const loaderOf = () => service('loader')
   const importPackage = async (name) => {
     const loader = loaderOf()
     if (typeof loader?.import !== 'function') throw Object.assign(new Error('This DSH cannot load packages.'), { code: 'bot/no-loader' })
@@ -136,13 +139,13 @@ export function install(rt) {
       }
       providerStatus = { state: 'loading' }
       try {
-        if (ctx.get?.('computerUse') === undefined) {
+        if (service('computerUse') === undefined) {
           const registry = await importPackage(REGISTRY_PACKAGE).catch(error => { throw missing(error, REGISTRY_PACKAGE) })
           registryFiber = ctx.plugin(registry)
           await registryFiber.await?.()
         }
         if (stopped || !enabled()) return
-        const existing = ctx.computerUse.providerName
+        const existing = service('computerUse').providerName
         if (existing !== undefined && !mountedByUs) {
           providerStatus = { state: 'occupied', name: String(existing) }
           return
@@ -154,7 +157,7 @@ export function install(rt) {
         await providerFiber.await?.()
         if (stopped || !enabled()) return
         mountedByUs = true
-        providerStatus = { state: 'ready', name: ctx.computerUse.providerName ?? 'dsh-cua' }
+        providerStatus = { state: 'ready', name: service('computerUse').providerName ?? 'dsh-cua' }
         refreshComputer()
       } catch (error) {
         await unmountProvider().catch(() => {})
@@ -170,7 +173,7 @@ export function install(rt) {
     providerFiber = undefined
     mountedByUs = false
     if (fiber) await Promise.resolve().then(() => fiber.dispose()).catch(() => {})
-    if (ctx.get?.('computerUse') !== undefined && ctx.computerUse.providerName === undefined && registryFiber === undefined) {
+    if (service('computerUse')?.providerName === undefined && registryFiber === undefined) {
       // The registry stays; another provider may still want it.
     }
     leases.releaseAll()
@@ -244,7 +247,7 @@ export function install(rt) {
     }
   }
   function refreshComputer() {
-    for (const agent of ctx.get?.('agents')?.list?.() ?? []) {
+    for (const agent of service('agents')?.list?.() ?? []) {
       try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
     }
   }
@@ -713,7 +716,7 @@ export function install(rt) {
       leases.releaseBot(bot.id)
       settleControl(bot.id)
     }
-    for (const agent of ctx.get?.('agents')?.list?.() ?? []) applyComputer(agent)
+    for (const agent of service('agents')?.list?.() ?? []) applyComputer(agent)
     return true
   }
   const revokeApp = async (botId, appKey) => {
@@ -735,7 +738,7 @@ export function install(rt) {
     // DSH's "Allow for this session" outlives the grant, so a revoke must deny
     // the provider's decision too or the Bot keeps using the app. Other Bots'
     // grants are unaffected: their next getApp is answered by DS Bot again.
-    const access = ctx.get?.('cuaAccess')
+    const access = service('cuaAccess')
     const recorded = [...sessionApps.values()].flatMap(map => [...map.values()])
       .find(app => app.key === appKey || app.id === appKey || normName(app.name) === normName(grant?.name ?? appKey))
     const wanted = normName(grant?.name ?? recorded?.name ?? appKey)
@@ -778,12 +781,12 @@ export function install(rt) {
         await ensureProvider()
         return rt.computerView()
       case 'system-status': {
-        const access = ctx.get?.('cuaAccess')
+        const access = service('cuaAccess')
         if (access === undefined || typeof access.systemStatus !== 'function') return null
         return access.systemStatus().catch(() => null)
       }
       case 'permission': {
-        const access = ctx.get?.('cuaAccess')
+        const access = service('cuaAccess')
         if (access === undefined || typeof access.requestPermission !== 'function') throw new Error('System permissions are not available here')
         const permission = ['accessibility', 'screenRecording'].includes(body.permission) ? body.permission : 'accessibility'
         return access.requestPermission(permission, rt.uiLanguage?.() ?? 'en').catch((error) => { throw new Error(String(error?.message ?? error)) })
@@ -827,7 +830,7 @@ export function install(rt) {
         return true
       }
       case 'shot': {
-        const attachments = ctx.get?.('attachments')
+        const attachments = service('attachments')
         const id = String(body.attachmentId ?? '')
         if (attachments === undefined || id === '') return null
         const chunks = []

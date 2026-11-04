@@ -180,9 +180,9 @@ export function apply(ctx) {
       const nextWork = JSON.stringify(value.work)
       if (nextWork !== workKey) { workKey = nextWork; work.set(value.work) }
     }
-    if (value.computer !== undefined) {
-      const nextComputer = JSON.stringify(value.computer)
-      if (nextComputer !== computerKey) { computerKey = nextComputer; computer.set(value.computer) }
+    if (value.computerLive !== undefined) {
+      const nextComputer = JSON.stringify(value.computerLive)
+      if (nextComputer !== computerKey) { computerKey = nextComputer; computer.set(value.computerLive) }
     }
     if (value.memoryNews !== undefined) noteMemoryNews(value.memoryNews)
     const current = roster.getSnapshot()

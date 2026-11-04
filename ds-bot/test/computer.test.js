@@ -243,19 +243,21 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
 })
 
 // A fake Cordis plugin mount + the registry the provider registers on.
-function withProvider(ctx, { providerName } = {}) {
+function withProvider(ctx, services, { providerName } = {}) {
   const fibers = []
   ctx.plugin = (module, config) => {
     const entry = { module, config }
     fibers.push(entry)
-    // Only the provider mount registers a provider name, not the registry's.
-    if (ctx.computerUse !== undefined && String(module?.name ?? '').includes('experimental')) ctx.computerUse.providerName = providerName ?? 'fake-provider'
+    // The registry mount brings the service up; only the provider mount names a provider.
+    if (String(module?.name ?? '').includes('experimental')) {
+      services.computerUse ??= { providerName: undefined }
+      services.computerUse.providerName = providerName ?? 'fake-provider'
+    } else services.computerUse ??= { providerName: undefined }
     return {
       await: async () => {},
       dispose: async () => { const index = fibers.indexOf(entry); if (index >= 0) fibers.splice(index, 1) },
     }
   }
-  ctx.computerUse = { providerName: undefined }
   return fibers
 }
 
@@ -266,7 +268,7 @@ test('the provider mounts when the switch comes on and reports its status', asyn
   ctx.get = name => services[name]
   services.loader = { import: async name => ({ name }) }
   services.agents = { list: () => [] }
-  const fibers = withProvider(ctx)
+  const fibers = withProvider(ctx, services)
   await rt.load()
   assert.deepEqual(rt.computerStatus().state, 'off')
   await rt.computerEndpoint('set-enabled', { enabled: true })
@@ -289,17 +291,18 @@ test('provider status: occupied, missing, unsupported, error and retry', async (
   ctx.get = name => services[name]
   services.loader = { import: async name => { if (name.includes('missing')) throw new Error('Cannot find package') ; return { name } } }
   services.agents = { list: () => [] }
-  withProvider(ctx)
+  withProvider(ctx, services)
   // occupied: another provider is already registered
-  ctx.computerUse.providerName = 'other-provider'
+  services.computerUse = { providerName: 'other-provider' }
   await rt.load()
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('provider-retry', {})
   assert.deepEqual(rt.computerStatus(), { state: 'occupied', name: 'other-provider' })
-  ctx.computerUse.providerName = undefined
+  services.computerUse.providerName = undefined
   await rt.computerEndpoint('provider-retry', {})
   assert.equal(rt.computerStatus().state, 'ready')
-  // missing: the package cannot be imported
+  // missing: the package cannot be imported; the fake registry keeps its name field
+  services.computerUse.providerName = undefined
   services.loader = { import: async () => { throw Object.assign(new Error('Cannot find package'), { code: 'ERR_MODULE_NOT_FOUND' }) } }
   await rt.computerEndpoint('provider-retry', {})
   assert.equal(rt.computerStatus().state, 'missing')
@@ -324,7 +327,7 @@ test('masking: non-Bot agents and off Bots lose the tools and the sections', asy
   })
   const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
   ctx.get = name => services[name]
-  withProvider(ctx)
+  withProvider(ctx, services)
   await rt.load()
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('provider-retry', {})
@@ -347,7 +350,7 @@ test('the ds-bot section is empty for a non-Bot, off, or provider-not-ready agen
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
   ctx.get = name => services[name]
-  withProvider(ctx)
+  withProvider(ctx, services)
   await rt.load()
   const section = ctx.sections.get('computer-use:ds-bot')
   const text = agent => section.text({ agent: { id: agent } })
@@ -366,7 +369,7 @@ test('a revoke removes the grant, aborts the call, revokes in the provider and t
   const revoked = []
   const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] }, cuaAccess: { revoke: async id => revoked.push(id) } }
   ctx.get = name => services[name]
-  withProvider(ctx)
+  withProvider(ctx, services)
   await rt.load()
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
@@ -404,7 +407,7 @@ test('grants hold in a later part and in a group Session of the same Bot', async
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
   ctx.get = name => services[name]
-  withProvider(ctx)
+  withProvider(ctx, services)
   await rt.load()
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
@@ -551,7 +554,7 @@ test('computer_handoff: the hold answers done, skip and takeover', async (t) => 
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
   ctx.get = name => services[name]
-  withProvider(ctx)
+  withProvider(ctx, services)
   await rt.load()
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('provider-retry', {})

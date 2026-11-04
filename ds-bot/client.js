@@ -24725,11 +24725,11 @@ function apply(ctx) {
         work.set(value.work);
       }
     }
-    if (value.computer !== void 0) {
-      const nextComputer = JSON.stringify(value.computer);
+    if (value.computerLive !== void 0) {
+      const nextComputer = JSON.stringify(value.computerLive);
       if (nextComputer !== computerKey) {
         computerKey = nextComputer;
-        computer.set(value.computer);
+        computer.set(value.computerLive);
       }
     }
     if (value.memoryNews !== void 0) noteMemoryNews(value.memoryNews);
