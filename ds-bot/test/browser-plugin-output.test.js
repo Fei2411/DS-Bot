@@ -5,21 +5,29 @@ import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
-import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mountBrowserPlugin } from '../src/host/browser/mount.js'
 import { toolDefs as refsTools } from '../src/host/browser/refs.js'
 
-// DSH 0.2.2 executes a batch of model calls; each test runs one call.
-async function runTool(ctx, { signal, callId, name, arguments: args }) {
-  const batch = await ctx.tools.execute({ signal, calls: [{ id: callId, name, arguments: JSON.stringify(args) }] })
+// DSH 0.2.2 runs tool calls as batches through a mounted executor; earlier DSH runs one
+// call directly and has no executor package.
+const NativeExecutor = await import('@deepseek-ai/dsh-tool-executor-native').catch((error) => {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND') return undefined
+  throw error
+})
+async function mountTools(ctx) {
+  await ctx.plugin(ToolRuntime)
+  if (NativeExecutor !== undefined) await ctx.plugin(NativeExecutor)
+}
+async function runTool(ctx, call) {
+  if (typeof ctx.tools.selectExecutor !== 'function') return ctx.tools.execute(call)
+  const batch = await ctx.tools.execute({ signal: call.signal, calls: [{ id: call.callId, name: call.name, arguments: JSON.stringify(call.arguments) }] })
   return batch.results[0].result
 }
 
 test('browser handoff and resume return valid DSH outputs and clear the Bot hold', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
 
   let hold = null
@@ -97,8 +105,7 @@ test('browser handoff and resume return valid DSH outputs and clear the Bot hold
 test('a screenshot degrades to text when no attachments service is mounted', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
 
   const plugin = inner => {
@@ -133,8 +140,7 @@ test('a screenshot degrades to text when no attachments service is mounted', asy
 test('a stored browser screenshot is repaired before the next step and survives reload', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   const session = Session.create('old-browser-chat')
   const call = session.append('tool/call', { turn: 1, step: 1, callId: 'shot', name: 'browser_screenshot', arguments: '{}' })
@@ -171,8 +177,7 @@ test('a stored browser screenshot is repaired before the next step and survives 
 test('browser tools refuse every operation while a user hold is active', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   const hold = { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' }
   const plugin = inner => {
@@ -215,8 +220,7 @@ test('browser tools refuse every operation while a user hold is active', async t
 test('browser endpoint connection uses the execution Bot identity, not tool arguments', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   let connected
   const plugin = inner => {
@@ -251,8 +255,7 @@ test('browser endpoint connection uses the execution Bot identity, not tool argu
 test('a channel user hold closes the cached Playwright session and give-back reconnects', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   let hold = null
   let notifyHold
