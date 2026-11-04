@@ -55,7 +55,7 @@ async function runPrompt(session, prompt, requestId) {
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'mcp dsbot message_bot', kind: 'other', status: 'in_progress' })
     try {
       const calls = text.includes('two-calls') ? 2 : 1
-      const results = await Promise.all([...Array(calls)].map((_, i) => mcpCall(server, 'message_bot', { bot: 'Kai', text: `hi ${i}` })))
+      const results = await Promise.all([...Array(calls)].map((_, i) => mcpCall(server, 'message_bot', { to: 'Chief', message: `hi ${i}` })))
       finish(`tool said: ${results.map(result => (result.content ?? []).map(block => block.text).join('')).join(' | ')}`)
     } catch (error) {
       finish(`tool failed: ${error.message}`)
