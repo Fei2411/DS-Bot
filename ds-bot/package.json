@@ -68,6 +68,10 @@
     "esbuild": "0.28.2"
   },
   "dependencies": {
-    "deep-view": "0.1.0"
+    "@modelcontextprotocol/client": "2.4.0",
+    "deep-view": "0.1.0",
+    "imapflow": "2.9.1",
+    "mailparser": "3.12.4",
+    "nodemailer": "10.2.1"
   }
 }
