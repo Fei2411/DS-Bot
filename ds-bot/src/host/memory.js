@@ -42,12 +42,20 @@ import { output } from './tools.js'
 // 检测方式：尝试 require @modusensus/dsh-mneme，成功则说明已安装。
 const _require = createRequire(import.meta.url)
 function isMnemeInstalled() {
-  try {
-    _require.resolve('@modusensus/dsh-mneme')
-    return true
-  } catch {
-    return false
+  // First try: standard module resolution from current file (works when installed alongside)
+  try { _require.resolve('@modusensus/dsh-mneme'); return true } catch { /* not in local node_modules */ }
+  // Second try: walk up from process.cwd() to find it in any parent node_modules
+  // (covers the case where ds-bot is installed inside a profile's node_modules and
+  //  dsh-mneme is a sibling at the same or a parent level)
+  const candidates = []
+  let dir = process.cwd()
+  for (let i = 0; i < 8; i++) {
+    candidates.push(join(dir, 'node_modules', '@modusensus', 'dsh-mneme'))
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
   }
+  return candidates.some(p => existsSync(p))
 }
 
 // Fixed sizes, in characters. Both MEMORY.md files ride in every request of every

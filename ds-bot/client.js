@@ -10487,7 +10487,6 @@ function TeamSidebar(props) {
     const sortedGroups = Object.values(groups).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     for (const group of sortedGroups) {
       const memberBots = (group.botIds ?? []).map((id) => roster.bots.find((bot) => bot.id === id)).filter(Boolean);
-      if (memberBots.length === 0) continue;
       const onlineCount = memberBots.filter((bot) => bot.worker?.online).length;
       groupEntries2.push({ kind: "group-header", item: { ...group, onlineCount, totalCount: memberBots.length }, at: 0 });
       if (!group.collapsed) {
@@ -14989,6 +14988,45 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         (0, import_react33.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, onPick: (workDir) => save({ workDir }) })
       )
     ),
+    bot.type === "remote-worker" || bot.type === void 0 ? (0, import_react33.createElement)(
+      Card2,
+      { title: t("Bot Type") },
+      (0, import_react33.createElement)(
+        "div",
+        { className: "bt-set-row bt-bs-row" },
+        (0, import_react33.createElement)("span", { className: "bt-set-copy" }, (0, import_react33.createElement)("span", { className: "bt-bs-label" }, t("Type"))),
+        (0, import_react33.createElement)(
+          "select",
+          {
+            className: "bt-input",
+            value: bot.type ?? "normal",
+            onChange: (e) => save({ type: e.target.value === "normal" ? null : e.target.value }),
+            "aria-label": t("Bot type")
+          },
+          (0, import_react33.createElement)("option", { value: "normal" }, t("Normal Bot")),
+          (0, import_react33.createElement)("option", { value: "remote-worker" }, t("Worker Bot (Remote Machine)"))
+        )
+      ),
+      bot.type === "remote-worker" ? (0, import_react33.createElement)(
+        "div",
+        null,
+        (0, import_react33.createElement)(
+          Row,
+          { label: t("Hub URL") },
+          (0, import_react33.createElement)(InlineText, { label: t("Hub URL"), value: bot.worker?.hubUrl ?? "", placeholder: "https://hub.example.com", onSave: (v) => save({ worker: { ...bot.worker, hubUrl: v } }) })
+        ),
+        (0, import_react33.createElement)(
+          Row,
+          { label: t("Remote Port") },
+          (0, import_react33.createElement)(InlineText, { label: t("Remote Port"), value: String(bot.worker?.remotePort ?? ""), placeholder: "19387", onSave: (v) => save({ worker: { ...bot.worker, remotePort: Number(v) || void 0 } }) })
+        ),
+        (0, import_react33.createElement)(
+          Row,
+          { label: t("Token") },
+          (0, import_react33.createElement)(InlineText, { label: t("Enrollment token"), value: bot.worker?.token ?? "", placeholder: t("Enrollment token"), onSave: (v) => save({ worker: { ...bot.worker, token: v } }) })
+        )
+      ) : null
+    ) : null,
     (0, import_react33.createElement)(
       Card2,
       { title: t("Privacy") },

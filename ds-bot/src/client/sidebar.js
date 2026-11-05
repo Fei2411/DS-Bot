@@ -412,7 +412,6 @@ export function TeamSidebar(props) {
       const memberBots = (group.botIds ?? [])
         .map(id => roster.bots.find(bot => bot.id === id))
         .filter(Boolean)
-      if (memberBots.length === 0) continue
       const onlineCount = memberBots.filter(bot => bot.worker?.online).length
       groupEntries.push({ kind: 'group-header', item: { ...group, onlineCount, totalCount: memberBots.length }, at: 0 })
       if (!group.collapsed) {

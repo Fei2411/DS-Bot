@@ -216,6 +216,28 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
+    bot.type === 'remote-worker' || bot.type === undefined
+      ? h(Card, { title: t('Bot Type') },
+          h('div', { className: 'bt-set-row bt-bs-row' },
+            h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Type'))),
+            h('select', {
+              className: 'bt-input',
+              value: bot.type ?? 'normal',
+              onChange: e => save({ type: e.target.value === 'normal' ? null : e.target.value }),
+              'aria-label': t('Bot type'),
+            },
+              h('option', { value: 'normal' }, t('Normal Bot')),
+              h('option', { value: 'remote-worker' }, t('Worker Bot (Remote Machine)')))),
+          bot.type === 'remote-worker'
+            ? h('div', null,
+                h(Row, { label: t('Hub URL') },
+                  h(InlineText, { label: t('Hub URL'), value: bot.worker?.hubUrl ?? '', placeholder: 'https://hub.example.com', onSave: v => save({ worker: { ...bot.worker, hubUrl: v } }) })),
+                h(Row, { label: t('Remote Port') },
+                  h(InlineText, { label: t('Remote Port'), value: String(bot.worker?.remotePort ?? ''), placeholder: '19387', onSave: v => save({ worker: { ...bot.worker, remotePort: Number(v) || undefined } }) })),
+                h(Row, { label: t('Token') },
+                  h(InlineText, { label: t('Enrollment token'), value: bot.worker?.token ?? '', placeholder: t('Enrollment token'), onSave: v => save({ worker: { ...bot.worker, token: v } }) })))
+            : null)
+      : null,
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
