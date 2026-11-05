@@ -644,4 +644,9 @@ export const CONNECTOR_CSS = `
 .dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
 .bt-mail-rules{display:flex;flex-direction:column;gap:8px}
+.dv-widget-stack:has(>.dv-widget-form){gap:8px}
+.dv-widget-stack>.dv-widget-form{display:contents}
+.dv-widget-stack>.dv-widget-form>.dv-q-foot{order:2;padding-top:4px}
+.dv-widget-field[data-multiline] .dv-q-field{flex:1 1 auto}
+.dv-q-textarea{field-sizing:content;min-height:66px;max-height:240px;overflow-y:auto;line-height:22px}
 `
