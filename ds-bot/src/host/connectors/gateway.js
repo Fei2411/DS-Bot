@@ -36,6 +36,7 @@ const upstreamRequest = (target, init, onResponse) =>
   (target.protocol === 'http:' && loopbackHttp(target) ? httpRequest : httpsRequest)(target, init, onResponse)
 
 const readAll = stream => new Promise((resolve, reject) => {
+  if (stream.errored) { reject(stream.errored); return }
   const chunks = []
   stream.on('data', chunk => chunks.push(chunk))
   stream.on('end', () => resolve(Buffer.concat(chunks)))
@@ -71,17 +72,24 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     error: { code: -32600, message: `The ${id} connector is read-only: this tool can change things, so it is off. Turn off the read-only switch in Settings → Connectors to use it.` },
   })
 
-  async function sendUpstream(entry, method, path, headers, body) {
+  async function sendUpstream(id, entry, method, path, headers, body) {
     return new Promise((resolve, reject) => {
       const target = new URL(entry.url)
-      if (path !== '/' && path !== '') {
-        target.pathname = entry.pathBase + path.replace(/^\//, '')
+      const suffix = new URL(path, 'http://x')
+      if (suffix.pathname !== '/') {
+        target.pathname = `${target.pathname.replace(/\/$/, '')}/${suffix.pathname.replace(/^\//, '')}`
       }
-      for (const [key, value] of new URL(path, 'http://x').searchParams) target.searchParams.append(key, value)
+      for (const [key, value] of suffix.searchParams) target.searchParams.append(key, value)
       const outgoing = { ...entry.headers }
       for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
       if (body !== undefined) outgoing['content-length'] = body.length
-      const req = upstreamRequest(target, { method, headers: outgoing }, resolve)
+      const req = upstreamRequest(target, { method, headers: outgoing }, upstream => {
+        // This listener must exist before refresh awaits: the response can fail
+        // before the handler starts consuming it.
+        upstream.on('error', reject)
+        if (upstream.statusCode >= 400) log('ds-bot: connector %s upstream %s HTTP %s (session: %s)', id, method, upstream.statusCode, headers['mcp-session-id'] !== undefined)
+        resolve(upstream)
+      })
       req.on('error', reject)
       if (body !== undefined) req.write(body)
       req.end()
@@ -102,7 +110,6 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     }
     const suffix = req.url.slice(`/c/${id}`.length)
     const path = suffix === '' ? '/' : suffix
-    entry.pathBase = new URL(entry.url).pathname.replace(/\/$/, '') === '' ? '' : `${new URL(entry.url).pathname.replace(/\/$/, '')}/`
     const limited = readOnly(id) === true
     const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readAll(req)
     // Read-only: a write tools/call never reaches the server.
@@ -121,12 +128,12 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
         return
       }
       if (rpc?.method === 'tools/list') {
-        let upstream = await sendUpstream(entry, req.method, path, req.headers, body)
+        let upstream = await sendUpstream(id, entry, req.method, path, req.headers, body)
         if (upstream.statusCode === 401) {
           const retried = await onUnauthorized(id)
           if (retried === true) {
             upstream.resume()
-            upstream = await sendUpstream(credential(id) ?? entry, req.method, path, req.headers, body)
+            upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body)
           }
         }
         const raw = await readAll(upstream)
@@ -156,15 +163,16 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     }
     let upstream
     try {
-      upstream = await sendUpstream(entry, req.method, path, req.headers, body)
+      upstream = await sendUpstream(id, entry, req.method, path, req.headers, body)
       // One refresh + retry when the answer is still unsent.
       if (upstream.statusCode === 401) {
         const retried = await onUnauthorized(id)
         if (retried === true) {
           upstream.resume()
-          upstream = await sendUpstream(credential(id) ?? entry, req.method, path, req.headers, body)
+          upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body)
         }
       }
+      if (upstream.errored) throw upstream.errored
     } catch (error) {
       log('ds-bot: connector gateway %s: %s', id, error?.message ?? error)
       res.writeHead(502, { 'content-type': 'application/json' })
@@ -179,6 +187,10 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       const close = () => { upstream.destroy() }
       res.on('close', close)
       upstream.on('end', () => res.off('close', close))
+      upstream.on('error', () => {
+        log('ds-bot: connector %s upstream %s stream failed', id, req.method)
+        res.destroy()
+      })
       res.writeHead(upstream.statusCode ?? 502, heads)
       upstream.pipe(res)
       return
@@ -203,6 +215,8 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     async listen() {
       if (server !== null) return
       server = createServer((req, res) => {
+        req.on('error', () => res.destroy())
+        res.on('error', () => req.destroy())
         const found = /^\/c\/([A-Za-z0-9_-]{1,32})/.exec(req.url ?? '')
         if (found === null || !nonceMatches(req.headers.authorization, nonce)) {
           res.writeHead(404)
@@ -211,10 +225,11 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
         }
         handle(found[1], req, res).catch((error) => {
           log('ds-bot: connector gateway: %s', error?.message ?? error)
-          if (!res.headersSent) res.writeHead(500)
-          res.end()
+          if (res.headersSent) res.destroy()
+          else { res.writeHead(502); res.end() }
         })
       })
+      server.on('error', error => log('ds-bot: connector gateway server failed: %s', error?.code ?? 'error'))
       await new Promise((resolve, reject) => {
         server.once('error', reject)
         server.listen(0, '127.0.0.1', resolve)

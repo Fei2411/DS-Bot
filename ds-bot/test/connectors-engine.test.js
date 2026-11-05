@@ -685,7 +685,7 @@ test('gateway keeps the entry path and merges queries', async (t) => {
   await fetch(gw.urlFor('svc'), { method: 'POST', headers: head, body: '{}' })
   assert.equal(seen.at(-1), '/mcp?key=K1')
   await fetch(`${gw.urlFor('svc')}?x=1&y=2`, { method: 'POST', headers: head, body: '{}' })
-  assert.match(seen.at(-1), /^\/mcp\?key=K1&x=1&y=2$|x=1.*key=K1/)
+  assert.equal(seen.at(-1), '/mcp?key=K1&x=1&y=2')
 })
 
 test('gateway destroys the upstream stream when the client disconnects', async (t) => {
