@@ -595,6 +595,40 @@ test('a file the user sends in a group reaches each member the line is shown to,
   await running
 })
 
+// #955: an image the user sends in a group reaches each member the line is shown to as
+// an image block once, and the log line keeps its read-only copy path even when no
+// vision model can read it.
+test('an image the user sends in a group reaches each member the line is shown to, once, with its read-only path', async (t) => {
+  const { call, emit, relay, answer, stop, sent, ctx, rt } = start()
+  t.after(stop)
+  const savedPath = '/tmp/dsh-attachments/objects/ab/cd'
+  ctx.get = name => (name === 'attachments' ? { imageHostPath: () => savedPath } : undefined)
+  const room = await team(call, sent)
+  const png = { attachmentId: 'sha256:abcd1234', name: 'image.png', mediaType: 'image/png', bytes: 67_000, width: 800, height: 600 }
+  await emit(room.id, { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'What is in this screenshot?' }, { type: 'image', attachment: png }] } })
+  let running = relay(room.id, 'r1')
+  const first = await turnFor(sent)
+  const images = message => message.content.filter(block => block.type === 'image').map(block => block.attachment)
+  assert.deepEqual(images(first.message), [png])
+  assert.match(first.message.content[0].text, /read-only copy saved at "\/tmp\/dsh-attachments\/objects\/ab\/cd"/)
+  await answer(first.sessionId, first.message.source.exchangeId, 'I see it.', 1)
+  const second = await turnFor(sent, first)
+  assert.deepEqual(images(second.message), [png])
+  await answer(second.sessionId, second.message.source.exchangeId, 'Me too.', 2)
+  await running
+  assert.deepEqual(rt.roomOf(room.id).log.find(line => line.who === 'User').images, [png])
+
+  sent.length = 0
+  await emit(room.id, { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Thanks' }] } })
+  running = relay(room.id, 'r2')
+  const next = await turnFor(sent)
+  assert.deepEqual(images(next.message), [])
+  await answer(next.sessionId, next.message.source.exchangeId, 'OK.', 3)
+  const after = await turnFor(sent, next)
+  await answer(after.sessionId, after.message.source.exchangeId, 'OK.', 4)
+  await running
+})
+
 // #206: a Bot's post past 20,000 characters goes as a file; the line keeps the file and
 // each member it is shown to gets it with its prompt.
 test('a long post goes to the group as a file, and reaches the member with its prompt', async (t) => {
