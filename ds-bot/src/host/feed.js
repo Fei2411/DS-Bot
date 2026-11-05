@@ -20,6 +20,8 @@ export function install(rt) {
   const encoder = new TextEncoder()
   /** @type {Set<ReadableStreamDefaultController<Uint8Array>>} */
   const clients = new Set()
+  // Request 持有派生 signal 的控制器，流结束前保留它，避免 GC 后外部取消失效。
+  const aborts = new Map()
   const send = (controller, chunk) => {
     if ((controller.desiredSize ?? 0) < -MAX_QUEUED) {
       leave(controller)
@@ -77,6 +79,8 @@ export function install(rt) {
   })
 
   const leave = (controller) => {
+    const abort = aborts.get(controller)
+    if (abort) { abort.request.signal.removeEventListener('abort', abort.listener); aborts.delete(controller) }
     clients.delete(controller)
     if (clients.size === 0) writing.clear()
     try { controller.close() } catch { /* already closed or errored */ }
@@ -96,7 +100,11 @@ export function install(rt) {
         },
         cancel() { leave(controller) },
       })
-      request.signal.addEventListener('abort', () => leave(controller), { once: true })
+      const signal = request.signal
+      const listener = () => leave(controller)
+      aborts.set(controller, { request, listener })
+      signal.addEventListener('abort', listener, { once: true })
+      if (signal.aborted) listener()
       return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } })
     },
   }), 'ds-bot: live feed route')
