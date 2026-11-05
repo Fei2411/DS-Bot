@@ -1,5 +1,5 @@
 import { createElement as h, useEffect, useId, useRef, useState } from 'react'
-import { CheckIcon, MonitorIcon } from './icons.js'
+import { CheckIcon } from './icons.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'

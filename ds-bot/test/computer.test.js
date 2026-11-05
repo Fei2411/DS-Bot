@@ -919,3 +919,83 @@ test('launch_app resolves by its own name or path: consent, protected check, rec
     async () => ({ pid: 50, name: 'Notes', path: '/Applications/Notes.app', window_id: 9 }))
   assert.equal(await gate({ name: 'cua_driver_native__click', arguments: { window_id: 9 }, agent: { id: 'w1' }, callId: 'c9' }, allow), 'allowed')
 })
+
+test('the Bot cursor: relative, pixel and index calls publish a point', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  rt.botOf('w1').computer = { apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
+  const cua = (method, params, callId = 'c') => ({ name: 'cua', arguments: { method, params }, agent: { id: 'w1' }, callId })
+  // getState records window bounds; a screenshot records that window's pixels
+  await track(cua('getState', { appHandle: 'h1' }, 'g1'), async () => ({ isError: false, value: { appHandle: 'h1', focusedWindowId: 7, windows: [{ windowId: 7, pid: 42, bounds: { x: 100, y: 200, width: 300, height: 400 } }] } }))
+  await track(cua('screenshot', { appHandle: 'h1', windowId: 7 }, 'g2'), async () => ({ isError: false, value: { windowId: 7, pixelWidth: 600, pixelHeight: 800 } }))
+  // relative click: thousandths of the window
+  await gate(cua('click', { appHandle: 'h1', windowId: 7, relative: true, x: 500, y: 250 }, 'c1'), allow)
+  await track(cua('click', { appHandle: 'h1', windowId: 7, relative: true, x: 500, y: 250 }, 'c1'), allow)
+  let cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
+  assert.equal(cursor.mode, 'point')
+  assert.equal(cursor.ripple, true)
+  assert.ok(Math.abs(cursor.x - (100 + 500 * 300 / 999)) < 0.5)
+  assert.ok(Math.abs(cursor.y - (200 + 250 * 400 / 999)) < 0.5)
+  assert.equal(cursor.pid, 42)
+  // pixel coordinates scale by that window's last screenshot size
+  await track(cua('click', { appHandle: 'h1', windowId: 7, x: 300, y: 400 }, 'c2'), allow)
+  cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
+  assert.ok(Math.abs(cursor.x - 250) < 0.5)
+  assert.ok(Math.abs(cursor.y - 400) < 0.5)
+  // an element-index click sits at the title bar with no ripple
+  await track(cua('click', { appHandle: 'h1', windowId: 7, index: 6 }, 'c3'), allow)
+  cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
+  assert.equal(cursor.mode, 'window')
+  assert.equal(cursor.ripple, false)
+  assert.ok(Math.abs(cursor.x - 250) < 0.5)
+  assert.ok(Math.abs(cursor.y - 214) < 0.5)
+  // a call on an unknown window publishes nothing
+  await track(cua('click', { appHandle: 'h1', windowId: 99, index: 1 }, 'c4'), allow)
+  assert.equal(rt.computerLive().cursors.find(event => event.botId === 'w1').mode, 'window')
+})
+
+test('driver cursors: session injection, refused cursor tools, one disable per session', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const executions = []
+  ctx.tools = {
+    get: (name) => {
+      if (name === 'cua_driver_native__set_agent_cursor_enabled') return { execute: async (args) => { executions.push(['disable', args]); return { value: {} } } }
+      if (name === 'cua_driver_native__get_agent_cursor_state') return { execute: async (args) => { executions.push(['state', args]); return { isError: false, value: { position: { x: 311, y: 222 } } } } }
+      return { inputSchema: { properties: { session: {}, pid: {} } } }
+    },
+  }
+  rt.botOf('w1').computer = { apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'list-1' }, async () => ({ windows: [{ pid: 42, name: 'Notes', path: '/Applications/Notes.app', bundleId: 'com.apple.Notes' }] }))
+  // a call whose schema carries session gets a stable per-Bot session injected
+  const exec = { name: 'cua_driver_native__click', arguments: { pid: 42 }, agent: { id: 'w1' }, callId: 'c1' }
+  await gate(exec, allow)
+  assert.match(exec.arguments.session, /^dsbot-[0-9a-f]+$/)
+  await track(exec, allow)
+  // disable ran once for the session; the state query published the point
+  assert.equal(executions.filter(e => e[0] === 'disable').length, 1)
+  await new Promise(resolve => setImmediate(resolve))
+  const cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
+  assert.equal(cursor.x, 311)
+  assert.equal(cursor.y, 222)
+  assert.equal(cursor.ripple, true)
+  // the cursor tools themselves are refused to Bots
+  assert.equal((await gate({ name: 'cua_driver_native__set_agent_cursor_enabled', arguments: { session: 'x', enabled: true }, agent: { id: 'w1' }, callId: 'c2' }, allow)).kind, 'deny')
+  // a tool whose schema has no session property gets nothing injected
+  ctx.tools.get = () => ({ inputSchema: { properties: { pid: {} } } })
+  const bare = { name: 'cua_driver_native__click', arguments: { pid: 42 }, agent: { id: 'w1' }, callId: 'c3' }
+  await gate(bare, allow)
+  assert.equal(bare.arguments.session, undefined)
+})

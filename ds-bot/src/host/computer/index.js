@@ -418,6 +418,118 @@ export function install(rt) {
     if (verdict !== 'allow') return refuse(verdict)
     return undefined
   }
+  // ---- On-screen Bot cursor: where a just-finished action pointed ----
+  // cua reports window bounds in global points and screenshot pixel sizes per
+  // window — enough to place a cursor at the point a call used. The driver owns
+  // a real cursor inside a per-Bot session; its post-call position is the point.
+  const winGeo = new Map()
+  const geoMapOf = (sessionId) => {
+    let map = winGeo.get(sessionId)
+    if (map === undefined) winGeo.set(sessionId, map = new Map())
+    return map
+  }
+  const cursors = new Map()
+  let cursorSeq = 0
+  const publishCursor = (botId, event) => {
+    cursors.set(botId, { botId, seq: ++cursorSeq, t: Date.now(), ...event })
+  }
+  // Click-type calls ripple; index and keyboard calls only name their window.
+  const RIPPLE_METHODS = new Set(['click', 'double_click', 'performSecondaryAction', 'drag'])
+  const recordGeo = (sessionId, result) => {
+    if (sessionId === undefined || result === null || typeof result !== 'object') return
+    const windows = Array.isArray(result.windows) ? result.windows : []
+    for (const win of windows) {
+      const windowId = win?.windowId ?? win?.id
+      const bounds = win?.bounds
+      if (windowId === undefined || bounds === null || typeof bounds !== 'object') continue
+      if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)) continue
+      const geo = geoMapOf(sessionId).get(windowId) ?? {}
+      geo.x = bounds.x
+      geo.y = bounds.y
+      if (Number.isFinite(bounds.width)) geo.w = bounds.width
+      if (Number.isFinite(bounds.height)) geo.h = bounds.height
+      if (Number.isInteger(win.pid)) geo.pid = win.pid
+      geoMapOf(sessionId).set(windowId, geo)
+    }
+    if (Number.isFinite(result.pixelWidth) && Number.isFinite(result.pixelHeight)) {
+      const windowId = result.windowId ?? result.window_id
+      if (windowId !== undefined) {
+        const geo = geoMapOf(sessionId).get(windowId) ?? {}
+        geo.pw = result.pixelWidth
+        geo.ph = result.pixelHeight
+        geoMapOf(sessionId).set(windowId, geo)
+      }
+    }
+  }
+  const emitCursor = (exec, call, result) => {
+    if (call.kind !== 'background' && call.kind !== 'foreground') return
+    const sessionId = exec.agent?.id
+    const botId = sessionId === undefined ? undefined : rt.selfOf(sessionId)
+    if (botId === undefined || !rt.isBotSession(sessionId)) return
+    if (call.provider === 'cua') {
+      const params = exec.arguments?.params ?? {}
+      const windowId = params.windowId ?? result?.focusedWindowId ?? result?.windowId
+      const win = windowId === undefined ? undefined : geoMapOf(sessionId).get(windowId)
+      if (win === undefined || !Number.isFinite(win.x) || !Number.isFinite(win.y) || !Number.isFinite(win.w) || !Number.isFinite(win.h)) return
+      const common = { pid: win.pid, windowId }
+      const hasPoint = Number.isFinite(params.x) && Number.isFinite(params.y)
+      if (hasPoint && params.relative === true) {
+        // Thousandths of the window — verified against the real provider.
+        publishCursor(botId, { ...common, x: win.x + params.x * win.w / 999, y: win.y + params.y * win.h / 999, mode: 'point', ripple: RIPPLE_METHODS.has(call.method) })
+        return
+      }
+      if (hasPoint && Number.isFinite(win.pw) && win.pw > 0 && Number.isFinite(win.ph) && win.ph > 0) {
+        publishCursor(botId, { ...common, x: win.x + params.x * win.w / win.pw, y: win.y + params.y * win.h / win.ph, mode: 'point', ripple: RIPPLE_METHODS.has(call.method) })
+        return
+      }
+      // Index and keyboard calls name no point: sit at the window's title bar so
+      // the cursor never pretends to point at a control.
+      publishCursor(botId, { ...common, x: win.x + win.w / 2, y: win.y + 14, mode: 'window', ripple: false })
+      return
+    }
+    // The driver's own cursor already moved inside the Bot's session; read where
+    // it ended up after the action, without holding the call's result.
+    if (call.provider === 'cua-driver') {
+      void driverCursorPoint(exec, botId).then(point => {
+        if (point !== undefined) publishCursor(botId, { ...point, mode: 'point', ripple: RIPPLE_METHODS.has(call.method) })
+      })
+    }
+  }
+  // A stable driver session per Bot, so the driver can keep its cursor hidden
+  // for the app (which draws its own) and report where its actions pointed.
+  const driverSessionOf = (botId) => {
+    let hash = 0
+    for (const ch of String(botId)) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0
+    return `dsbot-${(hash >>> 0).toString(16)}`
+  }
+  // The registered tool's schema decides whether a session argument is legal —
+  // some driver inputs deny unknown fields, so nothing is injected without it.
+  const injectDriverSession = (exec, call, botId) => {
+    if (call.provider !== 'cua-driver' || DRIVER_REFUSED.has(call.method)) return
+    let def
+    try { def = ctx.tools?.get?.(exec.name, exec.agent) } catch { return }
+    const props = def?.inputSchema?.properties ?? def?.parameters?.properties ?? def?.schema?.properties
+    if (props === null || typeof props !== 'object' || !('session' in props)) return
+    exec.arguments = { ...(exec.arguments ?? {}), session: driverSessionOf(botId) }
+  }
+  const driverCursorOff = new Set()
+  const ensureDriverCursorOff = async (exec, botId) => {
+    const session = driverSessionOf(botId)
+    if (driverCursorOff.has(session)) return
+    driverCursorOff.add(session)
+    try {
+      await ctx.tools?.get?.('cua_driver_native__set_agent_cursor_enabled', exec.agent)?.execute({ session, enabled: false }, exec)
+    } catch {}
+  }
+  const driverCursorPoint = async (exec, botId) => {
+    try {
+      const out = await ctx.tools?.get?.('cua_driver_native__get_agent_cursor_state', exec.agent)?.execute({ session: driverSessionOf(botId) }, exec)
+      const value = out !== null && typeof out === 'object' && 'value' in out ? out.value : out
+      const position = value?.position
+      return position !== null && typeof position === 'object' && Number.isFinite(position.x) && Number.isFinite(position.y) ? { x: position.x, y: position.y } : undefined
+    } catch { return undefined }
+  }
+
   // The display name the lease and the card show for an appKey, from any session's
   // records or the key itself.
   const appNameOf = (key) => {
@@ -573,6 +685,8 @@ export function install(rt) {
       if (DRIVER_REFUSED.has(call.method)) {
         return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
       }
+      injectDriverSession(exec, call, bot.id)
+      await ensureDriverCursorOff(exec, bot.id)
       if (app === undefined) {
         if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
@@ -653,6 +767,8 @@ export function install(rt) {
           return consent.envelope
         }
       }
+      recordGeo(sessionId, payload)
+      emitCursor(exec, call, payload)
       const shot = payload !== null && typeof payload === 'object' ? payload.attachment : undefined
       if (shot !== undefined) {
         controlOf(botId).lastShot = shot
@@ -1012,6 +1128,7 @@ export function install(rt) {
       steps: entry.steps,
     }])),
     leases: leases.entries().map(entry => ({ ...entry, appName: appNameOf(entry.appKey) })),
+    cursors: [...cursors.values()],
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
       id: ask.id,
       botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName,

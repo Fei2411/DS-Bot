@@ -25320,6 +25320,7 @@ function apply(ctx) {
   if (typeof appComputer?.computer === "function") {
     ctx.effect(() => {
       const nameOf = (id) => roster.getSnapshot().byId[id]?.name ?? "a Bot";
+      const seenCursors = /* @__PURE__ */ new Map();
       const sync = () => {
         const live2 = computer.getSnapshot();
         const name = (id) => nameOf(id);
@@ -25339,6 +25340,13 @@ function apply(ctx) {
           rows: rows2,
           labels: { stop: t("Stop"), stopAll: t("Stop all"), letGo: t("Let it continue") }
         });
+        for (const event of live2.cursors ?? []) {
+          if ((seenCursors.get(event.botId) ?? 0) >= event.seq) continue;
+          seenCursors.set(event.botId, event.seq);
+          if (typeof appComputer.computerCursor === "function") {
+            appComputer.computerCursor({ ...event, color: look(event.botId).color, avatar: look(event.botId).image });
+          }
+        }
       };
       sync();
       return computer.subscribe(sync);

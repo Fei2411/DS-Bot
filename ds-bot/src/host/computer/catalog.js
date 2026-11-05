@@ -79,6 +79,7 @@ export const DRIVER_GLOBAL = new Set([
 // lifecycle and the list/permission/health tools stay.
 export const DRIVER_REFUSED = new Set([
   'set_config', 'start_recording', 'stop_recording', 'replay_trajectory', 'install_ffmpeg',
+  'set_agent_cursor_enabled', 'set_agent_cursor_motion', 'set_agent_cursor_theme',
 ])
 
 // The kind a level admits. 'off' sees nothing.

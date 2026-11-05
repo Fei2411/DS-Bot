@@ -745,6 +745,7 @@ export function apply(ctx) {
   if (typeof appComputer?.computer === 'function') {
     ctx.effect(() => {
       const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
+      const seenCursors = new Map()
       const sync = () => {
         const live = computer.getSnapshot()
         const name = id => nameOf(id)
@@ -764,6 +765,14 @@ export function apply(ctx) {
           rows,
           labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
         })
+        // Fresh cursor events ride the same sync; seq keeps each published once.
+        for (const event of live.cursors ?? []) {
+          if ((seenCursors.get(event.botId) ?? 0) >= event.seq) continue
+          seenCursors.set(event.botId, event.seq)
+          if (typeof appComputer.computerCursor === 'function') {
+            appComputer.computerCursor({ ...event, color: look(event.botId).color, avatar: look(event.botId).image })
+          }
+        }
       }
       sync()
       return computer.subscribe(sync)
