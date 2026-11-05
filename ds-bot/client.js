@@ -374,6 +374,7 @@ var ZH = {
   "No browsers found": "没有找到浏览器",
   "The Bot controls this browser": "Bot 正在控制此浏览器",
   "The Bot is waiting for you": "Bot 正在等待你",
+  "waits for the computer": "在等电脑空出来",
   "You control this browser": "你正在控制此浏览器",
   "The Bot handed this browser to you: {reason}": "Bot 已将此浏览器交给你：{reason}",
   "Take over": "接管",
@@ -5555,8 +5556,8 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
         (0, import_react10.createElement)(
           "span",
           { className: "bt-cbar-text" },
-          (0, import_react10.createElement)("b", { className: "bt-cbar-name" }, entry.waiting ? t("{name} waits for the computer", { name: nameOf(entry.botId) }) : nameOf(entry.botId)),
-          entry.waiting ? null : (0, import_react10.createElement)("i", { className: "bt-cbar-app" }, entry.app)
+          (0, import_react10.createElement)("b", { className: "bt-cbar-name" }, nameOf(entry.botId)),
+          (0, import_react10.createElement)("i", { className: "bt-cbar-app" }, entry.app)
         ),
         entry.waiting ? (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-go", onClick: () => void actions.computerAllowForeground(entry.botId) }, t("Let it continue")) : (0, import_react10.createElement)(
           "button",
@@ -5583,14 +5584,14 @@ var COMPUTER_CSS = `
 .bt-cview-step{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--bt-ink-2)}
 .bt-cview-step[data-ok=no]{color:var(--bt-danger)}
 .bt-cview-step-err{font-size:11px}
-.bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(620px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg,rgba(255,255,255,.72));border:1px solid var(--bt-glass-border,var(--bt-line));box-shadow:inset 0 1px 0 var(--bt-glass-rim,rgba(255,255,255,.5)),0 6px 24px var(--bt-glass-shadow,rgba(0,0,0,.14));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
+.bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(760px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg,rgba(255,255,255,.72));border:1px solid var(--bt-glass-border,var(--bt-line));box-shadow:inset 0 1px 0 var(--bt-glass-rim,rgba(255,255,255,.5)),0 6px 24px var(--bt-glass-shadow,rgba(0,0,0,.14));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
 .bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--bt-danger) 24%,transparent)}
 .bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
 .bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
 .bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
 .bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600;line-height:1}
 .bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
-.bt-cbar-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-cbar-name{flex:none;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
 .bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
 .bt-cbar-stopsq{width:8px;height:8px;border-radius:2px;background:currentColor}

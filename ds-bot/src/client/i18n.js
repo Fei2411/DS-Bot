@@ -342,6 +342,7 @@ const ZH = {
   'No browsers found': '没有找到浏览器',
   'The Bot controls this browser': 'Bot 正在控制此浏览器',
   'The Bot is waiting for you': 'Bot 正在等待你',
+  'waits for the computer': '在等电脑空出来',
   'You control this browser': '你正在控制此浏览器',
   'The Bot handed this browser to you: {reason}': 'Bot 已将此浏览器交给你：{reason}',
   'Take over': '接管',

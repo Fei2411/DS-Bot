@@ -29,7 +29,7 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
   // window shrinks to its width and stays centered on the primary work area.
   const fit = async () => {
     try {
-      const width = await win?.webContents?.executeJavaScript("document.querySelector('.bar')?.offsetWidth ?? 0")
+      const width = await win?.webContents?.executeJavaScript("document.querySelector('.bar')?.scrollWidth ?? 0")
       if (win === null || typeof width !== 'number' || width <= 0) return
       const area = screen.getPrimaryDisplay()
       const full = Math.ceil(width) + 24
@@ -39,7 +39,7 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
   const open = () => {
     if (win !== null) return
     const area = screen.getPrimaryDisplay()
-    const width = Math.min(520, area.workAreaSize.width - 64)
+    const width = area.workAreaSize.width - 64
     win = new BrowserWindow({
       width,
       height: 48,
@@ -98,16 +98,16 @@ export function indicatorHtml(entries, labels = {}) {
   const row = (entry) => `
     <span class="entry">${avatar(entry)}<span class="text"><b>${escapeHtml(entry.name ?? entry.label)}</b>${entry.app !== undefined ? `<i>${escapeHtml(entry.app)}</i>` : ''}</span>${stopBtn(entry)}</span>`
   const waiting = (entry) => `
-    <span class="entry">${avatar(entry)}<span class="text"><b>${escapeHtml(entry.label)}</b></span><button class="go" data-act="letgo:${escapeHtml(entry.botId ?? '')}">${escapeHtml(labels.letGo ?? 'Let it continue')}</button></span>`
+    <span class="entry">${avatar(entry)}<span class="text"><b>${escapeHtml(entry.name ?? entry.label)}</b>${entry.app !== undefined ? `<i>${escapeHtml(entry.app)}</i>` : ''}</span><button class="go" data-act="letgo:${escapeHtml(entry.botId ?? '')}">${escapeHtml(labels.letGo ?? 'Let it continue')}</button></span>`
   const rows = entries.map((entry, index) => `${index > 0 ? '<span class="sep"></span>' : ''}${entry.waiting ? waiting(entry) : row(entry)}`).join('')
   const stopAll = entries.filter(entry => !entry.waiting).length > 1
     ? `<button class="all" data-act="stopall:">${escapeHtml(labels.stopAll ?? 'Stop all')}</button>` : ''
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 :root{color-scheme:light dark}
-body{margin:0;background:transparent;font:12.5px -apple-system,sans-serif;-webkit-app-region:no-drag;user-select:none}
-.bar{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;margin:4px 12px;border-radius:999px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
-@media (prefers-color-scheme:light){.bar{background:rgba(255,255,255,.72);border:1px solid rgba(0,0,0,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 6px 24px rgba(0,0,0,.14);color:#1c1c1e}.bar i,.go{color:#555}}
-@media (prefers-color-scheme:dark){.bar{background:rgba(30,30,32,.78);border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 6px 24px rgba(0,0,0,.4);color:#f2f2f7}.bar i{color:#aaa}.go{color:#0a84ff}}
+body{margin:0;background:transparent;overflow:hidden;font:12.5px -apple-system,sans-serif;-webkit-app-region:no-drag;user-select:none}
+.bar{display:inline-flex;align-items:center;gap:8px;height:36px;white-space:nowrap;padding:0 12px;margin:4px 12px;border-radius:999px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
+@media (prefers-color-scheme:light){.bar{background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 6px 24px rgba(0,0,0,.14);color:#1c1c1e}.bar i,.go{color:#555}}
+@media (prefers-color-scheme:dark){.bar{background:rgba(30,30,32,.88);border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 6px 24px rgba(0,0,0,.4);color:#f2f2f7}.bar i{color:#aaa}.go{color:#0a84ff}}
 .live{flex:none;width:7px;height:7px;border-radius:50%;background:#ff453a;box-shadow:0 0 0 3px rgba(255,69,58,.24)}
 .sep{flex:none;width:1px;height:14px;background:currentColor;opacity:.2}
 .entry{display:flex;align-items:center;gap:6px;min-width:0}

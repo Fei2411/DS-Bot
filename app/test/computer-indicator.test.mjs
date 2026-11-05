@@ -41,7 +41,8 @@ test('the indicator window is frameless, unfocusable, protected and centered', (
   assert.equal(win.protection, true)
   assert.equal(win.workspaces, true)
   // top center of the primary display
-  assert.equal(win.options.x, Math.round((1440 - 520) / 2))
+  assert.equal(win.options.width, 1440 - 64)
+  assert.equal(win.options.x, Math.round((1440 - (1440 - 64)) / 2))
   assert.equal(win.options.y, 8)
   indicator.dispose()
   assert.equal(win.closed, true)
