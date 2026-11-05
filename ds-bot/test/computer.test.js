@@ -154,14 +154,14 @@ test('the guard refuses in order: switch, Bot, level, control, protected, consen
   await rt.computerEndpoint('set-level', { botId: 'm1', level: 'background' })
   const [track] = ctx.listeners.get('tools/execute').filter(fn => fn.name === 'computerTrack')
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'get-1' },
-    async () => ({ appHandle: 'h1', pid: 42, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: 'h1', pid: 42, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   // w1 holds an Always grant for Notes, so its calls on the handle are allowed.
   const w1 = rt.botOf('w1')
   w1.computer = { ...w1.computer, apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
   assert.equal(await call('w1', 'cua', { method: 'click', params: { appHandle: 'h1' } }), 'allowed')
   // m1 sees the same app through its own getApp; its call is refused and names w1.
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'm1' }, callId: 'get-2' },
-    async () => ({ appHandle: 'h1', pid: 42, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: 'h1', pid: 42, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   const m1 = rt.botOf('m1')
   m1.computer = { ...m1.computer, apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
   const blocked = await call('m1', 'cua', { method: 'click', params: { appHandle: 'h1' } })
@@ -193,7 +193,9 @@ test('cua-driver consent: first call asks, This time lasts the session, Deny ref
   await new Promise(resolve => setImmediate(resolve))
   const asks = rt.computerLive().asks
   assert.equal(Object.keys(asks).length, 1)
-  const [id, ask] = Object.entries(asks)[0]
+  const ask = Object.values(asks)[0]
+  const id = ask.id // the card answers with the id inside the payload, not the map key
+  assert.equal(typeof id, 'string')
   assert.equal(ask.appName, 'Notes')
   assert.equal(await rt.computerEndpoint('app-answer', { id, answer: 'once' }), true)
   assert.equal(await pending, 'allowed')
@@ -225,7 +227,9 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
   // the card answers This time
   const pending = ask('w1')
   await new Promise(resolve => setImmediate(resolve))
-  const [id, shown] = Object.entries(rt.computerLive().asks)[0]
+  const shown = Object.values(rt.computerLive().asks)[0]
+  const id = shown.id
+  assert.equal(typeof id, 'string')
   assert.equal(shown.appName, 'Notes')
   await rt.computerEndpoint('app-answer', { id, answer: 'once' })
   assert.deepEqual(await pending, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
@@ -379,7 +383,7 @@ test('a revoke removes the grant, aborts the call, revokes in the provider and t
   const bot = rt.botOf('w1')
   bot.computer = { ...bot.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } }
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g1' },
-    async () => ({ appHandle: 'h1', pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: 'h1', pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   // the grant learned the id
   assert.equal(rt.botOf('w1').computer.apps.notes.id, 'com.apple.Notes')
   const allow = async () => 'allowed'
@@ -422,7 +426,7 @@ test('grants hold in a later part and in a group Session of the same Bot', async
   const selfOf = rt.selfOf
   rt.selfOf = id => (id === other ? 'w1' : selfOf(id))
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: other }, callId: 'g' },
-    async () => ({ appHandle: 'h2', authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: 'h2', authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   assert.equal(await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h2' } }, agent: { id: other }, callId: 'c' }, allow), 'allowed')
 })
 
@@ -451,12 +455,12 @@ test('leases release at turn end, stop and takeover; user-busy gates foreground'
   const grant = (botId) => { const bot = rt.botOf(botId); bot.computer = { ...bot.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } } }
   const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
   const seed = async sessionId => track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: sessionId }, callId: `g-${sessionId}` },
-    async () => ({ appHandle: `h-${sessionId}`, authorization: { name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: `h-${sessionId}`, authorization: { name: 'Notes' } } }))
   grant('w1'); grant('m1')
   await seed('w1')
   // m1 sees a different app so only the foreground lease collides with w1's.
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Mail' } }, agent: { id: 'm1' }, callId: 'g-m1' },
-    async () => ({ appHandle: 'h-m1', authorization: { name: 'Mail' } }))
+    async () => ({ isError: false, value: { appHandle: 'h-m1', authorization: { name: 'Mail' } } }))
   rt.botOf('m1').computer.apps.mail = { name: 'Mail', grantedAt: 0 }
   // user busy gates a foreground call
   await rt.computerEndpoint('user-active', { idleSeconds: 0 })
@@ -520,7 +524,7 @@ test('Stop all stops only Bots that hold a lease, are in-flight, or are bot/wait
   const bot = rt.botOf('w1')
   bot.computer = { ...bot.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } }
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g' },
-    async () => ({ appHandle: 'h1', authorization: { name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: 'h1', authorization: { name: 'Notes' } } }))
   await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1' } }, agent: { id: 'w1' }, callId: 'c' }, async () => 'allowed')
   // w1 holds a lease; m1 has a control entry but nothing held (simulated by a user state)
   await rt.computerEndpoint('takeover', { botId: 'm1' })
@@ -591,7 +595,7 @@ test('a cua call DS Bot never decided asks by card instead of saying revoked', a
   const allow = async () => 'allowed'
   // DSH's saved decision let getApp through; DS Bot never saw a consent question.
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g1' },
-    async () => ({ appHandle: 'h1', pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+    async () => ({ isError: false, value: { appHandle: 'h1', pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
   const pending = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1' } }, agent: { id: 'w1' }, callId: 'c1' }, allow)
   await new Promise(resolve => setImmediate(resolve))
   const [id, ask] = Object.entries(rt.computerLive().asks)[0]
@@ -605,7 +609,7 @@ test('a cua call DS Bot never decided asks by card instead of saying revoked', a
   assert.equal(await denied, 'allowed')
   // but a deny recorded for another app refuses outright
   await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Mail' } }, agent: { id: 'w1' }, callId: 'g2' },
-    async () => ({ appHandle: 'h2', pid: 10, authorization: { id: 'com.apple.Mail', name: 'Mail' } }))
+    async () => ({ isError: false, value: { appHandle: 'h2', pid: 10, authorization: { id: 'com.apple.Mail', name: 'Mail' } } }))
   const ask2 = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'h2' } }, agent: { id: 'w1' }, callId: 'c4' }, allow)
   await new Promise(resolve => setImmediate(resolve))
   const [id2] = Object.entries(rt.computerLive().asks)[0]
@@ -630,7 +634,7 @@ test('a revoke clears the Bot’s session decisions for the app in every Session
   rt.selfOf = id => (id === other ? 'w1' : selfOf(id))
   for (const sessionId of ['w1', other]) {
     await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: sessionId }, callId: `g-${sessionId}` },
-      async () => ({ appHandle: `h-${sessionId}`, pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } }))
+      async () => ({ isError: false, value: { appHandle: `h-${sessionId}`, pid: 9, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
     const pending = gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: `h-${sessionId}` } }, agent: { id: sessionId }, callId: `c-${sessionId}` }, allow)
     await new Promise(resolve => setImmediate(resolve))
     const [id] = Object.entries(rt.computerLive().asks)[0]
