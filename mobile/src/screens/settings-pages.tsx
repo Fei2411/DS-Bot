@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useIsFocused } from '@react-navigation/native'
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
@@ -414,23 +415,29 @@ export function Capabilities({ navigation }: any) {
 }
 
 export function TeamUsage({ navigation }: any) {
-  const { p } = useTheme()
   const { call } = useTeam()
-  const [view, setView] = useState<{ total?: { input: number; output: number }; bots?: { name: string; input: number; output: number }[]; models?: { name: string; input: number; output: number }[] } | null>(null)
+  // The computer's usage view (usage.js): hourly rows of
+  // [hour, owner, model, kind, input, cacheRead, cacheWrite, output, calls].
+  const [view, setView] = useState<{ owners?: { name: string; kind: string; deleted?: boolean }[]; models?: { name: string }[]; rows?: number[][] } | null>(null)
   useState(() => { void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {}); return null })
-  const fmt = (n?: number) => n === undefined ? '—' : n.toLocaleString()
+  const rows = (view?.rows ?? []) as unknown as [string, number, number, string, number, number, number, number, number][]
+  const sum = (pick: (row: typeof rows[number]) => boolean) => rows.filter(pick).reduce((total, row) => ({ input: total.input + row[4] + row[5] + row[6], output: total.output + row[7] }), { input: 0, output: 0 })
+  const all = sum(() => true)
+  const fmt = (n: number) => n.toLocaleString()
+  const owners = (view?.owners ?? []).map((owner, index) => ({ owner, total: sum(row => row[1] === index) })).filter(entry => entry.total.input + entry.total.output > 0)
+  const models = (view?.models ?? []).map((model, index) => ({ model, total: sum(row => row[2] === index) })).filter(entry => entry.total.input + entry.total.output > 0)
   return (
     <Screen><Back title={t('Usage')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Section label={t('Usage')}>
-          <Row label={t('Tokens in')} value={fmt(view?.total?.input)} />
-          <Row label={t('Tokens out')} value={fmt(view?.total?.output)} />
+          <Row label={t('Tokens in')} value={view === null ? '—' : fmt(all.input)} />
+          <Row label={t('Tokens out')} value={view === null ? '—' : fmt(all.output)} />
         </Section>
         <Section label={t('Bots')}>
-          {(view?.bots ?? []).map(item => <Row key={item.name} label={item.name} value={fmt(item.input + item.output)} />)}
+          {owners.map(({ owner, total }, index) => <Row key={index} label={owner.name} value={fmt(total.input + total.output)} />)}
         </Section>
         <Section label={t('Models')}>
-          {(view?.models ?? []).map(item => <Row key={item.name} label={item.name} value={fmt(item.input + item.output)} />)}
+          {models.map(({ model, total }, index) => <Row key={index} label={model.name} value={fmt(total.input + total.output)} />)}
         </Section>
       </ScrollView>
     </Screen>
@@ -438,8 +445,12 @@ export function TeamUsage({ navigation }: any) {
 }
 
 export function Location({ navigation }: any) {
-  const { team } = useTeam()
-  const workspace = team?.workspace ?? ''
+  const { call, team } = useTeam()
+  // As on the desktop, the team workspace comes from `folders`; it is read again on
+  // focus so a change made in the folder picker shows on return.
+  const [workspace, setWorkspace] = useState('')
+  const focused = useIsFocused()
+  useEffect(() => { if (focused) void call('folders').then(v => setWorkspace((v as { team?: string })?.team ?? '')).catch(() => {}) }, [focused, team?.revision])
   const dataPath = (team as { dataPath?: string } | null)?.dataPath
   return (
     <Screen><Back title={t('Location')} onBack={() => navigation.goBack()} />
@@ -456,9 +467,10 @@ export function Location({ navigation }: any) {
 export function Updates({ navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const [update, setUpdate] = useState<{ phase?: string; latest?: string; installed?: string; verified?: string; available?: boolean; checkedAt?: number; source?: string; enabled?: boolean; error?: string; notes?: string } | null>(null)
-  const [dsh, setDsh] = useState<{ phase?: string; latest?: string; installed?: string; verified?: string; available?: boolean; blockedBy?: string; error?: string } | null>(null)
-  const [diag, setDiag] = useState<{ size?: number; entries?: number; last?: string } | null>(null)
+  const [update, setUpdate] = useState<{ current?: string; phase?: string; latest?: string; installed?: string; verified?: string; available?: boolean; checkedAt?: number; source?: string; enabled?: boolean; error?: string; notes?: string } | null>(null)
+  const [dsh, setDsh] = useState<{ current?: string; phase?: string; latest?: string; installed?: string; verified?: string; available?: boolean; blockedBy?: string; error?: string } | null>(null)
+  // diagnostics.report: { facts, entries: [{ time, level, source, text }], total }
+  const [diag, setDiag] = useState<{ total?: number; entries?: { text?: string }[] } | null>(null)
   const [log, setLog] = useState<string[] | null>(null)
   const [armed, setArmed] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -487,24 +499,24 @@ export function Updates({ navigation }: any) {
     if (d.available) return t('DSH {version} is available', { version: d.verified ?? d.latest ?? '' })
     return t('Up to date')
   }
-  const loadLog = () => { if (log !== null) { setLog(null); return } void call('diagnostics-log').then(v => setLog(((v as { lines?: string[] })?.lines ?? []) as string[])).catch(() => {}) }
+  const loadLog = () => { if (log !== null) { setLog(null); return } void call('diagnostics-log').then(v => setLog(typeof v === 'string' ? v.split('\n') : [])).catch(() => {}) }
   const clearDiag = () => { if (!armed) { setArmed(true); return } setArmed(false); void call('diagnostics-clear').catch(() => {}) }
   return (
     <Screen><Back title={t('Updates & diagnostics')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Section label={t('DS Bot')}>
-          <Row label={t('DS Bot')} value={updateText(update)} />
+          <Row label={update?.current ? `DS Bot ${update.current}` : t('DS Bot')} value={updateText(update)} />
           {update?.notes ? <Row label={t('What is new')} value={update.notes} /> : null}
           {update?.available === true ? <Row label={t('Install update')} onPress={() => void call('update-install')} /> : null}
           <Row label={busy ? t('Checking for updates…') : t('Check for updates')} onPress={busy ? undefined : check} />
         </Section>
         <Section label={t('DSH')}>
-          <Row label={t('DSH')} value={dshText(dsh)} />
+          <Row label={dsh?.current ? `DSH ${dsh.current}` : t('DSH')} value={dshText(dsh)} />
           {dsh?.available === true ? <Row label={t('Install DSH update')} onPress={() => void call('dsh-update-install')} /> : null}
         </Section>
         <Section label={t('Diagnostics')}>
-          <Row label={t('Log size')} value={diag !== null ? `${(diag.entries ?? 0)} · ${(diag.size ?? 0).toLocaleString()} B` : '—'} />
-          {diag?.last ? <Row label={t('Last entry')} value={diag.last} /> : null}
+          <Row label={t('Log entries')} value={diag !== null ? String(diag.total ?? diag.entries?.length ?? 0) : '—'} />
+          {diag?.entries?.length ? <Row label={t('Last entry')} value={diag.entries[diag.entries.length - 1]?.text ?? ''} /> : null}
           <Row label={log === null ? t('Diagnostics log') : t('Hide log')} onPress={loadLog} />
           {log !== null ? (
             <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
@@ -525,9 +537,12 @@ export function Updates({ navigation }: any) {
 
 export function About({ navigation }: any) {
   const { p } = useTheme()
-  const { team, computer } = useTeam()
-  const version = (team as { version?: string } | null)?.version ?? '—'
-  const dsh = (team as { dshVersion?: string } | null)?.dshVersion
+  const { call, computer } = useTeam()
+  // The state carries no versions; the update check knows both.
+  const [versions, setVersions] = useState<{ current?: string; dsh?: { current?: string } | null } | null>(null)
+  useState(() => { void call('update-check').then(v => setVersions(v as typeof versions)).catch(() => {}); return null })
+  const version = versions?.current ?? '—'
+  const dsh = versions?.dsh?.current
   const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
   return (
     <Screen><Back title={t('About')} onBack={() => navigation.goBack()} />

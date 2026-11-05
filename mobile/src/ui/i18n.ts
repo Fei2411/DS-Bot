@@ -128,7 +128,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Restart DSH to start using DSH {version}.': '重启 DSH 后开始用 DSH {version}。',
   'Install update': '安装更新', 'Install DSH update': '安装 DSH 更新',
   'Checking for updates…': '正在检查更新…', 'What is new': '新内容',
-  'Log size': '日志大小', 'Last entry': '最后一条', 'Hide log': '收起日志',
+  'Log size': '日志大小', 'Log entries': '日志条数', 'Last entry': '最后一条', 'Hide log': '收起日志',
   'Copied': '已复制', 'Copy all': '全部复制',
   'Data location': '数据位置', 'Phone app': '手机应用', 'Repository': '仓库',
   'Phone': '手机', 'Computers': '电脑', 'Language': '语言',

@@ -792,7 +792,9 @@ export function Folder({ route, navigation }: any) {
   const load = (next: string) => { setPath(next); void call('folder-list', { path: next }).then(v => setListing(v as typeof listing)).catch(() => {}) }
   useState(() => { void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {}); load(path); return null })
   const choose = (picked: string) => {
-    const target = route.params?.onPick === 'room' ? ['update-room', { id: route.params?.roomId, workDir: picked }] : ['update-bot', { id: route.params?.botId, workDir: picked }]
+    const target = route.params?.onPick === 'room' ? ['update-room', { id: route.params?.roomId, workDir: picked }]
+      : route.params?.onPick === 'team' ? ['team-workspace', { path: picked }]
+      : ['update-bot', { id: route.params?.botId, workDir: picked }]
     void run(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
   }
   return (
@@ -918,7 +920,7 @@ export function Secrets({ navigation }: any) {
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
   const [armed, setArmed] = useState<string | null>(null)
-  const secrets = (team as { secrets?: { name: string; description?: string; scope?: string }[] } | null)?.secrets ?? []
+  const secrets = (team as { secrets?: { name: string; description?: string; scope?: string | string[] }[] } | null)?.secrets ?? []
   const save = () => { if (!name.trim() || !value) return; const next = value; setValue(''); void run('secret-set', { name: name.trim(), value: next }, () => setName('')) }
   return (
     <Screen title="">
@@ -930,7 +932,7 @@ export function Secrets({ navigation }: any) {
             <View key={secret.name} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{secret.name}</Text>
-                {secret.scope ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{secret.scope}</Text> : null}
+                {secret.scope !== undefined ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{secret.scope === 'all' ? t('All Bots') : (Array.isArray(secret.scope) ? secret.scope : [secret.scope]).map(id => botOf(team, id)?.name ?? id).join(', ')}</Text> : null}
               </View>
               <Pressable accessibilityRole="button" onPress={() => { if (armed === secret.name) { setArmed(null); void run('secret-delete', { name: secret.name }) } else setArmed(secret.name) }} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
                 <Text style={[typeScale.settingsRow, { color: armed === secret.name ? p.danger : p.ink3 }]}>{armed === secret.name ? t('Tap again to delete') : t('Delete')}</Text>
