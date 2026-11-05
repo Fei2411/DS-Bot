@@ -6,6 +6,8 @@
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
+import { createComputerCursor } from './computer-cursor.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -42,6 +44,7 @@ const IPC = {
   appUpdateState: 'ds-bot:app-update-state', appUpdateCheck: 'ds-bot:app-update-check',
   appUpdateInstall: 'ds-bot:app-update-install', appUpdateOpen: 'ds-bot:app-update-open',
   appUpdateChanged: 'ds-bot:app-update-changed',
+  idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -154,6 +157,8 @@ const shell = createShell({
     target.focus()
   },
   quit: () => { app.quit() },
+  // A tray entry's Stop (or Stop all) goes back to the page, which owns the actions.
+  computer: (kind, botId) => { mainWindow?.webContents.send(IPC.computerAction, { kind, botId }) },
   busy: () => copying !== undefined,
   // Before the first run has chosen its places there is no window to show, and before the
   // first load of the Host there is no address to load.
@@ -721,6 +726,26 @@ function handleIpc() {
   // A throwaway run (DS_BOT_HOME) keeps its folders where it was told.
   const fixed = Boolean(process.env.DS_BOT_HOME)
   // The team view has mounted (ds-bot calls dsBotApp.ready()): the start window hands over.
+  const computerIndicator = createComputerIndicator({
+    BrowserWindow, screen, html: indicatorHtml, ipcMain,
+    preload: join(here, 'computer-indicator-preload.cjs'),
+    onAction: (kind, botId) => { mainWindow?.webContents.send(IPC.computerAction, { kind, botId }) },
+    log: logs,
+  })
+  ipcMain.on(IPC.computer, (event, entries) => {
+    if (!fromWindow(event)) return
+    const list = Array.isArray(entries?.rows) ? entries.rows.filter(entry => entry && typeof entry.label === 'string').slice(0, 12) : []
+    const labels = entries?.labels ?? {}
+    computerIndicator.update({ rows: list, labels })
+    shell.setComputer(list)
+  })
+  ipcMain.handle(IPC.idleSeconds, (event) => (fromWindow(event) ? powerMonitor.getSystemIdleTime() : 0))
+  const computerCursor = createComputerCursor({ BrowserWindow, screen, platform: process.platform, log: logs })
+  ipcMain.on(IPC.computerCursor, (event, entry) => {
+    if (!fromWindow(event)) return
+    void computerCursor.update(entry)
+  })
+  app.on('before-quit', () => { computerIndicator.dispose(); computerCursor.dispose() })
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // It has drawn the whale the start window hands over: the windows cross-fade.
   ipcMain.on(IPC.handoffReady, (event) => { if (fromWindow(event)) startWindow.teamReady() })

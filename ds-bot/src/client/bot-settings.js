@@ -8,6 +8,7 @@ import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
+import { BotComputerCard } from './computer.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
@@ -229,6 +230,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
+    h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
     h(Card, { title: t('Main Bot') },

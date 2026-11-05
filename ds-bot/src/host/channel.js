@@ -85,6 +85,8 @@ export function install(rt) {
     readOnly: rt.readOnly() ?? null,
     // IM connections (settings → IM): one per chat-app bot the user added.
     im: rt.imView?.() ?? { connections: [], platforms: [] },
+    // The computer-use switch, the provider it mounts, and each Bot's level and app grants.
+    computer: rt.computerView?.() ?? { enabled: false },
   })
   // What changes without a new revision, sent with every state answer. `learning`:
   // each Bot's pending skill proposals. `memoryNews`:
@@ -102,6 +104,10 @@ export function install(rt) {
     capabilityStatuses: rt.capabilityStatusesView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
+    // Computer use live state: per-Bot control, leases, pending app cards and holds.
+    // Named apart from the state view's `computer`: the live answer merges into the
+    // same object and would wipe its `enabled` and `provider` fields.
+    computerLive: rt.computerLive?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -119,7 +125,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library'])
+  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -600,6 +606,10 @@ export function install(rt) {
           await rt.diagnostics.clear()
           return ok(true)
         default:
+          if (endpoint.startsWith('computer-')) {
+            await rt.load()
+            return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
+          }
           return fail(`Unknown endpoint ${endpoint}`, 'bot/not-found')
       }
     } catch (error) {
