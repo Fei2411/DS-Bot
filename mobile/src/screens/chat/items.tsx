@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { t, dateLocale } from '../../ui/i18n.ts'
+import { t, dayLabel } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
@@ -60,7 +60,7 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
   const longPress = () => { void Haptics.selectionAsync(); onLongPress?.(source) }
   if (item.kind === 'steps') return <Steps item={item} p={p} open={open === true} onToggle={onToggle ?? (() => {})} />
   if (item.kind === 'divider') {
-    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? new Date(item.time).toLocaleDateString(dateLocale(), { month: 'long', day: 'numeric' }) : ''}</Text>
+    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? dayLabel(item.time) : ''}</Text>
   }
   if (item.kind === 'event') {
     if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>

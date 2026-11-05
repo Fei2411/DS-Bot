@@ -10,7 +10,7 @@ import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
-import { t } from '../ui/i18n.ts'
+import { t, timeLabel } from '../ui/i18n.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
@@ -659,7 +659,7 @@ const todayString = () => { const d = new Date(); return `${d.getFullYear()}-${S
 
 const whenText = (task: { kind: string; time?: string; everySeconds?: number; minutes?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }) => {
   switch (task.kind) {
-    case 'at': return t('Once, {time}', { time: new Date(task.scheduledAt ?? 0).toLocaleString() })
+    case 'at': return t('Once, {time}', { time: timeLabel(task.scheduledAt ?? 0) })
     case 'every': { const s = task.everySeconds ?? (task.minutes ?? 0) * 60; if (s % 86400 === 0) return s === 86400 ? t('Every day') : t('Every {count} days', { count: s / 86400 }); if (s % 3600 === 0) return s === 3600 ? t('Every hour') : t('Every {count} hours', { count: s / 3600 }); return t('Every {count} minutes', { count: Math.round(s / 60) }) }
     case 'daily': return t('Every day at {time}', { time: task.time ?? '' })
     case 'weekly': { const d = (task.weekdays ?? []).join(); return d === '1,2,3,4,5' ? t('Every weekday at {time}', { time: task.time ?? '' }) : d === '6,7' ? t('Every weekend at {time}', { time: task.time ?? '' }) : d === '1,2,3,4,5,6,7' ? t('Every day at {time}', { time: task.time ?? '' }) : t('Every {days} at {time}', { days: (task.weekdays ?? []).map(day => t('周{d}', { d: DAY_NAMES[day] ?? String(day) })).join('、'), time: task.time ?? '' }) }

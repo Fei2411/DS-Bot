@@ -218,9 +218,10 @@ const MOBILE_ZH: Record<string, string> = {
   'Demo team': '演示团队',
 }
 
-const isZh = (): boolean => {
+const systemZh = (): boolean => {
   try { return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('zh') } catch { return false }
 }
+const isZh = (): boolean => langOverride === 'zh' || (langOverride === 'system' && systemZh())
 
 const fill = (text: string, params?: Record<string, string | number>) =>
   params === undefined ? text : text.replace(/\{(\w+)\}/g, (match, name: string) => (params[name] === undefined ? match : String(params[name])))
@@ -245,4 +246,12 @@ export function t(key: string, params?: Record<string, string | number>): string
   return zh ? autospaced(text) : text
 }
 
-export const dateLocale = () => (isZh() ? 'zh-CN' : 'en-US')
+// Built by hand: Hermes formats dates in the system locale whatever locale is
+// asked for, so a phone set to English would show English dates in a Chinese UI.
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const pad = (n: number) => String(n).padStart(2, '0')
+export const dayLabel = (time: number) => {
+  const d = new Date(time)
+  return isZh() ? `${d.getMonth() + 1}月${d.getDate()}日` : `${MONTHS[d.getMonth()]} ${d.getDate()}`
+}
+export const timeLabel = (time: number) => `${dayLabel(time)} ${pad(new Date(time).getHours())}:${pad(new Date(time).getMinutes())}`
