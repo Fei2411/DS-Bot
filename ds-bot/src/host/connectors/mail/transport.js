@@ -2,6 +2,7 @@
 // behind a small interface the tools and tests share; tests inject fakes
 // through rt.config.mail.connect.
 import { simpleParser } from 'mailparser'
+import { Socket } from 'node:net'
 import { IMAP_ID } from './presets.js'
 
 // IMAP + SMTP (imapflow + nodemailer). One live IMAP connection per account is
@@ -17,16 +18,61 @@ export const imapOptions = (account, deps = {}) => ({
 })
 
 export async function connectImap(account, deps = {}) {
-  const { ImapFlow } = await import('imapflow')
-  const nodemailer = await import('nodemailer')
+  const { ImapFlow } = deps.modules ?? await import('imapflow')
+  const nodemailer = deps.modules?.nodemailer ?? await import('nodemailer')
   const imap = new ImapFlow(imapOptions(account, deps))
-  const smtp = nodemailer.createTransport({
+  let gone = false
+  let smtp
+  const sockets = new Set()
+  const retire = () => {
+    if (gone) return
+    gone = true
+    imap.close()
+    for (const socket of sockets) socket.destroy()
+    smtp?.close()
+    deps.onGone?.()
+  }
+  imap.on('error', retire)
+  imap.on('close', retire)
+  smtp = nodemailer.createTransport({
     host: account.smtp.host, port: account.smtp.port, secure: account.smtp.secure === true,
     requireTLS: account.smtp.starttls === true,
     auth: { user: account.address, pass: deps.password },
+    // Nodemailer's close() does not cancel a non-pooled verify(). Own its sockets
+    // through the transport hook so an IMAP failure also cancels that login.
+    getSocket(options, done) {
+      if (gone) { done(new Error('The mail connection is closed')); return }
+      const socket = new Socket()
+      sockets.add(socket)
+      let answered = false
+      const fail = error => { if (!answered) { answered = true; done(error) } }
+      socket.once('error', fail)
+      socket.on('error', retire)
+      socket.once('close', () => {
+        sockets.delete(socket)
+        fail(new Error('The SMTP connection closed'))
+      })
+      // Preserve Nodemailer's documented default connection timeout.
+      socket.setTimeout(options.connectionTimeout ?? 120_000, () => socket.destroy(new Error('SMTP connection timeout')))
+      socket.connect({ host: options.host, port: options.port }, () => {
+        if (answered) return
+        answered = true
+        socket.setTimeout(0)
+        done(null, { connection: socket })
+      })
+    },
   })
-  await imap.connect()
-  await smtp.verify()
+  smtp.on('error', retire)
+  try {
+    await Promise.all([
+      imap.connect().then(() => { if (gone) imap.close() }),
+      smtp.verify().then(() => { if (gone) smtp.close() }),
+    ])
+    if (gone) throw new Error('The mail connection closed during verification')
+  } catch (error) {
+    retire()
+    throw error
+  }
 
   const folders = async () => {
     const list = await imap.list()
@@ -75,7 +121,8 @@ export async function connectImap(account, deps = {}) {
 
   return {
     kind: 'imap',
-    async close() { try { await imap.logout() } catch { /* dropped */ } },
+    get usable() { return !gone && imap.usable },
+    async close() { try { if (!gone) await imap.logout() } catch { /* dropped */ } finally { retire() } },
     async search({ folder = 'INBOX', from, to, subject, text, since, before, unread, limit = 20 }) {
       const query = {}
       if (from) query.from = from

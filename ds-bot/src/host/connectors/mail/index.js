@@ -17,6 +17,8 @@ const MAX_REQUESTS = 20
 export function install(rt, host) {
   const { state } = rt
   const sessions = new Map()
+  const connecting = new Map()
+  const adding = new Map()
 
   const accounts = () => state.connectors?.mail?.accounts ?? {}
   const accountList = () => Object.values(accounts())
@@ -24,7 +26,7 @@ export function install(rt, host) {
   const accountOf = (ref) => {
     const list = accountList()
     if (ref === undefined || ref === '') return list.length === 1 ? list[0] : undefined
-    return list.find(account => account.address === String(ref).toLowerCase() || account.id === ref)
+    return list.find(account => account.address.toLowerCase() === String(ref).toLowerCase() || account.id === ref)
   }
 
   const googleClient = () => ({
@@ -33,10 +35,26 @@ export function install(rt, host) {
   })
   const googleReady = () => Boolean(googleClient().id && googleClient().secret)
 
+  async function openImap(account, password) {
+    const factory = rt.config.mail?.connect ?? connectImap
+    let session
+    session = await factory(account, { password, onGone: () => {
+      if (sessions.get(account.id) === session) sessions.delete(account.id)
+    } })
+    if (session.usable === false) throw new Error('The mail connection closed during verification')
+    sessions.set(account.id, session)
+    return session
+  }
+
   async function connect(account) {
     const key = account.id
     const live = sessions.get(key)
-    if (live !== undefined) return live
+    if (live !== undefined && live.usable !== false) return live
+    if (live !== undefined) {
+      sessions.delete(key)
+      await live.close?.()
+    }
+    if (connecting.has(key)) return connecting.get(key)
     const make = async () => {
       if (account.auth === 'google') {
         const token = () => rt.secretValue(mailSecretName(account.address, 'TOKEN'))
@@ -46,17 +64,13 @@ export function install(rt, host) {
       }
       const password = rt.secretValue(mailSecretName(account.address, 'PASSWORD'))
       if (password === undefined) throw new Error(`The password for ${account.address} is not saved`)
-      const factory = rt.config.mail?.connect ?? connectImap
-      const session = await factory(account, { password })
-      sessions.set(key, session)
-      return session
+      return openImap(account, password)
     }
+    const pending = make()
+    connecting.set(key, pending)
     try {
-      return await make()
-    } catch (error) {
-      sessions.delete(key)
-      throw error
-    }
+      return await pending
+    } finally { connecting.delete(key) }
   }
 
   // Gmail tokens refresh through the same OAuth rules as connectors.
@@ -281,30 +295,43 @@ export function install(rt, host) {
         if (!googleReady()) throw new Error('Google sign-in is not available in this build')
         return beginGoogle(address)
       }
-      const password = String(body.password ?? '').trim()
-      if (password === '') throw new Error('Enter the authorization code or app password')
-      const preset = presetOf(address)
-      const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
-      const chosen = PRESETS.find(p => p.id === provider)
-      const imap = chosen && provider !== 'other' ? chosen.imap : { host: String(body.imapHost ?? '').trim(), port: Number(body.imapPort) || 993, secure: body.imapTls !== false }
-      const smtp = chosen && provider !== 'other' ? chosen.smtp : { host: String(body.smtpHost ?? '').trim(), port: Number(body.smtpPort) || 465, secure: body.smtpTls !== false }
-      if (imap.host === '' || smtp.host === '') throw new Error('Enter the IMAP and SMTP hosts')
-      const id = `m${randomUUID().slice(0, 8)}`
-      const account = { id, address, provider, auth: 'password', imap, smtp, createdAt: Date.now() }
-      // Log in once before saving, so a bad password never lands in state.
-      const factory = rt.config.mail?.connect ?? connectImap
-      let session
-      try {
-        session = await factory(account, { password })
-      } catch (error) {
-        throw new Error(mailError(error))
-      }
-      state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
-      await host.secrets.writeSecret(mailSecretName(address, 'PASSWORD'), password, `Mailbox ${address}`)
-      await rt.save()
-      sessions.set(id, session)
-      syncTools()
-      return mailView()
+      if (adding.has(address)) return adding.get(address)
+      const pending = (async () => {
+        const password = String(body.password ?? '').trim()
+        if (password === '') throw new Error('Enter the authorization code or app password')
+        const preset = presetOf(address)
+        const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
+        const chosen = PRESETS.find(p => p.id === provider)
+        const imap = chosen && provider !== 'other' ? chosen.imap : { host: String(body.imapHost ?? '').trim(), port: Number(body.imapPort) || 993, secure: body.imapTls !== false }
+        const smtp = chosen && provider !== 'other' ? chosen.smtp : { host: String(body.smtpHost ?? '').trim(), port: Number(body.smtpPort) || 465, secure: body.smtpTls !== false }
+        if (imap.host === '' || smtp.host === '') throw new Error('Enter the IMAP and SMTP hosts')
+        const existing = accountOf(address)
+        const id = existing?.id ?? `m${randomUUID().slice(0, 8)}`
+        const account = { ...existing, id, address, provider, auth: 'password', imap, smtp, createdAt: existing?.createdAt ?? Date.now() }
+        delete account.error
+        // Log in once before saving, so a bad password never lands in state.
+        const old = sessions.get(id)
+        let session
+        try {
+          session = await openImap(account, password)
+        } catch (error) {
+          throw new Error(mailError(error))
+        }
+        await old?.close?.().catch(() => {})
+        try {
+          await host.secrets.writeSecret(mailSecretName(address, 'PASSWORD'), password, `Mailbox ${address}`)
+          state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
+          await rt.save()
+        } catch (error) {
+          if (sessions.get(id) === session) sessions.delete(id)
+          await session.close?.()
+          throw error
+        }
+        syncTools()
+        return mailView()
+      })()
+      adding.set(address, pending)
+      try { return await pending } finally { adding.delete(address) }
     },
     async 'mail-account-remove'(body) {
       const account = accountOf(body.id ?? body.address)

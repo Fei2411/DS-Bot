@@ -3,6 +3,7 @@
 // test process (fakes listen on 127.0.0.1 or answer in memory).
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,6 +17,7 @@ const oauth = await import('../src/host/connectors/oauth.js')
 const { createGateway } = await import('../src/host/connectors/gateway.js')
 const { validateCapabilityName } = await import('../src/host/capabilities.js')
 const { mailSecretName } = await import('../src/host/connectors/mail/presets.js')
+const { connectImap } = await import('../src/host/connectors/mail/transport.js')
 
 const addressAt = domain => `${'me'}@${domain}`
 
@@ -460,6 +462,117 @@ const fakeSession = () => {
     async close() { calls.push(['close']) },
   }
 }
+
+test('mail_search reconnects once after an idle drop or an unusable cached session', async (t) => {
+  const made = []
+  const factory = async (_account, { onGone }) => {
+    const session = { ...fakeSession(), usable: true, gone: () => onGone() }
+    made.push(session)
+    return session
+  }
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: factory } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' })
+  const search = rt.teamTools.find(d => d.name === 'mail_search')
+  made[0].gone()
+  assert.equal(await search.execute({}, { agent: { id: 'm1' } }), 'No matching mail.')
+  assert.equal(made.length, 2)
+  made[0].gone() // A late close from the old connection must not drop the new one.
+  await search.execute({}, { agent: { id: 'm1' } })
+  assert.equal(made.length, 2)
+  made[1].usable = false
+  await search.execute({}, { agent: { id: 'm1' } })
+  assert.equal(made.length, 3)
+})
+
+test('an idle ImapFlow error cannot crash the engine and the next search logs in once', async (t) => {
+  const clients = []
+  class ImapFlow extends EventEmitter {
+    usable = false
+    constructor() { super(); clients.push(this) }
+    async connect() { this.usable = true }
+    close() { this.usable = false; this.emit('close') }
+    async logout() { this.close() }
+    async getMailboxLock() { return { release() {} } }
+    async search() { return [] }
+  }
+  let made = 0
+  const factory = (account, deps) => {
+    made += 1
+    return connectImap(account, { ...deps, modules: {
+      ImapFlow, nodemailer: { createTransport: () => Object.assign(new EventEmitter(), { verify: async () => {}, close() {} }) },
+    } })
+  }
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: factory } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' })
+  assert.doesNotThrow(() => clients[0].emit('error', new Error('Socket timeout')))
+  assert.equal(await rt.teamTools.find(d => d.name === 'mail_search').execute({}, { agent: { id: 'm1' } }), 'No matching mail.')
+  assert.equal(made, 2)
+})
+
+test('mail add updates the same address and keeps its verified session for tools', async (t) => {
+  const made = []
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async (account, deps) => {
+    const session = fakeSession()
+    made.push({ account, password: deps.password, session })
+    return session
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  const first = await rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'FIRST' })
+  const id = first.accounts[0].id
+  const search = rt.teamTools.find(d => d.name === 'mail_search')
+  await search.execute({}, { agent: { id: 'm1' } })
+  assert.equal(made.length, 1)
+  assert.equal(made[0].session.calls.some(c => c[0] === 'close'), false)
+  const updated = await rt.connectorEndpoint('mail-account-add', {
+    address: addressAt('qq.com').toUpperCase(), password: 'SECOND', provider: 'other',
+    imapHost: 'imap.example.test', smtpHost: 'smtp.example.test',
+  })
+  assert.equal(updated.accounts.length, 1)
+  assert.equal(updated.accounts[0].id, id)
+  assert.equal(made.length, 2)
+  assert.equal(made[1].account.imap.host, 'imap.example.test')
+  assert.equal(rt.secretValue(mailSecretName(addressAt('qq.com'), 'PASSWORD')), 'SECOND')
+  assert.equal(made[0].session.calls.some(c => c[0] === 'close'), true)
+  await search.execute({}, { agent: { id: 'm1' } })
+  assert.equal(made.length, 2)
+  assert.equal(made[1].session.calls.some(c => c[0] === 'search'), true)
+})
+
+test('concurrent adds for one address share verification and its result', async (t) => {
+  const gate = Promise.withResolvers()
+  const started = Promise.withResolvers()
+  let made = 0
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: async () => {
+    made += 1
+    started.resolve()
+    await gate.promise
+    return fakeSession()
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  const first = rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' })
+  await started.promise
+  const second = rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com').toUpperCase(), password: 'CODE' })
+  await new Promise(resolve => setImmediate(resolve))
+  gate.resolve()
+  const [a, b] = await Promise.all([first, second])
+  assert.equal(made, 1)
+  assert.deepEqual(a, b)
+  assert.equal(rt.mailView().accounts.length, 1)
+})
 
 test('mail account add verifies before saving; a bad code fails cleanly; send needs the card', async (t) => {
   const sessions = new Map()
