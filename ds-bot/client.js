@@ -1298,6 +1298,8 @@ var ZH = {
   "Sign in with Google": "使用 Google 登录",
   "Add account": "添加账户",
   "Add an account": "添加账户",
+  "No mail accounts yet": "还没有邮箱账户",
+  "Verifying…": "正在验证…",
   "Open the Google sign-in page": "打开 Google 登录页",
   "Add an address": "添加地址",
   "Add a command": "添加命令",
@@ -1316,16 +1318,15 @@ var ZH = {
   "Commerce": "商务",
   "No connectors connected": "未连接任何连接器",
   "{bot} needs {name}": "{bot} 需要 {name}",
-  "{bot} asked for a connector — connected": "{bot} 请求了连接器 — 已连接",
-  "{bot} asked for a connector": "{bot} 请求了连接器",
   "{bot} wants to send an email": "{bot} 想发送一封邮件",
   "To": "收件人",
   "Cc": "抄送",
   "Bcc": "密送",
   "Attachments: {names}": "附件:{names}",
   "Sent “{subject}”": "已发送“{subject}”",
-  "Could not send “{subject}”": "“{subject}”发送失败",
-  "“{subject}” was not sent": "“{subject}”未发送"
+  "{bot} wanted to send “{subject}”": "{bot} 想发送“{subject}”",
+  "Failed": "失败",
+  "Sending…": "正在发送…"
 };
 var HOST_ERRORS = [
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],
@@ -4233,6 +4234,7 @@ var SwitchIcon = lineIcon(["M4 7h9.5M10.5 3.5L14 7l-3.5 3.5", "M16 13H6.5M9.5 9.
 var SignOutIcon = lineIcon(["M8.5 17H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2.5", "M10 10h6.5", "M13.5 7l3 3-3 3"]);
 var SignInIcon = lineIcon(["M11.5 3H14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2.5", "M3.5 10H10", "M7 7l3 3-3 3"]);
 var PaperclipIcon = lineIcon(["M15.5 9.5l-5.6 5.6a3.4 3.4 0 0 1-4.8-4.8l6.1-6.1a2.25 2.25 0 0 1 3.2 3.2l-6 6a1.1 1.1 0 0 1-1.6-1.6l5.5-5.5"]);
+var MailIcon = lineIcon(["M4 5.5h12a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V7a1.5 1.5 0 0 1 1.5-1.5z", "M3.2 7l6.8 4.5L16.8 7"]);
 var ClockIcon = lineIcon(["M10 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z", "M10 6.5V10l2.5 1.5"]);
 var GearIcon = lineIcon(["M10 7.4a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2z", "M7.85 4.4l.29-1.87a7.7 7.7 0 0 1 3.72 0l.29 1.87a6 6 0 0 1 1.63.94l1.76-.69a7.7 7.7 0 0 1 1.86 3.23l-1.47 1.18a6 6 0 0 1 0 1.88l1.47 1.18a7.7 7.7 0 0 1-1.86 3.23l-1.76-.69a6 6 0 0 1-1.63.94l-.29 1.87a7.7 7.7 0 0 1-3.72 0l-.29-1.87a6 6 0 0 1-1.63-.94l-1.76.69a7.7 7.7 0 0 1-1.86-3.23l1.47-1.18a6 6 0 0 1 0-1.88L2.6 7.88a7.7 7.7 0 0 1 1.86-3.23l1.76.69a6 6 0 0 1 1.63-.94z"]);
 var PinIcon = lineIcon(["M12.5 3l4.5 4.5-3 1.5-2.5 2.5.5 3.5-1.5 1.5L7 13 3.5 16.5", "M7 13l-3.5-3.5L5 8l3.5.5L11 6l1.5-3"]);
@@ -7705,10 +7707,11 @@ var scopeLabel = (scope, roster) => {
   return names.length === 0 ? t("No Bot") : names.join(t(" and "));
 };
 var when = (time) => Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-function MaskedInput({ value, onChange, onEnter, label, autoFocus = false }) {
+function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false }) {
   return (0, import_react16.createElement)("input", {
     className: "bt-secret-input",
     type: MASK_BY_CSS ? "text" : "password",
+    disabled,
     "data-masked": MASK_BY_CSS ? "" : void 0,
     value,
     autoFocus,
@@ -10766,103 +10769,155 @@ var MAIL_GUIDES = {
     ]
   }
 };
-function MailSection({ mail, actions, run: run2 }) {
-  const [form, setForm] = (0, import_react25.useState)(false);
-  const [address, setAddress] = (0, import_react25.useState)("");
-  const [password, setPassword] = (0, import_react25.useState)("");
-  const [provider, setProvider] = (0, import_react25.useState)("");
-  const [imapHost, setImapHost] = (0, import_react25.useState)("");
-  const [smtpHost, setSmtpHost] = (0, import_react25.useState)("");
-  const [error, setError] = (0, import_react25.useState)(null);
-  const accounts = mail?.accounts ?? [];
+function MailAccount({ account, actions, run: run2 }) {
+  const [busy, setBusy] = (0, import_react25.useState)(false);
+  const busyRef = (0, import_react25.useRef)(false);
+  const remove = () => {
+    if (busyRef.current || busy) return;
+    busyRef.current = true;
+    setBusy(true);
+    void Promise.resolve(run2(actions.mailAccountRemove(account.id))).finally(() => {
+      busyRef.current = false;
+      setBusy(false);
+    });
+  };
+  return (0, import_react25.createElement)(
+    "div",
+    { className: "bt-connector", "data-state": account.error ? "error" : "ready" },
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-connector-head" },
+      (0, import_react25.createElement)("span", { className: "bt-connector-mark" }, (0, import_react25.createElement)(ConnectorMark, { connector: { id: `mail-${account.provider}`, name: account.address } })),
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-connector-text" },
+        (0, import_react25.createElement)("span", { className: "bt-connector-name" }, account.address),
+        (0, import_react25.createElement)("span", { className: "bt-connector-status" }, account.error ? hostText(account.error) : t("Connected"))
+      ),
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-connector-actions" },
+        (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: remove }, t("Remove"))
+      )
+    )
+  );
+}
+function MailPending({ pending }) {
+  return (0, import_react25.createElement)(
+    "div",
+    { className: "bt-connector", "data-state": "connecting" },
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-connector-head" },
+      (0, import_react25.createElement)("span", { className: "bt-connector-mark" }, (0, import_react25.createElement)(ConnectorMark, { connector: { id: "mail-gmail", name: "Google" } })),
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-connector-text" },
+        (0, import_react25.createElement)("span", { className: "bt-connector-name" }, pending.address ?? "Google"),
+        (0, import_react25.createElement)("span", { className: "bt-connector-status" }, t("Waiting for sign-in…"))
+      ),
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-connector-actions" },
+        (0, import_react25.createElement)("a", { className: "bt-soft bt-soft-sm bt-mail-open", href: pending.url, target: "_blank", rel: "noopener noreferrer" }, t("Open the sign-in page"))
+      )
+    )
+  );
+}
+function MailForm({ mail, actions, mailRun, busy, error, fields, setField, onClose }) {
+  const { address, password, provider, imapHost, smtpHost } = fields;
+  const setAddress = (value) => setField("address", value);
+  const setPassword = (value) => setField("password", value);
+  const setProvider = (value) => setField("provider", value);
+  const setImapHost = (value) => setField("imapHost", value);
+  const setSmtpHost = (value) => setField("smtpHost", value);
   const domain = address.split("@")[1]?.toLowerCase() ?? "";
   const guessed = ["qq.com", "foxmail.com"].includes(domain) ? "qq" : ["163.com", "126.com", "gmail.com", "googlemail.com"].includes(domain) ? domain.replace(/\..*/, "").replace("googlemail", "gmail") : ["icloud.com", "me.com", "mac.com"].includes(domain) ? "icloud" : "";
   const chosen = provider || guessed || "other";
   const guide = MAIL_GUIDES[chosen];
-  const mailRun = (task, onDone) => Promise.resolve(task).then(() => {
-    setError(null);
-    onDone?.();
-  }, (failure) => setError(failure?.message ?? String(failure)));
-  const add = () => void mailRun(actions.mailAccountAdd({ address: address.trim(), password, provider: chosen, imapHost, smtpHost }), () => {
-    setForm(false);
-    setAddress("");
-    setPassword("");
-  });
+  const add = () => void mailRun(() => actions.mailAccountAdd({ address: address.trim(), password, provider: chosen, imapHost: imapHost.trim(), smtpHost: smtpHost.trim() }), onClose);
+  return (0, import_react25.createElement)(
+    "div",
+    { className: "bt-set-row bt-set-paste bt-mail-form" },
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-mail-providers", role: "radiogroup", "aria-label": t("Provider") },
+      [["qq", "QQ"], ["163", "163"], ["126", "126"], ["gmail", "Gmail"], ["icloud", "iCloud"], ["other", t("Other")]].map(([id, label]) => (0, import_react25.createElement)("button", { key: id, type: "button", role: "radio", "aria-checked": chosen === id, className: "bt-secret-seg", disabled: busy, onClick: () => setProvider(id) }, label))
+    ),
+    guide ? [
+      (0, import_react25.createElement)("ol", { key: "guide", className: "bt-mail-guide" }, guide.steps.map((step) => (0, import_react25.createElement)("li", { key: step }, t(step, { host: guide.host })))),
+      (0, import_react25.createElement)(
+        "div",
+        { key: "links", className: "bt-connector-form-row" },
+        (0, import_react25.createElement)("a", { className: "bt-connector-link", href: guide.open, target: "_blank", rel: "noopener noreferrer" }, t("Open {host}", { host: guide.host })),
+        (0, import_react25.createElement)("a", { className: "bt-connector-link", href: guide.help, target: "_blank", rel: "noopener noreferrer" }, t("Official help"))
+      )
+    ] : null,
+    (0, import_react25.createElement)("input", { className: "bt-input", "aria-label": t("Email address"), placeholder: t("Email address"), value: address, autoComplete: "off", disabled: busy, onChange: (e) => setAddress(e.target.value) }),
+    (0, import_react25.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react25.createElement)(MaskedInput, { value: password, onChange: setPassword, label: t(guide?.label ?? "Password or app password"), disabled: busy })),
+    chosen === "other" ? [
+      (0, import_react25.createElement)("input", { key: "ih", className: "bt-input", "aria-label": t("IMAP host"), placeholder: t("IMAP host"), value: imapHost, disabled: busy, onChange: (e) => setImapHost(e.target.value) }),
+      (0, import_react25.createElement)("input", { key: "sh", className: "bt-input", "aria-label": t("SMTP host"), placeholder: t("SMTP host"), value: smtpHost, disabled: busy, onChange: (e) => setSmtpHost(e.target.value) })
+    ] : null,
+    error ? (0, import_react25.createElement)("div", { className: "bt-connector-error", role: "alert" }, hostText(error)) : null,
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-secret-row-actions" },
+      mail?.google ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void mailRun(() => actions.mailAccountAdd({ address: address.trim(), google: true }), onClose) }, t("Sign in with Google")) : (0, import_react25.createElement)("span", { className: "bt-connector-link" }),
+      (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: onClose }, t("Cancel")),
+      (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || !address.includes("@") || password === "", onClick: add }, busy ? t("Verifying…") : t("Add account"))
+    )
+  );
+}
+var EMPTY_MAIL = { address: "", password: "", provider: "", imapHost: "", smtpHost: "" };
+function MailSection({ mail, actions, run: run2 }) {
+  const [form, setForm] = (0, import_react25.useState)(false);
+  const [busy, setBusy] = (0, import_react25.useState)(false);
+  const [error, setError] = (0, import_react25.useState)(null);
+  const [fields, setFields] = (0, import_react25.useState)(EMPTY_MAIL);
+  const busyRef = (0, import_react25.useRef)(false);
+  const accounts = mail?.accounts ?? [];
+  const setField = (key, value) => setFields((current) => ({ ...current, [key]: value }));
   const close = () => {
     setError(null);
     setForm(false);
+    setFields(EMPTY_MAIL);
   };
-  return (0, import_react25.createElement)(
-    "div",
-    { className: "bt-mail" },
-    (0, import_react25.createElement)("div", { className: "bt-section-title" }, t("Mailbox")),
-    accounts.map((account) => (0, import_react25.createElement)(
+  const mailRun = (task, onDone) => {
+    if (busyRef.current || busy) return false;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    void Promise.resolve().then(task).then(() => {
+      onDone?.();
+    }, (failure) => {
+      setError(failure?.message ?? String(failure));
+    }).finally(() => {
+      busyRef.current = false;
+      setBusy(false);
+    });
+    return true;
+  };
+  return [
+    (0, import_react25.createElement)("div", { key: "title", className: "bt-section-title" }, t("Mailbox")),
+    (0, import_react25.createElement)(
       "div",
-      { key: account.id, className: "bt-connector" },
-      (0, import_react25.createElement)(
-        "div",
-        { className: "bt-connector-head" },
-        (0, import_react25.createElement)("span", { className: "bt-connector-mark" }, (0, import_react25.createElement)(ConnectorMark, { connector: { id: `mail-${account.provider}`, name: account.address } })),
-        (0, import_react25.createElement)(
-          "span",
-          { className: "bt-connector-text" },
-          (0, import_react25.createElement)("span", { className: "bt-connector-name" }, account.address),
-          (0, import_react25.createElement)("span", { className: "bt-connector-status" }, account.error ?? t("Connected"))
-        ),
-        (0, import_react25.createElement)(
-          "span",
-          { className: "bt-connector-actions" },
-          (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.mailAccountRemove(account.id)) }, t("Remove"))
-        )
-      )
-    )),
-    mail?.pending?.map((p) => (0, import_react25.createElement)(
+      { key: "card", className: "bt-set-card bt-connectors-card" },
+      accounts.length === 0 && !form ? (0, import_react25.createElement)("div", { className: "bt-set-row" }, (0, import_react25.createElement)("span", { className: "bt-set-hint" }, t("No mail accounts yet"))) : null,
+      accounts.map((account) => (0, import_react25.createElement)(MailAccount, { key: account.id, account, actions, run: run2 })),
+      (mail?.pending ?? []).map((p) => (0, import_react25.createElement)(MailPending, { key: p.address ?? "google", pending: p })),
+      form ? (0, import_react25.createElement)(MailForm, { mail, actions, mailRun, busy, error, fields, setField, onClose: close }) : null
+    ),
+    form ? null : (0, import_react25.createElement)(
       "div",
-      { key: p.address ?? "google", className: "bt-connector" },
-      (0, import_react25.createElement)(
-        "div",
-        { className: "bt-connector-form-row" },
-        (0, import_react25.createElement)("a", { className: "bt-connector-link", href: p.url, target: "_blank", rel: "noopener noreferrer" }, t("Open the Google sign-in page"))
-      )
-    )) ?? null,
-    form ? (0, import_react25.createElement)(
-      "div",
-      { className: "bt-connector-form bt-mail-form" },
-      (0, import_react25.createElement)(
-        "div",
-        { className: "bt-mail-providers", role: "radiogroup", "aria-label": t("Provider") },
-        [["qq", "QQ"], ["163", "163"], ["126", "126"], ["gmail", "Gmail"], ["icloud", "iCloud"], ["other", t("Other")]].map(([id, label]) => (0, import_react25.createElement)("button", { key: id, type: "button", role: "radio", "aria-checked": chosen === id, className: "bt-secret-seg", onClick: () => setProvider(id) }, label))
-      ),
-      guide ? [
-        (0, import_react25.createElement)("ol", { key: "guide", className: "bt-mail-guide" }, guide.steps.map((step) => (0, import_react25.createElement)("li", { key: step }, t(step, { host: guide.host })))),
-        (0, import_react25.createElement)(
-          "div",
-          { key: "links", className: "bt-connector-form-row" },
-          (0, import_react25.createElement)("a", { className: "bt-connector-link", href: guide.open, target: "_blank", rel: "noopener noreferrer" }, t("Open {host}", { host: guide.host })),
-          (0, import_react25.createElement)("a", { className: "bt-connector-link", href: guide.help, target: "_blank", rel: "noopener noreferrer" }, t("Official help"))
-        )
-      ] : null,
-      (0, import_react25.createElement)("input", { className: "bt-input", "aria-label": t("Email address"), placeholder: t("Email address"), value: address, autoComplete: "off", onChange: (e) => setAddress(e.target.value) }),
-      (0, import_react25.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react25.createElement)(MaskedInput, { value: password, onChange: setPassword, label: t(guide?.label ?? "Password or app password") })),
-      chosen === "other" ? [
-        (0, import_react25.createElement)("input", { key: "ih", className: "bt-input", "aria-label": t("IMAP host"), placeholder: t("IMAP host"), value: imapHost, onChange: (e) => setImapHost(e.target.value) }),
-        (0, import_react25.createElement)("input", { key: "sh", className: "bt-input", "aria-label": t("SMTP host"), placeholder: t("SMTP host"), value: smtpHost, onChange: (e) => setSmtpHost(e.target.value) })
-      ] : null,
-      error ? (0, import_react25.createElement)("div", { className: "bt-connector-error", role: "alert" }, hostText(error)) : null,
-      (0, import_react25.createElement)(
-        "div",
-        { className: "bt-connector-form-row" },
-        mail?.google ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void mailRun(actions.mailAccountAdd({ address: address.trim(), google: true })) }, t("Sign in with Google")) : (0, import_react25.createElement)("span", { className: "bt-connector-link" }),
-        (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: close }, t("Cancel")),
-        (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !address.includes("@") || password === "", onClick: add }, t("Add account"))
-      )
-    ) : (0, import_react25.createElement)(
-      "div",
-      { className: "bt-connector-form-row" },
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setForm(true) }, t("Add an account")),
-      mail?.google ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.mailAccountAdd({ google: true })) }, t("Sign in with Google")) : null
+      { key: "add", className: "bt-actions" },
+      (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+        setError(null);
+        setForm(true);
+      } }, t("Add an account")),
+      mail?.google ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.mailAccountAdd({ google: true })) }, t("Sign in with Google")) : null
     )
-  );
+  ];
 }
 function AddMenu({ actions, run: run2 }) {
   const [kind, setKind] = (0, import_react25.useState)(null);
@@ -10946,9 +11001,9 @@ function ConnectorsPage({ roster, actions }) {
       "div",
       { className: "bt-set-card bt-connectors-card" },
       connected.length === 0 ? (0, import_react25.createElement)("div", { className: "bt-set-row" }, (0, import_react25.createElement)("span", { className: "bt-set-hint" }, t("No connectors connected"))) : null,
-      connected.map((connector) => (0, import_react25.createElement)(ConnectorRow, { key: connector.id, connector, actions })),
-      (0, import_react25.createElement)(MailSection, { mail: data.mail, actions, run: run2 })
+      connected.map((connector) => (0, import_react25.createElement)(ConnectorRow, { key: connector.id, connector, actions }))
     ),
+    (0, import_react25.createElement)(MailSection, { mail: data.mail, actions, run: run2 }),
     (0, import_react25.createElement)("div", { className: "bt-section-title" }, t("Catalog")),
     (0, import_react25.createElement)(
       "div",
@@ -10988,36 +11043,62 @@ function BotConnectors({ bot, roster, actions, run: run2 }) {
     })
   );
 }
-function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
-  const hold = useDockHold(sessionId, "connector", request.id, actions, inline);
-  const connector = { id: request.connectorId, name: request.name ?? request.connectorId, state: "off", auth: request.auth ?? { kind: "oauth" } };
+function RequestHead({ bot, badge, title, detail, onClose }) {
   return (0, import_react25.createElement)(
     "div",
-    { className: "bt-q bt-secret bt-connector-card", role: "group", onFocusCapture: hold, onPointerDownCapture: hold },
+    { className: "bt-q-head bt-secret-head" },
+    (0, import_react25.createElement)("span", { className: "bt-secret-who" }, (0, import_react25.createElement)(BotMark, { bot, size: 28 }), badge ? (0, import_react25.createElement)("span", { className: "bt-secret-lock" }, badge) : null),
     (0, import_react25.createElement)(
       "div",
-      { className: "bt-q-head bt-secret-head" },
-      (0, import_react25.createElement)("span", { className: "bt-secret-who" }, (0, import_react25.createElement)(BotMark, { bot, size: 28 })),
-      (0, import_react25.createElement)(
-        "div",
-        { className: "bt-q-text" },
-        (0, import_react25.createElement)("p", { className: "bt-q-title" }, t("{bot} needs {name}", { bot: bot.name, name: connector.name })),
-        request.purpose ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, request.purpose) : null
-      )
+      { className: "bt-q-text" },
+      (0, import_react25.createElement)("p", { className: "bt-q-title" }, title),
+      detail ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, detail) : null
     ),
+    onClose ? (0, import_react25.createElement)("button", { type: "button", className: "bt-q-x", "aria-label": t("Cancel the request"), title: t("Cancel"), onClick: onClose }, (0, import_react25.createElement)(CloseIcon)) : null
+  );
+}
+function SettledCard({ bot, title, done, badge }) {
+  return (0, import_react25.createElement)(
+    "div",
+    { className: `bt-q bt-q-settled bt-secret bt-secret-done${done ? "" : " bt-q-dismissed"}`, role: "group", "aria-label": title },
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-q-head" },
+      (0, import_react25.createElement)("span", { className: "bt-secret-who" }, (0, import_react25.createElement)(BotMark, { bot, size: 22 })),
+      (0, import_react25.createElement)("div", { className: "bt-q-text" }, (0, import_react25.createElement)("p", { className: "bt-q-title" }, title)),
+      done ? (0, import_react25.createElement)("span", { className: "bt-q-check bt-secret-check", title: t("Done") }, (0, import_react25.createElement)(CheckIcon)) : (0, import_react25.createElement)("span", { className: "bt-q-badge" }, badge)
+    )
+  );
+}
+function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
+  const hold = useDockHold(sessionId, "connector", request.id, actions, inline);
+  const name = request.name ?? request.connectorId;
+  const dismiss = () => {
+    hold();
+    void actions.connectorRequestCancel(request.id);
+  };
+  return (0, import_react25.createElement)(
+    "div",
+    { className: "bt-q bt-secret", role: "group", onFocusCapture: hold, onPointerDownCapture: hold },
+    (0, import_react25.createElement)(RequestHead, { bot, badge: (0, import_react25.createElement)(PlugIcon), title: t("{bot} needs {name}", { bot: bot.name, name }), detail: request.purpose, onClose: dismiss }),
     (0, import_react25.createElement)(
       "div",
       { className: "bt-q-foot" },
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => {
-        hold();
-        void actions.connectorRequestCancel(request.id);
-      } }, t("Dismiss")),
+      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-btn", onClick: dismiss }, t("Dismiss")),
       (0, import_react25.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => {
         hold();
         actions.openConnectors();
       } }, t("Connect"))
     )
   );
+}
+function SettledConnector({ bot, request }) {
+  return (0, import_react25.createElement)(SettledCard, {
+    bot,
+    title: t("{bot} asked for {name}", { bot: bot.name, name: request.name ?? request.connectorId }),
+    done: request.status === "connected",
+    badge: t("Canceled")
+  });
 }
 var humanSize = (bytes) => bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
 var NONE2 = {};
@@ -11027,7 +11108,7 @@ function ConnectorToolCell({ sessionId, callId, done, content, roster, actions, 
   const request = (roster.connectorRequests?.[bot.id] ?? []).find((entry) => entry.callId === callId && (entry.sessionId ?? sessionId) === sessionId);
   if (request?.status === "pending" && heldCards[heldCardKey("connector", request.id)] > 0) return (0, import_react25.createElement)(CellEmpty);
   if (request) {
-    return request.status === "pending" ? (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(ConnectorCard, { sessionId, bot, request, actions, inline: true })) : (0, import_react25.createElement)("div", { className: "bt-event" }, (0, import_react25.createElement)("span", { className: "bt-secret-event" }, request.status === "connected" ? t("{bot} asked for a connector — connected", { bot: bot.name }) : t("{bot} asked for a connector", { bot: bot.name })));
+    return request.status === "pending" ? (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(ConnectorCard, { sessionId, bot, request, actions, inline: true })) : (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(SettledConnector, { bot, request }));
   }
   if (done && /already connected/.test(contentText(content))) return (0, import_react25.createElement)(CellEmpty);
   return (0, import_react25.createElement)(CellEmpty);
@@ -11043,45 +11124,67 @@ function ConnectorDock({ sessionId, useRoster, useCards, useHeldCards, actions }
   if (waiting.length === 0) return null;
   return (0, import_react25.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react25.createElement)(ConnectorCard, { key: request.id, sessionId, bot, request, actions })));
 }
-function MailSendCard({ sessionId, bot, request, actions, inline = false }) {
+function MailSendCard({ sessionId, bot, request, roster, actions, inline = false }) {
   const [busy, setBusy] = (0, import_react25.useState)(false);
+  const busyRef = (0, import_react25.useRef)(false);
   const hold = useDockHold(sessionId, "mail", request.id, actions, inline);
   const answer = (choice) => {
-    if (busy) return;
+    if (busyRef.current || busy) return;
+    busyRef.current = true;
     hold();
     setBusy(true);
-    void Promise.resolve(actions.mailSendAnswer(request.id, choice)).finally(() => setBusy(false));
+    void Promise.resolve(actions.mailSendAnswer(request.id, choice)).catch(() => {
+    }).finally(() => {
+      busyRef.current = false;
+      setBusy(false);
+    });
   };
+  const account = (roster?.connectors?.mail?.accounts ?? []).find((entry) => entry.id === request.account);
+  const from = account?.address ?? request.account;
+  const route = [
+    request.to ? `${t("To")} ${request.to}` : "",
+    request.cc ? `${t("Cc")} ${request.cc}` : "",
+    request.bcc ? `${t("Bcc")} ${request.bcc}` : ""
+  ].filter((line) => line !== "").join(" · ");
   return (0, import_react25.createElement)(
     "div",
-    { className: "bt-q bt-secret bt-mail-card", role: "group", onFocusCapture: hold, onPointerDownCapture: hold },
+    { className: "bt-q bt-secret", role: "group", onFocusCapture: hold, onPointerDownCapture: hold },
+    (0, import_react25.createElement)(RequestHead, {
+      bot,
+      badge: (0, import_react25.createElement)(MailIcon),
+      title: t("{bot} wants to send an email", { bot: bot.name }),
+      detail: request.subject,
+      onClose: busy ? void 0 : () => answer("cancel")
+    }),
+    // The message preview rides on the file box the other cards use for quoted
+    // content; the body stays scrollable when it runs long.
     (0, import_react25.createElement)(
       "div",
-      { className: "bt-q-head bt-secret-head" },
-      (0, import_react25.createElement)("span", { className: "bt-secret-who" }, (0, import_react25.createElement)(BotMark, { bot, size: 28 })),
+      { className: "bt-learning-file" },
       (0, import_react25.createElement)(
         "div",
-        { className: "bt-q-text" },
-        (0, import_react25.createElement)("p", { className: "bt-q-title" }, t("{bot} wants to send an email", { bot: bot.name })),
-        (0, import_react25.createElement)("div", { className: "bt-q-detail" }, request.subject)
-      )
+        { className: "bt-learning-filehead" },
+        from ? (0, import_react25.createElement)("span", { className: "bt-learning-name" }, from) : null,
+        (0, import_react25.createElement)("span", { className: "bt-learning-path" }, route)
+      ),
+      (0, import_react25.createElement)("div", { className: "bt-mail-body" }, request.body)
     ),
-    (0, import_react25.createElement)(
-      "div",
-      { className: "bt-mail-preview" },
-      (0, import_react25.createElement)("div", { className: "bt-q-detail" }, t("To"), " ", request.to),
-      request.cc ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, t("Cc"), " ", request.cc) : null,
-      request.bcc ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, t("Bcc"), " ", request.bcc) : null,
-      (0, import_react25.createElement)("div", { className: "bt-mail-body bt-q-detail" }, request.body),
-      request.attachmentDetails?.length ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${humanSize(a.size)})` : a.name).join(", ") })) : null
-    ),
+    request.attachmentDetails?.length ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${humanSize(a.size)})` : a.name).join(", ") })) : null,
     (0, import_react25.createElement)(
       "div",
       { className: "bt-q-foot" },
       (0, import_react25.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("cancel") }, t("Cancel")),
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("send") }, t("Send"))
+      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("send") }, busy ? t("Sending…") : t("Send"))
     )
   );
+}
+function SettledMail({ bot, request }) {
+  return (0, import_react25.createElement)(SettledCard, {
+    bot,
+    title: request.status === "sent" ? t("Sent “{subject}”", { subject: request.subject }) : t("{bot} wanted to send “{subject}”", { bot: bot.name, subject: request.subject }),
+    done: request.status === "sent",
+    badge: request.status === "failed" ? t("Failed") : t("Canceled")
+  });
 }
 function MailToolCell({ sessionId, callId, roster, actions, heldCards = NONE2 }) {
   const bot = roster.byId[sessionId];
@@ -11089,11 +11192,7 @@ function MailToolCell({ sessionId, callId, roster, actions, heldCards = NONE2 })
   const request = (roster.mailRequests?.[bot.id] ?? []).find((entry) => entry.callId === callId && (entry.sessionId ?? sessionId) === sessionId);
   if (request?.status === "pending" && heldCards[heldCardKey("mail", request.id)] > 0) return (0, import_react25.createElement)(CellEmpty);
   if (request) {
-    return request.status === "pending" ? (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(MailSendCard, { sessionId, bot, request, actions, inline: true })) : (0, import_react25.createElement)("div", { className: "bt-event" }, (0, import_react25.createElement)(
-      "span",
-      { className: "bt-secret-event" },
-      request.status === "sent" ? t("Sent “{subject}”", { subject: request.subject }) : request.status === "failed" ? t("Could not send “{subject}”", { subject: request.subject }) : t("“{subject}” was not sent", { subject: request.subject })
-    ));
+    return request.status === "pending" ? (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(MailSendCard, { sessionId, bot, request, roster, actions, inline: true })) : (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(SettledMail, { bot, request }));
   }
   return (0, import_react25.createElement)(CellEmpty);
 }
@@ -11106,7 +11205,7 @@ function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const drawn = (entry) => entry.callId && entry.sessionId === sessionId && shown[entry.callId] > 0 && !(held[heldCardKey("mail", entry.id)] > 0);
   const waiting = (roster.mailRequests?.[bot.id] ?? []).filter((entry) => entry.status === "pending" && !drawn(entry));
   if (waiting.length === 0) return null;
-  return (0, import_react25.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react25.createElement)(MailSendCard, { key: request.id, sessionId, bot, request, actions })));
+  return (0, import_react25.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react25.createElement)(MailSendCard, { key: request.id, sessionId, bot, request, roster, actions })));
 }
 var CONNECTOR_CSS = `
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
@@ -11120,14 +11219,12 @@ var CONNECTOR_CSS = `
 .bt-connector-device{display:flex;align-items:center;gap:10px}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
 .bt-connector-import{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer}
-.bt-mail{display:flex;flex-direction:column;gap:10px;padding:12px}
-.bt-mail-form{padding-left:0}
 .bt-mail-providers{display:flex;gap:4px;flex-wrap:wrap}
 .bt-mail-providers .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
 .bt-connector-bot .bt-set-copy{min-width:0}
-.bt-mail-preview{display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:18px;color:var(--bt-ink);margin:6px 0}
-.bt-mail-body{white-space:pre-wrap;max-height:160px;overflow-y:auto;padding:8px 10px;border-radius:8px;background:var(--bt-hover);font-size:13px}
+.bt-mail-open{text-decoration:none}
+.bt-mail-body{max-height:180px;overflow-y:auto;padding:8px 12px;font-size:13px;line-height:19px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--bt-ink)}
 `;
 
 // src/client/turn-reasoning.js

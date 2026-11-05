@@ -1251,6 +1251,8 @@ const ZH = {
   'Sign in with Google': '使用 Google 登录',
   'Add account': '添加账户',
   'Add an account': '添加账户',
+  'No mail accounts yet': '还没有邮箱账户',
+  'Verifying…': '正在验证…',
   'Open the Google sign-in page': '打开 Google 登录页',
   'Add an address': '添加地址',
   'Add a command': '添加命令',
@@ -1269,16 +1271,15 @@ const ZH = {
   'Commerce': '商务',
   'No connectors connected': '未连接任何连接器',
   '{bot} needs {name}': '{bot} 需要 {name}',
-  '{bot} asked for a connector — connected': '{bot} 请求了连接器 — 已连接',
-  '{bot} asked for a connector': '{bot} 请求了连接器',
   '{bot} wants to send an email': '{bot} 想发送一封邮件',
   'To': '收件人',
   'Cc': '抄送',
   'Bcc': '密送',
   'Attachments: {names}': '附件:{names}',
   'Sent “{subject}”': '已发送“{subject}”',
-  'Could not send “{subject}”': '“{subject}”发送失败',
-  '“{subject}” was not sent': '“{subject}”未发送',
+  '{bot} wanted to send “{subject}”': '{bot} 想发送“{subject}”',
+  'Failed': '失败',
+  'Sending…': '正在发送…',
 
 }
 

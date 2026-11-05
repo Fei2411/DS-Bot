@@ -36,10 +36,11 @@ const scopeLabel = (scope, roster) => {
 }
 const when = time => (Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
 
-export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false }) {
+export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false }) {
   return h('input', {
     className: 'bt-secret-input',
     type: MASK_BY_CSS ? 'text' : 'password',
+    disabled,
     'data-masked': MASK_BY_CSS ? '' : undefined,
     value,
     autoFocus,

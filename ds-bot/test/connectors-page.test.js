@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { MailSection } from './src/client/connectors.js'",
+    contents: "export { MailSection, MailToolCell } from './src/client/connectors.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -55,8 +55,9 @@ runInNewContext(outputFiles[0].text, {
   window: { matchMedia: () => ({ matches: false }) },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { MailSection } = module.exports
+const { MailSection, MailToolCell } = module.exports
 const render = () => { idx = 0; concrete = expand(MailSection(props)) }
+const renderCell = (cellProps) => { slots.length = 0; idx = 0; concrete = expand(MailToolCell(cellProps)) }
 
 const flatten = (node, out = []) => {
   if (node === null || node === undefined || node === false || node === true) return out
@@ -96,6 +97,7 @@ test('the mail form shows the QQ guide with its links and closes after a good ad
   }
   const run = (task, onDone) => Promise.resolve(task).then(() => onDone?.(), () => {})
   props = { mail: { accounts: [] }, actions, run }
+  slots.length = 0
   render()
   click('Add an account')
   click('QQ')
@@ -116,6 +118,65 @@ test('the mail form shows the QQ guide with its links and closes after a good ad
   assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-form')).length, 0, 'form closed after a resolved add')
 })
 
+test('a busy mail add blocks a second click and a good add clears the fields', async () => {
+  const adds = []
+  let release = null
+  const actions = {
+    mailAccountAdd: (body) => { adds.push(body); return new Promise(resolve => { release = resolve }) },
+    mailAccountRemove: () => Promise.resolve(true),
+  }
+  const run = (task, onDone) => Promise.resolve(task).then(() => onDone?.(), () => {})
+  props = { mail: { accounts: [] }, actions, run }
+  slots.length = 0
+  render()
+  click('Add an account')
+  fill('Email address', 'me@qq.com')
+  fill('Authorization code', 'CODE')
+  click('Add account')
+  await flush()
+  assert.equal(adds.length, 1)
+  const adding = collect(n => n.type === 'button' && flatten(n).join('') === 'Verifying…')[0]
+  assert.ok(adding, 'busy button reads Verifying…')
+  assert.equal(adding.props.disabled, true)
+  adding.props.onClick?.()
+  await flush()
+  assert.equal(adds.length, 1, 'a second click while busy adds nothing')
+  const address = collect(n => n.type === 'input' && n.props?.['aria-label'] === 'Email address')[0]
+  assert.equal(address.props.disabled, true, 'the fields are disabled while busy')
+  release({ accounts: [] })
+  await flush()
+  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-form')).length, 0, 'form closed after a resolved add')
+  click('Add an account')
+  assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'Email address')[0].props.value, '', 'address cleared')
+  assert.equal(collect(n => n.type === 'input' && String(n.props?.className ?? '') === 'bt-secret-input')[0].props.value, '', 'code cleared')
+  const other = collect(n => n.type === 'button' && flatten(n).join('') === 'Other')[0]
+  assert.equal(other.props['aria-checked'], true, 'provider chip back to the default')
+  assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'IMAP host')[0].props.value, '', 'IMAP host cleared')
+  assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'SMTP host')[0].props.value, '', 'SMTP host cleared')
+})
+
+test('the mail send card renders on the shared card structure', async () => {
+  const bot = { id: 'b1', name: 'Chief' }
+  const roster = {
+    byId: { s1: bot },
+    connectors: { mail: { accounts: [{ id: 'me@qq.com', address: 'me@qq.com' }] } },
+    mailRequests: {
+      b1: [{ id: 'r1', callId: 'c1', sessionId: 's1', status: 'pending', account: 'me@qq.com', to: 'team@corp.dev', subject: 'Weekly', body: 'Hi all', attachmentDetails: [{ name: 'report.pdf', size: 2048 }] }],
+    },
+  }
+  renderCell({ sessionId: 's1', callId: 'c1', roster, actions: {} })
+  const card = collect(n => String(n.props?.className ?? '').split(' ').includes('bt-q'))[0]
+  assert.ok(card, 'card root')
+  assert.deepEqual(card.props.className.split(' ').sort(), ['bt-q', 'bt-secret'], 'card is the shared request card')
+  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-card')).length, 0, 'no bespoke card class')
+  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-preview')).length, 0, 'no bespoke preview class')
+  assert.ok(collect(n => n.props?.className === 'bt-q-head bt-secret-head')[0], 'shared head')
+  assert.ok(collect(n => String(n.props?.className ?? '').includes('bt-learning-file'))[0], 'shared quoted box')
+  assert.ok(collect(n => n.props?.className === 'bt-mail-body')[0], 'body preview')
+  assert.ok(collect(n => n.type === 'button' && String(n.props?.className ?? '') === 'bt-q-submit' && flatten(n).join('') === 'Send')[0], 'primary Send button')
+  assert.ok(collect(n => n.type === 'button' && String(n.props?.className ?? '') === 'bt-q-btn' && flatten(n).join('') === 'Cancel')[0], 'secondary Cancel button')
+})
+
 test('a failed mail add shows the host message inside the form', async () => {
   const actions = {
     mailAccountAdd: () => Promise.reject(new Error('The password was refused. Use the mailbox app password or authorization code, not the account password.')),
@@ -123,6 +184,7 @@ test('a failed mail add shows the host message inside the form', async () => {
   }
   const run = (task, onDone) => Promise.resolve(task).then(() => onDone?.(), () => {})
   props = { mail: { accounts: [] }, actions, run }
+  slots.length = 0
   render()
   click('Add an account')
   fill('Email address', 'me@qq.com')
