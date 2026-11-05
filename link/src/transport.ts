@@ -5,6 +5,8 @@ export interface RemoteTransport {
   send(data: Uint8Array): Promise<void>
   onMessage(cb: (data: Uint8Array) => void): () => void
   onClose?(cb: () => void): () => void
+  /** Ask the far end for a liveness reply now, when the transport supports it. */
+  probe?(): void
   close(): Promise<void>
   getStats(): TransportStats
 }

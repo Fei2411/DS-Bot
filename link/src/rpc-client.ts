@@ -109,6 +109,8 @@ export class RpcClient {
 
   getStats(): TransportStats { return this.transport.getStats() }
 
+  probe(): void { this.transport.probe?.() }
+
   async close(): Promise<void> {
     this.unsubscribeTransport?.()
     this.unsubscribeTransport = undefined

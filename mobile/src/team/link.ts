@@ -165,7 +165,9 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     }
     void connect()
     const foreground = AppState.addEventListener('change', status => {
-      if (status === 'active') void poll()
+      // Waking is the common half-open case: probe first so a dead socket
+      // declares itself instead of letting the poll hang.
+      if (status === 'active') { clientRef.current?.probe(); void poll() }
       else clearTimeout(timer)
     })
     return () => { stopped = true; clearTimeout(timer); foreground.remove(); void clientRef.current?.close(); clientRef.current = undefined }

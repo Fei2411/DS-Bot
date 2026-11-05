@@ -253,3 +253,70 @@ test('a ready connection the Server ends with an error still reports the close',
   assert.equal(closes, 1)
   assert.equal(transport.closeReason?.message, 'gone')
 })
+
+test('a silent ready socket is probed, then reported once when it stays dead', async () => {
+  const sockets: FakeSocket[] = []
+  const transport = new RelayTransport('ws://unused', {
+    deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host',
+    watchdogIntervalMs: 10, watchdogSilenceMs: 30, probeTimeoutMs: 40,
+    createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket },
+  })
+  const closed = new Promise<Error | undefined>(resolve => transport.onClose(() => resolve(transport.closeReason)))
+  void transport.connect().catch(() => {})
+  const socket = sockets[0]
+  // Become ready the way the real handshake does.
+  socket.readyState = 1
+  socket.onopen?.()
+  ;(transport as unknown as { connectionId?: string }).connectionId = 'conn-1'
+  ;(transport as unknown as { finishConnection(): void }).finishConnection()
+  await new Promise(r => setTimeout(r, 45))
+  assert.equal(socket.sent.length, 2, 'hello then a watchdog ping')
+  const reason = await Promise.race([closed, new Promise(r => setTimeout(() => r('timeout'), 400))])
+  assert.ok(reason instanceof Error, 'close reported within the probe window')
+  assert.equal((reason as Error & { code?: string }).code, 'SERVER_UNREACHABLE')
+  socket.onclose?.()
+  assert.equal(socket.readyState, 3)
+})
+
+test('a pong after the probe keeps the link alive', async () => {
+  const sockets: FakeSocket[] = []
+  const transport = new RelayTransport('ws://unused', {
+    deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host',
+    watchdogIntervalMs: 10, watchdogSilenceMs: 30, probeTimeoutMs: 60,
+    createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket },
+  })
+  let closes = 0
+  transport.onClose(() => { closes += 1 })
+  void transport.connect().catch(() => {})
+  const socket = sockets[0]
+  socket.readyState = 1
+  socket.onopen?.()
+  ;(transport as unknown as { connectionId?: string }).connectionId = 'conn-1'
+  ;(transport as unknown as { finishConnection(): void }).finishConnection()
+  await new Promise(r => setTimeout(r, 45))
+  assert.equal(socket.sent.length, 2)
+  socket.onmessage?.({ data: JSON.stringify(createControlFrame('pong', { nonce: 1 })) })
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(closes, 0, 'a heard frame after the probe keeps the socket')
+  assert.equal(socket.sent.length, 2, 'probe clears after the answer')
+  void transport.close()
+})
+
+test('probe() sends a ping at once', async () => {
+  const sockets: FakeSocket[] = []
+  const transport = new RelayTransport('ws://unused', {
+    deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host',
+    createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket },
+  })
+  void transport.connect().catch(() => {})
+  const socket = sockets[0]
+  socket.readyState = 1
+  socket.onopen?.()
+  ;(transport as unknown as { connectionId?: string }).connectionId = 'conn-1'
+  ;(transport as unknown as { finishConnection(): void }).finishConnection()
+  transport.probe()
+  assert.equal(socket.sent.length, 2, 'hello then the probed ping')
+  transport.probe()
+  assert.equal(socket.sent.length, 2, 'no second ping while one is pending')
+  void transport.close()
+})

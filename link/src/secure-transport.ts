@@ -102,6 +102,8 @@ export class SecureTransport implements RemoteTransport {
     return this.inner.onClose?.(handler) ?? (() => undefined)
   }
 
+  probe(): void { this.inner.probe?.() }
+
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
