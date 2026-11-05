@@ -395,6 +395,29 @@ export function install(rt) {
       }
     }
   }
+  // Consent after a real getApp: the model only keeps the handle when the Bot may
+  // use the app. A refusal drops the handle record and returns an error envelope.
+  const consentAfterGetApp = async (exec, call, result) => {
+    const sessionId = exec.agent?.id
+    const handle = result?.appHandle
+    if (sessionId === undefined || typeof handle !== 'string') return undefined
+    const bot = rt.botOf(rt.selfOf(sessionId))
+    if (bot === undefined) return undefined
+    const authorization = result.authorization ?? {}
+    const identity = { name: authorization.name ?? result.name, id: authorization.id ?? result.bundleId ?? result.id, executablePath: authorization.executablePath ?? result.executablePath ?? result.path }
+    const app = { key: appKeyOf(identity), name: String(identity.name ?? 'app'), id: identity.id, path: identity.executablePath }
+    // The handle record stays, so a retry on it names why it was refused —
+    // protected or denied — instead of looking like a revoke.
+    const refuse = (reason) => ({ app: app.name, reason, envelope: { isError: true, content: [{ type: 'text', text: `Error: ${reason}` }] } })
+    if (isProtectedApp({ name: app.name, id: app.id, path: app.path })) return refuse(`${bot.name} cannot use ${app.name}: that application is protected.`)
+    const decisions = decisionsOf(bot.id, sessionId)
+    const decision = decisions.get(app.key) ?? decisions.get(normName(app.name))
+    if (decision === 'deny') return refuse(`The user did not allow ${bot.name} to use ${app.name}.`)
+    if (decision === 'once' || grantFor(bot, app) !== undefined) return undefined
+    const verdict = await driverConsent(exec, bot, sessionId, app)
+    if (verdict !== 'allow') return refuse(verdict)
+    return undefined
+  }
   // The display name the lease and the card show for an appKey, from any session's
   // records or the key itself.
   const appNameOf = (key) => {
@@ -619,6 +642,17 @@ export function install(rt) {
         ? (result.value !== null && typeof result.value === 'object' ? result.value : result)
         : null
       await recordAppResult(exec, call, payload)
+      // A successful getApp returns its handle whether or not the provider's own
+      // consent ran (its session decisions persist for the Bot's whole Session,
+      // so a revoked app never asks again). DS Bot decides here by its own rules:
+      // protected, an earlier deny, a This time or a grant, else the same card.
+      if (call.provider === 'cua' && call.method === 'getApp' && payload !== null && typeof payload === 'object') {
+        const consent = await consentAfterGetApp(exec, call, payload)
+        if (consent !== undefined) {
+          noteStep(botId, { time: started, callId: exec.callId, app: consent.app, action: call.method ?? exec.name, kind: call.kind, ok: false, error: consent.reason })
+          return consent.envelope
+        }
+      }
       const shot = payload !== null && typeof payload === 'object' ? payload.attachment : undefined
       if (shot !== undefined) {
         controlOf(botId).lastShot = shot
@@ -833,9 +867,28 @@ export function install(rt) {
         if (aliases.has(entry) || normName(entry) === wanted) decisions.delete(entry)
       }
     }
-    const knownId = grant?.id ?? recorded?.id
-    if (access !== undefined && knownId !== undefined && typeof access.revoke === 'function') {
-      await access.revoke(knownId).catch(error => rt.warn('ds-bot: revoking %s in the provider failed: %s', knownId, error))
+    // A revoked app keeps no recorded cua handles: the next call on one refuses
+    // "was revoked" and the model has to getApp again, which asks by card. The
+    // driver's pid/window records stay so its calls ask by card as before.
+    for (const map of sessionApps.values()) {
+      for (const key of aliases) {
+        if (key.startsWith('handle:')) map.delete(key)
+      }
+    }
+    // The provider's CuaApplicationId is an opaque hash, so a bundle id cannot be
+    // revoked directly; and its per-agent session grants cannot be addressed at
+    // all — the guard above is what enforces a revoke. What applications() can
+    // reach is the provider's saved/session-wide decision records, matched by
+    // executable path (or by name when the record carries no path).
+    if (access !== undefined && typeof access.applications === 'function' && typeof access.revoke === 'function') {
+      try {
+        const state = await access.applications()
+        const wantedPath = grant?.path ?? recorded?.path
+        for (const entry of [...(state?.allowedApps ?? []), ...(state?.blockedApps ?? [])]) {
+          const match = wantedPath !== undefined ? entry.executablePath === wantedPath : normName(entry.name) === wanted
+          if (match && typeof entry.id === 'string') await access.revoke(entry.id).catch(() => {})
+        }
+      } catch (error) { rt.warn('ds-bot: revoking %s in the provider failed: %s', wanted, error) }
     }
     return true
   }
