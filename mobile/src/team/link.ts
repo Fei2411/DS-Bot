@@ -3,7 +3,7 @@ import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
-import { optimistic } from './optimistic.ts'
+import { OPTIMISTIC, optimistic } from './optimistic.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
@@ -99,8 +99,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       return answer.value
     } catch (failure) {
       // Snap back to the computer's truth: forget the revision and re-read all.
-      revision.current = -1
-      pollRef.current()
+      if (OPTIMISTIC.has(endpoint)) {
+        revision.current = -1
+        pollRef.current()
+      }
       throw localized(failure)
     }
   }, [apply])
