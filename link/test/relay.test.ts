@@ -198,3 +198,40 @@ test('the ready count fires when a phone joins and leaves', async () => {
   assert.deepEqual(counts, [1, 0])
   assert.deepEqual(desk.host.connectedDevices(), [])
 })
+
+class FakeSocket {
+  readyState = 0
+  sent: unknown[] = []
+  binaryType = ''
+  onopen?: () => void
+  onmessage?: (event: { data: unknown }) => void
+  onerror?: () => void
+  onclose?: () => void
+  send(data: unknown) { this.sent.push(data) }
+  close() { this.readyState = 3 }
+}
+
+test('events from a stale relay socket are ignored', async () => {
+  const opts = { deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host' }
+  const first = new FakeSocket()
+  const transport = new RelayTransport('ws://unused', { ...opts, handshakeTimeoutMs: 20, createSocket: () => first as unknown as WebSocket })
+  // The handshake times out while CONNECTING; the socket may still open later.
+  await assert.rejects(transport.connect(), { code: 'SERVER_UNREACHABLE' })
+  first.readyState = 1
+  assert.doesNotThrow(() => first.onopen?.())
+  assert.equal(first.sent.length, 0)
+
+  const sockets: FakeSocket[] = []
+  const again = new RelayTransport('ws://unused', { ...opts, handshakeTimeoutMs: 20, createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket } })
+  void again.connect().catch(() => {})
+  void again.close()
+  void again.connect().catch(() => {})
+  const [old, current] = sockets
+  assert.doesNotThrow(() => old.onclose?.())
+  old.readyState = 1
+  assert.doesNotThrow(() => old.onopen?.())
+  assert.equal(old.sent.length, 0)
+  current.readyState = 1
+  current.onopen?.()
+  assert.equal(current.sent.length, 1)
+})

@@ -67,11 +67,13 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
         this.options.handshakeTimeoutMs ?? 10_000,
       )
       const socket = this.socket!
-      socket.onmessage = event => this.handleSocketMessage(event.data)
+      // Every event from this socket counts only while it is still the current
+      // one: a timed-out or replaced socket may still deliver late events, and
+      // a stale close must never clear the live connection.
+      const stale = () => this.socket !== socket
+      socket.onmessage = event => { if (!stale()) this.handleSocketMessage(event.data) }
       socket.onopen = () => {
-        // A close that beat this event already failed the connect; sending on
-        // the dead socket would only throw inside the handler.
-        if (socket.readyState !== 1) return
+        if (stale()) return
         this.sendControl('hello', {
           role: 'client',
           deviceId: this.options.deviceId,
@@ -81,8 +83,9 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
           capabilities: this.offeredCapabilities(),
         } satisfies HelloPayload)
       }
-      socket.onerror = () => this.failConnection(Object.assign(new Error(`RelayTransport failed to connect to ${this.url}`), { code: 'SERVER_UNREACHABLE' }))
+      socket.onerror = () => { if (!stale()) this.failConnection(Object.assign(new Error(`RelayTransport failed to connect to ${this.url}`), { code: 'SERVER_UNREACHABLE' })) }
       socket.onclose = () => {
+        if (stale()) return
         if (this.readyReject !== undefined) this.failConnection(Object.assign(new Error('Relay control channel closed before it was ready'), { code: 'SERVER_UNREACHABLE' }))
         this.socket = undefined
         this.connectionId = undefined
