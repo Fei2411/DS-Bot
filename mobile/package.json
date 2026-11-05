@@ -35,7 +35,8 @@
     "start": "expo start",
     "ios": "expo run:ios",
     "android": "expo run:android",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/team/*.test.ts"
   },
   "private": true,
   "license": "Apache-2.0"
