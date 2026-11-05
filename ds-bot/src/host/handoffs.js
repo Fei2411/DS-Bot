@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { TEXT_KEPT } from './constants.js'
+import { TEXT_KEPT, DELEGATE_TIMEOUT_MS } from './constants.js'
 import { headOf } from './text.js'
 
 const minutes = since => {
@@ -21,6 +21,12 @@ export function install(rt) {
   const works = () => (state.works ??= {})
   // What came back, whole; state.json keeps the start of each.
   const whole = new Map()
+  // Timers for delegate timeout (#919): workId → setTimeout handle.
+  const delegateTimers = new Map()
+  const clearDelegateTimer = id => {
+    const timer = delegateTimers.get(id)
+    if (timer !== undefined) { clearTimeout(timer); delegateTimers.delete(id) }
+  }
   const save = () => void rt.save().catch(() => {})
   const nameOf = id => rt.botOf(id)?.name
 
@@ -103,11 +109,27 @@ export function install(rt) {
     works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), open: [], results: [], at: Date.now() }
     if (above !== undefined) above.open.push(id)
     save()
+    // Start a delegate-timeout timer. If the recipient never replies within
+    // DELEGATE_TIMEOUT_MS, unblock the sender with a timeout notice (#919).
+    if (from !== undefined && to !== undefined) {
+      const timer = setTimeout(() => {
+        delegateTimers.delete(id)
+        const work = works()[id]
+        if (work === undefined) return   // already closed
+        const senderSession = rt.chatOf(from)
+        dropWork(id)
+        const toName = rt.botOf(to)?.name ?? 'A Bot'
+        const text = `[Message from ${toName}]\n${toName} did not reply within 30 minutes. The request has timed out.`
+        void rt.deliver({ fromId: to, toId: from, sessionId: senderSession, role: 'reply', replyTo: id, exchangeId: id, text }).catch(() => {})
+      }, DELEGATE_TIMEOUT_MS)
+      delegateTimers.set(id, timer)
+    }
   }
 
   // The answer to work `id` is on its way, with `result` from `name`. Returns the work
   // it goes on with. That work keeps waiting until a turn reads the answer (`taken`).
   function closeWork(id, name, text) {
+    clearDelegateTimer(id)
     const work = works()[id]
     if (work === undefined) return undefined
     delete works()[id]
@@ -165,6 +187,7 @@ export function install(rt) {
   }
 
   const dropWork = (id) => {
+    clearDelegateTimer(id)
     const work = works()[id]
     if (work === undefined) return
     const { parent } = work

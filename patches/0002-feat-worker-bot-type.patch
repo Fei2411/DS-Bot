@@ -1,0 +1,227 @@
+diff --git a/ds-bot/index.js b/ds-bot/index.js
+index a524d36..146b815 100644
+--- a/ds-bot/index.js
++++ b/ds-bot/index.js
+@@ -42,6 +42,7 @@ import * as thinking from './src/host/thinking.js'
+ import * as channel from './src/host/channel.js'
+ import * as feed from './src/host/feed.js'
+ import * as officeSkills from './src/host/office-skills.js'
++import * as workerBridge from './src/host/worker-bridge.js'
+ import * as goalSkills from './src/host/goal-skills.js'
+ 
+ export { COLORS } from './src/host/constants.js'
+@@ -54,7 +55,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
+ // install. Listeners run and tools are listed in registration order, so this order holds:
+ // usage meters model requests after every listener that rewrites them. privacy checks a
+ // call before the hooks of tools do, so a closed call never reaches a card they show.
+-const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills, goalSkills]
++const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, workerBridge, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills, goalSkills]
+ 
+ export function apply(ctx, config = {}) {
+   createRuntime(ctx, config)
+diff --git a/ds-bot/src/host/constants.js b/ds-bot/src/host/constants.js
+index d07ba3e..33beafd 100644
+--- a/ds-bot/src/host/constants.js
++++ b/ds-bot/src/host/constants.js
+@@ -94,3 +94,9 @@ export const HISTORY_TIMEOUT_MS = 20_000
+ export const ASIDE_LIMIT = 'Answer cut off at the output limit.'
+ 
+ export const STEER_CUT = 'ds-bot/steer'
++
++// Bot type enum — type is absent on existing Bots, which behave as LOCAL.
++export const BOT_TYPE = {
++  LOCAL: 'local',                  // default: turn runs in a local DSH Session
++  REMOTE_WORKER: 'remote-worker',  // turn is dispatched to a remote hub node
++}
+diff --git a/ds-bot/src/host/delivery.js b/ds-bot/src/host/delivery.js
+index d8fdd0f..af2d976 100644
+--- a/ds-bot/src/host/delivery.js
++++ b/ds-bot/src/host/delivery.js
+@@ -59,6 +59,14 @@ export function install(rt) {
+     const from = rt.botOf(fromId)
+     const to = rt.botOf(toId)
+     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
++    // Worker Bot routing: dispatch to the remote hub instead of a local Session turn.
++    // Reply, report, kickoff, and continue messages skip this path — they are either
++    // results already coming back from the hub, or internal lifecycle messages.
++    if (to.type === 'remote-worker'
++      && rt.handleRemoteTurn !== undefined
++      && role !== 'reply' && role !== 'report' && role !== 'kickoff' && role !== 'continue' && role !== 'update') {
++      return rt.handleRemoteTurn({ fromId, toId, text, role, exchangeId, replyTo, work })
++    }
+     const fromName = from?.name ?? 'You'
+     const room = rt.roomOf(roomId)
+     const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name
+diff --git a/ds-bot/src/host/roster.js b/ds-bot/src/host/roster.js
+index 1d8cec2..35d482a 100644
+--- a/ds-bot/src/host/roster.js
++++ b/ds-bot/src/host/roster.js
+@@ -145,7 +145,7 @@ export function install(rt) {
+     return holdName('bot', cleanName, () => buildBot(cleanName, options))
+   }
+ 
+-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
++  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, type, worker }) {
+     const cleanAvatarValue = cleanAvatar(avatar)
+     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
+     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
+@@ -176,6 +176,24 @@ export function install(rt) {
+         createdAt: Date.now(),
+         createdBy: createdBy ?? null,
+         capabilities: [],
++        // Worker Bot type and config (only present when type === 'remote-worker').
++        ...(type === 'remote-worker' ? {
++          type: 'remote-worker',
++          worker: {
++            nodeId: String(worker?.nodeId ?? '').trim() || undefined,
++            mode: ['relay', 'direct', 'ssh'].includes(worker?.mode) ? worker.mode : 'direct',
++            relayUrl: worker?.relayUrl ?? null,
++            hubUrl: worker?.hubUrl ?? null,
++            sshAlias: worker?.sshAlias ?? null,
++            remotePort: typeof worker?.remotePort === 'number' ? worker.remotePort : 19387,
++            enrollToken: null,   // configured separately via secrets
++            online: false,
++            lastSeen: null,
++            taskCount: 0,
++            cpu: null,
++            mem: null,
++          },
++        } : {}),
+       }
+       if (main) state.mainBotIds.push(id)
+       const creator = rt.botOf(createdBy)
+diff --git a/ds-bot/src/host/worker-bridge.js b/ds-bot/src/host/worker-bridge.js
+new file mode 100644
+index 0000000..f85790c
+--- /dev/null
++++ b/ds-bot/src/host/worker-bridge.js
+@@ -0,0 +1,129 @@
++// Worker Bridge: routes turns for type=remote-worker Bots to the remote hub via
++// dsh-remote-agent's hub API, then delivers the task result back as a Bot reply.
++//
++// Intercept point: delivery.js calls rt.handleRemoteTurn() instead of agent.followup()
++// when the target Bot has type === 'remote-worker'.
++import { randomUUID } from 'node:crypto'
++
++// How long to wait for a remote task to complete before timing out.
++const REMOTE_TASK_TIMEOUT_MS = 60 * 60 * 1000   // 1 hour (matches AGENT_DEFAULT_TIMEOUT_MS)
++// Polling interval when waiting for task completion via remote_status.
++const POLL_INTERVAL_MS = 5_000
++
++export function install(rt) {
++  const { ctx } = rt
++
++  // Resolve the hub API tools from the registered dsh-remote-agent plugin.
++  // Returns undefined when the hub is not running or not reachable.
++  function hubTools() {
++    try {
++      // The hub registers its tools into the DSH tool registry; we call them via ctx.
++      const tools = ctx.get?.('tools')
++      if (tools === undefined) return undefined
++      const dispatch = tools.get?.('remote_task')
++      const status = tools.get?.('remote_status')
++      const handoff = tools.get?.('remote_handoff')
++      if (!dispatch || !status || !handoff) return undefined
++      return { dispatch, status, handoff }
++    } catch {
++      return undefined
++    }
++  }
++
++  // Main intercept: called by delivery.js when a message is sent to a Worker Bot.
++  // Dispatches the message as a remote task and delivers the result back as a reply.
++  async function handleRemoteTurn({ fromId, toId, text, role, exchangeId, replyTo, work }) {
++    const to = rt.botOf(toId)
++    if (to?.type !== 'remote-worker' || !to.worker?.nodeId) {
++      rt.warn('ds-bot: worker-bridge: Bot %s has no nodeId, dropping turn', toId)
++      return exchangeId
++    }
++    const tools = hubTools()
++    if (tools === undefined) {
++      rt.warn('ds-bot: worker-bridge: hub tools not available for Worker Bot %s', to.name)
++      // Fall back to a local error reply so the sender is not silently blocked.
++      void rt.deliver?.({
++        fromId: toId,
++        toId: fromId ?? toId,
++        text: `[Worker Bot ${to.name} is not reachable: hub tools are not loaded. Make sure dsh-remote-agent is running in hub mode.]`,
++        role: 'reply',
++        replyTo: exchangeId,
++        ...(work ? { work } : {}),
++      }).catch(err => rt.warn('ds-bot: worker-bridge: error-reply delivery failed: %s', err))
++      return exchangeId
++    }
++
++    const taskId = randomUUID()
++    const nodeId = to.worker.nodeId
++
++    try {
++      // Dispatch the task to the remote node.
++      const dispatchResult = await tools.dispatch.execute({
++        nodeId,
++        taskId,
++        prompt: text,
++        mode: 'agent',
++        workDir: to.workDir ?? undefined,
++      })
++      if (dispatchResult?.isError) {
++        throw new Error(`dispatch failed: ${dispatchResult.value ?? 'unknown error'}`)
++      }
++
++      // Poll for completion.
++      const deadline = Date.now() + REMOTE_TASK_TIMEOUT_MS
++      let result
++      while (Date.now() < deadline) {
++        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
++        const statusResult = await tools.status.execute({ nodeId, taskId })
++        if (statusResult?.isError) continue
++        const s = statusResult?.value
++        if (s?.status === 'COMPLETED' || s?.status === 'FAILED' || s?.status === 'ABORTED') {
++          result = s
++          break
++        }
++      }
++
++      // Retrieve the full handoff text from the completed task.
++      let replyText
++      if (result !== undefined) {
++        const handoffResult = await tools.handoff.execute({ nodeId, taskId })
++        replyText = handoffResult?.isError
++          ? `[Task ${result.status.toLowerCase()}: ${result.summary ?? 'no summary'}]`
++          : (handoffResult?.value?.text ?? `[Task ${result.status.toLowerCase()}]`)
++      } else {
++        replyText = `[Worker Bot ${to.name}: task timed out after ${Math.round(REMOTE_TASK_TIMEOUT_MS / 60000)} minutes]`
++      }
++
++      // Update runtime state: online flag, lastSeen, taskCount.
++      if (to.worker) {
++        to.worker.lastSeen = Date.now()
++        to.worker.online = true
++        to.worker.taskCount = (to.worker.taskCount ?? 0) + 1
++      }
++
++      // Deliver the result back as a reply from the Worker Bot.
++      void rt.deliver?.({
++        fromId: toId,
++        toId: fromId ?? toId,
++        text: replyText,
++        role: 'reply',
++        replyTo: exchangeId,
++        ...(work ? { work } : {}),
++      }).catch(err => rt.warn('ds-bot: worker-bridge: reply delivery failed: %s', err))
++    } catch (error) {
++      rt.warn('ds-bot: worker-bridge: task dispatch failed for %s: %s', to.name, error)
++      void rt.deliver?.({
++        fromId: toId,
++        toId: fromId ?? toId,
++        text: `[Worker Bot ${to.name} error: ${error?.message ?? String(error)}]`,
++        role: 'reply',
++        replyTo: exchangeId,
++        ...(work ? { work } : {}),
++      }).catch(err => rt.warn('ds-bot: worker-bridge: error-reply delivery failed: %s', err))
++    }
++
++    return exchangeId
++  }
++
++  Object.assign(rt, { handleRemoteTurn })
++}

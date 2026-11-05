@@ -100,3 +100,7 @@ export const BOT_TYPE = {
   LOCAL: 'local',                  // default: turn runs in a local DSH Session
   REMOTE_WORKER: 'remote-worker',  // turn is dispatched to a remote hub node
 }
+
+// Timeout for Bot-to-Bot delegation (message_bot): if the recipient does not reply
+// within this window, the sender is unblocked with a timeout notice (#919).
+export const DELEGATE_TIMEOUT_MS = 30 * 60 * 1_000   // 30 minutes
