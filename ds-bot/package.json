@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.2.7",
+  "version": "0.2.7-fork.2",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -65,7 +65,7 @@
   },
   "devDependencies": {
     "@xmldom/xmldom": "0.9.12",
-    "esbuild": "0.28.2"
+    "esbuild": "^0.28.2"
   },
   "dependencies": {
     "deep-view": "0.1.0"
