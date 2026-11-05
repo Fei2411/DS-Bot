@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { parsePairingUri } from '../../../link/src/index.ts'
 import { openLink } from '../connection.ts'
@@ -9,7 +9,7 @@ import { errorText } from '../team/link.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 
-export function Pair({ identity, onPaired, onCancel }: { identity: PhoneIdentity; onPaired: (computer: SavedComputer) => void; onCancel?: () => void }) {
+export function Pair({ identity, offer, onPaired, onCancel }: { identity: PhoneIdentity; offer?: string | null; onPaired: (computer: SavedComputer) => void; onCancel?: () => void }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
   const [permission, requestPermission] = useCameraPermissions()
@@ -31,11 +31,10 @@ export function Pair({ identity, onPaired, onCancel }: { identity: PhoneIdentity
   }, [identity, onPaired])
 
   useEffect(() => {
-    const open = (url: string | null | undefined) => { if (url?.startsWith('dsbot://pair')) void pair(url) }
-    void Linking.getInitialURL().then(open)
-    const subscription = Linking.addEventListener('url', event => open(event.url))
-    return () => subscription.remove()
-  }, [pair])
+    if (offer === null || offer === undefined) return
+    setLink(offer)
+    void pair(offer)
+  }, [offer, pair])
 
   return (
     <KeyboardAvoidingView behavior="padding" style={[styles.center, { backgroundColor: p.main, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>

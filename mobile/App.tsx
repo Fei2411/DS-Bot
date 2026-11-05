@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Text, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Linking, Text, useColorScheme, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -73,6 +73,7 @@ function Boot() {
   const [computer, setComputer] = useState<SavedComputer | null | undefined>(undefined)
   const [bootError, setBootError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [offer, setOffer] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([loadIdentity(), loadComputer()])
@@ -80,19 +81,27 @@ function Boot() {
       .catch(failure => setBootError(errorText(failure)))
   }, [])
 
+  // A pairing link opened from the system camera arrives on whatever screen is showing.
+  useEffect(() => {
+    const open = (url?: string | null) => { if (url?.startsWith('dsbot://pair')) { setOffer(url); setAdding(true) } }
+    void Linking.getInitialURL().then(open)
+    const subscription = Linking.addEventListener('url', event => open(event.url))
+    return () => subscription.remove()
+  }, [])
+
   const actions = useMemo<ComputerActions>(() => ({
     add: () => setAdding(true),
     switchTo: id => void setActiveComputer(id).then(loadComputer).then(next => setComputer(next ?? null)),
     reload: () => void loadComputer().then(next => setComputer(next ?? null)),
   }), [])
-  const paired = useCallback((next: SavedComputer) => { setAdding(false); setComputer(next) }, [])
+  const paired = useCallback((next: SavedComputer) => { setAdding(false); setOffer(null); setComputer(next) }, [])
 
   if (DEMO) {
     return <ComputersCtx.Provider value={actions}><DemoProvider><ThemedShell /></DemoProvider></ComputersCtx.Provider>
   }
   if (bootError !== null) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><Text style={{ color: p.danger }}>{bootError}</Text></View>
   if (identity === null || computer === undefined) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><ActivityIndicator color={p.accent} /></View>
-  if (computer === null || adding) return <ThemeProvider><Pair identity={identity} onPaired={paired} onCancel={computer !== null ? () => setAdding(false) : undefined} /></ThemeProvider>
+  if (computer === null || adding) return <ThemeProvider><Pair identity={identity} offer={offer} onPaired={paired} onCancel={computer !== null ? () => { setAdding(false); setOffer(null) } : undefined} /></ThemeProvider>
   return <ComputersCtx.Provider value={actions}><Linked computer={computer} identity={identity} /></ComputersCtx.Provider>
 }
 
