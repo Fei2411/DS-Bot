@@ -235,3 +235,21 @@ test('events from a stale relay socket are ignored', async () => {
   current.onopen?.()
   assert.equal(current.sent.length, 1)
 })
+
+test('a ready connection the Server ends with an error still reports the close', async () => {
+  const socket = new FakeSocket()
+  const transport = new RelayTransport('ws://unused', { deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host', createSocket: () => socket as unknown as WebSocket })
+  const frame = (type: string, payload: unknown) => socket.onmessage?.({ data: JSON.stringify(createControlFrame(type as never, payload)) })
+  const ready = transport.connect()
+  socket.readyState = 1
+  socket.onopen?.()
+  frame('hello.ack', { protocol: PROTOCOL_VERSION, capabilities: ['transport.relay'] })
+  frame('connect.accepted', { connectionId: 'c-1' })
+  await ready
+  let closes = 0
+  transport.onClose(() => { closes += 1 })
+  frame('error', { code: 'HOST_OFFLINE', message: 'gone' })
+  socket.onclose?.()
+  assert.equal(closes, 1)
+  assert.equal(transport.closeReason?.message, 'gone')
+})

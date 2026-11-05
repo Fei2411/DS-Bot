@@ -85,7 +85,9 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
       }
       socket.onerror = () => { if (!stale()) this.failConnection(Object.assign(new Error(`RelayTransport failed to connect to ${this.url}`), { code: 'SERVER_UNREACHABLE' })) }
       socket.onclose = () => {
-        if (stale()) return
+        // Only a newer socket makes this close stale: a socket that
+        // failConnection or close() cleared still has to report the close.
+        if (this.socket !== undefined && stale()) return
         if (this.readyReject !== undefined) this.failConnection(Object.assign(new Error('Relay control channel closed before it was ready'), { code: 'SERVER_UNREACHABLE' }))
         this.socket = undefined
         this.connectionId = undefined
