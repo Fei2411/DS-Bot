@@ -308,7 +308,9 @@ test('refresh is single-flight, rotates the refresh token, and invalid_grant mea
   assert.equal(JSON.stringify(logs).includes('RT-2'), false)
   // A connector that needs sign-in again can still be asked for with a card.
   const ask = rt.teamTools.find(d => d.name === 'request_connector')
-  assert.doesNotMatch(String(await ask.execute({ id: 'notion', purpose: 'Search pages' }, { agent: { id: 'm1' }, concludeTurn: () => {} })), /already connected/)
+  const asked = String(await ask.execute({ id: 'notion', purpose: 'Search pages' }, { agent: { id: 'm1' }, concludeTurn: () => {} }))
+  assert.doesNotMatch(asked, /already connected/)
+  assert.equal(rt.state.connectorRequests.m1.at(-1).name, 'Notion', 'the card names the service, not its id')
 })
 
 test('refresh uses the client that signed in: cimd, catalog, and legacy inference', async (t) => {

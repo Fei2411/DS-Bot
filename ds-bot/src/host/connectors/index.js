@@ -544,6 +544,7 @@ export function install(rt) {
         ...(exec.callId ? { callId: exec.callId } : {}),
         sessionId: agentId,
         connectorId: id,
+        name: entry.name,
         purpose: String(args.purpose ?? '').trim().slice(0, 300),
         status: 'pending',
         askedAt: now,
