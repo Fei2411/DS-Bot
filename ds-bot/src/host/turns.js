@@ -232,7 +232,8 @@ export function install(rt) {
     stoppedSubagentParents.add(sessionId)
     for (const childId of childIds) {
       rememberStopped(stoppedSubagents, childId)
-      await Promise.resolve(ctx.subagents?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId })).catch(() => {})
+      // Not in the plugin's inject list, where ctx.subagents throws; interrupt can throw too.
+      try { await ctx.get?.('subagents')?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId }) } catch {}
       const childAgent = ctx.get?.('agents')?.get?.(childId)
       if (childAgent !== undefined) {
         try { childAgent.cancel?.({ kind: 'user' }) } catch {}

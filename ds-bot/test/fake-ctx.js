@@ -46,6 +46,8 @@ export function fakeContext({ services = {} } = {}) {
     sections,
     logger: { warn() {}, info() {} },
     get: name => services[name],
+    // As in real cordis: the plugin does not inject this service, so reading it throws.
+    get subagents() { throw new Error('cannot get property "subagents" without inject') },
     on(name, listener, options) {
       calls.push(`on ${name}${options?.prepend ? ' (prepend)' : ''}`)
       listeners.set(name, [...(listeners.get(name) ?? []), listener])
