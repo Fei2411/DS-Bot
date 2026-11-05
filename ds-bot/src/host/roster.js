@@ -145,7 +145,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, type, worker }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -176,6 +176,24 @@ export function install(rt) {
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
         capabilities: [],
+        // Worker Bot type and config (only present when type === 'remote-worker').
+        ...(type === 'remote-worker' ? {
+          type: 'remote-worker',
+          worker: {
+            nodeId: String(worker?.nodeId ?? '').trim() || undefined,
+            mode: ['relay', 'direct', 'ssh'].includes(worker?.mode) ? worker.mode : 'direct',
+            relayUrl: worker?.relayUrl ?? null,
+            hubUrl: worker?.hubUrl ?? null,
+            sshAlias: worker?.sshAlias ?? null,
+            remotePort: typeof worker?.remotePort === 'number' ? worker.remotePort : 19387,
+            enrollToken: null,   // configured separately via secrets
+            online: false,
+            lastSeen: null,
+            taskCount: 0,
+            cpu: null,
+            mem: null,
+          },
+        } : {}),
       }
       if (main) state.mainBotIds.push(id)
       const creator = rt.botOf(createdBy)

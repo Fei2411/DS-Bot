@@ -94,3 +94,9 @@ export const HISTORY_TIMEOUT_MS = 20_000
 export const ASIDE_LIMIT = 'Answer cut off at the output limit.'
 
 export const STEER_CUT = 'ds-bot/steer'
+
+// Bot type enum — type is absent on existing Bots, which behave as LOCAL.
+export const BOT_TYPE = {
+  LOCAL: 'local',                  // default: turn runs in a local DSH Session
+  REMOTE_WORKER: 'remote-worker',  // turn is dispatched to a remote hub node
+}

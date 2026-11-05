@@ -59,6 +59,14 @@ export function install(rt) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
+    // Worker Bot routing: dispatch to the remote hub instead of a local Session turn.
+    // Reply, report, kickoff, and continue messages skip this path — they are either
+    // results already coming back from the hub, or internal lifecycle messages.
+    if (to.type === 'remote-worker'
+      && rt.handleRemoteTurn !== undefined
+      && role !== 'reply' && role !== 'report' && role !== 'kickoff' && role !== 'continue' && role !== 'update') {
+      return rt.handleRemoteTurn({ fromId, toId, text, role, exchangeId, replyTo, work })
+    }
     const fromName = from?.name ?? 'You'
     const room = rt.roomOf(roomId)
     const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name
