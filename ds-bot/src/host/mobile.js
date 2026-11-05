@@ -38,6 +38,7 @@ export const CAPABILITIES = [
   'chat-steps',
   'link-feed',
   'images',
+  'write-state',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 

@@ -53,10 +53,18 @@ export function install(rt) {
   }
 
   // A phone may call every endpoint but these: pairing stays on the computer.
+  // When the call carries `state` (the payload the phone would send `state`) and
+  // it moved the team, the reply carries the new state too — one round trip
+  // through the relay instead of waiting for the revision event and a read.
   const callBot = async (params, signal) => {
     const endpoint = String(params?.endpoint ?? '')
     if (endpoint.startsWith('phone-')) return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
-    return serve(endpoint, params?.payload ?? null, signal)
+    const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
+    const before = rt.state.revision
+    const result = await serve(endpoint, params?.payload ?? null, signal)
+    if (wanted === undefined || result?.ok !== true || rt.state.revision === before) return result
+    const state = await serve('state', wanted, signal).then(answer => (answer?.ok === true ? answer.value : undefined), () => undefined)
+    return state === undefined ? result : { ...result, state }
   }
 
   const stop = () => {

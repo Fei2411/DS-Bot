@@ -97,6 +97,40 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
   assert.equal((await desk.call('state', {})).value.phone.status, 'off')
 })
 
+test('a phone write that moved the team carries the new state in its reply', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const desk = open(home)
+  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  await desk.call('phone-set', { server: server.url, on: true })
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+  const paired = await desk.call('phone-pair', {})
+  const offer = parsePairingUri(paired.value.pairing.uri)
+  const link = phone(offer, { pairingCode: offer.code, name: 'Pixel' })
+  await link.client.connect()
+
+  const before = (await link.client.rpc('bot', { endpoint: 'state', payload: {} })).value.revision
+
+  // The write reply doubles as the `state` answer the phone would have asked for.
+  const written = await link.client.rpc('bot', { endpoint: 'update-bot', payload: { id: 'm1', color: '#112233' }, state: { since: before, avatars: 'ref' } })
+  assert.equal(written.ok, true)
+  assert.equal(written.state.revision, before + 1)
+  assert.equal(written.state.bots.find(bot => bot.id === 'm1').color, '#112233')
+
+  // A read with `state` attached carries none: the revision never moved.
+  const read = await link.client.rpc('bot', { endpoint: 'models', payload: {}, state: { since: before } })
+  assert.equal(read.ok, true)
+  assert.equal(read.state, undefined)
+
+  // A rejected write stays a failure and carries no state.
+  const failed = await link.client.rpc('bot', { endpoint: 'update-bot', payload: { id: 'ghost', color: '#112233' }, state: { since: before } })
+  assert.equal(failed.ok, false)
+  assert.equal(failed.state, undefined)
+
+  await link.client.close()
+})
+
 test('a bare Server host means the link path; a dead Server shows why', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
