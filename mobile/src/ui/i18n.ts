@@ -25,7 +25,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Card': '卡片',
   "Could not reach the Server. Check the network. If the computer's Server address changed, pair again under Computers.": '连不上服务器。请检查网络；如果电脑的服务器地址改了，在「电脑」里重新配对。',
   'Update DS Bot on the computer to use this phone.': '请先更新电脑上的 DS Bot，再用这台手机。',
-  'Open team list': '打开团队列表',
+  'Open team list': '打开团队列表', 'Close team list': '关闭团队列表', 'Pairing link': '配对链接',
   'Forget this computer': '忘记这台电脑',
   'Tap again to forget': '再点一次确认忘记',
   'Needs you': '等你处理',

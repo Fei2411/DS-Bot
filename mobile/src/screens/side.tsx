@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
-import { ChevronLeftIcon, CloseIcon } from '../ui/icons.tsx'
+import { ArrowUpIcon, ChevronLeftIcon, CloseIcon } from '../ui/icons.tsx'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar } from '../ui/marks.tsx'
 import type { Bot } from '../connection.ts'
@@ -110,7 +110,7 @@ export function Side({ bot, sessionId, navigation }: { bot: Bot; sessionId: stri
           placeholder={t('Ask about the work so far')} placeholderTextColor={p.ink3} multiline />
         <Pressable accessibilityRole="button" disabled={draft.trim() === '' || busy} onPress={() => void send()}
           style={[styles.send, { backgroundColor: p.accent, opacity: draft.trim() === '' || busy ? 0.4 : 1 }]}>
-          <Text style={{ color: p.accentInk, fontWeight: '600' }}>›</Text>
+          <ArrowUpIcon size={18} color={p.accentInk} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>

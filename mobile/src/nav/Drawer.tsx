@@ -3,6 +3,7 @@ import { BackHandler, Pressable, StyleSheet, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated'
 import { SPRING_SHAPE } from '../ui/tokens.ts'
+import { t } from '../ui/i18n.ts'
 
 const DrawerCtx = createContext({ open: () => {}, close: () => {} })
 export const useDrawer = () => useContext(DrawerCtx)
@@ -68,7 +69,7 @@ export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, chi
         ) : null}
         <View pointerEvents={shown ? 'auto' : 'none'} style={StyleSheet.absoluteFill}>
           <Animated.View style={[styles.scrim, scrimStyle]}>
-            <Pressable style={{ flex: 1 }} onPress={close} accessibilityLabel="Close team list" />
+            <Pressable style={{ flex: 1 }} onPress={close} accessibilityLabel={t('Close team list')} />
           </Animated.View>
           <GestureDetector gesture={drawerPan}>
             <Animated.View style={[styles.panel, { width }, panelStyle]}>{content}</Animated.View>

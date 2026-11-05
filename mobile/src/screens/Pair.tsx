@@ -51,7 +51,7 @@ export function Pair({ identity, offer, onPaired, onCancel }: { identity: PhoneI
       <View style={styles.pairRow}>
         <TextInput value={link} onChangeText={setLink} placeholder="dsbot://pair?…" placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false}
           returnKeyType="go" onSubmitEditing={() => { if (link.trim() !== '') void pair(link) }}
-          style={[styles.input, { color: p.ink, backgroundColor: p.hover }]} accessibilityLabel="Pairing link" />
+          style={[styles.input, { color: p.ink, backgroundColor: p.hover }]} accessibilityLabel={t('Pairing link')} />
         <Pressable accessibilityRole="button" disabled={busy || link.trim() === ''} onPress={() => void pair(link)}
           style={[styles.button, { backgroundColor: p.accent, opacity: busy || link.trim() === '' ? 0.35 : 1 }]}>
           <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Pair')}</Text>

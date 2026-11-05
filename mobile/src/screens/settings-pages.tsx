@@ -58,6 +58,18 @@ interface ProvidersView { available?: boolean; providers: ProviderItem[]; addabl
 const keyLabel = (key?: { configured?: boolean; writable?: boolean }) =>
   key?.configured !== true ? t('Needs an API key') : key.writable === true ? t('Key set') : t('Key set outside DS Bot')
 
+// A field whose label stays above it once it has a value; the placeholder alone
+// would leave a filled form with no way to tell its fields apart.
+export function LabeledInput({ label, ...props }: React.ComponentProps<typeof TextInput> & { label: string }) {
+  const { p } = useTheme()
+  return (
+    <View>
+      {props.value ? <Text style={[typeScale.small, { color: p.ink3, marginBottom: 2, marginLeft: 2 }]}>{label}</Text> : null}
+      <TextInput placeholder={label} {...props} />
+    </View>
+  )
+}
+
 export function Providers({ navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
@@ -159,7 +171,7 @@ export function Providers({ navigation }: any) {
                     </Pressable>
                   ))}
                 </View>
-                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                <LabeledInput label={t('API key')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
                 <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
                   <Pressable onPress={() => setAdding(false)}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
                   <Pressable disabled={draft.provider === ''} onPress={addKnown}><Text style={{ color: draft.provider === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{t('Add')}</Text></Pressable>
@@ -167,9 +179,9 @@ export function Providers({ navigation }: any) {
               </View>
             ) : (
               <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.name} onChangeText={v => setDraft(d => ({ ...d, name: v }))} placeholder={t('Provider name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
-                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.baseURL} onChangeText={v => setDraft(d => ({ ...d, baseURL: v }))} placeholder={t('API base URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
-                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.provider} onChangeText={v => setDraft(d => ({ ...d, provider: v }))} placeholder={t('Provider id')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                <LabeledInput label={t('Provider name')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.name} onChangeText={v => setDraft(d => ({ ...d, name: v }))} placeholder={t('Provider name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                <LabeledInput label={t('API base URL')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.baseURL} onChangeText={v => setDraft(d => ({ ...d, baseURL: v }))} placeholder={t('API base URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+                <LabeledInput label={t('Provider id')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.provider} onChangeText={v => setDraft(d => ({ ...d, provider: v }))} placeholder={t('Provider id')} placeholderTextColor={p.ink3} autoCapitalize="none" />
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                   <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
                   <Pressable accessibilityRole="button" disabled={draft.baseURL.trim() === ''} onPress={discover} style={[styles.smallBtn, { backgroundColor: p.hover, opacity: draft.baseURL.trim() === '' ? 0.4 : 1 }]}>
@@ -186,7 +198,7 @@ export function Providers({ navigation }: any) {
                     ))}
                   </View>
                 ) : null}
-                <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={draft.typed} onChangeText={v => setDraft(d => ({ ...d, typed: v }))} placeholder={t('Or type model ids, comma separated')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                <LabeledInput label={t('Or type model ids, comma separated')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={draft.typed} onChangeText={v => setDraft(d => ({ ...d, typed: v }))} placeholder={t('Or type model ids, comma separated')} placeholderTextColor={p.ink3} autoCapitalize="none" />
                 <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
                   <Pressable onPress={() => setAdding(false)}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
                   <Pressable disabled={!ready} onPress={addCustom}><Text style={{ color: !ready ? p.ink3 : p.accent, fontWeight: '600' }}>{t('Add')}</Text></Pressable>
@@ -251,7 +263,7 @@ export function Connectors({ navigation }: any) {
                 </View>
                 {!on && connecting ? (
                   <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
-                    <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={token} onChangeText={setToken} placeholder={t('{name} token', { name: item.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                    <LabeledInput label={t('{name} token', { name: item.name })} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={token} onChangeText={setToken} placeholder={t('{name} token', { name: item.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
                     <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
                       {TOKEN_URLS[item.id] !== undefined ? <Text style={[typeScale.small, { color: p.accent, flex: 1 }]} onPress={() => void require('react-native').Linking.openURL(TOKEN_URLS[item.id])}>{t('Create a token on {name}', { name: item.name })}</Text> : <View style={{ flex: 1 }} />}
                       <Pressable onPress={() => { setForm(null); setToken('') }}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
@@ -357,7 +369,7 @@ export function Capabilities({ navigation }: any) {
         ) : (
           <Section label={editing.originalName !== undefined ? t('Edit capability') : t('Add capability')}>
             <View style={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
-              <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.name} editable={editing.originalName === undefined} onChangeText={v => setField('name', v)} placeholder={t('Name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+              <LabeledInput label={t('Name')} style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.name} editable={editing.originalName === undefined} onChangeText={v => setField('name', v)} placeholder={t('Name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
               <View style={[styles.segRow, { borderColor: p.line }]}>
                 {[['mcp', 'MCP'], ['skill', 'Skill'], ['pack', 'Pack']].map(([id, label]) => (
                   <Pressable key={id} disabled={editing.originalName !== undefined} onPress={() => setField('kind', id)} style={[styles.seg, editing.kind === id ? { backgroundColor: p.accent } : null]}>
@@ -365,7 +377,7 @@ export function Capabilities({ navigation }: any) {
                   </Pressable>
                 ))}
               </View>
-              <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.description} onChangeText={v => setField('description', v)} placeholder={t('Description')} placeholderTextColor={p.ink3} />
+              <LabeledInput label={t('Description')} style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.description} onChangeText={v => setField('description', v)} placeholder={t('Description')} placeholderTextColor={p.ink3} />
               {editing.kind === 'mcp' ? (
                 <>
                   <View style={[styles.segRow, { borderColor: p.line }]}>
@@ -377,19 +389,19 @@ export function Capabilities({ navigation }: any) {
                   </View>
                   {editing.transport === 'stdio' ? (
                     <>
-                      <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.command} onChangeText={v => setField('command', v)} placeholder={t('Command')} placeholderTextColor={p.ink3} autoCapitalize="none" />
-                      <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.argsText} onChangeText={v => setField('argsText', v)} placeholder={t('Arguments (one per line)')} placeholderTextColor={p.ink3} multiline />
-                      <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.envText} onChangeText={v => setField('envText', v)} placeholder='{"API_KEY": "$DSH_SECRET_MY_KEY"}' placeholderTextColor={p.ink3} multiline autoCapitalize="none" />
+                      <LabeledInput label={t('Command')} style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.command} onChangeText={v => setField('command', v)} placeholder={t('Command')} placeholderTextColor={p.ink3} autoCapitalize="none" />
+                      <LabeledInput label={t('Arguments (one per line)')} style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.argsText} onChangeText={v => setField('argsText', v)} placeholder={t('Arguments (one per line)')} placeholderTextColor={p.ink3} multiline />
+                      <LabeledInput label={t('Environment')} style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.envText} onChangeText={v => setField('envText', v)} placeholder='{"API_KEY": "$DSH_SECRET_MY_KEY"}' placeholderTextColor={p.ink3} multiline autoCapitalize="none" />
                     </>
                   ) : (
                     <>
-                      <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.url} onChangeText={v => setField('url', v)} placeholder={t('URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
-                      <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.headersText} onChangeText={v => setField('headersText', v)} placeholder='{"API_KEY": "$DSH_SECRET_MY_KEY"}' placeholderTextColor={p.ink3} multiline autoCapitalize="none" />
+                      <LabeledInput label={t('URL')} style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={editing.url} onChangeText={v => setField('url', v)} placeholder={t('URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+                      <LabeledInput label={t('Headers')} style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.headersText} onChangeText={v => setField('headersText', v)} placeholder='{"API_KEY": "$DSH_SECRET_MY_KEY"}' placeholderTextColor={p.ink3} multiline autoCapitalize="none" />
                     </>
                   )}
                 </>
               ) : editing.kind === 'skill' ? (
-                <TextInput style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.content} onChangeText={v => setField('content', v)} placeholder={t('Skill instructions')} placeholderTextColor={p.ink3} multiline />
+                <LabeledInput label={t('Skill instructions')} style={[typeScale.small, styles.field, styles.multi, { color: p.ink, borderColor: p.line }]} value={editing.content} onChangeText={v => setField('content', v)} placeholder={t('Skill instructions')} placeholderTextColor={p.ink3} multiline />
               ) : (
                 library.length === 0 ? <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Save an MCP server or skill first.')}</Text> : (
                   <View style={{ gap: 6 }}>

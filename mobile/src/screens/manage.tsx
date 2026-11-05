@@ -1013,7 +1013,8 @@ export function BotBrowser({ bot, navigation }: { bot: Bot; navigation: { goBack
         {frame?.url ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={1}>{frame.url}</Text> : null}
         {error ? <Text style={[typeScale.small, { color: p.danger, marginTop: 12 }]}>{error}</Text> : null}
         {hold?.note ? <Text style={[typeScale.small, { color: p.ink2, marginTop: 12 }]}>{hold.note}</Text> : null}
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+        {/* A host with Bot browsers off has nothing to take over or stop. */}
+        {(team as { browser?: unknown } | null)?.browser === false ? null : <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
           {hold?.callId !== undefined ? (
             <>
               <Pressable accessibilityRole="button" onPress={() => act('browser-give-back', { botId: bot.id, outcome: 'done', callId: hold.callId })} style={[styles.pillBtn, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Done')}</Text></Pressable>
@@ -1025,7 +1026,7 @@ export function BotBrowser({ bot, navigation }: { bot: Bot; navigation: { goBack
             <Pressable accessibilityRole="button" onPress={() => act('browser-takeover', { botId: bot.id })} style={[styles.pillBtn, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Take over')}</Text></Pressable>
           )}
           <Pressable accessibilityRole="button" onPress={() => act('browser-stop', { botId: bot.id })} style={[styles.pillBtn, { backgroundColor: p.hover }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Pressable>
-        </View>
+        </View>}
       </ScrollView>
     </Screen>
   )

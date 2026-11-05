@@ -37,7 +37,7 @@ export function Composer({ name, running, canStop, onSend, onStop, p }: {
             style={[styles.send, { backgroundColor: p.accent }]}>
             <StopIcon size={14} />
           </Pressable>
-        : <Pressable accessibilityRole="button" accessibilityLabel="Send" disabled={busy || draft === ''} onPress={() => void send()} hitSlop={6}
+        : <Pressable accessibilityRole="button" accessibilityLabel={t('Send')} disabled={busy || draft === ''} onPress={() => void send()} hitSlop={6}
             style={[styles.send, { backgroundColor: p.accent, opacity: busy || draft === '' ? 0.35 : 1 }]}>
             <ArrowUpIcon size={18} />
           </Pressable>}
