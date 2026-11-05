@@ -218,7 +218,7 @@ export function connectGmail(account, deps = {}) {
     if (!response.ok) throw new Error(`Gmail answered ${response.status}`)
     return response.json().catch(() => ({}))
   }
-  const header = (list, name) => list?.find(h => h.name.toLowerCase() === name)?.value ?? ''
+  const header = (list, name) => list?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''
   const decode = data => data === undefined ? '' : Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
   const walk = (part, out = { text: '', attachments: [] }) => {
     if (part === undefined) return out
