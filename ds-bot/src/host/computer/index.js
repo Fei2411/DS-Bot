@@ -429,6 +429,7 @@ export function install(rt) {
     return map
   }
   const cursors = new Map()
+  const lastWindowOf = new Map()
   let cursorSeq = 0
   const publishCursor = (botId, event) => {
     cursors.set(botId, { botId, seq: ++cursorSeq, t: Date.now(), ...event })
@@ -437,6 +438,10 @@ export function install(rt) {
   const RIPPLE_METHODS = new Set(['click', 'double_click', 'performSecondaryAction', 'drag'])
   const recordGeo = (sessionId, result) => {
     if (sessionId === undefined || result === null || typeof result !== 'object') return
+    if (typeof result.appHandle === 'string') {
+      const windowId = result.windowId ?? result.focusedWindowId ?? (Array.isArray(result.windows) ? result.windows[0]?.windowId : undefined)
+      if (windowId !== undefined) lastWindowOf.set(`${sessionId}|${result.appHandle}`, windowId)
+    }
     const windows = Array.isArray(result.windows) ? result.windows : []
     for (const win of windows) {
       const windowId = win?.windowId ?? win?.id
@@ -468,7 +473,8 @@ export function install(rt) {
     if (botId === undefined || !rt.isBotSession(sessionId)) return
     if (call.provider === 'cua') {
       const params = exec.arguments?.params ?? {}
-      const windowId = params.windowId ?? result?.focusedWindowId ?? result?.windowId
+      const remembered = typeof params.appHandle === 'string' ? lastWindowOf.get(`${sessionId}|${params.appHandle}`) : undefined
+      const windowId = params.windowId ?? remembered ?? result?.focusedWindowId ?? result?.windowId
       const win = windowId === undefined ? undefined : geoMapOf(sessionId).get(windowId)
       if (win === undefined || !Number.isFinite(win.x) || !Number.isFinite(win.y) || !Number.isFinite(win.w) || !Number.isFinite(win.h)) return
       const common = { pid: win.pid, windowId }

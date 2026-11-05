@@ -25337,6 +25337,7 @@ function apply(ctx) {
         });
         for (const event of live2.cursors ?? []) {
           if ((seenCursors.get(event.botId) ?? 0) >= event.seq) continue;
+          if (Number.isFinite(event.t) && Date.now() - event.t > 3e3) continue;
           seenCursors.set(event.botId, event.seq);
           if (typeof appComputer.computerCursor === "function") {
             appComputer.computerCursor({ ...event, color: look(event.botId).color, avatar: look(event.botId).image });
