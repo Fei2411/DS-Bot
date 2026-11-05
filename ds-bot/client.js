@@ -1319,6 +1319,15 @@ var ZH = {
   "No connectors connected": "未连接任何连接器",
   "{bot} needs {name}": "{bot} 需要 {name}",
   "{bot} wants to send an email": "{bot} 想发送一封邮件",
+  "Mail": "邮件",
+  "Subject": "主题",
+  "Write a message…": "写邮件正文…",
+  "Discard": "丢弃",
+  "Discarded": "已丢弃",
+  "Allow recipient": "允许收件人",
+  "Turn off drafts for this Bot": "为此 Bot 关闭草稿",
+  "Manage rules": "管理规则",
+  "Sending rules": "发信规则",
   "From": "发件人",
   "To": "收件人",
   "Cc": "抄送",
@@ -1953,7 +1962,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     connectorRequestCancel: (requestId) => after(call2("connector-request-cancel", { requestId })),
     mailAccountAdd: (payload) => after(call2("mail-account-add", payload)),
     mailAccountRemove: (id) => after(call2("mail-account-remove", { id })),
-    mailSendAnswer: (requestId, choice) => after(call2("mail-send-answer", { requestId, choice })),
+    mailRuleSet: (payload) => after(call2("mail-rule-set", payload)),
+    mailSendAnswer: (requestId, choice, extra = {}) => after(call2("mail-send-answer", { requestId, choice, ...extra })),
     mailSignInCode: (payload) => after(call2("mail-sign-in-code", payload)),
     saveCapability: (capability) => after(call2("capability-save", capability)),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
@@ -5572,9 +5582,10 @@ var PROPS = {
   number: ["id", "label", "min", "max", "step", "value", "unit"],
   options: ["id", "options", "multi"],
   confirm: ["id", "confirmLabel", "cancelLabel"],
-  form: ["id", "fields", "submitLabel"],
+  form: ["id", "fields", "submitLabel", "cancelLabel"],
   submit: ["id", "label"]
 };
+var FIELD_PROPS = ["id", "label", "placeholder", "value", "multiline", "readOnly"];
 var MAX_DEPTH = 8;
 var MAX_NODES = 64;
 var MAX_CHILDREN = 16;
@@ -5599,17 +5610,17 @@ function viewBytes(title, view) {
 }
 var NUMERIC = ["value", "percent", "min", "max", "step", "height"];
 var numeric = (value) => typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value)) ? Number(value) : value;
-function normalizeView(value) {
-  if (Array.isArray(value)) return value.map(normalizeView);
+function normalizeView(value, inFormFields = false) {
+  if (Array.isArray(value)) return value.map((item) => normalizeView(item, inFormFields));
   if (!isRecord(value)) return value;
   const keys = Object.keys(value);
   if (keys.length === 1 && keys[0] === "item") {
-    const inner = normalizeView(value.item);
+    const inner = normalizeView(value.item, inFormFields);
     if (Array.isArray(inner)) return inner;
   }
   const out = {};
-  for (const key of keys) Object.defineProperty(out, key, { value: normalizeView(value[key]), writable: true, enumerable: true, configurable: true });
-  for (const field of NUMERIC) if (Object.hasOwn(out, field)) out[field] = numeric(out[field]);
+  for (const key of keys) Object.defineProperty(out, key, { value: normalizeView(value[key], inFormFields || key === "fields"), writable: true, enumerable: true, configurable: true });
+  for (const field of NUMERIC) if ((field !== "value" || !inFormFields) && Object.hasOwn(out, field)) out[field] = numeric(out[field]);
   if (Array.isArray(out.values)) out.values = out.values.map(numeric);
   return out;
 }
@@ -5907,6 +5918,7 @@ function checkForm(node, path2, ctx) {
   const idError = checkId(node, path2, ctx);
   if (idError !== void 0) return idError;
   if (node.submitLabel !== void 0 && typeof node.submitLabel !== "string") return `${path2}.submitLabel: expected a string`;
+  if (node.cancelLabel !== void 0 && typeof node.cancelLabel !== "string") return `${path2}.cancelLabel: expected a string`;
   if (!Array.isArray(node.fields)) return `${path2}.fields: expected an array of at most ${MAX_FIELDS} fields`;
   if (node.fields.length > MAX_FIELDS) return `${path2}.fields: ${node.fields.length} fields exceeds the limit of ${MAX_FIELDS}`;
   const seen = /* @__PURE__ */ new Set();
@@ -5915,7 +5927,7 @@ function checkForm(node, path2, ctx) {
     const at = `${path2}.fields[${index}]`;
     if (!isRecord(field)) return `${at}: expected a field object`;
     for (const key of Object.keys(field)) {
-      if (key !== "id" && key !== "label" && key !== "placeholder") return `${at}.${key}: unknown property ${quoted(key)}; allowed: id, label, placeholder`;
+      if (!FIELD_PROPS.includes(key)) return `${at}.${key}: unknown property ${quoted(key)}; allowed: ${allowed(FIELD_PROPS)}`;
     }
     if (typeof field.id !== "string" || field.id === "") return `${at}.id: expected a non-empty string`;
     if (field.id === "__proto__") return `${at}.id: "__proto__" cannot be an id`;
@@ -5923,6 +5935,12 @@ function checkForm(node, path2, ctx) {
     seen.add(field.id);
     if (typeof field.label !== "string") return `${at}.label: expected a string`;
     if (field.placeholder !== void 0 && typeof field.placeholder !== "string") return `${at}.placeholder: expected a string`;
+    if (field.value !== void 0) {
+      if (typeof field.value !== "string") return `${at}.value: expected a string`;
+      if (field.value.length > MAX_TEXT) return `${at}.value: ${field.value.length} characters exceeds the limit of ${MAX_TEXT}`;
+    }
+    if (field.multiline !== void 0 && typeof field.multiline !== "boolean") return `${at}.multiline: expected a boolean`;
+    if (field.readOnly !== void 0 && typeof field.readOnly !== "boolean") return `${at}.readOnly: expected a boolean`;
   }
   return void 0;
 }
@@ -6072,7 +6090,7 @@ function componentSummary(node, lookup) {
     case "confirm":
       return "confirm";
     case "form":
-      return `form: ${(Array.isArray(node.fields) ? node.fields : []).map((field) => field?.label ?? field?.id).filter(Boolean).join("/")}`;
+      return `form: ${(Array.isArray(node.fields) ? node.fields : []).map((field) => field?.label || field?.id).filter(Boolean).join("/")}`;
     case "submit":
       return `submit: ${node.label ?? "Send"}`;
     default:
@@ -6150,15 +6168,19 @@ function validateConfirm(values) {
   return { confirmed: values.confirmed };
 }
 function validateForm(node, values) {
+  if (values.canceled === true) return { canceled: true };
   if (!isRecord(values.fields)) return { error: "values.fields: expected an object of field ids to strings" };
-  const declared = (node.fields ?? []).map((field) => field?.id).filter((id) => typeof id === "string");
+  const declaredFields = (node.fields ?? []).filter((field) => typeof field?.id === "string");
+  const declared = declaredFields.map((field) => field.id);
+  const byId = new Map(declaredFields.map((field) => [field.id, field]));
   const allowedIds = new Set(declared);
   const fields = {};
   for (const [key, value] of Object.entries(values.fields)) {
     if (!allowedIds.has(key)) return { error: `values.fields.${key}: unknown field; allowed: ${allowed(declared)}` };
     if (typeof value !== "string") return { error: `values.fields.${key}: expected a string` };
     if (value.length > MAX_TEXT) return { error: `values.fields.${key}: ${value.length} characters exceeds the limit of ${MAX_TEXT}` };
-    fields[key] = value;
+    const spec = byId.get(key);
+    fields[key] = spec?.readOnly === true ? spec.value ?? "" : value;
   }
   return { fields };
 }
@@ -6776,11 +6798,12 @@ function SettledOptions({ node, answer }) {
     ))
   );
 }
-function ConfirmInput({ node, onSubmit, busy = false }) {
+function ConfirmInput({ node, onSubmit, busy = false, footStart = null }) {
   const ui2 = useViewUi();
   return (0, import_react13.createElement)(
     "div",
     { className: "dv-q-foot" },
+    footStart ? (0, import_react13.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
     (0, import_react13.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui2.t("Cancel")),
     (0, import_react13.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui2.t("Confirm"))
   );
@@ -6799,12 +6822,15 @@ function SettledConfirm({ node, answer }) {
   const label = confirmed ? node.confirmLabel ?? ui2.t("Confirm") : node.cancelLabel ?? ui2.t("Cancel");
   return (0, import_react13.createElement)("span", { className: "dv-q-badge" }, label);
 }
-function FormInput({ node, onSubmit, busy = false }) {
+function FormInput({ node, onSubmit, busy = false, footStart = null }) {
   const ui2 = useViewUi();
   const fields = fieldsOf(node);
-  const [draft, setDraft] = (0, import_react13.useState)({});
+  const [draft, setDraft] = (0, import_react13.useState)(() => Object.fromEntries(fields.map((field) => [field.id, field.value ?? ""])));
   const submit = () => {
-    if (!busy) onSubmit?.(node.id, { fields: Object.fromEntries(fields.map((field) => [field.id, draft[field.id] ?? ""])) });
+    if (!busy) onSubmit?.(node.id, { fields: Object.fromEntries(fields.map((field) => [field.id, field.readOnly === true ? field.value ?? "" : draft[field.id] ?? ""])) });
+  };
+  const cancel = () => {
+    if (!busy) onSubmit?.(node.id, { canceled: true });
   };
   return (0, import_react13.createElement)(
     "form",
@@ -6815,52 +6841,109 @@ function FormInput({ node, onSubmit, busy = false }) {
         submit();
       }
     },
-    fields.map((field) => (0, import_react13.createElement)(
-      "label",
-      { key: field.id, className: "dv-widget-field" },
-      (0, import_react13.createElement)("span", { className: "dv-widget-field-label" }, field.label),
-      (0, import_react13.createElement)(
-        "span",
-        { className: "dv-q-field" },
-        (0, import_react13.createElement)("input", {
-          className: "dv-q-input",
-          type: "text",
-          value: draft[field.id] ?? "",
-          autoComplete: "off",
-          spellCheck: false,
-          readOnly: busy,
-          "aria-label": field.label,
-          placeholder: field.placeholder ?? void 0,
-          onChange: (event) => {
-            if (!busy) setDraft((current) => ({ ...current, [field.id]: event.target.value }));
-          },
-          onKeyDown: (event) => {
-            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            submit();
-          }
-        })
-      )
-    )),
-    (0, import_react13.createElement)("div", { className: "dv-q-foot" }, (0, import_react13.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit")))
+    fields.map((field) => {
+      const val = field.readOnly === true ? field.value ?? "" : draft[field.id] ?? "";
+      const hasLabel = typeof field.label === "string" && field.label.trim() !== "";
+      const multiline = field.multiline === true;
+      const readOnly = field.readOnly === true;
+      const heading = !multiline && !hasLabel;
+      const labelText = hasLabel ? field.label : field.placeholder ?? field.id;
+      return (0, import_react13.createElement)(
+        "label",
+        {
+          key: field.id,
+          className: "dv-widget-field",
+          "data-inline": !multiline && hasLabel ? "" : void 0,
+          "data-heading": heading ? "" : void 0,
+          "data-multiline": multiline ? "" : void 0,
+          "data-readonly": readOnly ? "" : void 0
+        },
+        hasLabel ? (0, import_react13.createElement)("span", { className: "dv-widget-field-label" }, field.label) : null,
+        (0, import_react13.createElement)(
+          "span",
+          { className: "dv-q-field" },
+          multiline ? (0, import_react13.createElement)("textarea", {
+            className: "dv-q-input dv-q-textarea",
+            rows: Math.min(10, Math.max(3, (val.match(/\n/g)?.length ?? 0) + 1)),
+            value: val,
+            autoComplete: "off",
+            spellCheck: false,
+            readOnly: busy || readOnly,
+            "aria-label": labelText,
+            placeholder: field.placeholder ?? void 0,
+            onChange: (event) => {
+              if (!busy && !readOnly) setDraft((current) => ({ ...current, [field.id]: event.target.value }));
+            },
+            onKeyDown: (event) => {
+              if (event.key !== "Enter" || !event.metaKey && !event.ctrlKey || event.nativeEvent?.isComposing) return;
+              event.preventDefault();
+              submit();
+            }
+          }) : (0, import_react13.createElement)("input", {
+            className: "dv-q-input",
+            type: "text",
+            value: val,
+            autoComplete: "off",
+            spellCheck: false,
+            readOnly: busy || readOnly,
+            "aria-label": labelText,
+            placeholder: field.placeholder ?? void 0,
+            onChange: (event) => {
+              if (!busy && !readOnly) setDraft((current) => ({ ...current, [field.id]: event.target.value }));
+            },
+            onKeyDown: (event) => {
+              if (event.key !== "Enter" || event.nativeEvent?.isComposing) return;
+              event.preventDefault();
+              submit();
+            }
+          })
+        )
+      );
+    }),
+    (0, import_react13.createElement)(
+      "div",
+      { className: "dv-q-foot" },
+      footStart ? (0, import_react13.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
+      node.cancelLabel ? (0, import_react13.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: cancel }, node.cancelLabel) : null,
+      (0, import_react13.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit"))
+    )
   );
 }
 function SettledForm({ node, answer }) {
-  const fields = answerValues(answer, node)?.fields;
+  const ui2 = useViewUi();
+  const ans = answerValues(answer, node);
+  const fields = ans?.fields;
   const values = fields !== null && typeof fields === "object" ? fields : {};
+  const canceled = ans?.canceled === true;
+  const badge = canceled ? node.cancelLabel ?? ui2.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui2.t("Submit") : null;
   return (0, import_react13.createElement)(
     "div",
     { className: "dv-widget-form" },
-    fieldsOf(node).map((field) => (0, import_react13.createElement)(
-      "label",
-      { key: field.id, className: "dv-widget-field" },
-      (0, import_react13.createElement)("span", { className: "dv-widget-field-label" }, field.label),
-      (0, import_react13.createElement)(
-        "span",
-        { className: "dv-q-field" },
-        (0, import_react13.createElement)("input", { className: "dv-q-input", type: "text", value: values[field.id] ?? "", disabled: true, readOnly: true, "aria-label": field.label })
-      )
-    ))
+    fieldsOf(node).map((field) => {
+      const val = values[field.id] ?? field.value ?? "";
+      const hasLabel = typeof field.label === "string" && field.label.trim() !== "";
+      const multiline = field.multiline === true;
+      const heading = !multiline && !hasLabel;
+      const labelText = hasLabel ? field.label : field.placeholder ?? field.id;
+      return (0, import_react13.createElement)(
+        "label",
+        {
+          key: field.id,
+          className: "dv-widget-field",
+          "data-inline": !multiline && hasLabel ? "" : void 0,
+          "data-heading": heading ? "" : void 0,
+          "data-multiline": multiline ? "" : void 0,
+          "data-readonly": field.readOnly === true ? "" : void 0
+        },
+        hasLabel ? (0, import_react13.createElement)("span", { className: "dv-widget-field-label" }, field.label) : null,
+        (0, import_react13.createElement)(
+          "span",
+          { className: "dv-q-field" },
+          multiline ? (0, import_react13.createElement)("textarea", { className: "dv-q-input dv-q-textarea", rows: Math.min(10, Math.max(2, (val.match(/\n/g)?.length ?? 0) + 1)), value: val, disabled: true, readOnly: true, "aria-label": labelText }) : (0, import_react13.createElement)("input", { className: "dv-q-input", type: "text", value: val, disabled: true, readOnly: true, "aria-label": labelText })
+        )
+      );
+    }),
+    badge ? (0, import_react13.createElement)("div", { className: "dv-q-foot" }, (0, import_react13.createElement)("span", { className: "dv-q-badge" }, badge)) : null
   );
 }
 function SubmitInput({ node, ctx }) {
@@ -7113,14 +7196,14 @@ function WidgetNode({ node, ctx }) {
     case "options":
       return ctx.settled ? (0, import_react13.createElement)(SettledOptions, { node, answer: ctx.answer }) : (0, import_react13.createElement)(OptionsInput, { node, onSubmit: ctx.onSubmit, keys: ctx.keys, busy: ctx.busy });
     case "confirm":
-      return ctx.settled ? (0, import_react13.createElement)(SettledConfirm, { node, answer: ctx.answer }) : (0, import_react13.createElement)(ConfirmInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy });
+      return ctx.settled ? (0, import_react13.createElement)(SettledConfirm, { node, answer: ctx.answer }) : (0, import_react13.createElement)(ConfirmInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy, footStart: ctx.footStart });
     case "form":
-      return ctx.settled ? (0, import_react13.createElement)(SettledForm, { node, answer: ctx.answer }) : (0, import_react13.createElement)(FormInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy });
+      return ctx.settled ? (0, import_react13.createElement)(SettledForm, { node, answer: ctx.answer }) : (0, import_react13.createElement)(FormInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy, footStart: ctx.footStart });
     default:
       return null;
   }
 }
-function WidgetView({ view, onSubmit, settled = false, answer = null, busy = false, registerChart, refreshCharts }) {
+function WidgetView({ view, onSubmit, settled = false, answer = null, busy = false, footStart = null, registerChart, refreshCharts }) {
   const inputs = viewInputs(view);
   const [values, setValues] = (0, import_react13.useState)(() => Object.fromEntries(inputs.map((node) => [node.id, inputDefault(node)])));
   const sent = answer?.values?.inputs;
@@ -7131,6 +7214,7 @@ function WidgetView({ view, onSubmit, settled = false, answer = null, busy = fal
     settled,
     answer,
     busy,
+    footStart,
     keys: !settled && countType(view, "options") === 1,
     lookup: viewScope(view, current),
     values: current,
@@ -7211,15 +7295,16 @@ function ViewMenu({ charts }) {
     open ? (0, import_react13.createElement)(ViewMenuList, { charts, pick: pick2 }) : null
   );
 }
-function WidgetCard({ title, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
+function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
   const ui2 = useViewUi();
   const titleId = (0, import_react13.useId)();
   const { charts, registerChart, refreshCharts } = useChartHandles();
   const framed = raised || hasControls(view);
   const className = ["dv-view", framed ? "dv-q" : "dv-view-bare", settled ? "dv-q-settled" : "", raised ? "dv-q-raised" : ""].filter(Boolean).join(" ");
-  const head = title || onDismiss || countType(view, "chart") > 0 ? (0, import_react13.createElement)(
+  const head = title || icon2 || onDismiss || countType(view, "chart") > 0 ? (0, import_react13.createElement)(
     "div",
     { className: "dv-view-head" },
+    icon2 ? (0, import_react13.createElement)("span", { className: "dv-view-icon", "aria-hidden": true }, icon2) : null,
     title ? (0, import_react13.createElement)("p", { className: "dv-view-title", id: titleId }, title) : (0, import_react13.createElement)("span", { className: "dv-view-title" }),
     countType(view, "chart") > 0 ? (0, import_react13.createElement)(ViewMenu, { charts }) : null,
     onDismiss ? (0, import_react13.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui2.t("Dismiss view"), title: ui2.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react13.createElement)(CloseIcon2)) : null
@@ -7234,7 +7319,7 @@ function WidgetCard({ title, view, onSubmit, onDismiss, busy = false, raised = f
       "aria-busy": busy || void 0
     },
     head,
-    (0, import_react13.createElement)("div", { className: "dv-view-body" }, (0, import_react13.createElement)(WidgetView, { view, onSubmit, settled, answer, busy, registerChart, refreshCharts }))
+    (0, import_react13.createElement)("div", { className: "dv-view-body" }, (0, import_react13.createElement)(WidgetView, { view, onSubmit, settled, answer, busy, footStart: settled ? null : footStart, registerChart, refreshCharts }))
   );
 }
 function AnsweredView({ node }) {
@@ -7258,7 +7343,9 @@ function AnsweredView({ node }) {
 var WIDGET_CSS = `
 .dv-view{min-width:0}
 .dv-view-bare{display:flex;flex-direction:column;gap:8px;width:100%;color:var(--dv-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;animation:dv-veil-in .2s ease-out backwards}
-.dv-view-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.dv-view-head{display:flex;align-items:center;gap:8px;min-width:0}
+.dv-view-icon{flex:none;width:22px;height:22px;border-radius:6px;background:var(--dv-hover);color:var(--dv-ink-2);display:inline-flex;align-items:center;justify-content:center}
+.dv-view-icon svg{width:14px;height:14px}
 .dv-view-title{flex:1 1 0;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:500;color:var(--dv-ink);overflow-wrap:anywhere}
 .dv-q-settled .dv-view-title{color:var(--dv-ink-2)}
 .dv-view-tools{position:relative;flex:none;align-self:flex-start;opacity:0;transition:opacity .12s ease}
@@ -7294,6 +7381,14 @@ var WIDGET_CSS = `
 .dv-widget-field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .dv-widget-field-label{font-size:12px;line-height:16px;color:var(--dv-ink-2)}
 .dv-widget-field .dv-q-field:has(.dv-q-input:disabled){cursor:default;opacity:.75}
+.dv-widget-field[data-inline]{flex-direction:row;align-items:center;gap:12px;padding:7px 0;border-bottom:.5px solid var(--dv-line)}
+.dv-widget-field[data-inline] .dv-widget-field-label{flex:none;min-width:44px;font-size:13px;line-height:20px}
+.dv-widget-field[data-inline] .dv-q-field{border:0;border-radius:0;padding:0;min-height:20px;background:none}
+.dv-widget-field[data-inline][data-readonly] .dv-q-input{color:var(--dv-ink-2);cursor:default}
+.dv-widget-field[data-heading] .dv-q-field{border:0;border-radius:0;padding:2px 0;min-height:24px;background:none}
+.dv-widget-field[data-heading] .dv-q-input{font-size:16px;line-height:22px;font-weight:600}
+.dv-widget-field[data-multiline]:not(:has(.dv-widget-field-label)) .dv-q-field{border:0;border-radius:0;padding:4px 0;background:none}
+.dv-q-textarea{max-height:240px;overflow-y:auto;line-height:22px}
 .dv-widget-progress{display:flex;flex-direction:column;gap:5px;min-width:0}
 .dv-widget-progress-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:16px;color:var(--dv-ink-2);font-variant-numeric:tabular-nums}
 .dv-widget-progress-name{color:var(--dv-ink);font-weight:500}
@@ -7424,7 +7519,8 @@ button.dv-q-opt:active{background:var(--dv-active)}
 .dv-q-submit:disabled{opacity:.4;cursor:default}
 .dv-q-btn{background:var(--dv-hover);color:var(--dv-ink)}
 .dv-q-btn:hover{background:var(--dv-active)}
-.dv-q-foot{display:flex;justify-content:flex-end;gap:8px}
+.dv-q-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.dv-q-foot-start{margin-right:auto;display:flex;align-items:center}
 .dv-menu{position:fixed;pointer-events:auto;z-index:60;min-width:200px;padding:6px;border-radius:12px;background:var(--dv-main);border:.5px solid var(--dv-line-2);box-shadow:0 10px 20px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1),0 0 0 1px rgba(228,228,228,.04);display:flex;flex-direction:column;gap:2px;transform-origin:var(--dv-origin,top left);animation:dv-veil-in .14s ease-out;font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);box-sizing:border-box}
 .dv-menu.dv-view-menu{position:absolute;z-index:4}
 .dv-menu button{display:flex;align-items:center;gap:4px;width:100%;min-height:30px;text-align:left;border:0;background:none;border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;line-height:18px;color:var(--dv-ink);cursor:pointer;box-sizing:border-box}
@@ -7455,6 +7551,7 @@ var DEEP_VIEW_CSS = THEME_CSS + QUESTION_CSS + WIDGET_CSS;
 
 // node_modules/deep-view/src/core/reply.js
 var REPLY_KIND = "user-question-reply";
+var REPLY_SOURCE_KIND = "deep-view-reply";
 function viewCardText(args) {
   let card = args;
   if (typeof card === "string") {
@@ -7509,10 +7606,16 @@ function viewAnswerText(view, answer) {
       }
     });
     parts.push(values.confirmed ? confirmLabel ?? "Confirmed" : cancelLabel ?? "Cancelled");
+  } else if (values.canceled === true) {
+    let cancelLabel;
+    eachNode(view, (node) => {
+      if (node.id === answer.action) cancelLabel = node.cancelLabel;
+    });
+    parts.push(cancelLabel ?? "Cancelled");
   } else if (isRecord2(values.fields)) {
     const labels = /* @__PURE__ */ new Map();
     eachNode(view, (node) => {
-      for (const field of Array.isArray(node.fields) ? node.fields : []) labels.set(field?.id, field?.label ?? field?.id);
+      for (const field of Array.isArray(node.fields) ? node.fields : []) labels.set(field?.id, field?.label || field?.id);
     });
     parts.push(...Object.entries(values.fields).map(([key, value]) => `${labels.get(key) ?? key}: ${value}`));
   }
@@ -7548,6 +7651,7 @@ function actionSummary(answer, view) {
   let text;
   if (Array.isArray(values.selected)) text = `selected: ${values.selected.join(", ")}`;
   else if (typeof values.confirmed === "boolean") text = values.confirmed ? "confirmed" : "cancelled";
+  else if (values.canceled === true) text = "cancelled";
   else if (isRecord2(values.fields)) text = Object.entries(values.fields).map(([key, value]) => `${key}: ${value}`).join("; ");
   else if (inputs !== "") text = "";
   else text = typeof answer.action === "string" && answer.action !== "" ? answer.action : "(skipped)";
@@ -10869,13 +10973,69 @@ function MailForm({ mail, actions, mailRun, busy, error, fields, setField, onClo
   );
 }
 var EMPTY_MAIL = { address: "", password: "", provider: "", imapHost: "", smtpHost: "" };
-function MailSection({ mail, actions, run: run2 }) {
+function MailRules({ mail, bots, actions, run: run2 }) {
+  const [recipient, setRecipient] = (0, import_react25.useState)("");
+  const allowed2 = mail?.allowedRecipients ?? [];
+  const noDraft = mail?.noDraftFor ?? [];
+  const add = () => {
+    const addr = recipient.trim();
+    if (!addr.includes("@")) return;
+    void run2(actions.mailRuleSet({ addRecipient: addr }), () => setRecipient(""));
+  };
+  return (0, import_react25.createElement)(
+    "div",
+    { className: "bt-set-row bt-set-paste bt-mail-rules" },
+    (0, import_react25.createElement)("div", { className: "bt-connector-name" }, t("Sending rules")),
+    allowed2.map((addr) => (0, import_react25.createElement)(
+      "div",
+      { key: `r:${addr}`, className: "bt-connector-head" },
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-connector-text" },
+        (0, import_react25.createElement)("span", { className: "bt-connector-name" }, addr),
+        (0, import_react25.createElement)("span", { className: "bt-connector-status" }, t("Allow recipient"))
+      ),
+      (0, import_react25.createElement)(
+        "span",
+        { className: "bt-connector-actions" },
+        (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.mailRuleSet({ removeRecipient: addr })) }, t("Remove"))
+      )
+    )),
+    noDraft.map((botId) => {
+      const botName = (bots ?? []).find((b) => b.id === botId)?.name ?? botId;
+      return (0, import_react25.createElement)(
+        "div",
+        { key: `b:${botId}`, className: "bt-connector-head" },
+        (0, import_react25.createElement)(
+          "span",
+          { className: "bt-connector-text" },
+          (0, import_react25.createElement)("span", { className: "bt-connector-name" }, botName),
+          (0, import_react25.createElement)("span", { className: "bt-connector-status" }, t("Turn off drafts for this Bot"))
+        ),
+        (0, import_react25.createElement)(
+          "span",
+          { className: "bt-connector-actions" },
+          (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.mailRuleSet({ botId, noDraft: false })) }, t("Needs approval"))
+        )
+      );
+    }),
+    (0, import_react25.createElement)(
+      "div",
+      { className: "bt-connector-form-row" },
+      (0, import_react25.createElement)("input", { className: "bt-input", "aria-label": t("Allow recipient"), placeholder: "name@example.com", value: recipient, autoComplete: "off", onChange: (e) => setRecipient(e.target.value) }),
+      (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !recipient.includes("@"), onClick: add }, t("Add"))
+    )
+  );
+}
+function MailSection({ mail, bots, actions, run: run2 }) {
   const [form, setForm] = (0, import_react25.useState)(false);
+  const [rulesOpen, setRulesOpen] = (0, import_react25.useState)(false);
   const [busy, setBusy] = (0, import_react25.useState)(false);
   const [error, setError] = (0, import_react25.useState)(null);
   const [fields, setFields] = (0, import_react25.useState)(EMPTY_MAIL);
   const busyRef = (0, import_react25.useRef)(false);
   const accounts = mail?.accounts ?? [];
+  const hasRules = (mail?.allowedRecipients?.length ?? 0) > 0 || (mail?.noDraftFor?.length ?? 0) > 0;
   const setField = (key, value) => setFields((current) => ({ ...current, [key]: value }));
   const close = () => {
     setError(null);
@@ -10905,7 +11065,8 @@ function MailSection({ mail, actions, run: run2 }) {
       accounts.length === 0 && !form ? (0, import_react25.createElement)("div", { className: "bt-set-row" }, (0, import_react25.createElement)("span", { className: "bt-set-hint" }, t("No mail accounts yet"))) : null,
       accounts.map((account) => (0, import_react25.createElement)(MailAccount, { key: account.id, account, actions, run: run2 })),
       (mail?.pending ?? []).map((p) => (0, import_react25.createElement)(MailPending, { key: p.address ?? "google", pending: p })),
-      form ? (0, import_react25.createElement)(MailForm, { mail, actions, mailRun, busy, error, fields, setField, onClose: close }) : null
+      form ? (0, import_react25.createElement)(MailForm, { mail, actions, mailRun, busy, error, fields, setField, onClose: close }) : null,
+      hasRules || rulesOpen ? (0, import_react25.createElement)(MailRules, { mail, bots, actions, run: run2 }) : null
     ),
     form ? null : (0, import_react25.createElement)(
       "div",
@@ -10914,7 +11075,8 @@ function MailSection({ mail, actions, run: run2 }) {
         setError(null);
         setForm(true);
       } }, t("Add an account")),
-      mail?.google ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.mailAccountAdd({ google: true })) }, t("Sign in with Google")) : null
+      mail?.google ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.mailAccountAdd({ google: true })) }, t("Sign in with Google")) : null,
+      !hasRules && accounts.length > 0 ? (0, import_react25.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setRulesOpen((v) => !v) }, t("Manage rules")) : null
     )
   ];
 }
@@ -11002,7 +11164,7 @@ function ConnectorsPage({ roster, actions }) {
       connected.length === 0 ? (0, import_react25.createElement)("div", { className: "bt-set-row" }, (0, import_react25.createElement)("span", { className: "bt-set-hint" }, t("No connectors connected"))) : null,
       connected.map((connector) => (0, import_react25.createElement)(ConnectorRow, { key: connector.id, connector, actions }))
     ),
-    (0, import_react25.createElement)(MailSection, { mail: data.mail, actions, run: run2 }),
+    (0, import_react25.createElement)(MailSection, { mail: data.mail, bots: roster?.bots, actions, run: run2 }),
     (0, import_react25.createElement)("div", { className: "bt-section-title" }, t("Catalog")),
     (0, import_react25.createElement)(
       "div",
@@ -11043,29 +11205,31 @@ function BotConnectors({ bot, roster, actions, run: run2 }) {
   );
 }
 var literal = (text) => String(text ?? "").replace(/[\\`*_{}[\]()#+\-.!|<>~&@:]/g, "\\$&");
-var literalBlock = (text) => literal(String(text ?? "").replace(/\r\n?/g, "\n").trim()).split(/\n{2,}/).map((paragraph) => paragraph.replace(/\n/g, "\\\n")).join("\n\n");
-var codeSpan = (text) => {
-  const value = String(text ?? "").replace(/\s+/g, " ");
-  const fence = "`".repeat(Math.max(0, ...(value.match(/`+/g) ?? []).map((run2) => run2.length)) + 1);
-  return `${fence} ${value} ${fence}`;
-};
-function RequestView2({ sessionId, kind, request, actions, inline, title, view, onAnswer, busy = false }) {
+var MailIcon = () => (0, import_react25.createElement)(
+  "svg",
+  { width: 14, height: 14, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+  (0, import_react25.createElement)("rect", { x: 2.5, y: 4.5, width: 15, height: 11, rx: 2 }),
+  (0, import_react25.createElement)("path", { d: "M3 5.5l7 5 7-5" })
+);
+function RequestView2({ sessionId, kind, request, actions, inline, title, icon: icon2, footStart, view, onAnswer, busy = false }) {
   const hold = useDockHold(sessionId, kind, request.id, actions, inline);
   return (0, import_react25.createElement)(
     "div",
     { style: { display: "contents" }, onFocusCapture: hold, onPointerDownCapture: hold },
     (0, import_react25.createElement)(ViewCard, {
       title,
+      icon: icon2,
+      footStart,
       view,
       busy,
       raised: !inline,
       onSubmit: (_, values) => {
         hold();
-        onAnswer(values?.confirmed === true);
+        onAnswer(values);
       },
       onDismiss: () => {
         hold();
-        onAnswer(false);
+        onAnswer({ canceled: true });
       }
     })
   );
@@ -11087,8 +11251,8 @@ function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
     inline,
     title: t("{bot} needs {name}", { bot: bot.name, name }),
     view: connectorView(request),
-    onAnswer: (connect) => {
-      if (connect) actions.openConnectors();
+    onAnswer: (values) => {
+      if (values?.confirmed === true) actions.openConnectors();
       else void actions.connectorRequestCancel(request.id);
     }
   });
@@ -11125,36 +11289,112 @@ function ConnectorDock({ sessionId, useRoster, useCards, useHeldCards, actions }
   if (waiting.length === 0) return null;
   return (0, import_react25.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react25.createElement)(ConnectorCard, { key: request.id, sessionId, bot, request, actions })));
 }
-function mailView(request, roster, settled = false) {
+var RULE_LABELS = {
+  "allow-recipient": "Allow recipient",
+  "require-approval": "Needs approval",
+  "no-draft": "Turn off drafts for this Bot"
+};
+function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
+  const [open, setOpen] = (0, import_react25.useState)(false);
+  const root = (0, import_react25.useRef)(null);
+  (0, import_react25.useEffect)(() => {
+    if (!open) return void 0;
+    const away = (event) => {
+      if (!root.current?.contains(event.target)) setOpen(false);
+    };
+    const key = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  const choose = (mode) => {
+    setOpen(false);
+    onPick(mode);
+    void Promise.resolve(actions.mailRuleSet?.({
+      mode,
+      botId: bot.id,
+      recipients: [request.to, request.cc, request.bcc].filter(Boolean).join(", ")
+    })).catch(() => {
+    });
+  };
+  return (0, import_react25.createElement)(
+    "div",
+    { ref: root, className: "bt-mail-rule-wrap" },
+    (0, import_react25.createElement)("button", {
+      type: "button",
+      className: "bt-mail-rule-btn",
+      disabled,
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      onClick: () => setOpen((v) => !v)
+    }, t(RULE_LABELS[rule] ?? "Needs approval"), (0, import_react25.createElement)(ChevronDownIcon)),
+    open ? (0, import_react25.createElement)(
+      "div",
+      { className: "dv-menu bt-mail-rule-menu", role: "menu" },
+      ["allow-recipient", "require-approval", "no-draft"].map((mode) => (0, import_react25.createElement)("button", {
+        key: mode,
+        type: "button",
+        role: "menuitemradio",
+        "aria-checked": rule === mode,
+        onClick: () => choose(mode)
+      }, (0, import_react25.createElement)("span", { className: "bt-mail-rule-item-text" }, t(RULE_LABELS[mode])), rule === mode ? (0, import_react25.createElement)(CheckIcon) : null)),
+      (0, import_react25.createElement)("div", { className: "dv-menu-sep", role: "separator" }),
+      (0, import_react25.createElement)("button", {
+        type: "button",
+        role: "menuitem",
+        onClick: () => {
+          setOpen(false);
+          actions.openConnectors?.();
+        }
+      }, (0, import_react25.createElement)("span", { className: "bt-mail-rule-item-text" }, t("Manage rules")))
+    ) : null
+  );
+}
+function mailFrom(request, roster) {
   const account = (roster?.connectors?.mail?.accounts ?? []).find((entry) => entry.id === request.account);
-  const from = account?.address ?? request.account;
-  const route = [
-    [t("From"), from],
-    [t("To"), request.to],
-    [t("Cc"), request.cc],
-    [t("Bcc"), request.bcc]
-  ].filter(([, value]) => value).map(([label, value]) => `${literal(label)} ${codeSpan(value)}`).join("\\\n");
+  return account?.address ?? request.account ?? "";
+}
+function mailView(request, roster, settled = false) {
+  const from = mailFrom(request, roster);
   const attachments = request.attachmentDetails?.length ? t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${humanSize(a.size)})` : a.name).join(", ") }) : "";
   const done = request.status === "sent" ? t("Sent") : request.status === "failed" ? t("Failed") : t("Send");
+  const fields = [
+    { id: "subject", label: "", value: String(request.subject ?? ""), placeholder: t("Subject") },
+    { id: "from", label: t("From"), value: String(from), readOnly: true },
+    { id: "to", label: t("To"), value: String(request.to ?? ""), placeholder: "name@example.com" },
+    ...settled && !request.cc ? [] : [{ id: "cc", label: t("Cc"), value: String(request.cc ?? ""), placeholder: "name@example.com" }],
+    ...request.bcc ? [{ id: "bcc", label: t("Bcc"), value: String(request.bcc ?? ""), placeholder: "name@example.com" }] : [],
+    { id: "body", label: "", value: String(request.body ?? ""), multiline: true, placeholder: t("Write a message…") }
+  ];
   return {
     type: "stack",
     children: [
-      route ? { type: "text", tone: "muted", text: route } : null,
-      request.subject ? { type: "text", text: `**${literal(request.subject)}**` } : null,
-      String(request.body ?? "").trim() ? { type: "text", text: literalBlock(request.body) } : null,
-      attachments ? { type: "text", tone: "muted", text: literal(attachments) } : null,
-      { type: "confirm", id: "send", confirmLabel: settled ? done : t("Send"), cancelLabel: settled ? t("Canceled") : t("Cancel") }
+      {
+        type: "form",
+        id: "send",
+        submitLabel: settled ? done : t("Send"),
+        cancelLabel: settled ? t("Discarded") : t("Discard"),
+        fields
+      },
+      attachments ? { type: "text", tone: "muted", text: literal(attachments) } : null
     ].filter(Boolean)
   };
 }
 function MailSendCard({ sessionId, bot, request, roster, actions, inline = false }) {
   const [busy, setBusy] = (0, import_react25.useState)(false);
+  const [rule, setRule] = (0, import_react25.useState)("require-approval");
   const busyRef = (0, import_react25.useRef)(false);
-  const answer = (send) => {
+  const answer = (values) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    void Promise.resolve(actions.mailSendAnswer(request.id, send ? "send" : "cancel")).catch(() => {
+    const send = values?.canceled !== true && values?.fields !== void 0;
+    void Promise.resolve(actions.mailSendAnswer(request.id, send ? "send" : "cancel", send ? { fields: values.fields, rule } : { rule })).catch(() => {
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
@@ -11167,17 +11407,25 @@ function MailSendCard({ sessionId, bot, request, roster, actions, inline = false
     actions,
     inline,
     busy,
-    title: t("{bot} wants to send an email", { bot: bot.name }),
+    title: t("Mail"),
+    icon: (0, import_react25.createElement)(MailIcon),
+    footStart: (0, import_react25.createElement)(MailApprovalMenu, { bot, request, rule, onPick: setRule, actions, disabled: busy }),
     view: mailView(request, roster),
     onAnswer: answer
   });
 }
-function SettledMail({ bot, request, roster }) {
+function SettledMail({ request, roster }) {
+  const from = mailFrom(request, roster);
+  const sent = request.status === "sent" || request.status === "failed";
   return (0, import_react25.createElement)(ViewCard, {
-    title: t("{bot} wants to send an email", { bot: bot.name }),
+    title: t("Mail"),
+    icon: (0, import_react25.createElement)(MailIcon),
     view: mailView(request, roster, true),
     settled: true,
-    answer: { action: "send", values: { confirmed: request.status === "sent" || request.status === "failed" } }
+    answer: {
+      action: "send",
+      values: sent ? { fields: { subject: String(request.subject ?? ""), from: String(from), to: String(request.to ?? ""), cc: String(request.cc ?? ""), bcc: String(request.bcc ?? ""), body: String(request.body ?? "") } } : { canceled: true }
+    }
   });
 }
 function MailToolCell({ sessionId, callId, roster, actions, heldCards = NONE2 }) {
@@ -11218,6 +11466,15 @@ var CONNECTOR_CSS = `
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-open{text-decoration:none}
+.bt-mail-rule-wrap{position:relative;display:inline-flex;align-items:center}
+.bt-mail-rule-btn{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
+.bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
+.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
+.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
+.bt-mail-rules{display:flex;flex-direction:column;gap:8px}
 `;
 
 // src/client/turn-reasoning.js

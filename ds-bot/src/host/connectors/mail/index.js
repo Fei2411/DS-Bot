@@ -14,6 +14,31 @@ import { refreshTokens, invalidGrant, discover, beginBrowser, exchange } from '.
 const GOOGLE_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify'
 const MAX_REQUESTS = 20
 
+function parseAddresses(raw) {
+  const out = []
+  for (const part of String(raw ?? '').split(/[,;]+/)) {
+    const text = part.trim()
+    if (text === '') continue
+    const angle = text.match(/<([^<>\s@]+@[^<>\s@]+)>/i)
+    const addr = (angle ? angle[1] : text).trim().toLowerCase()
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr) && !out.includes(addr)) out.push(addr)
+  }
+  return out
+}
+
+function allAddressesAllowed(to, cc, bcc, allowed) {
+  const set = new Set((Array.isArray(allowed) ? allowed : []).map(a => String(a).toLowerCase()))
+  if (set.size === 0) return false
+  const parts = [to, cc, bcc].flatMap(raw => String(raw ?? '').split(/[,;]+/)).map(s => s.trim()).filter(Boolean)
+  if (parts.length === 0) return false
+  for (const part of parts) {
+    const angle = part.match(/<([^<>\s@]+@[^<>\s@]+)>/i)
+    const addr = (angle ? angle[1] : part).trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr) || !set.has(addr)) return false
+  }
+  return true
+}
+
 export function install(rt, host) {
   const { state } = rt
   const sessions = new Map()
@@ -245,6 +270,21 @@ export function install(rt, host) {
           replyTo: args.reply_to ? String(args.reply_to) : undefined,
           status: 'pending', askedAt: Date.now(),
         }
+        const skipDraft = !bot.private && (
+          (state.connectors?.mail?.noDraftFor ?? []).includes(bot.id)
+          || allAddressesAllowed(request.to, request.cc, request.bcc, state.connectors?.mail?.allowedRecipients)
+        )
+        if (skipDraft) {
+          const session = await connect(account)
+          const attachments = (request.attachments ?? []).map(name => ({ filename: name, path: realpathSync(resolve(dir ?? '', name)) }))
+          await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
+          request.status = 'sent'
+          request.settledAt = Date.now()
+          list.push(request)
+          while (list.length > MAX_REQUESTS) { const at = list.findIndex(entry => entry.status !== 'pending'); list.splice(at === -1 ? 0 : at, 1) }
+          await rt.save()
+          return `Sent "${request.subject}" to ${request.to} from ${account.address}.`
+        }
         for (const old of list) if (old.status === 'pending') { old.status = 'canceled'; old.settledAt = Date.now() }
         list.push(request)
         while (list.length > MAX_REQUESTS) { const at = list.findIndex(entry => entry.status !== 'pending'); list.splice(at === -1 ? 0 : at, 1) }
@@ -289,14 +329,50 @@ export function install(rt, host) {
     await rt.deliver({ toId: botId, role: 'mail', text }).catch(error => rt.warn('ds-bot: mail note to %s failed: %s', botId, error))
   }
 
+  const applyRules = (patch) => {
+    const mail = state.connectors?.mail ?? {}
+    let allowed = [...(mail.allowedRecipients ?? [])]
+    let noDraft = [...(mail.noDraftFor ?? [])]
+    const addAddrs = (raw) => {
+      for (const addr of parseAddresses(Array.isArray(raw) ? raw.join(', ') : raw)) {
+        if (!allowed.includes(addr)) allowed.push(addr)
+      }
+    }
+    const dropAddrs = (raw) => {
+      const drop = new Set(parseAddresses(Array.isArray(raw) ? raw.join(', ') : raw))
+      allowed = allowed.filter(addr => !drop.has(addr))
+    }
+    if (patch.mode === 'allow-recipient') {
+      addAddrs(patch.recipients ?? patch.address ?? '')
+      if (typeof patch.botId === 'string') noDraft = noDraft.filter(id => id !== patch.botId)
+    } else if (patch.mode === 'no-draft') {
+      if (typeof patch.botId === 'string' && rt.botOf(patch.botId) && !noDraft.includes(patch.botId)) noDraft.push(patch.botId)
+    } else if (patch.mode === 'require-approval') {
+      if (typeof patch.botId === 'string') noDraft = noDraft.filter(id => id !== patch.botId)
+      if (patch.recipients || patch.address) dropAddrs(patch.recipients ?? patch.address)
+    }
+    if (patch.addRecipient) addAddrs(patch.addRecipient)
+    if (patch.removeRecipient) dropAddrs(patch.removeRecipient)
+    if (typeof patch.botId === 'string' && typeof patch.noDraft === 'boolean') {
+      noDraft = patch.noDraft
+        ? (rt.botOf(patch.botId) && !noDraft.includes(patch.botId) ? [...noDraft, patch.botId] : noDraft)
+        : noDraft.filter(id => id !== patch.botId)
+    }
+    state.connectors = {
+      ...(state.connectors ?? {}),
+      mail: { ...mail, allowedRecipients: allowed, noDraftFor: noDraft },
+    }
+  }
+
   const endpoints = {
     async 'mail-account-add'(body) {
       const address = String(body.address ?? '').trim().toLowerCase()
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('Enter an email address')
       if (body.google === true) {
         if (!googleReady()) throw new Error('Google sign-in is not available in this build')
+        if (address !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('Enter an email address')
         return beginGoogle(address)
       }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('Enter an email address')
       if (adding.has(address)) return adding.get(address)
       const pending = (async () => {
         const password = String(body.password ?? '').trim()
@@ -355,6 +431,11 @@ export function install(rt, host) {
       syncTools()
       return mailView()
     },
+    async 'mail-rule-set'(body) {
+      applyRules(body ?? {})
+      await rt.save()
+      return mailView()
+    },
     async 'mail-send-answer'(body) {
       const found = (() => {
         for (const [botId, list] of Object.entries(state.mailRequests ?? {})) {
@@ -365,6 +446,16 @@ export function install(rt, host) {
       })()
       if (found === undefined || found.request.status !== 'pending') throw new Error('This card was already answered')
       const { botId, request } = found
+      if (body.fields && typeof body.fields === 'object' && !Array.isArray(body.fields)) {
+        if (typeof body.fields.to === 'string' && body.fields.to.trim() !== '') request.to = body.fields.to.trim()
+        if (typeof body.fields.cc === 'string') request.cc = body.fields.cc.trim()
+        if (typeof body.fields.bcc === 'string') request.bcc = body.fields.bcc.trim()
+        if (typeof body.fields.subject === 'string') request.subject = body.fields.subject.trim()
+        if (typeof body.fields.body === 'string') request.body = body.fields.body
+      }
+      if (typeof body.rule === 'string') {
+        applyRules({ mode: body.rule, botId, recipients: [request.to, request.cc, request.bcc].filter(Boolean).join(', ') })
+      }
       if (body.choice !== 'send') {
         request.status = 'canceled'; request.settledAt = Date.now()
         await rt.save()
@@ -408,7 +499,7 @@ export function install(rt, host) {
   async function beginGoogle(address) {
     const client = googleClient()
     const discovery = await discover('https://accounts.google.com', { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
-    const pending = { discovery, address }
+    const pending = { discovery, address: address || undefined }
     googlePendings.set(address, pending)
     const { createServer } = await import('node:http')
     const listener = createServer((req, res) => {
@@ -467,6 +558,8 @@ export function install(rt, host) {
       ...(account.error ? { error: account.error } : {}),
     })),
     google: googleReady(),
+    allowedRecipients: state.connectors?.mail?.allowedRecipients ?? [],
+    noDraftFor: state.connectors?.mail?.noDraftFor ?? [],
     ...(googlePendings.size > 0 ? { pending: [...googlePendings.values()].map(p => ({ kind: 'browser', url: p.url, address: p.address })) } : {}),
   })
 

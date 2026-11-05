@@ -633,10 +633,36 @@ test('mail account add verifies before saving; a bad code fails cleanly; send ne
   assert.equal(sessions.get(addressAt('163.com')).calls.filter(c => c[0] === 'send').length, 0)
   await send.execute({ to: 'you@test.dev', subject: 'Hi2', body: 'B' }, { agent: { id: 'm1' }, callId: 'call-2', concludeTurn: () => {} })
   const request2 = rt.state.mailRequests.m1.at(-1)
-  await rt.connectorEndpoint('mail-send-answer', { requestId: request2.id, choice: 'send' })
+  await rt.connectorEndpoint('mail-send-answer', {
+    requestId: request2.id, choice: 'send',
+    fields: { to: 'edited@test.dev', cc: 'cc@test.dev', subject: 'Hi2 edited', body: 'Edited B' },
+    rule: 'allow-recipient',
+  })
   const sent = sessions.get(addressAt('163.com')).calls.filter(c => c[0] === 'send')
   assert.equal(sent.length, 1)
-  assert.equal(sent[0][1].subject, 'Hi2')
+  assert.equal(sent[0][1].to, 'edited@test.dev')
+  assert.equal(sent[0][1].cc, 'cc@test.dev')
+  assert.equal(sent[0][1].subject, 'Hi2 edited')
+  assert.equal(sent[0][1].text, 'Edited B')
+  assert.deepEqual(rt.mailView().allowedRecipients, ['edited@test.dev', 'cc@test.dev'])
+  // Allowed recipients skip the draft card and send right away; an unknown recipient still requires confirmation.
+  let concludedAllowed = false
+  const autoReply = await send.execute({ to: 'edited@test.dev', subject: 'Auto', body: 'Quick' }, { agent: { id: 'm1' }, callId: 'call-3', concludeTurn: () => { concludedAllowed = true } })
+  assert.match(String(autoReply), /Sent "Auto" to edited@test\.dev/)
+  assert.equal(concludedAllowed, false)
+  assert.equal(sessions.get(addressAt('163.com')).calls.filter(c => c[0] === 'send').length, 2)
+  let concludedMixed = false
+  await send.execute({ to: 'edited@test.dev', cc: 'stranger@test.dev', subject: 'Mixed', body: 'Hold' }, { agent: { id: 'm1' }, callId: 'call-4', concludeTurn: () => { concludedMixed = true } })
+  assert.equal(concludedMixed, true, 'any unapproved recipient in cc still requires confirmation')
+  // Turning off drafts for a Bot sends without confirmation; restoring Needs approval brings the card back.
+  await rt.connectorEndpoint('mail-rule-set', { mode: 'no-draft', botId: 'm1' })
+  assert.deepEqual(rt.mailView().noDraftFor, ['m1'])
+  let concludedNoDraft = false
+  await send.execute({ to: 'anyone@test.dev', subject: 'NoDraft', body: 'Go' }, { agent: { id: 'm1' }, callId: 'call-5', concludeTurn: () => { concludedNoDraft = true } })
+  assert.equal(concludedNoDraft, false)
+  await rt.connectorEndpoint('mail-rule-set', { botId: 'm1', noDraft: false, removeRecipient: 'edited@test.dev, cc@test.dev' })
+  assert.deepEqual(rt.mailView().noDraftFor, [])
+  assert.deepEqual(rt.mailView().allowedRecipients, [])
   // A draft never draws a card.
   const before = (rt.state.mailRequests.m1 ?? []).length
   assert.match(String(await draft.execute({ to: 'a@b.c', subject: 'D', body: 'x' }, exec)), /Draft saved/)
@@ -813,6 +839,29 @@ test('OAuth loopback keeps an error listener after binding, including repeated e
     listener.emit('error', new Error('listener failed'))
     listener.emit('error', new Error('listener failed again'))
   })
+})
+
+test('Google sign-in without an address still reaches the browser flow', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { fetch: async url => {
+    if (String(url).includes('oauth-authorization-server')) return json(AS)
+    return notFound()
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  const view = await rt.connectorEndpoint('mail-account-add', { google: true })
+  assert.ok(new URL(view.pending[0].url).searchParams.get('redirect_uri').startsWith('http://127.0.0.1:'))
 })
 
 test('Google loopback catches a rejected sign-in callback instead of an unhandled rejection', async (t) => {

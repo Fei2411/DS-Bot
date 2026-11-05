@@ -32,6 +32,8 @@ const expand = (node) => {
   if (typeof node.type === 'function') return expand(node.type(node.props))
   return { ...node, props: { ...(node.props ?? {}), children: expand(node.props?.children) } }
 }
+let active = () => expand(MailSection(props))
+const rerender = () => { idx = 0; concrete = active() }
 const react = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
   useContext: ctx => ctx.value,
@@ -43,7 +45,7 @@ const react = {
   useState: (init) => {
     const i = idx++
     if (!(i in slots)) slots[i] = typeof init === 'function' ? init() : init
-    return [slots[i], (value) => { slots[i] = typeof value === 'function' ? value(slots[i]) : value; render() }]
+    return [slots[i], (value) => { slots[i] = typeof value === 'function' ? value(slots[i]) : value; rerender() }]
   },
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'id',
 }
@@ -56,8 +58,8 @@ runInNewContext(outputFiles[0].text, {
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
 const { MailSection, MailToolCell } = module.exports
-const render = () => { idx = 0; concrete = expand(MailSection(props)) }
-const renderCell = (cellProps) => { slots.length = 0; idx = 0; concrete = expand(MailToolCell(cellProps)) }
+const render = () => { active = () => expand(MailSection(props)); rerender() }
+const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
 
 const flatten = (node, out = []) => {
   if (node === null || node === undefined || node === false || node === true) return out
@@ -155,7 +157,7 @@ test('a busy mail add blocks a second click and a good add clears the fields', a
   assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'SMTP host')[0].props.value, '', 'SMTP host cleared')
 })
 
-test('the mail send card is the show_view card and shows the mail literally', async () => {
+test('the mail send card is an editable show_view form card with the approval rule menu', async () => {
   const bot = { id: 'b1', name: 'Chief' }
   const body = 'Hi **all**\n<!-- hidden --> [link](https://x.test)\n\nBye'
   const roster = {
@@ -166,23 +168,63 @@ test('the mail send card is the show_view card and shows the mail literally', as
     },
   }
   const answers = []
-  renderCell({ sessionId: 's1', callId: 'c1', roster, actions: { mailSendAnswer: (...args) => { answers.push(args); return Promise.resolve() } } })
+  const ruleSets = []
+  let opened = false
+  renderCell({
+    sessionId: 's1', callId: 'c1', roster,
+    actions: {
+      mailSendAnswer: (...args) => { answers.push(args); return Promise.resolve() },
+      mailRuleSet: (payload) => { ruleSets.push(payload); return Promise.resolve() },
+      openConnectors: () => { opened = true },
+    },
+  })
   const card = collect(n => String(n.props?.className ?? '').split(' ').includes('dv-view'))[0]
   assert.ok(card, 'view card root')
   assert.ok(card.props.className.split(' ').includes('dv-q'), 'framed like the show_view answer cards')
-  assert.equal(collect(n => /\bbt-(mail|secret|learning)/.test(String(n.props?.className ?? ''))).length, 0, 'no bespoke card classes')
-  assert.match(flatten(collect(n => n.props?.className === 'dv-view-title')[0]).join(''), /Chief wants to send an email/)
+  assert.equal( flatten(collect(n => n.props?.className === 'dv-view-title')[0]).join(''), 'Mail')
+  assert.ok(collect(n => n.props?.className === 'dv-view-icon')[0], 'mail icon in header')
+  // Prefilled fields: subject, readOnly from, editable to, editable cc, multiline body.
+  const subjectInput = collect(n => n.type === 'input' && n.props?.['aria-label'] === 'Subject')[0]
+  const fromInput = collect(n => n.type === 'input' && n.props?.['aria-label'] === 'From')[0]
+  const toInput = collect(n => n.type === 'input' && n.props?.['aria-label'] === 'To')[0]
+  const ccInput = collect(n => n.type === 'input' && n.props?.['aria-label'] === 'Cc')[0]
+  const bodyArea = collect(n => n.type === 'textarea' && n.props?.['aria-label'] === 'Write a message…')[0]
+  assert.equal(subjectInput.props.value, 'Weekly_1')
+  assert.equal(fromInput.props.value, 'me@qq.com')
+  assert.equal(fromInput.props.readOnly, true)
+  assert.equal(toInput.props.value, 'team@corp.dev')
+  assert.equal(ccInput.props.value, '')
+  assert.equal(bodyArea.props.value, body, 'body stays literal in textarea')
   const texts = collect(n => typeof n.props?.text === 'string' && n.props?.variant === 'compact').map(n => n.props.text)
-  assert.ok(texts.some(text => text.includes('From ` me@qq.com `') && text.includes('To ` team@corp.dev `')), 'sender and recipient')
-  assert.ok(texts.includes('**Weekly\\_1**'), 'subject, escaped')
-  assert.ok(texts.includes('Hi \\*\\*all\\*\\*\\\n\\<\\!\\-\\- hidden \\-\\-\\> \\[link\\]\\(https\\://x\\.test\\)\n\nBye'), 'body shown literally, breaks kept')
   assert.ok(texts.some(text => text.includes('report\\.pdf \\(2 KB\\)')), 'attachments')
+  // Approval menu defaults to Needs approval.
+  const ruleBtn = collect(n => n.type === 'button' && n.props?.className === 'bt-mail-rule-btn')[0]
+  assert.equal(flatten(ruleBtn).join(''), 'Needs approval')
+  ruleBtn.props.onClick()
+  click('Allow recipient')
+  await flush()
+  assert.equal(ruleSets.length, 1)
+  assert.equal(ruleSets[0].mode, 'allow-recipient')
+  assert.equal(flatten(collect(n => n.type === 'button' && n.props?.className === 'bt-mail-rule-btn')[0]).join(''), 'Allow recipient')
+  // Manage rules opens Connectors settings.
+  collect(n => n.type === 'button' && n.props?.className === 'bt-mail-rule-btn')[0].props.onClick()
+  click('Manage rules')
+  assert.equal(opened, true)
+  // Edit recipient and body in the card, then press Send.
+  toInput.props.onChange({ target: { value: 'edited@corp.dev' } })
+  collect(n => n.type === 'textarea' && n.props?.['aria-label'] === 'Write a message…')[0].props.onChange({ target: { value: 'Edited body' } })
   const send = collect(n => n.type === 'button' && n.props?.className === 'dv-q-submit')[0]
   assert.equal(flatten(send).join(''), 'Send')
-  assert.equal(flatten(collect(n => n.type === 'button' && n.props?.className === 'dv-q-btn')[0]).join(''), 'Cancel')
-  send.props.onClick()
+  assert.equal(flatten(collect(n => n.type === 'button' && n.props?.className === 'dv-q-btn')[0]).join(''), 'Discard')
+  const formNode = collect(n => n.type === 'form' && n.props?.className === 'dv-widget-form')[0]
+  formNode.props.onSubmit({ preventDefault() {} })
   await flush()
-  assert.deepEqual(answers, [['r1', 'send']])
+  assert.equal(answers.length, 1)
+  assert.equal(answers[0][0], 'r1')
+  assert.equal(answers[0][1], 'send')
+  assert.equal(answers[0][2].rule, 'allow-recipient')
+  assert.equal(answers[0][2].fields.to, 'edited@corp.dev')
+  assert.equal(answers[0][2].fields.body, 'Edited body')
 })
 
 test('a failed mail add shows the host message inside the form', async () => {

@@ -420,6 +420,7 @@ export function install(rt) {
         case 'connector-request-cancel':
         case 'mail-account-add':
         case 'mail-account-remove':
+        case 'mail-rule-set':
         case 'mail-send-answer':
         case 'mail-sign-in-code':
           await rt.load()

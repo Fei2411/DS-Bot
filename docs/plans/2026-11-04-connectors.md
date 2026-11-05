@@ -24,7 +24,7 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 ## Bot 工具和卡片
 
-`list_connectors` 列目录、连接状态和本 Bot 可用性；`request_connector`（id、purpose）在本 Bot 自己的会话里出卡片，按密钥卡同一套规矩：只在私聊、群聊拒绝、只读窗口拒绝、记录 pending 并 `concludeTurn`、连接或取消后回话。`request_secret` 的笔记机制原样复用（`rt.deliver` 带角色标签）。邮箱发送同样出卡片：显示 from/to/cc/bcc/subject/正文/附件名和大小，Send 才发，Cancel 什么都不发；draft 不出卡。
+`list_connectors` 列目录、连接状态和本 Bot 可用性；`request_connector`（id、purpose）在本 Bot 自己的会话里出卡片，按密钥卡同一套规矩：只在私聊、群聊拒绝、只读窗口拒绝、记录 pending 并 `concludeTurn`、连接或取消后回话。`request_secret` 的笔记机制原样复用（`rt.deliver` 带角色标签）。邮箱发送同样复用 `show_view` 的 `form` 卡片：展示可编辑草稿（主题、只读发件人、收件人、抄送、密送、多行正文与附件名和大小），用户可直接修改后点「发送」或「丢弃」。默认每封信都需要确认；左下角规则菜单可设为「允许收件人」「需要批准（默认）」「为此 Bot 关闭草稿」或打开「管理规则」（设置 → 连接器 → 邮箱可查看与移除规则）；隐私 Bot 始终需要确认；`mail_draft` 不出卡。
 
 ## 邮箱
 

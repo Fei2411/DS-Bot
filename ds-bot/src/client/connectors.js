@@ -1,7 +1,7 @@
 // Settings → Connectors: connected rows, a catalog with search and categories,
 // an Add menu, and the mailbox. One row component draws the mark, name, status
 // and the expanding panels (browser sign-in, device code, key/token, client).
-import { createElement as h, useRef, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { useMorph } from './motion.js'
 import { MaskedInput } from './secret-card.js'
 import { SwitchRow } from './bot-settings.js'
@@ -10,6 +10,7 @@ import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { hostText, t } from './i18n.js'
+import { CheckIcon, ChevronDownIcon } from './icons.js'
 import { ViewCard } from './widget-cell.js'
 
 export { GitHubMark } from './connector-marks.js'
@@ -249,13 +250,46 @@ function MailForm({ mail, actions, mailRun, busy, error, fields, setField, onClo
 }
 
 const EMPTY_MAIL = { address: '', password: '', provider: '', imapHost: '', smtpHost: '' }
-export function MailSection({ mail, actions, run }) {
+function MailRules({ mail, bots, actions, run }) {
+  const [recipient, setRecipient] = useState('')
+  const allowed = mail?.allowedRecipients ?? []
+  const noDraft = mail?.noDraftFor ?? []
+  const add = () => {
+    const addr = recipient.trim()
+    if (!addr.includes('@')) return
+    void run(actions.mailRuleSet({ addRecipient: addr }), () => setRecipient(''))
+  }
+  return h('div', { className: 'bt-set-row bt-set-paste bt-mail-rules' },
+    h('div', { className: 'bt-connector-name' }, t('Sending rules')),
+    allowed.map(addr => h('div', { key: `r:${addr}`, className: 'bt-connector-head' },
+      h('span', { className: 'bt-connector-text' },
+        h('span', { className: 'bt-connector-name' }, addr),
+        h('span', { className: 'bt-connector-status' }, t('Allow recipient'))),
+      h('span', { className: 'bt-connector-actions' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.mailRuleSet({ removeRecipient: addr })) }, t('Remove'))))),
+    noDraft.map((botId) => {
+      const botName = (bots ?? []).find(b => b.id === botId)?.name ?? botId
+      return h('div', { key: `b:${botId}`, className: 'bt-connector-head' },
+        h('span', { className: 'bt-connector-text' },
+          h('span', { className: 'bt-connector-name' }, botName),
+          h('span', { className: 'bt-connector-status' }, t('Turn off drafts for this Bot'))),
+        h('span', { className: 'bt-connector-actions' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.mailRuleSet({ botId, noDraft: false })) }, t('Needs approval'))))
+    }),
+    h('div', { className: 'bt-connector-form-row' },
+      h('input', { className: 'bt-input', 'aria-label': t('Allow recipient'), placeholder: 'name@example.com', value: recipient, autoComplete: 'off', onChange: e => setRecipient(e.target.value) }),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !recipient.includes('@'), onClick: add }, t('Add'))))
+}
+
+export function MailSection({ mail, bots, actions, run }) {
   const [form, setForm] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [fields, setFields] = useState(EMPTY_MAIL)
   const busyRef = useRef(false)
   const accounts = mail?.accounts ?? []
+  const hasRules = (mail?.allowedRecipients?.length ?? 0) > 0 || (mail?.noDraftFor?.length ?? 0) > 0
   const setField = (key, value) => setFields(current => ({ ...current, [key]: value }))
   const close = () => { setError(null); setForm(false); setFields(EMPTY_MAIL) }
   const mailRun = (task, onDone) => {
@@ -272,10 +306,12 @@ export function MailSection({ mail, actions, run }) {
       accounts.length === 0 && !form ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No mail accounts yet'))) : null,
       accounts.map(account => h(MailAccount, { key: account.id, account, actions, run })),
       (mail?.pending ?? []).map(p => h(MailPending, { key: p.address ?? 'google', pending: p })),
-      form ? h(MailForm, { mail, actions, mailRun, busy, error, fields, setField, onClose: close }) : null),
+      form ? h(MailForm, { mail, actions, mailRun, busy, error, fields, setField, onClose: close }) : null,
+      hasRules || rulesOpen ? h(MailRules, { mail, bots, actions, run }) : null),
     form ? null : h('div', { key: 'add', className: 'bt-actions' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setError(null); setForm(true) } }, t('Add an account')),
-      mail?.google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.mailAccountAdd({ google: true })) }, t('Sign in with Google')) : null),
+      mail?.google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.mailAccountAdd({ google: true })) }, t('Sign in with Google')) : null,
+      !hasRules && accounts.length > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setRulesOpen(v => !v) }, t('Manage rules')) : null),
   ]
 }
 
@@ -329,7 +365,7 @@ export function ConnectorsPage({ roster, actions }) {
     h('div', { className: 'bt-set-card bt-connectors-card' },
       connected.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No connectors connected'))) : null,
       connected.map(connector => h(ConnectorRow, { key: connector.id, connector, actions }))),
-    h(MailSection, { mail: data.mail, actions, run }),
+    h(MailSection, { mail: data.mail, bots: roster?.bots, actions, run }),
     h('div', { className: 'bt-section-title' }, t('Catalog')),
     h('div', { className: 'bt-set-card bt-connectors-card' },
       h('div', { className: 'bt-connector-search' },
@@ -365,25 +401,21 @@ export function BotConnectors({ bot, roster, actions, run }) {
 // and a confirm row. Answered requests settle into the same card, read-only.
 
 // Bot-written text shows exactly as written: Markdown is escaped so nothing in
-// it renders, links, or hides. Blank lines keep paragraphs, single breaks stay.
+// it renders, links, or hides.
 const literal = text => String(text ?? '').replace(/[\\`*_{}[\]()#+\-.!|<>~&@:]/g, '\\$&')
-const literalBlock = text => literal(String(text ?? '').replace(/\r\n?/g, '\n').trim())
-  .split(/\n{2,}/).map(paragraph => paragraph.replace(/\n/g, '\\\n')).join('\n\n')
-// Addresses go in code spans: the renderer links bare addresses even when escaped.
-const codeSpan = text => {
-  const value = String(text ?? '').replace(/\s+/g, ' ')
-  const fence = '`'.repeat(Math.max(0, ...(value.match(/`+/g) ?? []).map(run => run.length)) + 1)
-  return `${fence} ${value} ${fence}`
-}
+
+const MailIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+  h('rect', { x: 2.5, y: 4.5, width: 15, height: 11, rx: 2 }),
+  h('path', { d: 'M3 5.5l7 5 7-5' }))
 
 // A view card that holds the dock while the user works in it.
-function RequestView({ sessionId, kind, request, actions, inline, title, view, onAnswer, busy = false }) {
+function RequestView({ sessionId, kind, request, actions, inline, title, icon, footStart, view, onAnswer, busy = false }) {
   const hold = useDockHold(sessionId, kind, request.id, actions, inline)
   return h('div', { style: { display: 'contents' }, onFocusCapture: hold, onPointerDownCapture: hold },
     h(ViewCard, {
-      title, view, busy, raised: !inline,
-      onSubmit: (_, values) => { hold(); onAnswer(values?.confirmed === true) },
-      onDismiss: () => { hold(); onAnswer(false) },
+      title, icon, footStart, view, busy, raised: !inline,
+      onSubmit: (_, values) => { hold(); onAnswer(values) },
+      onDismiss: () => { hold(); onAnswer({ canceled: true }) },
     }))
 }
 
@@ -401,7 +433,7 @@ function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
     sessionId, kind: 'connector', request, actions, inline,
     title: t('{bot} needs {name}', { bot: bot.name, name }),
     view: connectorView(request),
-    onAnswer: connect => { if (connect) actions.openConnectors(); else void actions.connectorRequestCancel(request.id) },
+    onAnswer: values => { if (values?.confirmed === true) actions.openConnectors(); else void actions.connectorRequestCancel(request.id) },
   })
 }
 
@@ -443,53 +475,121 @@ export function ConnectorDock({ sessionId, useRoster, useCards, useHeldCards, ac
   return h('div', { className: 'bt-q-dock bt-secret-dock' }, waiting.map(request => h(ConnectorCard, { key: request.id, sessionId, bot, request, actions })))
 }
 
-// What the user approves is what goes out: sender, recipients, subject, the
-// whole body, and the attachments, all shown literally.
-function mailView(request, roster, settled = false) {
+const RULE_LABELS = {
+  'allow-recipient': 'Allow recipient',
+  'require-approval': 'Needs approval',
+  'no-draft': 'Turn off drafts for this Bot',
+}
+
+function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (event) => { if (!root.current?.contains(event.target)) setOpen(false) }
+    const key = (event) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away, true)
+    document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key) }
+  }, [open])
+  const choose = (mode) => {
+    setOpen(false)
+    onPick(mode)
+    void Promise.resolve(actions.mailRuleSet?.({
+      mode,
+      botId: bot.id,
+      recipients: [request.to, request.cc, request.bcc].filter(Boolean).join(', '),
+    })).catch(() => {})
+  }
+  return h('div', { ref: root, className: 'bt-mail-rule-wrap' },
+    h('button', {
+      type: 'button', className: 'bt-mail-rule-btn', disabled,
+      'aria-haspopup': 'menu', 'aria-expanded': open,
+      onClick: () => setOpen(v => !v),
+    }, t(RULE_LABELS[rule] ?? 'Needs approval'), h(ChevronDownIcon)),
+    open ? h('div', { className: 'dv-menu bt-mail-rule-menu', role: 'menu' },
+      ['allow-recipient', 'require-approval', 'no-draft'].map(mode => h('button', {
+        key: mode, type: 'button', role: 'menuitemradio', 'aria-checked': rule === mode,
+        onClick: () => choose(mode),
+      }, h('span', { className: 'bt-mail-rule-item-text' }, t(RULE_LABELS[mode])), rule === mode ? h(CheckIcon) : null)),
+      h('div', { className: 'dv-menu-sep', role: 'separator' }),
+      h('button', {
+        type: 'button', role: 'menuitem',
+        onClick: () => { setOpen(false); actions.openConnectors?.() },
+      }, h('span', { className: 'bt-mail-rule-item-text' }, t('Manage rules')))) : null)
+}
+
+function mailFrom(request, roster) {
   const account = (roster?.connectors?.mail?.accounts ?? []).find(entry => entry.id === request.account)
-  const from = account?.address ?? request.account
-  const route = [
-    [t('From'), from], [t('To'), request.to], [t('Cc'), request.cc], [t('Bcc'), request.bcc],
-  ].filter(([, value]) => value).map(([label, value]) => `${literal(label)} ${codeSpan(value)}`).join('\\\n')
+  return account?.address ?? request.account ?? ''
+}
+
+// The mail draft card is a show_view form card: the user can edit the subject,
+// recipients, CC, and body right in the card before pressing Send, or discard it.
+function mailView(request, roster, settled = false) {
+  const from = mailFrom(request, roster)
   const attachments = request.attachmentDetails?.length
     ? t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${humanSize(a.size)})` : a.name).join(', ') })
     : ''
   const done = request.status === 'sent' ? t('Sent') : request.status === 'failed' ? t('Failed') : t('Send')
+  const fields = [
+    { id: 'subject', label: '', value: String(request.subject ?? ''), placeholder: t('Subject') },
+    { id: 'from', label: t('From'), value: String(from), readOnly: true },
+    { id: 'to', label: t('To'), value: String(request.to ?? ''), placeholder: 'name@example.com' },
+    ...(settled && !request.cc ? [] : [{ id: 'cc', label: t('Cc'), value: String(request.cc ?? ''), placeholder: 'name@example.com' }]),
+    ...(request.bcc ? [{ id: 'bcc', label: t('Bcc'), value: String(request.bcc ?? ''), placeholder: 'name@example.com' }] : []),
+    { id: 'body', label: '', value: String(request.body ?? ''), multiline: true, placeholder: t('Write a message…') },
+  ]
   return {
     type: 'stack',
     children: [
-      route ? { type: 'text', tone: 'muted', text: route } : null,
-      request.subject ? { type: 'text', text: `**${literal(request.subject)}**` } : null,
-      String(request.body ?? '').trim() ? { type: 'text', text: literalBlock(request.body) } : null,
+      {
+        type: 'form',
+        id: 'send',
+        submitLabel: settled ? done : t('Send'),
+        cancelLabel: settled ? t('Discarded') : t('Discard'),
+        fields,
+      },
       attachments ? { type: 'text', tone: 'muted', text: literal(attachments) } : null,
-      { type: 'confirm', id: 'send', confirmLabel: settled ? done : t('Send'), cancelLabel: settled ? t('Canceled') : t('Cancel') },
     ].filter(Boolean),
   }
 }
 
 export function MailSendCard({ sessionId, bot, request, roster, actions, inline = false }) {
   const [busy, setBusy] = useState(false)
+  const [rule, setRule] = useState('require-approval')
   const busyRef = useRef(false)
-  const answer = (send) => {
+  const answer = (values) => {
     if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
-    void Promise.resolve(actions.mailSendAnswer(request.id, send ? 'send' : 'cancel')).catch(() => {}).finally(() => { busyRef.current = false; setBusy(false) })
+    const send = values?.canceled !== true && values?.fields !== undefined
+    void Promise.resolve(actions.mailSendAnswer(request.id, send ? 'send' : 'cancel', send ? { fields: values.fields, rule } : { rule })).catch(() => {}).finally(() => { busyRef.current = false; setBusy(false) })
   }
   return h(RequestView, {
     sessionId, kind: 'mail', request, actions, inline, busy,
-    title: t('{bot} wants to send an email', { bot: bot.name }),
+    title: t('Mail'),
+    icon: h(MailIcon),
+    footStart: h(MailApprovalMenu, { bot, request, rule, onPick: setRule, actions, disabled: busy }),
     view: mailView(request, roster),
     onAnswer: answer,
   })
 }
 
-function SettledMail({ bot, request, roster }) {
+function SettledMail({ request, roster }) {
+  const from = mailFrom(request, roster)
+  const sent = request.status === 'sent' || request.status === 'failed'
   return h(ViewCard, {
-    title: t('{bot} wants to send an email', { bot: bot.name }),
+    title: t('Mail'),
+    icon: h(MailIcon),
     view: mailView(request, roster, true),
     settled: true,
-    answer: { action: 'send', values: { confirmed: request.status === 'sent' || request.status === 'failed' } },
+    answer: {
+      action: 'send',
+      values: sent
+        ? { fields: { subject: String(request.subject ?? ''), from: String(from), to: String(request.to ?? ''), cc: String(request.cc ?? ''), bcc: String(request.bcc ?? ''), body: String(request.body ?? '') } }
+        : { canceled: true },
+    },
   })
 }
 
@@ -535,4 +635,13 @@ export const CONNECTOR_CSS = `
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-open{text-decoration:none}
+.bt-mail-rule-wrap{position:relative;display:inline-flex;align-items:center}
+.bt-mail-rule-btn{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
+.bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
+.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
+.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
+.bt-mail-rules{display:flex;flex-direction:column;gap:8px}
 `
