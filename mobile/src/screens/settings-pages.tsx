@@ -300,6 +300,7 @@ export function Capabilities({ navigation }: any) {
       else if (editing.kind === 'skill') payload.content = editing.content
       else payload.items = editing.items
     } catch (f) { setError((f as Error).message); return }
+    setError(null)
     void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   }
   const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
