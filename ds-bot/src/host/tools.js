@@ -842,10 +842,12 @@ export function install(rt) {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      // DSH 0.2.2 adds tools after this waterfall, so only sections may be present
+      // here; restrict() and the guard still cover the hidden tools.
       return {
         ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        ...(Array.isArray(assembled?.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {}),
+        ...(Array.isArray(assembled?.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)) } : {}),
       }
     })
     held.filtered = true

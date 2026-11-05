@@ -81,8 +81,12 @@ const start = (team = TEAM, services = {}, globals = [], shared = {}) => {
           },
         },
         effect: execute => (typeof execute === 'function' ? execute() : undefined),
-        on: () => () => {},
+        on: (event, listener) => {
+          ;(agent.listeners[event] ??= []).push(listener)
+          return () => {}
+        },
       },
+      listeners: {},
       status: 'idle',
       followup() {},
       steer() {},
@@ -441,6 +445,25 @@ test('the assemble adds the recovered names once, not on every step', async (t) 
   assert.deepEqual(first.tools.map(tool => tool.name), ['read', 'group_relay'])
   const second = { tools: [{ name: 'read' }], sections: [] }
   assert.equal(await assemble(host, agent, second), second)
+})
+
+// DSH 0.2.2 adds tool declarations after the system-prompt/assemble waterfall,
+// so a Bot Session's assembly filter sees no `tools` and must not throw.
+test("a Bot Session's assembly filter tolerates an assembly without tools", async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  const agent = host.agentOf('a')
+  const filters = agent.listeners['system-prompt/assemble'] ?? []
+  assert.equal(filters.length, 1)
+  const withoutTools = { sections: [{ name: 'keep', text: 'x' }], contexts: [], variables: {} }
+  const result = await filters[0](withoutTools, {}, async () => withoutTools)
+  assert.equal('tools' in result, false)
+  assert.deepEqual(result.sections.map(section => section.name), ['keep'])
+  const withTools = { sections: [], tools: [{ name: 'read' }, ...HIDDEN.map(name => ({ name }))] }
+  const filtered = await filters[0](withTools, {}, async () => withTools)
+  assert.deepEqual(filtered.tools.map(tool => tool.name), ['read'])
 })
 
 test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {
