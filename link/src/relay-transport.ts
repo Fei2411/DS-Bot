@@ -190,7 +190,9 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
   private probeNow(): void {
     if (this.socket === undefined) return
     this.probeAt = Date.now()
-    this.sendControl('ping', { nonce: this.probeAt })
+    // Runs from a timer: a throw here would be uncaught (a redbox on the phone).
+    try { this.sendControl('ping', { nonce: this.probeAt }) }
+    catch { this.endCurrent?.(Object.assign(new Error('The Server stopped answering'), { code: 'SERVER_UNREACHABLE' })) }
   }
 
   async close(): Promise<void> {
