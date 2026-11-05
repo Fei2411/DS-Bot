@@ -22,6 +22,7 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) })
   }, [menu.x, menu.y, tick])
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
+  if (menu.kind === 'group') return h(GroupMenu, { menu, roster, actions, leaving })
   const bot = roster.byId[menu.id]
   const room = roster.roomsById[menu.id]
   const entry = bot ?? room
@@ -49,6 +50,13 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
       isMainBot ? null : [room ? t('Delete group') : t('Delete'), TrashIcon, () => (bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id)), true],
     ],
   ].map(group => group.filter(Boolean)).filter(group => group.length > 0)
+  // Build "移至分组" submenu entries for bots
+  const groupList = Object.values(roster.groups ?? {}).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const currentGroupId = bot ? (bot.groupId ?? null) : null
+  const moveToGroupItems = bot && groupList.length > 0
+    ? groupList.map(g => [g.name, PinIcon, () => actions.moveBotToGroup(bot.id, currentGroupId === g.id ? null : g.id)])
+    : []
+  if (bot && moveToGroupItems.length > 0) groups.splice(1, 0, moveToGroupItems)
   return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': t('{name} actions', { name: bot?.name ?? room.name }), style: place, 'data-leaving': leaving || undefined },
     groups.map((group, index) => h(Fragment, { key: index },
       index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
@@ -93,5 +101,32 @@ function AgentMenu({ menu, roster, actions, leaving }) {
       group.map(([label, Icon, run, danger]) => h('button', {
         key: label, type: 'button', role: 'menuitem', className: danger ? 'bt-danger' : undefined,
         onClick: () => { actions.closeMenu(); void Promise.resolve(run()).catch(error => console.warn('[ds-bot]', error)) },
+      }, h(Icon), label)))))
+}
+
+// Menu for a custom Bot group header: rename inline / delete group.
+function GroupMenu({ menu, roster, actions, leaving }) {
+  const ref = useRef(null)
+  const [place, setPlace] = useState({ left: menu.x, top: menu.y })
+  const tick = useViewport()
+  useLayoutEffect(() => {
+    const box = ref.current?.getBoundingClientRect()
+    if (!box) return
+    setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) })
+  }, [menu.x, menu.y, tick])
+  const groups = [
+    [
+      [t('Rename group'), PencilIcon, () => menu.onRename?.()],
+    ],
+    [
+      [t('Delete group'), TrashIcon, () => { if (window.confirm(`删除分组「${menu.name}」？`)) return actions.deleteBotGroup(menu.id) }, true],
+    ],
+  ]
+  return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': t('{name} actions', { name: menu.name }), style: place, 'data-leaving': leaving || undefined },
+    groups.map((group, index) => h(Fragment, { key: index },
+      index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
+      group.map(([label, Icon, run, danger]) => h('button', {
+        key: label, type: 'button', role: 'menuitem', className: danger ? 'bt-danger' : undefined,
+        onClick: () => { actions.closeMenu(); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
       }, h(Icon), label)))))
 }

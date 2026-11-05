@@ -60,13 +60,39 @@ const waitingFor = (roster, waits) => {
 // Shows the group name, online/total worker count, collapse toggle, and delete button.
 function GroupHeaderRow({ group, actions, wideContent }) {
   if (!wideContent) return null
-  const { id, name, color, onlineCount, totalCount, collapsed } = group
+  const { id, name, onlineCount, totalCount, collapsed } = group
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const inputRef = useRef(null)
+  useEffect(() => { if (renaming) { setRenameValue(name); inputRef.current?.focus() } }, [renaming])
+  const submitRename = () => {
+    const next = renameValue.trim()
+    if (next && next !== name) actions.renameGroup?.(id, next)
+    setRenaming(false)
+  }
   const label = `${name} (${onlineCount}/${totalCount})`
   const indicator = onlineCount > 0 ? '🟢' : '⚪'
+  if (renaming) {
+    return h('div', {
+      className: 'bt-group-header',
+      style: { display: 'flex', alignItems: 'center', padding: '4px 12px', gap: 6, fontSize: '0.78em' },
+    },
+      h('input', {
+        ref: inputRef,
+        value: renameValue,
+        placeholder: name,
+        style: { flex: 1, fontSize: '1em', padding: '2px 6px', borderRadius: 4, border: '1px solid #aaa', background: 'transparent' },
+        onChange: e => setRenameValue(e.target.value),
+        onKeyDown: e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(false) },
+      }),
+      h('button', { type: 'button', style: { fontSize: '0.85em', padding: '2px 8px', cursor: 'pointer' }, onClick: submitRename }, '确定'),
+      h('button', { type: 'button', style: { fontSize: '0.85em', padding: '2px 6px', cursor: 'pointer' }, onClick: () => setRenaming(false) }, '取消'))
+  }
   return h('div', {
     className: 'bt-group-header',
     style: { display: 'flex', alignItems: 'center', padding: '4px 12px', opacity: 0.7, fontSize: '0.78em', fontWeight: 600, letterSpacing: '0.04em', userSelect: 'none' },
     'aria-label': label,
+    onContextMenu: (e) => { e.preventDefault(); actions.openMenu({ kind: 'group', id, name, x: e.clientX, y: e.clientY, onRename: () => setRenaming(true) }) },
   },
     h('div', {
       style: { display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' },

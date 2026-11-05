@@ -340,6 +340,15 @@ export function install(rt) {
         case 'agent-session':
           await rt.load()
           return ok({ sessionId: await rt.createAgentSession(body.agentId, body.workspaceId) })
+        case 'rename-group': {
+          await rt.load()
+          const { id, name } = body
+          if (typeof name !== 'string' || !name.trim()) return fail('Group name required', 'bot/invalid')
+          if (!state.groups?.[id]) return fail('Unknown group', 'bot/not-found')
+          state.groups[id].name = name.trim()
+          rt.save()
+          return ok({ groups: view().groups })
+        }
         case 'toggle-bot-group': {
           await rt.load()
           const { id } = body

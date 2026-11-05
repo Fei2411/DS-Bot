@@ -115,6 +115,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     createBotGroup: (name, botIds) => after(call('create-bot-group', { name, botIds: botIds ?? [] })),
     deleteBotGroup: id => after(call('delete-bot-group', { id })),
     moveBotToGroup: (botId, groupId) => after(call('move-bot-to-group', { botId, groupId })),
+    renameGroup: (id, name) => after(call('rename-group', { id, name })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
