@@ -69,6 +69,9 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
       const socket = this.socket!
       socket.onmessage = event => this.handleSocketMessage(event.data)
       socket.onopen = () => {
+        // A close that beat this event already failed the connect; sending on
+        // the dead socket would only throw inside the handler.
+        if (socket.readyState !== 1) return
         this.sendControl('hello', {
           role: 'client',
           deviceId: this.options.deviceId,
