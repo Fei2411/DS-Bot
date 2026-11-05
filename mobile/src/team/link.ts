@@ -42,7 +42,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   useEffect(() => {
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    const later = (run: () => void, ms: number) => { if (!stopped) timer = setTimeout(run, ms) }
+    // One pending timer: every feed event polls, and each poll would otherwise start another loop.
+    const later = (run: () => void, ms: number) => { clearTimeout(timer); if (!stopped) timer = setTimeout(run, ms) }
     const poll = async () => {
       if (stopped || clientRef.current === undefined) return
       try {
