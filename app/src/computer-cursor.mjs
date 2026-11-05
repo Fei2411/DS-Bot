@@ -96,7 +96,7 @@ html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden
 body{transition:opacity .4s ease}
 body.fade{opacity:0}
 svg{position:absolute;left:0;top:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
-.ava{position:absolute;left:26px;top:26px;width:18px;height:18px;border-radius:50%;border:2px solid #fff;object-fit:cover;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.ava{position:absolute;left:13px;top:16px;width:18px;height:18px;border-radius:50%;border:2px solid #fff;object-fit:cover;box-shadow:0 1px 2px rgba(0,0,0,.3)}
 .ring{position:absolute;left:1px;top:-1px;width:14px;height:14px;border-radius:50%;border:2px solid ${safeColor};opacity:.85;animation:ripple .5s ease-out forwards}
 @keyframes ripple{from{transform:scale(.6);opacity:.85}to{transform:scale(2.6);opacity:0}}
 </style></head><body>
@@ -158,7 +158,7 @@ export function createPointChecker({ platform, ownPid = process.pid, spawn = rea
 // macOS: walk the on-screen window list front-to-back; the point is visible
 // when the first layer-0 window containing it belongs to the target pid. Our
 // own overlay windows never block the answer — they are skipped by owner pid.
-const JXA_CHECKER = `
+const JXA_CHECKER = String.raw`
 ObjC.import('Foundation')
 ObjC.import('CoreGraphics')
 var input = $.NSFileHandle.fileHandleWithStandardInput

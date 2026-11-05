@@ -25315,7 +25315,6 @@ function apply(ctx) {
   if (typeof appComputer?.computer === "function") {
     ctx.effect(() => {
       const nameOf = (id) => roster.getSnapshot().byId[id]?.name ?? "a Bot";
-      const seenCursors = /* @__PURE__ */ new Map();
       const sync = () => {
         const live2 = computer.getSnapshot();
         const name = (id) => nameOf(id);
@@ -25335,18 +25334,39 @@ function apply(ctx) {
           rows: rows2,
           labels: { stop: t("Stop"), stopAll: t("Stop all"), letGo: t("Let it continue") }
         });
-        for (const event of live2.cursors ?? []) {
-          if ((seenCursors.get(event.botId) ?? 0) >= event.seq) continue;
-          if (Number.isFinite(event.t) && Date.now() - event.t > 3e3) continue;
-          seenCursors.set(event.botId, event.seq);
-          if (typeof appComputer.computerCursor === "function") {
-            appComputer.computerCursor({ ...event, color: look(event.botId).color, avatar: look(event.botId).image });
-          }
-        }
       };
       sync();
       return computer.subscribe(sync);
     }, "ds-bot: computer indicator");
+  }
+  if (typeof appComputer?.computerCursor === "function") {
+    ctx.effect(() => {
+      let dead = false;
+      const pause = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+      const run2 = async () => {
+        let after2 = 0;
+        while (!dead) {
+          if (roster.getSnapshot().computer?.enabled !== true) {
+            await pause(2e3);
+            continue;
+          }
+          try {
+            const reply = await call("computer-cursor-wait", { after: after2 });
+            for (const event of reply?.events ?? []) {
+              if (Number.isFinite(event.seq) && event.seq > after2) after2 = event.seq;
+              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3e3) continue;
+              appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image });
+            }
+          } catch {
+            await pause(2e3);
+          }
+        }
+      };
+      void run2();
+      return () => {
+        dead = true;
+      };
+    }, "ds-bot: computer cursor");
   }
   if (typeof appComputer?.idleSeconds === "function") {
     ctx.effect(() => {

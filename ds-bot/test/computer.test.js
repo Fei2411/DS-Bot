@@ -934,9 +934,10 @@ test('the Bot cursor: relative, pixel and index calls publish a point', async (t
   // getState records window bounds; a screenshot records that window's pixels
   await track(cua('getState', { appHandle: 'h1' }, 'g1'), async () => ({ isError: false, value: { appHandle: 'h1', focusedWindowId: 7, windows: [{ windowId: 7, pid: 42, bounds: { x: 100, y: 200, width: 300, height: 400 } }] } }))
   await track(cua('screenshot', { appHandle: 'h1', windowId: 7 }, 'g2'), async () => ({ isError: false, value: { windowId: 7, pixelWidth: 600, pixelHeight: 800 } }))
+  const okResult = async () => ({ isError: false, value: { dispatched: true } })
   // relative click: thousandths of the window
   await gate(cua('click', { appHandle: 'h1', windowId: 7, relative: true, x: 500, y: 250 }, 'c1'), allow)
-  await track(cua('click', { appHandle: 'h1', windowId: 7, relative: true, x: 500, y: 250 }, 'c1'), allow)
+  await track(cua('click', { appHandle: 'h1', windowId: 7, relative: true, x: 500, y: 250 }, 'c1'), okResult)
   let cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
   assert.equal(cursor.mode, 'point')
   assert.equal(cursor.ripple, true)
@@ -944,19 +945,19 @@ test('the Bot cursor: relative, pixel and index calls publish a point', async (t
   assert.ok(Math.abs(cursor.y - (200 + 250 * 400 / 999)) < 0.5)
   assert.equal(cursor.pid, 42)
   // pixel coordinates scale by that window's last screenshot size
-  await track(cua('click', { appHandle: 'h1', windowId: 7, x: 300, y: 400 }, 'c2'), allow)
+  await track(cua('click', { appHandle: 'h1', windowId: 7, x: 300, y: 400 }, 'c2'), okResult)
   cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
   assert.ok(Math.abs(cursor.x - 250) < 0.5)
   assert.ok(Math.abs(cursor.y - 400) < 0.5)
   // an element-index click sits at the title bar with no ripple
-  await track(cua('click', { appHandle: 'h1', windowId: 7, index: 6 }, 'c3'), allow)
+  await track(cua('click', { appHandle: 'h1', windowId: 7, index: 6 }, 'c3'), okResult)
   cursor = rt.computerLive().cursors.find(event => event.botId === 'w1')
   assert.equal(cursor.mode, 'window')
   assert.equal(cursor.ripple, false)
   assert.ok(Math.abs(cursor.x - 250) < 0.5)
   assert.ok(Math.abs(cursor.y - 214) < 0.5)
   // a call on an unknown window publishes nothing
-  await track(cua('click', { appHandle: 'h1', windowId: 99, index: 1 }, 'c4'), allow)
+  await track(cua('click', { appHandle: 'h1', windowId: 99, index: 1 }, 'c4'), okResult)
   assert.equal(rt.computerLive().cursors.find(event => event.botId === 'w1').mode, 'window')
 })
 
@@ -983,7 +984,7 @@ test('driver cursors: session injection, refused cursor tools, one disable per s
   const exec = { name: 'cua_driver_native__click', arguments: { pid: 42 }, agent: { id: 'w1' }, callId: 'c1' }
   await gate(exec, allow)
   assert.match(exec.arguments.session, /^dsbot-[0-9a-f]+$/)
-  await track(exec, allow)
+  await track(exec, async () => ({ isError: false, value: { done: true } }))
   // disable ran once for the session; the state query published the point
   assert.equal(executions.filter(e => e[0] === 'disable').length, 1)
   await new Promise(resolve => setImmediate(resolve))
@@ -998,4 +999,35 @@ test('driver cursors: session injection, refused cursor tools, one disable per s
   const bare = { name: 'cua_driver_native__click', arguments: { pid: 42 }, agent: { id: 'w1' }, callId: 'c3' }
   await gate(bare, allow)
   assert.equal(bare.arguments.session, undefined)
+})
+
+test('cursor-wait returns fresh events, wakes on publish, and times out empty', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  rt.botOf('w1').computer = { apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const cua = (method, params, callId) => ({ name: 'cua', arguments: { method, params }, agent: { id: 'w1' }, callId })
+  await track(cua('getState', { appHandle: 'h1' }, 'g1'), async () => ({ isError: false, value: { appHandle: 'h1', focusedWindowId: 7, windows: [{ windowId: 7, bounds: { x: 0, y: 0, width: 100, height: 100 } }] } }))
+  // a handle-only relative click resolves through the remembered windowId
+  const okResult = async () => ({ isError: false, value: { dispatched: true } })
+  const click = { name: 'cua', arguments: { method: 'click', params: { appHandle: 'h1', relative: true, x: 500, y: 500 } }, agent: { id: 'w1' }, callId: 'c1' }
+  await gate(click, allow)
+  await track(click, okResult)
+  const first = await rt.computerEndpoint('cursor-wait', { after: 0 })
+  assert.equal(first.events.length, 1)
+  assert.ok(Math.abs(first.events[0].x - 50) < 0.5)
+  assert.equal(first.events[0].windowId, 7)
+  // a waiter with the same seq wakes only when a newer event lands
+  const waiting = rt.computerEndpoint('cursor-wait', { after: first.events[0].seq })
+  await new Promise(resolve => setImmediate(resolve))
+  await track(cua('pressKey', { appHandle: 'h1', key: 'a' }, 'c2'), okResult)
+  const woke = await waiting
+  assert.equal(woke.events.length, 1)
+  assert.equal(woke.events[0].mode, 'window')
+  // nothing newer → the wait resolves empty after the timeout (stubbed short)
 })

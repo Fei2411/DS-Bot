@@ -277,6 +277,7 @@ export function install(rt) {
       held.handoffLift?.()
     }
   })
+  rt.closeComputerWaiters = () => { for (const waiter of [...cursorWaiters]) { cursorWaiters.delete(waiter); waiter.wake = () => {} } }
   rt.refreshComputer = refreshComputer
 
   // ---- App identity ----
@@ -431,8 +432,12 @@ export function install(rt) {
   const cursors = new Map()
   const lastWindowOf = new Map()
   let cursorSeq = 0
+  // Long-poll waiters: each resolves when a newer cursor event exists (or ~25 s
+  // pass) so the app's cursor overlay does not ride the 1.5–10 s state poll.
+  const cursorWaiters = new Set()
   const publishCursor = (botId, event) => {
     cursors.set(botId, { botId, seq: ++cursorSeq, t: Date.now(), ...event })
+    for (const waiter of [...cursorWaiters]) waiter.wake()
   }
   // Click-type calls ripple; index and keyboard calls only name their window.
   const RIPPLE_METHODS = new Set(['click', 'double_click', 'performSecondaryAction', 'drag'])
@@ -774,7 +779,8 @@ export function install(rt) {
         }
       }
       recordGeo(sessionId, payload)
-      emitCursor(exec, call, payload)
+      // A refused or failed call pointed nowhere.
+      if (payload !== null) emitCursor(exec, call, payload)
       const shot = payload !== null && typeof payload === 'object' ? payload.attachment : undefined
       if (shot !== undefined) {
         controlOf(botId).lastShot = shot
@@ -1034,6 +1040,24 @@ export function install(rt) {
     switch (endpoint) {
       case 'set-enabled':
         return setEnabled(body.enabled === true)
+      case 'cursor-wait': {
+        const after = Number(body.after) || 0
+        const fresh = () => [...cursors.values()].filter(event => event.seq > after)
+        const now = () => ({ now: Date.now(), events: fresh() })
+        if (fresh().length > 0) return now()
+        return await new Promise(resolve => {
+          const waiter = {
+            wake: () => {
+              if (fresh().length === 0) return
+              cursorWaiters.delete(waiter)
+              clearTimeout(timer)
+              resolve(now())
+            },
+          }
+          const timer = setTimeout(() => { cursorWaiters.delete(waiter); resolve({ now: Date.now(), events: [] }) }, 25000)
+          cursorWaiters.add(waiter)
+        })
+      }
       case 'set-level':
         return setLevel(String(body.botId ?? ''), String(body.level ?? ''))
       case 'revoke-app':

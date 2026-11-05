@@ -745,7 +745,6 @@ export function apply(ctx) {
   if (typeof appComputer?.computer === 'function') {
     ctx.effect(() => {
       const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
-      const seenCursors = new Map()
       const sync = () => {
         const live = computer.getSnapshot()
         const name = id => nameOf(id)
@@ -765,19 +764,36 @@ export function apply(ctx) {
           rows,
           labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
         })
-        // Fresh cursor events ride the same sync; seq keeps each published once.
-        for (const event of live.cursors ?? []) {
-          if ((seenCursors.get(event.botId) ?? 0) >= event.seq) continue
-          if (Number.isFinite(event.t) && Date.now() - event.t > 3000) continue
-          seenCursors.set(event.botId, event.seq)
-          if (typeof appComputer.computerCursor === 'function') {
-            appComputer.computerCursor({ ...event, color: look(event.botId).color, avatar: look(event.botId).image })
-          }
-        }
       }
       sync()
       return computer.subscribe(sync)
     }, 'ds-bot: computer indicator')
+  }
+  if (typeof appComputer?.computerCursor === 'function') {
+    ctx.effect(() => {
+      // Cursor events get their own long-poll: the shared state poll drops to
+      // 10 s while the window is hidden, far too slow for an on-screen cursor.
+      let dead = false
+      const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+      const run = async () => {
+        let after = 0
+        while (!dead) {
+          if (roster.getSnapshot().computer?.enabled !== true) { await pause(2000); continue }
+          try {
+            const reply = await call('computer-cursor-wait', { after })
+            for (const event of reply?.events ?? []) {
+              if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
+              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
+              appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image })
+            }
+          } catch {
+            await pause(2000)
+          }
+        }
+      }
+      void run()
+      return () => { dead = true }
+    }, 'ds-bot: computer cursor')
   }
   if (typeof appComputer?.idleSeconds === 'function') {
     ctx.effect(() => {
