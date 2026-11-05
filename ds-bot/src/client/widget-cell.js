@@ -14,6 +14,8 @@ import { checkShownView } from 'deep-view/core'
 const viewT = (key, params) => (key === 'Send' ? t('Send to Bot') : t(key, params))
 const VIEW_UI = { t: viewT, Markdown: MarkdownText }
 const Card = props => h(ViewUi.Provider, { value: VIEW_UI }, h(WidgetCard, props))
+// The show_view card, for the other request cards (connector, mail) to draw on.
+export const ViewCard = Card
 const withUi = Component => props => h(ViewUi.Provider, { value: VIEW_UI }, h(Component, props))
 
 // Direct renders (tests, history) still see ds-bot's labels.

@@ -5,13 +5,12 @@ import { createElement as h, useRef, useState } from 'react'
 import { useMorph } from './motion.js'
 import { MaskedInput } from './secret-card.js'
 import { SwitchRow } from './bot-settings.js'
-import { CheckIcon, CloseIcon, MailIcon, PlugIcon } from './icons.js'
-import { BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { hostText, t } from './i18n.js'
+import { ViewCard } from './widget-cell.js'
 
 export { GitHubMark } from './connector-marks.js'
 import { MARKS } from './connector-marks.js'
@@ -362,45 +361,56 @@ export function BotConnectors({ bot, roster, actions, run }) {
 
 // --- cards ---------------------------------------------------------------
 
-// The request cards all draw on the secret card: mark with a kind badge, title
-// and detail, the same close key, and .bt-q-btn/.bt-q-submit in the foot.
-// Answered requests settle into the same read-only card the secret card leaves.
-function RequestHead({ bot, badge, title, detail, onClose }) {
-  return h('div', { className: 'bt-q-head bt-secret-head' },
-    h('span', { className: 'bt-secret-who' }, h(BotMark, { bot, size: 28 }), badge ? h('span', { className: 'bt-secret-lock' }, badge) : null),
-    h('div', { className: 'bt-q-text' },
-      h('p', { className: 'bt-q-title' }, title),
-      detail ? h('div', { className: 'bt-q-detail' }, detail) : null),
-    onClose ? h('button', { type: 'button', className: 'bt-q-x', 'aria-label': t('Cancel the request'), title: t('Cancel'), onClick: onClose }, h(CloseIcon)) : null)
+// The request cards are view cards (the show_view card): a title, text blocks,
+// and a confirm row. Answered requests settle into the same card, read-only.
+
+// Bot-written text shows exactly as written: Markdown is escaped so nothing in
+// it renders, links, or hides. Blank lines keep paragraphs, single breaks stay.
+const literal = text => String(text ?? '').replace(/[\\`*_{}[\]()#+\-.!|<>~&@:]/g, '\\$&')
+const literalBlock = text => literal(String(text ?? '').replace(/\r\n?/g, '\n').trim())
+  .split(/\n{2,}/).map(paragraph => paragraph.replace(/\n/g, '\\\n')).join('\n\n')
+// Addresses go in code spans: the renderer links bare addresses even when escaped.
+const codeSpan = text => {
+  const value = String(text ?? '').replace(/\s+/g, ' ')
+  const fence = '`'.repeat(Math.max(0, ...(value.match(/`+/g) ?? []).map(run => run.length)) + 1)
+  return `${fence} ${value} ${fence}`
 }
 
-// The read-only card an answered request leaves in the transcript, on the same
-// settled frame the secret and question cards use.
-function SettledCard({ bot, title, done, badge }) {
-  return h('div', { className: `bt-q bt-q-settled bt-secret bt-secret-done${done ? '' : ' bt-q-dismissed'}`, role: 'group', 'aria-label': title },
-    h('div', { className: 'bt-q-head' },
-      h('span', { className: 'bt-secret-who' }, h(BotMark, { bot, size: 22 })),
-      h('div', { className: 'bt-q-text' }, h('p', { className: 'bt-q-title' }, title)),
-      done ? h('span', { className: 'bt-q-check bt-secret-check', title: t('Done') }, h(CheckIcon)) : h('span', { className: 'bt-q-badge' }, badge)))
+// A view card that holds the dock while the user works in it.
+function RequestView({ sessionId, kind, request, actions, inline, title, view, onAnswer, busy = false }) {
+  const hold = useDockHold(sessionId, kind, request.id, actions, inline)
+  return h('div', { style: { display: 'contents' }, onFocusCapture: hold, onPointerDownCapture: hold },
+    h(ViewCard, {
+      title, view, busy, raised: !inline,
+      onSubmit: (_, values) => { hold(); onAnswer(values?.confirmed === true) },
+      onDismiss: () => { hold(); onAnswer(false) },
+    }))
 }
+
+const connectorView = (request, settled = false) => ({
+  type: 'stack',
+  children: [
+    request.purpose ? { type: 'text', text: literal(request.purpose) } : null,
+    { type: 'confirm', id: 'connect', confirmLabel: settled ? t('Connected') : t('Connect'), cancelLabel: settled ? t('Canceled') : t('Dismiss') },
+  ].filter(Boolean),
+})
 
 function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
-  const hold = useDockHold(sessionId, 'connector', request.id, actions, inline)
   const name = request.name ?? request.connectorId
-  const dismiss = () => { hold(); void actions.connectorRequestCancel(request.id) }
-  return h('div', { className: 'bt-q bt-secret', role: 'group', onFocusCapture: hold, onPointerDownCapture: hold },
-    h(RequestHead, { bot, badge: h(PlugIcon), title: t('{bot} needs {name}', { bot: bot.name, name }), detail: request.purpose, onClose: dismiss }),
-    h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', onClick: dismiss }, t('Dismiss')),
-      h('button', { type: 'button', className: 'bt-q-submit', onClick: () => { hold(); actions.openConnectors() } }, t('Connect'))))
+  return h(RequestView, {
+    sessionId, kind: 'connector', request, actions, inline,
+    title: t('{bot} needs {name}', { bot: bot.name, name }),
+    view: connectorView(request),
+    onAnswer: connect => { if (connect) actions.openConnectors(); else void actions.connectorRequestCancel(request.id) },
+  })
 }
 
 function SettledConnector({ bot, request }) {
-  return h(SettledCard, {
-    bot,
-    title: t('{bot} asked for {name}', { bot: bot.name, name: request.name ?? request.connectorId }),
-    done: request.status === 'connected',
-    badge: t('Canceled'),
+  return h(ViewCard, {
+    title: t('{bot} needs {name}', { bot: bot.name, name: request.name ?? request.connectorId }),
+    view: connectorView(request, true),
+    settled: true,
+    answer: { action: 'connect', values: { confirmed: request.status === 'connected' } },
   })
 }
 
@@ -433,48 +443,53 @@ export function ConnectorDock({ sessionId, useRoster, useCards, useHeldCards, ac
   return h('div', { className: 'bt-q-dock bt-secret-dock' }, waiting.map(request => h(ConnectorCard, { key: request.id, sessionId, bot, request, actions })))
 }
 
-export function MailSendCard({ sessionId, bot, request, roster, actions, inline = false }) {
-  const [busy, setBusy] = useState(false)
-  const busyRef = useRef(false)
-  const hold = useDockHold(sessionId, 'mail', request.id, actions, inline)
-  const answer = (choice) => {
-    if (busyRef.current || busy) return
-    busyRef.current = true
-    hold()
-    setBusy(true)
-    void Promise.resolve(actions.mailSendAnswer(request.id, choice)).catch(() => {}).finally(() => { busyRef.current = false; setBusy(false) })
-  }
+// What the user approves is what goes out: sender, recipients, subject, the
+// whole body, and the attachments, all shown literally.
+function mailView(request, roster, settled = false) {
   const account = (roster?.connectors?.mail?.accounts ?? []).find(entry => entry.id === request.account)
   const from = account?.address ?? request.account
   const route = [
-    request.to ? `${t('To')} ${request.to}` : '',
-    request.cc ? `${t('Cc')} ${request.cc}` : '',
-    request.bcc ? `${t('Bcc')} ${request.bcc}` : '',
-  ].filter(line => line !== '').join(' · ')
-  return h('div', { className: 'bt-q bt-secret', role: 'group', onFocusCapture: hold, onPointerDownCapture: hold },
-    h(RequestHead, {
-      bot, badge: h(MailIcon), title: t('{bot} wants to send an email', { bot: bot.name }), detail: request.subject,
-      onClose: busy ? undefined : () => answer('cancel'),
-    }),
-    // The message preview rides on the file box the other cards use for quoted
-    // content; the body stays scrollable when it runs long.
-    h('div', { className: 'bt-learning-file' },
-      h('div', { className: 'bt-learning-filehead' },
-        from ? h('span', { className: 'bt-learning-name' }, from) : null,
-        h('span', { className: 'bt-learning-path' }, route)),
-      h('div', { className: 'bt-mail-body' }, request.body)),
-    request.attachmentDetails?.length ? h('div', { className: 'bt-q-detail' }, t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${humanSize(a.size)})` : a.name).join(', ') })) : null,
-    h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('cancel') }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('send') }, busy ? t('Sending…') : t('Send'))))
+    [t('From'), from], [t('To'), request.to], [t('Cc'), request.cc], [t('Bcc'), request.bcc],
+  ].filter(([, value]) => value).map(([label, value]) => `${literal(label)} ${codeSpan(value)}`).join('\\\n')
+  const attachments = request.attachmentDetails?.length
+    ? t('Attachments: {names}', { names: request.attachmentDetails.map(a => a.size !== undefined ? `${a.name} (${humanSize(a.size)})` : a.name).join(', ') })
+    : ''
+  const done = request.status === 'sent' ? t('Sent') : request.status === 'failed' ? t('Failed') : t('Send')
+  return {
+    type: 'stack',
+    children: [
+      route ? { type: 'text', tone: 'muted', text: route } : null,
+      request.subject ? { type: 'text', text: `**${literal(request.subject)}**` } : null,
+      String(request.body ?? '').trim() ? { type: 'text', text: literalBlock(request.body) } : null,
+      attachments ? { type: 'text', tone: 'muted', text: literal(attachments) } : null,
+      { type: 'confirm', id: 'send', confirmLabel: settled ? done : t('Send'), cancelLabel: settled ? t('Canceled') : t('Cancel') },
+    ].filter(Boolean),
+  }
 }
 
-function SettledMail({ bot, request }) {
-  return h(SettledCard, {
-    bot,
-    title: request.status === 'sent' ? t('Sent “{subject}”', { subject: request.subject }) : t('{bot} wanted to send “{subject}”', { bot: bot.name, subject: request.subject }),
-    done: request.status === 'sent',
-    badge: request.status === 'failed' ? t('Failed') : t('Canceled'),
+export function MailSendCard({ sessionId, bot, request, roster, actions, inline = false }) {
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const answer = (send) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    void Promise.resolve(actions.mailSendAnswer(request.id, send ? 'send' : 'cancel')).catch(() => {}).finally(() => { busyRef.current = false; setBusy(false) })
+  }
+  return h(RequestView, {
+    sessionId, kind: 'mail', request, actions, inline, busy,
+    title: t('{bot} wants to send an email', { bot: bot.name }),
+    view: mailView(request, roster),
+    onAnswer: answer,
+  })
+}
+
+function SettledMail({ bot, request, roster }) {
+  return h(ViewCard, {
+    title: t('{bot} wants to send an email', { bot: bot.name }),
+    view: mailView(request, roster, true),
+    settled: true,
+    answer: { action: 'send', values: { confirmed: request.status === 'sent' || request.status === 'failed' } },
   })
 }
 
@@ -486,7 +501,7 @@ export function MailToolCell({ sessionId, callId, roster, actions, heldCards = N
   if (request) {
     return request.status === 'pending'
       ? h('div', { className: 'bt-q-inline' }, h(MailSendCard, { sessionId, bot, request, roster, actions, inline: true }))
-      : h('div', { className: 'bt-q-inline' }, h(SettledMail, { bot, request }))
+      : h('div', { className: 'bt-q-inline' }, h(SettledMail, { bot, request, roster }))
   }
   return h(CellEmpty)
 }
@@ -520,5 +535,4 @@ export const CONNECTOR_CSS = `
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-open{text-decoration:none}
-.bt-mail-body{max-height:180px;overflow-y:auto;padding:8px 12px;font-size:13px;line-height:19px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--bt-ink)}
 `

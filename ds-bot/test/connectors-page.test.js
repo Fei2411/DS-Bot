@@ -155,26 +155,34 @@ test('a busy mail add blocks a second click and a good add clears the fields', a
   assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'SMTP host')[0].props.value, '', 'SMTP host cleared')
 })
 
-test('the mail send card renders on the shared card structure', async () => {
+test('the mail send card is the show_view card and shows the mail literally', async () => {
   const bot = { id: 'b1', name: 'Chief' }
+  const body = 'Hi **all**\n<!-- hidden --> [link](https://x.test)\n\nBye'
   const roster = {
     byId: { s1: bot },
     connectors: { mail: { accounts: [{ id: 'me@qq.com', address: 'me@qq.com' }] } },
     mailRequests: {
-      b1: [{ id: 'r1', callId: 'c1', sessionId: 's1', status: 'pending', account: 'me@qq.com', to: 'team@corp.dev', subject: 'Weekly', body: 'Hi all', attachmentDetails: [{ name: 'report.pdf', size: 2048 }] }],
+      b1: [{ id: 'r1', callId: 'c1', sessionId: 's1', status: 'pending', account: 'me@qq.com', to: 'team@corp.dev', subject: 'Weekly_1', body, attachmentDetails: [{ name: 'report.pdf', size: 2048 }] }],
     },
   }
-  renderCell({ sessionId: 's1', callId: 'c1', roster, actions: {} })
-  const card = collect(n => String(n.props?.className ?? '').split(' ').includes('bt-q'))[0]
-  assert.ok(card, 'card root')
-  assert.deepEqual(card.props.className.split(' ').sort(), ['bt-q', 'bt-secret'], 'card is the shared request card')
-  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-card')).length, 0, 'no bespoke card class')
-  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-preview')).length, 0, 'no bespoke preview class')
-  assert.ok(collect(n => n.props?.className === 'bt-q-head bt-secret-head')[0], 'shared head')
-  assert.ok(collect(n => String(n.props?.className ?? '').includes('bt-learning-file'))[0], 'shared quoted box')
-  assert.ok(collect(n => n.props?.className === 'bt-mail-body')[0], 'body preview')
-  assert.ok(collect(n => n.type === 'button' && String(n.props?.className ?? '') === 'bt-q-submit' && flatten(n).join('') === 'Send')[0], 'primary Send button')
-  assert.ok(collect(n => n.type === 'button' && String(n.props?.className ?? '') === 'bt-q-btn' && flatten(n).join('') === 'Cancel')[0], 'secondary Cancel button')
+  const answers = []
+  renderCell({ sessionId: 's1', callId: 'c1', roster, actions: { mailSendAnswer: (...args) => { answers.push(args); return Promise.resolve() } } })
+  const card = collect(n => String(n.props?.className ?? '').split(' ').includes('dv-view'))[0]
+  assert.ok(card, 'view card root')
+  assert.ok(card.props.className.split(' ').includes('dv-q'), 'framed like the show_view answer cards')
+  assert.equal(collect(n => /\bbt-(mail|secret|learning)/.test(String(n.props?.className ?? ''))).length, 0, 'no bespoke card classes')
+  assert.match(flatten(collect(n => n.props?.className === 'dv-view-title')[0]).join(''), /Chief wants to send an email/)
+  const texts = collect(n => typeof n.props?.text === 'string' && n.props?.variant === 'compact').map(n => n.props.text)
+  assert.ok(texts.some(text => text.includes('From ` me@qq.com `') && text.includes('To ` team@corp.dev `')), 'sender and recipient')
+  assert.ok(texts.includes('**Weekly\\_1**'), 'subject, escaped')
+  assert.ok(texts.includes('Hi \\*\\*all\\*\\*\\\n\\<\\!\\-\\- hidden \\-\\-\\> \\[link\\]\\(https\\://x\\.test\\)\n\nBye'), 'body shown literally, breaks kept')
+  assert.ok(texts.some(text => text.includes('report\\.pdf \\(2 KB\\)')), 'attachments')
+  const send = collect(n => n.type === 'button' && n.props?.className === 'dv-q-submit')[0]
+  assert.equal(flatten(send).join(''), 'Send')
+  assert.equal(flatten(collect(n => n.type === 'button' && n.props?.className === 'dv-q-btn')[0]).join(''), 'Cancel')
+  send.props.onClick()
+  await flush()
+  assert.deepEqual(answers, [['r1', 'send']])
 })
 
 test('a failed mail add shows the host message inside the form', async () => {

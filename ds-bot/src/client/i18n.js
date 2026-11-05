@@ -1272,14 +1272,13 @@ const ZH = {
   'No connectors connected': '未连接任何连接器',
   '{bot} needs {name}': '{bot} 需要 {name}',
   '{bot} wants to send an email': '{bot} 想发送一封邮件',
+  'From': '发件人',
   'To': '收件人',
   'Cc': '抄送',
   'Bcc': '密送',
-  'Attachments: {names}': '附件:{names}',
-  'Sent “{subject}”': '已发送“{subject}”',
-  '{bot} wanted to send “{subject}”': '{bot} 想发送“{subject}”',
+  'Attachments: {names}': '附件：{names}',
+  'Sent': '已发送',
   'Failed': '失败',
-  'Sending…': '正在发送…',
 
 }
 

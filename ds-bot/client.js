@@ -1319,14 +1319,13 @@ var ZH = {
   "No connectors connected": "未连接任何连接器",
   "{bot} needs {name}": "{bot} 需要 {name}",
   "{bot} wants to send an email": "{bot} 想发送一封邮件",
+  "From": "发件人",
   "To": "收件人",
   "Cc": "抄送",
   "Bcc": "密送",
-  "Attachments: {names}": "附件:{names}",
-  "Sent “{subject}”": "已发送“{subject}”",
-  "{bot} wanted to send “{subject}”": "{bot} 想发送“{subject}”",
-  "Failed": "失败",
-  "Sending…": "正在发送…"
+  "Attachments: {names}": "附件：{names}",
+  "Sent": "已发送",
+  "Failed": "失败"
 };
 var HOST_ERRORS = [
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],
@@ -4234,7 +4233,6 @@ var SwitchIcon = lineIcon(["M4 7h9.5M10.5 3.5L14 7l-3.5 3.5", "M16 13H6.5M9.5 9.
 var SignOutIcon = lineIcon(["M8.5 17H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2.5", "M10 10h6.5", "M13.5 7l3 3-3 3"]);
 var SignInIcon = lineIcon(["M11.5 3H14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2.5", "M3.5 10H10", "M7 7l3 3-3 3"]);
 var PaperclipIcon = lineIcon(["M15.5 9.5l-5.6 5.6a3.4 3.4 0 0 1-4.8-4.8l6.1-6.1a2.25 2.25 0 0 1 3.2 3.2l-6 6a1.1 1.1 0 0 1-1.6-1.6l5.5-5.5"]);
-var MailIcon = lineIcon(["M4 5.5h12a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V7a1.5 1.5 0 0 1 1.5-1.5z", "M3.2 7l6.8 4.5L16.8 7"]);
 var ClockIcon = lineIcon(["M10 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z", "M10 6.5V10l2.5 1.5"]);
 var GearIcon = lineIcon(["M10 7.4a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2z", "M7.85 4.4l.29-1.87a7.7 7.7 0 0 1 3.72 0l.29 1.87a6 6 0 0 1 1.63.94l1.76-.69a7.7 7.7 0 0 1 1.86 3.23l-1.47 1.18a6 6 0 0 1 0 1.88l1.47 1.18a7.7 7.7 0 0 1-1.86 3.23l-1.76-.69a6 6 0 0 1-1.63.94l-.29 1.87a7.7 7.7 0 0 1-3.72 0l-.29-1.87a6 6 0 0 1-1.63-.94l-1.76.69a7.7 7.7 0 0 1-1.86-3.23l1.47-1.18a6 6 0 0 1 0-1.88L2.6 7.88a7.7 7.7 0 0 1 1.86-3.23l1.76.69a6 6 0 0 1 1.63-.94z"]);
 var PinIcon = lineIcon(["M12.5 3l4.5 4.5-3 1.5-2.5 2.5.5 3.5-1.5 1.5L7 13 3.5 16.5", "M7 13l-3.5-3.5L5 8l3.5.5L11 6l1.5-3"]);
@@ -7572,6 +7570,7 @@ var import_react14 = require("react");
 var viewT = (key, params) => key === "Send" ? t("Send to Bot") : t(key, params);
 var VIEW_UI = { t: viewT, Markdown: import_dsh_client_ui_primitives.MarkdownText };
 var Card = (props) => (0, import_react14.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react14.createElement)(WidgetCard, props));
+var ViewCard = Card;
 var withUi = (Component) => (props) => (0, import_react14.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react14.createElement)(Component, props));
 var WidgetView2 = withUi(WidgetView);
 var ViewMenuList2 = withUi(ViewMenuList);
@@ -11043,61 +11042,63 @@ function BotConnectors({ bot, roster, actions, run: run2 }) {
     })
   );
 }
-function RequestHead({ bot, badge, title, detail, onClose }) {
+var literal = (text) => String(text ?? "").replace(/[\\`*_{}[\]()#+\-.!|<>~&@:]/g, "\\$&");
+var literalBlock = (text) => literal(String(text ?? "").replace(/\r\n?/g, "\n").trim()).split(/\n{2,}/).map((paragraph) => paragraph.replace(/\n/g, "\\\n")).join("\n\n");
+var codeSpan = (text) => {
+  const value = String(text ?? "").replace(/\s+/g, " ");
+  const fence = "`".repeat(Math.max(0, ...(value.match(/`+/g) ?? []).map((run2) => run2.length)) + 1);
+  return `${fence} ${value} ${fence}`;
+};
+function RequestView2({ sessionId, kind, request, actions, inline, title, view, onAnswer, busy = false }) {
+  const hold = useDockHold(sessionId, kind, request.id, actions, inline);
   return (0, import_react25.createElement)(
     "div",
-    { className: "bt-q-head bt-secret-head" },
-    (0, import_react25.createElement)("span", { className: "bt-secret-who" }, (0, import_react25.createElement)(BotMark, { bot, size: 28 }), badge ? (0, import_react25.createElement)("span", { className: "bt-secret-lock" }, badge) : null),
-    (0, import_react25.createElement)(
-      "div",
-      { className: "bt-q-text" },
-      (0, import_react25.createElement)("p", { className: "bt-q-title" }, title),
-      detail ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, detail) : null
-    ),
-    onClose ? (0, import_react25.createElement)("button", { type: "button", className: "bt-q-x", "aria-label": t("Cancel the request"), title: t("Cancel"), onClick: onClose }, (0, import_react25.createElement)(CloseIcon)) : null
-  );
-}
-function SettledCard({ bot, title, done, badge }) {
-  return (0, import_react25.createElement)(
-    "div",
-    { className: `bt-q bt-q-settled bt-secret bt-secret-done${done ? "" : " bt-q-dismissed"}`, role: "group", "aria-label": title },
-    (0, import_react25.createElement)(
-      "div",
-      { className: "bt-q-head" },
-      (0, import_react25.createElement)("span", { className: "bt-secret-who" }, (0, import_react25.createElement)(BotMark, { bot, size: 22 })),
-      (0, import_react25.createElement)("div", { className: "bt-q-text" }, (0, import_react25.createElement)("p", { className: "bt-q-title" }, title)),
-      done ? (0, import_react25.createElement)("span", { className: "bt-q-check bt-secret-check", title: t("Done") }, (0, import_react25.createElement)(CheckIcon)) : (0, import_react25.createElement)("span", { className: "bt-q-badge" }, badge)
-    )
-  );
-}
-function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
-  const hold = useDockHold(sessionId, "connector", request.id, actions, inline);
-  const name = request.name ?? request.connectorId;
-  const dismiss = () => {
-    hold();
-    void actions.connectorRequestCancel(request.id);
-  };
-  return (0, import_react25.createElement)(
-    "div",
-    { className: "bt-q bt-secret", role: "group", onFocusCapture: hold, onPointerDownCapture: hold },
-    (0, import_react25.createElement)(RequestHead, { bot, badge: (0, import_react25.createElement)(PlugIcon), title: t("{bot} needs {name}", { bot: bot.name, name }), detail: request.purpose, onClose: dismiss }),
-    (0, import_react25.createElement)(
-      "div",
-      { className: "bt-q-foot" },
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-btn", onClick: dismiss }, t("Dismiss")),
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => {
+    { style: { display: "contents" }, onFocusCapture: hold, onPointerDownCapture: hold },
+    (0, import_react25.createElement)(ViewCard, {
+      title,
+      view,
+      busy,
+      raised: !inline,
+      onSubmit: (_, values) => {
         hold();
-        actions.openConnectors();
-      } }, t("Connect"))
-    )
+        onAnswer(values?.confirmed === true);
+      },
+      onDismiss: () => {
+        hold();
+        onAnswer(false);
+      }
+    })
   );
+}
+var connectorView = (request, settled = false) => ({
+  type: "stack",
+  children: [
+    request.purpose ? { type: "text", text: literal(request.purpose) } : null,
+    { type: "confirm", id: "connect", confirmLabel: settled ? t("Connected") : t("Connect"), cancelLabel: settled ? t("Canceled") : t("Dismiss") }
+  ].filter(Boolean)
+});
+function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
+  const name = request.name ?? request.connectorId;
+  return (0, import_react25.createElement)(RequestView2, {
+    sessionId,
+    kind: "connector",
+    request,
+    actions,
+    inline,
+    title: t("{bot} needs {name}", { bot: bot.name, name }),
+    view: connectorView(request),
+    onAnswer: (connect) => {
+      if (connect) actions.openConnectors();
+      else void actions.connectorRequestCancel(request.id);
+    }
+  });
 }
 function SettledConnector({ bot, request }) {
-  return (0, import_react25.createElement)(SettledCard, {
-    bot,
-    title: t("{bot} asked for {name}", { bot: bot.name, name: request.name ?? request.connectorId }),
-    done: request.status === "connected",
-    badge: t("Canceled")
+  return (0, import_react25.createElement)(ViewCard, {
+    title: t("{bot} needs {name}", { bot: bot.name, name: request.name ?? request.connectorId }),
+    view: connectorView(request, true),
+    settled: true,
+    answer: { action: "connect", values: { confirmed: request.status === "connected" } }
   });
 }
 var humanSize = (bytes) => bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
@@ -11124,66 +11125,59 @@ function ConnectorDock({ sessionId, useRoster, useCards, useHeldCards, actions }
   if (waiting.length === 0) return null;
   return (0, import_react25.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react25.createElement)(ConnectorCard, { key: request.id, sessionId, bot, request, actions })));
 }
+function mailView(request, roster, settled = false) {
+  const account = (roster?.connectors?.mail?.accounts ?? []).find((entry) => entry.id === request.account);
+  const from = account?.address ?? request.account;
+  const route = [
+    [t("From"), from],
+    [t("To"), request.to],
+    [t("Cc"), request.cc],
+    [t("Bcc"), request.bcc]
+  ].filter(([, value]) => value).map(([label, value]) => `${literal(label)} ${codeSpan(value)}`).join("\\\n");
+  const attachments = request.attachmentDetails?.length ? t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${humanSize(a.size)})` : a.name).join(", ") }) : "";
+  const done = request.status === "sent" ? t("Sent") : request.status === "failed" ? t("Failed") : t("Send");
+  return {
+    type: "stack",
+    children: [
+      route ? { type: "text", tone: "muted", text: route } : null,
+      request.subject ? { type: "text", text: `**${literal(request.subject)}**` } : null,
+      String(request.body ?? "").trim() ? { type: "text", text: literalBlock(request.body) } : null,
+      attachments ? { type: "text", tone: "muted", text: literal(attachments) } : null,
+      { type: "confirm", id: "send", confirmLabel: settled ? done : t("Send"), cancelLabel: settled ? t("Canceled") : t("Cancel") }
+    ].filter(Boolean)
+  };
+}
 function MailSendCard({ sessionId, bot, request, roster, actions, inline = false }) {
   const [busy, setBusy] = (0, import_react25.useState)(false);
   const busyRef = (0, import_react25.useRef)(false);
-  const hold = useDockHold(sessionId, "mail", request.id, actions, inline);
-  const answer = (choice) => {
-    if (busyRef.current || busy) return;
+  const answer = (send) => {
+    if (busyRef.current) return;
     busyRef.current = true;
-    hold();
     setBusy(true);
-    void Promise.resolve(actions.mailSendAnswer(request.id, choice)).catch(() => {
+    void Promise.resolve(actions.mailSendAnswer(request.id, send ? "send" : "cancel")).catch(() => {
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
     });
   };
-  const account = (roster?.connectors?.mail?.accounts ?? []).find((entry) => entry.id === request.account);
-  const from = account?.address ?? request.account;
-  const route = [
-    request.to ? `${t("To")} ${request.to}` : "",
-    request.cc ? `${t("Cc")} ${request.cc}` : "",
-    request.bcc ? `${t("Bcc")} ${request.bcc}` : ""
-  ].filter((line) => line !== "").join(" · ");
-  return (0, import_react25.createElement)(
-    "div",
-    { className: "bt-q bt-secret", role: "group", onFocusCapture: hold, onPointerDownCapture: hold },
-    (0, import_react25.createElement)(RequestHead, {
-      bot,
-      badge: (0, import_react25.createElement)(MailIcon),
-      title: t("{bot} wants to send an email", { bot: bot.name }),
-      detail: request.subject,
-      onClose: busy ? void 0 : () => answer("cancel")
-    }),
-    // The message preview rides on the file box the other cards use for quoted
-    // content; the body stays scrollable when it runs long.
-    (0, import_react25.createElement)(
-      "div",
-      { className: "bt-learning-file" },
-      (0, import_react25.createElement)(
-        "div",
-        { className: "bt-learning-filehead" },
-        from ? (0, import_react25.createElement)("span", { className: "bt-learning-name" }, from) : null,
-        (0, import_react25.createElement)("span", { className: "bt-learning-path" }, route)
-      ),
-      (0, import_react25.createElement)("div", { className: "bt-mail-body" }, request.body)
-    ),
-    request.attachmentDetails?.length ? (0, import_react25.createElement)("div", { className: "bt-q-detail" }, t("Attachments: {names}", { names: request.attachmentDetails.map((a) => a.size !== void 0 ? `${a.name} (${humanSize(a.size)})` : a.name).join(", ") })) : null,
-    (0, import_react25.createElement)(
-      "div",
-      { className: "bt-q-foot" },
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("cancel") }, t("Cancel")),
-      (0, import_react25.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("send") }, busy ? t("Sending…") : t("Send"))
-    )
-  );
+  return (0, import_react25.createElement)(RequestView2, {
+    sessionId,
+    kind: "mail",
+    request,
+    actions,
+    inline,
+    busy,
+    title: t("{bot} wants to send an email", { bot: bot.name }),
+    view: mailView(request, roster),
+    onAnswer: answer
+  });
 }
-function SettledMail({ bot, request }) {
-  return (0, import_react25.createElement)(SettledCard, {
-    bot,
-    title: request.status === "sent" ? t("Sent “{subject}”", { subject: request.subject }) : t("{bot} wanted to send “{subject}”", { bot: bot.name, subject: request.subject }),
-    done: request.status === "sent",
-    badge: request.status === "failed" ? t("Failed") : t("Canceled")
+function SettledMail({ bot, request, roster }) {
+  return (0, import_react25.createElement)(ViewCard, {
+    title: t("{bot} wants to send an email", { bot: bot.name }),
+    view: mailView(request, roster, true),
+    settled: true,
+    answer: { action: "send", values: { confirmed: request.status === "sent" || request.status === "failed" } }
   });
 }
 function MailToolCell({ sessionId, callId, roster, actions, heldCards = NONE2 }) {
@@ -11192,7 +11186,7 @@ function MailToolCell({ sessionId, callId, roster, actions, heldCards = NONE2 })
   const request = (roster.mailRequests?.[bot.id] ?? []).find((entry) => entry.callId === callId && (entry.sessionId ?? sessionId) === sessionId);
   if (request?.status === "pending" && heldCards[heldCardKey("mail", request.id)] > 0) return (0, import_react25.createElement)(CellEmpty);
   if (request) {
-    return request.status === "pending" ? (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(MailSendCard, { sessionId, bot, request, roster, actions, inline: true })) : (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(SettledMail, { bot, request }));
+    return request.status === "pending" ? (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(MailSendCard, { sessionId, bot, request, roster, actions, inline: true })) : (0, import_react25.createElement)("div", { className: "bt-q-inline" }, (0, import_react25.createElement)(SettledMail, { bot, request, roster }));
   }
   return (0, import_react25.createElement)(CellEmpty);
 }
@@ -11224,7 +11218,6 @@ var CONNECTOR_CSS = `
 .bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-open{text-decoration:none}
-.bt-mail-body{max-height:180px;overflow-y:auto;padding:8px 12px;font-size:13px;line-height:19px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--bt-ink)}
 `;
 
 // src/client/turn-reasoning.js
