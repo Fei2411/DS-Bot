@@ -428,6 +428,7 @@ export function install(rt, host) {
       const session = sessions.get(account.id)
       sessions.delete(account.id)
       await session?.close?.().catch(() => {})
+      dropGooglePending(account.address)
       syncTools()
       return mailView()
     },
@@ -496,10 +497,17 @@ export function install(rt, host) {
   // --- Google sign-in ------------------------------------------------------
 
   const googlePendings = new Map()
+  const dropGooglePending = key => {
+    const pending = googlePendings.get(key)
+    if (pending === undefined) return
+    googlePendings.delete(key)
+    pending.listener?.close()
+  }
   async function beginGoogle(address) {
     const client = googleClient()
     const discovery = await discover('https://accounts.google.com', { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
-    const pending = { discovery, address: address || undefined }
+    dropGooglePending(address)
+    const pending = { discovery, address: address || undefined, key: address }
     googlePendings.set(address, pending)
     const { createServer } = await import('node:http')
     const listener = createServer((req, res) => {
@@ -507,7 +515,13 @@ export function install(rt, host) {
       res.on('error', () => req.destroy())
       let url
       try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
-      res.writeHead(200, { 'content-type': 'text/html' })
+      if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      if (!url.searchParams.get('code')) {
+        res.end('<p style="font-family:sans-serif">Google sign-in did not finish — go back to DS Bot and try again.</p>')
+        rt.warn('ds-bot: mail Google sign-in failed: %s', url.searchParams.get('error') ?? 'no code')
+        return
+      }
       res.end('<p style="font-family:sans-serif">Signed in — you can close this tab.</p>')
       void googleCode({ address, input: url.toString() }).catch(error => rt.warn('ds-bot: mail Google sign-in failed: %s', host.reason(error)))
     })
@@ -517,8 +531,10 @@ export function install(rt, host) {
     await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve) })
     pending.listener = listener
     pending.redirectUri = `http://127.0.0.1:${listener.address().port}/callback`
-    const { url, codeVerifier } = await beginBrowser(discovery, { client_id: client.id, client_secret: client.secret }, pending.redirectUri, { state: randomUUID(), scope: GOOGLE_SCOPES })
+    const state = randomUUID()
+    const { url, codeVerifier } = await beginBrowser(discovery, { client_id: client.id, client_secret: client.secret }, pending.redirectUri, { state, scope: GOOGLE_SCOPES })
     pending.codeVerifier = codeVerifier
+    pending.state = state
     pending.url = url
     return mailView()
   }
@@ -530,6 +546,10 @@ export function install(rt, host) {
     const url = /^https?:/i.test(input) ? new URL(input) : undefined
     const code = url ? url.searchParams.get('code') : input
     if (!code) throw new Error('The address has no code')
+    const given = url?.searchParams.get('state')
+    if (given !== null && pending.state !== undefined && given !== pending.state) throw new Error('The sign-in answer is not for this attempt')
+    googlePendings.delete(pending.key ?? pending.address)
+    pending.listener?.close()
     const client = googleClient()
     const tokens = await exchange(pending.discovery, { client_id: client.id, client_secret: client.secret }, { code, codeVerifier: pending.codeVerifier, redirectUri: pending.redirectUri, iss: url?.searchParams.get('iss') ?? undefined }, { fetch: rt.config.mail?.fetch })
     const email = pending.address || await googleEmail(tokens.access_token)
@@ -539,8 +559,6 @@ export function install(rt, host) {
     await host.secrets.writeSecret(mailSecretName(email, 'TOKEN'), tokens.access_token, `Mailbox ${email}`)
     if (typeof tokens.refresh_token === 'string') await host.secrets.writeSecret(mailSecretName(email, 'REFRESH'), tokens.refresh_token, `Mailbox ${email}`)
     await rt.save()
-    pending.listener?.close()
-    googlePendings.delete(pending.address)
     syncTools()
     return mailView()
   }

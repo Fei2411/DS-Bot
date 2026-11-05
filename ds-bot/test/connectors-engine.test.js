@@ -895,6 +895,52 @@ test('Google loopback catches a rejected sign-in callback instead of an unhandle
   assert.ok((await rt.diagnostics.entries()).some(row => /mail Google sign-in failed/.test(row.text)))
 })
 
+test('Google sign-in retries get a fresh URL and a success clears the pending row', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { fetch: async url => {
+    const u = String(url)
+    if (u.includes('oauth-authorization-server')) return json(AS)
+    if (u === 'https://as.test/token') return json({ access_token: 'tok-aaaa', refresh_token: 'ref-bbbb', expires_in: 3600, token_type: 'Bearer' })
+    if (u.includes('userinfo')) return json({ email: 'retry@gmail.com' })
+    return notFound()
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  const first = await rt.connectorEndpoint('mail-account-add', { google: true })
+  const second = await rt.connectorEndpoint('mail-account-add', { google: true })
+  assert.notEqual(first.pending[0].url, second.pending[0].url, 'retry should start a new attempt')
+  const url = new URL(second.pending[0].url)
+  const callback = new URL(url.searchParams.get('redirect_uri'))
+  callback.search = `?code=C&state=WRONG`
+  const bad = await fetch(callback)
+  assert.equal(bad.status, 200)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.ok((await rt.diagnostics.entries()).some(row => /not for this attempt/.test(row.text)))
+  callback.search = `?code=C&state=${url.searchParams.get('state')}`
+  const ok = await fetch(callback)
+  assert.match(await ok.text(), /Signed in/)
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setImmediate(resolve))
+    const view = await rt.connectorEndpoint('mail-rule-set', {})
+    if (view.accounts.some(a => a.address === 'retry@gmail.com')) {
+      assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
+      return
+    }
+  }
+  assert.fail('account never landed')
+})
+
 test('Google mailbox refresh reports success and failure without credentials or addresses', async () => {
   const { install } = await import('../src/host/connectors/mail/index.js')
   const logs = []
