@@ -75,7 +75,7 @@ export function Providers({ navigation }: any) {
   const load = () => void call('providers').then(v => setView(v as ProvidersView)).catch(() => {})
   useState(() => { load(); return null })
   const apply = (task: Promise<unknown>, after?: () => void) => task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
-  const saveKey = (id: string) => { if (key === '') return; const next = key; setKey(''); void apply(call('provider-key', { provider: id, key: next }), () => { setSaved(id); load() }) }
+  const saveKey = (id: string) => { if (key === '') return; const next = key; setKey(''); void apply(call('provider-key', { provider: id, value: next }), () => { setSaved(id); load() }) }
   const typed = draft.typed.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
   const models = [...(found ?? []).filter(m => picked.includes(m.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
   const ready = draft.provider.trim() !== '' && draft.baseURL.trim() !== '' && models.length > 0
@@ -111,7 +111,7 @@ export function Providers({ navigation }: any) {
                           <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Save')}</Text>
                         </Pressable>
                         {provider.key.configured ? (
-                          <Pressable accessibilityRole="button" onPress={() => void apply(call('provider-key', { provider: provider.id, key: null }), load)} style={[styles.smallBtn, { backgroundColor: p.hover }]}>
+                          <Pressable accessibilityRole="button" onPress={() => void apply(call('provider-key', { provider: provider.id, value: null }), load)} style={[styles.smallBtn, { backgroundColor: p.hover }]}>
                             <Text style={{ color: p.danger, fontSize: 14 }}>{t('Remove key')}</Text>
                           </Pressable>
                         ) : null}
@@ -245,8 +245,8 @@ export function Connectors({ navigation }: any) {
                     <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name}</Text>
                     <Text style={[typeScale.small, { color: item.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{connectorStatus(item)}</Text>
                   </View>
-                  {item.state === 'error' ? <Pressable onPress={() => void run(item.id, call('connector-retry', { connector: item.id }))}><Text style={{ color: p.accent }}>{t('Try again')}</Text></Pressable> : null}
-                  {on ? <Pressable onPress={() => void run(item.id, call('connector-disconnect', { connector: item.id }))}><Text style={{ color: p.ink2 }}>{t('Disconnect')}</Text></Pressable>
+                  {item.state === 'error' ? <Pressable onPress={() => void run(item.id, call('connector-retry', { id: item.id }))}><Text style={{ color: p.accent }}>{t('Try again')}</Text></Pressable> : null}
+                  {on ? <Pressable onPress={() => void run(item.id, call('connector-disconnect', { id: item.id }))}><Text style={{ color: p.ink2 }}>{t('Disconnect')}</Text></Pressable>
                     : connecting ? null : <Pressable onPress={() => setForm(item.id)}><Text style={{ color: p.accent }}>{t('Connect')}</Text></Pressable>}
                 </View>
                 {!on && connecting ? (
@@ -255,7 +255,7 @@ export function Connectors({ navigation }: any) {
                     <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
                       {TOKEN_URLS[item.id] !== undefined ? <Text style={[typeScale.small, { color: p.accent, flex: 1 }]} onPress={() => void require('react-native').Linking.openURL(TOKEN_URLS[item.id])}>{t('Create a token on {name}', { name: item.name })}</Text> : <View style={{ flex: 1 }} />}
                       <Pressable onPress={() => { setForm(null); setToken('') }}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
-                      <Pressable disabled={busy === item.id || token.trim() === ''} onPress={() => { const next = token; setToken(''); void run(item.id, call('connector-connect', { connector: item.id, token: next }), () => setForm(null)) }}>
+                      <Pressable disabled={busy === item.id || token.trim() === ''} onPress={() => { const next = token; setToken(''); void run(item.id, call('connector-connect', { id: item.id, token: next }), () => setForm(null)) }}>
                         <Text style={{ color: token.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{busy === item.id ? t('Connecting…') : t('Connect')}</Text>
                       </Pressable>
                     </View>

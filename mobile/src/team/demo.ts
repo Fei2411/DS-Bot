@@ -196,7 +196,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { path, parent: path.split('/').slice(0, -1).join('/') || null, entries: kids.map(name => ({ name, path: `${path}/${name}` })), truncated: false }
       }
       case 'usage-summary': return { botId: String(body.botId ?? ''), day: { input: 12400, output: 3200, cacheRead: 8800 }, week: { input: 98200, output: 21400, cacheRead: 61100 }, month: { input: 402100, output: 90300, cacheRead: 251000 }, models: [{ key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash', input: 102000, output: 20200 }], scanning: false }
-      case 'run-stats': return { parts: 3, messages: 214, turns: 96, tools: 311, sessions: 2 }
+      case 'run-stats': return { sessionStats: { turns: 96, steps: 311 }, tokenUsage: { uncachedInputTokens: 52000, outputTokens: 9000, cacheReadTokens: 480000, cacheWriteTokens: 0 }, contextPressure: { pressureTokens: 61000, contextWindow: 1000000 } }
       case 'providers': return { available: true, protocols: ['openai'], providers: [
         { id: 'deepseek', name: 'DeepSeek', key: { configured: true, writable: true }, models: [{ name: 'DeepSeek v4.1' }, { name: 'DeepSeek Flash' }] },
         { id: 'openrouter', name: 'OpenRouter', key: { configured: true, writable: true }, models: [{ name: 'Auto' }, { name: 'Kimi K2.5' }] },

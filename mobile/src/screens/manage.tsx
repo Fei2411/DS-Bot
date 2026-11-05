@@ -828,14 +828,19 @@ export function Usage({ route, navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
   const botId = String(route.params?.botId ?? '')
-  const [summary, setSummary] = useState<{ day?: { input: number; output: number }; week?: { input: number; output: number }; month?: { input: number; output: number }; models?: { key?: string; name: string; input: number; output: number }[] } | null>(null)
-  const [stats, setStats] = useState<{ parts?: number; messages?: number; turns?: number; tools?: number } | null>(null)
+  type Totals = { input: number; cacheRead?: number; cacheWrite?: number; output: number }
+  const [summary, setSummary] = useState<{ day?: Totals; week?: Totals; month?: Totals; models?: ({ key?: string; name: string } & Totals)[] } | null>(null)
+  // The Bot's chat Session projections (channel.js RUN_STATS).
+  const [stats, setStats] = useState<{ sessionStats?: { turns?: number; steps?: number }; contextPressure?: { pressureTokens?: number; contextWindow?: number } } | null>(null)
   useState(() => {
     void call('usage-summary', { botId }).then(v => setSummary(v as typeof summary)).catch(() => {})
-    void call('run-stats', { sessionId: route.params?.sessionId }).then(v => setStats(v as typeof stats)).catch(() => {})
+    void call('run-stats', { botId }).then(v => setStats(v as typeof stats)).catch(() => {})
     return null
   })
-  const total = (t2?: { input: number; output: number }) => t2 === undefined ? '—' : (t2.input + t2.output).toLocaleString()
+  const sum = (t2: Totals) => t2.input + (t2.cacheRead ?? 0) + (t2.cacheWrite ?? 0) + t2.output
+  const total = (t2?: Totals) => t2 === undefined ? '—' : sum(t2).toLocaleString()
+  const pressure = stats?.contextPressure
+  const context = pressure?.pressureTokens !== undefined && pressure.contextWindow ? `${Math.round(pressure.pressureTokens / pressure.contextWindow * 100)}%` : '—'
   return (
     <Screen title={String(route.params?.name ?? '')}>
       <BackRow title={t('Usage')} onBack={() => navigation.goBack()} />
@@ -846,12 +851,12 @@ export function Usage({ route, navigation }: any) {
           <Row label={t('Month')} value={total(summary?.month)} />
         </Section>
         <Section label={t('Model')}>
-          {(summary?.models ?? []).map(m => <Row key={m.key ?? m.name} label={m.name} value={(m.input + m.output).toLocaleString()} />)}
+          {(summary?.models ?? []).map(m => <Row key={m.key ?? m.name} label={m.name} value={sum(m).toLocaleString()} />)}
         </Section>
         <Section label={t('Runs')}>
-          <Row label={t('Turns')} value={String(stats?.turns ?? '—')} />
-          <Row label={t('Tools')} value={String(stats?.tools ?? '—')} />
-          <Row label={t('Messages')} value={String(stats?.messages ?? '—')} />
+          <Row label={t('Turns')} value={String(stats?.sessionStats?.turns ?? '—')} />
+          <Row label={t('Steps')} value={String(stats?.sessionStats?.steps ?? '—')} />
+          <Row label={t('Context used')} value={context} />
         </Section>
       </ScrollView>
     </Screen>

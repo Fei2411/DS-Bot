@@ -17,6 +17,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Pair': '配对',
   'Turns': '轮次',
   'Tools': '工具调用',
+  'Steps': '步数', 'Context used': '上下文占用',
   'Retry': '重试',
   'The computer did not accept this phone. Show a new QR code on the computer and scan it again.': '电脑没有接受这台手机。在电脑上出示新的二维码，再扫一次。',
   'The computer is not connected to the Server. Check that DS Bot is open and phone access is on.': '电脑没有连上服务器。确认 DS Bot 已打开且手机访问已开启。',
