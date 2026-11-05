@@ -842,11 +842,16 @@ export function install(rt) {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
-      return {
-        ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
-      }
+      // dsh runs this waterfall before it attaches the tool declarations (see
+      // SystemPrompt.assemble: the `tools` field is added to the returned
+      // assembly afterwards), so `tools` is normally absent at this stage.
+      // Filtering it unconditionally threw "Cannot read properties of undefined
+      // (reading 'filter')" and failed every resumed Bot turn; only rewrite the
+      // fields the stage actually carries.
+      const filtered = { ...assembled }
+      if (Array.isArray(assembled?.tools)) filtered.tools = assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name))
+      if (Array.isArray(assembled?.sections)) filtered.sections = assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name))
+      return filtered
     })
     held.filtered = true
     if (typeof dispose === 'function') held.disposers.push(dispose)
