@@ -3,6 +3,7 @@ import { CheckIcon, MonitorIcon } from './icons.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
+import { lookOf } from './characters.js'
 import { t } from './i18n.js'
 import { toolArgs } from './text.js'
 
@@ -292,15 +293,31 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
   const leases = live.leases ?? []
   const waiting = Object.entries(live.bots ?? {}).filter(([, entry]) => entry.waitingFor === 'user-idle')
   if (leases.length === 0 && waiting.length === 0) return null
-  const nameOf = id => roster.byId[id]?.name ?? t('a Bot')
+  const botOf = id => roster.byId[id]
+  const nameOf = id => botOf(id)?.name ?? t('a Bot')
+  const avatarOf = (id) => {
+    const look = lookOf(botOf(id))
+    if (typeof look.image === 'string' && look.image.startsWith('data:image/')) return h('img', { className: 'bt-cbar-ava', src: look.image, alt: '' })
+    return h('span', { className: 'bt-cbar-ava bt-cbar-ava-dot', style: { background: look.color } }, String(nameOf(id)).slice(0, 1))
+  }
+  const entries = [
+    ...leases.map(entry => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === 'foreground' ? t('Foreground') : entry.appName })),
+    ...waiting.map(([botId]) => ({ key: `w:${botId}`, botId, waiting: true, app: t('waits for the computer') })),
+  ]
   return h('div', { className: 'bt-cbar', role: 'status' },
-    h(MonitorIcon),
-    leases.map((entry, index) => h('span', { key: index, className: 'bt-cbar-entry' },
-      h('span', { className: 'bt-cbar-name' }, entry.kind === 'foreground' ? t('{name} · foreground', { name: nameOf(entry.botId) }) : `${nameOf(entry.botId)} · ${entry.appName}`),
-      h('button', { type: 'button', className: 'bt-cbar-stop', onClick: () => void actions.computerStop(entry.botId) }, t('Stop')))),
-    waiting.map(([botId]) => h('span', { key: botId, className: 'bt-cbar-entry bt-cbar-wait' },
-      h('span', { className: 'bt-cbar-name' }, t('{name} waits for the computer', { name: nameOf(botId) })),
-      h('button', { type: 'button', className: 'bt-cbar-go', onClick: () => void actions.computerAllowForeground(botId) }, t('Let it continue')))),
+    h('span', { className: 'bt-cbar-live', title: t('Computer use') }),
+    ...entries.flatMap((entry, index) => [
+      index > 0 ? h('span', { key: `s${index}`, className: 'bt-cbar-sep' }) : null,
+      h('span', { key: entry.key, className: entry.waiting ? 'bt-cbar-entry bt-cbar-wait' : 'bt-cbar-entry' },
+        avatarOf(entry.botId),
+        h('span', { className: 'bt-cbar-text' },
+          h('b', { className: 'bt-cbar-name' }, entry.waiting ? t('{name} waits for the computer', { name: nameOf(entry.botId) }) : nameOf(entry.botId)),
+          entry.waiting ? null : h('i', { className: 'bt-cbar-app' }, entry.app)),
+        entry.waiting
+          ? h('button', { type: 'button', className: 'bt-cbar-go', onClick: () => void actions.computerAllowForeground(entry.botId) }, t('Let it continue'))
+          : h('button', { type: 'button', className: 'bt-cbar-stop', 'aria-label': t('Stop'), title: t('Stop'), onClick: () => void actions.computerStop(entry.botId) },
+              h('span', { className: 'bt-cbar-stopsq' }))),
+    ]),
     leases.length > 1 ? h('button', { type: 'button', className: 'bt-cbar-all', onClick: () => void actions.computerStop(null, true) }, t('Stop all')) : null)
 }
 
@@ -319,16 +336,24 @@ export const COMPUTER_CSS = `
 .bt-cview-step{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--bt-ink-2)}
 .bt-cview-step[data-ok=no]{color:var(--bt-danger)}
 .bt-cview-step-err{font-size:11px}
-.bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(520px,calc(100vw - 32px));padding:6px 10px;border-radius:999px;background:var(--bt-main);border:1px solid var(--bt-line);box-shadow:0 4px 16px rgba(0,0,0,.14);font-size:12.5px}
-.bt-cbar svg{width:14px;height:14px;flex:none;color:var(--bt-ink-2)}
-.bt-cbar-entry{display:flex;align-items:center;gap:4px;min-width:0}
-.bt-cbar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-cbar-stop{flex:none;width:18px;height:18px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;line-height:1;font-size:12px}
+.bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(620px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg,rgba(255,255,255,.72));border:1px solid var(--bt-glass-border,var(--bt-line));box-shadow:inset 0 1px 0 var(--bt-glass-rim,rgba(255,255,255,.5)),0 6px 24px var(--bt-glass-shadow,rgba(0,0,0,.14));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
+.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--bt-danger) 24%,transparent)}
+.bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
+.bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
+.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600;line-height:1}
+.bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
+.bt-cbar-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stopsq{width:8px;height:8px;border-radius:2px;background:currentColor}
 .bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cbar-go,.bt-cbar-all{flex:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;border:1px solid transparent}
+.bt-cbar-go{background:color-mix(in srgb,var(--bt-accent) 14%,transparent);color:var(--bt-accent);border-color:color-mix(in srgb,var(--bt-accent) 30%,transparent)}
+.bt-cbar-all{background:color-mix(in srgb,var(--bt-danger) 12%,transparent);color:var(--bt-danger);border-color:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
 .bt-cstep{display:flex;align-items:center;gap:10px;padding:3px 0;color:var(--bt-ink-2);font-size:12.5px}
 .bt-cstep-shot{flex:none;border:1px solid var(--bt-line);border-radius:8px;padding:0;background:none;cursor:zoom-in;overflow:hidden;max-height:40px}
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
-.bt-cbar-go,.bt-cbar-all{border:0;background:none;color:var(--bt-accent);font:inherit;cursor:pointer;white-space:nowrap}
 `

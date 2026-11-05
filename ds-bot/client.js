@@ -5531,23 +5531,40 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
   const leases = live.leases ?? [];
   const waiting = Object.entries(live.bots ?? {}).filter(([, entry]) => entry.waitingFor === "user-idle");
   if (leases.length === 0 && waiting.length === 0) return null;
-  const nameOf = (id) => roster.byId[id]?.name ?? t("a Bot");
+  const botOf = (id) => roster.byId[id];
+  const nameOf = (id) => botOf(id)?.name ?? t("a Bot");
+  const avatarOf = (id) => {
+    const look = lookOf(botOf(id));
+    if (typeof look.image === "string" && look.image.startsWith("data:image/")) return (0, import_react10.createElement)("img", { className: "bt-cbar-ava", src: look.image, alt: "" });
+    return (0, import_react10.createElement)("span", { className: "bt-cbar-ava bt-cbar-ava-dot", style: { background: look.color } }, String(nameOf(id)).slice(0, 1));
+  };
+  const entries2 = [
+    ...leases.map((entry) => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === "foreground" ? t("Foreground") : entry.appName })),
+    ...waiting.map(([botId]) => ({ key: `w:${botId}`, botId, waiting: true, app: t("waits for the computer") }))
+  ];
   return (0, import_react10.createElement)(
     "div",
     { className: "bt-cbar", role: "status" },
-    (0, import_react10.createElement)(MonitorIcon),
-    leases.map((entry, index) => (0, import_react10.createElement)(
-      "span",
-      { key: index, className: "bt-cbar-entry" },
-      (0, import_react10.createElement)("span", { className: "bt-cbar-name" }, entry.kind === "foreground" ? t("{name} · foreground", { name: nameOf(entry.botId) }) : `${nameOf(entry.botId)} · ${entry.appName}`),
-      (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-stop", onClick: () => void actions.computerStop(entry.botId) }, t("Stop"))
-    )),
-    waiting.map(([botId]) => (0, import_react10.createElement)(
-      "span",
-      { key: botId, className: "bt-cbar-entry bt-cbar-wait" },
-      (0, import_react10.createElement)("span", { className: "bt-cbar-name" }, t("{name} waits for the computer", { name: nameOf(botId) })),
-      (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-go", onClick: () => void actions.computerAllowForeground(botId) }, t("Let it continue"))
-    )),
+    (0, import_react10.createElement)("span", { className: "bt-cbar-live", title: t("Computer use") }),
+    ...entries2.flatMap((entry, index) => [
+      index > 0 ? (0, import_react10.createElement)("span", { key: `s${index}`, className: "bt-cbar-sep" }) : null,
+      (0, import_react10.createElement)(
+        "span",
+        { key: entry.key, className: entry.waiting ? "bt-cbar-entry bt-cbar-wait" : "bt-cbar-entry" },
+        avatarOf(entry.botId),
+        (0, import_react10.createElement)(
+          "span",
+          { className: "bt-cbar-text" },
+          (0, import_react10.createElement)("b", { className: "bt-cbar-name" }, entry.waiting ? t("{name} waits for the computer", { name: nameOf(entry.botId) }) : nameOf(entry.botId)),
+          entry.waiting ? null : (0, import_react10.createElement)("i", { className: "bt-cbar-app" }, entry.app)
+        ),
+        entry.waiting ? (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-go", onClick: () => void actions.computerAllowForeground(entry.botId) }, t("Let it continue")) : (0, import_react10.createElement)(
+          "button",
+          { type: "button", className: "bt-cbar-stop", "aria-label": t("Stop"), title: t("Stop"), onClick: () => void actions.computerStop(entry.botId) },
+          (0, import_react10.createElement)("span", { className: "bt-cbar-stopsq" })
+        )
+      )
+    ]),
     leases.length > 1 ? (0, import_react10.createElement)("button", { type: "button", className: "bt-cbar-all", onClick: () => void actions.computerStop(null, true) }, t("Stop all")) : null
   );
 }
@@ -5566,18 +5583,26 @@ var COMPUTER_CSS = `
 .bt-cview-step{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--bt-ink-2)}
 .bt-cview-step[data-ok=no]{color:var(--bt-danger)}
 .bt-cview-step-err{font-size:11px}
-.bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(520px,calc(100vw - 32px));padding:6px 10px;border-radius:999px;background:var(--bt-main);border:1px solid var(--bt-line);box-shadow:0 4px 16px rgba(0,0,0,.14);font-size:12.5px}
-.bt-cbar svg{width:14px;height:14px;flex:none;color:var(--bt-ink-2)}
-.bt-cbar-entry{display:flex;align-items:center;gap:4px;min-width:0}
-.bt-cbar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-cbar-stop{flex:none;width:18px;height:18px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;line-height:1;font-size:12px}
+.bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(620px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg,rgba(255,255,255,.72));border:1px solid var(--bt-glass-border,var(--bt-line));box-shadow:inset 0 1px 0 var(--bt-glass-rim,rgba(255,255,255,.5)),0 6px 24px var(--bt-glass-shadow,rgba(0,0,0,.14));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
+.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--bt-danger) 24%,transparent)}
+.bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
+.bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
+.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:600;line-height:1}
+.bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
+.bt-cbar-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stopsq{width:8px;height:8px;border-radius:2px;background:currentColor}
 .bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cbar-go,.bt-cbar-all{flex:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;border:1px solid transparent}
+.bt-cbar-go{background:color-mix(in srgb,var(--bt-accent) 14%,transparent);color:var(--bt-accent);border-color:color-mix(in srgb,var(--bt-accent) 30%,transparent)}
+.bt-cbar-all{background:color-mix(in srgb,var(--bt-danger) 12%,transparent);color:var(--bt-danger);border-color:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
 .bt-cstep{display:flex;align-items:center;gap:10px;padding:3px 0;color:var(--bt-ink-2);font-size:12.5px}
 .bt-cstep-shot{flex:none;border:1px solid var(--bt-line);border-radius:8px;padding:0;background:none;cursor:zoom-in;overflow:hidden;max-height:40px}
 .bt-cstep-shot img{display:block;max-height:40px;max-width:72px;object-fit:cover}
 .bt-cstep-shot-open{max-height:none;cursor:zoom-out}
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
-.bt-cbar-go,.bt-cbar-all{border:0;background:none;color:var(--bt-accent);font:inherit;cursor:pointer;white-space:nowrap}
 `;
 
 // node_modules/deep-view/src/react/ui.js
@@ -25297,12 +25322,17 @@ function apply(ctx) {
       const sync = () => {
         const live2 = computer.getSnapshot();
         const name = (id) => nameOf(id);
+        const look = (id) => lookOf(roster.getSnapshot().byId[id]);
         const rows2 = (live2.leases ?? []).map((entry) => ({
           botId: entry.botId,
-          label: entry.kind === "foreground" ? `${name(entry.botId)} · ${t("Foreground")}` : `${name(entry.botId)} · ${entry.appName}`
+          name: name(entry.botId),
+          app: entry.kind === "foreground" ? t("Foreground") : entry.appName,
+          label: entry.kind === "foreground" ? `${name(entry.botId)} · ${t("Foreground")}` : `${name(entry.botId)} · ${entry.appName}`,
+          color: look(entry.botId).color,
+          avatar: look(entry.botId).image
         }));
         for (const [botId, entry] of Object.entries(live2.bots ?? {})) {
-          if (entry.waitingFor === "user-idle") rows2.push({ botId, waiting: true, label: t("{name} waits for the computer", { name: name(botId) }) });
+          if (entry.waitingFor === "user-idle") rows2.push({ botId, waiting: true, name: name(botId), app: t("waits for the computer"), label: t("{name} waits for the computer", { name: name(botId) }), color: look(botId).color, avatar: look(botId).image });
         }
         appComputer.computer({
           rows: rows2,

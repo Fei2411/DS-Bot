@@ -748,12 +748,17 @@ export function apply(ctx) {
       const sync = () => {
         const live = computer.getSnapshot()
         const name = id => nameOf(id)
+        const look = id => lookOf(roster.getSnapshot().byId[id])
         const rows = (live.leases ?? []).map(entry => ({
           botId: entry.botId,
+          name: name(entry.botId),
+          app: entry.kind === 'foreground' ? t('Foreground') : entry.appName,
           label: entry.kind === 'foreground' ? `${name(entry.botId)} · ${t('Foreground')}` : `${name(entry.botId)} · ${entry.appName}`,
+          color: look(entry.botId).color,
+          avatar: look(entry.botId).image,
         }))
         for (const [botId, entry] of Object.entries(live.bots ?? {})) {
-          if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, label: t('{name} waits for the computer', { name: name(botId) }) })
+          if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, name: name(botId), app: t('waits for the computer'), label: t('{name} waits for the computer', { name: name(botId) }), color: look(botId).color, avatar: look(botId).image })
         }
         appComputer.computer({
           rows,
