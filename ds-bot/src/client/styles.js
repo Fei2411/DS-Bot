@@ -138,6 +138,9 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
+.bt-ctx-btn{opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-row:hover .bt-ctx-btn,.bt-tile:hover .bt-ctx-btn{opacity:.55;pointer-events:auto}
+.bt-ctx-btn:hover{opacity:1!important}
 .bt-row[aria-current=page]{background:var(--bt-active)}
 /* Inset: the .bt-list scroll box clips anything drawn outside the row. */
 .bt-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}

@@ -176,7 +176,6 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const waits = workKeys(useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null')
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
   if (bot.hidden && !active && !main) return null
-  const [hover, setHover] = useState(false)
   const openMenuBtn = (event) => {
     event.preventDefault()
     event.stopPropagation()
@@ -189,22 +188,21 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id),
-      onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false),
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
-    hover ? h('button', {
+    h('button', {
       type: 'button', 'aria-label': t('More actions'), title: t('More actions'),
       className: 'bt-ctx-btn',
-      style: { position: 'absolute', top: 2, right: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1em', opacity: 0.5, padding: '0 4px', lineHeight: 1 },
-      onClick: openMenuBtn, onContextMenu,
-    }, '⋮') : null))
+      style: { position: 'absolute', top: 2, right: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1em', padding: '0 4px', lineHeight: 1 },
+      onClick: openMenuBtn,
+    }, '⋮')))
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-bot-id': id, title: wide ? undefined : bot.name,
-    onMouseEnter: () => { setHover(true); if (wide) nameIfCut?.() }, onMouseLeave: () => setHover(false),
+    onMouseEnter: () => { if (wide) nameIfCut?.() },
     onClick: () => actions.openSession(id),
   },
   h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
@@ -217,10 +215,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
           : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
     : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null,
-  wide && hover ? h('button', {
+  wide ? h('button', {
     type: 'button', 'aria-label': t('More actions'), title: t('More actions'),
     className: 'bt-ctx-btn',
-    style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1em', opacity: 0.55, padding: '2px 6px', lineHeight: 1, flexShrink: 0 },
+    style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1em', padding: '2px 6px', lineHeight: 1, flexShrink: 0 },
     onClick: openMenuBtn,
   }, '⋮') : null)
 }
