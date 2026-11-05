@@ -320,6 +320,12 @@ export function install(rt) {
       effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
       work_dir: WORK_DIR_PARAM,
       avatar: AVATAR_PARAM,
+      type: { type: 'string', description: "Bot type: omit for a normal Bot, or 'remote-worker' for a Worker Bot that runs on a remote machine" },
+      worker: { type: 'object', additionalProperties: false, description: 'Worker config, only when type is remote-worker', properties: {
+        hubUrl: { type: 'string', description: 'Hub URL the worker connects to' },
+        remotePort: { type: 'number', description: 'Port on the remote machine (default 19387)' },
+        token: { type: 'string', description: 'Enrollment token for pairing' },
+      } },
     },
     output,
     async execute(args, exec) {

@@ -57,7 +57,7 @@ const waitingFor = (roster, waits) => {
 }
 
 // GroupHeaderRow: collapsible section header for a custom Bot group (e.g. 执行机 fleet).
-// Shows the group name, online/total worker count, and a collapse toggle.
+// Shows the group name, online/total worker count, collapse toggle, and delete button.
 function GroupHeaderRow({ group, actions, wideContent }) {
   if (!wideContent) return null
   const { id, name, color, onlineCount, totalCount, collapsed } = group
@@ -65,17 +65,60 @@ function GroupHeaderRow({ group, actions, wideContent }) {
   const indicator = onlineCount > 0 ? '🟢' : '⚪'
   return h('div', {
     className: 'bt-group-header',
-    style: { display: 'flex', alignItems: 'center', padding: '4px 12px', opacity: 0.7, fontSize: '0.78em', fontWeight: 600, letterSpacing: '0.04em', cursor: 'pointer', userSelect: 'none' },
-    role: 'button',
-    'aria-expanded': String(!collapsed),
+    style: { display: 'flex', alignItems: 'center', padding: '4px 12px', opacity: 0.7, fontSize: '0.78em', fontWeight: 600, letterSpacing: '0.04em', userSelect: 'none' },
     'aria-label': label,
-    onClick: () => actions.toggleBotGroup?.(id),
-    title: collapsed ? `展开 ${name}` : `收起 ${name}`,
   },
-    h('span', { style: { marginRight: 4 } }, indicator),
-    h('span', { style: { flex: 1 } }, name.toUpperCase()),
-    h('span', { style: { marginRight: 6, fontVariantNumeric: 'tabular-nums' } }, `${onlineCount}/${totalCount}`),
-    h('span', { style: { fontSize: '0.9em' } }, collapsed ? '▶' : '▼'))
+    h('div', {
+      style: { display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' },
+      role: 'button',
+      'aria-expanded': String(!collapsed),
+      onClick: () => actions.toggleBotGroup?.(id),
+      title: collapsed ? `展开 ${name}` : `收起 ${name}`,
+    },
+      h('span', { style: { marginRight: 4 } }, indicator),
+      h('span', { style: { flex: 1 } }, name.toUpperCase()),
+      h('span', { style: { marginRight: 6, fontVariantNumeric: 'tabular-nums' } }, `${onlineCount}/${totalCount}`),
+      h('span', { style: { fontSize: '0.9em' } }, collapsed ? '▶' : '▼')),
+    h('button', {
+      type: 'button',
+      'aria-label': `删除分组 ${name}`,
+      title: `删除分组 ${name}`,
+      style: { background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', opacity: 0.6, fontSize: '0.95em' },
+      onClick: (e) => { e.stopPropagation(); if (window.confirm(`删除分组「${name}」？`)) actions.deleteBotGroup?.(id) },
+    }, '✕'))
+}
+
+// NewGroupRow: inline row at the bottom of the Bot list to create a custom group.
+function NewGroupRow({ actions }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const inputRef = useRef(null)
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+  const submit = () => {
+    const name = value.trim()
+    if (!name) { setEditing(false); setValue(''); return }
+    actions.createBotGroup?.(name, [])
+    setEditing(false)
+    setValue('')
+  }
+  if (editing) return h('div', { style: { display: 'flex', alignItems: 'center', padding: '4px 12px', gap: 6 } },
+    h('input', {
+      ref: inputRef,
+      value,
+      placeholder: '分组名称',
+      style: { flex: 1, fontSize: '0.82em', padding: '2px 6px', borderRadius: 4, border: '1px solid #aaa', background: 'transparent' },
+      onChange: e => setValue(e.target.value),
+      onKeyDown: e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') { setEditing(false); setValue('') } },
+    }),
+    h('button', { type: 'button', style: { fontSize: '0.8em', padding: '2px 8px', cursor: 'pointer' }, onClick: submit }, '确定'),
+    h('button', { type: 'button', style: { fontSize: '0.8em', padding: '2px 6px', cursor: 'pointer' }, onClick: () => { setEditing(false); setValue('') } }, '取消'))
+  return h('div', { style: { padding: '2px 12px' } },
+    h('button', {
+      type: 'button',
+      style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78em', opacity: 0.55, padding: '2px 0' },
+      title: '新建自定义分组',
+      onClick: () => setEditing(true),
+    }, '+ 新建分组'))
 }
 
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
@@ -635,7 +678,8 @@ export function TeamSidebar(props) {
           ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
           : entry.kind === 'group-header'
             ? h(GroupHeaderRow, { key: `group:${entry.item.id}`, group: entry.item, actions, wideContent })
-            : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
+            : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))),
+      wideContent ? h(NewGroupRow, { actions }) : null),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),

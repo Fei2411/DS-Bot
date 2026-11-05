@@ -1801,6 +1801,10 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     setTeamWorkspace: (path) => after(call2("team-workspace", { path })),
     deleteBot: (id) => after(call2("delete-bot", { id })),
     releasePrivate: (id) => after(call2("private-release", { id })),
+    toggleBotGroup: (id) => after(call2("toggle-bot-group", { id })),
+    createBotGroup: (name, botIds) => after(call2("create-bot-group", { name, botIds: botIds ?? [] })),
+    deleteBotGroup: (id) => after(call2("delete-bot-group", { id })),
+    moveBotToGroup: (botId, groupId) => after(call2("move-bot-to-group", { botId, groupId })),
     duplicateBot: (id) => after(call2("duplicate-bot", { id })),
     setPrefs: (prefs) => after(call2("set-prefs", prefs)),
     setMain: (id, main = true, options = {}) => after(call2("set-main", { id, main, ...options })),
@@ -10067,17 +10071,85 @@ function GroupHeaderRow({ group, actions, wideContent }) {
     "div",
     {
       className: "bt-group-header",
-      style: { display: "flex", alignItems: "center", padding: "4px 12px", opacity: 0.7, fontSize: "0.78em", fontWeight: 600, letterSpacing: "0.04em", cursor: "pointer", userSelect: "none" },
-      role: "button",
-      "aria-expanded": String(!collapsed),
-      "aria-label": label,
-      onClick: () => actions.toggleBotGroup?.(id),
-      title: collapsed ? `展开 ${name}` : `收起 ${name}`
+      style: { display: "flex", alignItems: "center", padding: "4px 12px", opacity: 0.7, fontSize: "0.78em", fontWeight: 600, letterSpacing: "0.04em", userSelect: "none" },
+      "aria-label": label
     },
-    (0, import_react21.createElement)("span", { style: { marginRight: 4 } }, indicator),
-    (0, import_react21.createElement)("span", { style: { flex: 1 } }, name.toUpperCase()),
-    (0, import_react21.createElement)("span", { style: { marginRight: 6, fontVariantNumeric: "tabular-nums" } }, `${onlineCount}/${totalCount}`),
-    (0, import_react21.createElement)("span", { style: { fontSize: "0.9em" } }, collapsed ? "▶" : "▼")
+    (0, import_react21.createElement)(
+      "div",
+      {
+        style: { display: "flex", alignItems: "center", flex: 1, cursor: "pointer" },
+        role: "button",
+        "aria-expanded": String(!collapsed),
+        onClick: () => actions.toggleBotGroup?.(id),
+        title: collapsed ? `展开 ${name}` : `收起 ${name}`
+      },
+      (0, import_react21.createElement)("span", { style: { marginRight: 4 } }, indicator),
+      (0, import_react21.createElement)("span", { style: { flex: 1 } }, name.toUpperCase()),
+      (0, import_react21.createElement)("span", { style: { marginRight: 6, fontVariantNumeric: "tabular-nums" } }, `${onlineCount}/${totalCount}`),
+      (0, import_react21.createElement)("span", { style: { fontSize: "0.9em" } }, collapsed ? "▶" : "▼")
+    ),
+    (0, import_react21.createElement)("button", {
+      type: "button",
+      "aria-label": `删除分组 ${name}`,
+      title: `删除分组 ${name}`,
+      style: { background: "none", border: "none", cursor: "pointer", padding: "0 4px", opacity: 0.6, fontSize: "0.95em" },
+      onClick: (e) => {
+        e.stopPropagation();
+        if (window.confirm(`删除分组「${name}」？`)) actions.deleteBotGroup?.(id);
+      }
+    }, "✕")
+  );
+}
+function NewGroupRow({ actions }) {
+  const [editing, setEditing] = (0, import_react21.useState)(false);
+  const [value, setValue] = (0, import_react21.useState)("");
+  const inputRef = (0, import_react21.useRef)(null);
+  (0, import_react21.useEffect)(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+  const submit = () => {
+    const name = value.trim();
+    if (!name) {
+      setEditing(false);
+      setValue("");
+      return;
+    }
+    actions.createBotGroup?.(name, []);
+    setEditing(false);
+    setValue("");
+  };
+  if (editing) return (0, import_react21.createElement)(
+    "div",
+    { style: { display: "flex", alignItems: "center", padding: "4px 12px", gap: 6 } },
+    (0, import_react21.createElement)("input", {
+      ref: inputRef,
+      value,
+      placeholder: "分组名称",
+      style: { flex: 1, fontSize: "0.82em", padding: "2px 6px", borderRadius: 4, border: "1px solid #aaa", background: "transparent" },
+      onChange: (e) => setValue(e.target.value),
+      onKeyDown: (e) => {
+        if (e.key === "Enter") submit();
+        if (e.key === "Escape") {
+          setEditing(false);
+          setValue("");
+        }
+      }
+    }),
+    (0, import_react21.createElement)("button", { type: "button", style: { fontSize: "0.8em", padding: "2px 8px", cursor: "pointer" }, onClick: submit }, "确定"),
+    (0, import_react21.createElement)("button", { type: "button", style: { fontSize: "0.8em", padding: "2px 6px", cursor: "pointer" }, onClick: () => {
+      setEditing(false);
+      setValue("");
+    } }, "取消")
+  );
+  return (0, import_react21.createElement)(
+    "div",
+    { style: { padding: "2px 12px" } },
+    (0, import_react21.createElement)("button", {
+      type: "button",
+      style: { background: "none", border: "none", cursor: "pointer", fontSize: "0.78em", opacity: 0.55, padding: "2px 0" },
+      title: "新建自定义分组",
+      onClick: () => setEditing(true)
+    }, "+ 新建分组")
   );
 }
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
@@ -10659,7 +10731,8 @@ function TeamSidebar(props) {
       "div",
       { ref: listRef, className: "bt-list", role: "region", "aria-label": t("Bot list") },
       wideContent ? main ? (0, import_react21.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react21.createElement)("div", { className: "bt-hint" }, uiNow.bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
-      order.map((entry) => entry.kind === "bot" ? (0, import_react21.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react21.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "group-header" ? (0, import_react21.createElement)(GroupHeaderRow, { key: `group:${entry.item.id}`, group: entry.item, actions, wideContent }) : (0, import_react21.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true }))
+      order.map((entry) => entry.kind === "bot" ? (0, import_react21.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "room" ? (0, import_react21.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true }) : entry.kind === "group-header" ? (0, import_react21.createElement)(GroupHeaderRow, { key: `group:${entry.item.id}`, group: entry.item, actions, wideContent }) : (0, import_react21.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })),
+      wideContent ? (0, import_react21.createElement)(NewGroupRow, { actions }) : null
     ),
     foot
   );
@@ -15059,6 +15132,10 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [name, setName] = (0, import_react34.useState)(start?.name ?? "");
   const [model, setModel] = (0, import_react34.useState)(() => startModel(roster));
   const [effort, setEffort] = (0, import_react34.useState)(void 0);
+  const [botType, setBotType] = (0, import_react34.useState)("normal");
+  const [hubUrl, setHubUrl] = (0, import_react34.useState)("");
+  const [remotePort, setRemotePort] = (0, import_react34.useState)("19387");
+  const [workerToken, setWorkerToken] = (0, import_react34.useState)("");
   const [busy, setBusy] = (0, import_react34.useState)(false);
   const [error, setError] = (0, import_react34.useState)("");
   const fileRef = (0, import_react34.useRef)(null);
@@ -15076,7 +15153,8 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     setError("");
     setBusy(true);
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model, effort, brief }));
+      const extra = botType === "remote-worker" ? { type: "remote-worker", worker: { hubUrl: hubUrl.trim() || void 0, remotePort: remotePort ? Number(remotePort) : void 0, token: workerToken.trim() || void 0 } } : {};
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), ...extra });
       onCreated(bot);
     } catch (failure) {
       setError(failure?.message ?? String(failure));
@@ -15172,6 +15250,48 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
       }, onPickEffort: (picked) => setEffort(picked ?? null) }),
       (0, import_react34.createElement)("span", { className: "bt-note" }, model ? t("The Bot runs on this model. You can change it later in its details.") : (roster.models ?? []).length > 0 ? t("Pick a model here, or the Bot asks for one in its chat.") : t("Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later."))
     ),
+    (0, import_react34.createElement)(
+      "div",
+      { className: "bt-field" },
+      (0, import_react34.createElement)("span", { className: "bt-field-label" }, t("Type")),
+      (0, import_react34.createElement)(
+        "select",
+        {
+          className: "bt-input",
+          value: botType,
+          onChange: (e) => setBotType(e.target.value),
+          "aria-label": t("Bot type")
+        },
+        (0, import_react34.createElement)("option", { value: "normal" }, t("Normal Bot")),
+        (0, import_react34.createElement)("option", { value: "remote-worker" }, t("Worker Bot (Remote Machine)"))
+      ),
+      (0, import_react34.createElement)("span", { className: "bt-note" }, botType === "remote-worker" ? t("A Worker Bot runs tasks on a remote machine via dsh-remote-agent.") : t("A normal Bot runs in this DeepSeek Harness instance."))
+    ),
+    botType === "remote-worker" ? (0, import_react34.createElement)(
+      "div",
+      null,
+      (0, import_react34.createElement)(
+        "label",
+        { className: "bt-field" },
+        (0, import_react34.createElement)("span", { className: "bt-field-label" }, t("Hub URL")),
+        (0, import_react34.createElement)("input", { className: "bt-input", value: hubUrl, placeholder: "https://hub.example.com", "aria-label": t("Hub URL"), onChange: (e) => setHubUrl(e.target.value) }),
+        (0, import_react34.createElement)("span", { className: "bt-note" }, t("URL of the hub the worker should connect to."))
+      ),
+      (0, import_react34.createElement)(
+        "label",
+        { className: "bt-field" },
+        (0, import_react34.createElement)("span", { className: "bt-field-label" }, t("Remote Port")),
+        (0, import_react34.createElement)("input", { className: "bt-input", type: "number", value: remotePort, placeholder: "19387", "aria-label": t("Remote port"), onChange: (e) => setRemotePort(e.target.value) }),
+        (0, import_react34.createElement)("span", { className: "bt-note" }, t("Port on the remote machine (default 19387)."))
+      ),
+      (0, import_react34.createElement)(
+        "label",
+        { className: "bt-field" },
+        (0, import_react34.createElement)("span", { className: "bt-field-label" }, t("Token")),
+        (0, import_react34.createElement)("input", { className: "bt-input", value: workerToken, placeholder: t("Enrollment token"), "aria-label": t("Enrollment token"), onChange: (e) => setWorkerToken(e.target.value) }),
+        (0, import_react34.createElement)("span", { className: "bt-note" }, t("Enrollment token for pairing this worker."))
+      )
+    ) : null,
     error ? (0, import_react34.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null,
     (0, import_react34.createElement)(
       "div",

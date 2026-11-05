@@ -26,6 +26,10 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [name, setName] = useState(start?.name ?? '')
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
+  const [botType, setBotType] = useState('normal')
+  const [hubUrl, setHubUrl] = useState('')
+  const [remotePort, setRemotePort] = useState('19387')
+  const [workerToken, setWorkerToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -42,7 +46,10 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model, effort, brief }))
+      const extra = botType === 'remote-worker'
+        ? { type: 'remote-worker', worker: { hubUrl: hubUrl.trim() || undefined, remotePort: remotePort ? Number(remotePort) : undefined, token: workerToken.trim() || undefined } }
+        : {}
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), ...extra })
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -93,6 +100,31 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         : (roster.models ?? []).length > 0
           ? t('Pick a model here, or the Bot asks for one in its chat.')
           : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))),
+    h('div', { className: 'bt-field' },
+      h('span', { className: 'bt-field-label' }, t('Type')),
+      h('select', {
+        className: 'bt-input', value: botType,
+        onChange: e => setBotType(e.target.value),
+        'aria-label': t('Bot type'),
+      },
+        h('option', { value: 'normal' }, t('Normal Bot')),
+        h('option', { value: 'remote-worker' }, t('Worker Bot (Remote Machine)'))),
+      h('span', { className: 'bt-note' }, botType === 'remote-worker'
+        ? t('A Worker Bot runs tasks on a remote machine via dsh-remote-agent.')
+        : t('A normal Bot runs in this DeepSeek Harness instance.'))),
+    botType === 'remote-worker' ? h('div', null,
+      h('label', { className: 'bt-field' },
+        h('span', { className: 'bt-field-label' }, t('Hub URL')),
+        h('input', { className: 'bt-input', value: hubUrl, placeholder: 'https://hub.example.com', 'aria-label': t('Hub URL'), onChange: e => setHubUrl(e.target.value) }),
+        h('span', { className: 'bt-note' }, t('URL of the hub the worker should connect to.'))),
+      h('label', { className: 'bt-field' },
+        h('span', { className: 'bt-field-label' }, t('Remote Port')),
+        h('input', { className: 'bt-input', type: 'number', value: remotePort, placeholder: '19387', 'aria-label': t('Remote port'), onChange: e => setRemotePort(e.target.value) }),
+        h('span', { className: 'bt-note' }, t('Port on the remote machine (default 19387).'))),
+      h('label', { className: 'bt-field' },
+        h('span', { className: 'bt-field-label' }, t('Token')),
+        h('input', { className: 'bt-input', value: workerToken, placeholder: t('Enrollment token'), 'aria-label': t('Enrollment token'), onChange: e => setWorkerToken(e.target.value) }),
+        h('span', { className: 'bt-note' }, t('Enrollment token for pairing this worker.')))) : null,
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),
