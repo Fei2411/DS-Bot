@@ -177,12 +177,16 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       ] }
       case 'memory-add': case 'memory-edit': return { ok: true }
       case 'memory-forget': return { ok: true }
-      case 'memory-ask': return { answer: 'The tag is held until the screenshots land — see Release notes.' }
-      case 'schedules': return [
+      case 'memory-ask': return { reply: 'The tag is held until the screenshots land — see Release notes.', changes: [], view: { summary: 'Chief keeps the launch plan moving.', sizes: { own: 420, team: 180 }, limits: { main: 4000 }, entries: [
+        { scope: 'own', topic: 'Release', text: 'Tag lands Friday once screenshots are in', added: '2 天前', by: 'Coder', source: 'chat' },
+        { scope: 'own', topic: null, text: 'Prefers concise status lines', added: '上周', by: null, source: 'memory panel' },
+        { scope: 'team', topic: 'Team', text: 'Writer drafts docs first, Coder tests before merge', added: '本月', by: 'Chief', source: 'chat' },
+      ] } }
+      case 'schedules': return { available: true, tasks: [
         { id: 'sch-1', botId: 'b-chief', sessionId: 's-chief', title: 'Morning standup', prompt: 'Post the team status', kind: 'daily', time: '09:00', scheduledAt: Date.now() + 3600e3, status: 'active' },
         { id: 'sch-2', botId: 'b-chief', sessionId: 's-chief', title: 'Weekly review', prompt: 'Summarize the week', kind: 'weekly', weekdays: [5], time: '17:00', scheduledAt: Date.now() + 86400e3, status: 'active' },
         { id: 'sch-3', botId: 'b-chief', sessionId: 's-chief', title: 'Tag reminder', kind: 'at', scheduledAt: Date.now() + 7200e3, status: 'active' },
-      ]
+      ] }
       case 'schedule-create': case 'schedule-delete': return { ok: true }
       case 'folders': return { team: '/work', picker: 'browse', folders: [{ path: '/work/ds-bot', title: 'ds-bot' }, { path: '/work/docs', title: 'docs' }] }
       case 'folder-list': {
