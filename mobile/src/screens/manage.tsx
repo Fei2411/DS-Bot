@@ -216,8 +216,8 @@ function EffortRow({ bot }: { bot: Bot }) {
 function useWrite(navigation: any) {
   const { call } = useTeam()
   const [error, setError] = useState<string | null>(null)
-  const run = async (name: string, body: Record<string, unknown>, done?: () => void) => {
-    try { await call(name, body); setError(null); done?.() }
+  const run = async (name: string, body: Record<string, unknown>, done?: (value: unknown) => void) => {
+    try { const value = await call(name, body); setError(null); done?.(value) }
     catch (failure) {
       const code = (failure as { code?: string })?.code
       if (code === 'unlock/canceled') return
@@ -233,6 +233,13 @@ export function BotDetails({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [copy, setCopy] = useState<string | null>(null)
+  // Like the desktop, a duplicate opens the copy's chat, once the team lists it.
+  useEffect(() => {
+    if (copy === null || botOf(team, copy) === undefined) return
+    setCopy(null)
+    navigation.popTo('Chat', { kind: 'bot', id: copy })
+  }, [copy, team])
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const main = isMain(team, bot.id)
@@ -267,7 +274,7 @@ export function BotDetails({ route, navigation }: any) {
             <SwitchRow label={t('Main Bot')} hint={t('Can create and change Bots, and runs every group chat.')}
               on={main} onChange={next => void run('set-main', { id: bot.id, main: next })} />
           )}
-          <Row label={t('Duplicate')} onPress={() => void run('duplicate-bot', { id: bot.id })} />
+          {bot.private === true ? null : <Row label={t('Duplicate')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => setCopy((value as Bot).id))} />}
           <DangerRow label={t('Delete')} confirm={t('Tap again to delete this Bot')} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.goBack())} />
         </Section>
       </ScrollView>
