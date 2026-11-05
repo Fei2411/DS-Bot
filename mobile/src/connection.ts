@@ -9,7 +9,7 @@ export interface Bot {
   name: string
   role?: string
   color?: string
-  avatar?: { shape?: string; image?: string }
+  avatar?: { shape?: string; image?: string; imageRef?: string }
   model?: string
   appliedModel?: string
   capabilities?: string[]
@@ -75,6 +75,7 @@ export interface SecretRequest {
 export interface TeamState {
   revision: number
   unchanged?: boolean
+  liveKey?: string
   bots: Bot[]
   rooms?: Room[]
   mainBotId?: string | null
@@ -136,4 +137,15 @@ export async function callBot<T>(client: RpcClient, endpoint: string, payload: u
   const result = await client.rpc<BotResult<T>>('bot', { endpoint, payload }, { signal })
   if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
   return result.value
+}
+
+/**
+ * Same call, but the request carries `state` (the payload the `state` endpoint
+ * would take). A write that moved the team answers with the new state in the
+ * same reply, so the phone needs no second round trip.
+ */
+export async function callBotState<T>(client: RpcClient, endpoint: string, payload: unknown, state: unknown, signal?: AbortSignal): Promise<{ value: T; state?: TeamState }> {
+  const result = await client.rpc<BotResult<T> & { state?: TeamState }>('bot', { endpoint, payload, state }, { signal })
+  if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+  return { value: result.value, state: result.state }
 }

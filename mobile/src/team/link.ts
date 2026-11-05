@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
-import { callBot, openLink, type TeamState } from '../connection.ts'
+import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
+import { optimistic } from './optimistic.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
 // Feed events keep the app live; the poll only stays as a foreground fallback.
 const POLL_MS = 15_000
 const RETRY_MS = 2_000
+
+// Profile photos travel by reference and are fetched once per content hash
+// (`avatars: 'ref'` on `state`, then the `avatar` endpoint per new ref).
+const photoCache = new Map<string, string>()
+const photoFetching = new Set<string>()
 
 export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number }
 export type FeedHandler = (event: string, data: any) => void
@@ -26,18 +32,78 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   const [hello, setHello] = useState<Hello | null>(null)
   const clientRef = useRef<RpcClient | undefined>(undefined)
   const revision = useRef<number>(-1)
+  const liveKey = useRef<string | undefined>(undefined)
+  const pollRef = useRef<() => void>(() => {})
   const feedHandlers = useRef(new Set<FeedHandler>())
   const onFeed = useCallback((handler: FeedHandler) => {
     feedHandlers.current.add(handler)
     return () => { feedHandlers.current.delete(handler) }
   }, [])
 
+  function fetchPhoto(botId: string, ref: string) {
+    if (photoFetching.has(ref)) return
+    const client = clientRef.current
+    if (client === undefined) return
+    photoFetching.add(ref)
+    void callBot<{ ref?: string | null; image?: string | null }>(client, 'avatar', { botId })
+      .then(answer => {
+        if (typeof answer.image === 'string') photoCache.set(typeof answer.ref === 'string' ? answer.ref : ref, answer.image)
+        // Re-fill the current team now that this photo is cached.
+        setTeam(prev => (prev === null ? prev : fillPhotos(prev, prev)))
+      })
+      .catch(() => {})
+      .finally(() => photoFetching.delete(ref))
+  }
+
+  // Every bot whose photo came as a ref gets the cached image, or keeps the
+  // previous team's photo while the fetch runs — never a blank avatar.
+  function fillPhotos(team: TeamState, prev: TeamState | null): TeamState {
+    if (!Array.isArray(team.bots)) return team
+    const bots = team.bots.map(bot => {
+      const ref = bot.avatar?.imageRef
+      if (ref === undefined) return bot
+      const cached = photoCache.get(ref)
+      if (cached !== undefined) return bot.avatar?.image === cached ? bot : { ...bot, avatar: { ...bot.avatar, image: cached } }
+      fetchPhoto(bot.id, ref)
+      const kept = prev?.bots.find(entry => entry.id === bot.id)?.avatar?.image
+      return kept !== undefined && kept !== bot.avatar?.image ? { ...bot, avatar: { ...bot.avatar, image: kept } } : bot
+    })
+    return bots.every((bot, index) => bot === team.bots[index]) ? team : { ...team, bots }
+  }
+
+  // One place every state answer goes through. An older in-flight poll must
+  // not overwrite a newer write reply.
+  const apply = useCallback((next: TeamState) => {
+    if (next.revision < revision.current) return
+    revision.current = next.revision
+    if (typeof next.liveKey === 'string') liveKey.current = next.liveKey
+    setTeam(prev => {
+      const merged = next.unchanged === true && prev !== null ? { ...prev, ...next } : next
+      return fillPhotos(merged, prev)
+    })
+  }, [])
+
   const call = useCallback(async (endpoint: string, payload: unknown = {}) => {
     const client = clientRef.current
     if (client === undefined) throw offline()
     await ensureUnlock(endpoint)
-    try { return await callBot(client, endpoint, payload) } catch (failure) { throw localized(failure) }
-  }, [])
+    try {
+      if (endpoint === 'state' || endpoint === 'hello' || endpoint === 'notices') {
+        return await callBot(client, endpoint, payload)
+      }
+      // Show the write's effect at once; the reply's state (or a full reload
+      // on failure) puts the computer's truth back over it.
+      setTeam(prev => optimistic(prev, endpoint, payload as Record<string, unknown>))
+      const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
+      if (answer.state !== undefined) apply(answer.state)
+      return answer.value
+    } catch (failure) {
+      // Snap back to the computer's truth: forget the revision and re-read all.
+      revision.current = -1
+      pollRef.current()
+      throw localized(failure)
+    }
+  }, [apply])
 
   useEffect(() => {
     let stopped = false
@@ -47,15 +113,15 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     const poll = async () => {
       if (stopped || clientRef.current === undefined) return
       try {
-        const next = await callBot<TeamState>(clientRef.current, 'state', { since: revision.current })
-        revision.current = next.revision
-        setTeam(prev => next.unchanged === true && prev !== null ? { ...prev, ...next } : next)
+        const next = await callBot<TeamState>(clientRef.current, 'state', { since: revision.current, avatars: 'ref', live: liveKey.current })
+        apply(next)
         setError(null)
         later(() => void poll(), POLL_MS)
       } catch (failure) {
         setError(errorText(failure))
       }
     }
+    pollRef.current = () => void poll()
     const connect = async () => {
       try {
         const client = await openLink(computer, identity)
@@ -101,7 +167,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       else clearTimeout(timer)
     })
     return () => { stopped = true; clearTimeout(timer); foreground.remove(); void clientRef.current?.close(); clientRef.current = undefined }
-  }, [computer, identity])
+  }, [computer, identity, apply])
 
   return { team, online, error, call, clientRef, hello, onFeed }
 }
