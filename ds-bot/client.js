@@ -10491,20 +10491,20 @@ var SI = {
   qq: "M21.395 15.035a40 40 0 0 0-.803-2.264l-1.079-2.695c.001-.032.014-.562.014-.836C19.526 4.632 17.351 0 12 0S4.474 4.632 4.474 9.241c0 .274.013.804.014.836l-1.08 2.695a39 39 0 0 0-.802 2.264c-1.021 3.283-.69 4.643-.438 4.673.54.065 2.103-2.472 2.103-2.472 0 1.469.756 3.387 2.394 4.771-.612.188-1.363.479-1.845.835-.434.32-.379.646-.301.778.343.578 5.883.369 7.482.189 1.6.18 7.14.389 7.483-.189.078-.132.132-.458-.301-.778-.483-.356-1.233-.646-1.846-.836 1.637-1.384 2.393-3.302 2.393-4.771 0 0 1.563 2.537 2.103 2.472.251-.03.581-1.39-.438-4.673"
 };
 var siMarks = Object.fromEntries(Object.entries(SI).map(([id, d]) => [id, mark(path(d))]));
-var SLACK_DROP = "M11.8 6.6H9.6A2.2 2.2 0 1 0 11.8 4.4V6.6Z";
+var SLACK_DROP = "M11.2 7H8.9A2.3 2.3 0 1 0 11.2 4.7V7Z";
 var SlackMark = () => svg(
   [0, 90, 180, 270].map((a) => (0, import_react24.createElement)(
     "g",
     { key: a, transform: `rotate(${a} 12 12)` },
     path(SLACK_DROP),
-    (0, import_react24.createElement)("rect", { x: 2.6, y: 6.9, width: 7.8, height: 4.4, rx: 2.2 })
+    (0, import_react24.createElement)("rect", { x: 2.6, y: 8.2, width: 7.6, height: 4.4, rx: 2.2 })
   ))
 );
 var CanvaMark = mark((0, import_react24.createElement)("path", { d: "M17.6 7.6C14.9 4.8 10.4 4.5 7.4 7.6 4.2 10.9 4.7 16.2 8.6 18.6c3 1.9 7.4 1.4 9.5-1.1", fill: "none", stroke: "currentColor", strokeWidth: 3, strokeLinecap: "round" }));
 var MondayMark = () => svg(
-  (0, import_react24.createElement)("path", { d: "M5.6 3.6L6.2 12.8 11.8 18.8", fill: "none", stroke: "currentColor", strokeWidth: 3.4, strokeLinecap: "round", strokeLinejoin: "round" }),
-  (0, import_react24.createElement)("path", { d: "M13 6.6L17.8 14.4", fill: "none", stroke: "currentColor", strokeWidth: 3.4, strokeLinecap: "round" }),
-  (0, import_react24.createElement)("circle", { cx: 18.6, cy: 19.2, r: 2.3 })
+  (0, import_react24.createElement)("path", { d: "M5.2 3.4L8 14.8 13.8 18.6", fill: "none", stroke: "currentColor", strokeWidth: 4, strokeLinecap: "round", strokeLinejoin: "round" }),
+  (0, import_react24.createElement)("path", { d: "M13.4 6.2L17.8 13.6", fill: "none", stroke: "currentColor", strokeWidth: 4, strokeLinecap: "round" }),
+  (0, import_react24.createElement)("circle", { cx: 18.6, cy: 19.2, r: 2.5 })
 );
 var AttioMark = mark((0, import_react24.createElement)(
   "g",
