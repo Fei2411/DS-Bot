@@ -335,7 +335,8 @@ export function install(rt) {
     if (sessionId === undefined || result === null || typeof result !== 'object') return
     if (call.provider === 'cua' && call.method === 'getApp') {
       const handle = result.appHandle
-      const identity = result.authorization ?? {}
+      const authorization = result.authorization ?? {}
+      const identity = { name: authorization.name ?? result.name, id: authorization.id ?? result.bundleId ?? result.id, executablePath: authorization.executablePath ?? result.executablePath ?? result.path }
       if (typeof handle === 'string' && (typeof identity.name === 'string' || typeof identity.id === 'string')) {
         const app = { key: appKeyOf(identity), name: String(identity.name ?? 'app'), id: identity.id, path: identity.executablePath, pid: result.pid ?? undefined }
         appsOfSession(sessionId).set(`handle:${handle}`, app)
@@ -612,8 +613,13 @@ export function install(rt) {
     const started = Date.now()
     try {
       const result = await next()
-      await recordAppResult(exec, call, result)
-      const shot = result && typeof result === 'object' ? result.attachment : undefined
+      // Tool results arrive as an envelope { isError, content, value } — the
+      // recorded app identity and screenshot attachment live in `value`.
+      const payload = result !== null && typeof result === 'object' && result.isError !== true
+        ? (result.value !== null && typeof result.value === 'object' ? result.value : result)
+        : null
+      await recordAppResult(exec, call, payload)
+      const shot = payload !== null && typeof payload === 'object' ? payload.attachment : undefined
       if (shot !== undefined) {
         controlOf(botId).lastShot = shot
         if (typeof shot.mimeType === 'string') shotMimes.set(shot.attachmentId ?? shot.id, shot.mimeType)
@@ -951,6 +957,7 @@ export function install(rt) {
     }])),
     leases: leases.entries().map(entry => ({ ...entry, appName: appNameOf(entry.appKey) })),
     asks: Object.fromEntries([...pendingAsks.values()].map(ask => [ask.id, {
+      id: ask.id,
       botId: ask.botId, sessionId: ask.sessionId, appName: ask.appName,
       ...(ask.icon !== undefined ? { icon: ask.icon } : {}),
       ...(ask.callId !== undefined ? { callId: ask.callId } : {}),
