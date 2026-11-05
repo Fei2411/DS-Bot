@@ -1264,6 +1264,7 @@ var ZH = {
   "Authorization code": "授权码",
   "Password or app password": "密码或授权码",
   "Official help": "官方帮助",
+  "Could not reach the mail server. Check the server address.": "连不上邮件服务器，请检查服务器地址。",
   "Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.": "在 mail.qq.com 登录，点右上角头像，进入 设置 → 账号与安全 → 安全设置。",
   "Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.": "开启 POP3/IMAP/SMTP 服务，再点「生成授权码」，按提示验证身份。",
   "Paste the 16-letter code below. Changing your QQ password cancels it.": "把 16 位授权码粘贴到下面。改了 QQ 密码后授权码会失效。",
@@ -1361,6 +1362,7 @@ var ZH = {
   "Failed": "失败"
 };
 var HOST_ERRORS = [
+  [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 的 API key 是在 DS Bot 之外设置的，这里改不了"],
   [/^(.+) takes no API key here$/, "$1 不能在这里填 API key"],
@@ -3311,6 +3313,8 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-mail-guide{margin:0;padding-left:20px;font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3));display:flex;flex-direction:column;gap:4px}
 .bt-mail-form .bt-connector-error{padding-left:0}
+.bt-mail-links{gap:16px}
+.bt-mail-links .bt-connector-link{flex:none}
 .bt-im-mark{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--bt-im-mark-ink)}
 .bt-im-line{display:flex;align-items:center;gap:8px}
 .bt-im-label{flex:1;font-size:12px;color:var(--bt-ink-2)}
@@ -10992,7 +10996,7 @@ function MailForm({ mail, actions, mailRun, busy, error, fields, setField, onClo
       (0, import_react25.createElement)("ol", { key: "guide", className: "bt-mail-guide" }, guide.steps.map((step) => (0, import_react25.createElement)("li", { key: step }, t(step, { host: guide.host })))),
       (0, import_react25.createElement)(
         "div",
-        { key: "links", className: "bt-connector-form-row" },
+        { key: "links", className: "bt-connector-form-row bt-mail-links" },
         (0, import_react25.createElement)("a", { className: "bt-connector-link", href: guide.open, target: "_blank", rel: "noopener noreferrer" }, t("Open {host}", { host: guide.host })),
         (0, import_react25.createElement)("a", { className: "bt-connector-link", href: guide.help, target: "_blank", rel: "noopener noreferrer" }, t("Official help"))
       )

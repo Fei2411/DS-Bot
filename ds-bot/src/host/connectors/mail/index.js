@@ -589,5 +589,7 @@ function mailError(error) {
   const text = String(error?.responseText ?? error?.message ?? error)
   if (/Unsafe Login/i.test(text)) return 'The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.'
   if (error?.authenticationFailed === true || /Login fail|authentication|invalid credentials|535|534/i.test(text)) return 'The password was refused. Use the mailbox app password or authorization code, not the account password.'
+  const unreachable = /\b(?:ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ECONNRESET|ENOTFOUND|EAI_AGAIN)\b\s*(\S+)?/.exec(text)
+  if (unreachable) return unreachable[1] ? `Could not reach the mail server at ${unreachable[1]}. Check the server address.` : 'Could not reach the mail server. Check the server address.'
   return text.slice(0, 300)
 }

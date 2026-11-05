@@ -232,7 +232,7 @@ function MailForm({ mail, actions, mailRun, busy, error, fields, setField, onClo
         h('button', { key: id, type: 'button', role: 'radio', 'aria-checked': chosen === id, className: 'bt-secret-seg', disabled: busy, onClick: () => setProvider(id) }, label))),
     guide ? [
       h('ol', { key: 'guide', className: 'bt-mail-guide' }, guide.steps.map(step => h('li', { key: step }, t(step, { host: guide.host })))),
-      h('div', { key: 'links', className: 'bt-connector-form-row' },
+      h('div', { key: 'links', className: 'bt-connector-form-row bt-mail-links' },
         h('a', { className: 'bt-connector-link', href: guide.open, target: '_blank', rel: 'noopener noreferrer' }, t('Open {host}', { host: guide.host })),
         h('a', { className: 'bt-connector-link', href: guide.help, target: '_blank', rel: 'noopener noreferrer' }, t('Official help'))),
     ] : null,

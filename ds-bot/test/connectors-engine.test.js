@@ -677,6 +677,7 @@ test('mail add explains refused and unsafe logins in plain words', async (t) => 
     if (mode === 'flag') { const error = new Error('NO'); error.authenticationFailed = true; throw error }
     if (mode === 'qq') throw new Error('Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited, or system is busy.')
     if (mode === 'unsafe') throw new Error('Unsafe Login')
+    if (mode === 'refused') throw new Error('connect ECONNREFUSED 127.0.0.1:993')
     return fakeSession()
   }
   const home = teamHome()
@@ -691,6 +692,8 @@ test('mail add explains refused and unsafe logins in plain words', async (t) => 
   await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' }), /The password was refused/)
   mode = 'unsafe'
   await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' }), /Unsafe Login/)
+  mode = 'refused'
+  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' }), /^Error: Could not reach the mail server at 127\.0\.0\.1:993\. Check the server address\.$/)
   assert.equal(rt.mailView().accounts.length, 0)
 })
 

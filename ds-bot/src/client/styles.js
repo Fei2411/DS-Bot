@@ -607,6 +607,8 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-mail-guide{margin:0;padding-left:20px;font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3));display:flex;flex-direction:column;gap:4px}
 .bt-mail-form .bt-connector-error{padding-left:0}
+.bt-mail-links{gap:16px}
+.bt-mail-links .bt-connector-link{flex:none}
 .bt-im-mark{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--bt-im-mark-ink)}
 .bt-im-line{display:flex;align-items:center;gap:8px}
 .bt-im-label{flex:1;font-size:12px;color:var(--bt-ink-2)}

@@ -1217,6 +1217,7 @@ const ZH = {
   'Authorization code': '授权码',
   'Password or app password': '密码或授权码',
   'Official help': '官方帮助',
+  'Could not reach the mail server. Check the server address.': '连不上邮件服务器，请检查服务器地址。',
   'Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.': '在 mail.qq.com 登录，点右上角头像，进入 设置 → 账号与安全 → 安全设置。',
   'Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.': '开启 POP3/IMAP/SMTP 服务，再点「生成授权码」，按提示验证身份。',
   'Paste the 16-letter code below. Changing your QQ password cancels it.': '把 16 位授权码粘贴到下面。改了 QQ 密码后授权码会失效。',
@@ -1318,6 +1319,7 @@ const ZH = {
 // Host errors stay English, since Bots read them too; they are translated where the
 // interface shows them. Static ones go through ZH, these carry names or numbers.
 const HOST_ERRORS = [
+  [/^Could not reach the mail server at (.+)\. Check the server address\.$/, '连不上邮件服务器 $1，请检查服务器地址。'],
   [/^Model (.+) is not available\. Available: (.*)$/, '模型 $1 不可用。可用的：$2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, '$1 的 API key 是在 DS Bot 之外设置的，这里改不了'],
   [/^(.+) takes no API key here$/, '$1 不能在这里填 API key'],
