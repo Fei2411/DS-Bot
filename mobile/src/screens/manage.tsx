@@ -602,7 +602,7 @@ export function Memory({ route, navigation }: any) {
     setEditor(null)
     void call(endpoint, payload).then(load).catch(() => {})
   }
-  const ask = () => { if (!question.trim()) return; setAsking(true); void call('memory-ask', { ...owner, text: question.trim() }).then(v => setAnswer((v as { answer?: string })?.answer ?? null)).catch(() => {}).finally(() => setAsking(false)) }
+  const ask = () => { if (!question.trim()) return; setAsking(true); void call('memory-ask', { ...owner, text: question.trim() }).then(v => { const r = v as { reply?: string; view?: typeof view }; setAnswer(r.reply ?? null); if (r.view !== undefined) setView(r.view) }).catch(() => {}).finally(() => setAsking(false)) }
   return (
     <Screen title={name}>
       <BackRow title={t('Memory')} onBack={() => navigation.goBack()} />
