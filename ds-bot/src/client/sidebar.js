@@ -92,7 +92,6 @@ function GroupHeaderRow({ group, actions, wideContent }) {
     className: 'bt-group-header',
     style: { display: 'flex', alignItems: 'center', padding: '4px 12px', opacity: 0.7, fontSize: '0.78em', fontWeight: 600, letterSpacing: '0.04em', userSelect: 'none' },
     'aria-label': label,
-    onContextMenu: (e) => { e.preventDefault(); e.stopPropagation(); actions.openMenu({ kind: 'group', id, name, x: e.clientX, y: e.clientY, onRename: () => setRenaming(true) }) },
   },
     h('div', {
       style: { display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' },
@@ -105,6 +104,13 @@ function GroupHeaderRow({ group, actions, wideContent }) {
       h('span', { style: { flex: 1 } }, name.toUpperCase()),
       h('span', { style: { marginRight: 6, fontVariantNumeric: 'tabular-nums' } }, `${onlineCount}/${totalCount}`),
       h('span', { style: { fontSize: '0.9em' } }, collapsed ? '▶' : '▼')),
+    h('button', {
+      type: 'button',
+      'aria-label': `更多操作 ${name}`,
+      title: '更多操作',
+      style: { background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', opacity: 0.5, fontSize: '0.95em' },
+      onClick: (e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); actions.openMenu({ kind: 'group', id, name, x: r.left, y: r.bottom, onRename: () => setRenaming(true) }) },
+    }, '⋮'),
     h('button', {
       type: 'button',
       'aria-label': `删除分组 ${name}`,
@@ -171,11 +177,6 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
   if (bot.hidden && !active && !main) return null
   const [hover, setHover] = useState(false)
-  const onContextMenu = (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
-  }
   const openMenuBtn = (event) => {
     event.preventDefault()
     event.stopPropagation()
@@ -187,7 +188,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   if (tile && wide) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-      'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
+      'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id),
       onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false),
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
@@ -204,7 +205,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-bot-id': id, title: wide ? undefined : bot.name,
     onMouseEnter: () => { setHover(true); if (wide) nameIfCut?.() }, onMouseLeave: () => setHover(false),
-    onClick: () => actions.openSession(id), onContextMenu,
+    onClick: () => actions.openSession(id),
   },
   h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
   pinned && !wide ? h(PinMark) : null,
@@ -220,7 +221,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     type: 'button', 'aria-label': t('More actions'), title: t('More actions'),
     className: 'bt-ctx-btn',
     style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1em', opacity: 0.55, padding: '2px 6px', lineHeight: 1, flexShrink: 0 },
-    onClick: openMenuBtn, onContextMenu,
+    onClick: openMenuBtn,
   }, '⋮') : null)
 }
 
