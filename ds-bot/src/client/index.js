@@ -753,8 +753,8 @@ export function apply(ctx) {
         const rows = (live.leases ?? []).map(entry => ({
           botId: entry.botId,
           name: name(entry.botId),
-          app: entry.kind === 'foreground' ? t('Foreground') : entry.appName,
-          label: entry.kind === 'foreground' ? `${name(entry.botId)} · ${t('Foreground')}` : `${name(entry.botId)} · ${entry.appName}`,
+          app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName,
+          label: entry.kind === 'foreground' ? t('{name} · foreground', { name: name(entry.botId) }) : `${name(entry.botId)} · ${entry.appName}`,
           color: look(entry.botId).color,
           avatar: look(entry.botId).image,
         }))
@@ -768,6 +768,7 @@ export function apply(ctx) {
         // Fresh cursor events ride the same sync; seq keeps each published once.
         for (const event of live.cursors ?? []) {
           if ((seenCursors.get(event.botId) ?? 0) >= event.seq) continue
+          if (Number.isFinite(event.t) && Date.now() - event.t > 3000) continue
           seenCursors.set(event.botId, event.seq)
           if (typeof appComputer.computerCursor === 'function') {
             appComputer.computerCursor({ ...event, color: look(event.botId).color, avatar: look(event.botId).image })

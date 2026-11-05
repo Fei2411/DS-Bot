@@ -60,7 +60,7 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
     h(Section, { key: 'switch' },
       h(Row, { label: t('Let Bots use the computer') },
         Switch === undefined ? null : h(Switch, { label: t('Let Bots use the computer'), on: computer.enabled === true, onChange: on => run(actions.computerSetEnabled(on)) }))),
-    computer.enabled ? h(Section, { key: 'provider', title: t('Provider') },
+    computer.enabled ? h(Section, { key: 'provider', title: t('Computer provider') },
       h(Row, { label: t(PROVIDER_TEXT[provider.state]?.[0] ?? PROVIDER_TEXT.error[0]), hint: provider.message },
         ['error', 'missing', 'occupied'].includes(provider.state) && actions.computerProviderRetry
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerProviderRetry()) }, t('Retry')) : null),
@@ -97,7 +97,7 @@ export function ComputerView({ bot, actions, hooks }) {
     void Promise.resolve(actions.computerShot(id)).then(value => { if (current) setShot(value) }, () => {})
     return () => { current = false }
   }, [entry.lastShot?.attachmentId])
-  const controlLabel = { idle: 'Idle', bot: 'Working', user: 'You have the computer', waiting: 'Waiting for you' }[entry.state] ?? 'Idle'
+  const controlLabel = { idle: 'Idle', bot: 'Operating', user: 'You have the computer', waiting: 'Waiting for you' }[entry.state] ?? 'Idle'
   return h('div', { className: 'bt-cview' },
     h('div', { className: 'bt-cview-head' },
       h('span', { className: 'bt-cview-state', 'data-state': entry.state }, t(controlLabel)),
@@ -109,7 +109,7 @@ export function ComputerView({ bot, actions, hooks }) {
     h('div', { className: 'bt-cview-actions' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.computerStop(bot.id) }, t('Stop')),
       entry.state !== 'user'
-        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.computerTakeover(bot.id) }, t('Take over'))
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.computerTakeover(bot.id) }, t('Take over the computer'))
         : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.computerHandback(bot.id) }, t('Hand back'))),
     entry.steps.length > 0 ? h('div', { className: 'bt-cview-steps' },
       h('div', { className: 'bt-section-title' }, t('Recent steps')),
@@ -143,8 +143,7 @@ export function PendingAppAccess({ ask, actions, inline }) {
     h('section', { className: inline ? 'bt-q' : 'bt-q bt-q-raised', role: 'group', 'aria-labelledby': titleId },
       h('div', { className: 'bt-q-head' },
         h('div', { className: 'bt-q-text' },
-          h('p', { className: 'bt-q-title', id: titleId }, t('Allow {name} to use {app}?', { name: ask.botName ?? 'a Bot', app: ask.appName })),
-          h('div', { className: 'bt-q-detail' }, t('Always lets it use {app} without asking again.', { app: ask.appName })))),
+          h('p', { className: 'bt-q-title', id: titleId }, t('Allow {name} to use {app}?', { name: ask.botName ?? 'a Bot', app: ask.appName })))),
       h('div', { className: 'bt-q-foot' },
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('deny') }, t('Deny')),
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('once') }, t('This time')),
@@ -301,7 +300,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
     return h('span', { className: 'bt-cbar-ava bt-cbar-ava-dot', style: { background: look.color } }, String(nameOf(id)).slice(0, 1))
   }
   const entries = [
-    ...leases.map(entry => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === 'foreground' ? t('Foreground') : entry.appName })),
+    ...leases.map(entry => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName })),
     ...waiting.map(([botId]) => ({ key: `w:${botId}`, botId, waiting: true, app: t('waits for the computer') })),
   ]
   return h('div', { className: 'bt-cbar', role: 'status' },

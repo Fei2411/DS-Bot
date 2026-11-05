@@ -105,7 +105,7 @@ test('the computer view shows the state, steps and the action buttons', () => {
     actions: { computerShot: async () => ({ dataUrl: 'data:image/png;base64,x' }), computerStop: async () => {}, computerTakeover: async () => {}, computerHandback: async () => {} },
     hooks: { useComputer: pick => pick({ bots: { w1: { state: 'bot', app: 'Notes', steps: [{ time: 1, action: 'click', ok: true }] } } }) },
   })
-  assert.ok(texts(tree).includes('Take over') || texts(tree).includes('Hand back'))
+  assert.ok(texts(tree).includes('Take over the computer') || texts(tree).includes('Hand back'))
   assert.ok(texts(tree).includes('Stop'))
 })
 

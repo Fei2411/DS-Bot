@@ -122,7 +122,7 @@ var ZH = {
   Enable: "启用",
   Disable: "停用",
   "Remove?": "确认移除？",
-  Off: "未连接",
+  "Not connected": "未连接",
   Disabled: "已停用",
   Platform: "平台",
   Capabilities: "能力",
@@ -374,7 +374,7 @@ var ZH = {
   "No browsers found": "没有找到浏览器",
   "The Bot controls this browser": "Bot 正在控制此浏览器",
   "The Bot is waiting for you": "Bot 正在等待你",
-  "waits for the computer": "在等电脑空出来",
+  "waits for the computer": "等你停手",
   "You control this browser": "你正在控制此浏览器",
   "The Bot handed this browser to you: {reason}": "Bot 已将此浏览器交给你：{reason}",
   "Take over": "接管",
@@ -756,7 +756,7 @@ var ZH = {
   "Done when": "验收方法",
   Rules: "约束",
   "Final check": "总验收",
-  "Waiting for you": "等你",
+  "Waiting for you": "等你处理",
   "Goal reached": "已达成",
   "Stages": "阶段",
   "Stage {n}: {title}": "第 {n} 阶段：{title}",
@@ -1354,46 +1354,42 @@ var HOST_ZH = {
   "Let Bots use the computer": "允许 Bot 使用电脑",
   "Using the computer": "在用电脑",
   "Off": "关",
-  "View only": "只能看",
-  "Background": "后台",
-  "Foreground": "前台",
+  "View only": "只看",
+  "Background": "后台操作",
+  "Foreground": "可以动前台",
+  "In the foreground": "前台",
   "Computer use level": "电脑操控等级",
-  "Provider": "提供方",
+  "Computer provider": "提供方",
   "Loading the provider…": "正在加载提供方…",
-  "Ready": "就绪",
   "Could not load the provider": "提供方加载失败",
   "The provider package is not installed": "提供方包未安装",
   "Another computer-use provider is running": "另一个电脑操控提供方正在运行",
   "Computer use is not available on this platform": "此平台不支持电脑操控",
-  "Retry": "重试",
   "Accessibility": "辅助功能",
   "Screen Recording": "屏幕录制",
   "Allowed": "已允许",
   "Not allowed": "未允许",
-  "Grant": "允许",
-  "Revoke": "收回",
-  "Off in Settings → Computer use": "已在 设置 → 电脑操控 中关闭",
+  "Grant": "去授权",
+  "Revoke": "撤销",
+  "Off in Settings → Computer use": "已在设置中关闭",
   "Idle": "空闲",
-  "You have the computer": "你在操控电脑",
-  "Waiting for you": "在等你",
+  "Operating": "在操作",
+  "You have the computer": "你在操作",
   "Latest screenshot": "最新截图",
   "Let it continue": "让它继续",
-  "Stop all": "全部停止",
-  "Take over": "我来接管",
-  "Hand back": "交还给它",
+  "Take over the computer": "我来操作",
+  "Hand back": "交还",
   "Recent steps": "最近的操作",
   "failed": "失败",
   "Allow {name} to use {app}?": "允许 {name} 使用 {app} 吗？",
-  "Always lets it use {app} without asking again.": "选总是允许后它用这个应用就不再问了。",
   "This time": "这一次",
-  "Always": "总是",
-  "the computer": "电脑",
+  "Always": "一直允许",
   "Needs your confirmation": "需要你确认",
-  "Help needed on the computer": "电脑上需要你帮忙",
+  "Help needed on the computer": "需要你在电脑上帮忙",
   "You control the computer": "你在操控电脑",
   "Stop {name}": "停止 {name}",
   "{name} · foreground": "{name} · 前台",
-  "{name} waits for the computer": "{name} 在等电脑空出来"
+  "{name} waits for the computer": "{name} 等你停手"
 };
 Object.assign(ZH, HOST_ZH);
 var fill = (text, params) => params ? text.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match) : text;
@@ -5235,7 +5231,7 @@ function ComputerPage({ roster, actions, run: run2, Section, Row: Row3, Switch: 
     ),
     computer.enabled ? (0, import_react10.createElement)(
       Section,
-      { key: "provider", title: t("Provider") },
+      { key: "provider", title: t("Computer provider") },
       (0, import_react10.createElement)(
         Row3,
         { label: t(PROVIDER_TEXT[provider.state]?.[0] ?? PROVIDER_TEXT.error[0]), hint: provider.message },
@@ -5289,7 +5285,7 @@ function ComputerView({ bot, actions, hooks }) {
       current = false;
     };
   }, [entry.lastShot?.attachmentId]);
-  const controlLabel = { idle: "Idle", bot: "Working", user: "You have the computer", waiting: "Waiting for you" }[entry.state] ?? "Idle";
+  const controlLabel = { idle: "Idle", bot: "Operating", user: "You have the computer", waiting: "Waiting for you" }[entry.state] ?? "Idle";
   return (0, import_react10.createElement)(
     "div",
     { className: "bt-cview" },
@@ -5305,7 +5301,7 @@ function ComputerView({ bot, actions, hooks }) {
       "div",
       { className: "bt-cview-actions" },
       (0, import_react10.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.computerStop(bot.id) }, t("Stop")),
-      entry.state !== "user" ? (0, import_react10.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.computerTakeover(bot.id) }, t("Take over")) : (0, import_react10.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.computerHandback(bot.id) }, t("Hand back"))
+      entry.state !== "user" ? (0, import_react10.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.computerTakeover(bot.id) }, t("Take over the computer")) : (0, import_react10.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.computerHandback(bot.id) }, t("Hand back"))
     ),
     entry.steps.length > 0 ? (0, import_react10.createElement)(
       "div",
@@ -5352,8 +5348,7 @@ function PendingAppAccess({ ask, actions, inline }) {
         (0, import_react10.createElement)(
           "div",
           { className: "bt-q-text" },
-          (0, import_react10.createElement)("p", { className: "bt-q-title", id: titleId }, t("Allow {name} to use {app}?", { name: ask.botName ?? "a Bot", app: ask.appName })),
-          (0, import_react10.createElement)("div", { className: "bt-q-detail" }, t("Always lets it use {app} without asking again.", { app: ask.appName }))
+          (0, import_react10.createElement)("p", { className: "bt-q-title", id: titleId }, t("Allow {name} to use {app}?", { name: ask.botName ?? "a Bot", app: ask.appName }))
         )
       ),
       (0, import_react10.createElement)(
@@ -5540,7 +5535,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
     return (0, import_react10.createElement)("span", { className: "bt-cbar-ava bt-cbar-ava-dot", style: { background: look.color } }, String(nameOf(id)).slice(0, 1));
   };
   const entries2 = [
-    ...leases.map((entry) => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === "foreground" ? t("Foreground") : entry.appName })),
+    ...leases.map((entry) => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === "foreground" ? t("In the foreground") : entry.appName })),
     ...waiting.map(([botId]) => ({ key: `w:${botId}`, botId, waiting: true, app: t("waits for the computer") }))
   ];
   return (0, import_react10.createElement)(
@@ -19985,11 +19980,11 @@ function QrPanel({ actions, platform, botId, onDone }) {
   );
 }
 function statusText3(status) {
-  if (status === void 0) return t("Off");
+  if (status === void 0) return t("Not connected");
   if (status.state === "connecting") return t("Connecting…");
   if (status.state === "error") return t("Could not connect: {error}", { error: status.error ?? "" });
   if (status.state === "ready") return t("Connected");
-  return t("Off");
+  return t("Not connected");
 }
 function TargetPicker({ value, roster, onChange, label }) {
   return (0, import_react45.createElement)(
@@ -25328,8 +25323,8 @@ function apply(ctx) {
         const rows2 = (live2.leases ?? []).map((entry) => ({
           botId: entry.botId,
           name: name(entry.botId),
-          app: entry.kind === "foreground" ? t("Foreground") : entry.appName,
-          label: entry.kind === "foreground" ? `${name(entry.botId)} · ${t("Foreground")}` : `${name(entry.botId)} · ${entry.appName}`,
+          app: entry.kind === "foreground" ? t("In the foreground") : entry.appName,
+          label: entry.kind === "foreground" ? t("{name} · foreground", { name: name(entry.botId) }) : `${name(entry.botId)} · ${entry.appName}`,
           color: look(entry.botId).color,
           avatar: look(entry.botId).image
         }));

@@ -80,11 +80,11 @@ function QrPanel({ actions, platform, botId, onDone }) {
 }
 
 function statusText(status) {
-  if (status === undefined) return t('Off')
+  if (status === undefined) return t('Not connected')
   if (status.state === 'connecting') return t('Connecting…')
   if (status.state === 'error') return t('Could not connect: {error}', { error: status.error ?? '' })
   if (status.state === 'ready') return t('Connected')
-  return t('Off')
+  return t('Not connected')
 }
 
 function TargetPicker({ value, roster, onChange, label }) {
