@@ -65,7 +65,8 @@
   },
   "devDependencies": {
     "@xmldom/xmldom": "0.9.12",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "qrcode-generator": "2.0.4"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.4.0",

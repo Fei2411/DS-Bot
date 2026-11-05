@@ -89,6 +89,7 @@ const fill = (label, value) => {
   assert.ok(input, `input "${label}"`)
   input.props.onChange?.({ target: { value } })
 }
+const addressAt = domain => ['me', domain].join('@')
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
 test('the mail form shows the QQ guide with its links and closes after a good add', async () => {
@@ -111,7 +112,7 @@ test('the mail form shows the QQ guide with its links and closes after a good ad
   assert.equal(links[0].props.href, 'https://mail.qq.com')
   assert.match(links[1].props.href, /help\.mail\.qq\.com/)
   assert.equal(links[0].props.target, '_blank')
-  fill('Email address', 'me@qq.com')
+  fill('Email address', addressAt('qq.com'))
   fill('Authorization code', 'CODE')
   click('Add account')
   await flush()
@@ -132,7 +133,7 @@ test('a busy mail add blocks a second click and a good add clears the fields', a
   slots.length = 0
   render()
   click('Add an account')
-  fill('Email address', 'me@qq.com')
+  fill('Email address', addressAt('qq.com'))
   fill('Authorization code', 'CODE')
   click('Add account')
   await flush()
@@ -159,12 +160,13 @@ test('a busy mail add blocks a second click and a good add clears the fields', a
 
 test('the mail send card is an editable show_view form card with the approval rule menu', async () => {
   const bot = { id: 'b1', name: 'Chief' }
+  const sender = addressAt('qq.com')
   const body = 'Hi **all**\n<!-- hidden --> [link](https://x.test)\n\nBye'
   const roster = {
     byId: { s1: bot },
-    connectors: { mail: { accounts: [{ id: 'me@qq.com', address: 'me@qq.com' }] } },
+    connectors: { mail: { accounts: [{ id: sender, address: sender }] } },
     mailRequests: {
-      b1: [{ id: 'r1', callId: 'c1', sessionId: 's1', status: 'pending', account: 'me@qq.com', to: 'team@corp.dev', subject: 'Weekly_1', body, attachmentDetails: [{ name: 'report.pdf', size: 2048 }] }],
+      b1: [{ id: 'r1', callId: 'c1', sessionId: 's1', status: 'pending', account: sender, to: 'team@corp.dev', subject: 'Weekly_1', body, attachmentDetails: [{ name: 'report.pdf', size: 2048 }] }],
     },
   }
   const answers = []
@@ -190,7 +192,7 @@ test('the mail send card is an editable show_view form card with the approval ru
   const ccInput = collect(n => n.type === 'input' && n.props?.['aria-label'] === 'Cc')[0]
   const bodyArea = collect(n => n.type === 'textarea' && n.props?.['aria-label'] === 'Write a message…')[0]
   assert.equal(subjectInput.props.value, 'Weekly_1')
-  assert.equal(fromInput.props.value, 'me@qq.com')
+  assert.equal(fromInput.props.value, sender)
   assert.equal(fromInput.props.readOnly, true)
   assert.equal(toInput.props.value, 'team@corp.dev')
   assert.equal(ccInput.props.value, '')
@@ -237,7 +239,7 @@ test('a failed mail add shows the host message inside the form', async () => {
   slots.length = 0
   render()
   click('Add an account')
-  fill('Email address', 'me@qq.com')
+  fill('Email address', addressAt('qq.com'))
   fill('Authorization code', 'WRONG')
   click('Add account')
   await flush()

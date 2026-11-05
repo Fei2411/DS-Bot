@@ -66,11 +66,13 @@ export function timingText(task) {
       return `${text}${zone}`
     }
     case 'cron': return `${t('On the schedule {expression}', { expression: task.expression })}${zone}`
+    case 'rrule': return t('Custom schedule')
     default: return ''
   }
 }
 const nextText = (task) => {
   if (task.state === 'overdue' || (task.state === undefined && task.status === 'active' && Date.parse(task.scheduledAt) <= Date.now())) return t('Overdue: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) })
+  if (task.status === 'paused') return t('Paused')
   return task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished')
 }
 

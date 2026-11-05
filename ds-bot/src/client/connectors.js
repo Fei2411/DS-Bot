@@ -272,7 +272,7 @@ function MailRules({ mail, bots, actions, run }) {
       return h('div', { key: `b:${botId}`, className: 'bt-connector-head' },
         h('span', { className: 'bt-connector-text' },
           h('span', { className: 'bt-connector-name' }, botName),
-          h('span', { className: 'bt-connector-status' }, t('Turn off drafts for this Bot'))),
+          h('span', { className: 'bt-connector-status' }, t('Allow this Bot to send directly'))),
         h('span', { className: 'bt-connector-actions' },
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.mailRuleSet({ botId, noDraft: false })) }, t('Needs approval'))))
     }),
@@ -478,7 +478,7 @@ export function ConnectorDock({ sessionId, useRoster, useCards, useHeldCards, ac
 const RULE_LABELS = {
   'allow-recipient': 'Allow recipient',
   'require-approval': 'Needs approval',
-  'no-draft': 'Turn off drafts for this Bot',
+  'no-draft': 'Allow this Bot to send directly',
 }
 
 function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
