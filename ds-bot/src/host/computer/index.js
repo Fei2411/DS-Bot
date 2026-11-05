@@ -867,10 +867,13 @@ export function install(rt) {
         if (aliases.has(entry) || normName(entry) === wanted) decisions.delete(entry)
       }
     }
-    // A revoked app keeps no recorded cua handles: the next call on one refuses
-    // "was revoked" and the model has to getApp again, which asks by card. The
-    // driver's pid/window records stay so its calls ask by card as before.
-    for (const map of sessionApps.values()) {
+    // A revoked app keeps no recorded cua handles in this Bot's Sessions: the
+    // next call on one refuses "was revoked" and the model has to getApp again,
+    // which asks by card. Other Bots' Sessions keep their handles — their own
+    // grants still cover the app. The driver's pid/window records stay so its
+    // calls ask by card as before.
+    for (const [sessionId, map] of sessionApps) {
+      if (rt.botOf(rt.selfOf(sessionId))?.id !== botId) continue
       for (const key of aliases) {
         if (key.startsWith('handle:')) map.delete(key)
       }

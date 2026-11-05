@@ -402,6 +402,29 @@ test('a revoke removes the grant, aborts the call, revokes in the provider and t
   assert.equal(Object.keys(rt.computerLive().asks).length, 1)
 })
 
+test("one Bot's revoke leaves another Bot's handle working", async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  await rt.computerEndpoint('set-level', { botId: 'm1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  for (const botId of ['w1', 'm1']) {
+    rt.botOf(botId).computer = { apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
+  }
+  await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g1' },
+    async () => ({ isError: false, value: { appHandle: 'hA', pid: 1, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
+  await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'm1' }, callId: 'g2' },
+    async () => ({ isError: false, value: { appHandle: 'hB', pid: 2, authorization: { id: 'com.apple.Notes', name: 'Notes' } } }))
+  await rt.computerEndpoint('revoke-app', { botId: 'w1', appKey: 'com.apple.Notes' })
+  // w1's handle is dead; m1's still resolves and runs
+  assert.match((await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'hA' } }, agent: { id: 'w1' }, callId: 'c1' }, allow)).reason, /was revoked/)
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'click', params: { appHandle: 'hB' } }, agent: { id: 'm1' }, callId: 'c2' }, allow), 'allowed')
+})
+
 test('grants hold in a later part and in a group Session of the same Bot', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
