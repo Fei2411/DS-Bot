@@ -1038,3 +1038,22 @@ test('cursor-wait returns fresh events, wakes on publish, and times out empty', 
   rt.closeComputerWaiters()
   assert.deepEqual((await held).events, [])
 })
+
+test('computer-shot serves a real screenshot attachment by its mediaType', async (t) => {
+  const { ctx, home, rt } = setup({ services: { attachments: { readFileStream: async function* () { yield Buffer.from('PNGDATA') } } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'view' })
+  rt.botOf('w1').computer = { apps: { 'com.apple.Notes': { name: 'Notes', id: 'com.apple.Notes', grantedAt: 0 } } }
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  // the real provider's attachment carries mediaType, not mimeType
+  await track(
+    { name: 'cua', arguments: { method: 'screenshot', params: { appHandle: 'h1', windowId: 7 } }, agent: { id: 'w1' }, callId: 's1' },
+    async () => ({ isError: false, value: { windowId: 7, attachment: { attachmentId: 'sha256:abc', mediaType: 'image/webp', width: 100, height: 100, bytes: 7 } } }),
+  )
+  const shot = await rt.computerEndpoint('shot', { attachmentId: 'sha256:abc' })
+  assert.equal(shot?.dataUrl, `data:image/webp;base64,${Buffer.from('PNGDATA').toString('base64')}`)
+  // an id this module never recorded is not readable
+  assert.equal(await rt.computerEndpoint('shot', { attachmentId: 'sha256:other' }), null)
+})

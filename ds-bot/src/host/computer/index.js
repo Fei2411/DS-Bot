@@ -786,10 +786,16 @@ export function install(rt) {
       recordGeo(sessionId, payload)
       // A refused or failed call pointed nowhere.
       if (payload !== null) emitCursor(exec, call, payload)
-      const shot = payload !== null && typeof payload === 'object' ? payload.attachment : undefined
+      // The screenshot's image rides in the content parts, not the value: the
+      // real envelope is { value: {...}, content: [text, {type:'image',attachment}] }.
+      const shot = payload !== null && typeof payload === 'object'
+        ? (payload.attachment ?? payload.content?.find?.(part => part?.attachment)?.attachment)
+        : undefined
       if (shot !== undefined) {
         controlOf(botId).lastShot = shot
-        if (typeof shot.mimeType === 'string') shotMimes.set(shot.attachmentId ?? shot.id, shot.mimeType)
+        // The real provider names the field mediaType; mimeType is the older name.
+        const mime = shot.mimeType ?? shot.mediaType
+        if (typeof mime === 'string') shotMimes.set(shot.attachmentId ?? shot.id, mime)
       }
       noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: true })
       return result
