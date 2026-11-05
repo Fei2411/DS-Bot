@@ -339,7 +339,9 @@ export function install(rt, host) {
       const account = accountOf(body.id ?? body.address)
       if (account === undefined) throw new Error('No such account')
       await rt.loadSecrets()
-      for (const suffix of ['PASSWORD', 'TOKEN', 'REFRESH']) {
+      // Secrets are per address; a duplicate row from before adds were merged still needs them.
+      const shared = accountList().some(other => other.id !== account.id && other.address === account.address)
+      if (!shared) for (const suffix of ['PASSWORD', 'TOKEN', 'REFRESH']) {
         const name = mailSecretName(account.address, suffix)
         if (rt.secretValue(name) !== undefined) await rt.secretEndpoint('secret-delete', { name }).catch(() => {})
       }
