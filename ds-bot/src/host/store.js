@@ -455,6 +455,39 @@ export function install(rt) {
     // live Agents that joined); both install after this.
     rt.indexAgents?.()
     rt.syncScopedTools?.()
+    void unarchiveCurrent()
+  }
+  // A Session the team speaks from now must never sit in DSH's archive: DSH clears an
+  // archived Session out of the main view the moment it opens (so the Bot cannot be
+  // opened), blocks its Agent's wakes, and refuses schedule targets on it. Earlier
+  // segments stay archived; only the current chat, group and group-own Sessions are
+  // taken back out.
+  const unarchiving = new Set()
+  const unarchiveCurrent = async () => {
+    const registry = ctx.workspaceRegistry
+    if (typeof registry?.unarchiveSession !== 'function') return
+    let archived
+    try {
+      archived = new Set(registry.archivedSessionIds ?? [])
+    } catch {
+      return
+    }
+    const current = [...new Set([...chatOwners.keys(), ...groupOwners.keys(), ...roomOwners.keys()])]
+      .filter(id => archived.has(id) && !unarchiving.has(id))
+    if (current.length === 0) return
+    for (const sessionId of current) unarchiving.add(sessionId)
+    let restored = 0
+    for (const sessionId of current) {
+      try {
+        await registry.unarchiveSession(sessionId)
+        restored += 1
+      } catch (error) {
+        warn('ds-bot: current Session %s could not be unarchived: %s', sessionId, error)
+      } finally {
+        unarchiving.delete(sessionId)
+      }
+    }
+    warn('ds-bot: unarchived %d current team Session(s) that DSH held archived', restored)
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
   // earlier segment of either.

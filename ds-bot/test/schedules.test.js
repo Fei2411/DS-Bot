@@ -162,3 +162,67 @@ test('a failed task move can resume without losing identical remaining tasks', a
   assert.equal(on('s9').length, 2)
   assert.equal(on('w2').length, 0)
 })
+
+// DSH 0.2.2's schedule service: typed timing and target on create, a Host-wide list
+// with no Session filter, catalog entries that name their Session in `target`, and
+// delete or retarget through edit().
+function typedScheduleService() {
+  const tasks = new Map()
+  let next = 1
+  const entry = task => ({ ...task.record, target: task.target, status: task.status ?? 'active' })
+  return {
+    tasks,
+    async create(request) {
+      const { timing, target } = request
+      const keys = Object.keys(timing)
+      if (keys.length !== 2 || !keys.includes('kind')) throw new Error('timing must contain exactly kind and its matching selector.')
+      if (target?.kind !== 'session') throw new Error('expected a session target')
+      const id = `schedule-${next++}`
+      const selector = keys.find(key => key !== 'kind')
+      const record = { id, kind: timing.kind, title: request.title, prompt: request.prompt, timing: timing[selector], scheduledAt: '2030-01-01T01:00:00.000Z', everySeconds: timing.every_seconds }
+      tasks.set(id, { target, record })
+      return entry(tasks.get(id))
+    },
+    async list() { const items = [...tasks.values()].map(entry); return { items, shown: items.length, total: items.length, limit: 50, offset: 0 } },
+    async catalog() { return [...tasks.values()].map(entry) },
+    async edit(request) {
+      const task = tasks.get(request.id)
+      if (task === undefined) return { id: request.id, code: 'schedule_not_found' }
+      if (request.action === 'delete') { tasks.delete(request.id); return { id: request.id, deleted: true } }
+      if (request.patch.target !== undefined) task.target = request.patch.target
+      return entry(task)
+    },
+  }
+}
+
+test('DSH 0.2.2 schedule service: typed create, listing by target, delete through edit', async (t) => {
+  const schedule = typedScheduleService()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const made = await call('schedule-create', { target: 'w1', title: 'Briefing', prompt: 'Sum up', when: { kind: 'daily', time: '09:00', timeZone: 'UTC' } })
+  assert.equal(made.ok, true, JSON.stringify(made))
+  const [task] = [...schedule.tasks.values()]
+  assert.deepEqual(task.target, { kind: 'session', sessionId: 'w2' })
+  assert.equal(task.record.kind, 'daily')
+  assert.deepEqual(made.value.tasks.map(entry => [entry.title, entry.botId, entry.sessionId]), [['Briefing', 'w1', 'w2']])
+  const removed = await call('schedule-delete', { sessionId: 'w2', id: task.record.id })
+  assert.equal(removed.ok, true, JSON.stringify(removed))
+  assert.equal(schedule.tasks.size, 0)
+})
+
+test('DSH 0.2.2 schedule service: a part move retargets only the earlier part’s tasks', async (t) => {
+  const schedule = typedScheduleService()
+  const { ctx, home, rt } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const session = sessionId => ({ kind: 'session', sessionId })
+  await schedule.create({ title: 'Ping', prompt: 'Check', timing: { kind: 'every', every_seconds: 3600 }, target: session('w2') })
+  await schedule.create({ title: 'Other', prompt: 'Not ours', timing: { kind: 'every', every_seconds: 3600 }, target: session('m1') })
+  await schedule.create({ title: 'Outside', prompt: 'Not the team', timing: { kind: 'every', every_seconds: 3600 }, target: session('outside') })
+  await rt.moveSchedules('w2', 's9')
+  const on = id => [...schedule.tasks.values()].filter(task => task.target.sessionId === id).map(task => task.record.title)
+  assert.deepEqual(on('s9'), ['Ping'])
+  assert.deepEqual(on('w2'), [])
+  assert.deepEqual(on('m1'), ['Other'])
+  assert.deepEqual(on('outside'), ['Outside'])
+  assert.equal(schedule.tasks.size, 3, 'a move retargets in place; it creates no copy')
+})
