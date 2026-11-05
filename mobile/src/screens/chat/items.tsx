@@ -18,6 +18,9 @@ export interface ChatItem {
   seq?: number
   turn?: number
   role?: string
+  // A group round's event (mobile.js replyItem): failed, missed, approval, done…
+  event?: string
+  code?: string
   name?: string
   botId?: string
   images?: number
@@ -64,6 +67,21 @@ export function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggl
   }
   if (item.kind === 'event') {
     if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
+    // A group round's events, worded like the desktop's RelayEvent (cells.js).
+    const name = item.name ?? t('a Bot')
+    const round = item.event === undefined ? undefined : ({
+      failed: () => t('{name} could not answer: {reason}', { name, reason: item.text ?? item.code ?? '' }),
+      lookup: () => (item.text ? t('{name} looked up its own chat for “{text}”', { name, text: item.text }) : t('{name} looked up its own chat', { name })),
+      missed: () => t("{name} didn't answer in time", { name }),
+      resumed: () => t('{name} was cut off by a restart and picked its work back up', { name }),
+      cut: () => t('{name} was cut off by a restart again and stopped', { name }),
+      approval: () => t('{name} paused for your approval', { name }),
+      working: () => t('{name} started on it', { name }),
+      stopped: () => t("You stopped {name}'s work", { name }),
+      done: () => t('{name} finished its work', { name }),
+      schedule: () => item.text ?? '',
+    } as Record<string, () => string>)[item.event]
+    if (round !== undefined) return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{round()}</Text>
     const label = { request: t('asked for work'), reply: t('replied'), report: t('reported back'), stopped: t('stopped') }[item.role ?? ''] ?? item.role ?? ''
     return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('{name} {event}', { name: item.name ?? t('a Bot'), event: label })}</Text>
   }

@@ -1,9 +1,10 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
+import { onPrefsChange, readPrefs } from '../store.ts'
 import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
@@ -163,16 +164,29 @@ function NoticeBanner() {
   const { onFeed } = useTeam()
   const navigation = useNavigation<any>()
   const insets = useSafeAreaInsets()
-  const [notice, setNotice] = useState<{ text: string; target: ChatTarget } | null>(null)
+  const [notice, setNotice] = useState<{ text: string; target: ChatTarget; seq: number } | null>(null)
+  const banners = useRef(true)
+  useEffect(() => {
+    const read = () => void readPrefs().then(prefs => { banners.current = prefs.banners !== 'off' })
+    read()
+    return onPrefsChange(read)
+  }, [])
   useEffect(() => {
     if (onFeed === undefined) return
+    let seq = 0
     return onFeed((event, data) => {
-      if (event !== 'notice' || (data?.kind !== 'question' && data?.kind !== 'approval')) return
+      if (event !== 'notice' || (data?.kind !== 'question' && data?.kind !== 'approval') || !banners.current) return
       const target: ChatTarget = data.roomId !== undefined && data.roomId !== null
         ? { kind: 'room', id: data.roomId }
         : { kind: 'bot', id: data.botId ?? '' }
-      setNotice({ text: data.title !== undefined ? `${data.title}：${data.text ?? ''}` : (data.text ?? ''), target })
-      setTimeout(() => setNotice(current => current), 8000)
+      // The chat on screen already shows its own card.
+      const state = navigation.getState()
+      const top = state?.routes?.[state.index]
+      const params = top?.params as ChatTarget | undefined
+      if (top?.name === 'Chat' && params?.kind === target.kind && params?.id === target.id) return
+      const mine = ++seq
+      setNotice({ text: data.title !== undefined ? `${data.title}：${data.text ?? ''}` : (data.text ?? ''), target, seq: mine })
+      setTimeout(() => setNotice(current => (current?.seq === mine ? null : current)), 8000)
     })
   }, [onFeed])
   if (notice === null) return null
