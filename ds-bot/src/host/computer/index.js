@@ -277,7 +277,12 @@ export function install(rt) {
       held.handoffLift?.()
     }
   })
-  rt.closeComputerWaiters = () => { for (const waiter of [...cursorWaiters]) { cursorWaiters.delete(waiter); waiter.wake = () => {} } }
+  rt.closeComputerWaiters = () => {
+    for (const waiter of [...cursorWaiters]) {
+      cursorWaiters.delete(waiter)
+      waiter.close()
+    }
+  }
   rt.refreshComputer = refreshComputer
 
   // ---- App identity ----
@@ -1041,7 +1046,8 @@ export function install(rt) {
       case 'set-enabled':
         return setEnabled(body.enabled === true)
       case 'cursor-wait': {
-        const after = Number(body.after) || 0
+        // A seq beyond ours means the host restarted: seq starts over at 1.
+        const after = Number(body.after) > cursorSeq ? 0 : (Number(body.after) || 0)
         const fresh = () => [...cursors.values()].filter(event => event.seq > after)
         const now = () => ({ now: Date.now(), events: fresh() })
         if (fresh().length > 0) return now()
@@ -1052,6 +1058,10 @@ export function install(rt) {
               cursorWaiters.delete(waiter)
               clearTimeout(timer)
               resolve(now())
+            },
+            close: () => {
+              clearTimeout(timer)
+              resolve({ now: Date.now(), events: [] })
             },
           }
           const timer = setTimeout(() => { cursorWaiters.delete(waiter); resolve({ now: Date.now(), events: [] }) }, 25000)
@@ -1180,6 +1190,7 @@ export function install(rt) {
   ctx.effect(() => () => {
     stopped = true
     leases.dispose()
+    rt.closeComputerWaiters()
     for (const { resolve } of pendingAsks.values()) resolve('deny')
     pendingAsks.clear()
     for (const { abort } of inFlight.values()) abort.abort(new Error('DS Bot stopped'))

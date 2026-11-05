@@ -1030,4 +1030,11 @@ test('cursor-wait returns fresh events, wakes on publish, and times out empty', 
   assert.equal(woke.events.length, 1)
   assert.equal(woke.events[0].mode, 'window')
   // nothing newer → the wait resolves empty after the timeout (stubbed short)
+  // a seq ahead of ours means the host restarted: answer like after=0
+  const restarted = await rt.computerEndpoint('cursor-wait', { after: 9999 })
+  assert.equal(restarted.events.length, 1)
+  // dispose resolves a pending waiter with no events
+  const held = rt.computerEndpoint('cursor-wait', { after: restarted.events[0].seq })
+  rt.closeComputerWaiters()
+  assert.deepEqual((await held).events, [])
 })
