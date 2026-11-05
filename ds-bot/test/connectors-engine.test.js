@@ -509,6 +509,29 @@ test('mail account add verifies before saving; a bad code fails cleanly; send ne
   assert.equal((rt.state.mailRequests.m1 ?? []).length, before)
 })
 
+test('mail add explains refused and unsafe logins in plain words', async (t) => {
+  let mode = 'ok'
+  const factory = async () => {
+    if (mode === 'flag') { const error = new Error('NO'); error.authenticationFailed = true; throw error }
+    if (mode === 'qq') throw new Error('Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited, or system is busy.')
+    if (mode === 'unsafe') throw new Error('Unsafe Login')
+    return fakeSession()
+  }
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { connect: factory } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com') }), /Enter the authorization code or app password/)
+  mode = 'flag'
+  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' }), /The password was refused/)
+  mode = 'qq'
+  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' }), /The password was refused/)
+  mode = 'unsafe'
+  await assert.rejects(rt.connectorEndpoint('mail-account-add', { address: addressAt('qq.com'), password: 'CODE' }), /Unsafe Login/)
+  assert.equal(rt.mailView().accounts.length, 0)
+})
+
 test('mail account remove drops the secret and unregisters the tools', async (t) => {
   const home = teamHome()
   const ctx = fakeContext()

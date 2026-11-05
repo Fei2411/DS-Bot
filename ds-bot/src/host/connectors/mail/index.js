@@ -282,7 +282,7 @@ export function install(rt, host) {
         return beginGoogle(address)
       }
       const password = String(body.password ?? '').trim()
-      if (password === '') throw new Error('Enter the app password')
+      if (password === '') throw new Error('Enter the authorization code or app password')
       const preset = presetOf(address)
       const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
       const chosen = PRESETS.find(p => p.id === provider)
@@ -458,6 +458,6 @@ export function install(rt, host) {
 function mailError(error) {
   const text = String(error?.responseText ?? error?.message ?? error)
   if (/Unsafe Login/i.test(text)) return 'The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.'
-  if (/authentication|invalid credentials|535|534/i.test(text)) return 'The password was refused. Use the mailbox app password or authorization code, not the account password.'
+  if (error?.authenticationFailed === true || /Login fail|authentication|invalid credentials|535|534/i.test(text)) return 'The password was refused. Use the mailbox app password or authorization code, not the account password.'
   return text.slice(0, 300)
 }

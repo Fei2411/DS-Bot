@@ -10,12 +10,11 @@ import { contentText, currentPart } from './text.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
 
-export const GitHubMark = () => h('svg', { width: 20, height: 20, viewBox: '0 0 16 16', fill: 'currentColor', 'aria-hidden': true },
-  h('path', { d: 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z' }))
+export { GitHubMark } from './connector-marks.js'
+import { MARKS } from './connector-marks.js'
 
-const MARKS = { github: GitHubMark }
 const TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
 // Rows show a generated monogram: first letter, color from the id hash.
 export function ConnectorMark({ connector }) {
@@ -133,18 +132,67 @@ export function ConnectorRow({ connector, actions }) {
     connector.tools > 0 ? h('div', { className: 'bt-connector-status' }, t('{count} tools', { count: connector.tools })) : null)
 }
 
-function MailSection({ mail, actions, run }) {
+// Where each mail provider's authorization code or app password comes from.
+const NETEASE_STEPS = [
+  'Sign in at {host} and open Settings → POP3/SMTP/IMAP.',
+  'Turn on IMAP/SMTP and send the text message it asks for.',
+  'Paste the 16-character code below. It is shown only once.',
+]
+const NETEASE_HELP = 'https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b'
+const MAIL_GUIDES = {
+  qq: {
+    host: 'mail.qq.com',
+    open: 'https://mail.qq.com',
+    help: 'https://help.mail.qq.com/detail/106/985',
+    label: 'Authorization code',
+    steps: [
+      'Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.',
+      'Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.',
+      'Paste the 16-letter code below. Changing your QQ password cancels it.',
+    ],
+  },
+  '163': { host: 'mail.163.com', open: 'https://mail.163.com', help: NETEASE_HELP, label: 'Authorization code', steps: NETEASE_STEPS },
+  '126': { host: 'mail.126.com', open: 'https://mail.126.com', help: NETEASE_HELP, label: 'Authorization code', steps: NETEASE_STEPS },
+  gmail: {
+    host: 'myaccount.google.com',
+    open: 'https://myaccount.google.com/apppasswords',
+    help: 'https://support.google.com/accounts/answer/185833',
+    label: 'App password',
+    steps: [
+      'Turn on 2-Step Verification for your Google Account.',
+      'Open App passwords, create one, and paste the 16-character password below.',
+      'Work and school accounts cannot use app passwords.',
+    ],
+  },
+  icloud: {
+    host: 'account.apple.com',
+    open: 'https://account.apple.com',
+    help: 'https://support.apple.com/102654',
+    label: 'App password',
+    steps: [
+      'Your Apple Account needs two-factor authentication.',
+      'Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.',
+      'Generate a password and paste it below.',
+    ],
+  },
+}
+
+export function MailSection({ mail, actions, run }) {
   const [form, setForm] = useState(false)
   const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
   const [provider, setProvider] = useState('')
   const [imapHost, setImapHost] = useState('')
   const [smtpHost, setSmtpHost] = useState('')
+  const [error, setError] = useState(null)
   const accounts = mail?.accounts ?? []
   const domain = address.split('@')[1]?.toLowerCase() ?? ''
   const guessed = ['qq.com', 'foxmail.com'].includes(domain) ? 'qq' : ['163.com', '126.com', 'gmail.com', 'googlemail.com'].includes(domain) ? domain.replace(/\..*/, '').replace('googlemail', 'gmail') : ['icloud.com', 'me.com', 'mac.com'].includes(domain) ? 'icloud' : ''
   const chosen = provider || guessed || 'other'
-  const add = () => void run(actions.mailAccountAdd({ address: address.trim(), password, provider: chosen, imapHost, smtpHost }), () => { setForm(false); setAddress(''); setPassword('') })
+  const guide = MAIL_GUIDES[chosen]
+  const mailRun = (task, onDone) => Promise.resolve(task).then(() => { setError(null); onDone?.() }, failure => setError(failure?.message ?? String(failure)))
+  const add = () => void mailRun(actions.mailAccountAdd({ address: address.trim(), password, provider: chosen, imapHost, smtpHost }), () => { setForm(false); setAddress(''); setPassword('') })
+  const close = () => { setError(null); setForm(false) }
   return h('div', { className: 'bt-mail' },
     h('div', { className: 'bt-section-title' }, t('Mailbox')),
     accounts.map(account => h('div', { key: account.id, className: 'bt-connector' },
@@ -159,18 +207,25 @@ function MailSection({ mail, actions, run }) {
       h('div', { className: 'bt-connector-form-row' },
         h('a', { className: 'bt-connector-link', href: p.url, target: '_blank', rel: 'noopener noreferrer' }, t('Open the Google sign-in page'))))) ?? null,
     form ? h('div', { className: 'bt-connector-form bt-mail-form' },
-      h('input', { className: 'bt-input', 'aria-label': t('Email address'), placeholder: t('Email address'), value: address, autoComplete: 'off', onChange: e => setAddress(e.target.value) }),
-      h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: password, onChange: setPassword, label: t('App password') })),
       h('div', { className: 'bt-mail-providers', role: 'radiogroup', 'aria-label': t('Provider') },
         [['qq', 'QQ'], ['163', '163'], ['126', '126'], ['gmail', 'Gmail'], ['icloud', 'iCloud'], ['other', t('Other')]].map(([id, label]) =>
           h('button', { key: id, type: 'button', role: 'radio', 'aria-checked': chosen === id, className: 'bt-secret-seg', onClick: () => setProvider(id) }, label))),
+      guide ? [
+        h('ol', { key: 'guide', className: 'bt-mail-guide' }, guide.steps.map(step => h('li', { key: step }, t(step, { host: guide.host })))),
+        h('div', { key: 'links', className: 'bt-connector-form-row' },
+          h('a', { className: 'bt-connector-link', href: guide.open, target: '_blank', rel: 'noopener noreferrer' }, t('Open {host}', { host: guide.host })),
+          h('a', { className: 'bt-connector-link', href: guide.help, target: '_blank', rel: 'noopener noreferrer' }, t('Official help'))),
+      ] : null,
+      h('input', { className: 'bt-input', 'aria-label': t('Email address'), placeholder: t('Email address'), value: address, autoComplete: 'off', onChange: e => setAddress(e.target.value) }),
+      h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: password, onChange: setPassword, label: t(guide?.label ?? 'Password or app password') })),
       chosen === 'other' ? [
         h('input', { key: 'ih', className: 'bt-input', 'aria-label': t('IMAP host'), placeholder: t('IMAP host'), value: imapHost, onChange: e => setImapHost(e.target.value) }),
         h('input', { key: 'sh', className: 'bt-input', 'aria-label': t('SMTP host'), placeholder: t('SMTP host'), value: smtpHost, onChange: e => setSmtpHost(e.target.value) }),
       ] : null,
+      error ? h('div', { className: 'bt-connector-error', role: 'alert' }, hostText(error)) : null,
       h('div', { className: 'bt-connector-form-row' },
-        mail?.google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.mailAccountAdd({ address: address.trim(), google: true })) }, t('Sign in with Google')) : h('span', { className: 'bt-connector-link' }),
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm(false) }, t('Cancel')),
+        mail?.google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void mailRun(actions.mailAccountAdd({ address: address.trim(), google: true })) }, t('Sign in with Google')) : h('span', { className: 'bt-connector-link' }),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: close }, t('Cancel')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !address.includes('@') || password === '', onClick: add }, t('Add account'))))
       : h('div', { className: 'bt-connector-form-row' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm(true) }, t('Add an account')),
@@ -214,7 +269,7 @@ export function ConnectorsPage({ roster, actions }) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('')
   const [error, setError] = useState(null)
-  const run = task => Promise.resolve(task).then(() => setError(null), failure => setError(failure?.message ?? String(failure)))
+  const run = (task, onDone) => Promise.resolve(task).then(() => { setError(null); onDone?.() }, failure => setError(failure?.message ?? String(failure)))
   const data = roster?.connectors ?? { connectors: [], mail: { accounts: [], google: false } }
   const list = data.connectors ?? []
   const connected = list.filter(c => c.state !== 'off' || c.pending)
