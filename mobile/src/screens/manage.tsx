@@ -655,6 +655,8 @@ const KINDS: [string, string][] = [['at', 'Once'], ['daily', 'Every day'], ['wee
 const UNITS: [string, number, string][] = [['minutes', 1, 'minutes'], ['hours', 60, 'hours'], ['days', 1440, 'days']]
 
 const DAY_NAMES = ['', '一', '二', '三', '四', '五', '六', '日']
+const todayString = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+
 const whenText = (task: { kind: string; time?: string; everySeconds?: number; minutes?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }) => {
   switch (task.kind) {
     case 'at': return t('Once, {time}', { time: new Date(task.scheduledAt ?? 0).toLocaleString() })
@@ -669,7 +671,7 @@ const whenText = (task: { kind: string; time?: string; everySeconds?: number; mi
 export function Schedules({ route, navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const { run } = useWrite(navigation)
+  const { run, error } = useWrite(navigation)
   const botId = String(route.params?.botId ?? '')
   const sessionId = String(route.params?.sessionId ?? '')
   const [tasks, setTasks] = useState<{ id: string; botId?: string; sessionId: string; title: string; prompt?: string; kind: string; status: string; time?: string; everySeconds?: number; weekdays?: number[]; expression?: string; scheduledAt?: number }[]>([])
@@ -677,7 +679,7 @@ export function Schedules({ route, navigation }: any) {
   const [prompt, setPrompt] = useState('')
   const [kind, setKind] = useState('daily')
   const [time, setTime] = useState('09:00')
-  const [atDate, setAtDate] = useState('')
+  const [atDate, setAtDate] = useState(todayString)
   const [atTime, setAtTime] = useState('09:00')
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5])
   const [count, setCount] = useState('1')
@@ -724,7 +726,7 @@ export function Schedules({ route, navigation }: any) {
           </View>
           {kind === 'at' ? (
             <View style={styles.row}>
-              <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={atDate} onChangeText={setAtDate} placeholder="2026-11-05" placeholderTextColor={p.ink3} autoCapitalize="none" />
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={atDate} onChangeText={setAtDate} placeholder="YYYY-MM-DD" placeholderTextColor={p.ink3} autoCapitalize="none" />
               <TextInput style={[typeScale.settingsRow, { color: p.ink, width: 70 }]} value={atTime} onChangeText={setAtTime} placeholder="09:00" placeholderTextColor={p.ink3} autoCapitalize="none" />
             </View>
           ) : null}
@@ -753,6 +755,7 @@ export function Schedules({ route, navigation }: any) {
           ) : null}
         </Section>
         <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
+          {error !== null ? <Text style={[typeScale.caption, { color: p.danger, marginTop: 6 }]}>{error}</Text> : null}
           <Pressable accessibilityRole="button" disabled={!title.trim() || !prompt.trim() || adding} onPress={create} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !title.trim() || !prompt.trim() ? 0.5 : pressed ? 0.85 : 1 }]}>
             <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create task')}</Text>
           </Pressable>
