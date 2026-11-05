@@ -559,7 +559,8 @@ for (const [endpoint, body] of [['stop-room-work', { roomId: 'r1' }], ['stop-mem
     host.emit('gb', 'turn/start', { turn: 1 })
     host.agentOf('gb').cancel = () => { throw new Error('cancel failed') }
     assert.equal((await host.call(endpoint, body)).ok, false)
-    await settle(() => goal(host).idle === true)
+    const { rooms } = (await host.call('state', {})).value
+    assert.equal(rooms.find(room => room.id === 'r1').goal.idle, true)
   })
 }
 
