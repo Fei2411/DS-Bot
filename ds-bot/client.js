@@ -10112,6 +10112,7 @@ function GroupHeaderRow({ group, actions, wideContent }) {
       "aria-label": label,
       onContextMenu: (e) => {
         e.preventDefault();
+        e.stopPropagation();
         actions.openMenu({ kind: "group", id, name, x: e.clientX, y: e.clientY, onRename: () => setRenaming(true) });
       }
     },
@@ -10214,9 +10215,17 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const waits = workKeys(useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null");
   const waitsFor = state === "waiting" ? waitingFor(roster, waits) : "";
   if (bot.hidden && !active && !main) return null;
+  const [hover, setHover] = (0, import_react21.useState)(false);
   const onContextMenu = (event) => {
     event.preventDefault();
+    event.stopPropagation();
     actions.openMenu({ kind: "bot", id, x: event.clientX, y: event.clientY });
+  };
+  const openMenuBtn = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    actions.openMenu({ kind: "bot", id, x: rect.left, y: rect.bottom });
   };
   const pinned = bot.pinned === true && !tile;
   const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
@@ -10231,11 +10240,22 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
         "data-bot-id": id,
         title: preview || bot.name,
         onClick: () => actions.openSession(id),
-        onContextMenu
+        onContextMenu,
+        onMouseEnter: () => setHover(true),
+        onMouseLeave: () => setHover(false)
       },
       (0, import_react21.createElement)(BotAvatar, { bot, size: 60, state, main: true }),
       (0, import_react21.createElement)("span", { className: "bt-tile-name" }, bot.name),
-      bot.role ? (0, import_react21.createElement)("span", { className: "bt-chip" }, bot.role) : null
+      bot.role ? (0, import_react21.createElement)("span", { className: "bt-chip" }, bot.role) : null,
+      hover ? (0, import_react21.createElement)("button", {
+        type: "button",
+        "aria-label": t("More actions"),
+        title: t("More actions"),
+        className: "bt-ctx-btn",
+        style: { position: "absolute", top: 2, right: 2, background: "none", border: "none", cursor: "pointer", fontSize: "1em", opacity: 0.5, padding: "0 4px", lineHeight: 1 },
+        onClick: openMenuBtn,
+        onContextMenu
+      }, "⋮") : null
     ));
   }
   return (0, import_react21.createElement)(
@@ -10247,7 +10267,11 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       "aria-current": active ? "page" : void 0,
       "data-bot-id": id,
       title: wide ? void 0 : bot.name,
-      onMouseEnter: wide ? nameIfCut : void 0,
+      onMouseEnter: () => {
+        setHover(true);
+        if (wide) nameIfCut?.();
+      },
+      onMouseLeave: () => setHover(false),
       onClick: () => actions.openSession(id),
       onContextMenu
     },
@@ -10259,7 +10283,16 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       (0, import_react21.createElement)("span", { className: "bt-row-name" }, (0, import_react21.createElement)("span", { className: "bt-row-title" }, bot.name), pinned ? (0, import_react21.createElement)(PinMark) : null),
       runningLine ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, runningLine) : awayLine ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, awayLine) : waitsFor ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, waitsFor) : preview ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, preview) : null
     ) : null,
-    wide && unread && !active ? (0, import_react21.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (alert || unread) ? (0, import_react21.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
+    wide && unread && !active ? (0, import_react21.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (alert || unread) ? (0, import_react21.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null,
+    wide && hover ? (0, import_react21.createElement)("button", {
+      type: "button",
+      "aria-label": t("More actions"),
+      title: t("More actions"),
+      className: "bt-ctx-btn",
+      style: { background: "none", border: "none", cursor: "pointer", fontSize: "1.1em", opacity: 0.55, padding: "2px 6px", lineHeight: 1, flexShrink: 0 },
+      onClick: openMenuBtn,
+      onContextMenu
+    }, "⋮") : null
   );
 }
 function RoomRow({ room: room2, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {

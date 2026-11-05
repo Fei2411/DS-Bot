@@ -92,7 +92,7 @@ function GroupHeaderRow({ group, actions, wideContent }) {
     className: 'bt-group-header',
     style: { display: 'flex', alignItems: 'center', padding: '4px 12px', opacity: 0.7, fontSize: '0.78em', fontWeight: 600, letterSpacing: '0.04em', userSelect: 'none' },
     'aria-label': label,
-    onContextMenu: (e) => { e.preventDefault(); actions.openMenu({ kind: 'group', id, name, x: e.clientX, y: e.clientY, onRename: () => setRenaming(true) }) },
+    onContextMenu: (e) => { e.preventDefault(); e.stopPropagation(); actions.openMenu({ kind: 'group', id, name, x: e.clientX, y: e.clientY, onRename: () => setRenaming(true) }) },
   },
     h('div', {
       style: { display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' },
@@ -170,9 +170,17 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const waits = workKeys(useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null')
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
   if (bot.hidden && !active && !main) return null
+  const [hover, setHover] = useState(false)
   const onContextMenu = (event) => {
     event.preventDefault()
+    event.stopPropagation()
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
+  }
+  const openMenuBtn = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    actions.openMenu({ kind: 'bot', id, x: rect.left, y: rect.bottom })
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
@@ -180,14 +188,23 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
+      onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false),
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
     h('span', { className: 'bt-tile-name' }, bot.name),
-    bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
+    bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
+    hover ? h('button', {
+      type: 'button', 'aria-label': t('More actions'), title: t('More actions'),
+      className: 'bt-ctx-btn',
+      style: { position: 'absolute', top: 2, right: 2, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1em', opacity: 0.5, padding: '0 4px', lineHeight: 1 },
+      onClick: openMenuBtn, onContextMenu,
+    }, '⋮') : null))
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-    'data-bot-id': id, title: wide ? undefined : bot.name, onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id), onContextMenu,
+    'data-bot-id': id, title: wide ? undefined : bot.name,
+    onMouseEnter: () => { setHover(true); if (wide) nameIfCut?.() }, onMouseLeave: () => setHover(false),
+    onClick: () => actions.openSession(id), onContextMenu,
   },
   h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
   pinned && !wide ? h(PinMark) : null,
@@ -198,7 +215,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
         : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
           : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
-    : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
+    : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null,
+  wide && hover ? h('button', {
+    type: 'button', 'aria-label': t('More actions'), title: t('More actions'),
+    className: 'bt-ctx-btn',
+    style: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1em', opacity: 0.55, padding: '2px 6px', lineHeight: 1, flexShrink: 0 },
+    onClick: openMenuBtn, onContextMenu,
+  }, '⋮') : null)
 }
 
 function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
