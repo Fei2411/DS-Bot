@@ -159,7 +159,7 @@ export function SecretCard({ secret, call, p , bare = false }: { secret: SecretR
   const send = async (endpoint: string, payload: Record<string, unknown>) => {
     if (busy) return
     setBusy(true)
-    try { await call(endpoint, { id: secret.id, ...payload }) } catch (failure) {
+    try { await call(endpoint, { requestId: secret.id, ...payload }) } catch (failure) {
       if ((failure as { code?: string })?.code === 'unlock/canceled') { /* stay open */ }
       else if ((failure as { code?: string })?.code === 'unlock/unavailable') setFailed(true)
       else setFailed(true)

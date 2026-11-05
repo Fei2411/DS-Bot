@@ -26,7 +26,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
     summary: [a.tool, a.reason].filter(Boolean).join(' · '),
   }))
   const secrets = Object.entries(team?.secretRequests ?? {}).flatMap(([botId, list]) =>
-    (list ?? []).filter(r => r.status !== 'settled').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ? t('Asks for the secret {name}', { name: r.name }) : t('A secret is needed') })))
+    (list ?? []).filter(r => r.status === 'pending').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ? t('Asks for the secret {name}', { name: r.name }) : t('A secret is needed') })))
   const handoffs = Object.entries((team as { browserHolds?: Record<string, { callId?: string; note?: string; reason?: string }> } | null)?.browserHolds ?? {})
     .filter(([, hold]) => hold.callId !== undefined)
     .map(([botId, hold]) => ({ key: `h-${hold.callId}`, botId, summary: hold.note ?? hold.reason ?? t('Browser handoff') }))
