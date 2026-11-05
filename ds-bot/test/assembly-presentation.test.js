@@ -126,9 +126,9 @@ test('a DSH 0.2.2 presentation without a tool list assembles and drops the hidde
   // only — the tool list is added by the host after the waterfall has run.
   const presentation = { sections: SECTIONS, contexts: [], variables: {} }
   const assembled = await assemble(presentation, async () => presentation)
-  // Nothing is fabricated onto it: an empty list would read as "no tools at all",
-  // and an empty section list would drop the whole prompt.
-  assert.equal('tools' in assembled, false, 'no tool list is invented for a presentation')
+  // A missing tool list falls back to an empty one (#922): the host replaces it
+  // with the real list right after the waterfall, so nothing is lost here.
+  assert.deepEqual(assembled.tools, [], 'a missing tool list falls back to an empty one')
   assert.deepEqual(assembled.sections.map(section => section.name), ['tool:show_view', 'persona'])
   assert.deepEqual(assembled.contexts, [])
   assert.deepEqual(assembled.variables, {})
@@ -159,7 +159,10 @@ test('a presentation that carries neither list is passed through', async (t) => 
   const assemble = await botAssemblyFilter(host, 'a')
   const presentation = { contexts: [{ name: 'runtime', text: 'here' }], variables: { cwd: '/team' } }
   const assembled = await assemble(presentation, async () => presentation)
-  assert.equal('sections' in assembled, false, 'no empty section list wipes the prompt')
+  // Both list reads fall back rather than throw (#922), and the rest of the
+  // presentation is kept as it came.
+  assert.deepEqual(assembled.tools, [])
+  assert.deepEqual(assembled.sections, [])
   assert.deepEqual(assembled.contexts, [{ name: 'runtime', text: 'here' }])
   assert.deepEqual(assembled.variables, { cwd: '/team' })
 })
@@ -173,5 +176,5 @@ test('a plugin that listened earlier in the chain handing back nothing is surviv
   // Another plugin's own assemble hook returned nothing at all (#946): the next
   // listener in the waterfall then resolves to nothing, and ds-bot reads it.
   const assembled = await assemble(undefined, async () => undefined)
-  assert.deepEqual(assembled, {})
+  assert.deepEqual(assembled, { tools: [], sections: [] })
 })

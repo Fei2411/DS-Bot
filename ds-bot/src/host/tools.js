@@ -848,14 +848,15 @@ export function install(rt) {
       // DSH 0.2.2 hands this waterfall a presentation only — sections, contexts
       // and variables — and adds the tool list after it (#814), so neither list
       // can be counted on here. A plugin that listened earlier in the chain may
-      // also hand back nothing at all (#946). Replace one list only when the
-      // assembly really carries it, so a missing list is not turned into an
-      // empty one that drops the whole prompt.
+      // also hand back nothing at all (#946). Fall back to an empty list instead
+      // of reading the missing list, the guard the reports in #922, #951 and #952
+      // verified: the host drops a tool list we hand back (#922 comment), and a
+      // host that carries sections always hands them over.
       const assembled = (await next()) ?? {}
       return {
         ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)) } : {},
+        tools: (assembled.tools ?? []).filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        sections: (assembled.sections ?? []).filter(section => !HIDDEN_SECTIONS.has(section.name)),
       }
     })
     held.filtered = true
