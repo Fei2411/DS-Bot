@@ -227,19 +227,28 @@ function useWrite(navigation: any) {
   return { run, error }
 }
 
+// Like the desktop, a Bot or group the user just made (or duplicated) opens
+// its chat, once the team lists it.
+function useOpenWhenListed(navigation: any) {
+  const { team } = useTeam()
+  const [target, setTarget] = useState<{ kind: 'bot' | 'room'; id: string } | null>(null)
+  useEffect(() => {
+    if (target === null) return
+    const listed = target.kind === 'bot' ? botOf(team, target.id) !== undefined : (team?.rooms ?? []).some(room => room.id === target.id)
+    if (!listed) return
+    setTarget(null)
+    navigation.popTo('Chat', target)
+  }, [target, team])
+  return setTarget
+}
+
 // ------------------------------------------------------------ Bot details
 
 export function BotDetails({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
-  const [copy, setCopy] = useState<string | null>(null)
-  // Like the desktop, a duplicate opens the copy's chat, once the team lists it.
-  useEffect(() => {
-    if (copy === null || botOf(team, copy) === undefined) return
-    setCopy(null)
-    navigation.popTo('Chat', { kind: 'bot', id: copy })
-  }, [copy, team])
+  const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const main = isMain(team, bot.id)
@@ -274,7 +283,7 @@ export function BotDetails({ route, navigation }: any) {
             <SwitchRow label={t('Main Bot')} hint={t('Can create and change Bots, and runs every group chat.')}
               on={main} onChange={next => void run('set-main', { id: bot.id, main: next })} />
           )}
-          {bot.private === true ? null : <Row label={t('Duplicate')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => setCopy((value as Bot).id))} />}
+          {bot.private === true ? null : <Row label={t('Duplicate')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => open({ kind: 'bot', id: (value as Bot).id }))} />}
           <DangerRow label={t('Delete')} confirm={t('Tap again to delete this Bot')} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.goBack())} />
         </Section>
       </ScrollView>
@@ -387,13 +396,14 @@ export function NewBot({ navigation }: any) {
   const models = team?.models ?? []
   const [model, setModel] = useState<string | undefined>(() => (models.find(m => m.ref === team?.defaultModel) ?? models[0])?.ref)
   const [busy, setBusy] = useState(false)
+  const open = useOpenWhenListed(navigation)
   const finalName = name.trim() || t('New Bot')
   const clash = (team?.bots ?? []).some(bot => bot.name.toLowerCase() === finalName.toLowerCase())
   const create = async () => {
     if (busy || clash) return
     setBusy(true)
     await run('create-bot', { name: finalName, color, avatar: { shape }, ...(model !== undefined ? { model } : {}) },
-      () => navigation.goBack())
+      value => open({ kind: 'bot', id: (value as Bot).id }))
     setBusy(false)
   }
   return (
@@ -525,10 +535,15 @@ export function NewGroup({ navigation }: any) {
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [admin, setAdmin] = useState<string | null>(null)
   const bots = team?.bots ?? []
+  const open = useOpenWhenListed(navigation)
+  // As on the desktop: an admin and at least one more Bot, and the admin opens
+  // by asking what the group is for. The first Bot picked leads until another is chosen.
+  const lead = admin !== null && picked.has(admin) ? admin : [...picked][0] ?? null
+  const ready = lead !== null && picked.size >= 2
   const create = () => {
-    const members = [...(admin !== null ? [admin] : []), ...[...picked].filter(id => id !== admin)]
-    if (members.length === 0) return
-    void run('create-room', { members }, () => navigation.goBack())
+    if (!ready) return
+    const members = [lead, ...[...picked].filter(id => id !== lead)]
+    void run('create-room', { members, admin: lead, greet: true }, value => open({ kind: 'room', id: (value as Room).id }))
   }
   return (
     <Screen title={t('New group')}>
@@ -553,16 +568,16 @@ export function NewGroup({ navigation }: any) {
           {[...picked].map(id => {
             const bot = bots.find(b => b.id === id)
             return bot === undefined ? null : (
-              <Pressable key={id} onPress={() => setAdmin(admin === id ? null : id)} style={styles.row}>
-                <Text style={[typeScale.settingsRow, { color: admin === id ? p.accent : p.ink, flex: 1 }]}>{bot.name}</Text>
-                {admin === id ? <Text style={{ color: p.accent }}>●</Text> : null}
+              <Pressable key={id} accessibilityRole="radio" accessibilityState={{ checked: lead === id }} onPress={() => setAdmin(id)} style={styles.row}>
+                <Text style={[typeScale.settingsRow, { color: lead === id ? p.accent : p.ink, flex: 1 }]}>{bot.name}</Text>
+                {lead === id ? <Text style={{ color: p.accent }}>●</Text> : null}
               </Pressable>
             )
           })}
         </Section>
         <View style={{ paddingHorizontal: 18, marginTop: 24 }}>
-          <Pressable accessibilityRole="button" disabled={picked.size === 0} onPress={create}
-            style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: picked.size === 0 ? 0.5 : pressed ? 0.85 : 1 }]}>
+          <Pressable accessibilityRole="button" disabled={!ready} onPress={create}
+            style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !ready ? 0.5 : pressed ? 0.85 : 1 }]}>
             <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create')}</Text>
           </Pressable>
         </View>
