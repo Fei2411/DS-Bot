@@ -176,4 +176,49 @@ export function install(rt) {
   }
 
   Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText })
+
+  // ── Worker Bot reply helpers (Subtask B) ──────────────────────────────────
+  // deliverHandoff: formats a remote_handoff result as a Bot reply and delivers it.
+  // deliverProgress: sends a live progress note as an intermediate message.
+
+  rt.deliverHandoff = async function deliverHandoff(sessionId, { exchangeId, fromId, toId, work, handoffResult }) {
+    try {
+      let text
+      if (handoffResult?.isError) {
+        text = `[远程任务失败: ${handoffResult.value ?? 'unknown error'}]`
+      } else {
+        const h = handoffResult?.value
+        const status = h?.status ?? '已结束'
+        const exit = typeof h?.exit?.code === 'number' ? ` (exit ${h.exit.code})` : ''
+        const summary = typeof h?.summary?.text === 'string' && h.summary.text.trim() !== ''
+          ? `\n\n${h.summary.text.trim()}`
+          : ''
+        text = `[任务 ${status}${exit}]${summary}`
+      }
+      const long = await rt.attachLong?.(text, 'handoff.txt')
+      void rt.deliver?.({
+        fromId, toId,
+        text: long?.text ?? text,
+        ...(long?.files?.length ? { files: long.files, length: long.length } : {}),
+        role: 'reply',
+        replyTo: exchangeId,
+        ...(work ? { work } : {}),
+      }).catch(err => rt.warn('ds-bot: deliverHandoff failed: %s', err))
+    } catch (err) {
+      rt.warn('ds-bot: deliverHandoff error: %s', err)
+    }
+  }
+
+  rt.deliverProgress = async function deliverProgress(sessionId, { fromId, toId, text }) {
+    try {
+      if (!text || !fromId || !toId) return
+      void rt.deliver?.({
+        fromId, toId,
+        text: `[进度] ${text}`,
+        role: 'reply',
+      }).catch(err => rt.warn('ds-bot: deliverProgress failed: %s', err))
+    } catch (err) {
+      rt.warn('ds-bot: deliverProgress error: %s', err)
+    }
+  }
 }

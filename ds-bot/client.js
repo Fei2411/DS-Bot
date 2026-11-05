@@ -10267,9 +10267,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       "aria-current": active ? "page" : void 0,
       "data-bot-id": id,
       title: wide ? void 0 : bot.name,
-      onMouseEnter: () => {
-        if (wide) nameIfCut?.();
-      },
+      onMouseEnter: wide ? nameIfCut : void 0,
       onClick: () => actions.openSession(id)
     },
     (0, import_react21.createElement)(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),

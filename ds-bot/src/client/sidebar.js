@@ -202,7 +202,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-bot-id': id, title: wide ? undefined : bot.name,
-    onMouseEnter: () => { if (wide) nameIfCut?.() },
+    onMouseEnter: wide ? nameIfCut : undefined,
     onClick: () => actions.openSession(id),
   },
   h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
