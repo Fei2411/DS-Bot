@@ -72,6 +72,21 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     error: { code: -32600, message: `The ${id} connector is read-only: this tool can change things, so it is off. Turn off the read-only switch in Settings → Connectors to use it.` },
   })
 
+  // A 401 that survives the refresh: answer the JSON-RPC request with a reason
+  // the Bot can act on, instead of an empty HTTP error.
+  const signInAgain = (id, body, upstream, res) => {
+    let rpc
+    try { rpc = JSON.parse(body?.toString('utf8') ?? '') } catch { return false }
+    if (rpc === null || typeof rpc !== 'object' || Array.isArray(rpc) || rpc.id === undefined) return false
+    upstream.resume()
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      jsonrpc: '2.0', id: rpc.id,
+      error: { code: -32001, message: `The ${id} connector needs sign-in again. Call request_connector with id ${id} so the user can sign in, or ask them to sign in under Settings → Connectors.` },
+    }))
+    return true
+  }
+
   async function sendUpstream(id, entry, method, path, headers, body) {
     return new Promise((resolve, reject) => {
       const target = new URL(entry.url)
@@ -87,7 +102,8 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
         // This listener must exist before refresh awaits: the response can fail
         // before the handler starts consuming it.
         upstream.on('error', reject)
-        if (upstream.statusCode >= 400) log('ds-bot: connector %s upstream %s HTTP %s (session: %s)', id, method, upstream.statusCode, headers['mcp-session-id'] !== undefined)
+        // GET 405 is the normal answer from servers without a standalone stream.
+        if (upstream.statusCode >= 400 && !(method === 'GET' && upstream.statusCode === 405)) log('ds-bot: connector %s upstream %s HTTP %s (session: %s)', id, method, upstream.statusCode, headers['mcp-session-id'] !== undefined)
         resolve(upstream)
       })
       req.on('error', reject)
@@ -136,6 +152,7 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
             upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body)
           }
         }
+        if (upstream.statusCode === 401 && signInAgain(id, body, upstream, res)) return
         const raw = await readAll(upstream)
         const isSse = String(upstream.headers['content-type'] ?? '').includes('text/event-stream')
         const payload = isSse ? sseMessage(raw.toString('utf8')) : raw.toString('utf8')
@@ -179,6 +196,7 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       res.end(JSON.stringify({ error: 'connector upstream failed' }))
       return
     }
+    if (upstream.statusCode === 401 && req.method === 'POST' && signInAgain(id, body, upstream, res)) return
     // tools/list without the read-only filter still feeds the annotation cache.
     const isList = req.method === 'POST' && body !== undefined && (() => { try { return JSON.parse(body.toString('utf8'))?.method === 'tools/list' } catch { return false } })()
     const heads = {}

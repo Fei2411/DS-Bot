@@ -529,7 +529,8 @@ export function install(rt) {
       const bot = rt.botOf(rt.selfOf(agentId))
       if (bot === undefined) return 'Only Bots on the team can use request_connector.'
       const connected = id === 'mail' ? mailHasAccounts() : hasCredential(id)
-      if (connected && !offFor(id).includes(bot.id)) return `${entry.name} is already connected; use its tools (mcp__${id}__*).`
+      const signIn = statuses.get(id)?.state === 'needs-sign-in'
+      if (connected && !signIn && !offFor(id).includes(bot.id)) return `${entry.name} is already connected; use its tools (mcp__${id}__*).`
       if (offFor(id).includes(bot.id)) return `${entry.name} is turned off for you. The user can turn it on in your details.`
       if (rt.groupOwners.has(agentId)) return 'Connector cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_connector there.'
       if (!rt.chatOwners.has(agentId)) return 'Connector cards only work in your current own chat.'

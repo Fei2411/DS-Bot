@@ -33,6 +33,39 @@ for (const refreshing of [false, true]) {
   })
 }
 
+for (const limited of [false, true]) {
+  test(`a 401 that refresh cannot fix answers the call with a sign-in reason${limited ? ' (read-only list)' : ''}`, async (t) => {
+    let hits = 0
+    const upstream = createServer((req, res) => {
+      hits += 1
+      req.resume()
+      req.on('end', () => { res.writeHead(401, { 'www-authenticate': 'Bearer' }); res.end() })
+    })
+    await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    t.after(() => upstream.close())
+    let refreshes = 0
+    const gw = createGateway({
+      credential: () => ({ url: `http://127.0.0.1:${upstream.address().port}/mcp`, headers: {} }),
+      readOnly: () => limited,
+      onUnauthorized: async () => { refreshes += 1; return false },
+    })
+    await gw.listen()
+    t.after(() => gw.close())
+    const method = limited ? 'tools/list' : 'tools/call'
+    const response = await fetch(gw.urlFor('notion'), {
+      method: 'POST',
+      headers: { ...gw.headers(), accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method, params: { name: 'notion-search' } }),
+    })
+    assert.equal(response.status, 200)
+    const answer = await response.json()
+    assert.equal(answer.id, 7)
+    assert.match(answer.error.message, /notion connector needs sign-in again.*request_connector/)
+    assert.equal(refreshes, 1)
+    assert.equal(hits, 1)
+  })
+}
+
 test('gateway preserves MCP POST headers and bodies and reports expired sessions without replaying calls', async (t) => {
   const seen = []
   const upstream = createServer((req, res) => {

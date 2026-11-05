@@ -306,6 +306,9 @@ test('refresh is single-flight, rotates the refresh token, and invalid_grant mea
   logs = await rt.diagnostics.entries()
   assert.ok(logs.some(row => /connector notion token refresh failed.*dcr/.test(row.text)))
   assert.equal(JSON.stringify(logs).includes('RT-2'), false)
+  // A connector that needs sign-in again can still be asked for with a card.
+  const ask = rt.teamTools.find(d => d.name === 'request_connector')
+  assert.doesNotMatch(String(await ask.execute({ id: 'notion', purpose: 'Search pages' }, { agent: { id: 'm1' }, concludeTurn: () => {} })), /already connected/)
 })
 
 test('refresh uses the client that signed in: cimd, catalog, and legacy inference', async (t) => {
