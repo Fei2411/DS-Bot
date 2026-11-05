@@ -296,11 +296,16 @@ test('refresh is single-flight, rotates the refresh token, and invalid_grant mea
   assert.equal(b, true)
   assert.equal(grants, 1)
   assert.equal(rt.secretValue('CONNECTOR_NOTION_REFRESH'), 'RT-2')
+  let logs = await rt.diagnostics.entries()
+  assert.equal(logs.filter(row => /connector notion token refresh succeeded.*dcr/.test(row.text)).length, 1)
   // invalid_grant on the next refresh: needs-sign-in, old secrets kept.
   globalThis.fetch = async (url, init) => String(url?.url ?? url) === 'https://as.test/token' ? json({ error: 'invalid_grant' }, 400) : request(url, init)
   assert.equal(await rt.connectorsInternals.refreshConnector('notion'), false)
   assert.equal(rt.connectorsInternals.statuses.get('notion').state, 'needs-sign-in', JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
   assert.equal(rt.secretValue('CONNECTOR_NOTION_REFRESH'), 'RT-2')
+  logs = await rt.diagnostics.entries()
+  assert.ok(logs.some(row => /connector notion token refresh failed.*dcr/.test(row.text)))
+  assert.equal(JSON.stringify(logs).includes('RT-2'), false)
 })
 
 test('refresh uses the client that signed in: cimd, catalog, and legacy inference', async (t) => {
@@ -334,6 +339,7 @@ test('refresh uses the client that signed in: cimd, catalog, and legacy inferenc
     t.after(done)
     assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true, JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
     assert.equal(seen.at(-1), 'https://dsbot.app/oauth/client.json')
+    assert.equal(rt.state.connectors.notion.client.via, 'cimd')
   }
   // A catalog sign-in refreshes with the current catalog client id.
   {
@@ -344,6 +350,16 @@ test('refresh uses the client that signed in: cimd, catalog, and legacy inferenc
     assert.equal(await rt.connectorsInternals.refreshConnector('github'), true, JSON.stringify(rt.connectorsInternals.statuses.get('github')))
     assert.equal(seen.at(-1), 'test-gh-client')
   }
+  {
+    const { rt, done } = await make(
+      { notion: { oauth: { authorizationServerUrl: 'https://as.test' }, client: { via: 'manual', clientId: 'manual-client' } } },
+      { name: 'CONNECTOR_NOTION_REFRESH', value: 'RT-manual', scope: [] })
+    t.after(done)
+    assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true)
+    assert.equal(seen.at(-1), 'manual-client')
+    assert.equal(rt.state.connectors.notion.client.via, 'manual')
+    assert.ok((await rt.diagnostics.entries()).some(row => /refresh succeeded.*manual/.test(row.text)))
+  }
   // Legacy rows have no `client`: CIMD when the AS supports it, else needs-sign-in.
   {
     asMeta = { ...AS, client_id_metadata_document_supported: true }
@@ -353,6 +369,8 @@ test('refresh uses the client that signed in: cimd, catalog, and legacy inferenc
     t.after(done)
     assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true, JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
     assert.equal(seen.at(-1), 'https://dsbot.app/oauth/client.json')
+    assert.deepEqual(rt.state.connectors.notion.client, { via: 'cimd', clientId: oauth.CIMD_CLIENT_ID })
+    assert.ok((await rt.diagnostics.entries()).some(row => /refresh succeeded.*inferred.*cimd/.test(row.text)))
   }
   {
     asMeta = AS
@@ -751,6 +769,83 @@ test('connector-sign-in-code refuses a wrong state and accepts the pasted URL or
   t.after(() => { globalThis.fetch = real })
   await rt.connectorEndpoint('connector-sign-in-code', { id: 'notion', input: 'http://x/?code=C&state=STATE1' })
   assert.equal(rt.secretValue('CONNECTOR_NOTION_TOKEN'), 'AT-9')
+})
+
+test('OAuth loopback keeps an error listener after binding, including repeated errors', async (t) => {
+  const real = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url.includes('oauth-authorization-server')) return json({ ...AS, client_id_metadata_document_supported: true })
+    if (url === 'https://as.test/register') return json({ client_id: 'dcr-local', redirect_uris: JSON.parse(init.body).redirect_uris })
+    if (url.includes('oauth-protected-resource')) return json({ resource: 'https://mcp.notion.com/mcp', authorization_servers: ['https://as.test'] })
+    return new Response('', { status: 401 })
+  }
+  t.after(() => { globalThis.fetch = real })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('connector-connect', { id: 'notion' })
+  const listener = rt.connectorsInternals.pendings.get('notion').listener
+  assert.doesNotThrow(() => {
+    listener.emit('error', new Error('listener failed'))
+    listener.emit('error', new Error('listener failed again'))
+  })
+})
+
+test('Google loopback catches a rejected sign-in callback instead of an unhandled rejection', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false, mail: { fetch: async url => {
+    if (String(url).includes('oauth-authorization-server')) return json(AS)
+    return notFound()
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  const view = await rt.connectorEndpoint('mail-account-add', { address: addressAt('gmail.com'), google: true })
+  const callback = new URL(view.pending[0].url).searchParams.get('redirect_uri')
+  await fetch(callback) // No code: googleCode rejects.
+  await new Promise(resolve => setImmediate(resolve))
+  assert.ok((await rt.diagnostics.entries()).some(row => /mail Google sign-in failed/.test(row.text)))
+})
+
+test('Google mailbox refresh reports success and failure without credentials or addresses', async () => {
+  const { install } = await import('../src/host/connectors/mail/index.js')
+  const logs = []
+  const secrets = new Map()
+  const address = addressAt('gmail.com')
+  secrets.set(mailSecretName(address, 'REFRESH'), 'google-refresh-private')
+  let fail = false
+  const rt = {
+    state: {}, readOnly: () => undefined, secretValue: key => secrets.get(key),
+    warn: (...args) => logs.push(args),
+    config: { mail: { fetch: async url => {
+      if (String(url).includes('well-known')) return json(AS)
+      if (String(url).includes('/token')) return fail
+        ? json({ error: 'invalid_grant' }, 400)
+        : json({ access_token: 'google-access-private', token_type: 'Bearer' })
+      return notFound()
+    } } },
+  }
+  const mail = install(rt, { secrets: { writeSecret: async (key, value) => secrets.set(key, value) } })
+  assert.equal(await mail._internals.refreshGoogle({ address }), true)
+  fail = true
+  assert.equal(await mail._internals.refreshGoogle({ address }), false)
+  assert.match(JSON.stringify(logs), /succeeded.*manual\/Google/)
+  assert.match(JSON.stringify(logs), /failed.*manual\/Google/)
+  assert.equal(JSON.stringify(logs).includes('private'), false)
+  assert.equal(JSON.stringify(logs).includes(address), false)
 })
 
 test('gmail transport: search, read, draft, send, modify, trash, and one refresh on 401', async () => {

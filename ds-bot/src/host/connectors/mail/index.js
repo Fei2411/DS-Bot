@@ -90,9 +90,11 @@ export function install(rt, host) {
       if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
         await host.secrets.writeSecret(mailSecretName(account.address, 'REFRESH'), tokens.refresh_token, `Mailbox ${account.address}`).catch(() => {})
       }
+      rt.warn('ds-bot: connector mail token refresh succeeded (client: manual/Google)')
       return true
     } catch (error) {
       if (invalidGrant(error)) account.error = 'Sign in again'
+      rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; %s)', invalidGrant(error) ? 'invalid_grant' : 'refresh error')
       return false
     }
   }
@@ -408,10 +410,16 @@ export function install(rt, host) {
     googlePendings.set(address, pending)
     const { createServer } = await import('node:http')
     const listener = createServer((req, res) => {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      req.on('error', () => res.destroy())
+      res.on('error', () => req.destroy())
+      let url
+      try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
       res.writeHead(200, { 'content-type': 'text/html' })
       res.end('<p style="font-family:sans-serif">Signed in — you can close this tab.</p>')
-      void googleCode({ address, input: url.toString() })
+      void googleCode({ address, input: url.toString() }).catch(error => rt.warn('ds-bot: mail Google sign-in failed: %s', host.reason(error)))
+    })
+    listener.on('error', error => {
+      if (listener.listening) rt.warn('ds-bot: mail Google sign-in listener failed: %s', error?.code ?? 'error')
     })
     await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve) })
     pending.listener = listener

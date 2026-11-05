@@ -270,11 +270,17 @@ export function install(rt) {
   // The loopback server for the browser flow: fixed port first, else a random one.
   async function loopback(ready) {
     const listener = createServer((req, res) => {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      req.on('error', () => res.destroy())
+      res.on('error', () => req.destroy())
+      let url
+      try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
       if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       res.end('<!doctype html><title>Signed in</title><p style="font-family:sans-serif;margin:3em;text-align:center">Signed in — you can close this tab and go back to DS Bot.</p>')
-      void ready({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), iss: url.searchParams.get('iss'), error: url.searchParams.get('error'), errorDescription: url.searchParams.get('error_description') })
+      void ready({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), iss: url.searchParams.get('iss'), error: url.searchParams.get('error'), errorDescription: url.searchParams.get('error_description') }).catch(error => rt.warn('ds-bot: connector sign-in callback failed: %s', reason(error)))
+    })
+    listener.on('error', error => {
+      if (listener.listening) rt.warn('ds-bot: connector sign-in listener failed: %s', error?.code ?? 'error')
     })
     const listen = port => new Promise((resolve, reject) => {
       const onError = error => { listener.off('listening', onOk); reject(error) }
@@ -410,7 +416,12 @@ export function install(rt) {
         return false
       }
       const refresh = rt.secretValue(refreshSecretOf(id))
-      if (refresh === undefined || saved?.oauth === undefined) { statuses.set(id, { state: 'needs-sign-in' }); return false }
+      let path = saved?.client?.via ?? 'inferred'
+      if (refresh === undefined || saved?.oauth === undefined) {
+        statuses.set(id, { state: 'needs-sign-in' })
+        rt.warn('ds-bot: connector %s token refresh failed (client: %s; missing refresh token or OAuth metadata)', id, path)
+        return false
+      }
       try {
         const discovery = await oauth.rediscover(saved.oauth)
         // Refresh with the client that signed in: catalog → the current catalog id,
@@ -421,7 +432,13 @@ export function install(rt) {
         const clientId = via === 'catalog' ? entryFor(id)?.auth?.client?.id
           : via === 'cimd' ? oauth.CIMD_CLIENT_ID
           : saved.client?.clientId ?? (discovery.metadata?.client_id_metadata_document_supported === true ? oauth.CIMD_CLIENT_ID : undefined)
-        if (clientId === undefined) { statuses.set(id, { state: 'needs-sign-in' }); return false }
+        const clientVia = via ?? (saved.client?.clientId ? 'manual' : 'cimd')
+        if (via === undefined && clientId !== undefined) path = `inferred/${clientVia}`
+        if (clientId === undefined) {
+          statuses.set(id, { state: 'needs-sign-in' })
+          rt.warn('ds-bot: connector %s token refresh failed (client: %s; no OAuth client)', id, path)
+          return false
+        }
         const secret = rt.secretValue(clientSecretOf(id))
         const client = { client_id: clientId, ...(secret !== undefined ? { client_secret: secret } : {}) }
         const tokens = await oauth.refreshTokens(discovery, client, refresh, { scope: saved.oauth.scope })
@@ -431,12 +448,17 @@ export function install(rt) {
           // Rotation: the old refresh token stays if this write fails.
           await writeSecret(refreshSecretOf(id), tokens.refresh_token, purpose).catch(() => {})
         }
-        await saveState(id, { tokenExpiresAt: Number.isFinite(tokens.expires_in) ? Date.now() + tokens.expires_in * 1000 : undefined })
+        await saveState(id, {
+          client: { ...saved.client, via: clientVia, clientId },
+          tokenExpiresAt: Number.isFinite(tokens.expires_in) ? Date.now() + tokens.expires_in * 1000 : undefined,
+        })
         statuses.delete(id)
+        rt.warn('ds-bot: connector %s token refresh succeeded (client: %s)', id, path)
         return true
       } catch (error) {
         if (oauth.invalidGrant(error)) statuses.set(id, { state: 'needs-sign-in', error: 'Sign in again' })
         else statuses.set(id, { state: 'error', error: reason(error) })
+        rt.warn('ds-bot: connector %s token refresh failed (client: %s; %s)', id, path, oauth.invalidGrant(error) ? 'invalid_grant' : 'refresh error')
         return false
       }
     })().finally(() => refreshes.delete(id))
