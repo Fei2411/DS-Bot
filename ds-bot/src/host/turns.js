@@ -1123,4 +1123,25 @@ export function install(rt) {
   }
 
   Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
+
+  // ── Worker Bot 路由（Phase4 融合）────────────────────────────────────────
+  // 拦截发往 remote-worker 类型 Bot 的 deliver 调用，转交 worker-bridge 处理。
+  // 仅处理 role:'request' 的上行消息；其他 role（reply/room/continue 等）不拦截。
+  const _origDeliver = rt.deliver
+  if (typeof _origDeliver === 'function') {
+    rt.deliver = async function deliverWithRemoteWorker(msg, ...rest) {
+      try {
+        const { toId, role, text, fromId, exchangeId, replyTo, work } = msg ?? {}
+        if (role === 'request' && typeof toId === 'string' && toId !== '') {
+          const bot = rt.botOf(toId)
+          if (bot?.type === 'remote-worker' && typeof rt.handleRemoteTurn === 'function') {
+            return rt.handleRemoteTurn({ fromId, toId, text: text ?? '', role, exchangeId, replyTo, work })
+          }
+        }
+      } catch (err) {
+        rt.warn?.('ds-bot: remote-worker route check failed: %s', err)
+      }
+      return _origDeliver.call(this, msg, ...rest)
+    }
+  }
 }
