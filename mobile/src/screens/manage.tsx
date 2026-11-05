@@ -685,7 +685,7 @@ export function Schedules({ route, navigation }: any) {
   const [count, setCount] = useState('1')
   const [unit, setUnit] = useState('hours')
   const [adding, setAdding] = useState(false)
-  const load = () => void call('schedules').then(v => setTasks(((v as typeof tasks) ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
+  const load = () => void call('schedules').then(v => setTasks(((v as { tasks?: typeof tasks })?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
   useState(() => { load(); return null })
   const when = () => {
     if (kind === 'at') { const at = new Date(`${atDate}T${atTime}`); return Number.isNaN(at.getTime()) ? null : { kind, at: at.toISOString() } }
