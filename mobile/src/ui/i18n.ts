@@ -3,6 +3,9 @@ import { DICTIONARY } from '../../../ds-bot/src/client/i18n.js'
 // Phone copy shares the desktop dictionary. Mobile-only strings have their own
 // Chinese entries here; the English source stays the key, as on the desktop.
 const ZH = DICTIONARY.zh as Record<string, string>
+// Words the desktop uses in another sense (its "New" badge, "Light" motion,
+// the browser's "Back"); the phone's own meaning wins for these.
+const MOBILE_SENSE = new Set(['New', 'Light', 'Back'])
 
 const MOBILE_ZH: Record<string, string> = {
   'Asks for the secret {name}': '请求密钥 {name}',
@@ -239,7 +242,8 @@ export function t(key: string, params?: Record<string, string | number>): string
   let text = key
   const zh = isZh()
   if (zh) {
-    if (Object.hasOwn(ZH, key)) text = ZH[key]
+    if (MOBILE_SENSE.has(key) && Object.hasOwn(MOBILE_ZH, key)) text = MOBILE_ZH[key]
+    else if (Object.hasOwn(ZH, key)) text = ZH[key]
     else if (Object.hasOwn(MOBILE_ZH, key)) text = MOBILE_ZH[key]
   }
   text = fill(text, params)
