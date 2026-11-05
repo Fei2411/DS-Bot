@@ -36,7 +36,32 @@ function requestOf(record) {
   if (record.kind === 'daily') return { ...base, daily: { time: record.time, time_zone: record.timeZone } }
   if (record.kind === 'weekly') return { ...base, weekly: { time: record.time, time_zone: record.timeZone, weekdays: record.weekdays } }
   if (record.kind === 'cron') return { ...base, cron: { expression: record.expression, time_zone: record.timeZone } }
+  if (record.kind === 'rrule') return { ...base, rrule: record.rrule }
   return null
+}
+
+// The selector keys of a create request and the timing kind each one names.
+const TIMING_KINDS = { at: 'at', every_seconds: 'every', daily: 'daily', weekly: 'weekly', cron: 'cron', rrule: 'rrule' }
+
+// DSH 0.2.2 reshaped the schedule service: create takes one request with a typed
+// `timing` ({ kind, <selector> }) and a delivery `target`, list() is a Host-wide page
+// with no Session filter, catalog entries name their Session in `target`, and a task
+// is deleted or retargeted through edit(). Earlier releases take create(sessionId,
+// request), list({ sessionId }) and delete({ sessionId, id }). Both shapes are served.
+const typedApi = service => typeof service.edit === 'function'
+
+// The Session a catalog entry delivers to, in either service shape.
+export function scheduleSessionOf(entry) {
+  return entry?.target?.kind === 'session' ? entry.target.sessionId : entry?.sessionId
+}
+
+// A flat create request ({ title, prompt, <selector> }) as the typed 0.2.2 request.
+export function typedRequestOf(sessionId, request) {
+  const { title, prompt, ...selector } = request
+  const keys = Object.keys(selector).filter(key => TIMING_KINDS[key] !== undefined)
+  if (keys.length !== 1) throw invalid('Pick when it runs')
+  const key = keys[0]
+  return { title, prompt, timing: { kind: TIMING_KINDS[key], [key]: selector[key] }, target: { kind: 'session', sessionId } }
 }
 
 // The settings form's timing as a create request selector.
@@ -91,18 +116,35 @@ export function install(rt) {
   }
   const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
 
+  // Create, list and delete in whichever shape the mounted service speaks.
+  const createTask = (sessionId, request) => (typedApi(service)
+    ? service.create(typedRequestOf(sessionId, request))
+    : service.create(sessionId, request))
+  const tasksOf = async (sessionId) => {
+    if (typedApi(service)) return (await service.catalog()).filter(entry => scheduleSessionOf(entry) === sessionId)
+    const listed = await service.list({ sessionId })
+    return Array.isArray(listed) ? listed : (listed?.items ?? [])
+  }
+  const deleteTask = async (sessionId, id) => {
+    if (!typedApi(service)) return service.delete({ sessionId, id })
+    const result = await service.edit({ id, action: 'delete' })
+    if (result?.code !== undefined) throw new Error(`task ${id} not deleted: ${result.code}`)
+    return result
+  }
+
   async function schedulesView() {
     if (service === null) return { available: false, tasks: [] }
     const now = Date.now()
     const tasks = []
     for (const entry of await service.catalog()) {
-      const owner = ownerOf(entry.sessionId)
+      const sessionId = scheduleSessionOf(entry)
+      const owner = ownerOf(sessionId)
       if (!known(owner)) continue
       // The state DSH derives for its own view: a task past its next firing reads
       // overdue; an inactive one is finished. DSH 0.2.1's catalog() carries the
       // status but not this state, so it is derived the same way here.
       const state = entry.status === 'active' ? (now >= Date.parse(entry.scheduledAt) ? 'overdue' : 'scheduled') : 'finished'
-      tasks.push({ ...entry, ...owner, state })
+      tasks.push({ ...entry, sessionId, ...owner, state })
     }
     return { available: true, tasks }
   }
@@ -119,13 +161,13 @@ export function install(rt) {
       if (title === '') throw invalid('Give the task a name')
       if (title.length > MAX_TITLE) throw invalid(`Keep the name under ${MAX_TITLE} characters`)
       if (prompt === '') throw invalid('Say what the Bot should do')
-      await service.create(bot ? rt.chatOf(bot.id) : rt.sessionOfRoom(room), { title, prompt, ...selectorOf(body.when) })
+      await createTask(bot ? rt.chatOf(bot.id) : rt.sessionOfRoom(room), { title, prompt, ...selectorOf(body.when) })
       return schedulesView()
     },
     async 'schedule-delete'(body) {
       if (service === null) throw invalid('Automation tasks are off in DSH')
       if (ownerOf(body.sessionId) === undefined) throw invalid('No such task')
-      await service.delete({ sessionId: body.sessionId, id: body.id })
+      await deleteTask(body.sessionId, body.id)
       return schedulesView()
     },
   }
@@ -134,15 +176,24 @@ export function install(rt) {
   // the fresh Session before the old one goes, so a failure leaves it where it was.
   async function moveSchedules(fromId, toId) {
     if (service === null) return
-    const records = await service.list({ sessionId: fromId })
+    // Only the earlier part's own tasks move: DSH 0.2.2's list() is Host-wide and
+    // ignores a Session filter, so the tasks are picked out of the catalog by target.
+    const records = await tasksOf(fromId)
     for (const record of records) {
+      if (record.status !== undefined && record.status !== 'active') continue
       const request = requestOf(record)
       if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+      if (typedApi(service)) {
+        // 0.2.2 retargets the task in place: one durable write, its history kept.
+        const result = await service.edit({ id: record.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
+        if (result?.code !== undefined) throw new Error(`task ${record.title} not moved: ${result.code}`)
+        continue
+      }
       // A failed read or copy must prevent stopActivity from deleting an unmoved
       // task. Equal requests can be separate tasks; copy each source record.
-      await service.create(toId, request)
+      await createTask(toId, request)
       try {
-        await service.delete({ sessionId: fromId, id: record.id })
+        await deleteTask(fromId, record.id)
       } catch (error) {
         // The copy is safe; archiving the earlier part will remove its old task.
         rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
