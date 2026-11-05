@@ -1122,5 +1122,23 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
+  // Delegate timeout sweep: every 60 s, close works that have waited longer than
+  // 30 min and deliver an error message to the Bot that sent the request, so it is
+  // never permanently blocked (#919).
+  const DELEGATE_SWEEP_MS = 60_000
+  const sweepTimer = setInterval(() => {
+    const timedOut = rt.sweepTimedOutWork?.() ?? []
+    for (const { asker, name, workId } of timedOut) {
+      if (asker === undefined) continue
+      const label = name ?? 'The other Bot'
+      rt.warn('ds-bot: delegate timeout for work %s (held by %s)', workId, label)
+      const toId = asker.senderSessionId
+      if (toId !== undefined) {
+        void tellSender(toId, asker, `${label} did not hand back a reply within 30 minutes. The request timed out.`)
+      }
+    }
+  }, DELEGATE_SWEEP_MS)
+  ctx.effect(() => () => clearInterval(sweepTimer), 'ds-bot: delegate timeout sweep')
+
   Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
 }

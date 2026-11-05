@@ -326,5 +326,25 @@ export function install(rt) {
     return lines.join('; ')
   }
 
-  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkRun, nameSubWork })
+  // Delegate timeout: works open longer than this are treated as hung and timed out.
+  const DELEGATE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+
+  // Finds and closes works that have exceeded the delegate timeout. Returns one
+  // {asker, name, workId} entry per work closed so the caller can deliver error messages.
+  function sweepTimedOutWork() {
+    const now = Date.now()
+    const timedOut = []
+    for (const [id, work] of Object.entries(works())) {
+      if (work.to === undefined || work.open.length === 0) continue
+      if (typeof work.at !== 'number' || now - work.at < DELEGATE_TIMEOUT_MS) continue
+      const asker = askedBy(id)
+      const name = nameOf(work.to)
+      // Close the work so waitsWork returns false and held replies get unblocked.
+      closeWork(id, work.name ?? 'delegate', work.held ?? '')
+      timedOut.push({ asker, name, workId: id })
+    }
+    return timedOut
+  }
+
+  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkRun, nameSubWork, sweepTimedOutWork })
 }
