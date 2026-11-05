@@ -56,6 +56,28 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
+// GroupHeaderRow: collapsible section header for a custom Bot group (e.g. 执行机 fleet).
+// Shows the group name, online/total worker count, and a collapse toggle.
+function GroupHeaderRow({ group, actions, wideContent }) {
+  if (!wideContent) return null
+  const { id, name, color, onlineCount, totalCount, collapsed } = group
+  const label = `${name} (${onlineCount}/${totalCount})`
+  const indicator = onlineCount > 0 ? '🟢' : '⚪'
+  return h('div', {
+    className: 'bt-group-header',
+    style: { display: 'flex', alignItems: 'center', padding: '4px 12px', opacity: 0.7, fontSize: '0.78em', fontWeight: 600, letterSpacing: '0.04em', cursor: 'pointer', userSelect: 'none' },
+    role: 'button',
+    'aria-expanded': String(!collapsed),
+    'aria-label': label,
+    onClick: () => actions.toggleBotGroup?.(id),
+    title: collapsed ? `展开 ${name}` : `收起 ${name}`,
+  },
+    h('span', { style: { marginRight: 4 } }, indicator),
+    h('span', { style: { flex: 1 } }, name.toUpperCase()),
+    h('span', { style: { marginRight: 6, fontVariantNumeric: 'tabular-nums' } }, `${onlineCount}/${totalCount}`),
+    h('span', { style: { fontSize: '0.9em' } }, collapsed ? '▶' : '▼'))
+}
+
 function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
   const id = bot.id
   const part = currentPart(bot)
@@ -329,13 +351,39 @@ export function TeamSidebar(props) {
   })
   const order = useMemo(() => {
     const stamps = JSON.parse(updated)
-    const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
-    ]
-    return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
+    // Collect ungrouped bots and rooms/agents first.
+    const groups = roster.groups ?? {}
+    const groupedBotIds = new Set(Object.values(groups).flatMap(g => g.botIds ?? []))
+
+    const ungroupedBots = roster.bots
+      .filter(bot => bot.id !== roster.mainBotId && !groupedBotIds.has(bot.id))
+      .map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt }))
+
+    const roomEntries = roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt }))
+    const agentEntries = (roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt }))
+
+    // Build group-header + group-bot entries for each custom group.
+    const groupEntries = []
+    const sortedGroups = Object.values(groups).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    for (const group of sortedGroups) {
+      const memberBots = (group.botIds ?? [])
+        .map(id => roster.bots.find(bot => bot.id === id))
+        .filter(Boolean)
+      if (memberBots.length === 0) continue
+      const onlineCount = memberBots.filter(bot => bot.worker?.online).length
+      groupEntries.push({ kind: 'group-header', item: { ...group, onlineCount, totalCount: memberBots.length }, at: 0 })
+      if (!group.collapsed) {
+        for (const bot of memberBots) {
+          groupEntries.push({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })
+        }
+      }
+    }
+
+    const entries = [...ungroupedBots, ...roomEntries, ...agentEntries, ...groupEntries]
+    return entries.sort((a, b) =>
+      a.kind === 'group-header' || b.kind === 'group-header' ? 0
+        : Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at
+    )
   }, [roster, updated])
   const main = roster.byId[roster.mainBotId]
   useListGlide(listRef, wideContent, order.map(entry => entry.item.id).join(','))
@@ -585,7 +633,9 @@ export function TeamSidebar(props) {
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'
           ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
-          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
+          : entry.kind === 'group-header'
+            ? h(GroupHeaderRow, { key: `group:${entry.item.id}`, group: entry.item, actions, wideContent })
+            : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
