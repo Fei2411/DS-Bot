@@ -196,6 +196,22 @@ export function install(rt) {
         } : {}),
       }
       if (main) state.mainBotIds.push(id)
+
+      // Phase 4: auto-create "执行机" group on first Worker Bot creation.
+      if (type === 'remote-worker') {
+        if (!state.groups) state.groups = {}
+        // Find existing worker group or create one.
+        let workerGroup = Object.values(state.groups).find(g => g.name === '执行机')
+        if (!workerGroup) {
+          const { randomUUID } = await import('node:crypto')
+          const groupId = randomUUID()
+          state.groups[groupId] = { id: groupId, name: '执行机', color: null, order: 0, collapsed: false, botIds: [] }
+          workerGroup = state.groups[groupId]
+        }
+        if (!workerGroup.botIds.includes(id)) workerGroup.botIds.push(id)
+        state.bots[id].groupId = workerGroup.id
+      }
+
       const creator = rt.botOf(createdBy)
       const original = rt.botOf(copyOf)
       const language = rt.uiLanguage?.()
