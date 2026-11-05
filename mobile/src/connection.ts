@@ -11,6 +11,7 @@ export interface Bot {
   color?: string
   avatar?: { shape?: string; image?: string }
   model?: string
+  appliedModel?: string
   capabilities?: string[]
   browser?: boolean
   effort?: string
@@ -78,7 +79,8 @@ export interface TeamState {
   rooms?: Room[]
   mainBotId?: string | null
   mainBotIds?: string[]
-  models?: { key?: string; name: string; ref?: string }[]
+  models?: { ref: string; name: string; provider?: string; providerName?: string }[]
+  defaultModel?: string
   memory?: boolean
   questions?: Record<string, Question>
   views?: Record<string, ShownView>

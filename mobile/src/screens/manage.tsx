@@ -3,7 +3,7 @@
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
 import { useCallback, useContext, useEffect, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
@@ -11,7 +11,7 @@ import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
-import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
@@ -150,29 +150,61 @@ function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm
   )
 }
 
-function EffortRow({ bot, model, onSaved }: { bot: Bot; model?: { key?: string; name: string; ref?: string }; onSaved?: () => void }) {
+type Model = NonNullable<TeamState['models']>[number]
+
+// What a Bot runs on, for display: its chosen model, else the one it last ran on.
+function modelOf(bot: Bot, models: Model[]): { ref: string; name: string } | undefined {
+  const ref = bot.model ?? bot.appliedModel
+  if (!ref) return undefined
+  return { ref, name: models.find(m => m.ref === ref)?.name ?? (ref.split('/').slice(1).join('/') || ref) }
+}
+
+function ModelPicks({ models, current, fallback, onPick }: { models: Model[]; current?: string; fallback?: string; onPick: (ref: string) => void }) {
+  const { p } = useTheme()
+  return models.map(item => (
+    <Pressable key={item.ref} accessibilityRole="radio" accessibilityState={{ checked: item.ref === current }} onPress={() => onPick(item.ref)} style={[styles.menuRow, styles.pickRow]}>
+      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{item.name}</Text>
+      {item.ref === fallback ? <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Default')}</Text> : null}
+      {item.ref === current ? <CheckIcon color={p.accent} /> : null}
+    </Pressable>
+  ))
+}
+
+type Efforts = { efforts?: { id: string; name: string }[]; defaultEffort?: string }
+
+function EffortRow({ bot }: { bot: Bot }) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const { run } = useWrite(null)
+  const { run, error } = useWrite(null)
   const [open, setOpen] = useState(false)
-  const [list, setList] = useState<{ efforts: { id: string; name: string }[]; defaultEffort?: string } | null>(null)
-  const ref = model?.ref ?? model?.key ?? bot.model
-  const load = () => { if (ref === undefined) return; setOpen(true); void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => setList(null)) }
-  if (list === null && !open) {
-    // cheap probe: show the row whenever the bot has a model; hide only after efforts come back empty
-    if (bot.model !== undefined) void call('efforts', { ref }).then(value => setList(value as { efforts: { id: string; name: string }[]; defaultEffort?: string })).catch(() => {})
-  }
-  if (list !== null && (list.efforts ?? []).length === 0) return null
-  const current = (list?.efforts ?? []).find(e => e.id === bot.effort)?.name ?? (bot.effort ?? (list !== null ? t('Default') : '—'))
+  const [list, setList] = useState<Efforts | null>(null)
+  const ref = bot.model ?? bot.appliedModel
+  useEffect(() => {
+    setList(null)
+    if (ref === undefined) return
+    let live = true
+    call('efforts', { ref }).then(value => { if (live) setList(value as Efforts) }).catch(() => {})
+    return () => { live = false }
+  }, [ref])
+  const efforts = list?.efforts ?? []
+  if (efforts.length === 0) return null
+  // The level the Bot runs on: its pick when the model serves it, else the model's own.
+  const picked = efforts.some(e => e.id === bot.effort) ? bot.effort : undefined
+  const shown = picked ?? list?.defaultEffort
+  const label = efforts.find(e => e.id === shown)?.name ?? shown ?? t('Default')
+  const rows: { id?: string; name: string }[] = [{ name: t('Default') }, ...efforts]
+  const pick = (id?: string) => { setOpen(false); if (id !== bot.effort) void run('update-bot', { id: bot.id, effort: id ?? null }) }
   return (
     <>
-      <Row label={t('Effort')} value={current} onPress={load} />
+      <Row label={t('Effort')} value={label} onPress={() => setOpen(true)} />
+      {error ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 16, paddingBottom: 10 }]}>{error}</Text> : null}
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.scrim} onPress={() => setOpen(false)} />
         <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
-          {(list?.efforts ?? []).map(e => (
-            <Pressable key={e.id} accessibilityRole="button" onPress={() => { setOpen(false); void run('update-bot', { id: bot.id, effort: e.id }) }} style={styles.menuRow}>
-              <Text style={[typeScale.settingsRow, { color: e.id === bot.effort ? p.accent : p.ink }]}>{e.name}</Text>
+          {rows.map(row => (
+            <Pressable key={row.id ?? 'default'} accessibilityRole="radio" accessibilityState={{ checked: row.id === picked }} onPress={() => pick(row.id)} style={[styles.menuRow, styles.pickRow]}>
+              <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{row.name}</Text>
+              {row.id === picked ? <CheckIcon color={p.accent} /> : null}
             </Pressable>
           ))}
         </View>
@@ -204,7 +236,7 @@ export function BotDetails({ route, navigation }: any) {
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const main = isMain(team, bot.id)
-  const model = (team?.models ?? []).find(m => m.key === bot.model || m.name === bot.model)
+  const model = modelOf(bot, team?.models ?? [])
   return (
     <Screen title={bot.name}>
       <BackRow title={t('Details')} onBack={() => navigation.goBack()} />
@@ -216,8 +248,8 @@ export function BotDetails({ route, navigation }: any) {
         </View>
         {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
         <Section label={t('Model')}>
-          <Row label={t('Model')} value={model?.name ?? bot.model ?? '—'} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
-          <EffortRow bot={bot} model={model} onSaved={undefined} />
+          <Row label={t('Model')} value={model?.name ?? t('Choose a model')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
+          <EffortRow bot={bot} />
         </Section>
         <Section label={t('Working folder')}>
           <Row label={t('Folder')} value={bot.workDir ?? '—'} onPress={() => navigation.navigate('Folder', { current: bot.workDir, onPick: 'bot', botId: bot.id })} />
@@ -314,9 +346,8 @@ export function BotEdit({ route, navigation }: any) {
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
-          {models.length === 0 ? <Row label={t('Model')} value={bot.model ?? '—'} disabled /> : (
-            <Row label={t('Model')} value={models.find(m => m.key === bot.model || m.name === bot.model)?.name ?? bot.model ?? '—'} onPress={() => setModelsOpen(true)} />
-          )}
+          <Row label={t('Model')} value={modelOf(bot, models)?.name ?? t('Choose a model')} disabled={models.length === 0} onPress={() => setModelsOpen(true)} />
+          <EffortRow bot={bot} />
         </Section>
         <Section label={t('Instructions')}>
           <Field label={t('What this Bot does')} value={bot.instructions} multiline placeholder={t('What this Bot is responsible for…')} onSave={instructions => save({ instructions })} />
@@ -328,13 +359,10 @@ export function BotEdit({ route, navigation }: any) {
       </ScrollView>
       <Modal visible={modelsOpen} transparent animationType="fade" onRequestClose={() => setModelsOpen(false)}>
         <Pressable style={styles.scrim} onPress={() => setModelsOpen(false)} />
-        <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
-          <FlatList data={models} keyExtractor={item => String(item.key ?? item.name)} renderItem={({ item }) => (
-            <Pressable accessibilityRole="button" onPress={() => { setModelsOpen(false); save({ model: item.key ?? item.name }) }} style={styles.menuRow}>
-              <Text style={[typeScale.settingsRow, { color: (item.key ?? item.name) === bot.model ? p.accent : p.ink }]}>{item.name}</Text>
-            </Pressable>
-          )} />
-        </View>
+        <ScrollView style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
+          <ModelPicks models={models} current={bot.model ?? bot.appliedModel} fallback={team?.defaultModel}
+            onPick={ref => { setModelsOpen(false); if (ref !== bot.model) save({ model: ref }) }} />
+        </ScrollView>
       </Modal>
     </Screen>
   )
@@ -349,9 +377,9 @@ export function NewBot({ navigation }: any) {
   const [name, setName] = useState('')
   const [shape, setShape] = useState('star')
   const [color, setColor] = useState('blue')
-  const [model, setModel] = useState<string | undefined>()
-  const [busy, setBusy] = useState(false)
   const models = team?.models ?? []
+  const [model, setModel] = useState<string | undefined>(() => (models.find(m => m.ref === team?.defaultModel) ?? models[0])?.ref)
+  const [busy, setBusy] = useState(false)
   const finalName = name.trim() || t('New Bot')
   const clash = (team?.bots ?? []).some(bot => bot.name.toLowerCase() === finalName.toLowerCase())
   const create = async () => {
@@ -392,11 +420,7 @@ export function NewBot({ navigation }: any) {
           {clash ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 16, paddingBottom: 10 }]}>{t('Another Bot has this name.')}</Text> : null}
         </Section>
         <Section label={t('Model')}>
-          {models.map(item => (
-            <Pressable key={item.key ?? item.name} onPress={() => setModel(String(item.key ?? item.name))} style={styles.row}>
-              <Text style={[typeScale.settingsRow, { color: (item.key ?? item.name) === model ? p.accent : p.ink, flex: 1 }]}>{item.name}</Text>
-            </Pressable>
-          ))}
+          <ModelPicks models={models} current={model} fallback={team?.defaultModel} onPick={setModel} />
           {models.length === 0 ? <Row label={t('Model')} value="—" disabled /> : null}
         </Section>
         <View style={{ paddingHorizontal: 18, marginTop: 24 }}>
@@ -921,6 +945,7 @@ const styles = StyleSheet.create({
   scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: { position: 'absolute', left: 24, right: 24, top: '25%', maxHeight: '55%', borderRadius: radius.card, borderWidth: 1, overflow: 'hidden' },
   menuRow: { paddingHorizontal: 18, paddingVertical: 14 },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dayBtn: { minWidth: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   tick: { position: 'absolute', top: 3, right: 3, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 })

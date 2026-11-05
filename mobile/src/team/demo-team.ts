@@ -91,10 +91,11 @@ export function demoData(): DemoData {
     dataPath: '~/Library/Application Support/ds-bot',
     version: '0.1.2',
     models: [
-      { key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1' },
-      { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash' },
-      { key: 'openrouter/auto', name: 'OpenRouter Auto' },
+      { ref: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1' },
+      { ref: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash' },
+      { ref: 'openrouter/auto', name: 'OpenRouter Auto' },
     ],
+    defaultModel: 'deepseek-official/deepseek-v4.1',
     mainBotId: 'b-chief',
     mainBotIds: ['b-chief'],
     views: {
