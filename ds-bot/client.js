@@ -301,6 +301,20 @@ var ZH = {
   Message: "发消息",
   "Press Enter to steer queued messages": "按 Enter 插话发送排队的消息",
   "Couldn’t steer the queued messages. Try again.": "插话发送失败，请重试。",
+  "{n} queued messages": "{n} 条排队消息",
+  "Sending…": "发送中…",
+  "Queued image": "排队消息图片",
+  "Queued file {name}": "排队文件 {name}",
+  "Edit queued message": "编辑排队消息",
+  "Contains non-text content, so editing is not supported yet": "包含非文本内容，暂不支持编辑",
+  "Save queued message": "保存排队消息",
+  "Cancel editing": "取消编辑",
+  "Delete queued message": "删除排队消息",
+  "Steer queued message": "插话发送",
+  "Only while a turn is running": "仅运行中可插话发送",
+  "Couldn’t edit the queued message — it may have started already.": "编辑失败：这条消息可能已经开始发送。",
+  "Couldn’t delete the queued message — it may have started already.": "删除失败：这条消息可能已经开始发送。",
+  "Couldn’t steer the queued message. Try again.": "插话发送失败，请重试。",
   "View conversation details": "查看对话详情",
   "1 new message": "1 条新消息",
   "{count} new messages": "{count} 条新消息",
@@ -1806,8 +1820,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h58, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h58 / 2}" width="${w}" height="${h58}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h58, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h58 * 0.14}Q0 ${-h58 * 0.42} ${w * 0.62} ${h58 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h59, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h59 / 2}" width="${w}" height="${h59}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h59, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h59 * 0.14}Q0 ${-h59 * 0.42} ${w * 0.62} ${h59 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -2617,12 +2631,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h58 = dt / steps;
+    const h59 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h58;
-        value.x += value.v * h58;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h59;
+        value.x += value.v * h59;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -4488,6 +4502,7 @@ function CloseIcon() {
 var ChevronLeftIcon = () => (0, import_react3.createElement)("svg", { width: 16, height: 16, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react3.createElement)("path", { d: "M12.5 4.5L7 10l5.5 5.5" }));
 var ChevronRightIcon = () => (0, import_react3.createElement)("svg", { width: 14, height: 14, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react3.createElement)("path", { d: "M7.5 4.5L13 10l-5.5 5.5" }));
 var ChevronDownIcon = () => (0, import_react3.createElement)("svg", { width: 14, height: 14, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react3.createElement)("path", { d: "M5 7.5L10 12.5L15 7.5" }));
+var ChevronUpIcon = () => (0, import_react3.createElement)("svg", { width: 14, height: 14, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react3.createElement)("path", { d: "M5 12.5L10 7.5l5 5" }));
 var lineIcon = (paths) => function LineIcon() {
   return (0, import_react3.createElement)(
     "svg",
@@ -4550,6 +4565,7 @@ var SideIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v6a1.5 1.5 0 0 1-1.5 1.5
 var GoalIcon = lineIcon(["M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9", "M9 8a3 3 0 1 0 0 6 3 3 0 1 0 0-6", "M9 11l7.5-7.5", "M14.6 2.8v2.6h2.6"]);
 var ChatsIcon = lineIcon(["M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z", "M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13"]);
 var ImIcon = lineIcon(["M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z", "M8 15.8h4", "M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z"]);
+var QueueIcon = lineIcon(["M4 6h12", "M4 10h12", "M4 14h8", "M14 12.5l2 1.5-2 1.5"]);
 var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: ImIcon, usage: GaugeIcon };
 
 // src/client/agent-routes.js
@@ -26216,6 +26232,235 @@ function createSwitchWindow(settle) {
   };
 }
 
+// src/client/queue-dock.js
+var import_react61 = require("react");
+var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
+var EMPTY_QUEUE = [];
+var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
+var textOf = (content) => content.every((block) => block.type === "text") ? content.map((block) => block.text).join("") : null;
+function queueAttachments(content) {
+  const attachments = [];
+  for (const block of content) {
+    if (block.type === "image" || block.type === "file") {
+      if (block.attachment !== void 0) attachments.push({ type: block.type, attachment: block.attachment });
+    }
+  }
+  return attachments;
+}
+var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+function QueueFile({ attachment, label }) {
+  const size = fileSizeText2(attachment.bytes);
+  return (0, import_react61.createElement)(
+    "span",
+    { className: "bt-queue-file", "aria-label": label, title: attachment.name },
+    (0, import_react61.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react61.createElement)(PaperclipIcon)),
+    (0, import_react61.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
+    size !== "" ? (0, import_react61.createElement)("span", { className: "bt-queue-filesize" }, size) : null
+  );
+}
+function QueueThumb({ attachment, loadImage, label }) {
+  const [url, setUrl] = (0, import_react61.useState)(null);
+  (0, import_react61.useEffect)(() => {
+    let alive = true;
+    loadImage(attachment).then((resolved) => {
+      if (alive) setUrl(resolved);
+    }, () => {
+    });
+    return () => {
+      alive = false;
+    };
+  }, [attachment, loadImage]);
+  return url === null ? (0, import_react61.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react61.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
+}
+function Preview({ text, renderFactorySlot }) {
+  const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
+  return (0, import_react61.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+}
+function EditField({ text, onChange, onSave, onCancel }) {
+  const field = (0, import_react61.useRef)(null);
+  (0, import_react61.useEffect)(() => {
+    const node = field.current;
+    if (node === null) return;
+    node.focus();
+    node.style.height = "auto";
+    node.style.height = `${node.scrollHeight}px`;
+  }, [text]);
+  return (0, import_react61.createElement)("textarea", {
+    ref: field,
+    className: "bt-queue-edit",
+    value: text,
+    rows: 1,
+    "aria-label": t("Edit queued message"),
+    onChange: (event) => onChange(event.target.value),
+    onKeyDown: (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onCancel();
+      } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+        event.preventDefault();
+        onSave();
+      }
+    }
+  });
+}
+function RowButton({ label, title, disabled, onClick, children }) {
+  return (0, import_react61.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
+}
+function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
+  const inbox = useProjection?.("inbox");
+  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
+  const queue = (0, import_react61.useMemo)(() => {
+    const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
+    const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
+    return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
+  }, [inbox, pendingSubmissions]);
+  const pendingQueue = (0, import_react61.useMemo)(() => {
+    const admitted = new Set(queue.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
+    return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
+  }, [pendingSubmissions, queue]);
+  const rowCount = queue.length + pendingQueue.length;
+  const running = useSession?.((s) => s.running) === true;
+  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
+  const [editing, setEditing] = (0, import_react61.useState)(null);
+  const [busy, setBusy] = (0, import_react61.useState)(null);
+  const [collapsed, setCollapsed] = (0, import_react61.useState)(true);
+  const listId = (0, import_react61.useId)();
+  (0, import_react61.useEffect)(() => {
+    if (rowCount === 0 && !collapsed) setCollapsed(true);
+    if (editing !== null && (!queueMutable || !queue.some((row) => row.id === editing.id))) setEditing(null);
+  }, [collapsed, editing, queue, queueMutable, rowCount]);
+  if (rowCount === 0) return null;
+  const interactionActive = queueMutable && (editing !== null || busy !== null);
+  const expanded = !collapsed || interactionActive;
+  const listVisible = rowCount === 1 || expanded;
+  const applyAction = async (itemId, action, failure) => {
+    setBusy(itemId);
+    try {
+      const result = await updateQueue(itemId, action);
+      if (result && result.ok === false && result.error?.code !== "session/queue-item-not-found" && result.error?.code !== "session/steer-unavailable") {
+        actions.reportError(new Error(failure), "queue");
+        return false;
+      }
+      return true;
+    } catch {
+      actions.reportError(new Error(failure), "queue");
+      return false;
+    } finally {
+      setBusy((current) => current === itemId ? null : current);
+    }
+  };
+  const saveEdit = async () => {
+    if (editing === null || editing.text.trim() === "") return;
+    if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
+  };
+  return (0, import_react61.createElement)(
+    "div",
+    { className: "bt-queue-dock", "data-queue-dock": "" },
+    (0, import_react61.createElement)(
+      "div",
+      { className: "bt-queue-panel" },
+      rowCount > 1 && (0, import_react61.createElement)(
+        "button",
+        { type: "button", className: "bt-queue-head", "aria-controls": listId, "aria-expanded": expanded, disabled: interactionActive, onClick: () => setCollapsed((value) => !value) },
+        (0, import_react61.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react61.createElement)(QueueIcon)),
+        (0, import_react61.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
+        !listVisible && pendingQueue.length > 0 && (0, import_react61.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+        (0, import_react61.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react61.createElement)(ChevronDownIcon) : (0, import_react61.createElement)(ChevronUpIcon))
+      ),
+      (0, import_react61.createElement)(
+        "ul",
+        { id: listId, className: "bt-queue-list", hidden: !listVisible },
+        listVisible && queue.map((row) => {
+          const attachments = queueAttachments(row.content);
+          const text = textOf(row.content);
+          return (0, import_react61.createElement)(
+            "li",
+            { key: row.id, className: "bt-queue-row" },
+            rowCount === 1 && (0, import_react61.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react61.createElement)(QueueIcon)),
+            editing?.id === row.id ? (0, import_react61.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react61.createElement)(
+              import_react61.Fragment,
+              null,
+              attachments.length > 0 && (0, import_react61.createElement)(
+                "span",
+                { className: "bt-queue-attachments" },
+                attachments.map((item, index) => item.type === "image" ? (0, import_react61.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react61.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+              ),
+              (0, import_react61.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+            ),
+            queueMutable && (0, import_react61.createElement)(
+              "div",
+              { className: "bt-queue-actions" },
+              editing?.id === row.id ? (0, import_react61.createElement)(
+                import_react61.Fragment,
+                null,
+                (0, import_react61.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react61.createElement)(CheckIcon)),
+                (0, import_react61.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react61.createElement)(CloseIcon))
+              ) : (0, import_react61.createElement)(
+                import_react61.Fragment,
+                null,
+                (0, import_react61.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
+                  if (text !== null) setEditing({ id: row.id, text });
+                } }, (0, import_react61.createElement)(PencilIcon)),
+                (0, import_react61.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react61.createElement)(TrashIcon)),
+                (0, import_react61.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react61.createElement)(ArrowUpIcon))
+              )
+            )
+          );
+        }),
+        listVisible && pendingQueue.map((submission) => (0, import_react61.createElement)(
+          "li",
+          { key: submission.requestId, className: "bt-queue-row bt-queue-pending" },
+          rowCount === 1 && (0, import_react61.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react61.createElement)(QueueIcon)),
+          submission.attachments.length > 0 && (0, import_react61.createElement)(
+            "span",
+            { className: "bt-queue-attachments" },
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react61.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react61.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+          ),
+          (0, import_react61.createElement)(Preview, { text: submission.text, renderFactorySlot }),
+          (0, import_react61.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+          queueMutable && (0, import_react61.createElement)(
+            "div",
+            { className: "bt-queue-actions" },
+            (0, import_react61.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react61.createElement)(PencilIcon)),
+            (0, import_react61.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react61.createElement)(TrashIcon)),
+            (0, import_react61.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react61.createElement)(ArrowUpIcon))
+          )
+        ))
+      )
+    )
+  );
+}
+var QUEUE_CSS = `
+.bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,8px) - 3px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none}
+.bt-queue-panel{position:relative;isolation:isolate;width:100%;padding:2px 0;border-radius:var(--dsw-radius-lg,14px) var(--dsw-radius-lg,14px) 0 0;overflow:hidden}
+.bt-queue-panel:before{z-index:-1;border-radius:inherit;background:var(--dsw-specific-menu,var(--bt-main));backdrop-filter:var(--dsw-menu-backdrop-filter,none);content:"";pointer-events:none;position:absolute;inset:0}
+.bt-queue-panel:after{border:.5px solid var(--bt-line-2);border-bottom:none;border-radius:inherit;content:"";pointer-events:none;position:absolute;inset:0}
+.bt-queue-head{box-sizing:border-box;width:100%;height:36px;border:0;border-radius:var(--dsw-radius-md,10px);background:none;color:var(--bt-ink);text-align:left;font:inherit;cursor:pointer;display:flex;align-items:center;gap:10px;padding:4px 12px}
+.bt-queue-head:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-queue-head:disabled{cursor:default}
+.bt-queue-lead{color:var(--bt-ink-3);flex:none;display:grid;place-items:center}
+.bt-queue-count{min-width:0;flex:auto;font-size:13px;font-weight:500;line-height:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-queue-chev{width:14px;height:14px;color:var(--bt-ink-3);flex:none;display:grid;place-items:center}
+.bt-queue-list{max-height:180px;margin:0;padding:0;list-style:none;overflow-y:auto}
+.bt-queue-row{box-sizing:border-box;min-height:36px;width:100%;border-radius:var(--dsw-radius-md,10px);display:flex;align-items:center;gap:10px;padding:4px 5px 4px 12px}
+.bt-queue-row+.bt-queue-row{box-shadow:inset 0 1px 0 var(--bt-line)}
+.bt-queue-attachments{flex:none;min-width:0;max-width:55%;display:flex;gap:4px;overflow:hidden}
+.bt-queue-pending .bt-queue-attachments{flex-shrink:1}
+.bt-queue-file{box-sizing:border-box;height:24px;min-width:74px;flex:0 180px;border:.5px solid var(--bt-line);border-radius:var(--dsw-radius-sm,6px);background:var(--bt-main);display:inline-flex;align-items:center;gap:4px;padding:0 6px;overflow:hidden}
+.bt-queue-fileicon{flex:none;width:16px;height:16px;color:var(--bt-ink-3);display:inline-flex}
+.bt-queue-filename{min-width:0;flex:auto;font-size:13px;line-height:18px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-queue-filesize{flex:none;font-size:10px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-queue-thumb{width:24px;height:24px;border:.5px solid var(--bt-line);border-radius:var(--dsw-radius-xs,4px);background:var(--bt-main);object-fit:cover}
+.bt-queue-preview{min-width:0;flex:auto;font-size:13px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-queue-edit{min-width:0;flex:auto;box-sizing:border-box;border:0;outline:none;resize:none;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;max-height:120px;padding:4px 0}
+.bt-queue-actions{flex:none;display:flex;align-items:center;gap:10px}
+.bt-queue-status{flex:none;font-size:13px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-queue-action{width:28px;height:28px;border:0;border-radius:999px;background:none;color:var(--bt-ink-3);cursor:pointer;display:grid;place-items:center;padding:0}
+.bt-queue-action:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-queue-action:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-queue-action:disabled{cursor:default;opacity:.45}
+`;
+
 // src/client/approval-notices.js
 function noticeApprovals({ work, roster, shownSession, openSession, since = Date.now() }) {
   const told = /* @__PURE__ */ new Set();
@@ -27032,6 +27277,11 @@ function apply(ctx) {
     });
   }
   const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } });
+  const queueFace = (sessionId) => ({
+    ...face(),
+    updateQueue: async (itemId, action) => await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action) ?? { ok: false },
+    loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment)
+  });
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -27240,6 +27490,7 @@ function apply(ctx) {
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, "conversation"),
     () => installCompiledStyles(TURN_ERROR_CSS, "turn-errors"),
+    () => installCompiledStyles(QUEUE_CSS, "queue"),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
@@ -27288,7 +27539,11 @@ function apply(ctx) {
     () => shadow("conversation.input.dock", { id: "bot-handoff", order: -85, inject: face }, HandoffDock),
     () => shadow("conversation.input.dock", { id: "bot-computer-handoff", order: -84, inject: face }, ComputerHandoffDock),
     () => shadow("conversation.input.dock", { id: "bot-computer-app", order: -83, inject: face }, AppAccessDock),
-    () => shadow("conversation.input.dock", { id: "bot-learning", order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock)
+    () => shadow("conversation.input.dock", { id: "bot-learning", order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock),
+    // The shell's own queue dock lists every queued inbox row as the user's
+    // drafts — including the team's relayed mail. Reusing its id puts ours in
+    // its cell; it lists only the sends the user authored (#663).
+    () => shadow("conversation.input.dock", { id: "queue", order: 20, priority: BOT_PRIORITY, inject: queueFace }, QueueDock)
   ];
   ctx.effect(() => installCompiledStyles(RETURN_CSS, "return"), "ds-bot: return styles");
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
