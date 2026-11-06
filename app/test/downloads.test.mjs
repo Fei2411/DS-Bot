@@ -3,7 +3,8 @@
 // cancelled picker cancels it; other contents' downloads pass through. Temp folders only.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import nodeFs, { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
@@ -40,9 +41,9 @@ const event = () => ({ prevented: false, preventDefault() { this.prevented = tru
 const settle = () => new Promise(resolve => setImmediate(resolve))
 const until = async (check) => { for (let turn = 0; turn < 50 && !check(); turn += 1) await settle() }
 
-function saver(at, ask, extra = {}) {
+function saver(at, ask, { saverOf = downloadSaver, ...extra } = {}) {
   const contents = {}
-  const save = downloadSaver({ window: { webContents: contents }, ask, staging: () => at.staging, getPath: name => ({ downloads: at.downloads, home: at.home })[name], log: { warn: () => {} }, ...extra })
+  const save = saverOf({ window: { webContents: contents }, ask, staging: () => at.staging, getPath: name => ({ downloads: at.downloads, home: at.home })[name], log: { warn: () => {} }, ...extra })
   return { contents, save }
 }
 
@@ -257,4 +258,63 @@ test('two downloads of one name without a picker each keep their own file', asyn
   await until(() => names.every(existsSync))
   const texts = names.map(name => readFileSync(name, 'utf8')).sort()
   assert.deepEqual(texts, ['one', 'two'], 'each download kept its own bytes')
+})
+
+// Electron's main process, for a .asar file that is no archive: node:fs says it is missing and
+// cannot copy it, and original-fs, which plain Node does not have, sees the file. The app's test
+// job has no Electron binary. `run` gets a fresh downloads.mjs that loaded under these rules.
+async function inElectron(run, both = {}) {
+  const plain = { ...nodeFs, ...both }
+  const { copyFileSync: copy, existsSync: exists } = nodeFs
+  const patched = {
+    ...both,
+    existsSync: path => !String(path).endsWith('.asar') && exists(path),
+    copyFileSync(from, ...rest) {
+      if (String(from).endsWith('.asar')) throw Object.assign(new Error('Invalid package'), { code: 'ENOENT' })
+      copy(from, ...rest)
+    },
+  }
+  const kept = Object.fromEntries(Object.keys(patched).map(name => [name, nodeFs[name]]))
+  const { getBuiltinModule } = process
+  process.getBuiltinModule = name => (name === 'original-fs' ? plain : getBuiltinModule(name))
+  Object.assign(nodeFs, patched)
+  syncBuiltinESMExports()
+  try {
+    await run(await import(`../src/downloads.mjs?electron=${String(runs)}`))
+  } finally {
+    process.getBuiltinModule = getBuiltinModule
+    Object.assign(nodeFs, kept)
+    syncBuiltinESMExports()
+  }
+}
+
+test('a .asar file of the user\'s stays whole when a download of that name gets a free name', async () => {
+  const at = place()
+  const mine = join(at.downloads, 'mine.asar')
+  writeFileSync(mine, 'mine')
+  await inElectron(async ({ downloadSaver: electronSaver }) => {
+    const { contents, save } = saver(at, async () => undefined, { saverOf: electronSaver })
+    const download = item('mine.asar')
+    save(event(), download, contents)
+    download.finish('new')
+    await until(() => readdirSync(at.downloads).length === 2)
+  })
+  assert.equal(readFileSync(mine, 'utf8'), 'mine')
+  assert.equal(readFileSync(join(at.downloads, 'mine (2).asar'), 'utf8'), 'new')
+})
+
+test('a cross-drive move can copy a staged .asar file', async () => {
+  const at = place()
+  const staged = join(at.staging, 'held', 'tool.asar')
+  mkdirSync(dirname(staged), { recursive: true })
+  writeFileSync(staged, 'new')
+  const target = join(at.downloads, 'tool.asar')
+  const rename = nodeFs.renameSync
+  const crossDrive = (from, to) => {
+    if (from === staged) throw Object.assign(new Error('cross-device link not permitted'), { code: 'EXDEV' })
+    rename(from, to)
+  }
+  await inElectron(({ move: electronMove }) => { electronMove(staged, target) }, { renameSync: crossDrive })
+  assert.equal(readFileSync(target, 'utf8'), 'new')
+  assert.deepEqual(readdirSync(at.downloads), ['tool.asar'], 'no temp file is left next to the target')
 })

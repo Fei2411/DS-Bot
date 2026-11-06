@@ -139,26 +139,31 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     foot)
 }
 
-// The answered card left in the transcript: the chosen rows, muted, with a check.
-export function SettledQuestion({ question, answer }) {
+// How a card closed without an answer on it reads on its badge.
+export const closedLabel = closed => t(closed === 'replied' ? 'Answered by message' : 'Dismissed')
+
+// The settled card left in the transcript, read-only and compact: the question,
+// muted, and only what the user chose, each under the letter it had on the card;
+// an own answer takes the letter after the options. A card closed without an
+// answer (`closed`, or no answer) keeps only the question and a badge.
+export function SettledQuestion({ question, answer, closed }) {
   const options = optionsOf(question)
   const prompt = question?.question ?? ''
-  const chosen = [...(answer.selected ?? []), ...(answer.custom ? [answer.custom] : [])]
-  if (chosen.length === 0) {
-    return h('div', { className: 'bt-q bt-q-settled bt-q-dismissed', role: 'group', 'aria-label': prompt },
-      h('div', { className: 'bt-q-head' },
-        h('div', { className: 'bt-q-text' }, h('p', { className: 'bt-q-title' }, prompt)),
-        h('span', { className: 'bt-q-badge' }, t('Dismissed'))))
-  }
-  return h('div', { className: 'bt-q bt-q-settled', role: 'group', 'aria-label': prompt },
-    prompt ? h('div', { className: 'bt-q-head' }, h('div', { className: 'bt-q-text' }, h('p', { className: 'bt-q-title' }, prompt))) : null,
-    h('div', { className: 'bt-q-list', role: 'group', 'aria-label': t('Your answer') }, chosen.map((label, index) => {
-      const optionIndex = options.findIndex(option => option.label === label)
-      return h('div', { key: `${label}-${index}`, className: 'bt-q-opt' },
-        optionIndex >= 0 ? h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(optionIndex)) : null,
-        h('span', { className: 'bt-q-body' }, h('span', { className: 'bt-q-label' }, label)),
-        h('span', { className: 'bt-q-check', title: t('Selected') }, h(CheckIcon)))
-    })))
+  const selected = Array.isArray(answer?.selected) ? answer.selected : []
+  const custom = typeof answer?.custom === 'string' ? answer.custom.trim() : ''
+  const answered = closed === undefined && (selected.length > 0 || custom !== '')
+  const chosen = answered ? [
+    ...selected.map(label => ({ label, at: options.findIndex(option => option.label === label) })),
+    ...(custom !== '' ? [{ label: custom, at: options.length }] : []),
+  ] : []
+  return h('div', { className: answered ? 'bt-q bt-q-settled bt-q-answered' : 'bt-q bt-q-settled bt-q-dismissed', role: 'group', 'aria-label': prompt },
+    h('div', { className: 'bt-q-head' },
+      h('div', { className: 'bt-q-text' }, prompt ? h('p', { className: 'bt-q-title' }, prompt) : null),
+      answered ? null : h('span', { className: 'bt-q-badge' }, closedLabel(closed))),
+    chosen.length > 0 ? h('div', { className: 'bt-q-list', role: 'group', 'aria-label': t('Your answer') }, chosen.map(({ label, at }, index) =>
+      h('div', { key: `${label}-${index}`, className: 'bt-q-opt', title: t('Selected') },
+        at >= 0 ? h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(at)) : null,
+        h('span', { className: 'bt-q-body' }, h('span', { className: 'bt-q-label' }, label))))) : null)
 }
 
 export function QuestionCard({ matched }) {
@@ -220,7 +225,12 @@ export function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, act
 // answer marked.
 export function AnsweredCell({ node }) {
   const data = node.data ?? {}
-  const questions = Array.isArray(data.questions) ? data.questions : []
+  // The reply text is ds-bot's own payload and keeps each question's options; the
+  // pairs DSH reads out of it may drop them.
+  let sent = null
+  try { sent = typeof data.text === 'string' ? JSON.parse(data.text) : null } catch { sent = null }
+  const asked = Array.isArray(sent?.questions) ? sent.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string') : []
+  const questions = (Array.isArray(data.questions) ? data.questions : []).map(question => ({ ...asked.find(item => item.id === question.id), ...question }))
   if (questions.length === 0) {
     return data.text ? h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble' }, data.text)) : h(CellEmpty)
   }

@@ -19,6 +19,11 @@ asarUnpack:
   - node_modules/ds-bot/office.js
   # Automatic unpacking misses versioned Linux libraries such as libvips-cpp.so.8.18.7.
   - node_modules/@img/sharp*/**
+  # The signed "DSH Computer Use" helper and the Cua Driver binaries are programs;
+  # inside the asar they would not run, and an ad-hoc re-sign would lose DeepSeek's
+  # Developer ID signature (mac.signIgnore below keeps it).
+  - node_modules/@deepseek-ai/dsh-experimental-cua-macos/**
+  - node_modules/@trycua/cua-driver*/**
 # The Office payload that scripts/prepare-runtime.mjs writes in beforePack (see package.json's
 # `runtime` script). build/ is not in `files`, so nothing of it lands inside the asar.
 extraResources:
@@ -58,6 +63,9 @@ mac:
   target: zip
   # Ad-hoc signing seals the bundle; no Developer ID or notarization.
   identity: '-'
+  # The DSH helper keeps the signature it was notarized with; the rest is ours to seal.
+  signIgnore:
+    - 'DSH Computer Use\.app'
   hardenedRuntime: false
   icon: assets/icon.png
   category: public.app-category.productivity

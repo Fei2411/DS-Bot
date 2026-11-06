@@ -8,9 +8,10 @@ import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
+import { BotComputerCard } from './computer.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
-import { SPRING_SHAPE, SPRING_TAP, spring, useGlide } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -99,7 +100,7 @@ export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
 // The avatar editor: the Bot tab picks a character (every click saves), the
 // Upload tab takes a photo, the Library tab picks one the user imported before, and
 // Reset returns to the look the Bot id gives.
-function AvatarEditor({ bot, actions, run, onClose }) {
+function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
   const look = lookOf(bot)
   const [tab, setTab] = useState(look.image ? 'upload' : 'bot')
   const [over, setOver] = useState(false)
@@ -129,7 +130,7 @@ function AvatarEditor({ bot, actions, run, onClose }) {
   }, [tab, bot])
   const hasPhoto = Boolean(look.image)
   const glide = useGlide(tab)
-  return h('div', { ref, className: 'bt-avedit', role: 'dialog', 'aria-label': t('Avatar editor') },
+  return h('div', { ref, className: 'bt-avedit', role: 'dialog', 'aria-label': t('Avatar editor'), 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
@@ -177,6 +178,7 @@ function MemoryCard({ bot, actions }) {
 // sidebar place, and copies.
 export function BotSettingsForm({ bot, roster, actions, run }) {
   const [editing, setEditing] = useState(false)
+  const [editorShown, editorLeaving] = useLinger(editing, 120)
   const [confirming, setConfirming] = useState(false)
   const closeEditor = useCallback(() => setEditing(false), [])
   useEffect(() => {
@@ -201,7 +203,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit Bot avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
           h(BotMark, { bot, size: 64, live: true }),
           h('span', { className: 'bt-avatar-pencil', 'aria-hidden': true }, h(PencilIcon))),
-        editing ? h(AvatarEditor, { bot, actions, run, onClose: closeEditor }) : null),
+        editorShown ? h(AvatarEditor, { bot, actions, run, onClose: closeEditor, leaving: editorLeaving }) : null),
       h('div', { className: 'bt-bs-who' },
         h('span', { className: 'bt-bs-name' }, bot.name),
         h('span', { className: 'bt-bs-sub' }, [bot.role, isMainBot ? t('Main Bot') : ''].filter(Boolean).join(' · ') || t('Bot')))),
@@ -228,6 +230,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
+    h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
     h(Card, { title: t('Main Bot') },

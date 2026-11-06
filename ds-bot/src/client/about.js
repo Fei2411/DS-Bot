@@ -1,7 +1,7 @@
 // Settings → About DS Bot: the version, updates for DS Bot and DSH, and the links to
 // the repository. The sidebar's cloud button shows the same update state.
 import { createElement as h, useEffect, useState } from 'react'
-import { GitHubMark } from './connectors.js'
+import { GitHubMark } from './connector-marks.js'
 import { whenText } from './feedback.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { StarLineIcon } from './icons.js'

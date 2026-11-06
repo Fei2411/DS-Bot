@@ -54,6 +54,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/pre-step (prepend)',
     'on tools/execute',
     'effect ds-bot: scoped team tools',
+    'on tools/change',
     'tools guard',
     'on agent/created',
     'on system-prompt/assemble',
@@ -78,6 +79,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/request-error (prepend)',
     'on agent/request-error (prepend)',
     'effect ds-bot: hand on input kept in earlier parts',
+    'on workspace/session-stop',
+    'on workspace/session-activity',
     'on agent/status',
     'on llm/stream',
     'on llm/stream',
@@ -85,11 +88,23 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on tools/execute',
     'on llm/stream',
     'effect ds-bot: load secrets',
+    'on tools/change',
     'effect ds-bot: connectors',
     'on agent/created',
     'effect ds-bot: capabilities',
     'on agent/status',
     'effect ds-bot: learning',
+    'on tools/pre-execute',
+    'on tools/execute',
+    'on agent/created',
+    'on agent/disposed',
+    'on user-questions/request (prepend)',
+    'on tools/pre-execute',
+    'on tools/execute',
+    'on session/event',
+    'effect ds-bot: computer use section',
+    'prompt computer-use:ds-bot 0',
+    'effect ds-bot: computer use',
     'effect ds-bot: usage ledger',
     'on llm/stream',
     'effect ds-bot: update check',
@@ -100,9 +115,12 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: live feed route',
     'route GET /api/bot/feed',
     'effect ds-bot: live feed',
+    'on session/event',
+    'effect ds-bot: im',
     'effect ds-bot: api route',
     'route POST /api/bot',
     'effect ds-bot: load state',
+    'effect ds-bot: local agents',
   ])
 })
 
@@ -240,4 +258,13 @@ test('config.browser turns Bot browsers off even in the Desktop profile', (t) =>
   const { stop } = start(TEAM, { config: { browser: false }, services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
   assert.ok(!rt.teamTools.some(d => d.name === 'read_browser'))
+})
+
+test('a custom agent keeps the local agents adapter live after install', async (t) => {
+  const { ctx, stop, rt } = start({ version: 1, localAgents: { custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }], sessions: {} } })
+  t.after(stop)
+  await rt.load()
+  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('acp-a1'))
+  assert.ok(entry, 'the custom route is registered')
+  assert.equal(entry.adapter.disposed, false, 'the adapter survives install')
 })

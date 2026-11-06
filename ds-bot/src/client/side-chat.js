@@ -149,9 +149,11 @@ export const SIDE_CSS = `
 .bt-side-input:focus{border-color:var(--bt-accent)}
 .bt-side-input:disabled{opacity:.6}
 .bt-pmenu{position:relative;display:inline-flex;flex:none}
-.bt-pmenu-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:6;min-width:172px;padding:6px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 10px 32px -8px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);display:flex;flex-direction:column;gap:2px;animation:bt-bcard-in .18s cubic-bezier(.16,1,.3,1) both}
+.bt-pmenu-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:6;min-width:172px;padding:6px;border-radius:12px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);display:flex;flex-direction:column;gap:2px;transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-pmenu-pop[data-leaving]{animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-pmenu-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:7px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:17px;text-align:left;cursor:pointer}
 .bt-pmenu-item:hover{background:var(--bt-hover)}
+.bt-pmenu-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-pmenu-item svg{flex:none;width:15px;height:15px;color:var(--bt-ink-3)}
 .bt-pmenu-sep{height:.5px;flex:none;margin:4px 8px;background:var(--bt-line-2)}
 `

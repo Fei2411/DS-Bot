@@ -24,9 +24,9 @@ const TEAM = {
 const userMessage = (text, time) => ({ type: 'user/message', time, data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
 const botMessage = (text, time, turn = 1) => ({ type: 'assistant/message', time, data: { turn, message: { content: [{ type: 'text', text }] } } })
 
-function start({ pages = {}, services = {} } = {}) {
+function start({ pages = {}, services = {}, team = TEAM } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-feed-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext({ services })
   ctx.sessionController = {
     resolveAgent: async sessionId => ({ agent: { session: { id: sessionId, seq: 100 } } }),
@@ -88,8 +88,8 @@ test('the live feed tells a window about saves, new chat entries and the reply b
   assert.equal(saved.event, 'revision')
   assert.equal(saved.data.revision > TEAM.revision, true)
 
-  // The feed's own listener is the last on session/event; the others need a live dsh.
-  const onEvent = ctx.listeners.get('session/event').at(-1)
+  // The feed's own listener sits right before im's on session/event; the others need a live dsh.
+  const onEvent = ctx.listeners.get('session/event').at(-2)
   onEvent({ id: 'm1c' }, userMessage('hello', 60))
   assert.deepEqual(await next(), { event: 'message', data: { botId: 'm1', sessionId: 'm1c', item: { kind: 'user', text: 'hello', time: 60 } } })
   // A group Session or an earlier part is not a Bot's own chat now.
@@ -127,7 +127,7 @@ test('a window that stops reading the feed is dropped', { timeout: 10_000 }, asy
   t.after(stop)
   await call('state')
   const response = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed'))
-  const onEvent = ctx.listeners.get('session/event').at(-1)
+  const onEvent = ctx.listeners.get('session/event').at(-2)
   for (let index = 0; index < 1000; index += 1) onEvent({ id: 'm1c' }, userMessage(`line ${index}`, index))
   // What was queued before the drop still arrives, then the stream ends.
   const next = reader(response)
@@ -218,7 +218,7 @@ test('view replay omits hidden, refused and interactive calls in pages and the l
   const response = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal }))
   const next = reader(response)
   assert.equal((await next()).event, 'hello')
-  const onEvent = ctx.listeners.get('session/event').at(-1)
+  const onEvent = ctx.listeners.get('session/event').at(-2)
   for (const event of events) onEvent({ id: 'm1c' }, event)
   assert.deepEqual(await next(), { event: 'message', data: { botId: 'm1', sessionId: 'm1c', item: expected } })
 })
@@ -231,6 +231,25 @@ test('a display view is retained when its part becomes earlier history', async (
   await call('state')
   const page = (await call('earlier', { sessionId: 'm1c' })).value
   assert.deepEqual(page.items, [{ kind: 'view', title: 'Earlier card', view, callId: 'old-view', time: 20 }])
+})
+
+test('a question or view card closed without an answer reads back in earlier history; an answered one does not', async (t) => {
+  const options = [{ label: 'Short' }, { label: 'Long' }]
+  const pick = { type: 'options', id: 'lane', options: [{ label: 'Ship now' }] }
+  const events = [
+    { type: 'tool/call', time: 20, seq: 3, data: { turn: 1, callId: 'q-closed', name: 'ask_user', arguments: JSON.stringify({ question: 'Which draft?', options }) } },
+    { type: 'tool/call', time: 21, seq: 4, data: { turn: 1, callId: 'q-answered', name: 'ask_user', arguments: JSON.stringify({ question: 'Answered', options }) } },
+    { type: 'tool/call', time: 22, seq: 5, data: { turn: 1, callId: 'v-closed', name: 'show_view', arguments: JSON.stringify({ title: 'Pick a lane', view: pick }) } },
+  ]
+  const team = { ...TEAM, closedCards: { m1: { 'q-closed': 'replied', 'v-closed': 'dismissed' } } }
+  const { call, stop } = start({ team, pages: { 'm1:end': { records: events.map(event => ({ event })), hasMore: false } } })
+  t.after(stop)
+  await call('state')
+  const page = (await call('earlier', { sessionId: 'm1c' })).value
+  assert.deepEqual(page.items, [
+    { kind: 'closed', closed: 'replied', question: { question: 'Which draft?', options, multiSelect: false }, callId: 'q-closed', time: 20 },
+    { kind: 'closed', closed: 'dismissed', title: 'Pick a lane', view: pick, callId: 'v-closed', time: 22 },
+  ])
 })
 
 test('the run-stats endpoint reads DSH\'s figures for the current part of a Bot\'s chat', async (t) => {

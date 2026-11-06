@@ -20,6 +20,7 @@ import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
+import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } from './computer.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
@@ -27,6 +28,8 @@ import { Overlays } from './overlays.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
 import { BROWSER_CSS } from './browser-pane.js'
 import { SECRET_CSS, SecretDock } from './secret-card.js'
+import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
+import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
@@ -45,8 +48,10 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 
@@ -130,6 +135,9 @@ export function apply(ctx) {
   let liveKey
   // Per Session, what its transcript has in flight (running tools, a streaming reply).
   const live = createSource({})
+  // Computer use: leases, per-Bot control, pending app cards and holds.
+  const computer = createSource({})
+  let computerKey = '{}'
   // Per Session, the ask_user and request_secret calls its transcript draws; the
   // docks carry the cards of the other calls.
   const cards = createSource({})
@@ -175,6 +183,10 @@ export function apply(ctx) {
       const nextWork = JSON.stringify(value.work)
       if (nextWork !== workKey) { workKey = nextWork; work.set(value.work) }
     }
+    if (value.computerLive !== undefined) {
+      const nextComputer = JSON.stringify(value.computerLive)
+      if (nextComputer !== computerKey) { computerKey = nextComputer; computer.set(value.computerLive) }
+    }
     if (value.memoryNews !== undefined) noteMemoryNews(value.memoryNews)
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
@@ -182,8 +194,11 @@ export function apply(ctx) {
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live.learning = value.learning
+    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
+    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
+    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // On a browser with no visit record yet, everything already there counts as seen.
@@ -727,7 +742,90 @@ export function apply(ctx) {
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
+
+  // The desktop app carries the floating indicator and the tray entries, and reads the
+  // OS idle time for the foreground gate; the entries and the pushes ride its bridge.
+  const appComputer = globalThis.dsBotApp
+  if (typeof appComputer?.computer === 'function') {
+    ctx.effect(() => {
+      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
+      const sync = () => {
+        const live = computer.getSnapshot()
+        const name = id => nameOf(id)
+        const look = id => lookOf(roster.getSnapshot().byId[id])
+        const rows = (live.leases ?? []).map(entry => ({
+          botId: entry.botId,
+          name: name(entry.botId),
+          app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName,
+          label: entry.kind === 'foreground' ? t('{name} · foreground', { name: name(entry.botId) }) : `${name(entry.botId)} · ${entry.appName}`,
+          color: look(entry.botId).color,
+          avatar: look(entry.botId).image,
+        }))
+        for (const [botId, entry] of Object.entries(live.bots ?? {})) {
+          if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, name: name(botId), app: t('waits for the computer'), label: t('{name} waits for the computer', { name: name(botId) }), color: look(botId).color, avatar: look(botId).image })
+        }
+        appComputer.computer({
+          rows,
+          labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
+        })
+      }
+      sync()
+      return computer.subscribe(sync)
+    }, 'ds-bot: computer indicator')
+  }
+  if (typeof appComputer?.computerCursor === 'function') {
+    ctx.effect(() => {
+      // Cursor events get their own long-poll: the shared state poll drops to
+      // 10 s while the window is hidden, far too slow for an on-screen cursor.
+      let dead = false
+      const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+      const run = async () => {
+        let after = 0
+        while (!dead) {
+          if (roster.getSnapshot().computer?.enabled !== true) { await pause(2000); continue }
+          try {
+            const reply = await call('computer-cursor-wait', { after })
+            for (const event of reply?.events ?? []) {
+              if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
+              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
+              appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image })
+            }
+          } catch {
+            await pause(2000)
+          }
+        }
+      }
+      void run()
+      return () => { dead = true }
+    }, 'ds-bot: computer cursor')
+  }
+  if (typeof appComputer?.idleSeconds === 'function') {
+    ctx.effect(() => {
+      const push = () => {
+        if (roster.getSnapshot().computer?.enabled !== true) return
+        void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
+          if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
+        }).catch(() => {})
+      }
+      const timer = setInterval(push, 2000)
+      return () => { clearInterval(timer) }
+    }, 'ds-bot: computer user active')
+  }
+  if (typeof appComputer?.onComputerAction === 'function') {
+    appComputer.onComputerAction(({ kind, botId }) => {
+      if (kind === 'stop') void actions.computerStop(botId)
+      else if (kind === 'stopall') void actions.computerStop(null, true)
+      else if (kind === 'letgo') void actions.computerAllowForeground(botId)
+    })
+  }
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
+  // The queue dock's per-session verbs, supplied the way the shell's own dock
+  // injects them (the session facade and the conversation service).
+  const queueFace = (sessionId) => ({
+    ...face(),
+    updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
+    loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
+  })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -922,7 +1020,7 @@ export function apply(ctx) {
   const installShell = () => [
     () => installCompiledStyles(SHELL_CSS, 'shell'),
     () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
-    () => installCompiledStyles(SECRET_CSS, 'secrets'),
+    () => installCompiledStyles(SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'),
     () => installCompiledStyles(LEARNING_CSS, 'learning'),
     () => installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'),
     () => installCompiledStyles(USAGE_CSS, 'usage'),
@@ -930,6 +1028,7 @@ export function apply(ctx) {
     () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
     () => installCompiledStyles(ABOUT_CSS, 'about'),
     () => installCompiledStyles(MEMBER_CSS, 'members'),
+    () => installCompiledStyles(IM_CSS, 'im'),
     () => installCompiledStyles(GOAL_CSS, 'goal'),
     () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
     () => installCompiledStyles(WIDGET_CSS, 'widgets'),
@@ -949,6 +1048,7 @@ export function apply(ctx) {
     // Desktop's "··· More"), which comes back in Agent mode.
     () => shadow('settings.launcher', { priority: BOT_PRIORITY, inject: face }, AccountLauncher),
     () => shadow('settings.onboarding', { id: MODELS_STEP, order: MODELS_STEP_ORDER }, OpenModelsStep),
+    () => shadow('shell.overlay', { id: 'bot-computer', order: 40, inject: face }, ComputerIndicator),
     () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
     () => shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
@@ -956,6 +1056,7 @@ export function apply(ctx) {
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
+    () => installCompiledStyles(QUEUE_CSS, 'queue'),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
@@ -999,11 +1100,20 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
+    () => shadow('conversation.input.dock', { id: 'bot-connector', order: -89, inject: face }, ConnectorDock),
+    () => shadow('conversation.input.dock', { id: 'bot-mail', order: -88, inject: face }, MailDock),
     () => shadow('conversation.input.dock', { id: 'bot-handoff', order: -85, inject: face }, HandoffDock),
+    () => shadow('conversation.input.dock', { id: 'bot-computer-handoff', order: -84, inject: face }, ComputerHandoffDock),
+    () => shadow('conversation.input.dock', { id: 'bot-computer-app', order: -83, inject: face }, AppAccessDock),
     () => shadow('conversation.input.dock', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock),
+    // The shell's own queue dock lists every queued inbox row as the user's
+    // drafts — including the team's relayed mail. Reusing its id puts ours in
+    // its cell; it lists only the sends the user authored (#663).
+    () => shadow('conversation.input.dock', { id: 'queue', order: 20, priority: BOT_PRIORITY, inject: queueFace }, QueueDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.
   ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')
+  ctx.effect(() => installCompiledStyles(COMPUTER_CSS, 'computer'), 'ds-bot: computer styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
   // The main view decides `plain`: a DSH Agent Session keeps the Bot shell but

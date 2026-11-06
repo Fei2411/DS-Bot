@@ -18,15 +18,22 @@ const BLOCKING_QUESTION_TOOL = 'ask_user_question'
 const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
 // DSH's delegation tools start child agents the user cannot watch or stop, and they
 // end with the conversation part that started them; Bots hand work to other Bots.
-const DELEGATION_TOOLS = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph']
+// Agent Teams' teammates are such children too (#973).
+const DELEGATION_TOOLS = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph', 'spawn_teammate', 'wait_agent', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update']
 // restrict() refuses a whole list when one name is registered in the Agent's own
 // scope, so each group is masked on its own.
 const HIDDEN_TOOL_GROUPS = [[BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS], DELEGATION_TOOLS]
 const HIDDEN_TOOLS = HIDDEN_TOOL_GROUPS.flat()
-// The guidance DSH writes into the prompt for the hidden tools.
-const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal'])
+// The guidance DSH writes into the prompt for the hidden tools. Agent Teams makes
+// every root Session a Team Lead and tells it to spawn teammates in `team:policy`;
+// its `team:identity` context is required, so DSH puts it back after any filter.
+const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal', 'team:policy'])
 const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'
-const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
+// DSH 0.2.2's schedule tools can deliver to a new Session, which is outside the team and
+// has no Bot; a Bot's tasks deliver to its own chat, which DS Bot moves on with each part.
+const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
+const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
+const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
   enum: ROOM_MODES,
@@ -790,9 +797,15 @@ export function install(rt) {
     const relayOnly = !owns && rt.roomOf(id) !== undefined
     const wanted = owns || relayOnly
     let held = scoped.get(id)
-    // A Session that left the team, a scope of the wrong kind, or a fresh Agent
-    // for one Session all start over; a wanted scope is registered again below.
-    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly)) {
+    // The local-agent tools (the CLI permission bridge) join the scope only of
+    // a Bot whose route is a local agent; they are not in rt.teamTools. A Bot
+    // can move onto or off a local route after its Agent exists.
+    const self = owns ? rt.botOf(rt.selfOf(id)) : undefined
+    const localBot = rt.isLocalAgentRef?.(self?.appliedModel ?? self?.model) === true
+    // A Session that left the team, a scope of the wrong kind, a fresh Agent
+    // for one Session, or a Bot that changed between a local route and a model
+    // all start over; a wanted scope is registered again below.
+    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly || (held.tools === true && held.local !== localBot))) {
       unscope(id)
       held = undefined
     }
@@ -807,11 +820,15 @@ export function install(rt) {
     const disposers = []
     const failed = []
     const registered = []
-    for (const def of rt.teamTools) {
+    for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
         const dispose = agent.ctx.tools.register(def)
-        if (typeof dispose === 'function') disposers.push(dispose)
+        if (typeof dispose === 'function') {
+          disposers.push(dispose)
+          ;(held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }).toolLifts ??= new Map()
+          held.toolLifts.set(def.name, dispose)
+        }
         registered.push(def.name)
       } catch (error) {
         // A tool another plugin already scoped onto this agent stays missing
@@ -823,6 +840,7 @@ export function install(rt) {
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
+    held.local = localBot
     held.disposers.push(...disposers)
     scoped.set(id, held)
     // A scope made outside creation never reached a collected tool list; the
@@ -842,14 +860,68 @@ export function install(rt) {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
+      // older assembly still carries tools to drop here.
       return {
         ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
         sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
       }
     })
     held.filtered = true
     if (typeof dispose === 'function') held.disposers.push(dispose)
+  }
+
+  // Tools joined after the first scoping (mail tools appear when the first
+  // account is added) register into every held Agent and are offered once.
+  const addTeamTool = (def) => {
+    if (rt.teamTools.some(tool => tool.name === def.name)) return
+    rt.teamTools.push(def)
+    for (const held of scoped.values()) {
+      if (held.relay || typeof held.agent?.ctx?.tools?.register !== 'function') continue
+      try {
+        const dispose = held.agent.ctx.tools.register(def)
+        if (typeof dispose === 'function') held.disposers.push(dispose)
+        held.unlisted.add(def.name)
+      } catch { /* an agent that refuses it simply lacks the tool */ }
+    }
+  }
+  const removeTeamTool = (name) => {
+    const at = rt.teamTools.findIndex(tool => tool.name === name)
+    if (at !== -1) rt.teamTools.splice(at, 1)
+    // Scoped registrations already handed out are disposed by name.
+    for (const held of scoped.values()) {
+      held.toolLifts?.get(name)?.()
+      held.toolLifts?.delete(name)
+      held.unlisted.delete(name)
+    }
+  }
+
+  // Per-Bot connector switches (state.connectors[id].offFor): deny the served
+  // tools matching each off connector's prefix. Re-applied on tools/change.
+  const maskConnectorTools = (agent, held) => {
+    if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
+    const botId = rt.selfOf(agent.session?.id)
+    const prefixes = rt.connectorOffFor?.(botId) ?? []
+    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+    const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+    const before = held.connectorDenied ?? new Set()
+    if (deny.length === before.size && deny.every(name => before.has(name))) return
+    for (const lift of held.connectorLifts ?? []) { try { lift() } catch { /* already lifted */ } }
+    held.connectorLifts = []
+    held.connectorDenied = new Set(deny)
+    for (const name of deny) {
+      try {
+        const lift = agent.ctx.tools.restrict({ deny: [name] })
+        if (typeof lift === 'function') held.connectorLifts.push(lift)
+      } catch { /* a scoped name cannot be restricted; connectors are global */ }
+    }
+  }
+  const reapplyToolMasks = () => {
+    for (const held of scoped.values()) {
+      if (held.agent === undefined) continue
+      try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+    }
   }
 
   // restrict() throws on a name this profile does not serve.
@@ -901,9 +973,12 @@ export function install(rt) {
     held.agent = agent
     scoped.set(id, held)
     filterBotAssembly(agent, held)
-    if (held.restricted === true || typeof agent.ctx?.tools?.restrict !== 'function') return
-    maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
+    if (held.restricted !== true && typeof agent.ctx?.tools?.restrict === 'function') {
+      maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
+    }
+    maskConnectorTools(agent, held)
   }
+  ctx.on('tools/change', () => reapplyToolMasks())
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // recording path resolves it again once the session is known as a Bot's; meanwhile
   // the guard refuses the question and delegation tools in any Bot Session, and a
@@ -911,6 +986,8 @@ export function install(rt) {
   ctx.tools.guard((exec) => {
     if (!rt.isBotSession(exec.agent?.id)) return undefined
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    const target = exec.arguments?.target
+    if (SCHEDULE_TARGET_TOOLS.includes(exec.name) && target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
     return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined
   })
   // Creation waits for this listener, so the Agent's first step already lacks the tool.
@@ -944,6 +1021,11 @@ export function install(rt) {
     const assembled = await next()
     const held = scoped.get(agent.session?.id)
     if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
+    // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
+    if (!Array.isArray(assembled.tools)) {
+      held.unlisted.clear()
+      return assembled
+    }
     const pending = [...held.unlisted]
     // Cleared whatever happens below: the names are offered once, not on
     // every step.
@@ -1101,5 +1183,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, addTeamTool, removeTeamTool, reapplyToolMasks })
 }

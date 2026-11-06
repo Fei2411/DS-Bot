@@ -11,7 +11,7 @@ const { outputFiles } = await build({
     contents: [
       "export { ToolCell, TriggerCell, callTree, CellEmpty, Bubbles } from './src/client/cells.js'",
       "export { stackReplies } from './src/shared/group-replies.js'",
-      "export { QuestionDock } from './src/client/questions.js'",
+      "export { QuestionDock, SettledQuestion } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
       "export { ViewMenuList, WidgetView } from './src/client/widget-cell.js'",
@@ -65,7 +65,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -889,6 +889,36 @@ test('a reaction on a group post stays on that post, also after it draws again',
   reactOf(draw(later))('❤️')
   reactOf(draw(first))('👍')
   assert.deepEqual([chips(draw(first)), chips(draw(sameTurn)), chips(draw(later))], [0, 0, 1])
+})
+
+test('a question or view card closed without an answer on it stays at its call, read-only, with how it closed', () => {
+  const asked = { question: 'Which draft?', detail: 'Pick one', options: [{ label: 'Short', description: 'One page' }, 'Long'] }
+  const pick = { title: 'Pick a lane', view: { type: 'options', id: 'lane', options: [{ label: 'Ship now' }, { label: 'One more pass' }] } }
+  const roster = team({ questions: {}, views: {}, closedCards: { [chief.id]: { 'q-dismissed': 'dismissed', 'q-replied': 'replied', 'v-dismissed': 'dismissed' } } })
+  const dismissed = show(call('ask_user', 'q-dismissed', { args: asked }), { roster })
+  assert.equal(find(dismissed, node => node.props?.className === 'bt-q-gone'), undefined)
+  assert.equal(text(find(dismissed, node => node.props?.className === 'bt-q-badge')), 'Dismissed')
+  // Compact: the question and the badge, no options and nothing to press.
+  assert.equal(text(dismissed), 'Which draft?Dismissed')
+  assert.equal(find(dismissed, node => node.type === 'button'), undefined)
+  const replied = show(call('ask_user', 'q-replied', { args: asked }), { roster })
+  assert.equal(text(find(replied, node => node.props?.className === 'bt-q-badge')), 'Answered by message')
+  // Answered on the card: the reply message carries the card, the call leaves no gap.
+  const answered = show(call('ask_user', 'q-answered', { args: asked }), { roster })
+  assert.ok(find(answered, node => node.props?.className === 'bt-q-gone') !== undefined)
+  const view = show(call('show_view', 'v-dismissed', { args: pick }), { roster })
+  assert.equal(text(view), 'Pick a laneDismissed')
+  assert.equal(find(view, node => node.type === 'button'), undefined)
+  assert.ok(find(show(call('show_view', 'v-answered', { args: pick }), { roster }), node => node.props?.className === 'bt-q-gone') !== undefined)
+})
+
+test('an answered question card keeps only the chosen rows, each under its card letter, and the own answer after them', () => {
+  const question = { id: 'q', question: 'Which draft?', options: [{ label: 'Short' }, { label: 'Long' }, { label: 'None' }] }
+  const out = expand(SettledQuestion({ question, answer: { selected: ['Long'], custom: 'Both, really' } }))
+  assert.match(out.props.className, /bt-q-answered/)
+  const rows = findAll(out, node => node.props?.className === 'bt-q-opt')
+  assert.deepEqual(rows.map(row => [text(find(row, node => node.props?.className === 'bt-key')), text(find(row, node => node.props?.className === 'bt-q-label'))]), [['B', 'Long'], ['D', 'Both, really']])
+  assert.equal(find(out, node => node.props?.className === 'bt-q-badge'), undefined)
 })
 
 test('a show_view call the host refused draws nothing; a display-only card draws with the trimmed title', () => {

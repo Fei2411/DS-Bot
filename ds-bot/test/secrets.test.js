@@ -302,8 +302,9 @@ test('tool results and model requests lose the values', async (t) => {
   t.after(bench.stop)
   const value = fresh()
   await bench.call('secret-set', { name: 'DEMO_TOKEN', value })
-  // The team tools' listener (working_directory) registers first.
-  const execute = bench.listeners['tools/execute'].at(-1)
+  // The team tools' listener (working_directory) registers first; the schedule list's
+  // registers after this one.
+  const execute = bench.listeners['tools/execute'].filter(listener => listener.name !== 'listOwnSchedules' && listener.name !== 'computerTrack').at(-1)
   const ok = await execute({}, async () => ({ isError: false, value: { kind: 'foreground', stdout: { text: `${value}\n`, truncated: false } }, content: [{ type: 'text', text: value }], meta: { stdout: value } }))
   assert.equal(ok.isError, false)
   assert.deepEqual(ok.value, { kind: 'foreground', stdout: { text: '[secret:DEMO_TOKEN]\n', truncated: false } })

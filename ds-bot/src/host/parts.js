@@ -22,6 +22,7 @@ import { parseReplies, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
+import { viaOf } from '../shared/im-platforms.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -181,6 +182,9 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
+  // A checkpoint DSH asked for so a model switch could go ahead, written while no route
+  // could produce a summary. It is honest about that and points at the messages.
+  const NO_SUMMARY = '(No summary was written: no model was free to write it, so the messages the earlier part sent you are carried over word for word below. Read it from them, and read_own_chat finds the rest.)'
   // Generic request and credential errors say nothing about the conversation.
   const STUCK_CODES = ['IMAGE_OFFLOAD_REQUIRED']
   const ORIGINAL_COMPACT = Symbol.for('ds-bot/compaction')
@@ -255,13 +259,19 @@ export function install(rt) {
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
   // records included: automatic pressure and overflow compaction do nothing, and
-  // /compact and explicit ranges are refused. Only DS Bot condenses a Bot Session,
-  // when the steward says so, and then the summary is DS Bot's checkpoint. Each preset
-  // mount has its own compaction backend. Every other Session, subagents included, is
-  // as it was.
+  // /compact is refused. Only DS Bot condenses a Bot Session, when the steward says so,
+  // and then the summary is DS Bot's checkpoint. An explicit range is different: with
+  // those entry points closed, the only range DSH still asks of a Bot Session is the one
+  // a model switch needs to fit the new model's window, and a refusal there ended the
+  // switch itself (MODEL_SWITCH_COMPACTION_FAILED). So DS Bot condenses that range as its
+  // own checkpoint instead. Each preset mount has its own compaction backend. Every other
+  // Session, subagents included, is as it was.
   const adoptedEngines = new Set()
   // Sessions DS Bot itself is condensing right now.
   const condensing = new Set()
+  // The range of a Bot Session DSH is condensing for a model switch, where the route the
+  // Session used last is the one being switched away from.
+  const switchRanges = new Set()
   const refuseCompaction = () => Promise.reject(new Error(
     'A Bot conversation makes room on its own, and read_own_chat searches all of it.'))
   const isBotTarget = (target) => {
@@ -269,6 +279,20 @@ export function install(rt) {
     return id !== undefined && (rt.selfOf(id) !== undefined || rt.roomOf(id) !== undefined)
   }
   const ownedByBot = target => isBotTarget(target) && !condensing.has(target.session.id)
+  // Condenses a range of a Bot Session the way DS Bot condenses its own parts: the
+  // session counts as condensing, so the summary hook writes DS Bot's checkpoint rather
+  // than the backend writing one of its own.
+  async function condenseRange(target, run, { forSwitch = false } = {}) {
+    const sessionId = target.session.id
+    condensing.add(sessionId)
+    if (forSwitch) switchRanges.add(sessionId)
+    try {
+      return await run()
+    } finally {
+      condensing.delete(sessionId)
+      if (forSwitch) switchRanges.delete(sessionId)
+    }
+  }
   // The engine that serves this agent, when DS Bot can condense through it.
   const engineOf = agent => [ctx.get('agentPresets')?.serviceFor(agent, 'compaction'), ctx.get('compaction')]
     .find(engine => typeof engine?.[ORIGINAL_COMPACT]?.summarize === 'function')
@@ -296,8 +320,11 @@ export function install(rt) {
       return original.compactNow.call(this, target, signal, commandId)
     }
     engine.compactRegion = function compactRegionOutsideBots(start, end, target, signal) {
-      if (ownedByBot(target)) return refuseCompaction()
-      return original.compactRegion.call(this, start, end, target, signal)
+      if (!ownedByBot(target)) return original.compactRegion.call(this, start, end, target, signal)
+      // Without the summary hook the backend would summarize a Bot conversation itself,
+      // so that case keeps the refusal.
+      if (original.summarize === undefined) return refuseCompaction()
+      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal), { forSwitch: true })
     }
     if (original.summarize !== undefined) {
       engine.summarize = function summarizeForBots(input, agent, signal) {
@@ -521,25 +548,7 @@ export function install(rt) {
     const head = input.messages
     const tail = checkpointTail(head, session.deriveMessages())
     const prompt = tail.length === 0 ? CHECKPOINT_PROMPT : `${CHECKPOINT_PROMPT}\n\n${checkpointTailNote(tail)}`
-    const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
-      provider: route.provider,
-      model: route.model,
-      ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
-      messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-      toolHistory: session.toolHistory(),
-      ...(input.tools ? { tools: [...input.tools] } : {}),
-      ...(maxTokens !== undefined ? { maxTokens } : {}),
-      sessionId: session.id,
-      purpose: 'compaction',
-      signal,
-    })) assembler.push(chunk)
-    const finish = assembler.finish
-    if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
-    if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
-    const rawOutput = assembler.blocks()
-    const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
-    if (summary === '') throw new Error('the checkpoint was empty')
+    const written = await summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal })
     const place = placeOf(session.id)
     const lines = await contextLines(session).catch(() => undefined)
     const { kept, more } = await keptMessages(session.id, {
@@ -547,16 +556,69 @@ export function install(rt) {
       group: place?.roomId !== undefined,
       number: place === undefined ? 1 : partsOf(place.botId, place.roomId).length,
     })
-    const text = checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more })
+    const text = checkpointText({
+      number: checkpointCount(input.messages) + 1,
+      summary: written?.summary ?? NO_SUMMARY,
+      kept,
+      more,
+    })
     return {
       summary: [{ type: 'text', text }],
-      rawOutput,
-      llmStreamCall: true,
-      provider: route.provider,
-      model: route.model,
+      rawOutput: written?.rawOutput ?? [{ type: 'text', text: NO_SUMMARY }],
+      llmStreamCall: written !== undefined,
+      provider: written?.provider ?? route.provider,
+      model: written?.model ?? route.model,
       ...(maxTokens !== undefined ? { maxTokens } : {}),
-      ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
+      ...(written?.usage === undefined ? {} : { usage: written.usage }),
     }
+  }
+
+  // The summary request itself. The Session's own route answers it, as it always has. A
+  // range DSH condenses for a model switch is different: the route the Session used last
+  // is the one being switched away from, and the switch can be because of that route (a
+  // model out of quota, for one). So the Bot's own model is tried next, and with no route
+  // left the checkpoint carries the messages without a summary rather than fail - a
+  // failure there is what DSH reports as MODEL_SWITCH_COMPACTION_FAILED, and it would
+  // leave the Bot on the model the user is trying to leave.
+  async function summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal }) {
+    const forSwitch = switchRanges.has(session.id)
+    const routes = [{ provider: route.provider, model: route.model, ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}) }]
+    if (forSwitch) {
+      const bot = rt.selfOf(session.id) === undefined ? undefined : rt.botOf(rt.selfOf(session.id))
+      const ref = bot === undefined ? undefined : await Promise.resolve(rt.desiredModel?.(bot)).catch(() => undefined)
+      const wanted = splitRef(ref)
+      if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
+    }
+    let last
+    for (const one of routes) {
+      try {
+        const assembler = new BlockAssembler()
+        for await (const chunk of ctx.llm.stream({
+          ...one,
+          messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+          toolHistory: session.toolHistory(),
+          ...(input.tools ? { tools: [...input.tools] } : {}),
+          ...(maxTokens !== undefined ? { maxTokens } : {}),
+          sessionId: session.id,
+          purpose: 'compaction',
+          signal,
+        })) assembler.push(chunk)
+        const finish = assembler.finish
+        if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+        if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
+        const rawOutput = assembler.blocks()
+        const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+        if (summary === '') throw new Error('the checkpoint was empty')
+        return { summary, rawOutput, provider: one.provider, model: one.model, usage: assembler.usage }
+      } catch (error) {
+        // A cancelled request is the caller's own decision, not a route that cannot answer.
+        if (!forSwitch || signal?.aborted) throw error
+        last = error
+        rt.warn('ds-bot: no checkpoint from %s/%s for %s: %s', one.provider, one.model, session.id, error?.message ?? error)
+      }
+    }
+    rt.warn('ds-bot: the checkpoint for %s carries no summary; the switch goes ahead without one: %s', session.id, last?.message ?? last)
+    return undefined
   }
 
   // The steward's call: the latest messages of this part, and nothing of the Bot's
@@ -654,7 +716,7 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder, manual }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -663,7 +725,9 @@ export function install(rt) {
         : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat.'
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
       : overflow ? 'the previous part overflowed the model\'s window'
-        : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}` : 'the previous part grew long'
+        : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
+          : manual ? 'a fresh conversation was started'
+            : 'the previous part grew long'
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -805,7 +869,14 @@ export function install(rt) {
   // state.switching. Hand on what it kept: input an earlier part still holds goes to
   // the part that replaced it and the earlier part is archived as the switch meant
   // to; a part that stayed just wakes so its kept input goes on.
-  async function heldBack() {
+  // The start timer and a direct call can overlap on a slow start; both share one pass,
+  // so kept input is handed on once.
+  let heldBackRun
+  function heldBack() {
+    heldBackRun ??= handOnHeld().finally(() => { heldBackRun = undefined })
+    return heldBackRun
+  }
+  async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
@@ -833,10 +904,10 @@ export function install(rt) {
 
   // `hard`: past the hard line or the window, the part moves on even without a note
   // from the model. `folder`: the part moves on because its working folder changed.
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, hard = overflow || folder } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, hard = overflow || folder || manual } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, manual, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
@@ -951,8 +1022,11 @@ export function install(rt) {
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
     let written
     let failure
+    // A local agent CLI keeps its own compaction and notes: no model call is made
+    // for its handoff; the part moves on with the deterministic package.
+    const local = bot !== undefined && rt.isLocalAgentRef?.(bot.appliedModel ?? bot.model) === true
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.overflow && job.failed === undefined && !whole && bot !== undefined) {
+    if (!local && !job.overflow && job.failed === undefined && !whole && bot !== undefined) {
       try {
         written = await writeNote(agent, AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)]), { folder: job.folder })
       } catch (error) {
@@ -973,6 +1047,7 @@ export function install(rt) {
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
     const previous = parts.at(-2)
     const noted = written !== undefined ? { note: written.note }
+      : local ? {}
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : 'failed', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
@@ -1040,7 +1115,7 @@ export function install(rt) {
         folderRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
-      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder })
+      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder, manual: job.manual })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1101,6 +1176,9 @@ export function install(rt) {
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
     if (place.botId === undefined) return next()
+    // A local agent CLI owns its in-session compaction; the DSH Session keeps the
+    // full history for read_own_chat and never condenses or switches on size.
+    if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.appliedModel ?? rt.botOf(place.botId)?.model) === true) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
@@ -1234,6 +1312,8 @@ export function install(rt) {
   // past it.
   async function checkContext(agent) {
     if (switches.has(agent.id) || freshParts.has(agent.id) || checking.has(agent.id) || readOnly()) return
+    // A local agent CLI owns its in-session compaction.
+    if (rt.isLocalAgentRef?.(rt.botOf(placeOf(agent.id)?.botId)?.appliedModel ?? rt.botOf(placeOf(agent.id)?.botId)?.model) === true) return
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
@@ -1275,6 +1355,21 @@ export function install(rt) {
     timer.unref?.()
     return () => clearTimeout(timer)
   }, 'ds-bot: hand on input kept in earlier parts')
+
+  // An archive from DSH's own Session list while the team runs: DSH asks for the
+  // Session's activity (plain archive) or stops it (stopActivity) inside the archive,
+  // so an unarchive started here queues behind that archive and undoes it. The team's
+  // own archives drop the Session from its owner first.
+  const keepCurrent = ({ sessionId }) => {
+    if (readOnly() || !(rt.isBotSession(sessionId) || rt.roomOwners.has(sessionId))) return
+    void ctx.workspaceRegistry.unarchiveSession(sessionId)
+      .catch(error => rt.warn('ds-bot: current Session %s is archived in DSH and could not be taken out: %s', sessionId, error))
+  }
+  ctx.on('workspace/session-stop', keepCurrent)
+  ctx.on('workspace/session-activity', (request, next) => {
+    keepCurrent(request)
+    return next()
+  })
 
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle' && rt.isBotSession(agent.id)) {
@@ -1341,13 +1436,22 @@ export function install(rt) {
         if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
         // Hidden turns and refused calls never showed a display card. Interactive
         // cards live in the pending dock or on their answer message instead.
-        if (event.data?.name === 'show_view' && !hidden.has(event.data?.turn)) {
+        const named = event.data?.name
+        if ((named === 'show_view' || named === 'ask_user') && !hidden.has(event.data?.turn)) {
           let args = event.data?.arguments
           if (typeof args === 'string') { try { args = JSON.parse(args) } catch { args = undefined } }
+          const callId = event.data?.callId ?? null
+          const closed = callId === null ? undefined : rt.own(rt.own(state.closedCards, partId), callId)
+          if (named === 'ask_user') {
+            if (closed !== undefined) items.push({ kind: 'closed', closed, question: { question: String(args?.question ?? ''), ...(args?.detail ? { detail: String(args.detail) } : {}), options: Array.isArray(args?.options) ? args.options : [], multiSelect: args?.multiSelect === true }, callId, time: event.time })
+            continue
+          }
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
           if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
-            items.push({ kind: 'view', title: shown.title, view, callId: event.data?.callId ?? null, time: event.time })
+            items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
+          } else if (shown.error === undefined && closed !== undefined) {
+            items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })
           }
         }
         continue
@@ -1364,7 +1468,7 @@ export function install(rt) {
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
-          if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...item })
+          if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
           else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
@@ -1375,7 +1479,8 @@ export function install(rt) {
       if (source?.kind === 'user') {
         const content = Array.isArray(event.data.content) ? event.data.content : []
         const images = content.filter(block => block?.type === 'image').length
-        stamp(event, { kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), time: event.time })
+        const via = viaOf(source)
+        stamp(event, { kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), ...(via ? { via } : {}), time: event.time })
       } else if (source?.kind === REPLY_KIND) {
         const text = textOf(event.data.content)
         const reply = readReply(text)
@@ -1469,5 +1574,59 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor)) }
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, heldBack, switchJobs: () => switches.values() })
+  // "New session" in a Bot's chat: a manual move to a fresh part with the
+  // deterministic handoff package, no model call.
+  async function newPart(sessionId) {
+    await rt.load()
+    const agent = await rt.resolveAgent(sessionId)
+    const place = placeOf(sessionId)
+    if (place?.botId === undefined || place.roomId !== undefined) throw Object.assign(new Error('Only a Bot\'s own chat can start a fresh part'), { code: 'bot/invalid' })
+    if (agent.status !== 'idle') throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    startSwitch(agent, { manual: true })
+    return true
+  }
+
+  // Opening an earlier part again: it becomes the current one and the part that
+  // was current joins the earlier ones where it sat.
+  async function switchPart(botId, partId) {
+    await rt.load()
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    const current = rt.chatOf(botId)
+    if (partId === current) return false
+    const segments = bot.segments ?? []
+    const at = segments.findIndex(segment => segment.sessionId === partId)
+    if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
+    const live = rt.live.get(current)
+    if (live?.turn !== undefined) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    // DSH turns away every step of an archived Session and every task aimed at it, so
+    // the part leaves the archive before it becomes current.
+    await ctx.workspaceRegistry.unarchiveSession(partId)
+    segments.splice(at, 1)
+    segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
+    bot.sessionId = partId
+    rt.chatOwners.delete(current)
+    rt.chatOwners.set(partId, botId)
+    rt.pastOwners.delete(partId)
+    rt.pastOwners.set(current, { botId })
+    // Marked as a switch until its tasks sit on the opened part and it is archived, so
+    // the restart pass (handOnHeld) finishes a move that fails here.
+    state.switching[current] = { botId }
+    await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+    const room = undefined
+    await rt.applyPermission(bot, partId, room).catch(() => {})
+    await rt.save()
+    // The stop that archiving runs removes the tasks still on the part, so they move first.
+    try {
+      await rt.moveSchedules?.(current, partId)
+      await ctx.workspaceRegistry.archiveSession(current, { stopActivity: true })
+      delete state.switching[current]
+      await rt.save()
+    } catch (error) {
+      rt.warn('ds-bot: earlier part %s not archived: %s', current, error)
+    }
+    return true
+  }
+
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, heldBack, newPart, switchPart, switchJobs: () => switches.values() })
 }

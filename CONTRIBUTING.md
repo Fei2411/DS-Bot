@@ -13,7 +13,7 @@ Collaborators of this repository push branches here and open pull requests into 
 1. **Build on DSH; never patch it.** The Bot features are a DSH plugin: use the plugin APIs that DSH documents (Cordis services, the plugin client entry, profile patches). The desktop app starts DSH only through the entry points that DSH documents (`@deepseek-ai/dsh/profile-boot`, the `dsh` command). Do not patch DeepSeek Harness, and do not depend on files inside a DSH install. When a feature needs something that DSH does not offer, open an issue here first; the fix can belong in DSH.
 2. **Bots run in DSH Sessions.** A Bot keeps its identity while its work runs in DSH Sessions: one for its own chat, one for each group, a fresh one when the context fills up. Every turn goes through the normal DSH agent loop, tools and model routes. Do not add a second agent runtime.
 3. **No real secrets anywhere.** Do not commit API keys, tokens, cookies, `DSH_HOME` folders, logs or screenshots with personal data. The tests and the test bench use a scripted mock model and need no key.
-4. **Only original material.** Do not copy code, text, icons, logos or other graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to a `NOTICE` file.
+4. **Only original material.** Do not copy code, text, icons, logos or other graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to a `NOTICE` file. This rule is about DS Bot's own interface. To name a third-party product that DS Bot connects to (for example the agent CLI a Bot runs on), use that product's official logo, and list it in `NOTICE` with its source and owner.
 5. **Every change is tested.** Run the unit tests and the client check for every change (see [Test a change](#test-a-change)).
 
 ## How we work
@@ -29,7 +29,7 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 | `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `dev` | — |
 
 - Do not start a branch name with `dev/`. Git cannot create `dev/<name>` while the branch `dev` exists.
-- To bring your branch up to date, run `git merge dev` (on a hotfix branch, `git merge main`). Do not rebase a pushed branch and do not force-push.
+- To bring your branch up to date, run `scripts/merge-dev.sh`: it merges `origin/dev`, and a conflict in the generated `ds-bot/client.js` is taken from dev and rebuilt (on a hotfix branch, `git merge main`). Do not rebase a pushed branch and do not force-push.
 - `main` is the default branch, so GitHub suggests `main` as the base of a new pull request. Change the base to `dev`.
 
 ### Issues
@@ -99,7 +99,7 @@ For the test bench, add the DeepSeek Harness checkout next to the plugin folder 
 ```sh
 cd ..
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout dsh-v0.2.1-rc.5
+git -C deepseek-harness checkout dsh-v0.2.2-rc.1
 (cd deepseek-harness && pnpm install)
 ```
 

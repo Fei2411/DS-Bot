@@ -176,8 +176,12 @@ docker compose up -d
 ```
 
 A rebuild changes the image and the DSH it contains. An existing persisted
-profile is reused, and the entrypoint does not manage plugin upgrades. The
-image is built and tested with dsh `0.2.0-rc.2`, the version
+profile is reused, and the entrypoint does not manage plugin upgrades.
+The packed plugin stays at `/opt/ds-bot/ds-bot.tgz` for later dependency
+installs. `/tmp/ds-bot.tgz` links to it for profiles created by older images.
+A manual dependency install can therefore pick up the plugin bundled in the
+current image; restarting alone does not update the persisted profile.
+The image is built and tested with dsh `0.2.0-rc.2`, the version
 DS Bot is verified with; a `DSH_VERSION` build arg exists, but other releases
 are untested and newer ones change how the server binds.
 
@@ -238,7 +242,9 @@ After building the image, run `node docker/test.mjs ds-bot:local` from the
 repository root. The test uses isolated, network-disabled containers and
 temporary Docker volumes, with no host directory mounts or model calls. It
 checks entrypoint permissions, first start, UID/GID changes, restored files,
-workspace ownership and web startup. All test containers and volumes are
-removed when it finishes.
+workspace ownership and the authenticated DS Bot API. It also checks that the
+runtime user can read and repack the profile's plugin archive offline, and
+that legacy archive references work without rewriting the persisted profile.
+All test containers and volumes are removed when it finishes.
 CI builds the image from the Linux checkout and runs this test as part of the
 required Test result check.

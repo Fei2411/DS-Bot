@@ -552,6 +552,18 @@ test('stop-room-work sets the goal waiting and no check follows the notice', asy
   assert.equal(host.takeGoal(), undefined)
 })
 
+for (const [endpoint, body] of [['stop-room-work', { roomId: 'r1' }], ['stop-member-work', { roomId: 'r1', botId: 'b' }]]) {
+  test(`${endpoint} that fails still sets the goal waiting`, async (t) => {
+    const host = await start(t)
+    await startGoal(host)
+    host.emit('gb', 'turn/start', { turn: 1 })
+    host.agentOf('gb').cancel = () => { throw new Error('cancel failed') }
+    assert.equal((await host.call(endpoint, body)).ok, false)
+    const { rooms } = (await host.call('state', {})).value
+    assert.equal(rooms.find(room => room.id === 'r1').goal.idle, true)
+  })
+}
+
 test('a batch member that finishes first is reported while its peer still works', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)

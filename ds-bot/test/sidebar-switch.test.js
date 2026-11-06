@@ -334,11 +334,34 @@ test('what the team view replaces in the shell sidebar stays out of sight', () =
   }
 })
 
-// The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
-// column leaves nothing behind; the shell's right column keeps its own geometry.
-test('the shell\'s collapsed sidebar keeps no track while its right column is closed', () => {
-  const frame = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].find(rule => rule.selector.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
-  assert.match(frame?.body ?? '', /grid-template-columns:0px/)
+function collapsedGridRules() {
+  const { document } = new JSDOM('<style></style>').window
+  document.querySelector('style').textContent = `${SHELL_CSS}\n${SIDEBAR_CSS}`
+  const frames = []
+  const visit = (rules, media = []) => {
+    for (const rule of rules) {
+      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
+        frames.push({ grid: rule.style.getPropertyValue('grid-template-columns'), media })
+      if (rule.cssRules?.length)
+        visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
+    }
+  }
+  visit(document.styleSheets[0].cssRules)
+  return frames
+}
+
+test('the wide shell\'s collapsed sidebar keeps no track while its right column is closed', () => {
+  const frames = collapsedGridRules()
+  assert.equal(frames.length, 1)
+  assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
+})
+
+// A narrow host may place the conversation in its first track instead of its second.
+test('the collapsed shell grid override leaves layouts below 1024px to the host', () => {
+  const frames = collapsedGridRules()
+  assert.equal(frames.length, 1)
+  assert.ok(frames[0].media.some(query => /^\(min-width:\s*1024px\)$/.test(query)),
+    'the zero-width first track must not override a narrow host layout')
 })
 
 test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
@@ -548,3 +571,24 @@ test('after a snap the spring stops and the drag follows the cursor', async () =
     assert.equal(column.style.width, '330px')
   })
 })
+
+test('TeamSidebar subscribes to specific ui slices rather than the whole ui object', () => {
+  const selectors = []
+  const base = { unread: {}, leftDrawer: false, details: null, view: 'details', panelYield: false, bootFailed: false }
+  TeamSidebar({
+    wide: true,
+    useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+    useUi: (pick) => { selectors.push(pick); return pick(base) },
+    useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }),
+    useUpdate: () => ({}),
+    actions: { toggleSidebar() {} },
+  })
+  assert.ok(selectors.length > 0)
+  for (const pick of selectors) {
+    const before = pick(base)
+    const after = pick({ ...base, palette: { query: 'test', token: 1 }, settings: { page: 'general' }, menu: { kind: 'bot', id: 'b1' }, toast: { text: 'err' } })
+    assert.equal(Object.is(before, after), true)
+  }
+})
+
