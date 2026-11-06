@@ -844,8 +844,8 @@ export function install(rt) {
       const assembled = await next()
       return {
         ...assembled,
-        tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        tools: (assembled.tools ?? []).filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        sections: (assembled.sections ?? []).filter(section => !HIDDEN_SECTIONS.has(section.name)),
       }
     })
     held.filtered = true
