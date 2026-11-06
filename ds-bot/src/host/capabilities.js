@@ -7,10 +7,13 @@ const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 const SECRET_REFERENCE = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const ENSURE_TIMEOUT_MS = 15_000
 
-export function validateCapabilityName(value) {
+// Connector ids are reserved: a capability named like one would collide with
+// its mcp__<id>__* tool prefix. The connectors module registers its ids here.
+export const CONNECTOR_IDS = new Set(['github', 'mail'])
+export function validateCapabilityName(value, reserved = CONNECTOR_IDS) {
   const name = String(value ?? '').trim()
-  if (name.length > 32 || !NAME.test(name) || name === 'github') {
-    throw new Error('Use a capability name with lowercase letters, digits, and single hyphens; "github" is reserved.')
+  if (name.length > 32 || !NAME.test(name) || name === 'github' || reserved.has(name)) {
+    throw new Error('Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.')
   }
   return name
 }

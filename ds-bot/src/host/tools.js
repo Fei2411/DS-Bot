@@ -815,7 +815,11 @@ export function install(rt) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
         const dispose = agent.ctx.tools.register(def)
-        if (typeof dispose === 'function') disposers.push(dispose)
+        if (typeof dispose === 'function') {
+          disposers.push(dispose)
+          ;(held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }).toolLifts ??= new Map()
+          held.toolLifts.set(def.name, dispose)
+        }
         registered.push(def.name)
       } catch (error) {
         // A tool another plugin already scoped onto this agent stays missing
@@ -856,6 +860,58 @@ export function install(rt) {
     })
     held.filtered = true
     if (typeof dispose === 'function') held.disposers.push(dispose)
+  }
+
+  // Tools joined after the first scoping (mail tools appear when the first
+  // account is added) register into every held Agent and are offered once.
+  const addTeamTool = (def) => {
+    if (rt.teamTools.some(tool => tool.name === def.name)) return
+    rt.teamTools.push(def)
+    for (const held of scoped.values()) {
+      if (held.relay || typeof held.agent?.ctx?.tools?.register !== 'function') continue
+      try {
+        const dispose = held.agent.ctx.tools.register(def)
+        if (typeof dispose === 'function') held.disposers.push(dispose)
+        held.unlisted.add(def.name)
+      } catch { /* an agent that refuses it simply lacks the tool */ }
+    }
+  }
+  const removeTeamTool = (name) => {
+    const at = rt.teamTools.findIndex(tool => tool.name === name)
+    if (at !== -1) rt.teamTools.splice(at, 1)
+    // Scoped registrations already handed out are disposed by name.
+    for (const held of scoped.values()) {
+      held.toolLifts?.get(name)?.()
+      held.toolLifts?.delete(name)
+      held.unlisted.delete(name)
+    }
+  }
+
+  // Per-Bot connector switches (state.connectors[id].offFor): deny the served
+  // tools matching each off connector's prefix. Re-applied on tools/change.
+  const maskConnectorTools = (agent, held) => {
+    if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
+    const botId = rt.selfOf(agent.session?.id)
+    const prefixes = rt.connectorOffFor?.(botId) ?? []
+    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+    const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+    const before = held.connectorDenied ?? new Set()
+    if (deny.length === before.size && deny.every(name => before.has(name))) return
+    for (const lift of held.connectorLifts ?? []) { try { lift() } catch { /* already lifted */ } }
+    held.connectorLifts = []
+    held.connectorDenied = new Set(deny)
+    for (const name of deny) {
+      try {
+        const lift = agent.ctx.tools.restrict({ deny: [name] })
+        if (typeof lift === 'function') held.connectorLifts.push(lift)
+      } catch { /* a scoped name cannot be restricted; connectors are global */ }
+    }
+  }
+  const reapplyToolMasks = () => {
+    for (const held of scoped.values()) {
+      if (held.agent === undefined) continue
+      try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+    }
   }
 
   // restrict() throws on a name this profile does not serve.
@@ -907,9 +963,12 @@ export function install(rt) {
     held.agent = agent
     scoped.set(id, held)
     filterBotAssembly(agent, held)
-    if (held.restricted === true || typeof agent.ctx?.tools?.restrict !== 'function') return
-    maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
+    if (held.restricted !== true && typeof agent.ctx?.tools?.restrict === 'function') {
+      maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
+    }
+    maskConnectorTools(agent, held)
   }
+  ctx.on('tools/change', () => reapplyToolMasks())
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // recording path resolves it again once the session is known as a Bot's; meanwhile
   // the guard refuses the question and delegation tools in any Bot Session, and a
@@ -1114,5 +1173,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, addTeamTool, removeTeamTool, reapplyToolMasks })
 }
