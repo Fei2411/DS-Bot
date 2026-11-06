@@ -182,6 +182,9 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
+  // A checkpoint DSH asked for so a model switch could go ahead, written while no route
+  // could produce a summary. It is honest about that and points at the messages.
+  const NO_SUMMARY = '(No summary was written: no model was free to write it, so the messages the earlier part sent you are carried over word for word below. Read it from them, and read_own_chat finds the rest.)'
   // Generic request and credential errors say nothing about the conversation.
   const STUCK_CODES = ['IMAGE_OFFLOAD_REQUIRED']
   const ORIGINAL_COMPACT = Symbol.for('ds-bot/compaction')
@@ -266,6 +269,9 @@ export function install(rt) {
   const adoptedEngines = new Set()
   // Sessions DS Bot itself is condensing right now.
   const condensing = new Set()
+  // The range of a Bot Session DSH is condensing for a model switch, where the route the
+  // Session used last is the one being switched away from.
+  const switchRanges = new Set()
   const refuseCompaction = () => Promise.reject(new Error(
     'A Bot conversation makes room on its own, and read_own_chat searches all of it.'))
   const isBotTarget = (target) => {
@@ -276,13 +282,15 @@ export function install(rt) {
   // Condenses a range of a Bot Session the way DS Bot condenses its own parts: the
   // session counts as condensing, so the summary hook writes DS Bot's checkpoint rather
   // than the backend writing one of its own.
-  async function condenseRange(target, run) {
+  async function condenseRange(target, run, { forSwitch = false } = {}) {
     const sessionId = target.session.id
     condensing.add(sessionId)
+    if (forSwitch) switchRanges.add(sessionId)
     try {
       return await run()
     } finally {
       condensing.delete(sessionId)
+      if (forSwitch) switchRanges.delete(sessionId)
     }
   }
   // The engine that serves this agent, when DS Bot can condense through it.
@@ -316,7 +324,7 @@ export function install(rt) {
       // Without the summary hook the backend would summarize a Bot conversation itself,
       // so that case keeps the refusal.
       if (original.summarize === undefined) return refuseCompaction()
-      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal))
+      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal), { forSwitch: true })
     }
     if (original.summarize !== undefined) {
       engine.summarize = function summarizeForBots(input, agent, signal) {
@@ -540,25 +548,7 @@ export function install(rt) {
     const head = input.messages
     const tail = checkpointTail(head, session.deriveMessages())
     const prompt = tail.length === 0 ? CHECKPOINT_PROMPT : `${CHECKPOINT_PROMPT}\n\n${checkpointTailNote(tail)}`
-    const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
-      provider: route.provider,
-      model: route.model,
-      ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
-      messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-      toolHistory: session.toolHistory(),
-      ...(input.tools ? { tools: [...input.tools] } : {}),
-      ...(maxTokens !== undefined ? { maxTokens } : {}),
-      sessionId: session.id,
-      purpose: 'compaction',
-      signal,
-    })) assembler.push(chunk)
-    const finish = assembler.finish
-    if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
-    if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
-    const rawOutput = assembler.blocks()
-    const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
-    if (summary === '') throw new Error('the checkpoint was empty')
+    const written = await summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal })
     const place = placeOf(session.id)
     const lines = await contextLines(session).catch(() => undefined)
     const { kept, more } = await keptMessages(session.id, {
@@ -566,16 +556,69 @@ export function install(rt) {
       group: place?.roomId !== undefined,
       number: place === undefined ? 1 : partsOf(place.botId, place.roomId).length,
     })
-    const text = checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more })
+    const text = checkpointText({
+      number: checkpointCount(input.messages) + 1,
+      summary: written?.summary ?? NO_SUMMARY,
+      kept,
+      more,
+    })
     return {
       summary: [{ type: 'text', text }],
-      rawOutput,
-      llmStreamCall: true,
-      provider: route.provider,
-      model: route.model,
+      rawOutput: written?.rawOutput ?? [{ type: 'text', text: NO_SUMMARY }],
+      llmStreamCall: written !== undefined,
+      provider: written?.provider ?? route.provider,
+      model: written?.model ?? route.model,
       ...(maxTokens !== undefined ? { maxTokens } : {}),
-      ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
+      ...(written?.usage === undefined ? {} : { usage: written.usage }),
     }
+  }
+
+  // The summary request itself. The Session's own route answers it, as it always has. A
+  // range DSH condenses for a model switch is different: the route the Session used last
+  // is the one being switched away from, and the switch can be because of that route (a
+  // model out of quota, for one). So the Bot's own model is tried next, and with no route
+  // left the checkpoint carries the messages without a summary rather than fail - a
+  // failure there is what DSH reports as MODEL_SWITCH_COMPACTION_FAILED, and it would
+  // leave the Bot on the model the user is trying to leave.
+  async function summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal }) {
+    const forSwitch = switchRanges.has(session.id)
+    const routes = [{ provider: route.provider, model: route.model, ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}) }]
+    if (forSwitch) {
+      const bot = rt.selfOf(session.id) === undefined ? undefined : rt.botOf(rt.selfOf(session.id))
+      const ref = bot === undefined ? undefined : await Promise.resolve(rt.desiredModel?.(bot)).catch(() => undefined)
+      const wanted = splitRef(ref)
+      if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
+    }
+    let last
+    for (const one of routes) {
+      try {
+        const assembler = new BlockAssembler()
+        for await (const chunk of ctx.llm.stream({
+          ...one,
+          messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+          toolHistory: session.toolHistory(),
+          ...(input.tools ? { tools: [...input.tools] } : {}),
+          ...(maxTokens !== undefined ? { maxTokens } : {}),
+          sessionId: session.id,
+          purpose: 'compaction',
+          signal,
+        })) assembler.push(chunk)
+        const finish = assembler.finish
+        if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+        if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
+        const rawOutput = assembler.blocks()
+        const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+        if (summary === '') throw new Error('the checkpoint was empty')
+        return { summary, rawOutput, provider: one.provider, model: one.model, usage: assembler.usage }
+      } catch (error) {
+        // A cancelled request is the caller's own decision, not a route that cannot answer.
+        if (!forSwitch || signal?.aborted) throw error
+        last = error
+        rt.warn('ds-bot: no checkpoint from %s/%s for %s: %s', one.provider, one.model, session.id, error?.message ?? error)
+      }
+    }
+    rt.warn('ds-bot: the checkpoint for %s carries no summary; the switch goes ahead without one: %s', session.id, last?.message ?? last)
+    return undefined
   }
 
   // The steward's call: the latest messages of this part, and nothing of the Bot's

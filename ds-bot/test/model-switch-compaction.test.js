@@ -27,14 +27,19 @@ const TEAM = {
   questions: {},
 }
 
-function start({ summarize = true } = {}) {
+function start({ summarize = true, outlet = false, stream } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-compaction-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
-  const bench = { regions: [], nows: [], summarised: 0 }
+  const bench = { regions: [], nows: [], summarised: 0, checkpoints: [] }
   const compaction = {
     async compactIfNeeded() { return null },
     async compactNow(target, signal, commandId) { bench.nows.push([target?.session?.id, commandId]) },
-    async compactRegion(start, end, target) { bench.regions.push([start, end, target?.session?.id]) },
+    // `outlet` is compaction-basic's own shape: the range is condensed through the
+    // engine's summarize, which is the hook DS Bot wraps.
+    async compactRegion(start, end, agent, signal) {
+      bench.regions.push([start, end, agent?.session?.id])
+      if (outlet) bench.checkpoints.push(await this.summarize({ messages: [] }, agent, signal))
+    },
   }
   if (summarize) compaction.summarize = () => { bench.summarised += 1; return { summary: [] } }
   const ctx = fakeContext({
@@ -45,11 +50,17 @@ function start({ summarize = true } = {}) {
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
       listModels: async () => [{ id: 'v4' }],
       resolveModelInfo: async () => ({ context: { contextWindow: 100_000 }, defaultMaxTokens: 8_000 }),
-      stream() {
+      stream(options) {
+        if (stream !== undefined) return stream(options)
         throw new Error('the checkpoint model is not called by these tests')
       },
     },
     sessions: { messageProjections: [] },
+    // The checkpoint carries the latest messages of the part word for word.
+    sessionController: {
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 2 } } }),
+      page: async () => ({ records: [], hasMore: false }),
+    },
     workspaceRegistry: { archiveSession: async () => {} },
   })
   const rt = createRuntime(ctx, { home })
@@ -110,4 +121,43 @@ test('an explicit /compact on a Bot conversation is still refused', async (t) =>
     /A Bot conversation makes room on its own/,
   )
   assert.deepEqual(bench.nows, [])
+})
+
+test('a checkpoint the route cannot write does not fail the switch', async (t) => {
+  // The reason for switching can be the route itself: a model out of quota answers every
+  // request with 429, the summary included. The range must still condense.
+  const asked = []
+  const { bench, compaction, adoptFor, agentOf, stop } = start({
+    outlet: true,
+    stream: options => {
+      asked.push(`${options.provider}/${options.model}`)
+      throw new Error('429: rate limited')
+    },
+  })
+  t.after(stop)
+  adoptFor('b2')
+  await compaction.compactRegion(3, 9, agentOf('b2'), new AbortController().signal)
+  assert.deepEqual(bench.regions, [[3, 9, 'b2']])
+  assert.deepEqual(asked, ['deepseek/v4'])
+  assert.equal(bench.checkpoints.length, 1)
+  assert.match(bench.checkpoints[0].summary[0].text, /^\[Checkpoint 1\]/)
+  assert.match(bench.checkpoints[0].summary[0].text, /No summary was written/)
+})
+
+test('a checkpoint the route cannot write still fails outside a switch', async (t) => {
+  // The steward's own condense path keeps its old behaviour: a model that cannot answer
+  // makes the part move on instead of leaving a checkpoint without a summary.
+  const { compaction, adoptFor, agentOf, stop } = start({
+    outlet: true,
+    stream: () => {
+      throw new Error('429: rate limited')
+    },
+  })
+  t.after(stop)
+  adoptFor('b2')
+  const session = agentOf('b2')
+  await assert.rejects(
+    () => compaction.compactNow(session, new AbortController().signal, 'command-1'),
+    undefined,
+  )
 })
