@@ -440,6 +440,30 @@ export function install(rt) {
   const pastOwners = new Map()
   const chatOf = botId => botOf(botId)?.sessionId ?? botId
   const sessionOfRoom = room => (room === undefined ? undefined : room.sessionId ?? room.id)
+  // DSH turns away every step of an archived Session and every task aimed at it, so a
+  // Session the team speaks from now leaves the archive: an earlier open of an old part
+  // could leave one there, and DSH's own Session list can archive one. Earlier parts
+  // stay archived.
+  let restoring
+  const restoreCurrent = () => {
+    const registry = ctx.workspaceRegistry
+    if (restoring !== undefined || readOnly() !== undefined || typeof registry?.unarchiveSession !== 'function') return
+    let archived
+    try {
+      archived = new Set(registry.archivedSessionIds ?? [])
+    } catch {
+      return
+    }
+    const held = [...chatOwners.keys(), ...groupOwners.keys(), ...roomOwners.keys()].filter(id => archived.has(id))
+    if (held.length === 0) return
+    restoring = (async () => {
+      for (const sessionId of held) {
+        await registry.unarchiveSession(sessionId)
+          .then(() => warn('ds-bot: current Session %s was archived in DSH; taken back out', sessionId))
+          .catch(error => warn('ds-bot: current Session %s is archived in DSH and could not be taken out: %s', sessionId, error))
+      }
+    })().finally(() => { restoring = undefined })
+  }
   const indexSessions = () => {
     chatOwners.clear()
     groupOwners.clear()
@@ -463,6 +487,7 @@ export function install(rt) {
     // live Agents that joined); both install after this.
     rt.indexAgents?.()
     rt.syncScopedTools?.()
+    restoreCurrent()
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
   // earlier segment of either.

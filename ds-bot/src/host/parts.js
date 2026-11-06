@@ -1584,6 +1584,9 @@ export function install(rt) {
     if (at === -1) throw Object.assign(new Error('Unknown part'), { code: 'bot/not-found' })
     const live = rt.live.get(current)
     if (live?.turn !== undefined) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    // DSH turns away every step of an archived Session and every task aimed at it, so
+    // the part leaves the archive before it becomes current.
+    await ctx.workspaceRegistry.unarchiveSession(partId)
     segments.splice(at, 1)
     segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
@@ -1591,11 +1594,18 @@ export function install(rt) {
     rt.chatOwners.set(partId, botId)
     rt.pastOwners.delete(partId)
     rt.pastOwners.set(current, { botId })
-    await ctx.workspaceRegistry.unarchiveSession?.({ sessionId: partId }).catch(error => rt.warn('ds-bot: part %s not unarchived: %s', partId, error))
     await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     const room = undefined
     await rt.applyPermission(bot, partId, room).catch(() => {})
     await rt.save()
+    // The replaced part is archived like any earlier part, once its tasks sit on the
+    // opened one: the stop that archiving runs removes the tasks still on it.
+    try {
+      await rt.moveSchedules?.(current, partId)
+      await ctx.workspaceRegistry.archiveSession(current, { stopActivity: true })
+    } catch (error) {
+      rt.warn('ds-bot: earlier part %s not archived: %s', current, error)
+    }
     return true
   }
 
