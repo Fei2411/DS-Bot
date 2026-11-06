@@ -376,16 +376,19 @@ export function install(rt) {
         case 'approval-answer':
           rt.answerApproval(body.id, body.choice)
           return ok(true)
-        case 'stop-member-work': {
-          const stopped = await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? ''))
-          rt.goalUserStopped?.(String(body.roomId ?? ''))
-          return ok(stopped)
-        }
-        case 'stop-room-work': {
-          const stopped = await rt.stopRoomWork(String(body.roomId ?? ''))
-          rt.goalUserStopped?.(String(body.roomId ?? ''))
-          return ok(stopped)
-        }
+        // A stop that fails partway still parks the goal, or it wakes the admin again.
+        case 'stop-member-work':
+          try {
+            return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
+          } finally {
+            rt.goalUserStopped?.(String(body.roomId ?? ''))
+          }
+        case 'stop-room-work':
+          try {
+            return ok(await rt.stopRoomWork(String(body.roomId ?? '')))
+          } finally {
+            rt.goalUserStopped?.(String(body.roomId ?? ''))
+          }
         case 'goal-draft': {
           await rt.load()
           const result = await rt.goalDraft(String(body.roomId ?? ''), body.text)

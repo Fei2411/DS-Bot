@@ -223,7 +223,9 @@ export function install(rt) {
     const map = subagentsByParent.get(sessionId)
     const childIds = [...(map?.keys() ?? [])]
     for (const agent of ctx.get?.('agents')?.list?.() ?? []) {
-      if (agent?.session?.header?.parentSession === sessionId && typeof agent.id === 'string' && !childIds.includes(agent.id)) {
+      const header = agent?.session?.header
+      // A fork names its parent too, but it is the user's own Session, not work to stop.
+      if (header?.parentSession === sessionId && header.origin === 'subagent' && typeof agent.id === 'string' && !childIds.includes(agent.id)) {
         childIds.push(agent.id)
       }
     }
@@ -232,7 +234,8 @@ export function install(rt) {
     stoppedSubagentParents.add(sessionId)
     for (const childId of childIds) {
       rememberStopped(stoppedSubagents, childId)
-      await Promise.resolve(ctx.subagents?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId })).catch(() => {})
+      // Not in the plugin's inject list, where ctx.subagents throws; interrupt can throw too.
+      try { await ctx.get?.('subagents')?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId }) } catch {}
       const childAgent = ctx.get?.('agents')?.get?.(childId)
       if (childAgent !== undefined) {
         try { childAgent.cancel?.({ kind: 'user' }) } catch {}
