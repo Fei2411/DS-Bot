@@ -60,7 +60,7 @@ export class AcpEngine {
     let session = this.sessions.get(dshSessionId)
     if (session === undefined) {
       const queue = new EventQueue()
-      session = { dshSessionId, acpSessionId: undefined, dead: false, modes: [], push: event => queue.push(event), next: () => queue.next() }
+      session = { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
       this.sessions.set(dshSessionId, session)
     }
     return session
@@ -76,10 +76,14 @@ export class AcpEngine {
       case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
       case 'tool_call':
       case 'tool_call_update': {
-        const label = update.title ?? update.kind ?? 'tool'
-        const status = update.status
-        if (status === undefined || status === 'in_progress' || status === 'pending') session.push({ type: 'activity', text: `▸ ${label}` })
-        else if (status === 'failed') session.push({ type: 'activity', text: `▸ ${label} (failed)` })
+        // A permission request names the call only by id; its title, kind and
+        // input came with the call's own updates, so they are kept here.
+        const id = update.toolCallId
+        const known = id === undefined ? undefined : session.toolCalls.get(id)
+        const call = mergeCall(known, update)
+        if (id !== undefined) session.toolCalls.set(id, call)
+        if (known === undefined) session.push({ type: 'activity', text: `▸ ${describeCall(call)}` })
+        else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${describeCall(call)} — failed` })
         break
       }
       case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
@@ -99,6 +103,8 @@ export class AcpEngine {
       const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
+      const call = callOf(session, params?.toolCall)
+      const action = describeCall(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
@@ -107,8 +113,8 @@ export class AcpEngine {
         }
         session.push({
           type: 'permission', id, reply,
-          action: params?.toolCall?.title ?? params?.toolCall?.kind ?? 'The agent asks to run an action',
-          detail: detailText(params?.toolCall),
+          action,
+          detail: detailText(call, action),
           options,
         })
       })
@@ -185,12 +191,37 @@ export class AcpEngine {
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')
-const detailText = (toolCall) => {
-  if (toolCall === undefined) return ''
-  const parts = []
-  if (toolCall.rawInput !== undefined) parts.push(JSON.stringify(toolCall.rawInput))
-  if (Array.isArray(toolCall.locations) && toolCall.locations.length > 0) parts.push(toolCall.locations.map(location => location.path).join(', '))
-  return parts.join('\n').slice(0, 4_000)
+const mergeCall = (known, update) => ({
+  ...known,
+  ...Object.fromEntries(Object.entries(update).filter(([key, value]) => key !== 'sessionUpdate' && value !== undefined && value !== null)),
+})
+const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefined ? undefined : session.toolCalls.get(toolCall.toolCallId), toolCall ?? {})
+const VERBS = { read: 'Read', edit: 'Edit', delete: 'Delete', move: 'Move', search: 'Search', execute: 'Run', think: 'Think', fetch: 'Fetch' }
+const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'object' ? call.rawInput : {})
+// One line a person can act on: what kind of action, on what.
+export const describeCall = (call) => {
+  const input = inputOf(call)
+  const command = input.command ?? input.cmd
+  const target = typeof command === 'string' ? `\`${command.length > 160 ? `${command.slice(0, 157)}…` : command}\``
+    : (call.locations ?? []).map(location => location?.path).filter(Boolean).join(', ')
+      || input.path || input.file_path || input.url || input.query || input.pattern || ''
+  const verb = VERBS[call.kind]
+  const title = typeof call.title === 'string' && call.title.trim() !== '' ? call.title.trim() : undefined
+  if (title !== undefined && (target === '' || title.includes(String(target).replaceAll('`', '')))) return title
+  if (verb !== undefined && target !== '') return `${verb} ${target}`
+  return [title ?? verb ?? 'Use a tool', target].filter(Boolean).join(': ')
+}
+// What the card adds under its one-line action: the call's other inputs, one
+// per line; what the action line already says is not repeated.
+const detailText = (call, action = '') => {
+  const lines = Object.entries(inputOf(call))
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)])
+    .filter(([, value]) => !action.includes(value))
+    .map(([key, value]) => `${key}: ${value}`)
+  const paths = (call.locations ?? []).map(location => location?.path).filter(path => path && !action.includes(path))
+  if (paths.length > 0) lines.push(paths.join(', '))
+  return lines.join('\n').slice(0, 4_000)
 }
 const usageOf = update => {
   const used = update.used ?? update
