@@ -141,7 +141,7 @@ const startDsh = () => {
 const stopDsh = () => {
   if (!child) return null
   const dying = child
-  child = null
+  // Keep the child tracked until exit so a signal during reload can await it.
   dying.kill('SIGTERM')
   const killer = setTimeout(() => dying.kill('SIGKILL'), 12_000)
   killer.unref?.()

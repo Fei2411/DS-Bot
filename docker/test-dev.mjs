@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const source = join(root, 'ds-bot')
 const name = `ds-bot-dev-test-${randomUUID()}`
 const releaseName = `${name}-release`
+const drainName = `${name}-drain`
 const data = `${name}-data`
 const workspace = `${name}-workspace`
 const temporary = mkdtempSync(join(tmpdir(), 'ds-bot-dev-'))
@@ -160,6 +161,34 @@ try {
   docker(['stop', name])
   docker(['rm', name])
   server = ''
+
+  const drainScript = join(temporary, 'drain-dsh.mjs')
+  const drainMarker = join(temporary, 'drain-marker')
+  writeFileSync(drainScript, [
+    "import { writeFileSync } from 'node:fs'",
+    "import { setTimeout } from 'node:timers/promises'",
+    "process.on('SIGTERM', async () => { console.log('fake dsh draining'); await setTimeout(2000); writeFileSync('/tmp/drain-output/drain-marker', 'flushed'); console.log('fake dsh flushed'); process.exit(0) })",
+    'setInterval(() => {}, 1000)',
+    '',
+  ].join('\n'))
+  docker([
+    'run', '--detach', '--name', drainName, '--user', 'node', ...dataMounts,
+    '--mount', `type=bind,src=${plugin},dst=/app/ds-bot`,
+    '--mount', `type=bind,src=${drainScript},dst=/tmp/drain-dsh.mjs,readonly`,
+    '--mount', `type=bind,src=${temporary},dst=/tmp/drain-output`,
+    '--entrypoint', 'node', image,
+    '/opt/ds-bot/dev-supervisor.mjs', 'node', '/tmp/drain-dsh.mjs',
+  ])
+  await waitFor('the draining fixture watcher', () => docker(['logs', drainName], { allowFailure: true }).stdout.includes('[ds-bot-dev] watching /app/ds-bot'))
+  appendFileSync(join(plugin, 'index.js'), '\n// Development shutdown reload probe.\n')
+  await waitFor('the draining fixture reload', () => docker(['logs', drainName], { allowFailure: true }).stdout.includes('host code changed; restarting dsh'))
+  docker(['kill', '--signal', 'TERM', drainName])
+  docker(['wait', drainName])
+  if (!existsSync(drainMarker)) console.error(docker(['logs', drainName]).stdout)
+  assert.equal(readFileSync(drainMarker, 'utf8'), 'flushed')
+  docker(['rm', drainName])
+  console.log('PASS: shutdown during a host reload waits for the stopping DSH child')
+
   docker([
     'run', '--detach', '--rm', '--name', releaseName, '--network', 'none', ...dataMounts,
     '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, '-e', 'DSH_TELEMETRY_DISABLED=1', releaseImage,
@@ -189,6 +218,7 @@ try {
 } finally {
   if (server) docker(['rm', '--force', server], { allowFailure: true })
   docker(['rm', '--force', releaseName], { allowFailure: true })
+  docker(['rm', '--force', drainName], { allowFailure: true })
   for (const volume of volumes) docker(['volume', 'rm', volume], { allowFailure: true })
   if (process.platform === 'win32') rmSync(temporary, { recursive: true, force: true })
   // The container leaves its build tools owned by node on a native Linux mount.
