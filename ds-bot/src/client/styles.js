@@ -289,6 +289,10 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-check svg{width:16px;height:16px}
 .bt-q-settled .bt-key{opacity:.4}
 .bt-q-settled .bt-q-label{color:color-mix(in srgb,var(--bt-ink) 45%,transparent)}
+.bt-q-answered .bt-q-title{color:var(--bt-ink-2)}
+.bt-q-answered .bt-key{opacity:1;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-answered .bt-q-label{color:var(--bt-ink)}
+.bt-q-answered .bt-q-opt+.bt-q-opt::before{display:none}
 .bt-q-dismissed .bt-q-title{color:var(--bt-ink-2)}
 .bt-q.bt-q-settled{gap:6px;padding:12px 16px}
 .bt-q-settled .bt-q-title{font-size:14px;line-height:20px;font-weight:500}
