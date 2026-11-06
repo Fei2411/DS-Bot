@@ -141,6 +141,19 @@ try {
   await waitFor('the queued frontend bundle rebuild', () => builds() >= beforeFrontendBuild + 2)
   console.log('PASS: an edit during an active frontend build queues another rebuild')
 
+  const originalBuild = readFileSync(buildScript, 'utf8')
+  const failures = () => logs().match(/the client build failed/g)?.length ?? 0
+  const beforeFailedBuild = builds()
+  const beforeFailure = failures()
+  writeFileSync(buildScript, "process.kill(process.pid, 'SIGTERM')\n")
+  writeFileSync(join(plugin, 'src', 'client', 'dev-reload-probe.js'), 'export const devReloadProbe = 3\n')
+  await waitFor('the signal-terminated frontend build', () => failures() > beforeFailure)
+  assert.equal(builds(), beforeFailedBuild)
+  writeFileSync(buildScript, originalBuild)
+  writeFileSync(join(plugin, 'src', 'client', 'dev-reload-probe.js'), 'export const devReloadProbe = 4\n')
+  await waitFor('the frontend build after a signal failure', () => builds() > beforeFailedBuild)
+  console.log('PASS: a signal-terminated build reports failure and a later edit rebuilds')
+
   const beforeSharedBuild = builds()
   const beforeSharedStart = starts()
   appendFileSync(join(plugin, 'src', 'shared', 'mentions.js'), '\n// Development shared reload probe.\n')

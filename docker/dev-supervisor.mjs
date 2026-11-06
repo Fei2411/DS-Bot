@@ -46,7 +46,7 @@ let known = new Map()
 
 const run = (command, args, options = {}) => new Promise(resolve => {
   const done = spawn(command, args, { stdio: 'inherit', ...options })
-  done.on('exit', code => resolve(code ?? 0))
+  done.on('exit', code => resolve(code ?? 1))
   done.on('error', error => {
     console.error(`[ds-bot-dev] ${command} failed: ${error.message}`)
     resolve(1)
