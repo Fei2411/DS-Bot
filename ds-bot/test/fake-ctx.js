@@ -118,7 +118,15 @@ export function fakeContext({ services = {} } = {}) {
         },
       },
     },
-    llm: { listProviders: () => [] },
+    llm: {
+      listProviders: () => [],
+      registerAdapter: (routes, adapter) => {
+        ctx.adapters = [...(ctx.adapters ?? []), { routes, adapter }]
+        const handle = () => {}
+        handle.replace = (next) => { ctx.adapters.at(-1).routes = next }
+        return handle
+      },
+    },
   }
   return ctx
 }

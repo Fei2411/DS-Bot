@@ -3,6 +3,8 @@ import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
+import { AgentBadge } from './agent-badge.js'
+import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { useEscape } from './overlay-hooks.js'
@@ -296,7 +298,12 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),
           h(ModelMenu, { bot, roster, actions, run, wide: true }),
-          modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name }))),
+          modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
+          bot.engine ? h('div', { className: 'bt-kv' }, h('span', null, t('Agent')), h(AgentBadge, { engine: bot.engine })) : null),
+        bot.engine ? h('div', { key: 'sessions', className: 'bt-drawer-model' },
+          h('div', { className: 'bt-section-title' }, t('Sessions')),
+          [h('button', { key: 'new', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(call('bot-new-part', { botId: bot.id })) }, t('New session')),
+            ...(bot.parts ?? []).slice().reverse().map((part, index) => h('button', { key: part, type: 'button', className: 'bt-soft bt-soft-sm', title: t('Open this earlier session'), onClick: () => run(call('bot-open-part', { botId: bot.id, sessionId: part })) }, t('Session {number}', { number: (bot.parts ?? []).length - index })))]) : null,
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h(BotConnectors, { key: 'connectors', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },
