@@ -8,6 +8,8 @@ export interface Bot {
   id: string
   name: string
   role?: string
+  // The DSH permission preset the Bot runs with; unset runs on the default one.
+  permission?: string
   color?: string
   avatar?: { shape?: string; image?: string; imageRef?: string }
   model?: string

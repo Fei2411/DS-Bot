@@ -11,11 +11,12 @@ import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
 import { t, timeLabel } from '../ui/i18n.ts'
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
 import { capabilityStatusText } from './settings-pages.tsx'
+import { ModelMenu } from './model-menu.tsx'
 
 export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
@@ -152,13 +153,6 @@ function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm
 
 type Model = NonNullable<TeamState['models']>[number]
 
-// What a Bot runs on, for display: its chosen model, else the one it last ran on.
-function modelOf(bot: Bot, models: Model[]): { ref: string; name: string } | undefined {
-  const ref = bot.model ?? bot.appliedModel
-  if (!ref) return undefined
-  return { ref, name: models.find(m => m.ref === ref)?.name ?? (ref.split('/').slice(1).join('/') || ref) }
-}
-
 function ModelPicks({ models, current, fallback, onPick }: { models: Model[]; current?: string; fallback?: string; onPick: (ref: string) => void }) {
   const { p } = useTheme()
   return models.map(item => (
@@ -168,49 +162,6 @@ function ModelPicks({ models, current, fallback, onPick }: { models: Model[]; cu
       {item.ref === current ? <CheckIcon color={p.accent} /> : null}
     </Pressable>
   ))
-}
-
-type Efforts = { efforts?: { id: string; name: string }[]; defaultEffort?: string }
-
-function EffortRow({ bot }: { bot: Bot }) {
-  const { p } = useTheme()
-  const { call } = useTeam()
-  const { run, error } = useWrite(null)
-  const [open, setOpen] = useState(false)
-  const [list, setList] = useState<Efforts | null>(null)
-  const ref = bot.model ?? bot.appliedModel
-  useEffect(() => {
-    setList(null)
-    if (ref === undefined) return
-    let live = true
-    call('efforts', { ref }).then(value => { if (live) setList(value as Efforts) }).catch(() => {})
-    return () => { live = false }
-  }, [ref])
-  const efforts = list?.efforts ?? []
-  if (efforts.length === 0) return null
-  // The level the Bot runs on: its pick when the model serves it, else the model's own.
-  const picked = efforts.some(e => e.id === bot.effort) ? bot.effort : undefined
-  const shown = picked ?? list?.defaultEffort
-  const label = efforts.find(e => e.id === shown)?.name ?? shown ?? t('Default')
-  const rows: { id?: string; name: string }[] = [{ name: t('Default') }, ...efforts]
-  const pick = (id?: string) => { setOpen(false); if (id !== bot.effort) void run('update-bot', { id: bot.id, effort: id ?? null }) }
-  return (
-    <>
-      <Row label={t('Effort')} value={label} onPress={() => setOpen(true)} />
-      {error ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 16, paddingBottom: 10 }]}>{error}</Text> : null}
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.scrim} onPress={() => setOpen(false)} />
-        <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
-          {rows.map(row => (
-            <Pressable key={row.id ?? 'default'} accessibilityRole="radio" accessibilityState={{ checked: row.id === picked }} onPress={() => pick(row.id)} style={[styles.menuRow, styles.pickRow]}>
-              <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{row.name}</Text>
-              {row.id === picked ? <CheckIcon color={p.accent} /> : null}
-            </Pressable>
-          ))}
-        </View>
-      </Modal>
-    </>
-  )
 }
 
 function useWrite(navigation: any) {
@@ -248,46 +199,178 @@ export function BotDetails({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
-  const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const main = isMain(team, bot.id)
-  const model = modelOf(bot, team?.models ?? [])
+  const permissions = (team as { permissions?: { options?: { value: string; name: string }[]; defaultPreset?: string } } | null)?.permissions
+  // The desktop's details pane (details-drawer.js): who it is, then model,
+  // permission, folder, instructions, memory, usage and scheduled tasks. Its gear
+  // opens the Bot settings.
   return (
     <Screen title={bot.name}>
-      <BackRow title={t('Details')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <View style={{ alignItems: 'center', paddingTop: 12 }}>
+      <View style={[styles.detailTop, { paddingTop: 8 }]}>
+        <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
+        <View style={{ flex: 1 }} />
+        <RoundButton label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
+        <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} />
-          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10 }]}>{bot.name}</Text>
-          <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{[bot.role, main ? t('Main Bot') : ''].filter(Boolean).join(' · ') || t('Bot')}</Text>
+          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18 }]}>{bot.name}</Text>
+          {bot.role ? <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{bot.role}</Text> : null}
         </View>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
-        <Section label={t('Model')}>
-          <Row label={t('Model')} value={model?.name ?? t('Choose a model')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
-          <EffortRow bot={bot} />
-        </Section>
-        <Section label={t('Working folder')}>
-          <Row label={t('Folder')} value={bot.workDir ?? '—'} onPress={() => navigation.navigate('Folder', { current: bot.workDir, onPick: 'bot', botId: bot.id })} />
-        </Section>
-        <Section label={t('More')}>
-          {team?.memory === false ? null : <Row label={t('Memory')} onPress={() => navigation.navigate('Memory', { id: bot.id, name: bot.name, group: false })} />}
-          <Row label={t('Schedules')} onPress={() => navigation.navigate('Schedules', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
-          <Row label={t('Usage')} onPress={() => navigation.navigate('Usage', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
-          <Row label={t('Browser')} onPress={() => navigation.navigate('BotBrowser', { bot })} />
-        </Section>
-        <BotCapabilities bot={bot} team={team} run={run} />
-        <Section label={t('Actions')}>
-          <Row label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} />
-          {bot.private === true ? null : (
-            <SwitchRow label={t('Main Bot')} hint={t('Can create and change Bots, and runs every group chat.')}
-              on={main} onChange={next => void run('set-main', { id: bot.id, main: next })} />
-          )}
-          {bot.private === true ? null : <Row label={t('Duplicate')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => open({ kind: 'bot', id: (value as Bot).id }))} />}
-          <DangerRow label={t('Delete')} confirm={t('Tap again to delete this Bot')} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.goBack())} />
-        </Section>
+        <View style={[styles.tabs, { backgroundColor: p.hover }]}>
+          <View style={[styles.tab, { backgroundColor: p.card }]}><Text style={[typeScale.small, { color: p.ink, fontWeight: '500' }]}>{t('Details')}</Text></View>
+          <Pressable accessibilityRole="tab" onPress={() => navigation.navigate('BotBrowser', { bot })} style={styles.tab}><Text style={[typeScale.small, { color: p.ink2 }]}>{t('Browser')}</Text></Pressable>
+        </View>
+        {error ? <Text style={[typeScale.small, { color: p.danger, marginTop: 10 }]}>{error}</Text> : null}
+        <DetailTitle text={t('Model')} />
+        <ModelMenu bot={bot} onManage={() => navigation.navigate('Providers')} />
+        {permissions?.options && permissions.options.length > 0 ? (
+          <>
+            <DetailTitle text={t('Permissions')} />
+            <PermissionPicker options={permissions.options} saved={bot.permission ?? permissions.defaultPreset} onPick={permission => void run('update-bot', { id: bot.id, permission })} />
+          </>
+        ) : null}
+        <DetailTitle text={t('Working folder')} />
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Folder', { current: bot.workDir, onPick: 'bot', botId: bot.id })}
+          style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
+          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{bot.workDir ? bot.workDir.split(/[\\/]/).filter(Boolean).pop() : t('Team workspace')}</Text>
+          <Text style={{ color: p.ink3, fontSize: 12 }}>⌄</Text>
+        </Pressable>
+        {bot.instructions
+          ? <Text style={[typeScale.small, { color: p.ink2, marginTop: 14 }]} numberOfLines={5}>{bot.instructions}</Text>
+          : <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BotEdit', { botId: bot.id })} style={{ alignItems: 'center', paddingVertical: 14 }}>
+              <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Add instructions in Bot settings')}</Text>
+            </Pressable>}
+        {team?.memory === false ? null : <MemorySummary bot={bot} onOpen={() => navigation.navigate('Memory', { id: bot.id, name: bot.name, group: false })} />}
+        <UsageSummary bot={bot} onOpen={() => navigation.navigate('Usage', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
+        <ScheduleSummary bot={bot} onOpen={() => navigation.navigate('Schedules', { botId: bot.id, name: bot.name, sessionId: bot.sessionId })} />
       </ScrollView>
     </Screen>
+  )
+}
+
+function RoundButton({ label, onPress, children }: { label: string; onPress: () => void; children: React.ReactNode }) {
+  const { p } = useTheme()
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={6}
+      style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: p.line, backgroundColor: p.card }}>
+      {children}
+    </Pressable>
+  )
+}
+
+function DetailTitle({ text }: { text: string }) {
+  const { p } = useTheme()
+  return <Text style={[typeScale.caption, { color: p.ink2, marginTop: 18, marginBottom: 8 }]}>{text}</Text>
+}
+
+const PRESET_LABELS: Record<string, string> = { 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access' }
+
+// The presets DeepSeek Harness offers, as one segmented choice (permission-picker.js);
+// a pick shows at once and the saved value catches up.
+function PermissionPicker({ options, saved, onPick }: { options: { value: string; name: string }[]; saved?: string; onPick: (value: string) => void }) {
+  const { p } = useTheme()
+  const [pending, setPending] = useState<string | null>(null)
+  useEffect(() => { if (pending === saved) setPending(null) }, [saved, pending])
+  const current = pending ?? saved
+  return (
+    <View style={[styles.segments, { backgroundColor: p.hover }]} accessibilityRole="radiogroup">
+      {options.map(option => {
+        const on = option.value === current
+        const danger = option.value === 'danger-full-access'
+        return (
+          <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => { if (!on) { setPending(option.value); onPick(option.value) } }}
+            style={[styles.segment, on ? { backgroundColor: p.card } : null]}>
+            <Text style={[typeScale.small, { color: danger ? p.danger : on ? p.ink : p.ink2, fontWeight: on ? '500' : '400' }]} numberOfLines={1}>
+              {PRESET_LABELS[option.value] ? t(PRESET_LABELS[option.value]) : option.name}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+// memory-panel.js MemoryRow: how much the Bot keeps, and the way in.
+function MemorySummary({ bot, onOpen }: { bot: Bot; onOpen: () => void }) {
+  const { p } = useTheme()
+  const { call, team } = useTeam()
+  const [count, setCount] = useState<number | null>(null)
+  useEffect(() => {
+    let live = true
+    call('memory-view', { botId: bot.id }).then(view => { if (live) setCount((view as { entries?: unknown[] })?.entries?.length ?? 0) }).catch(() => {})
+    return () => { live = false }
+  }, [bot.id, team?.revision])
+  const label = count === null ? t('Loading…') : count === 0 ? t('Nothing saved yet') : count === 1 ? t('1 entry') : t('{count} entries', { count })
+  return (
+    <>
+      <DetailTitle text={t('Memory')} />
+      <Pressable accessibilityRole="button" accessibilityLabel={t("Manage {name}'s memory", { name: bot.name })} onPress={onOpen}
+        style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
+        <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{label}</Text>
+        <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Manage')}</Text>
+        <ChevronRightIcon color={p.ink3} />
+      </Pressable>
+    </>
+  )
+}
+
+const formatTokens = (count: number) => (count >= 1e6 ? `${(count / 1e6).toFixed(1)}M` : count >= 1e3 ? `${(count / 1e3).toFixed(1)}K` : String(count))
+
+// text.js usageOf: every prompt-side bucket plus output, and the cache hit share.
+function UsageSummary({ bot, onOpen }: { bot: Bot; onOpen: () => void }) {
+  const { p } = useTheme()
+  const { call, team } = useTeam()
+  const [text, setText] = useState('')
+  useEffect(() => {
+    let live = true
+    call('run-stats', { botId: bot.id }).then(value => {
+      const usage = (value as { tokenUsage?: { uncachedInputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; outputTokens?: number } } | null)?.tokenUsage
+      if (!live || !usage) return
+      const input = (usage.uncachedInputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+      const output = usage.outputTokens ?? 0
+      setText(input + output === 0 ? '' : t('{tokens} tok · Cache hit {hit}%', { tokens: formatTokens(input + output), hit: input > 0 ? Math.round((usage.cacheReadTokens ?? 0) / input * 100) : 0 }))
+    }).catch(() => {})
+    return () => { live = false }
+  }, [bot.id, team?.revision])
+  if (text === '') return null
+  return (
+    <>
+      <DetailTitle text={t('Usage')} />
+      <Pressable accessibilityRole="button" onPress={onOpen} style={{ flexDirection: 'row', justifyContent: 'space-between', minHeight: 32, alignItems: 'center' }}>
+        <Text style={[typeScale.small, { color: p.ink2 }]}>{bot.name}</Text>
+        <Text style={[typeScale.small, { color: p.ink }]}>{text}</Text>
+      </Pressable>
+    </>
+  )
+}
+
+// schedules.js ScheduleSummary: the Bot's active tasks, or the way to add one.
+function ScheduleSummary({ bot, onOpen }: { bot: Bot; onOpen: () => void }) {
+  const { p } = useTheme()
+  const { call, team } = useTeam()
+  const [view, setView] = useState<{ available?: boolean; tasks?: { id: string; botId?: string; status?: string; title?: string }[] } | null>(null)
+  useEffect(() => {
+    let live = true
+    call('schedules').then(value => { if (live) setView(value as typeof view) }).catch(() => {})
+    return () => { live = false }
+  }, [team?.revision])
+  const tasks = view?.available ? (view.tasks ?? []).filter(task => task.botId === bot.id && task.status === 'active') : []
+  return (
+    <>
+      <DetailTitle text={tasks.length === 0 ? t('Scheduled tasks') : t('Scheduled tasks · {count}', { count: tasks.length })} />
+      {tasks.length === 0
+        ? <Pressable accessibilityRole="button" onPress={onOpen} style={{ minHeight: 32, justifyContent: 'center' }}>
+            <Text style={[typeScale.small, { color: p.ink3 }]}>{view?.available === false ? t('Switch on Automation tasks on the Plugins page in Harness settings.') : t('No scheduled tasks yet. Add one')}</Text>
+          </Pressable>
+        : tasks.slice(0, 3).map(task => (
+            <Pressable key={task.id} accessibilityRole="button" onPress={onOpen} style={{ minHeight: 36, justifyContent: 'center' }}>
+              <Text style={[typeScale.small, { color: p.ink }]} numberOfLines={1}>{task.title}</Text>
+            </Pressable>
+          ))}
+    </>
   )
 }
 
@@ -315,16 +398,16 @@ export function BotEdit({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
-  const [modelsOpen, setModelsOpen] = useState(false)
+  const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const save = (patch: Record<string, unknown>) => void run('update-bot', { id: bot.id, ...patch })
   const shape = bot.avatar?.shape ?? 'star'
   const color = bot.color ?? 'blue'
-  const models = team?.models ?? []
+  const main = isMain(team, bot.id)
   return (
     <Screen title={bot.name}>
-      <BackRow title={t('Edit Bot')} onBack={() => navigation.goBack()} />
+      <BackRow title={t('Settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
           <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
@@ -362,8 +445,7 @@ export function BotEdit({ route, navigation }: any) {
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
-          <Row label={t('Model')} value={modelOf(bot, models)?.name ?? t('Choose a model')} disabled={models.length === 0} onPress={() => setModelsOpen(true)} />
-          <EffortRow bot={bot} />
+          <View style={{ padding: 12 }}><ModelMenu bot={bot} onManage={() => navigation.navigate('Providers')} /></View>
         </Section>
         <Section label={t('Instructions')}>
           <Field label={t('What this Bot does')} value={bot.instructions} multiline placeholder={t('What this Bot is responsible for…')} onSave={instructions => save({ instructions })} />
@@ -372,14 +454,18 @@ export function BotEdit({ route, navigation }: any) {
           <SwitchRow label={t('Private')} hint={t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')}
             on={bot.private === true} onChange={next => save({ private: next })} />
         </Section>
+        {bot.private === true ? null : (
+          <Section label={t('Main Bot')}>
+            <SwitchRow label={t('Main Bot')} hint={t('Can create and change Bots, and runs every group chat.')}
+              on={main} onChange={next => void run('set-main', { id: bot.id, main: next })} />
+          </Section>
+        )}
+        <BotCapabilities bot={bot} team={team} run={run} />
+        <Section label={t('Bot')}>
+          {bot.private === true ? null : <Row label={t('Duplicate')} hint={t('A copy with the same job and model, and fresh memory.')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => open({ kind: 'bot', id: (value as Bot).id }))} />}
+          <DangerRow label={t('Delete Bot')} confirm={t('Tap again to delete this Bot')} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.popTo('Chat'))} />
+        </Section>
       </ScrollView>
-      <Modal visible={modelsOpen} transparent animationType="fade" onRequestClose={() => setModelsOpen(false)}>
-        <Pressable style={styles.scrim} onPress={() => setModelsOpen(false)} />
-        <ScrollView style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
-          <ModelPicks models={models} current={bot.model ?? bot.appliedModel} fallback={team?.defaultModel}
-            onPick={ref => { setModelsOpen(false); if (ref !== bot.model) save({ model: ref }) }} />
-        </ScrollView>
-      </Modal>
     </Screen>
   )
 }
@@ -961,6 +1047,12 @@ export function Secrets({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  detailTop: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingBottom: 4 },
+  tabs: { flexDirection: 'row', alignSelf: 'center', borderRadius: 10, padding: 2, marginTop: 14 },
+  tab: { minWidth: 64, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  segments: { flexDirection: 'row', borderRadius: 10, padding: 2 },
+  segment: { flex: 1, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  dropdown: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14 },
   backRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden', ...shadow(1) },
