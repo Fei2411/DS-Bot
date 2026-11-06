@@ -270,6 +270,8 @@ var ZH = {
   Sessions: "会话",
   "Open this earlier session": "打开这个较早的会话",
   "Session {number}": "会话 {number}",
+  "Current session": "当前会话",
+  "Current": "当前",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "这个 key 来自 DS Bot 之外（例如环境变量），这里改不了。",
   "and {count} more": "还有 {count} 个",
   "Remove {name}? Bots on its models need another model.": "删除 {name}？用它的模型的 Bot 要换一个模型。",
@@ -1203,7 +1205,7 @@ var ZH = {
   Clear: "清空",
   "Settings → Feedback has the details.": "详情见 设置 → 反馈。",
   "Could not reach DSH. Check that it is still running.": "连不上 DSH，请确认它还在运行。",
-  "{name} could not answer: {reason}": "{name} 没能回答：{reason}",
+  "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 停下了：{reason}。换个模型，或让它继续。",
   "Unknown error": "未知错误",
   "The model has no API key": "模型还没有 API Key",
   "The API key is not in the right format": "API Key 格式不对",
@@ -4211,6 +4213,22 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-uimages{display:block;font-size:12px;opacity:.7}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
+.bt-agent-sessions-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-agent-sessions-new{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:2px 6px;border-radius:6px;font-size:12px;color:var(--bt-ink-2);cursor:pointer}
+.bt-agent-sessions-new:hover{background:var(--bt-hover);color:var(--bt-ink-1,inherit)}
+.bt-agent-sessions-new svg{width:12px;height:12px}
+.bt-agent-sessions{display:flex;flex-direction:column;border:1px solid var(--bt-line-2);border-radius:10px;overflow:hidden}
+.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;text-align:left;font-size:13px;color:var(--bt-ink-1,inherit);cursor:pointer}
+.bt-agent-session:first-child{border-top:0}
+.bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
+.bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
+.bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3,var(--bt-ink-2))}
+.bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
+.bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
+.bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:var(--bt-ink-3,currentColor);opacity:.55}
+.bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bt-agent-act code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink-1,inherit)}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
 /* The dock wrapper also holds the context meter, so it stays hidden until a side question is in it. */
@@ -4605,6 +4623,56 @@ var ImIcon = lineIcon(["M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-
 var QueueIcon = lineIcon(["M4 6h12", "M4 10h12", "M4 14h8", "M14 12.5l2 1.5-2 1.5"]);
 var SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: ImIcon, usage: GaugeIcon };
 
+// src/client/agent-logos.js
+var AGENT_LOGOS = {
+  "claude-code": {
+    "kind": "path",
+    "d": "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z",
+    "hex": "D97757",
+    "title": "Claude"
+  },
+  "cursor-cli": {
+    "kind": "path",
+    "d": "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23",
+    "hex": "000000",
+    "title": "Cursor"
+  },
+  "gemini-cli": {
+    "kind": "path",
+    "d": "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81",
+    "hex": "8E75B2",
+    "title": "Google Gemini"
+  },
+  "opencode": {
+    "kind": "path",
+    "d": "M22 24H2V0h20zM17 4.8H7v14.4h10z",
+    "hex": "000000",
+    "title": "OpenCode"
+  },
+  "cline": {
+    "kind": "path",
+    "d": "m23.365 13.556-1.442-2.895V8.994c0-2.764-2.218-5.002-4.954-5.002h-2.464c.178-.367.276-.779.276-1.213A2.77 2.77 0 0 0 12.018 0a2.77 2.77 0 0 0-2.763 2.779c0 .434.098.846.276 1.213H7.067c-2.736 0-4.954 2.238-4.954 5.002v1.667L.64 13.549c-.149.29-.149.636 0 .927l1.472 2.855v1.667C2.113 21.762 4.33 24 7.067 24h9.902c2.736 0 4.954-2.238 4.954-5.002V17.33l1.44-2.865c.143-.286.143-.622.002-.91m-12.854 2.36a2.27 2.27 0 0 1-2.261 2.273 2.27 2.27 0 0 1-2.261-2.273v-4.042A2.27 2.27 0 0 1 8.249 9.6a2.267 2.267 0 0 1 2.262 2.274zm7.285 0a2.27 2.27 0 0 1-2.26 2.273 2.27 2.27 0 0 1-2.262-2.273v-4.042A2.267 2.267 0 0 1 15.535 9.6a2.267 2.267 0 0 1 2.261 2.274z",
+    "hex": "18181B",
+    "title": "Cline"
+  },
+  "qwen-code": {
+    "kind": "path",
+    "d": "M23.919 14.545 20.817 9.17l1.47-2.544a.56.56 0 0 0 0-.566l-1.633-2.83a.57.57 0 0 0-.49-.283h-6.207L12.487.402a.57.57 0 0 0-.49-.284H8.732a.56.56 0 0 0-.49.284L5.139 5.775h-2.94a.56.56 0 0 0-.49.284L.077 8.887a.56.56 0 0 0 0 .567L3.18 14.83l-1.47 2.545a.56.56 0 0 0 0 .566l1.634 2.83a.57.57 0 0 0 .49.283h6.205l1.47 2.545a.57.57 0 0 0 .49.284h3.266a.57.57 0 0 0 .49-.284l3.104-5.375h2.94a.57.57 0 0 0 .49-.283l1.634-2.828a.55.55 0 0 0-.004-.568M8.733.686l1.634 2.828-1.634 2.828H21.8L20.164 9.17H7.425L5.63 6.06Zm1.306 19.801-6.205-.002 1.634-2.83h3.265L2.201 6.344h3.267q3.182 5.517 6.367 11.032zm10.124-5.66L18.53 12l-6.532 11.315-1.634-2.83c2.129-3.673 4.25-7.351 6.373-11.028h3.592l3.102 5.374z",
+    "hex": "6950EF",
+    "title": "QWen"
+  },
+  "devin-cli": {
+    "kind": "image",
+    "src": "data:image/png;base64,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",
+    "title": "Devin"
+  },
+  "codex-cli": {
+    "kind": "image",
+    "src": "data:image/png;base64,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",
+    "title": "OpenAI"
+  }
+};
+
 // src/client/agent-routes.js
 var AGENT_BADGES = {
   "devin-cli": ["DV", "violet"],
@@ -4619,19 +4687,36 @@ var AGENT_BADGES = {
   "goose": ["GS", "brown"]
 };
 var CUSTOM = ["AC", "rose"];
+var logoOf = (engine) => AGENT_LOGOS[engine];
 var badgeOf = (engine) => AGENT_BADGES[engine] ?? (engine?.startsWith("acp-") ? CUSTOM : void 0);
 var isLocalRoute = (ref) => badgeOf(String(ref ?? "").split("/")[0]) !== void 0;
 function agentAvatar(engine) {
+  const logo = logoOf(engine);
+  if (logo?.kind === "image") return { image: logo.src };
   const badge = badgeOf(engine);
   if (badge === void 0) return void 0;
   const [glyph, ink] = badge;
-  const svg2 = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${INKS[ink][0]}"/><text x="32" y="41" text-anchor="middle" font-size="26" font-weight="700" fill="${INKS.black[1]}" font-family="system-ui,sans-serif">${glyph}</text></svg>`;
+  const mark2 = logo?.kind === "path" ? `<rect width="64" height="64" rx="16" fill="${INKS.black[1]}"/><g transform="translate(14 14) scale(1.5)"><path d="${logo.d}" fill="#${logo.hex}"/></g>` : `<rect width="64" height="64" rx="16" fill="${INKS[ink][0]}"/><text x="32" y="41" text-anchor="middle" font-size="26" font-weight="700" fill="${INKS.black[1]}" font-family="system-ui,sans-serif">${glyph}</text>`;
+  const svg2 = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">${mark2}</svg>`;
   return { image: `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg2)))}` };
 }
 
 // src/client/agent-badge.js
 var import_react4 = require("react");
 function AgentBadge({ engine, size = 15 }) {
+  const logo = logoOf(engine);
+  const style = { flexShrink: 0, marginLeft: 4, verticalAlign: -2 };
+  if (logo?.kind === "image") {
+    return (0, import_react4.createElement)("img", { src: logo.src, width: size, height: size, alt: "", title: logo.title, className: "bt-agent-badge", style: { ...style, borderRadius: 4 } });
+  }
+  if (logo?.kind === "path") {
+    return (0, import_react4.createElement)(
+      "svg",
+      { width: size, height: size, viewBox: "0 0 24 24", className: "bt-agent-badge", role: "img", "aria-label": logo.title, style: { ...style, color: `#${logo.hex}` } },
+      (0, import_react4.createElement)("title", null, logo.title),
+      (0, import_react4.createElement)("path", { d: logo.d, fill: "currentColor" })
+    );
+  }
   const badge = badgeOf(engine);
   if (badge === void 0) return null;
   const [glyph, ink] = badge;
@@ -4643,10 +4728,10 @@ function AgentBadge({ engine, size = 15 }) {
       viewBox: "0 0 20 20",
       className: "bt-agent-badge",
       "aria-hidden": true,
-      style: { color: inkFill(ink), flexShrink: 0, marginLeft: 4, verticalAlign: -2 }
+      style: { ...style, color: inkFill(ink) }
     },
     (0, import_react4.createElement)("rect", { x: 1, y: 1, width: 18, height: 18, rx: 5, fill: "currentColor", fillOpacity: 0.16, stroke: "currentColor", strokeWidth: 1.4 }),
-    (0, import_react4.createElement)("text", { x: 10, y: 13.6, textAnchor: "middle", fontSize: 7.5, fontWeight: 700, fill: "currentColor", style: { letterSpacing: "0.02em" } }, glyph)
+    (0, import_react4.createElement)("text", { x: 10, y: 13.6, textAnchor: "middle", fontSize: 7.5, fontWeight: 700, fill: "currentColor" }, glyph)
   );
 }
 
@@ -12364,7 +12449,11 @@ var visibleReasoning = (text) => {
   const end = text.indexOf("</signature>");
   return end === -1 ? "" : text.slice(end + "</signature>".length).replace(/^(\r?\n)+/, "");
 };
-var stepReasoning = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => visibleReasoning(block.text)).join("\n").trim();
+var ACTIVITY = "▸ ";
+var isActivity = (line) => line.startsWith(ACTIVITY);
+var reasoningText = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => visibleReasoning(block.text)).join("\n");
+var stepReasoning = (step) => reasoningText(step).split("\n").filter((line) => !isActivity(line)).join("\n").trim();
+var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => line.slice(ACTIVITY.length).trim()).filter(Boolean);
 
 // src/shared/group-replies.js
 var RELAY_LIST = /"replies"\s*:\s*\[/;
@@ -13342,7 +13431,8 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts2.length > 0 ? { text: true } : null);
   if (hidden) return (0, import_react31.createElement)(CellEmpty);
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : [];
-  if (texts2.length === 0 && !reasoning && relays.length === 0) return (0, import_react31.createElement)(CellEmpty);
+  const activity = groupPart === "response" ? [] : stepActivity(data);
+  if (texts2.length === 0 && !reasoning && relays.length === 0 && activity.length === 0) return (0, import_react31.createElement)(CellEmpty);
   const selfId = roster.byId[sessionId]?.id ?? sessionId;
   const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[sessionId] : void 0;
   const head = speaker !== void 0 && opensReply(steps, data, shown) && (reasoning !== "" || texts2.length > 0 && !(groupPart === "response" && shown && turnReasoning(steps, data) !== ""));
@@ -13363,6 +13453,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       });
     }),
     head ? (0, import_react31.createElement)(SpeakerHead, { bot: speaker, time: data.time }) : null,
+    activity.length ? (0, import_react31.createElement)("div", { className: "bt-agent-activity" }, activity.map((line, index) => (0, import_react31.createElement)("div", { key: index, className: "bt-agent-act", title: line }, (0, import_react31.createElement)("span", { className: "bt-agent-act-mark", "aria-hidden": true }), (0, import_react31.createElement)("span", { className: "bt-agent-act-text" }, activityParts(line))))) : null,
     reasoning ? (0, import_react31.createElement)(ThinkingRow, {
       text: reasoning,
       live: thinking !== void 0,
@@ -13374,6 +13465,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
     texts2.length ? (0, import_react31.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0 }) : null
   );
 }
+var activityParts = (line) => line.split("`").map((part, index) => index % 2 === 1 ? (0, import_react31.createElement)("code", { key: index }, part) : part);
 function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
   if (whole && bots.length === 1) {
     return (0, import_react31.createElement)(
@@ -13968,7 +14060,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     return (0, import_react31.createElement)(
       "div",
       { className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
-      t("{name} could not answer: {reason}", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
+      t("{name} stopped: {reason}. Switch its model or ask it to go on.", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
     );
   }
   if (reply.kind === "lookup") {
@@ -23933,6 +24025,41 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, openSetti
     ) : null
   ];
 }
+function AgentSessions({ bot, part, run: run2, useSessions }) {
+  const ids = [part, ...(bot.parts ?? []).filter((id) => id !== part).slice().reverse()];
+  const rows2 = useSessions((list) => ids.map((id) => list.byId?.[id]), rowsEqual);
+  const total = ids.length;
+  return (0, import_react57.createElement)(
+    "div",
+    { className: "bt-drawer-model" },
+    (0, import_react57.createElement)(
+      "div",
+      { className: "bt-agent-sessions-head" },
+      (0, import_react57.createElement)("div", { className: "bt-section-title" }, t("Sessions")),
+      (0, import_react57.createElement)("button", { type: "button", className: "bt-agent-sessions-new", onClick: () => run2(call("bot-new-part", { botId: bot.id })) }, (0, import_react57.createElement)(PlusIcon), t("New session"))
+    ),
+    (0, import_react57.createElement)("div", { className: "bt-agent-sessions" }, ids.map((id, index) => {
+      const row = rows2[index];
+      const current = index === 0;
+      const when3 = row?.updatedAt ?? row?.createdAt;
+      const label = row?.title && row.title.trim() !== "" ? row.title : t("Session {number}", { number: total - index });
+      return (0, import_react57.createElement)(
+        "button",
+        {
+          key: id,
+          type: "button",
+          disabled: current,
+          className: `bt-agent-session${current ? " is-current" : ""}`,
+          title: current ? t("Current session") : t("Open this earlier session"),
+          onClick: current ? void 0 : () => run2(call("bot-open-part", { botId: bot.id, sessionId: id }))
+        },
+        (0, import_react57.createElement)("span", { className: "bt-agent-session-name" }, label),
+        (0, import_react57.createElement)("span", { className: "bt-agent-session-meta" }, current ? t("Current") : when3 ? new Date(when3).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "")
+      );
+    }))
+  );
+}
+var rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt);
 function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer }) {
   const owner = roster.byId[sessionId];
   const part = owner ? currentPart(owner) : sessionId;
@@ -24065,18 +24192,9 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           { key: "model", className: "bt-drawer-model" },
           (0, import_react57.createElement)("div", { className: "bt-section-title" }, t("Model")),
           (0, import_react57.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true }),
-          modelOf(bot, roster) ? null : (0, import_react57.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name })),
-          bot.engine ? (0, import_react57.createElement)("div", { className: "bt-kv" }, (0, import_react57.createElement)("span", null, t("Agent")), (0, import_react57.createElement)(AgentBadge, { engine: bot.engine })) : null
+          modelOf(bot, roster) ? null : (0, import_react57.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
-        bot.engine ? (0, import_react57.createElement)(
-          "div",
-          { key: "sessions", className: "bt-drawer-model" },
-          (0, import_react57.createElement)("div", { className: "bt-section-title" }, t("Sessions")),
-          [
-            (0, import_react57.createElement)("button", { key: "new", type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(call("bot-new-part", { botId: bot.id })) }, t("New session")),
-            ...(bot.parts ?? []).slice().reverse().map((part2, index) => (0, import_react57.createElement)("button", { key: part2, type: "button", className: "bt-soft bt-soft-sm", title: t("Open this earlier session"), onClick: () => run2(call("bot-open-part", { botId: bot.id, sessionId: part2 })) }, t("Session {number}", { number: (bot.parts ?? []).length - index })))
-          ]
-        ) : null,
+        bot.engine ? (0, import_react57.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }) : null,
         (0, import_react57.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
         (0, import_react57.createElement)(BotConnectors, { key: "connectors", bot, roster, actions, run: run2 }),
         (0, import_react57.createElement)(

@@ -79,6 +79,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/request-error (prepend)',
     'on agent/request-error (prepend)',
     'effect ds-bot: hand on input kept in earlier parts',
+    'on workspace/session-stop',
+    'on workspace/session-activity',
     'on agent/status',
     'on llm/stream',
     'on llm/stream',

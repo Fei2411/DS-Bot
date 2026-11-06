@@ -411,7 +411,9 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'thought':
         case 'activity': {
-          const text = event.type === 'activity' ? `${event.text}\n` : event.text
+          // An activity line stands on its own line of the reasoning, which is
+          // how the chat tells it from the thought around it.
+          const text = event.type === 'activity' ? `${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${event.text}\n` : event.text
           if (thinkIndex === -1) {
             if (textIndex !== -1) { yield { type: 'block-end', index: textIndex, block: { type: 'text', text: textBuf } }; textIndex = -1; textBuf = '' }
             yield { type: 'block-start', index: index++, blockType: 'reasoning' }

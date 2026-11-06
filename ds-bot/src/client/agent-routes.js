@@ -1,7 +1,8 @@
 // Local-agent routes and their badge marks, kept free of React so plain modules
-// (the create-Bot payload, tests) can use them. Every mark is an original
-// monogram: a one- or two-letter glyph on one of the team's ink colors.
+// (the create-Bot payload, tests) can use them. An agent shows its own logo
+// (agent-logos.js); the monogram is for agents without one.
 import { INKS } from './inks.js'
+import { AGENT_LOGOS } from './agent-logos.js'
 
 // route -> [glyph, ink name]. Custom agents (acp-*) share the 'AC' mark.
 export const AGENT_BADGES = {
@@ -18,6 +19,8 @@ export const AGENT_BADGES = {
 }
 const CUSTOM = ['AC', 'rose']
 
+export const logoOf = engine => AGENT_LOGOS[engine]
+
 export const badgeOf = engine => AGENT_BADGES[engine] ?? (engine?.startsWith('acp-') ? CUSTOM : undefined)
 
 // A model ref's provider part is a local-agent route when the CLIs serve it.
@@ -25,9 +28,14 @@ export const isLocalRoute = ref => badgeOf(String(ref ?? '').split('/')[0]) !== 
 
 // A badge-style avatar image for a new abot: the monogram large on its ink.
 export function agentAvatar(engine) {
+  const logo = logoOf(engine)
+  if (logo?.kind === 'image') return { image: logo.src }
   const badge = badgeOf(engine)
   if (badge === undefined) return undefined
   const [glyph, ink] = badge
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${INKS[ink][0]}"/><text x="32" y="41" text-anchor="middle" font-size="26" font-weight="700" fill="${INKS.black[1]}" font-family="system-ui,sans-serif">${glyph}</text></svg>`
+  const mark = logo?.kind === 'path'
+    ? `<rect width="64" height="64" rx="16" fill="${INKS.black[1]}"/><g transform="translate(14 14) scale(1.5)"><path d="${logo.d}" fill="#${logo.hex}"/></g>`
+    : `<rect width="64" height="64" rx="16" fill="${INKS[ink][0]}"/><text x="32" y="41" text-anchor="middle" font-size="26" font-weight="700" fill="${INKS.black[1]}" font-family="system-ui,sans-serif">${glyph}</text>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">${mark}</svg>`
   return { image: `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}` }
 }
