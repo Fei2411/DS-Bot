@@ -5,6 +5,7 @@ import { t } from './i18n.js'
 import { AnsweredCell } from './questions.js'
 import { useDockHold } from './card-hold.js'
 import { SettledHandoff } from './handoff-card.js'
+import { SettledComputerHandoff } from './computer.js'
 import { heldCardKey } from './sources.js'
 import { WidgetCard, ViewUi, DEEP_VIEW_CSS, WidgetView as CoreWidgetView, ViewMenuList as CoreViewMenuList } from 'deep-view/react'
 import { checkShownView } from 'deep-view/core'
@@ -105,7 +106,8 @@ export function AnsweredReply({ node }) {
     try { parsed = typeof data.text === 'string' ? JSON.parse(data.text) : null } catch { parsed = null }
     if (parsed?.kind === 'answer_to_pending_view') return h(AnsweredView, { node })
     if (parsed?.kind === 'answer_to_pending_handoff' && typeof parsed.reason === 'string') {
-      return h(SettledHandoff, { handoff: { reason: parsed.reason, note: parsed.note ?? '', outcome: parsed.outcome } })
+      const reply = { reason: parsed.reason, note: parsed.note ?? '', outcome: parsed.outcome }
+      return parsed.tool === 'computer_handoff' ? h(SettledComputerHandoff, { handoff: reply }) : h(SettledHandoff, { handoff: reply })
     }
   }
   return h(AnsweredCell, { node })

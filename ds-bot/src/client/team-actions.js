@@ -17,6 +17,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   const openSideChat = (sessionId, chatId) => {
     ui.set(state => ({ ...state, details: sessionId, view: 'side', side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, 'side') }))
   }
+  // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
+  const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
   return {
     openNewChat: (mode) => { ui.set(state => ({ ...state, newChat: mode, menu: null, palette: null })) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
@@ -50,8 +52,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null, panelYield: yieldTo(state, 'details') })) },
-    // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
-    openSettings: (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) },
+    openSettings,
+    // DS Bot's own Models page: the providers DSH serves, their keys and models.
+    openModels: () => openSettings('models'),
     closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
     openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
@@ -82,7 +85,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     deleteRoom: id => after(call('delete-room', { id })),
-    openMenu: (menu) => { ui.set(state => ({ ...state, menu })) },
+    openMenu: (menu) => { ui.set(state => ({ ...state, menu, palette: null })) },
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
@@ -94,6 +97,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     refreshModels: () => after(call('models')).catch(() => {}),
     efforts: ref => call('efforts', { ref }),
+    // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
+    providers: () => call('providers'),
+    setProviderKey: (provider, value) => after(call('provider-key', { provider, value })),
+    addProvider: body => after(call('provider-add', body)),
+    providerModels: body => call('provider-models', body),
+    removeProvider: provider => after(call('provider-remove', { provider })),
+    // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
+    resume: botId => after(call('resume', { botId })),
     folders: () => call('folders'),
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),
@@ -111,8 +122,30 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     dismissView: sessionId => after(call('dismiss-view', { sessionId: partFor(sessionId) })),
     deleteBtw: (sessionId, cardId) => after(call('btw-delete', { sessionId, cardId })),
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
+    computerSetEnabled: enabled => after(call('computer-set-enabled', { enabled })),
+    computerSetLevel: (botId, level) => after(call('computer-set-level', { botId, level })),
+    computerRevokeApp: (botId, appKey) => after(call('computer-revoke-app', { botId, appKey })),
+    computerProviderRetry: () => after(call('computer-provider-retry', {})),
+    computerSystemStatus: () => call('computer-system-status', {}),
+    computerPermission: permission => call('computer-permission', { permission }),
+    computerStop: (botId, all = false) => after(call('computer-stop', all ? { all: true } : { botId })),
+    computerTakeover: botId => after(call('computer-takeover', { botId })),
+    computerHandback: botId => after(call('computer-handback', { botId })),
+    computerAllowForeground: botId => call('computer-allow-foreground', { botId }),
+    computerAppAnswer: (id, answer) => call('computer-app-answer', { id, answer }),
+    computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call('computer-hold-answer', { botId, ...(callId !== undefined ? { callId } : {}), outcome })),
+    computerShot: attachmentId => call('computer-shot', { attachmentId }),
+    computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
+    goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
+    goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),
+    // The goal island: `goalCompose` holds the room whose draft form is open,
+    // `goalOpen` the room whose panel is open.
+    composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId })),
+    closeGoalCompose: () => ui.set(state => (state.goalCompose ? { ...state, goalCompose: null } : state)),
+    toggleGoal: roomId => ui.set(state => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId })),
+    closeGoal: () => ui.set(state => (state.goalOpen ? { ...state, goalOpen: null } : state)),
     // Values go out in these requests and never come back in a response.
     secretSet: payload => after(call('secret-set', payload)),
     secretAllow: requestId => after(call('secret-allow', { requestId })),
@@ -126,6 +159,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
+    imAdd: payload => after(call('im-add', payload)),
+    imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
+    imRemove: id => after(call('im-remove', { id })),
+    imPair: (id, senderId, allow) => after(call('im-pair', { id, senderId, allow })),
+    imUnpair: (id, senderId) => after(call('im-unpair', { id, senderId })),
+    imChat: (id, body) => after(call('im-chat', { id, ...body })),
+    imRetry: id => after(call('im-retry', { id })),
+    imLoginStart: payload => call('im-login-start', payload),
+    imLoginWait: payload => call('im-login-wait', payload),
     saveCapability: capability => after(call('capability-save', capability)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
@@ -144,6 +186,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     memoryView: (id, flags = {}) => call('memory-view', { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call('memory-ask', { ...memoryOf(id), text }),
     memoryForget: (id, entry) => call('memory-forget', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
+    memoryHistory: (id, before) => call('memory-history', { ...memoryOf(id), ...(before === undefined ? {} : { before }) }),
+    memoryRestore: (id, rowId) => call('memory-restore', { ...memoryOf(id), id: rowId }),
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),

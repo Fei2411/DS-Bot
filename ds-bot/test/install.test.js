@@ -39,6 +39,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: state lock',
     'on llm/adapters-updated',
     'on credentials/reference-updated',
+    'on credentials/record-updated',
     'on settings/document-updated',
     'on subagent/start',
     'on subagent/end',
@@ -55,6 +56,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: scoped team tools',
     'tools guard',
     'on agent/created',
+    'on system-prompt/assemble',
     'on session/event',
     'effect ds-bot: chat index',
     'effect ds-bot: group step lines',
@@ -66,6 +68,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: memory recovery',
     'effect ds-bot: memory section',
     'prompt bot-memory 645',
+    'on agent/pre-step',
     'on agent/status',
     'effect ds-bot: memory review',
     'effect ds-bot: Bot compaction',
@@ -88,6 +91,17 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: capabilities',
     'on agent/status',
     'effect ds-bot: learning',
+    'on tools/pre-execute',
+    'on tools/execute',
+    'on agent/created',
+    'on agent/disposed',
+    'on user-questions/request (prepend)',
+    'on tools/pre-execute',
+    'on tools/execute',
+    'on session/event',
+    'effect ds-bot: computer use section',
+    'prompt computer-use:ds-bot 0',
+    'effect ds-bot: computer use',
     'effect ds-bot: usage ledger',
     'on llm/stream',
     'effect ds-bot: update check',
@@ -100,6 +114,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: live feed route',
     'route GET /api/bot/feed',
     'effect ds-bot: live feed',
+    'on session/event',
+    'effect ds-bot: im',
     'effect ds-bot: phone link',
     'effect ds-bot: api route',
     'route POST /api/bot',
@@ -161,6 +177,12 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal('thinking' in (await call('set-prefs', { thinking: false })).value, false)
   await call('set-prefs', { thinking: true })
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
+  // Enter sends by default; false persists until the user turns it back on.
+  assert.equal((await call('set-prefs', { enterToSend: false })).value.enterToSend, false)
+  assert.equal((await call('set-prefs', { enterToSend: 'no' })).value.enterToSend, false)
+  assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: true })).value, false)
+  await call('set-prefs', { enterToSend: false })
+  assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: null })).value, false)
   // A refusal from the team code keeps its message for the user.
   assert.deepEqual((await call('delete-bot', { id: 'nobody' })).error, { code: 'bot/refused', message: 'Unknown Bot', details: {} })
   // Off the Desktop profile there are no Bot browsers.

@@ -46,6 +46,7 @@ async function setup({ served = ['read', 'ask_user', QUESTION], goals, throwOn }
       session: { id },
       ctx: {
         tools: {
+          register: () => () => {},
           restrict: (filter) => {
             if (throwOn !== undefined && filter.deny.includes(throwOn)) throw new Error(`"${throwOn}" is registered in this scope`)
             hidden.push([id, [...filter.deny]])
@@ -211,7 +212,7 @@ test('a goal started in a Bot chat or a group is blocked; one elsewhere runs', a
   await until(() => goals.blocked.length === 3)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(goals.blocked.map(entry => entry.sessionId), ['writer', 'room', 'room-writer'])
-  for (const entry of goals.blocked) assert.deepEqual([entry.code, entry.message], ['not-supported', 'DS Bot does not run goals. Ask the Bot in a message instead.'])
+  for (const entry of goals.blocked) assert.deepEqual([entry.code, entry.message], ['not-supported', 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'])
   assert.equal(goals.current.get('plain').phase, 'active')
 })
 
@@ -273,11 +274,13 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   t.after(stop)
   for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
   const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
-  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'room-writer'])
+  // Bot Sessions get the hidden-tools filter and the computer-use filter; the room's
+  // own Session and a plain Agent get only the computer-use one.
+  assert.deepEqual(filters.map(record => record.sessionId), ['room', 'chief', 'chief', 'room-writer', 'room-writer', 'plain'])
   // Resolving the same Agent again adds no listener.
   await rt.resolveAgent('chief')
-  assert.equal(scopedListeners.length, 2)
-  const filtered = await filters[0].listener({}, {}, async () => ({
+  assert.equal(scopedListeners.length, 6)
+  const filtered = await filters[1].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
     contexts: [{ name: 'x' }],
     tools: [{ name: 'read' }, { name: 'subagent' }, { name: 'workflow' }, { name: 'send_message' }, { name: 'message_bot' }, { name: 'ask_user_question' }],
@@ -287,6 +290,35 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.tools.map(tool => tool.name), ['read', 'message_bot'])
   assert.deepEqual(filtered.contexts, [{ name: 'x' }])
   assert.deepEqual(filtered.variables, { a: 1 })
+  // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
+  // assembly it passes has none; the guidance is still filtered and no tools appear.
+  const current = await filters[1].listener({}, {}, async () => ({
+    sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
+    contexts: [],
+    variables: {},
+  }))
+  assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
+  // The computer-use filter keeps everything but the provider's own sections.
+  const computer = await filters[0].listener({}, {}, async () => ({
+    sections: [{ name: 'bot-identity' }, { name: 'computer-use:dsh-cua' }],
+    contexts: [],
+    variables: {},
+  }))
+  assert.deepEqual(computer, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   await stop()
   for (const record of scopedListeners) assert.equal(record.disposed, true)
+})
+
+// DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.
+test('a Bot schedules only into its own chat', async (t) => {
+  const { ctx, stop } = await setup()
+  t.after(stop)
+  const guard = (name, sessionId, args) => ctx.guards.map(check => check({ name, arguments: args, agent: { id: sessionId } })).find(reason => reason !== undefined)
+  for (const target of ['new_once', 'new']) {
+    assert.match(guard('schedule_create', 'writer', { target }), /this_session/)
+    assert.match(guard('schedule_edit', 'room-writer', { id: 's1', action: 'update', target }), /this_session/)
+    assert.equal(guard('schedule_create', 'plain', { target }), undefined)
+  }
+  assert.equal(guard('schedule_create', 'writer', { target: 'this_session' }), undefined)
+  assert.equal(guard('schedule_edit', 'writer', { id: 's1', action: 'delete' }), undefined)
 })

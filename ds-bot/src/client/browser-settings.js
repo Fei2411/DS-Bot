@@ -96,7 +96,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
             bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))),
         h(Row, { label: t('Site') },
           h('input', {
-            className: 'bt-select bt-browser-site',
+            className: 'bt-input bt-browser-site',
             type: 'text',
             value: site,
             placeholder: t('example.com — leave empty for all sites'),
@@ -123,7 +123,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
         h('div', { className: 'bt-browser-form-foot' },
           h('button', {
             type: 'submit',
-            className: 'bt-soft',
+            className: 'bt-soft bt-soft-sm',
             disabled: busy || !selectedBot || kinds.length === 0,
           }, busy ? t('Saving…') : t('Add'))))))
 }

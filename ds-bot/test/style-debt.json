@@ -73,38 +73,17 @@
     "browser-pane.js": {
       "2px": 1,
       "3px": 2,
-      "5px": 1,
-      "7px": 1,
-      "9px": 3
-    },
-    "member-status.js": {
-      "13px": 1
-    },
-    "secret-card.js": {
       "5px": 1
     },
-    "sidebar.js": {
-      "14px": 1
-    },
     "styles.js": {
-      "1px": 1,
-      "9999px": 2
+      "1px": 1
     },
     "usage-page.js": {
       "14px": 5,
       "30%": 1,
       "3px": 1,
-      "5px": 1,
-      "9px": 1
+      "5px": 1
     }
   },
-  "springs": {
-    "browser-pane.js": {
-      "springEasing(144,19.7)": 1,
-      "springEasing(576,39.4)": 1
-    },
-    "sidebar.js": {
-      "springEasing(1000,63)": 1
-    }
-  }
+  "springs": {}
 }

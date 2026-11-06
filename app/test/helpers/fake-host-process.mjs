@@ -41,6 +41,8 @@ export class HostProcess {
     state.starts += 1
     if (state.held) await gate
     if (state.fail) throw new Error('the Host did not start')
+    // The check of an import's chats (DS_BOT_CHECK) reads them all.
+    if (this.#options.env?.DS_BOT_CHECK) return { unreadable: [] }
     return { url: `http://127.0.0.1:${port()}/?token=test-token`, injections: [] }
   }
 

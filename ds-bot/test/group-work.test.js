@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { promisesWork } from '../src/host/turns.js'
 
 let rt
 
@@ -1344,6 +1345,48 @@ test('in-round tool work that finishes before the grace without @Caller still wa
   ])
 })
 
+// #872: Chief calls Writer in a step line and goes on with its own part. Writer's
+// result lands while Chief is still in that turn, which cannot see it, so Chief
+// answers it in a turn of its own once the first one ends.
+test('a caller still in its own turn answers the batch result after that turn (#872)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('全面检查一下构建'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  step(host, 'ga', '@Writer 去读构建日志，我先看配置。', 'k0', 'read')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'read', arguments: '{}' })
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '日志看完了：缺环境变量 FOO。')
+  await settle(() => true)
+  assert.equal(host.agentOf('ga').calls.length, 1, 'not steered into the running turn')
+  host.emit('ga', 'tool/result', { callId: 'k0' })
+  host.finish('ga', '配置看完了，没问题。')
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  const follow = host.begin('ga')
+  assert.match(text(follow), /Writer finished the work you asked for/)
+  assert.match(text(follow), /Writer: 日志看完了：缺环境变量 FOO。/)
+  host.finish('ga', '缺 FOO，补上就好。')
+  await settle(() => first() !== undefined)
+  assert.deepEqual(first().replies.map(reply => reply.name), ['Chief', 'Writer', 'Chief', 'Chief'])
+})
+
+// #872: a member the user called answers the user; asking the user to confirm does
+// not call the admin in.
+test('a member\'s reply to the user that asks for a confirmation does not call the admin (#872)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 把首页标题改成春季上新'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'edit', arguments: '{}' })
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '改好了，标题换成了「春季上新」，需要你确认一下是否满意。')
+  await settle(() => first() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.deepEqual(first().replies.map(reply => reply.name), ['Writer'])
+})
+
 // Parallel fan-in barrier: when Chief calls @Writer @Tester in one message and both go
 // past the 15s grace, Writer's early result posts at once without waking Chief, and
 // Tester's final result wakes Chief once with both results.
@@ -1420,9 +1463,55 @@ test('a member that only promises to start working without calling a tool gets o
   ])
 })
 
+// #872: a verb with 过了/完了/完毕/好了 reports done work. A plan of several sentences,
+// or a target that starts with 过 or 完, is still a promise; a reply that also answers
+// may match, and its member passes on the retry.
+test('done work is no promise, and a plan of several sentences still is (#872)', () => {
+  for (const said of ['收到，我现在开始排查构建日志。', '明白，我先排查一下日志，然后跑测试。', '收到，我现在开始排查。稍后给你结果。', '收到，我先查看过去的记录。', '好的，我先检查完成情况。', '我现在开始排查', '开工！', "I'll check the logs. Then I'll run the tests.", 'Let me look into it.']) {
+    assert.equal(promisesWork(said), true, said)
+  }
+  for (const said of ['好的，我检查过了，配置没问题。', '好的，我检查过，没问题。', '收到，我排查完了，是端口冲突。', '好的，我处理好了。', '查完了，原因是端口冲突。']) {
+    assert.equal(promisesWork(said), false, said)
+  }
+})
+
+// #872: the opening already was the answer; the member passes on the retry and the
+// group sees it once.
+test('a member that passes on the promise retry is posted once (#872)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 方案 A 和 B 哪个好？'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '好的，我看看。')
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.begin('gb')
+  assert.match(text(retry), /reply \[PASS\]; it stays posted/)
+  host.finish('gb', '[PASS]')
+  await settle(() => first() !== undefined)
+  assert.deepEqual(first().replies.map(reply => [reply.name, reply.text]), [['Writer', '好的，我看看。']])
+})
+
+// #872: a retried promise that a late turn passes on still tells the member that asked
+// the work is done, as a result that went out as a step line does.
+test('a late member that passes on the promise retry still hands the work back (#872)', async (t) => {
+  const host = await start(t)
+  // A call the member reads after the round moved on: no round waits for this turn.
+  host.agentOf('gb').followup({ content: [{ type: 'text', text: '[Group chat "Ops" · Chief mentioned you]\n看一下文档' }], source: { kind: 'bot', role: 'room', roomId: 'r1', exchangeId: 'x1', askedBy: 'a' } })
+  host.begin('gb')
+  host.finish('gb', '收到，我去看看文档。')
+  await settle(() => host.agentOf('gb').calls.length === 2 && host.agentOf('r1').calls.length === 1)
+  assert.equal(host.takePost().source.progress, true, 'the opening goes to the group')
+  host.begin('gb')
+  host.finish('gb', '[PASS]')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.done, post.source.askedBy], [true, 'a'])
+})
+
 // Progress-based loop guard: consecutive 0-tool ack/repetitive relays pause after 6
 // turns and park the next call in room.paused, whereas tool calls reset the counter.
-test('consecutive 0-tool ack ping-pong relays pause after 6 turns and resume when the user writes', async (t) => {
+// #872: the parked calls wait for the user, not for the next round of any kind.
+test('consecutive 0-tool ack ping-pong relays pause after 6 turns and go on only when the user writes', async (t) => {
   const host = await start(t)
   const first = host.round('c1', host.say('@Chief 开始'))
   await settle(() => host.agentOf('ga').calls.length === 1)
@@ -1441,10 +1530,27 @@ test('consecutive 0-tool ack ping-pong relays pause after 6 turns and resume whe
   await settle(() => first() !== undefined)
   const pausedReplies = first().replies.filter(reply => reply.kind === 'paused')
   assert.equal(pausedReplies.length, 1)
-  assert.deepEqual(pausedReplies[0].names, ['Writer'])
-  const saved = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1
-  assert.equal(saved.paused?.length, 1)
-  assert.equal(saved.paused[0].id, 'b')
+  assert.deepEqual([pausedReplies[0].idle, pausedReplies[0].botId, pausedReplies[0].names], [true, 'a', ['Writer']])
+  const saved = () => JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1
+  assert.deepEqual(saved().paused.map(entry => [entry.id, entry.idle]), [['b', true]])
+  assert.match(await host.tool('read_group_chat', { group: 'Ops' }, 'a'),
+    /\[Paused: Chief and Writer went back and forth 6 times without progress \(no tool used, only thanks or repeats\)\. The calls to @Writer wait until the user writes here; do not call them again\.\]/)
+
+  // A Bot's quiet late result opens a round, which leaves the parked call alone.
+  const second = host.round('c2', { content: [{ type: 'text', text: '[Group post from Tester]\n测试跑完了' }], source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'x2', senderSessionId: 'c', senderName: 'Tester', roomId: 'r1', late: true, quiet: true } })
+  await settle(() => second() !== undefined)
+  assert.equal(host.agentOf('gb').calls.length, 3)
+  assert.equal(saved().paused.length, 1)
+
+  // The user's message brings the parked call back with the admin.
+  const third = host.round('c3', host.say('好了，说正事'))
+  await settle(() => host.agentOf('gb').calls.length === 4 && host.agentOf('ga').calls.length === 5)
+  assert.match(text(host.begin('gb')), /Chief mentioned you/)
+  host.finish('gb', '[PASS]')
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => third() !== undefined)
+  assert.equal(saved().paused, undefined)
 })
 
 // #701: when a group member spawns a DSH subagent and ends its own turn, the member

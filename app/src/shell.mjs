@@ -14,6 +14,7 @@ export const SHELL_TEXT = {
     noticeConfirm: 'OK',
     fallback: 'The system tray is not available, so DS Bot cannot stay in the background. Do you want to end it?',
     cancel: 'Cancel',
+    stopAll: 'Stop all',
   },
   zh: {
     tooltip: 'DS Bot',
@@ -23,6 +24,7 @@ export const SHELL_TEXT = {
     noticeConfirm: '好',
     fallback: '系统托盘不可用，DS Bot 不能留在后台。要结束它吗？',
     cancel: '取消',
+    stopAll: '全部停止',
   },
 }
 
@@ -40,7 +42,7 @@ export const SHELL_TEXT = {
  *   quit: () => void,
  *   busy: () => boolean,
  *   ready: () => boolean,
- *   notice: { marker: () => string, show: (options: object) => Promise<{ response: number }> },
+ *   notice: { marker: () => string, show: (options: object) => Promise<{ response: number }>, focus?: () => void },
  *   fallback?: { show: (options: object) => Promise<{ response: number }> },
  *   log?: Pick<Console, 'warn'>,
  * }} options the pieces of the app the shell drives
@@ -133,6 +135,7 @@ export function createShell(options) {
         image, tooltip: text().tooltip,
         open: { label: text().open, run: () => { open() } },
         quit: { label: text().quit, run: () => { quit() } },
+        computer: { onAction: (kind, botId) => { options.computer?.(kind, botId) }, stopAll: () => text().stopAll },
         log,
       })
     } catch (error) {
@@ -204,7 +207,7 @@ export function createShell(options) {
       powerMonitor.on('shutdown', () => { sessionEnding = true })
     }
     notice = new BackgroundNotice({
-      marker: options.notice.marker(), show: options.notice.show, message: text().notice, confirm: text().noticeConfirm, log,
+      marker: options.notice.marker(), show: options.notice.show, focus: options.notice.focus, message: text().notice, confirm: text().noticeConfirm, log,
     })
     buildTray()
   }
@@ -225,6 +228,8 @@ export function createShell(options) {
     beginQuit,
     cancelQuit,
     dispose,
+    /** The same computer-use entries the floating indicator carries. */
+    setComputer: entries => { tray?.setComputer(entries) },
     hasTray: () => tray !== undefined,
     isQuitting: () => quitting,
     isHidden: (target) => hidden.has(target),

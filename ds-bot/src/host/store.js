@@ -116,6 +116,8 @@ export function install(rt) {
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
+    // `computer` is the computer-use switch; absent or corrupt means off.
+    if (state.computer === null || typeof state.computer !== 'object' || Array.isArray(state.computer)) state.computer = {}
     let migrated = !hadCapabilities
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }
@@ -133,6 +135,9 @@ export function install(rt) {
         bot.color = currentColor(bot.color)
         migrated = true
       }
+      // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.
+      if (bot.computer !== undefined && (bot.computer === null || typeof bot.computer !== 'object' || Array.isArray(bot.computer))) delete bot.computer
+      else if (bot.computer !== undefined && (bot.computer.apps === null || typeof bot.computer.apps !== 'object' || Array.isArray(bot.computer.apps))) delete bot.computer.apps
       // LEGACY: Bots saved with a lab ran on that lab's default model; the model they
       // last ran on becomes their own, so dropping the lab changes nothing for them.
       if ('lab' in bot) {
@@ -384,7 +389,9 @@ export function install(rt) {
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
         rt.capabilitiesStateSaved?.()
-        rt.stateSaved?.()
+        for (const listener of savedListeners) {
+          try { listener() } catch (error) { warn('ds-bot: saved listener failed: %s', error) }
+        }
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -503,8 +510,14 @@ export function install(rt) {
   }
   const isAdminOf = (room, id) => id !== undefined && room.admin === id
 
+  const savedListeners = new Set()
+  const onSaved = (listener) => {
+    savedListeners.add(listener)
+    return () => savedListeners.delete(listener)
+  }
+
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, own,
+    state, load, save, refresh, readOnly, own, onSaved,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

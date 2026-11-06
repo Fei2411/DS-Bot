@@ -45,9 +45,9 @@ export function install(rt) {
   const taps = new Set()
   rt.feedTap = (listener) => { taps.add(listener); return () => taps.delete(listener) }
   const listening = () => clients.size > 0 || taps.size > 0
-  rt.stateSaved = () => {
+  const offSaved = rt.onSaved(() => {
     if (listening()) publish('revision', { revision: state.revision })
-  }
+  })
   rt.publishFeed = (event, data) => {
     if (listening()) publish(event, data)
   }
@@ -126,6 +126,7 @@ export function install(rt) {
     return () => {
       clearInterval(keepalive)
       clearTimeout(liveTimer)
+      offSaved()
       for (const controller of clients) leave(controller)
     }
   }, 'ds-bot: live feed')
