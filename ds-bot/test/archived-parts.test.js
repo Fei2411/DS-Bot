@@ -17,8 +17,9 @@ import { fakeContext } from './fake-ctx.js'
 const SessionPersistence = typeof Jsonl.apply === 'function' ? Jsonl : Jsonl.default
 
 // DSH's own Workspace registry, which holds the archive, on files in a temporary folder.
-// The listed Sessions count as live, so they can be archived.
-async function dshRegistry(t, root, live) {
+// The listed Sessions count as live, so they can be archived. The plugin's archive hooks
+// on `plugin` (a fake context) run inside an archive as DSH runs them.
+async function dshRegistry(t, root, live, plugin) {
   const host = new Context()
   t.after(() => host.fiber.dispose())
   await host.plugin(Storage)
@@ -26,6 +27,14 @@ async function dshRegistry(t, root, live) {
   await host.plugin(StorageDomain, { backend: 'json' })
   await host.plugin(SessionPersistence, { root: join(root, 'sessions') })
   await host.plugin({ name: 'live-sessions', apply: inner => inner.provide('sessions', { list: () => [], get: id => (live.includes(id) ? {} : undefined) }) })
+  await host.plugin({
+    name: 'plugin-hooks',
+    apply: (inner) => {
+      const hooks = name => plugin.listeners.get(name) ?? []
+      inner.on('workspace/session-stop', payload => Promise.all(hooks('workspace/session-stop').map(listener => listener(payload))))
+      inner.on('workspace/session-activity', (payload, next) => hooks('workspace/session-activity').reduceRight((rest, listener) => () => listener(payload, rest), next)())
+    },
+  })
   await host.plugin(WorkspaceRegistry)
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('the Workspace registry did not start')), 5000)
@@ -55,16 +64,16 @@ const TEAM = {
 async function team(t, archived) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-archived-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
-  const registry = await dshRegistry(t, join(home, 'dsh'), ['m1', 'w1', 'w2', 'g1', 'gw', 'outside'])
-  for (const id of archived) await registry.archiveSession(SessionId(id), { stopActivity: true })
   const ctx = fakeContext({})
+  const registry = await dshRegistry(t, join(home, 'dsh'), ['m1', 'w1', 'w2', 'g1', 'gw', 'outside'], ctx)
+  for (const id of archived) await registry.archiveSession(SessionId(id), { stopActivity: true })
   ctx.workspaceRegistry = registry
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
-  createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
-  return { home, registry, call }
+  return { home, registry, call, rt }
 }
 
 const settled = async (check) => {
@@ -88,4 +97,26 @@ test('current team Sessions held archived in DSH are taken back out; earlier par
   await call('state')
   await settled(() => registry.archivedSessionIds.length === 2)
   assert.deepEqual([...registry.archivedSessionIds].sort(), ['outside', 'w1'])
+})
+
+test('a current Session archived in DSH while the team runs is taken back out', async (t) => {
+  const { registry, call } = await team(t, [])
+  await call('state')
+  await registry.archiveSession(SessionId('w2'), { stopActivity: true })
+  await registry.archiveSession(SessionId('gw'))
+  await registry.archiveSession(SessionId('outside'))
+  await settled(() => registry.archivedSessionIds.length === 1)
+  assert.deepEqual([...registry.archivedSessionIds], ['outside'])
+})
+
+test('a failed task move keeps the replaced part marked for the restart pass', async (t) => {
+  const { home, registry, call, rt } = await team(t, ['w1'])
+  await call('state')
+  rt.moveSchedules = async () => { throw new Error('schedule store unavailable') }
+  const result = await call('bot-open-part', { botId: 'w1', sessionId: 'w1' })
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.deepEqual([...registry.archivedSessionIds], [])
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.equal(saved.bots.w1.sessionId, 'w1')
+  assert.deepEqual(saved.switching, { w2: { botId: 'w1' } })
 })

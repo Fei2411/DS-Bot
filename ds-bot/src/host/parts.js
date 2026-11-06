@@ -1356,6 +1356,21 @@ export function install(rt) {
     return () => clearTimeout(timer)
   }, 'ds-bot: hand on input kept in earlier parts')
 
+  // An archive from DSH's own Session list while the team runs: DSH asks for the
+  // Session's activity (plain archive) or stops it (stopActivity) inside the archive,
+  // so an unarchive started here queues behind that archive and undoes it. The team's
+  // own archives drop the Session from its owner first.
+  const keepCurrent = ({ sessionId }) => {
+    if (readOnly() || !(rt.isBotSession(sessionId) || rt.roomOwners.has(sessionId))) return
+    void ctx.workspaceRegistry.unarchiveSession(sessionId)
+      .catch(error => rt.warn('ds-bot: current Session %s is archived in DSH and could not be taken out: %s', sessionId, error))
+  }
+  ctx.on('workspace/session-stop', keepCurrent)
+  ctx.on('workspace/session-activity', (request, next) => {
+    keepCurrent(request)
+    return next()
+  })
+
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
@@ -1594,15 +1609,19 @@ export function install(rt) {
     rt.chatOwners.set(partId, botId)
     rt.pastOwners.delete(partId)
     rt.pastOwners.set(current, { botId })
+    // Marked as a switch until its tasks sit on the opened part and it is archived, so
+    // the restart pass (handOnHeld) finishes a move that fails here.
+    state.switching[current] = { botId }
     await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     const room = undefined
     await rt.applyPermission(bot, partId, room).catch(() => {})
     await rt.save()
-    // The replaced part is archived like any earlier part, once its tasks sit on the
-    // opened one: the stop that archiving runs removes the tasks still on it.
+    // The stop that archiving runs removes the tasks still on the part, so they move first.
     try {
       await rt.moveSchedules?.(current, partId)
       await ctx.workspaceRegistry.archiveSession(current, { stopActivity: true })
+      delete state.switching[current]
+      await rt.save()
     } catch (error) {
       rt.warn('ds-bot: earlier part %s not archived: %s', current, error)
     }
