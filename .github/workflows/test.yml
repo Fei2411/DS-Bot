@@ -91,6 +91,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # The app type-checks the shared code in ../link, which has its own packages.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run typecheck
 
