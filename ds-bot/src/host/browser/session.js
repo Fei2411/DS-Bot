@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, realpath, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative as relativePath } from 'node:path'
 import { gateScope } from './gate.js'
+import { runIsolatedScript } from './script-runner.js'
 
 const ACTION_TIMEOUT = 5_000
 const SNAPSHOT_LIMIT = 40_000
@@ -721,38 +722,27 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     async runScript(source, origin) {
       const body = String(source ?? '')
       if (body.length > 8_000) throw new Error('Script is longer than 8000 characters.')
-      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
-      let answer
-      const fn = new AsyncFunction(
-        'goto', 'snapshot', 'click', 'type', 'fill', 'select', 'press', 'scroll', 'tabs', 'screenshot', 'text', 'upload', 'handoff', 'resume', 'back', 'done',
-        `"use strict";\n${body}`,
-      )
-      const done = value => { answer = value }
-      const run = fn(
-        url => this.open(url),
-        () => this.snapshotText(),
-        (ref, options) => this.clickWithOptions(ref, options),
-        (ref, text, submit) => this.type(ref, text, submit),
-        (ref, text) => this.type(ref, text),
-        (ref, values) => this.select(ref, values),
-        key => this.press(key),
-        direction => this.scroll(direction),
-        (action, index) => action === 'list' ? this.tabs() : action === 'select' ? this.selectTab(index) : this.closeTab(index),
-        async () => {
+      const answer = await runIsolatedScript(body, {
+        goto: url => this.open(url),
+        snapshot: () => this.snapshotText(),
+        click: (ref, options) => this.clickWithOptions(ref, options),
+        type: (ref, text, submit) => this.type(ref, text, submit),
+        fill: (ref, text) => this.type(ref, text),
+        select: (ref, values) => this.select(ref, values),
+        press: key => this.press(key),
+        scroll: direction => this.scroll(direction),
+        tabs: (action, index) => action === 'list' ? this.tabs() : action === 'select' ? this.selectTab(index) : this.closeTab(index),
+        screenshot: async () => {
           const picture = await this.shot()
           return picture.text
         },
-        () => this.snapshotText(),
-        (ref, paths) => this.upload(ref, paths),
-        (reason, note) => this.handoff(reason, note, origin),
-        () => this.resume(),
-        () => this.back(),
-        done,
-      )
-      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Script ran longer than 20 seconds.')), 20_000))
-      const value = await Promise.race([run, timeout])
-      const finalAnswer = answer ?? value
-      return finalAnswer === undefined ? 'Script finished without done().' : String(finalAnswer)
+        text: () => this.snapshotText(),
+        upload: (ref, paths) => this.upload(ref, paths),
+        handoff: (reason, note) => this.handoff(reason, note, origin),
+        resume: () => this.resume(),
+        back: () => this.back(),
+      })
+      return answer ?? 'Script finished without done().'
     },
     async close() {
       if (browser) { await browser.close().catch(() => {}); return }
