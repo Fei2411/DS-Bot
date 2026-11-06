@@ -558,6 +558,9 @@ const ZH = {
   'Harness default': 'Harness 默认',
   Saving: '保存中',
   'Manage models': '管理模型',
+  'Search models': '搜索模型',
+  'Search models…': '搜索模型…',
+  'No matching models.': '没有匹配的模型。',
 
   // Shapes
   Whale: '鲸鱼', Star: '星星', Moon: '月亮', Wave: '声波', Squircle: '圆角方', Bull: '牛角', Blossom: '花朵',
