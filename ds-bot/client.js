@@ -106,17 +106,60 @@ var ZH = {
   "Search connectors": "搜索连接器",
   "No connectors": "暂无连接器",
   IM: "IM",
-  "Add IM bot": "添加 IM 机器人",
-  "IM bots": "IM 机器人",
-  "IM · {count} requests": "IM · {count} 个请求",
-  "No IM bots": "暂无 IM 机器人",
   "via {platform}": "来自 {platform}",
+  "Your IM bots": "我的 IM 机器人",
+  "Add an IM bot": "添加 IM 机器人",
+  "Choose a platform": "选择平台",
+  "Waiting for approval": "等你允许",
+  "Wants to talk through {bot}": "想通过 {bot} 对话",
+  "{count} waiting for approval": "{count} 个等你允许",
+  "{count} added": "已添加 {count} 个",
+  "Talks to {bot}": "对话对象 {bot}",
+  "Open {site}": "打开 {site}",
+  Accounts: "账号",
+  Group: "群",
+  "Direct message": "私聊",
+  Enabled: "启用",
+  "Send the IM bot a message to connect your account": "给 IM 机器人发一条消息，即可连接你的账号",
+  "Remove IM bot": "移除 IM 机器人",
+  "Remove this IM bot? Its accounts and chats are removed too.": "确认移除这个 IM 机器人？它的账号和聊天也会一起移除。",
+  "Scan with WeChat": "用微信扫码",
+  "Getting a code…": "正在获取二维码…",
+  "Get a new code": "换一个二维码",
+  WeChat: "微信",
+  "Feishu / Lark": "飞书 / Lark",
+  Feishu: "飞书",
+  Edition: "版本",
+  DingTalk: "钉钉",
+  WeCom: "企业微信",
+  "In Telegram, open @BotFather and send /newbot.": "在 Telegram 里打开 @BotFather，发送 /newbot。",
+  "Give the bot a name and a username.": "给机器人起名字和用户名。",
+  "Paste the token that BotFather sends.": "把 BotFather 发来的 token 粘贴到下面。",
+  "Choose the Bot that answers.": "选好由哪个 Bot 回复。",
+  "Scan the code with WeChat on your phone and confirm.": "用手机微信扫码并确认。",
+  "Create a custom app in the developer console and add the bot capability.": "在开发者后台创建企业自建应用，添加「机器人」能力。",
+  "Grant the permissions to read and send messages.": "开通读取和发送消息的权限。",
+  "Paste the App ID and App Secret from Credentials, then connect.": "从「凭证与基础信息」复制 App ID 和 App Secret 粘贴到下面，点连接。",
+  "Under Events & callbacks, receive events through a long connection, add the receive message event, and publish a version.": "在「事件与回调」里选择长连接接收事件，添加「接收消息」事件，然后发布版本。",
+  "Create an app in the developer console and add a robot.": "在开发者后台创建应用，添加机器人。",
+  "Set the robot to receive messages in Stream mode, then publish it.": "消息接收模式选 Stream 模式，然后发布。",
+  "Paste the Client ID and Client Secret.": "把 Client ID 和 Client Secret 粘贴到下面。",
+  "In WeCom, create an intelligent robot in API mode with a long connection.": "在企业微信里创建智能机器人，选 API 模式、长连接。",
+  "Paste the Bot ID and Secret.": "把 Bot ID 和 Secret 粘贴到下面。",
+  "Create a bot on the QQ Open Platform.": "在 QQ 开放平台创建机器人。",
+  "Paste the App ID and App Secret from the development settings.": "从开发设置里复制 App ID 和 App Secret 粘贴到下面。",
+  "Until the bot is published, add your QQ account to its sandbox.": "机器人上线前，先把你的 QQ 号加进沙箱。",
+  "Create an application in the Developer Portal and open Bot.": "在 Developer Portal 创建应用，打开 Bot 页。",
+  "Turn on Message Content Intent, then reset and copy the token.": "打开 Message Content Intent，再重置并复制 token。",
+  "Invite the bot to your server with the bot scope.": "用 bot 权限范围把机器人邀请进你的服务器。",
+  "Create an app and turn on Socket Mode.": "创建应用，打开 Socket Mode。",
+  "Make an app-level token with connections:write.": "生成带 connections:write 的 App-Level Token。",
+  "Add the scopes app_mentions:read, chat:write, im:history and files:read, and subscribe to app_mention and message.im.": "添加 app_mentions:read、chat:write、im:history、files:read 权限，订阅 app_mention 和 message.im 事件。",
+  "Install the app to the workspace and paste both tokens.": "把应用安装到工作区，粘贴两个 token。",
   "Talks to": "对话对象",
   "Bound to": "绑定到",
   "Not bound": "未绑定",
   Direct: "私聊",
-  "Wants to connect": "想连接",
-  "Connected accounts": "已连接账号",
   Chats: "聊天",
   Deny: "拒绝",
   Enable: "启用",
@@ -124,7 +167,6 @@ var ZH = {
   "Remove?": "确认移除？",
   "Not connected": "未连接",
   Disabled: "已停用",
-  Platform: "平台",
   Capabilities: "能力",
   "Shared capabilities": "共享能力",
   "Add capability": "添加能力",
@@ -2935,7 +2977,7 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 
 // src/client/styles.js
 var SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice){corner-shape:round}
@@ -3549,11 +3591,6 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-mail-rules-title{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
 .bt-mail-rule{display:flex;align-items:center;gap:12px;min-height:36px}
 .bt-mail-rule-name{font-size:13px;line-height:18px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-im-mark{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--bt-im-mark-ink)}
-.bt-im-line{display:flex;align-items:center;gap:8px}
-.bt-im-label{flex:1;font-size:12px;color:var(--bt-ink-2)}
-.bt-im-qr-panel{display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0}
-.bt-im-qr{width:180px;height:180px;color:var(--bt-ink);background:var(--bt-card);border:.5px solid var(--bt-line);border-radius:10px;padding:8px}
 
 /* Shell chrome reshaped for the team view. Selectors use stable data attributes where the
    shell offers them and CSS-module name suffixes elsewhere. */
@@ -5557,7 +5594,7 @@ var PROVIDER_TEXT = {
   occupied: ["Another computer-use provider is running", "error"],
   unsupported: ["Computer use is not available on this platform", "error"]
 };
-function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row3, Switch: Switch2 }) {
+function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 }) {
   const computer = roster.computer ?? { enabled: false };
   const [system, setSystem] = (0, import_react11.useState)(null);
   const provider = computer.provider ?? { state: computer.enabled ? "loading" : "off" };
@@ -5574,7 +5611,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row3
     const state = perms[key]?.state ?? perms[key];
     const granted = state === "granted" || state === true;
     return (0, import_react11.createElement)(
-      Row3,
+      Row4,
       { key, label: t(label) },
       (0, import_react11.createElement)("span", { className: "bt-perm-state", "data-on": granted || void 0 }, granted ? t("Allowed") : t("Not allowed")),
       granted ? null : (0, import_react11.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(Promise.resolve(actions.computerPermission(key)).then(refresh)) }, t("Grant"))
@@ -5585,7 +5622,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row3
       Section2,
       { key: "switch" },
       (0, import_react11.createElement)(
-        Row3,
+        Row4,
         { label: t("Let Bots use the computer") },
         Switch2 === void 0 ? null : (0, import_react11.createElement)(Switch2, { label: t("Let Bots use the computer"), on: computer.enabled === true, onChange: (on) => run2(actions.computerSetEnabled(on)) })
       )
@@ -5594,7 +5631,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row3
       Section2,
       { key: "provider", title: t("Computer provider") },
       (0, import_react11.createElement)(
-        Row3,
+        Row4,
         { label: t(PROVIDER_TEXT[provider.state]?.[0] ?? PROVIDER_TEXT.error[0]), hint: provider.message },
         ["error", "missing", "occupied"].includes(provider.state) && actions.computerProviderRetry ? (0, import_react11.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.computerProviderRetry()) }, t("Retry")) : null
       ),
@@ -5604,23 +5641,23 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row3
       Section2,
       { key: "bots", title: t("Bots") },
       roster.bots.map((bot) => (0, import_react11.createElement)(
-        Row3,
+        Row4,
         { key: bot.id, label: bot.name },
         (0, import_react11.createElement)(LevelPicker, { bot, actions, run: run2, disabled: !computer.enabled })
       ))
     )
   ];
 }
-function BotComputerCard({ bot, roster, actions, run: run2, Card: Card3, Row: Row3 }) {
+function BotComputerCard({ bot, roster, actions, run: run2, Card: Card3, Row: Row4 }) {
   const computer = roster.computer ?? { enabled: false };
   const apps = Object.entries(bot.computer?.apps ?? {});
   return (0, import_react11.createElement)(
     Card3,
     { title: t("Control") },
-    !computer.enabled ? (0, import_react11.createElement)(Row3, { label: t("Computer use") }, (0, import_react11.createElement)("span", { className: "bt-muted" }, t("Off in Settings → Computer use"))) : [
-      (0, import_react11.createElement)(Row3, { key: "level", label: t("Computer use") }, (0, import_react11.createElement)(LevelPicker, { bot, actions, run: run2 })),
+    !computer.enabled ? (0, import_react11.createElement)(Row4, { label: t("Computer use") }, (0, import_react11.createElement)("span", { className: "bt-muted" }, t("Off in Settings → Computer use"))) : [
+      (0, import_react11.createElement)(Row4, { key: "level", label: t("Computer use") }, (0, import_react11.createElement)(LevelPicker, { bot, actions, run: run2 })),
       apps.map(([key, app]) => (0, import_react11.createElement)(
-        Row3,
+        Row4,
         { key, label: app.name },
         (0, import_react11.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.computerRevokeApp(bot.id, key)) }, t("Revoke"))
       ))
@@ -11393,6 +11430,9 @@ var SI = {
   hubspot: ["M18.164 7.93V5.084a2.198 2.198 0 001.267-1.978v-.067A2.2 2.2 0 0017.238.845h-.067a2.2 2.2 0 00-2.193 2.193v.067a2.196 2.196 0 001.252 1.973l.013.006v2.852a6.22 6.22 0 00-2.969 1.31l.012-.01-7.828-6.095A2.497 2.497 0 104.3 4.656l-.012.006 7.697 5.991a6.176 6.176 0 00-1.038 3.446c0 1.343.425 2.588 1.147 3.607l-.013-.02-2.342 2.343a1.968 1.968 0 00-.58-.095h-.002a2.033 2.033 0 102.033 2.033 1.978 1.978 0 00-.1-.595l.005.014 2.317-2.317a6.247 6.247 0 104.782-11.134l-.036-.005zm-.964 9.378a3.206 3.206 0 113.215-3.207v.002a3.206 3.206 0 01-3.207 3.207z", "#FF7A59"],
   huggingface: ["M12.025 1.13c-5.77 0-10.449 4.647-10.449 10.378 0 1.112.178 2.181.503 3.185.064-.222.203-.444.416-.577a.96.96 0 0 1 .524-.15c.293 0 .584.124.84.284.278.173.48.408.71.694.226.282.458.611.684.951v-.014c.017-.324.106-.622.264-.874s.403-.487.762-.543c.3-.047.596.06.787.203s.31.313.4.467c.15.257.212.468.233.542.01.026.653 1.552 1.657 2.54.616.605 1.01 1.223 1.082 1.912.055.537-.096 1.059-.38 1.572.637.121 1.294.187 1.967.187.657 0 1.298-.063 1.921-.178-.287-.517-.44-1.041-.384-1.581.07-.69.465-1.307 1.081-1.913 1.004-.987 1.647-2.513 1.657-2.539.021-.074.083-.285.233-.542.09-.154.208-.323.4-.467a1.08 1.08 0 0 1 .787-.203c.359.056.604.29.762.543s.247.55.265.874v.015c.225-.34.457-.67.683-.952.23-.286.432-.52.71-.694.257-.16.547-.284.84-.285a.97.97 0 0 1 .524.151c.228.143.373.388.43.625l.006.04a10.3 10.3 0 0 0 .534-3.273c0-5.731-4.678-10.378-10.449-10.378M8.327 6.583a1.5 1.5 0 0 1 .713.174 1.487 1.487 0 0 1 .617 2.013c-.183.343-.762-.214-1.102-.094-.38.134-.532.914-.917.71a1.487 1.487 0 0 1 .69-2.803m7.486 0a1.487 1.487 0 0 1 .689 2.803c-.385.204-.536-.576-.916-.71-.34-.12-.92.437-1.103.094a1.487 1.487 0 0 1 .617-2.013 1.5 1.5 0 0 1 .713-.174m-10.68 1.55a.96.96 0 1 1 0 1.921.96.96 0 0 1 0-1.92m13.838 0a.96.96 0 1 1 0 1.92.96.96 0 0 1 0-1.92M8.489 11.458c.588.01 1.965 1.157 3.572 1.164 1.607-.007 2.984-1.155 3.572-1.164.196-.003.305.12.305.454 0 .886-.424 2.328-1.563 3.202-.22-.756-1.396-1.366-1.63-1.32q-.011.001-.02.006l-.044.026-.01.008-.03.024q-.018.017-.035.036l-.032.04a1 1 0 0 0-.058.09l-.014.025q-.049.088-.11.19a1 1 0 0 1-.083.116 1.2 1.2 0 0 1-.173.18q-.035.029-.075.058a1.3 1.3 0 0 1-.251-.243 1 1 0 0 1-.076-.107c-.124-.193-.177-.363-.337-.444-.034-.016-.104-.008-.2.022q-.094.03-.216.087-.06.028-.125.063l-.13.074q-.067.04-.136.086a3 3 0 0 0-.135.096 3 3 0 0 0-.26.219 2 2 0 0 0-.12.121 2 2 0 0 0-.106.128l-.002.002a2 2 0 0 0-.09.132l-.001.001a1.2 1.2 0 0 0-.105.212q-.013.036-.024.073c-1.139-.875-1.563-2.317-1.563-3.203 0-.334.109-.457.305-.454m.836 10.354c.824-1.19.766-2.082-.365-3.194-1.13-1.112-1.789-2.738-1.789-2.738s-.246-.945-.806-.858-.97 1.499.202 2.362c1.173.864-.233 1.45-.685.64-.45-.812-1.683-2.896-2.322-3.295s-1.089-.175-.938.647 2.822 2.813 2.562 3.244-1.176-.506-1.176-.506-2.866-2.567-3.49-1.898.473 1.23 2.037 2.16c1.564.932 1.686 1.178 1.464 1.53s-3.675-2.511-4-1.297c-.323 1.214 3.524 1.567 3.287 2.405-.238.839-2.71-1.587-3.216-.642-.506.946 3.49 2.056 3.522 2.064 1.29.33 4.568 1.028 5.713-.624m5.349 0c-.824-1.19-.766-2.082.365-3.194 1.13-1.112 1.789-2.738 1.789-2.738s.246-.945.806-.858.97 1.499-.202 2.362c-1.173.864.233 1.45.685.64.451-.812 1.683-2.896 2.322-3.295s1.089-.175.938.647-2.822 2.813-2.562 3.244 1.176-.506 1.176-.506 2.866-2.567 3.49-1.898-.473 1.23-2.037 2.16c-1.564.932-1.686 1.178-1.464 1.53s3.675-2.511 4-1.297c.323 1.214-3.524 1.567-3.287 2.405.238.839 2.71-1.587 3.216-.642.506.946-3.49 2.056-3.522 2.064-1.29.33-4.568 1.028-5.713-.624", "#F59E0B"],
   icloud: ["M13.762 4.29a6.51 6.51 0 0 0-5.669 3.332 3.571 3.571 0 0 0-1.558-.36 3.571 3.571 0 0 0-3.516 3A4.918 4.918 0 0 0 0 14.796a4.918 4.918 0 0 0 4.92 4.914 4.93 4.93 0 0 0 .617-.045h14.42c2.305-.272 4.041-2.258 4.043-4.589v-.009a4.594 4.594 0 0 0-3.727-4.508 6.51 6.51 0 0 0-6.511-6.27z", "#3693F3"],
+  telegram: ["M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z", "#26A5E4"],
+  wechat: ["M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .24-.111.24-.247 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088V8.89c-.135-.01-.27-.027-.407-.03zm-2.53 3.274c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982z", "#07C160"],
+  discord: ["M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z", "#5865F2"],
   qq: ["M21.395 15.035a40 40 0 0 0-.803-2.264l-1.079-2.695c.001-.032.014-.562.014-.836C19.526 4.632 17.351 0 12 0S4.474 4.632 4.474 9.241c0 .274.013.804.014.836l-1.08 2.695a39 39 0 0 0-.802 2.264c-1.021 3.283-.69 4.643-.438 4.673.54.065 2.103-2.472 2.103-2.472 0 1.469.756 3.387 2.394 4.771-.612.188-1.363.479-1.845.835-.434.32-.379.646-.301.778.343.578 5.883.369 7.482.189 1.6.18 7.14.389 7.483-.189.078-.132.132-.458-.301-.778-.483-.356-1.233-.646-1.846-.836 1.637-1.384 2.393-3.302 2.393-4.771 0 0 1.563 2.537 2.103 2.472.251-.03.581-1.39-.438-4.673", "#1EBAFC"]
 };
 var siMarks = Object.fromEntries(Object.entries(SI).map(([id, [d, fill2]]) => [id, mark(path(d, fill2))]));
@@ -11523,8 +11563,8 @@ var MARKS = {
 var import_react27 = require("react");
 var TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
 function ConnectorMark({ connector }) {
-  const Mark2 = MARKS[connector.id];
-  if (Mark2) return (0, import_react27.createElement)(Mark2);
+  const Mark = MARKS[connector.id];
+  if (Mark) return (0, import_react27.createElement)(Mark);
   let hash = 0;
   for (const ch of String(connector.id)) hash = hash * 31 + ch.charCodeAt(0) >>> 0;
   return (0, import_react27.createElement)("span", { className: "bt-connector-mono", style: { "--bt-hue": hash % 360 }, "aria-hidden": true }, (connector.name ?? "?").slice(0, 1).toUpperCase());
@@ -12809,7 +12849,7 @@ var IM_PLATFORMS = [
   },
   {
     id: "weixin",
-    name: "微信",
+    name: "WeChat",
     fields: [],
     buttons: false,
     groups: false,
@@ -12817,9 +12857,9 @@ var IM_PLATFORMS = [
   },
   {
     id: "feishu",
-    name: "飞书 / Lark",
+    name: "Feishu / Lark",
     fields: [
-      { key: "domain", label: "Domain", options: [["feishu", "飞书"], ["lark", "Lark"]] },
+      { key: "domain", label: "Edition", options: [["feishu", "Feishu"], ["lark", "Lark"]] },
       { key: "appId", label: "App ID" },
       { key: "appSecret", label: "App Secret", secret: true }
     ],
@@ -12828,7 +12868,7 @@ var IM_PLATFORMS = [
   },
   {
     id: "dingtalk",
-    name: "钉钉",
+    name: "DingTalk",
     fields: [
       { key: "clientId", label: "Client ID" },
       { key: "clientSecret", label: "Client Secret", secret: true }
@@ -12838,7 +12878,7 @@ var IM_PLATFORMS = [
   },
   {
     id: "wecom",
-    name: "企业微信",
+    name: "WeCom",
     fields: [
       { key: "botId", label: "Bot ID" },
       { key: "secret", label: "Secret", secret: true }
@@ -12945,7 +12985,7 @@ function CopyButton({ text }) {
 }
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 var viaOf2 = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
-var ViaTag = ({ via }) => (0, import_react30.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: imPlatform(via)?.name ?? via }));
+var ViaTag = ({ via }) => (0, import_react30.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
   const roster = useRoster((value) => value);
   const data = node.data ?? {};
@@ -18461,7 +18501,7 @@ var GROUP_SETTINGS_CSS = `
 
 // src/client/kept-private.js
 var import_react45 = require("react");
-function KeptPrivateSection({ roster, actions, run: run2, Section: Section2, Row: Row3 }) {
+function KeptPrivateSection({ roster, actions, run: run2, Section: Section2, Row: Row4 }) {
   const kept = roster.privateArchives ?? [];
   const [confirming, setConfirming] = (0, import_react45.useState)(null);
   (0, import_react45.useEffect)(() => {
@@ -18481,7 +18521,7 @@ function KeptPrivateSection({ roster, actions, run: run2, Section: Section2, Row
   return (0, import_react45.createElement)(
     Section2,
     { title: t("Closed after deletion · {count}", { count: kept.length }) },
-    kept.map((entry) => (0, import_react45.createElement)(Row3, {
+    kept.map((entry) => (0, import_react45.createElement)(Row4, {
       key: entry.id,
       label: entry.name,
       hint: confirming === entry.id ? t("Click again to remove. Other Bots can then read its folder, memory and chats.") : entry.workDir
@@ -21427,27 +21467,149 @@ var stringToBytes = qrcode.stringToBytes;
 
 // src/client/im-page.js
 var import_react48 = require("react");
-var SHORT = {
-  telegram: "Tg",
-  weixin: "微",
-  feishu: "飞",
-  dingtalk: "钉",
-  wecom: "企",
-  qq: "QQ",
-  discord: "Dc",
-  slack: "Sl"
+var import_react_dom8 = require("react-dom");
+var BRAND = { telegram: "telegram", weixin: "wechat", qq: "qq", discord: "discord", slack: "slack" };
+var MONO = { feishu: "飞", dingtalk: "钉", wecom: "企" };
+var GUIDES = {
+  telegram: {
+    link: ["https://t.me/BotFather", "BotFather"],
+    steps: ["In Telegram, open @BotFather and send /newbot.", "Give the bot a name and a username.", "Paste the token that BotFather sends."]
+  },
+  weixin: {
+    steps: ["Choose the Bot that answers.", "Scan the code with WeChat on your phone and confirm."]
+  },
+  feishu: {
+    link: ["https://open.feishu.cn/app", "open.feishu.cn"],
+    lark: ["https://open.larksuite.com/app", "open.larksuite.com"],
+    steps: [
+      "Create a custom app in the developer console and add the bot capability.",
+      "Grant the permissions to read and send messages.",
+      "Paste the App ID and App Secret from Credentials, then connect.",
+      "Under Events & callbacks, receive events through a long connection, add the receive message event, and publish a version."
+    ]
+  },
+  dingtalk: {
+    link: ["https://open-dev.dingtalk.com/", "open-dev.dingtalk.com"],
+    steps: ["Create an app in the developer console and add a robot.", "Set the robot to receive messages in Stream mode, then publish it.", "Paste the Client ID and Client Secret."]
+  },
+  wecom: {
+    link: ["https://work.weixin.qq.com/", "work.weixin.qq.com"],
+    steps: ["In WeCom, create an intelligent robot in API mode with a long connection.", "Paste the Bot ID and Secret."]
+  },
+  qq: {
+    link: ["https://q.qq.com/qqbot/", "q.qq.com"],
+    steps: ["Create a bot on the QQ Open Platform.", "Paste the App ID and App Secret from the development settings.", "Until the bot is published, add your QQ account to its sandbox."]
+  },
+  discord: {
+    link: ["https://discord.com/developers/applications", "Developer Portal"],
+    steps: ["Create an application in the Developer Portal and open Bot.", "Turn on Message Content Intent, then reset and copy the token.", "Invite the bot to your server with the bot scope."]
+  },
+  slack: {
+    link: ["https://api.slack.com/apps", "api.slack.com"],
+    steps: [
+      "Create an app and turn on Socket Mode.",
+      "Make an app-level token with connections:write.",
+      "Add the scopes app_mentions:read, chat:write, im:history and files:read, and subscribe to app_mention and message.im.",
+      "Install the app to the workspace and paste both tokens."
+    ]
+  }
 };
-var LINKS = {
-  telegram: ["https://t.me/BotFather", "BotFather"],
-  feishu: ["https://open.feishu.cn/app", "open.feishu.cn"],
-  lark: ["https://open.larksuite.com/app", "open.larksuite.com"],
-  dingtalk: ["https://open-dev.dingtalk.com/", "open-dev.dingtalk.com"],
-  wecom: ["https://work.weixin.qq.com/", "work.weixin.qq.com"],
-  qq: ["https://q.qq.com/qqbot/", "q.qq.com"],
-  discord: ["https://discord.com/developers/applications", "discord.com"],
-  slack: ["https://api.slack.com/apps", "api.slack.com"]
-};
-var Mark = ({ id }) => (0, import_react48.createElement)("span", { className: "bt-im-mark", style: { background: `var(--bt-im-${id}, var(--bt-hover))` } }, SHORT[id] ?? id.slice(0, 2));
+var platformOf = (id) => IM_PLATFORMS.find((entry) => entry.id === id) ?? { id, name: id, fields: [] };
+function ImMark({ id, size = 36 }) {
+  const Brand = MARKS[BRAND[id]];
+  return (0, import_react48.createElement)(
+    "span",
+    { className: "bt-app-icon bt-im-icon", style: { width: size, height: size }, "data-small": size < 30 || void 0 },
+    Brand ? (0, import_react48.createElement)(Brand) : (0, import_react48.createElement)("span", { className: "bt-im-mono", style: { background: `var(--bt-im-${id}, var(--bt-ink-2))` }, "aria-hidden": true }, MONO[id] ?? id.slice(0, 1).toUpperCase())
+  );
+}
+function stateOf(conn, status) {
+  if (!conn.enabled) return "off";
+  return status?.state === "ready" || status?.state === "error" || status?.state === "connecting" ? status.state : "connecting";
+}
+function stateText(conn, status) {
+  const state = stateOf(conn, status);
+  if (state === "off") return t("Disabled");
+  if (state === "ready") return t("Connected");
+  if (state === "error") return t("Could not connect: {error}", { error: hostText(status.error ?? "") });
+  return t("Connecting…");
+}
+var Dot = ({ state }) => (0, import_react48.createElement)("span", { className: "bt-im-dot", "data-state": state, "aria-hidden": true });
+var Tick2 = ({ on }) => (0, import_react48.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, on ? (0, import_react48.createElement)(CheckIcon) : null);
+function TargetMenu({ value, roster, rooms = false, label, onPick, disabled = false }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
+  const bot = value?.botId !== void 0 ? roster.bots.find((entry) => entry.id === value.botId) : void 0;
+  const room2 = value?.roomId !== void 0 ? roster.rooms.find((entry) => entry.id === value.roomId) : void 0;
+  const pick2 = (next) => {
+    close();
+    onPick(next);
+  };
+  const shown = bot ? (0, import_react48.createElement)(BotAvatar, { bot, size: 20, badge: false, live: false }) : room2 ? (0, import_react48.createElement)("span", { className: "bt-im-room" }, (0, import_react48.createElement)(ChatsIcon)) : null;
+  return (0, import_react48.createElement)(
+    import_react48.Fragment,
+    null,
+    (0, import_react48.createElement)(
+      "button",
+      { ref: button, type: "button", className: "bt-model-trigger bt-im-target", "aria-haspopup": "menu", "aria-expanded": isOpen, "aria-label": label, disabled, onClick: () => isOpen ? close() : open() },
+      shown,
+      (0, import_react48.createElement)("span", { className: "bt-model-name" }, bot?.name ?? room2?.name ?? t("Not bound")),
+      (0, import_react48.createElement)(Caret)
+    ),
+    shownPlace ? (0, import_react_dom8.createPortal)((0, import_react48.createElement)(
+      "div",
+      { ref: menu, className: `bt-menu bt-model-menu bt-im-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": label, style: shownPlace, "data-leaving": leaving || void 0 },
+      rooms ? (0, import_react48.createElement)("button", { type: "button", role: "menuitemradio", "aria-checked": !bot && !room2, onClick: () => pick2(null) }, (0, import_react48.createElement)("span", { className: "bt-menu-label" }, t("Not bound")), (0, import_react48.createElement)(Tick2, { on: !bot && !room2 })) : null,
+      rooms ? (0, import_react48.createElement)("div", { className: "bt-model-group", role: "presentation" }, t("Bots")) : null,
+      roster.bots.map((entry) => (0, import_react48.createElement)(
+        "button",
+        { key: entry.id, type: "button", role: "menuitemradio", "aria-checked": entry.id === bot?.id, onClick: () => pick2({ botId: entry.id }) },
+        (0, import_react48.createElement)(BotAvatar, { bot: entry, size: 20, badge: false, live: false }),
+        (0, import_react48.createElement)("span", { className: "bt-menu-label" }, entry.name),
+        (0, import_react48.createElement)(Tick2, { on: entry.id === bot?.id })
+      )),
+      rooms && roster.rooms.length > 0 ? (0, import_react48.createElement)("div", { className: "bt-model-group", role: "presentation" }, t("Group chats")) : null,
+      rooms ? roster.rooms.map((entry) => (0, import_react48.createElement)(
+        "button",
+        { key: entry.id, type: "button", role: "menuitemradio", "aria-checked": entry.id === room2?.id, onClick: () => pick2({ roomId: entry.id }) },
+        (0, import_react48.createElement)("span", { className: "bt-im-room" }, (0, import_react48.createElement)(ChatsIcon)),
+        (0, import_react48.createElement)("span", { className: "bt-menu-label" }, entry.name),
+        (0, import_react48.createElement)(Tick2, { on: entry.id === room2?.id })
+      )) : null
+    ), document.body) : null
+  );
+}
+function Row3({ label, children, className }) {
+  return (0, import_react48.createElement)(
+    "div",
+    { className: className ? `bt-set-row ${className}` : "bt-set-row" },
+    (0, import_react48.createElement)("span", { className: "bt-set-copy" }, label),
+    (0, import_react48.createElement)("span", { className: "bt-set-control bt-im-control" }, children)
+  );
+}
+function Subview2({ title, onBack, children }) {
+  return (0, import_react48.createElement)(
+    "div",
+    { className: "bt-app-sub bt-im-sub" },
+    (0, import_react48.createElement)(
+      "div",
+      { className: "bt-app-sub-head" },
+      (0, import_react48.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), onClick: onBack }, (0, import_react48.createElement)(ChevronLeftIcon)),
+      (0, import_react48.createElement)("h3", null, title)
+    ),
+    children
+  );
+}
+function Guide({ platform, domain }) {
+  const guide = GUIDES[platform];
+  if (!guide) return null;
+  const link = platform === "feishu" && domain === "lark" ? guide.lark : guide.link;
+  return (0, import_react48.createElement)(
+    "div",
+    { className: "bt-im-guide" },
+    (0, import_react48.createElement)("ol", null, guide.steps.map((step) => (0, import_react48.createElement)("li", { key: step }, t(step)))),
+    link ? (0, import_react48.createElement)("a", { className: "bt-connector-link", href: link[0], target: "_blank", rel: "noopener noreferrer" }, t("Open {site}", { site: link[1] })) : null
+  );
+}
 var QUIET = 4;
 function QrCode({ text }) {
   const qr = qrcode_default(0, "M");
@@ -21462,25 +21624,27 @@ function QrCode({ text }) {
   return (0, import_react48.createElement)(
     "svg",
     { className: "bt-im-qr", viewBox: `0 0 ${size} ${size}`, role: "img", "aria-label": t("Pairing QR code"), shapeRendering: "crispEdges" },
-    (0, import_react48.createElement)("rect", { width: size, height: size }),
-    (0, import_react48.createElement)("path", { d: path2 })
+    (0, import_react48.createElement)("rect", { className: "bt-im-qr-paper", width: size, height: size }),
+    (0, import_react48.createElement)("path", { className: "bt-im-qr-ink", d: path2 })
   );
 }
-function QrPanel({ actions, platform, botId, onDone }) {
+function QrLogin({ actions, platform, botId, onDone }) {
+  const [round, setRound] = (0, import_react48.useState)(0);
   const [login, setLogin] = (0, import_react48.useState)(null);
   const [status, setStatus] = (0, import_react48.useState)("waiting");
   const [error, setError] = (0, import_react48.useState)(null);
   (0, import_react48.useEffect)(() => {
     let live = true;
-    let loginId;
+    setLogin(null);
+    setStatus("waiting");
+    setError(null);
     void (async () => {
       try {
         const started = await actions.imLoginStart({ platform, botId });
         if (!live) return;
-        loginId = started.loginId;
         setLogin(started);
         for (; ; ) {
-          const answer = await actions.imLoginWait({ platform, botId, loginId });
+          const answer = await actions.imLoginWait({ platform, botId, loginId: started.loginId });
           if (!live) return;
           if (answer.status === "done") {
             onDone();
@@ -21496,231 +21660,355 @@ function QrPanel({ actions, platform, botId, onDone }) {
     return () => {
       live = false;
     };
-  }, []);
+  }, [botId, round]);
+  const expired2 = status === "expired" || error !== null;
+  const caption = error ? hostText(error) : status === "scanned" ? t("Scanned — confirm on the phone") : status === "expired" ? t("Code expired") : login ? t("Scan with WeChat") : t("Getting a code…");
   return (0, import_react48.createElement)(
     "div",
-    { className: "bt-im-qr-panel" },
-    login === null && error === null ? (0, import_react48.createElement)("p", { className: "bt-mid" }, t("Connecting…")) : null,
-    login !== null && status !== "expired" ? (0, import_react48.createElement)(QrCode, { text: login.qr }) : null,
-    login !== null && status === "scanned" ? (0, import_react48.createElement)("p", { className: "bt-mid" }, t("Scanned — confirm on the phone")) : null,
-    status === "expired" ? (0, import_react48.createElement)("p", { className: "bt-mid" }, t("Code expired")) : null,
-    error ? (0, import_react48.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null,
+    { className: "bt-im-qr-box", "data-state": error ? "error" : status },
     (0, import_react48.createElement)(
       "div",
-      { className: "bt-connector-form-row" },
-      status === "expired" ? (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onDone }, t("Done")) : (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onDone }, t("Cancel"))
+      { className: "bt-im-qr-frame" },
+      login && !expired2 ? (0, import_react48.createElement)(QrCode, { text: login.qr }) : (0, import_react48.createElement)("span", { className: "bt-im-qr-blank", "aria-hidden": true }),
+      status === "scanned" ? (0, import_react48.createElement)("span", { className: "bt-im-qr-done", "aria-hidden": true }, (0, import_react48.createElement)(CheckIcon)) : null
+    ),
+    (0, import_react48.createElement)("p", { className: "bt-im-qr-caption", role: error ? "alert" : "status" }, caption),
+    expired2 ? (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setRound((value) => value + 1) }, t("Get a new code")) : null
+  );
+}
+function AddView({ platform, roster, actions, onBack }) {
+  const shown = platformOf(platform);
+  const [fields, setFields] = (0, import_react48.useState)({});
+  const [botId, setBotId] = (0, import_react48.useState)(roster.bots[0]?.id ?? "");
+  const [busy, setBusy] = (0, import_react48.useState)(false);
+  const [error, setError] = (0, import_react48.useState)(null);
+  const set = (key, value) => setFields((current) => ({ ...current, [key]: value }));
+  const missing = shown.fields.some((field) => !field.options && String(fields[field.key] ?? "").trim() === "");
+  const add = () => {
+    if (busy || botId === "" || missing) return;
+    setBusy(true);
+    setError(null);
+    void Promise.resolve(actions.imAdd({ platform, botId, fields })).then(() => onBack()).catch((failure) => setError(failure?.message ?? String(failure))).finally(() => setBusy(false));
+  };
+  const fieldRow = (field) => {
+    if (field.options) {
+      const value = fields[field.key] ?? field.options[0][0];
+      return (0, import_react48.createElement)(
+        Row3,
+        { key: field.key, label: t(field.label) },
+        (0, import_react48.createElement)(
+          Segmented,
+          { label: t(field.label), value },
+          field.options.map(([id, label2]) => (0, import_react48.createElement)("button", { key: id, type: "button", "aria-pressed": value === id, onClick: () => set(field.key, id) }, t(label2)))
+        )
+      );
+    }
+    const label = t(field.label);
+    return (0, import_react48.createElement)(
+      Row3,
+      { key: field.key, label, className: "bt-im-field" },
+      field.secret ? (0, import_react48.createElement)("span", { className: "bt-q-field bt-secret-field bt-im-secret" }, (0, import_react48.createElement)(MaskedInput, { value: fields[field.key] ?? "", onChange: (value) => set(field.key, value), onEnter: add, label: field.hint ? `${field.hint}…` : label })) : (0, import_react48.createElement)("input", { className: "bt-input", "aria-label": label, placeholder: label, spellCheck: false, autoComplete: "off", value: fields[field.key] ?? "", onChange: (event) => set(field.key, event.target.value), onKeyDown: (event) => {
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) add();
+      } })
+    );
+  };
+  return (0, import_react48.createElement)(
+    Subview2,
+    { title: t(shown.name), onBack },
+    (0, import_react48.createElement)("div", { className: "bt-im-hero" }, (0, import_react48.createElement)(ImMark, { id: platform, size: 44 }), (0, import_react48.createElement)(Guide, { platform, domain: fields.domain })),
+    (0, import_react48.createElement)(
+      "div",
+      { className: "bt-set-card bt-im-form" },
+      (0, import_react48.createElement)(Row3, { label: t("Talks to") }, (0, import_react48.createElement)(TargetMenu, { value: botId ? { botId } : null, roster, label: t("Talks to"), onPick: (next) => next?.botId && setBotId(next.botId) })),
+      shown.login === "qr" ? null : shown.fields.map(fieldRow),
+      shown.login === "qr" ? (0, import_react48.createElement)("div", { className: "bt-im-qr-row" }, (0, import_react48.createElement)(QrLogin, { actions, platform, botId, onDone: onBack })) : null,
+      shown.login === "qr" ? null : (0, import_react48.createElement)(
+        "div",
+        { className: "bt-im-foot" },
+        error ? (0, import_react48.createElement)("span", { className: "bt-im-error", role: "alert" }, hostText(error)) : (0, import_react48.createElement)("span"),
+        (0, import_react48.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: busy || botId === "" || missing, onClick: add }, busy ? t("Connecting…") : t("Connect"))
+      )
     )
   );
 }
-function statusText3(status) {
-  if (status === void 0) return t("Not connected");
-  if (status.state === "connecting") return t("Connecting…");
-  if (status.state === "error") return t("Could not connect: {error}", { error: status.error ?? "" });
-  if (status.state === "ready") return t("Connected");
-  return t("Not connected");
+function chatName(conn, key, chat) {
+  if (chat.title) return chat.title;
+  return conn.paired.find((entry) => entry.id === key)?.name ?? t("Direct message");
 }
-function TargetPicker({ value, roster, onChange, label }) {
-  return (0, import_react48.createElement)(
-    "select",
-    { className: "bt-select", "aria-label": label ?? t("Bound to"), value: value ?? "", onChange: (event) => onChange(event.target.value || null) },
-    (0, import_react48.createElement)("option", { value: "" }, t("Not bound")),
-    roster.bots.map((bot) => (0, import_react48.createElement)("option", { key: bot.id, value: `b:${bot.id}` }, bot.name)),
-    roster.rooms.map((room2) => (0, import_react48.createElement)("option", { key: room2.id, value: `r:${room2.id}` }, `${room2.name}`))
-  );
+function Initial({ name }) {
+  return (0, import_react48.createElement)("span", { className: "bt-im-initial", "aria-hidden": true }, String(name || "?").replace(/^@/, "").slice(0, 1).toUpperCase());
 }
-var targetValue = (chat) => chat.target?.roomId !== void 0 ? `r:${chat.target.roomId}` : chat.target?.botId !== void 0 ? `b:${chat.target.botId}` : "";
-function ConnectionRow({ conn, status, roster, actions }) {
-  const [open, setOpen] = (0, import_react48.useState)(false);
+function Requests({ conn, run: run2, busy, actions, withSource = false }) {
+  return conn.requests.map((request) => (0, import_react48.createElement)(
+    "div",
+    { key: `${conn.id}:${request.id}`, className: "bt-set-row bt-im-request" },
+    (0, import_react48.createElement)(Initial, { name: request.name }),
+    (0, import_react48.createElement)(
+      "span",
+      { className: "bt-set-copy" },
+      (0, import_react48.createElement)("span", { className: "bt-im-name" }, request.name),
+      withSource ? (0, import_react48.createElement)("span", { className: "bt-set-hint" }, t("Wants to talk through {bot}", { bot: t(conn.account?.name ?? platformOf(conn.platform).name) })) : null
+    ),
+    (0, import_react48.createElement)(
+      "span",
+      { className: "bt-set-control" },
+      (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => run2(actions.imPair(conn.id, request.id, false)) }, t("Deny")),
+      (0, import_react48.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: busy, onClick: () => run2(actions.imPair(conn.id, request.id, true)) }, t("Allow"))
+    )
+  ));
+}
+function useRun() {
   const [busy, setBusy] = (0, import_react48.useState)(false);
-  const [confirmRemove, setConfirmRemove] = (0, import_react48.useState)(false);
   const [error, setError] = (0, import_react48.useState)(null);
-  const platform = IM_PLATFORMS.find((entry) => entry.id === conn.platform) ?? { name: conn.platform, fields: [] };
   const run2 = (task) => {
     setBusy(true);
     setError(null);
     return Promise.resolve(task).catch((failure) => setError(failure?.message ?? String(failure))).finally(() => setBusy(false));
   };
-  const setBot = (value) => {
-    if (value === null || !value.startsWith("b:")) return;
-    void run2(actions.imUpdate(conn.id, { botId: value.slice(2) }));
-  };
-  const removeChat = (chatKey) => () => void run2(actions.imChat(conn.id, { chatKey, remove: true }));
-  const setChatTarget = (chatKey, value) => {
-    const target = value === null ? null : value.startsWith("b:") ? { botId: value.slice(2) } : { roomId: value.slice(2) };
-    void run2(actions.imChat(conn.id, { chatKey, target }));
+  return { busy, error, run: run2 };
+}
+function DetailView({ conn, status, roster, actions, onBack }) {
+  const shown = platformOf(conn.platform);
+  const { busy, error, run: run2 } = useRun();
+  const [confirm, setConfirm] = (0, import_react48.useState)(null);
+  const state = stateOf(conn, status);
+  const ask = (key, task) => {
+    if (confirm !== key) {
+      setConfirm(key);
+      return;
+    }
+    setConfirm(null);
+    void run2(task());
   };
   const chats = Object.entries(conn.chats ?? {});
   return (0, import_react48.createElement)(
-    "div",
-    { className: "bt-connector", "data-state": status?.state ?? "off" },
+    Subview2,
+    { title: t(conn.account?.name ?? shown.name), onBack },
+    error ? (0, import_react48.createElement)("div", { className: "bt-im-banner", role: "alert" }, hostText(error)) : null,
     (0, import_react48.createElement)(
       "div",
-      { className: "bt-connector-head" },
-      (0, import_react48.createElement)("span", { className: "bt-connector-mark" }, (0, import_react48.createElement)(Mark, { id: conn.platform })),
+      { className: "bt-set-card" },
       (0, import_react48.createElement)(
-        "span",
-        { className: "bt-connector-text" },
-        (0, import_react48.createElement)("span", { className: "bt-connector-name" }, conn.account?.name ?? platform.name),
-        (0, import_react48.createElement)("span", { className: "bt-connector-status" }, conn.enabled ? `${platform.name} · ${statusText3(status)}` : `${platform.name} · ${t("Disabled")}`)
+        "div",
+        { className: "bt-set-row bt-im-head", "data-state": state },
+        (0, import_react48.createElement)(ImMark, { id: conn.platform, size: 40 }),
+        (0, import_react48.createElement)(
+          "span",
+          { className: "bt-set-copy" },
+          (0, import_react48.createElement)("span", { className: "bt-im-title" }, t(conn.account?.name ?? shown.name)),
+          (0, import_react48.createElement)("span", { className: "bt-im-status" }, (0, import_react48.createElement)(Dot, { state }), `${t(shown.name)} · ${stateText(conn, status)}`)
+        ),
+        (0, import_react48.createElement)(
+          "span",
+          { className: "bt-set-control" },
+          state === "error" ? (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => run2(actions.imRetry(conn.id)) }, t("Try again")) : null,
+          (0, import_react48.createElement)(Switch, { on: conn.enabled, label: t("Enabled"), disabled: busy, onChange: (on) => run2(actions.imUpdate(conn.id, { enabled: on })) })
+        )
       ),
+      (0, import_react48.createElement)(Row3, { label: t("Talks to") }, (0, import_react48.createElement)(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t("Talks to"), disabled: busy, onPick: (next) => next?.botId && run2(actions.imUpdate(conn.id, { botId: next.botId })) }))
+    ),
+    conn.requests.length > 0 ? (0, import_react48.createElement)(
+      "section",
+      { className: "bt-set-section" },
+      (0, import_react48.createElement)("h3", null, t("Waiting for approval")),
+      (0, import_react48.createElement)("div", { className: "bt-set-card bt-im-attn" }, (0, import_react48.createElement)(Requests, { conn, run: run2, busy, actions }))
+    ) : null,
+    (0, import_react48.createElement)(
+      "section",
+      { className: "bt-set-section" },
+      (0, import_react48.createElement)("h3", null, t("Accounts")),
       (0, import_react48.createElement)(
-        "span",
-        { className: "bt-connector-actions" },
-        status?.state === "error" ? (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imRetry(conn.id)) }, t("Try again")) : null,
-        (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setOpen((value) => !value) }, open ? t("Collapse") : t("Manage"))
+        "div",
+        { className: "bt-set-card" },
+        conn.paired.length === 0 ? (0, import_react48.createElement)("div", { className: "bt-set-row" }, (0, import_react48.createElement)("span", { className: "bt-set-hint" }, t("Send the IM bot a message to connect your account"))) : conn.paired.map((entry) => (0, import_react48.createElement)(
+          "div",
+          { key: entry.id, className: "bt-set-row" },
+          (0, import_react48.createElement)(Initial, { name: entry.name }),
+          (0, import_react48.createElement)("span", { className: "bt-set-copy" }, (0, import_react48.createElement)("span", { className: "bt-im-name" }, entry.name)),
+          (0, import_react48.createElement)("button", { type: "button", className: "bt-mini bt-im-danger", "data-confirm": confirm === `p:${entry.id}` || void 0, disabled: busy, onClick: () => ask(`p:${entry.id}`, () => actions.imUnpair(conn.id, entry.id)) }, confirm === `p:${entry.id}` ? t("Remove?") : t("Remove"))
+        ))
       )
     ),
-    open ? (0, import_react48.createElement)(
-      "div",
-      { className: "bt-connector-form" },
+    chats.length > 0 ? (0, import_react48.createElement)(
+      "section",
+      { className: "bt-set-section" },
+      (0, import_react48.createElement)("h3", null, t("Chats")),
       (0, import_react48.createElement)(
         "div",
-        { className: "bt-im-line" },
-        (0, import_react48.createElement)("span", { className: "bt-im-label" }, t("Talks to")),
-        (0, import_react48.createElement)(
-          "select",
-          { className: "bt-select", "aria-label": t("Talks to"), value: conn.botId ?? "", onChange: (event) => setBot(`b:${event.target.value}`) },
-          roster.bots.map((bot) => (0, import_react48.createElement)("option", { key: bot.id, value: bot.id }, bot.name))
-        ),
-        (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imUpdate(conn.id, { enabled: !conn.enabled })) }, conn.enabled ? t("Disable") : t("Enable")),
-        (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => {
-          if (!confirmRemove) {
-            setConfirmRemove(true);
-            return;
-          }
-          void run2(actions.imRemove(conn.id));
-        } }, confirmRemove ? t("Remove?") : t("Remove"))
-      ),
-      conn.requests.length > 0 ? (0, import_react48.createElement)(
-        "div",
-        { className: "bt-im-block" },
-        (0, import_react48.createElement)("div", { className: "bt-im-label" }, t("Wants to connect")),
-        conn.requests.map((request) => (0, import_react48.createElement)(
+        { className: "bt-set-card" },
+        chats.map(([key, chat]) => (0, import_react48.createElement)(
           "div",
-          { key: request.id, className: "bt-im-line" },
-          (0, import_react48.createElement)("span", { className: "bt-im-name" }, request.name),
-          (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imPair(conn.id, request.id, true)) }, t("Allow")),
-          (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imPair(conn.id, request.id, false)) }, t("Deny"))
+          { key, className: "bt-set-row bt-im-chat" },
+          (0, import_react48.createElement)(
+            "span",
+            { className: "bt-set-copy bt-im-chat-name" },
+            (0, import_react48.createElement)("span", { className: "bt-im-name" }, chatName(conn, key, chat)),
+            (0, import_react48.createElement)("span", { className: "bt-tag" }, chat.kind === "group" ? t("Group") : t("Direct"))
+          ),
+          (0, import_react48.createElement)(
+            "span",
+            { className: "bt-set-control" },
+            chat.kind === "group" ? (0, import_react48.createElement)(TargetMenu, { value: chat.target ?? null, roster, rooms: true, label: t("Bound to"), disabled: busy, onPick: (target) => run2(actions.imChat(conn.id, { chatKey: key, target })) }) : null,
+            (0, import_react48.createElement)("button", { type: "button", className: "bt-mini bt-im-danger", "data-confirm": confirm === `c:${key}` || void 0, disabled: busy, onClick: () => ask(`c:${key}`, () => actions.imChat(conn.id, { chatKey: key, remove: true })) }, confirm === `c:${key}` ? t("Remove?") : t("Remove"))
+          )
         ))
-      ) : null,
-      conn.paired.length > 0 ? (0, import_react48.createElement)(
-        "div",
-        { className: "bt-im-block" },
-        (0, import_react48.createElement)("div", { className: "bt-im-label" }, t("Connected accounts")),
-        conn.paired.map((entry) => (0, import_react48.createElement)(
-          "div",
-          { key: entry.id, className: "bt-im-line" },
-          (0, import_react48.createElement)("span", { className: "bt-im-name" }, entry.name),
-          (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.imUnpair(conn.id, entry.id)) }, t("Remove"))
-        ))
-      ) : null,
-      chats.length > 0 ? (0, import_react48.createElement)(
-        "div",
-        { className: "bt-im-block" },
-        (0, import_react48.createElement)("div", { className: "bt-im-label" }, t("Chats")),
-        chats.map(([chatKey, chat]) => (0, import_react48.createElement)(
-          "div",
-          { key: chatKey, className: "bt-im-line" },
-          (0, import_react48.createElement)("span", { className: "bt-im-name" }, chat.title ?? chatKey),
-          chat.kind === "group" ? (0, import_react48.createElement)(TargetPicker, { roster, value: targetValue(chat), label: t("Bound to"), onChange: (value) => setChatTarget(chatKey, value) }) : (0, import_react48.createElement)("span", { className: "bt-im-label" }, t("Direct")),
-          (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: removeChat(chatKey) }, t("Remove"))
-        ))
-      ) : null
+      )
     ) : null,
-    error ? (0, import_react48.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null
+    (0, import_react48.createElement)(
+      "div",
+      { className: "bt-set-card" },
+      (0, import_react48.createElement)(
+        "button",
+        { type: "button", className: "bt-set-row bt-im-remove", "data-confirm": confirm === "conn" || void 0, disabled: busy, onClick: () => ask("conn", () => Promise.resolve(actions.imRemove(conn.id)).then(onBack)) },
+        confirm === "conn" ? t("Remove this IM bot? Its accounts and chats are removed too.") : t("Remove IM bot")
+      )
+    )
   );
 }
-function AddForm({ roster, actions, onDone }) {
-  const platforms = (roster.im?.platforms ?? []).map((id) => IM_PLATFORMS.find((entry) => entry.id === id)).filter(Boolean);
-  const [platform, setPlatform] = (0, import_react48.useState)(platforms[0]?.id ?? "");
-  const [fields, setFields] = (0, import_react48.useState)({});
-  const [botId, setBotId] = (0, import_react48.useState)(roster.bots[0]?.id ?? "");
-  const [busy, setBusy] = (0, import_react48.useState)(false);
-  const [error, setError] = (0, import_react48.useState)(null);
-  const shown = IM_PLATFORMS.find((entry) => entry.id === platform);
-  const link = platform === "feishu" && fields.domain === "lark" ? LINKS.lark : LINKS[platform];
-  const add = () => {
-    if (busy || botId === "") return;
-    setBusy(true);
-    setError(null);
-    void Promise.resolve(actions.imAdd({ platform, botId, fields })).then(() => {
-      setFields({});
-      onDone();
-    }).catch((failure) => setError(failure?.message ?? String(failure))).finally(() => setBusy(false));
-  };
-  if (platforms.length === 0) return null;
+function BotRow2({ conn, status, roster, onOpen }) {
+  const shown = platformOf(conn.platform);
+  const state = stateOf(conn, status);
+  const bot = roster.bots.find((entry) => entry.id === conn.botId);
+  const waiting = conn.requests.length;
+  return (0, import_react48.createElement)(
+    "button",
+    { type: "button", className: "bt-set-row bt-im-bot", "data-state": state, onClick: onOpen },
+    (0, import_react48.createElement)(ImMark, { id: conn.platform, size: 36 }),
+    (0, import_react48.createElement)(
+      "span",
+      { className: "bt-set-copy" },
+      (0, import_react48.createElement)("span", { className: "bt-im-title" }, t(conn.account?.name ?? shown.name)),
+      (0, import_react48.createElement)("span", { className: "bt-im-status" }, (0, import_react48.createElement)(Dot, { state }), [t(shown.name), stateText(conn, status), bot ? t("Talks to {bot}", { bot: bot.name }) : null].filter(Boolean).join(" · "))
+    ),
+    waiting > 0 ? (0, import_react48.createElement)("span", { className: "bt-im-count", "aria-label": t("{count} waiting for approval", { count: waiting }) }, waiting) : null,
+    (0, import_react48.createElement)("span", { className: "bt-chevron" }, (0, import_react48.createElement)(ChevronRightIcon))
+  );
+}
+function PlatformTile({ platform, count, onOpen }) {
   return (0, import_react48.createElement)(
     "div",
-    { className: "bt-connector-form" },
+    { className: "bt-app", "data-state": count > 0 ? "ready" : "off" },
     (0, import_react48.createElement)(
-      "div",
-      { className: "bt-im-line" },
+      "button",
+      { type: "button", className: "bt-app-main", onClick: onOpen },
+      (0, import_react48.createElement)(ImMark, { id: platform.id }),
       (0, import_react48.createElement)(
-        "select",
-        { className: "bt-select", "aria-label": t("Platform"), value: platform, onChange: (event) => {
-          setPlatform(event.target.value);
-          setFields({});
-        } },
-        platforms.map((entry) => (0, import_react48.createElement)("option", { key: entry.id, value: entry.id }, entry.name))
-      ),
-      (0, import_react48.createElement)(
-        "select",
-        { className: "bt-select", "aria-label": t("Talks to"), value: botId, onChange: (event) => setBotId(event.target.value) },
-        roster.bots.map((bot) => (0, import_react48.createElement)("option", { key: bot.id, value: bot.id }, bot.name))
+        "span",
+        { className: "bt-app-text" },
+        (0, import_react48.createElement)("span", { className: "bt-app-name" }, t(platform.name)),
+        count > 0 ? (0, import_react48.createElement)("span", { className: "bt-app-status" }, t("{count} added", { count })) : null
       )
     ),
-    shown?.login === "qr" ? (0, import_react48.createElement)(QrPanel, { key: `${platform}:${botId}`, actions, platform, botId, onDone }) : (shown?.fields ?? []).map((field) => field.options !== void 0 ? (0, import_react48.createElement)(
-      "div",
-      { key: field.key, className: "bt-im-line" },
-      (0, import_react48.createElement)("span", { className: "bt-im-label" }, field.label),
-      (0, import_react48.createElement)(
-        "select",
-        { className: "bt-select", "aria-label": field.label, value: fields[field.key] ?? field.options[0][0], onChange: (event) => setFields((current) => ({ ...current, [field.key]: event.target.value })) },
-        field.options.map(([id, label]) => (0, import_react48.createElement)("option", { key: id, value: id }, label))
-      )
-    ) : (0, import_react48.createElement)(
-      "label",
-      { key: field.key, className: "bt-q-field bt-secret-field" },
-      field.secret ? (0, import_react48.createElement)(MaskedInput, { value: fields[field.key] ?? "", onChange: (value) => setFields((current) => ({ ...current, [field.key]: value })), onEnter: add, label: field.hint ? `${field.label} (${field.hint}…)` : field.label }) : (0, import_react48.createElement)("input", { className: "bt-input", "aria-label": field.label, placeholder: field.label, value: fields[field.key] ?? "", onChange: (event) => setFields((current) => ({ ...current, [field.key]: event.target.value })) })
-    )),
-    shown?.login === "qr" ? null : (0, import_react48.createElement)(
-      "div",
-      { className: "bt-connector-form-row" },
-      link ? (0, import_react48.createElement)("a", { className: "bt-connector-link", href: link[0], target: "_blank", rel: "noopener noreferrer" }, link[1]) : null,
-      (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onDone }, t("Cancel")),
-      (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: add }, busy ? t("Connecting…") : t("Connect"))
-    ),
-    shown?.login === "qr" ? null : error ? (0, import_react48.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null
+    (0, import_react48.createElement)("button", { type: "button", className: "bt-app-btn", onClick: onOpen }, t("Connect"))
   );
 }
 function ImPage({ roster, actions }) {
-  const [adding, setAdding] = (0, import_react48.useState)(false);
+  const [view, setView] = (0, import_react48.useState)(null);
+  const { busy, error, run: run2 } = useRun();
   const list = roster.im?.connections ?? [];
   const statuses = roster.imStatus ?? {};
-  const pending = list.reduce((count, conn) => count + (conn.requests?.length ?? 0), 0);
-  return [
-    (0, import_react48.createElement)(
-      "div",
-      { key: "new", className: "bt-actions" },
-      adding ? null : (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, t("Add IM bot"))
-    ),
-    adding ? (0, import_react48.createElement)("section", { key: "add", className: "bt-set-section" }, (0, import_react48.createElement)("div", { className: "bt-set-card bt-connectors-card" }, (0, import_react48.createElement)(AddForm, { roster, actions, onDone: () => setAdding(false) }))) : null,
+  const platforms = (roster.im?.platforms ?? []).map(platformOf);
+  const back = () => setView(null);
+  if (view?.add) return (0, import_react48.createElement)(AddView, { key: view.add, platform: view.add, roster, actions, onBack: back });
+  const open = view?.conn ? list.find((conn) => conn.id === view.conn) : void 0;
+  if (open) return (0, import_react48.createElement)(DetailView, { conn: open, status: statuses[open.id], roster, actions, onBack: back });
+  const waiting = list.filter((conn) => conn.requests.length > 0);
+  return (0, import_react48.createElement)(
+    "div",
+    { className: "bt-apps bt-im-page" },
+    error ? (0, import_react48.createElement)("div", { className: "bt-im-banner", role: "alert" }, hostText(error)) : null,
+    waiting.length > 0 ? (0, import_react48.createElement)(
+      "section",
+      { className: "bt-set-section" },
+      (0, import_react48.createElement)("h3", null, t("Waiting for approval")),
+      (0, import_react48.createElement)("div", { className: "bt-set-card bt-im-attn" }, waiting.map((conn) => (0, import_react48.createElement)(Requests, { key: conn.id, conn, run: run2, busy, actions, withSource: true })))
+    ) : null,
+    list.length > 0 ? (0, import_react48.createElement)(
+      "section",
+      { className: "bt-set-section" },
+      (0, import_react48.createElement)("h3", null, t("Your IM bots")),
+      (0, import_react48.createElement)("div", { className: "bt-set-card" }, list.map((conn) => (0, import_react48.createElement)(BotRow2, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))
+    ) : null,
     (0, import_react48.createElement)(
       "section",
-      { key: "list", className: "bt-set-section" },
-      (0, import_react48.createElement)("h3", null, pending > 0 ? t("IM · {count} requests", { count: pending }) : t("IM bots")),
-      (0, import_react48.createElement)("div", { className: "bt-set-card bt-connectors-card" }, list.length === 0 ? (0, import_react48.createElement)("div", { className: "bt-set-row" }, (0, import_react48.createElement)("span", { className: "bt-set-hint" }, t("No IM bots"))) : list.map((conn) => (0, import_react48.createElement)(ConnectionRow, { key: conn.id, conn, status: statuses[conn.id], roster, actions })))
+      { className: "bt-app-section" },
+      (0, import_react48.createElement)("div", { className: "bt-app-section-head" }, (0, import_react48.createElement)("h3", null, list.length > 0 ? t("Add an IM bot") : t("Choose a platform"))),
+      (0, import_react48.createElement)("div", { className: "bt-app-grid" }, platforms.map((platform) => (0, import_react48.createElement)(PlatformTile, {
+        key: platform.id,
+        platform,
+        count: list.filter((conn) => conn.platform === platform.id).length,
+        onOpen: () => setView({ add: platform.id })
+      })))
     )
-  ];
+  );
 }
 var IM_CSS = `
-.bt-im-mark{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:var(--bt-im-mark-ink);font-size:11px;font-weight:700;letter-spacing:.02em}
-.bt-im-line{display:flex;align-items:center;gap:8px;min-height:32px;flex-wrap:wrap}
-.bt-im-line+.bt-im-line{margin-top:6px}
-.bt-im-label{font-size:12px;color:var(--bt-ink-3);white-space:nowrap}
-.bt-im-name{min-width:0;font-size:13px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-im-block{margin-top:12px;display:flex;flex-direction:column;gap:2px}
-.bt-im-block>.bt-im-label{margin-bottom:4px}
+.bt-im-page{gap:20px}
+.bt-im-page .bt-app-section{margin-top:0;gap:6px}
+.bt-im-page .bt-app-section-head h3{font-size:13px;line-height:18px;padding:0 4px}
+.bt-im-icon{overflow:hidden}
+.bt-im-icon svg{width:22px;height:22px}
+.bt-im-icon[data-small] svg{width:16px;height:16px}
+.bt-im-mono{display:inline-flex;align-items:center;justify-content:center;width:62%;height:62%;border-radius:6px;color:var(--bt-im-mark-ink);font-size:13px;line-height:1;font-weight:600}
+.bt-im-icon[data-small] .bt-im-mono{font-size:10px;border-radius:4px}
+.bt-im-mono{transition:filter .6s ease,opacity .6s ease}
+.bt-app:not([data-state=ready]) .bt-im-mono{filter:grayscale(1);opacity:.5}
+.bt-im-title{font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-im-name{font-size:13px;line-height:18px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bt-im-status{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-state=error]>.bt-set-copy>.bt-im-status{color:var(--bt-danger);white-space:normal}
+.bt-im-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
+.bt-im-dot[data-state=ready]{background:var(--bt-green)}
+.bt-im-dot[data-state=error]{background:var(--bt-danger)}
+.bt-im-dot[data-state=off]{background:none;box-shadow:inset 0 0 0 1.5px var(--bt-ink-3)}
+.bt-im-dot[data-state=connecting]{animation:bt-im-breathe 1.4s ease-in-out infinite}
+@keyframes bt-im-breathe{50%{opacity:.35}}
+.bt-im-bot{gap:12px;padding:12px}
+.bt-im-bot .bt-chevron svg{width:14px;height:14px}
+.bt-im-count{flex:none;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:11px;line-height:20px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.bt-im-attn{border-color:color-mix(in srgb,var(--bt-accent) 35%,var(--bt-line));background:color-mix(in srgb,var(--bt-accent) 4%,var(--bt-card))}
+.bt-im-request{gap:12px}
+.bt-im-initial{flex:none;width:28px;height:28px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink-2);font-size:12px;font-weight:600}
+.bt-im-sub{gap:16px}
+.bt-im-hero{display:flex;align-items:flex-start;gap:14px;padding:0 4px}
+.bt-im-hero .bt-app-icon{flex:none}
+.bt-im-guide{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
+.bt-im-guide ol{margin:0;padding:0;list-style:none;counter-reset:bt-im-step;display:flex;flex-direction:column;gap:6px}
+.bt-im-guide li{counter-increment:bt-im-step;display:flex;gap:10px}
+.bt-im-guide li::before{content:counter(bt-im-step);flex:none;width:20px;height:20px;margin-top:0;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.bt-im-guide .bt-connector-link{align-self:flex-start;margin-left:30px}
+.bt-im-form .bt-set-row{min-height:56px}
+.bt-im-control{flex:0 1 60%;min-width:0;justify-content:flex-end}
+.bt-im-field .bt-im-control>.bt-input,.bt-im-field .bt-im-control>.bt-im-secret{flex:1;min-width:0;max-width:360px}
+.bt-im-secret{margin:0}
+.bt-im-target{max-width:240px}
+.bt-im-target .bt-model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-im-room{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-im-room svg{width:12px;height:12px}
+.bt-im-menu button{gap:8px}
+.bt-im-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px}
+.bt-im-error{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-danger);overflow-wrap:anywhere}
+.bt-im-banner{padding:10px 12px;border-radius:12px;background:var(--bt-danger-soft);color:var(--bt-danger);font-size:12px;line-height:16px}
+.bt-im-qr-row{display:flex;justify-content:center;padding:20px 12px 24px}
+.bt-im-qr-box{display:flex;flex-direction:column;align-items:center;gap:12px}
+.bt-im-qr-frame{position:relative;width:184px;height:184px;padding:8px;box-sizing:border-box;border-radius:12px;background:var(--bt-qr-paper);box-shadow:inset 0 0 0 1px var(--bt-line)}
+.bt-im-qr-paper{fill:var(--bt-qr-paper)}
+.bt-im-qr-ink{fill:var(--bt-qr-ink)}
+.bt-im-qr{display:block;width:100%;height:100%;animation:bt-veil-in .22s ease-out}
+.bt-im-qr-blank{display:block;width:100%;height:100%;border-radius:6px;background:linear-gradient(100deg,var(--bt-hover) 30%,var(--bt-active) 50%,var(--bt-hover) 70%);background-size:300% 100%;animation:bt-im-sheen 1.4s linear infinite}
+.bt-im-qr-box[data-state=expired] .bt-im-qr-blank,.bt-im-qr-box[data-state=error] .bt-im-qr-blank{animation:none;background:var(--bt-hover)}
+@keyframes bt-im-sheen{0%{background-position:100% 0}100%{background-position:0 0}}
+.bt-im-qr-done{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px;background:color-mix(in srgb,var(--bt-qr-paper) 82%,transparent);color:var(--bt-green)}
+.bt-im-qr-done svg{width:40px;height:40px}
+.bt-im-qr-caption{margin:0;font-size:13px;line-height:18px;color:var(--bt-ink-2);text-align:center}
+.bt-im-qr-box[data-state=error] .bt-im-qr-caption{color:var(--bt-danger);max-width:320px}
+.bt-im-chat-name{flex-direction:row;align-items:center;gap:8px}
+.bt-im-chat .bt-set-control{gap:8px}
+.bt-im-danger:hover{color:var(--bt-danger)}
+.bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
+.bt-im-remove{justify-content:center;color:var(--bt-danger)}
+.bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
+@media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank,.bt-im-qr{animation:none}}
 `;
 
 // src/client/browser-settings.js
@@ -21741,7 +22029,7 @@ function grantKinds(grant) {
   if (grant.kinds.includes("*")) return [t("All four")];
   return ACTIONS.filter(([kind]) => grant.kinds.includes(kind)).map(([, label]) => t(label));
 }
-function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row3 }) {
+function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 }) {
   const bots = roster.bots ?? [];
   const [botId, setBotId] = (0, import_react49.useState)(bots[0]?.id ?? "");
   const [site, setSite] = (0, import_react49.useState)("");
@@ -21793,7 +22081,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row3 
     (0, import_react49.createElement)(
       Section2,
       { title: t("Allowed actions") },
-      grants.length === 0 ? (0, import_react49.createElement)(Row3, { label: t("Nothing allowed yet.") }) : grants.map(({ bot, grant, index, expired: expired2 }) => (0, import_react49.createElement)(
+      grants.length === 0 ? (0, import_react49.createElement)(Row4, { label: t("Nothing allowed yet.") }) : grants.map(({ bot, grant, index, expired: expired2 }) => (0, import_react49.createElement)(
         "div",
         {
           key: `${bot.id}:${index}`,
@@ -21827,7 +22115,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row3 
         "form",
         { className: "bt-browser-form", onSubmit: add },
         (0, import_react49.createElement)(
-          Row3,
+          Row4,
           { label: t("Bot") },
           (0, import_react49.createElement)(
             "select",
@@ -21836,7 +22124,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row3 
           )
         ),
         (0, import_react49.createElement)(
-          Row3,
+          Row4,
           { label: t("Site") },
           (0, import_react49.createElement)("input", {
             className: "bt-input bt-browser-site",
@@ -21847,7 +22135,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row3 
           })
         ),
         (0, import_react49.createElement)(
-          Row3,
+          Row4,
           { label: t("Actions") },
           (0, import_react49.createElement)(
             "div",
@@ -21865,7 +22153,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row3 
           )
         ),
         (0, import_react49.createElement)(
-          Row3,
+          Row4,
           { label: t("Duration") },
           (0, import_react49.createElement)(
             "div",
@@ -21922,7 +22210,7 @@ function entrySummary(entry) {
 }
 var SOURCES = { turn: "Model call", host: "DS Bot", api: "DS Bot", browser: "This window" };
 var issueWindow = reserveWindow;
-function FeedbackPage({ actions, run: run2, Section: Section2, Row: Row3 }) {
+function FeedbackPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   const [what, setWhat] = (0, import_react50.useState)("");
   const [report, setReport] = (0, import_react50.useState)(null);
   const [preview, setPreview] = (0, import_react50.useState)(false);
@@ -21981,14 +22269,14 @@ function FeedbackPage({ actions, run: run2, Section: Section2, Row: Row3 }) {
         (0, import_react50.createElement)("textarea", { id: "bt-fb-what", className: "bt-input bt-input-area", value: what, maxLength: WHAT_MAX, placeholder: t("For example: I asked Writer in the group chat and it showed an error."), onChange: (event) => setWhat(event.target.value) })
       ),
       (0, import_react50.createElement)(
-        Row3,
+        Row4,
         { label: t("Diagnostics"), hint: t("Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.") },
         (0, import_react50.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setPreview(!preview), "aria-expanded": preview }, preview ? t("Hide") : t("Show")),
         (0, import_react50.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: copyReport }, t("Copy"))
       ),
       preview ? (0, import_react50.createElement)("div", { className: "bt-set-row bt-fb-preview" }, (0, import_react50.createElement)("pre", { tabIndex: 0, "aria-label": t("Diagnostics") }, report?.markdown || t("Loading…"))) : null,
       (0, import_react50.createElement)(
-        Row3,
+        Row4,
         { label: t("GitHub issue"), hint: t("Opens a new issue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.") },
         (0, import_react50.createElement)("button", { type: "button", className: "bt-fb-primary", onClick: openIssue }, t("Report on GitHub"))
       )
@@ -22002,7 +22290,7 @@ function FeedbackPage({ actions, run: run2, Section: Section2, Row: Row3 }) {
     (0, import_react50.createElement)(
       Section2,
       { key: "errors", title: report ? t("Recent errors · {count}", { count: total }) : t("Recent errors") },
-      shown.length === 0 ? (0, import_react50.createElement)(Row3, { label: t("No errors recorded."), hint: t("Failed model calls and DS Bot problems show here, newest first.") }) : shown.map((entry, index) => (0, import_react50.createElement)(
+      shown.length === 0 ? (0, import_react50.createElement)(Row4, { label: t("No errors recorded."), hint: t("Failed model calls and DS Bot problems show here, newest first.") }) : shown.map((entry, index) => (0, import_react50.createElement)(
         "div",
         { key: `${entry.time}-${index}`, className: "bt-set-row bt-fb-entry", title: entry.text },
         (0, import_react50.createElement)("span", { className: "bt-fb-dot", "data-level": entry.level, "aria-hidden": true }),
@@ -22015,7 +22303,7 @@ function FeedbackPage({ actions, run: run2, Section: Section2, Row: Row3 }) {
         entry.code ? (0, import_react50.createElement)("span", { className: "bt-tag bt-fb-code" }, entry.status ? `${entry.code} ${entry.status}` : entry.code) : null
       )),
       (0, import_react50.createElement)(
-        Row3,
+        Row4,
         { label: t("Error log"), hint: t("Kept on this computer across restarts, up to about 1 MB.") },
         (0, import_react50.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: downloadLog }, t("Download")),
         (0, import_react50.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: clearLog, disabled: !report || total === 0 }, t("Clear"))
@@ -22124,7 +22412,7 @@ function dshHint(dsh, shown) {
   return t("Version {version}", { version: dsh.current });
 }
 var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href, target: "_blank", rel: "noopener noreferrer" });
-function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row3 }) {
+function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4 }) {
   const update = useUpdate((value) => value) ?? {};
   const [checking, setChecking] = (0, import_react51.useState)(false);
   const [stars, setStars] = (0, import_react51.useState)(null);
@@ -22202,15 +22490,15 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row3
     (0, import_react51.createElement)(
       Section2,
       { key: "updates", title: t("Updates") },
-      (0, import_react51.createElement)(Row3, { label: "DS Bot", hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react51.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
-      dsh?.current ? (0, import_react51.createElement)(Row3, { label: "DeepSeek Harness", hint: dshHint(dsh, dshShown) }, dshControl) : null
+      (0, import_react51.createElement)(Row4, { label: "DS Bot", hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react51.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
+      dsh?.current ? (0, import_react51.createElement)(Row4, { label: "DeepSeek Harness", hint: dshHint(dsh, dshShown) }, dshControl) : null
     ),
     (0, import_react51.createElement)(
       Section2,
       { key: "links", title: t("Links") },
-      repo ? (0, import_react51.createElement)(Row3, { label: t("Source code"), hint: repo.replace(/^https:\/\//, "") }, (0, import_react51.createElement)("a", linkProps(repo), (0, import_react51.createElement)(GitHubMark), t("Open"))) : null,
-      update.notesUrl ? (0, import_react51.createElement)(Row3, { label: t("Release notes") }, (0, import_react51.createElement)("a", linkProps(update.notesUrl), t("Open"))) : null,
-      (0, import_react51.createElement)(Row3, { label: t("Report a problem") }, (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("feedback") }, t("Open")))
+      repo ? (0, import_react51.createElement)(Row4, { label: t("Source code"), hint: repo.replace(/^https:\/\//, "") }, (0, import_react51.createElement)("a", linkProps(repo), (0, import_react51.createElement)(GitHubMark), t("Open"))) : null,
+      update.notesUrl ? (0, import_react51.createElement)(Row4, { label: t("Release notes") }, (0, import_react51.createElement)("a", linkProps(update.notesUrl), t("Open"))) : null,
+      (0, import_react51.createElement)(Row4, { label: t("Report a problem") }, (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("feedback") }, t("Open")))
     )
   ];
 }
@@ -22546,7 +22834,7 @@ function AgentForm({ initial, submit, close }) {
     )
   );
 }
-function LocalAgentsPage({ run: run2, Section: Section2, Row: Row3 }) {
+function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
   const [view, setView] = (0, import_react53.useState)(null);
   const [editing, setEditing] = (0, import_react53.useState)(null);
   const refresh = () => run2(call("local-agent-refresh")).then(setView);
@@ -22559,9 +22847,9 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row3 }) {
     (0, import_react53.createElement)(
       Section2,
       { key: "found", title: t("Detected agents") },
-      view.detected.length === 0 ? (0, import_react53.createElement)(Row3, { label: t("No agent CLIs found") }) : null,
+      view.detected.length === 0 ? (0, import_react53.createElement)(Row4, { label: t("No agent CLIs found") }) : null,
       view.detected.map((agent) => (0, import_react53.createElement)(
-        Row3,
+        Row4,
         {
           key: agent.route,
           label: agent.name,
@@ -22576,7 +22864,7 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row3 }) {
         )
       )),
       (0, import_react53.createElement)(
-        Row3,
+        Row4,
         { key: "refresh", label: t("Refresh"), hint: t("Scan again for agent CLIs.") },
         (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: refresh }, (0, import_react53.createElement)(CheckIcon))
       )
@@ -22586,7 +22874,7 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row3 }) {
       { key: "custom", title: t("Custom agents") },
       (0, import_react53.createElement)("p", { className: "bt-set-hint" }, t("ACP-compatible agents, added by command.")),
       view.custom.map((agent) => editing === agent ? (0, import_react53.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => run2(call("local-agent-update", { id: agent.id, ...payload })).then(() => run2(call("local-agents"))).then(setView) }) : (0, import_react53.createElement)(
-        Row3,
+        Row4,
         { key: agent.id, label: agent.name, hint: [agent.command, ...agent.args ?? []].join(" ") },
         (0, import_react53.createElement)(
           "div",
@@ -22596,7 +22884,7 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row3 }) {
         )
       )),
       editing === "new" ? (0, import_react53.createElement)(AgentForm, { key: "new", close: () => setEditing(null), submit: (payload) => run2(call("local-agent-add", payload)).then(() => run2(call("local-agents"))).then(setView) }) : (0, import_react53.createElement)(
-        Row3,
+        Row4,
         { key: "add", label: t("Add agent") },
         (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", "aria-label": t("Add agent"), onClick: () => setEditing("new") }, (0, import_react53.createElement)(PlusIcon))
       )
@@ -23803,7 +24091,7 @@ function rectsOverlap(a, b) {
 
 // src/client/browser-pane.js
 var import_react58 = require("react");
-var import_react_dom8 = require("react-dom");
+var import_react_dom9 = require("react-dom");
 var PANEL_LINGER_MS = 300;
 var WIDTH_KEY = STORAGE.browserWidth;
 var DEFAULT_WIDTH = 520;
@@ -24677,7 +24965,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     leaving || overlay ? null : (0, import_react58.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
-    dragging ? (0, import_react_dom8.createPortal)((0, import_react58.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
+    dragging ? (0, import_react_dom9.createPortal)((0, import_react58.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
     hasStrip ? (0, import_react58.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === "browser" && bot ? (0, import_react58.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react58.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react58.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : (0, import_react58.createElement)(
       "div",
@@ -24826,7 +25114,7 @@ var BROWSER_CSS = `
 
 // src/client/overlays.js
 var import_react59 = require("react");
-var import_react_dom9 = require("react-dom");
+var import_react_dom10 = require("react-dom");
 var DIALOG_EXIT_MS = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, actions }) {
@@ -24874,14 +25162,14 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   return (0, import_react59.createElement)(
     import_react59.Fragment,
     null,
-    pane ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(NewChat, { key: ui2.newChat, mode: ui2.newChat, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
-    menu ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
-    settings ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
-    owner ? (0, import_react_dom9.createPortal)((0, import_react59.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
+    pane ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
+    ui2.newChat ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(NewChat, { key: ui2.newChat, mode: ui2.newChat, roster, actions }), document.body) : null,
+    ui2.palette ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui2.exchange ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
+    ui2.voice ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    menu ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
+    settings ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
+    owner ? (0, import_react_dom10.createPortal)((0, import_react59.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
   );
 }
 
