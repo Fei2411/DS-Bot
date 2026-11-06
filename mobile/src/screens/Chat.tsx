@@ -187,6 +187,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // Inverted list: index 0 sits at the bottom, so newest items come first.
   // Chronological order (oldest first); the list starts scrolled to the newest item.
   const items = useMemo(() => [...older, ...(page?.items ?? [])], [page, older])
+  const botsById = useMemo(() => new Map((team?.bots ?? []).map(entry => [entry.id, entry])), [team?.bots])
   const canStop = room !== undefined ? roomWork.length > 0 : running
 
   return (
@@ -221,7 +222,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} stamp={stampOf(items, index)} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={toggleOf(skey)} /> })}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} stamp={room !== undefined ? undefined : stampOf(items, index)} author={room !== undefined && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={room !== undefined && item.botId !== undefined && item.botId === room.admin} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={toggleOf(skey)} /> })}
               <Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} />
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}

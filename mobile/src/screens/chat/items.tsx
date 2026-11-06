@@ -2,9 +2,11 @@ import { memo, useEffect, useState } from 'react'
 import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { t, clockLabel } from '../../ui/i18n.ts'
+import { t, clockLabel, messageClock } from '../../ui/i18n.ts'
+import { Avatar, COLOR_PAINT } from '../../ui/marks.tsx'
+import type { Bot } from '../../connection.ts'
 import { imPlatform } from '../../../../ds-bot/src/shared/im-platforms.js'
-import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { radius, type as typeScale, useTheme, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
@@ -50,7 +52,8 @@ const imageCache = new Map<string, string>()
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, stamp }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void }) {
+  const { dark } = useTheme()
   const chips = (item.files ?? []).map(file => (
     <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 14, borderWidth: 1, borderColor: p.line, backgroundColor: p.card }}>
@@ -157,6 +160,26 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
         </View>
       </View>
     ) : bubble
+  }
+  // In a group each reply carries its member: avatar, name in the member's color, the
+  // admin tag and the time, as the desktop's group rows do.
+  if (inRoom && !flat) {
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 }}>
+        <View style={{ width: 22, paddingTop: 22 }}>{author ? <Avatar bot={author} dark={dark} size={22} ring={p.main} /> : null}</View>
+        <Pressable onLongPress={longPress} style={{ flexShrink: 1, maxWidth, width: hasBlockContent(item.text ?? '') ? '100%' : undefined }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3, marginLeft: 2 }}>
+            <Text style={[type.caption, { color: COLOR_PAINT[author?.color ?? 'blue'] ?? p.ink2, fontWeight: '500' }]} numberOfLines={1}>{item.name ?? author?.name ?? ''}</Text>
+            {admin ? <Text style={[styles.via, { backgroundColor: p.hover, color: p.ink3 }]}>{t('Admin')}</Text> : null}
+            {typeof item.time === 'number' ? <Text style={[type.caption, { color: p.ink3 }]}>{messageClock(item.time)}</Text> : null}
+          </View>
+          <View style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: 'flex-start' }]}>
+            <Markdown text={item.text ?? ''} p={p} textColor={p.ink} />
+            {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
+          </View>
+        </Pressable>
+      </View>
+    )
   }
   const name = inRoom && item.name ? <Text style={[type.caption, { color: p.ink3, marginBottom: 2, marginLeft: 2 }]}>{item.name}</Text> : null
   const wide = hasBlockContent(item.text ?? '') || (item.imageRefs !== undefined && item.imageRefs.length > 0)

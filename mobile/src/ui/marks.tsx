@@ -10,6 +10,13 @@ import { MainStarIcon } from './icons.tsx'
 
 let serial = 0
 
+// A character color as paint, for swatches and a member's name in a group.
+export const COLOR_PAINT: Record<string, string> = {
+  black: '#3c4048', brown: '#8d6e57', red: '#e5484d', orange: '#f76b15', yellow: '#d4a017',
+  green: '#30a46c', cyan: '#12a5b4', blue: '#4f7df3', violet: '#7d5aff', magenta: '#d3458b', gray: '#8b8f98',
+  aurora: '#5cc8a0',
+}
+
 export function botSvg(bot: unknown, dark: boolean): string {
   const look = lookOf(bot)
   const box = shapeOf(look.shape).size
