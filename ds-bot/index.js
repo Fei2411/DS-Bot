@@ -3,6 +3,7 @@
 // in one JSON file under DSH_HOME so they survive restarts without new Session event types.
 import { join } from 'node:path'
 import * as diagnostics from './src/host/diagnostics.js'
+import * as branding from './src/host/branding.js'
 import * as store from './src/host/store.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
@@ -56,7 +57,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
-const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, feed, im, channel, officeSkills, goalSkills]
+const MODULES = [diagnostics, branding, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, feed, im, channel, officeSkills, goalSkills]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

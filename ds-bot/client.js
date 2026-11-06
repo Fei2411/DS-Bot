@@ -24687,9 +24687,22 @@ function listedOpener({ list, open, refresh, current }) {
   };
 }
 
+// src/client/branding.js
+function installTitle(document2, Observer = globalThis.MutationObserver) {
+  const title = document2.head.querySelector("title");
+  const update = () => {
+    if (document2.title !== "DS Bot") document2.title = "DS Bot";
+  };
+  update();
+  const observer = new Observer(update);
+  observer.observe(title, { childList: true, characterData: true, subtree: true });
+  return () => observer.disconnect();
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
+  ctx.effect(() => installTitle(document), "ds-bot: window title");
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
   migrateStorage();
   const PREFS_KEY = STORAGE.prefs;
