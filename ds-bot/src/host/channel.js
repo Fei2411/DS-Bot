@@ -59,6 +59,7 @@ export function install(rt) {
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     views: state.views ?? {},
+    closedCards: state.closedCards ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
@@ -89,7 +90,8 @@ export function install(rt) {
     computer: rt.computerView?.() ?? { enabled: false },
   })
   // What changes without a new revision, sent with every state answer. `learning`:
-  // each Bot's pending skill proposals. `memoryNews`:
+  // each Bot's pending skill proposals; `learningSettled`: the answered ones of its
+  // current chat part. `memoryNews`:
   // per Bot or group chat, its latest memory change; `memoryReviews`: memory reviews waiting or
   // running; `work`: per Bot, the turn it runs and its tool; per group, the members whose
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
@@ -100,6 +102,7 @@ export function install(rt) {
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
+    learningSettled: rt.learningSettledView(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
     imStatus: rt.imStatusView?.() ?? {},
@@ -396,6 +399,7 @@ export function install(rt) {
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
+            rt.closeCard(body.sessionId, state.questions[body.sessionId], 'dismissed')
             delete state.questions[body.sessionId]
             await rt.save()
           }
@@ -403,6 +407,7 @@ export function install(rt) {
         case 'dismiss-view':
           await rt.load()
           if (rt.own(state.views, body.sessionId) !== undefined) {
+            rt.closeCard(body.sessionId, state.views[body.sessionId], 'dismissed')
             delete state.views[body.sessionId]
             await rt.save()
           }

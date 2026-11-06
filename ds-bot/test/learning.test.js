@@ -845,6 +845,12 @@ test('declined proposals are recorded and included in the next skill request', a
   assert.equal(runtime.teamState().capabilities.items['release-checks'], undefined)
   assert.equal(runtime.learningState().declined[0].name, 'release-checks')
   assert.match(runtime.requests[1].messages[0].content[0].text, /Proposals the user declined[\s\S]*- release-checks: Use when checking a release\./)
+  // The declined card stays in the chat part it was answered in, read-only.
+  const view = (await runtime.call('state')).value
+  assert.equal(view.learning.b2, undefined)
+  assert.deepEqual(view.learningSettled.b2.map(entry => [entry.id, entry.name, entry.outcome, entry.sessionId]), [[proposal.id, 'release-checks', 'declined', 'b2']])
+  assert.equal(typeof view.learningSettled.b2[0].settledAt, 'number')
+  assert.equal((await runtime.call('learning-answer', { id: proposal.id, approve: true })).ok, false)
 })
 
 test('an update approval fails if the learned skill description alone changed', async t => {
