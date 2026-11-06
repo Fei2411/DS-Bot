@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -66,6 +66,15 @@ try {
       return rel !== join('dev', 'harness') && !rel.startsWith(join('dev', 'harness') + sep)
     },
   })
+  const buildScript = join(plugin, 'scripts', 'build-client.mjs')
+  const holdableBuild = [
+    "import { existsSync } from 'node:fs'",
+    "import { setTimeout } from 'node:timers/promises'",
+    "writeFileSync('/tmp/ds-bot-dev-build-started', '')",
+    "while (existsSync('/app/ds-bot/.build-hold')) await setTimeout(50)",
+    '',
+  ].join('\n')
+  writeFileSync(buildScript, holdableBuild + readFileSync(buildScript, 'utf8'))
   for (const volume of volumes) docker(['volume', 'create', volume])
 
   const uid = process.getuid?.() ?? 1000
@@ -91,10 +100,16 @@ try {
   await waitFor('the fresh web server', httpReady())
   console.log('PASS: fresh data builds the checkout and links the mounted plugin into the profile')
 
+  docker(['exec', name, 'rm', '-f', '/tmp/ds-bot-dev-build-started'])
+  writeFileSync(join(plugin, '.build-hold'), '')
   const beforeFrontendBuild = builds()
-  writeFileSync(join(plugin, 'src', 'client', 'dev-reload-probe.js'), 'export const devReloadProbe = true\n')
-  await waitFor('the frontend bundle rebuild', () => builds() > beforeFrontendBuild)
-  console.log('PASS: a frontend source change rebuilds the browser bundles')
+  writeFileSync(join(plugin, 'src', 'client', 'dev-reload-probe.js'), 'export const devReloadProbe = 1\n')
+  await waitFor('the held frontend build', () => docker(['exec', name, 'test', '-f', '/tmp/ds-bot-dev-build-started'], { allowFailure: true }).status === 0)
+  writeFileSync(join(plugin, 'src', 'client', 'dev-reload-probe.js'), 'export const devReloadProbe = 2\n')
+  await setTimeout(2500)
+  docker(['exec', name, 'rm', '-f', '/app/ds-bot/.build-hold'])
+  await waitFor('the queued frontend bundle rebuild', () => builds() >= beforeFrontendBuild + 2)
+  console.log('PASS: an edit during an active frontend build queues another rebuild')
 
   const beforeSharedBuild = builds()
   const beforeSharedStart = starts()
@@ -117,20 +132,23 @@ try {
     '--mount', `type=volume,src=${workspace},dst=/workspace`,
   ]
   docker([
-    'run', '--rm', '--name', releaseName, '--network', 'none', ...dataMounts,
-    '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, releaseImage, '--help',
+    'run', '--detach', '--rm', '--name', releaseName, '--network', 'none', ...dataMounts,
+    '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, '-e', 'DSH_TELEMETRY_DISABLED=1', releaseImage,
   ])
-  docker([
-    'run', '--rm', '--name', `${releaseName}-check`, '--network', 'none', ...dataMounts,
-    '--entrypoint', 'sh', releaseImage, '-eu', '-c', `
-      test ! -L /data/profiles/web/node_modules/ds-bot
-      test -f /data/profiles/web/node_modules/ds-bot/index.js
-      test ! -e /data/profiles/web/package.json.release
-      test ! -e /data/profiles/web/pnpm-lock.yaml.release
-      node -e 'const assert = require("node:assert/strict"); const fs = require("node:fs"); const profile = "/data/profiles/web/"; const pkg = JSON.parse(fs.readFileSync(profile + "package.json", "utf8")); assert.notEqual(pkg.dependencies["ds-bot"], "link:/app/ds-bot"); assert.ok(!fs.readFileSync(profile + "pnpm-lock.yaml", "utf8").includes("link:/app/ds-bot")); assert.deepEqual(fs.readFileSync(profile + "node_modules/ds-bot/index.js"), fs.readFileSync("/opt/dsh-template/profiles/web/node_modules/ds-bot/index.js"))'
-    `,
-  ])
-  console.log('PASS: release startup restores the installed plugin, manifest and lockfile')
+  const releaseProbe = `
+    const response = await fetch('http://127.0.0.1:3080/');
+    if (![200, 401].includes(response.status)) throw new Error('Unexpected HTTP status: ' + response.status);
+  `
+  await waitFor('the release web server with its restored plugin', () => docker(['exec', releaseName, 'node', '--input-type=module', '-e', releaseProbe], { allowFailure: true }).status === 0)
+  docker(['exec', releaseName, 'sh', '-eu', '-c', `
+    test ! -L /data/profiles/web/node_modules/ds-bot
+    test -f /data/profiles/web/node_modules/ds-bot/index.js
+    test -f /data/profiles/web/node_modules/deep-view/package.json
+    test ! -e /data/profiles/web/package.json.release
+    test ! -e /data/profiles/web/pnpm-lock.yaml.release
+    node -e 'const assert = require("node:assert/strict"); const fs = require("node:fs"); const profile = "/data/profiles/web/"; const pkg = JSON.parse(fs.readFileSync(profile + "package.json", "utf8")); assert.notEqual(pkg.dependencies["ds-bot"], "link:/app/ds-bot"); assert.ok(!fs.readFileSync(profile + "pnpm-lock.yaml", "utf8").includes("link:/app/ds-bot")); assert.deepEqual(fs.readFileSync(profile + "node_modules/ds-bot/index.js"), fs.readFileSync("/opt/dsh-template/profiles/web/node_modules/ds-bot/index.js"))'
+  `])
+  console.log('PASS: release startup restores all dependencies and loads the plugin')
 } catch (error) {
   if (server) {
     const output = logs().replace(/([?&]token=)[^\s)]+/g, '$1[hidden]')
@@ -139,7 +157,7 @@ try {
   throw error
 } finally {
   if (server) docker(['rm', '--force', server], { allowFailure: true })
-  docker(['rm', '--force', releaseName, `${releaseName}-check`], { allowFailure: true })
+  docker(['rm', '--force', releaseName], { allowFailure: true })
   for (const volume of volumes) docker(['volume', 'rm', volume], { allowFailure: true })
   if (process.platform === 'win32') rmSync(temporary, { recursive: true, force: true })
   // The container leaves its build tools owned by node on a native Linux mount.

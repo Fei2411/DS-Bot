@@ -16,7 +16,7 @@ if [ ! -d /data/profiles/web ]; then
 fi
 
 # A development container links the plugin to its source mount. Restore the
-# release package before that mount disappears, while keeping the profile data.
+# release dependency tree before that mount disappears, keeping the profile data.
 PROFILE=/data/profiles/web
 if [ -f "$PROFILE/package.json.release" ] && [ -L "$PROFILE/node_modules/ds-bot" ]; then
   cp "$PROFILE/package.json.release" "$PROFILE/package.json"
@@ -25,8 +25,8 @@ if [ -f "$PROFILE/package.json.release" ] && [ -L "$PROFILE/node_modules/ds-bot"
   else
     rm -f "$PROFILE/pnpm-lock.yaml"
   fi
-  rm -f "$PROFILE/node_modules/ds-bot"
-  cp -a /opt/dsh-template/profiles/web/node_modules/ds-bot "$PROFILE/node_modules/ds-bot"
+  rm -rf "$PROFILE/node_modules"
+  cp -a /opt/dsh-template/profiles/web/node_modules "$PROFILE/node_modules"
   rm -f "$PROFILE/package.json.release" "$PROFILE/pnpm-lock.yaml.release"
 fi
 

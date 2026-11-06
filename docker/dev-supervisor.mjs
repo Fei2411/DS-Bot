@@ -40,6 +40,7 @@ let stopping = false
 let pending = new Set()
 let timer = null
 let building = false
+let buildQueued = false
 let restarting = false
 let known = new Map()
 
@@ -146,12 +147,18 @@ const stopDsh = () => {
 }
 
 const rebuild = async () => {
-  if (building) return
+  if (building) {
+    buildQueued = true
+    return
+  }
   building = true
   try {
-    const code = await run(process.execPath, [join(PLUGIN, 'scripts', 'build-client.mjs')], { cwd: PLUGIN })
-    if (code === 0) log('rebuilt client.js and office.js; refresh the browser to see it')
-    else log('the client build failed; see the output above')
+    do {
+      buildQueued = false
+      const code = await run(process.execPath, [join(PLUGIN, 'scripts', 'build-client.mjs')], { cwd: PLUGIN })
+      if (code === 0) log('rebuilt client.js and office.js; refresh the browser to see it')
+      else log('the client build failed; see the output above')
+    } while (buildQueued)
   } finally {
     building = false
   }
