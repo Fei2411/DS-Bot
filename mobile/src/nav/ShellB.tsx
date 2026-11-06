@@ -15,7 +15,7 @@ import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
-import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
+import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupDetails, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
 import { Providers, Connectors, Capabilities, TeamUsage, Location, Updates, About } from '../screens/settings-pages.tsx'
 import { Side } from '../screens/side.tsx'
 import { BotBrowser } from '../screens/manage.tsx'
@@ -145,7 +145,7 @@ function ChatScreenB({ route, navigation }: any) {
     void SecureStore.deleteItemAsync(LAST_KEY)
     if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id })
   }, [missing])
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupSettings', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
+  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
   if (team === null) return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       {header}
@@ -240,6 +240,7 @@ function Inner({ initial }: { initial: ChatTarget | null }) {
       <Stack.Screen name="NewBot">{(props: any) => <NewBot {...props} />}</Stack.Screen>
       <Stack.Screen name="NewMenu">{(props: any) => <NewMenu {...props} />}</Stack.Screen>
       <Stack.Screen name="NewGroup">{(props: any) => <NewGroup {...props} />}</Stack.Screen>
+      <Stack.Screen name="GroupDetails">{(props: any) => <GroupDetails {...props} />}</Stack.Screen>
       <Stack.Screen name="GroupSettings">{(props: any) => <GroupSettings {...props} />}</Stack.Screen>
       <Stack.Screen name="Memory">{(props: any) => <Memory {...props} />}</Stack.Screen>
       <Stack.Screen name="Schedules">{(props: any) => <Schedules {...props} />}</Stack.Screen>

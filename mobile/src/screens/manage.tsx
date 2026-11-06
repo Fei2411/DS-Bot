@@ -536,6 +536,67 @@ export function NewBot({ navigation }: any) {
 
 const ROOM_MODES: [string, string][] = [['admin', 'Admin leads'], ['everyone', 'Everyone']]
 
+// The desktop's group overview (details-drawer.js GroupOverview): members with the
+// admin marked, the goal, who answers, memory and usage. Its gear opens the group settings.
+export function GroupDetails({ route, navigation }: any) {
+  const { p, dark } = useTheme()
+  const { team } = useTeam()
+  const room = roomOf(team, route.params?.roomId ?? '')
+  if (room === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
+  const bots = team?.bots ?? []
+  const members = (room.members ?? []).map(id => botOf(team, id)).filter((bot): bot is Bot => bot !== undefined)
+  const admin = botOf(team, room.admin ?? '')
+  const mode = admin !== undefined ? (room.mode ?? 'admin') : 'everyone'
+  const notice = (room as { notice?: string }).notice
+  return (
+    <Screen title={room.name}>
+      <View style={[styles.detailTop, { paddingTop: 8 }]}>
+        <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
+        <View style={{ flex: 1 }} />
+        <RoundButton label={t('Group settings')} onPress={() => navigation.navigate('GroupSettings', { roomId: room.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
+        <View style={{ alignItems: 'center', paddingTop: 4 }}>
+          <RoomAvatar room={room} bots={bots} dark={dark} size={56} ring={p.main} />
+          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{room.name}</Text>
+          <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{[t('{count} members', { count: members.length }), admin ? t('Admin {name}', { name: admin.name }) : t('No admin')].join(' · ')}</Text>
+        </View>
+        {notice
+          ? <Text style={[typeScale.small, { color: p.ink2, marginTop: 14 }]} numberOfLines={5}>{notice}</Text>
+          : <Pressable accessibilityRole="button" onPress={() => navigation.navigate('GroupSettings', { roomId: room.id })} style={{ alignItems: 'center', paddingVertical: 14 }}>
+              <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Add a notice in group settings')}</Text>
+            </Pressable>}
+        <DetailTitle text={t('Members · {count}', { count: members.length })} />
+        {members.map(member => (
+          <Pressable key={member.id} accessibilityRole="button" onPress={() => navigation.navigate('BotDetails', { botId: member.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48 }}>
+            <Avatar bot={member} dark={dark} size={32} ring={p.main} />
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[typeScale.settingsRow, { color: p.ink }]} numberOfLines={1}>{member.name}</Text>
+                {member.id === room.admin ? <Text style={{ fontSize: 11, lineHeight: 16, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden', backgroundColor: p.hover, color: p.ink3 }}>{t('Admin')}</Text> : null}
+              </View>
+              {member.role ? <Text style={[typeScale.caption, { color: p.ink3 }]} numberOfLines={1}>{member.role}</Text> : null}
+            </View>
+          </Pressable>
+        ))}
+        <DetailTitle text={t('Who answers')} />
+        <Text style={[typeScale.small, { color: p.ink }]}>{mode === 'admin' ? t('Admin leads') : t('Everyone')}</Text>
+        {team?.memory === false ? null : (
+          <>
+            <DetailTitle text={t('Memory')} />
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: room.name, group: true })}
+              style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
+              <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Memory')}</Text>
+              <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Manage')}</Text>
+              <ChevronRightIcon color={p.ink3} />
+            </Pressable>
+          </>
+        )}
+      </ScrollView>
+    </Screen>
+  )
+}
+
 export function GroupSettings({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
