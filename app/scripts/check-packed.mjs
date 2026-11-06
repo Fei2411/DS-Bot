@@ -6,7 +6,7 @@
 // The executable defaults to the one that `npm run pack` or `npm run dist` writes into dist-pack/.
 import { spawn, spawnSync } from 'node:child_process'
 import { connect, createServer } from 'node:net'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -47,6 +47,17 @@ if (!existsSync(executable)) {
     join(unpacked, 'node_modules', 'ds-bot', 'office.js'),
   ]
   const missing = required.filter((entry) => !existsSync(join(resources, entry)))
+  // macOS carries the signed "DSH Computer Use" helper outside the asar, in a
+  // hash-named folder; find it by its name rather than the changing hash.
+  if (process.platform === 'darwin') {
+    const rootDir = join(resources, unpacked, 'node_modules', '@deepseek-ai', 'dsh-experimental-cua-macos', 'native', 'bin')
+    const dirs = existsSync(rootDir) ? readdirSync(rootDir) : []
+    const helper = dirs.flatMap(dir => {
+      const here = join(rootDir, dir)
+      return existsSync(here) ? readdirSync(here).map(hash => join(here, hash, 'DSH Computer Use.app')) : []
+    }).find(entry => existsSync(entry))
+    if (helper === undefined) missing.push(join(unpacked, 'node_modules', '@deepseek-ai', 'dsh-experimental-cua-macos', 'native', 'bin', '<arch>', '<hash>', 'DSH Computer Use.app'))
+  }
   if (missing.length > 0) {
     console.error(`check-packed: FAILED: missing from ${resources}:\n  ${missing.join('\n  ')}`)
     process.exit(1)

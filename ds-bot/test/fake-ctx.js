@@ -46,6 +46,8 @@ export function fakeContext({ services = {} } = {}) {
     sections,
     logger: { warn() {}, info() {} },
     get: name => services[name],
+    // The real ctx guards plain access with `inject`; service() reads this.
+    reflect: { get: name => ctx.get(name) },
     on(name, listener, options) {
       calls.push(`on ${name}${options?.prepend ? ' (prepend)' : ''}`)
       listeners.set(name, [...(listeners.get(name) ?? []), listener])
