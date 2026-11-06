@@ -14,6 +14,22 @@ if [ ! -d /data/profiles/web ]; then
   mkdir -p /data
   cp -a /opt/dsh-template/. /data/
 fi
+
+# A development container links the plugin to its source mount. Restore the
+# release package before that mount disappears, while keeping the profile data.
+PROFILE=/data/profiles/web
+if [ -f "$PROFILE/package.json.release" ] && [ -L "$PROFILE/node_modules/ds-bot" ]; then
+  cp "$PROFILE/package.json.release" "$PROFILE/package.json"
+  if [ -f "$PROFILE/pnpm-lock.yaml.release" ]; then
+    cp "$PROFILE/pnpm-lock.yaml.release" "$PROFILE/pnpm-lock.yaml"
+  else
+    rm -f "$PROFILE/pnpm-lock.yaml"
+  fi
+  rm -f "$PROFILE/node_modules/ds-bot"
+  cp -a /opt/dsh-template/profiles/web/node_modules/ds-bot "$PROFILE/node_modules/ds-bot"
+  rm -f "$PROFILE/package.json.release" "$PROFILE/pnpm-lock.yaml.release"
+fi
+
 # Existing profiles and restored backups can belong to a previous PUID/PGID.
 # Do not follow links into workspace shares or descend into other filesystems.
 find -P /data -xdev \( ! -uid "$PUID" -o ! -gid "$PGID" \) \

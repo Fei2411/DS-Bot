@@ -8,9 +8,11 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout } from 'node:timers/promises'
 
 const image = process.argv[2] ?? 'ds-bot:dev'
+const releaseImage = process.argv[3] ?? 'ds-bot:local'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const source = join(root, 'ds-bot')
 const name = `ds-bot-dev-test-${randomUUID()}`
+const releaseName = `${name}-release`
 const data = `${name}-data`
 const workspace = `${name}-workspace`
 const temporary = mkdtempSync(join(tmpdir(), 'ds-bot-dev-'))
@@ -78,23 +80,57 @@ try {
   ])
   server = name
 
+  const builds = () => logs().match(/rebuilt client\.js and office\.js/g)?.length ?? 0
+  const starts = () => logs().match(/\[ds-bot-dev\] dsh started \(pid /g)?.length ?? 0
+  await waitFor('the initial browser bundle build', () => builds() > 0)
   await waitFor('the source watcher', () => logs().includes('[ds-bot-dev] watching /app/ds-bot'))
   const linked = docker(['exec', name, 'readlink', '-f', '/data/profiles/web/node_modules/ds-bot']).stdout.trim()
   assert.equal(linked, '/app/ds-bot')
   docker(['exec', name, 'test', '-f', '/data/profiles/web/package.json.release'])
+  docker(['exec', name, 'test', '-f', '/data/profiles/web/pnpm-lock.yaml.release'])
   await waitFor('the fresh web server', httpReady())
-  console.log('PASS: fresh data starts with the mounted plugin linked into the profile')
+  console.log('PASS: fresh data builds the checkout and links the mounted plugin into the profile')
 
+  const beforeFrontendBuild = builds()
   writeFileSync(join(plugin, 'src', 'client', 'dev-reload-probe.js'), 'export const devReloadProbe = true\n')
-  await waitFor('the frontend bundle rebuild', () => logs().includes('rebuilt client.js and office.js'))
+  await waitFor('the frontend bundle rebuild', () => builds() > beforeFrontendBuild)
   console.log('PASS: a frontend source change rebuilds the browser bundles')
 
-  const starts = () => logs().match(/\[ds-bot-dev\] dsh started \(pid /g)?.length ?? 0
+  const beforeSharedBuild = builds()
+  const beforeSharedStart = starts()
+  appendFileSync(join(plugin, 'src', 'shared', 'mentions.js'), '\n// Development shared reload probe.\n')
+  await waitFor('the shared source reload', () => builds() > beforeSharedBuild && starts() > beforeSharedStart)
+  await waitFor('the shared-source web server', httpReady())
+  console.log('PASS: a shared source change rebuilds the browser bundles and restarts DSH')
+
   const before = starts()
   appendFileSync(join(plugin, 'index.js'), '\n// Development reload probe.\n')
   await waitFor('the DSH restart', () => starts() > before)
   await waitFor('the restarted web server', httpReady())
   console.log('PASS: a host source change restarts DSH and restores HTTP service')
+
+  docker(['stop', name])
+  docker(['rm', name])
+  server = ''
+  const dataMounts = [
+    '--mount', `type=volume,src=${data},dst=/data`,
+    '--mount', `type=volume,src=${workspace},dst=/workspace`,
+  ]
+  docker([
+    'run', '--rm', '--name', releaseName, '--network', 'none', ...dataMounts,
+    '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, releaseImage, '--help',
+  ])
+  docker([
+    'run', '--rm', '--name', `${releaseName}-check`, '--network', 'none', ...dataMounts,
+    '--entrypoint', 'sh', releaseImage, '-eu', '-c', `
+      test ! -L /data/profiles/web/node_modules/ds-bot
+      test -f /data/profiles/web/node_modules/ds-bot/index.js
+      test ! -e /data/profiles/web/package.json.release
+      test ! -e /data/profiles/web/pnpm-lock.yaml.release
+      node -e 'const assert = require("node:assert/strict"); const fs = require("node:fs"); const profile = "/data/profiles/web/"; const pkg = JSON.parse(fs.readFileSync(profile + "package.json", "utf8")); assert.notEqual(pkg.dependencies["ds-bot"], "link:/app/ds-bot"); assert.ok(!fs.readFileSync(profile + "pnpm-lock.yaml", "utf8").includes("link:/app/ds-bot")); assert.deepEqual(fs.readFileSync(profile + "node_modules/ds-bot/index.js"), fs.readFileSync("/opt/dsh-template/profiles/web/node_modules/ds-bot/index.js"))'
+    `,
+  ])
+  console.log('PASS: release startup restores the installed plugin, manifest and lockfile')
 } catch (error) {
   if (server) {
     const output = logs().replace(/([?&]token=)[^\s)]+/g, '$1[hidden]')
@@ -103,6 +139,7 @@ try {
   throw error
 } finally {
   if (server) docker(['rm', '--force', server], { allowFailure: true })
+  docker(['rm', '--force', releaseName, `${releaseName}-check`], { allowFailure: true })
   for (const volume of volumes) docker(['volume', 'rm', volume], { allowFailure: true })
   if (process.platform === 'win32') rmSync(temporary, { recursive: true, force: true })
   // The container leaves its build tools owned by node on a native Linux mount.

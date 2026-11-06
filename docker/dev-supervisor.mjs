@@ -5,7 +5,8 @@
 // process; the browser bundle is a build artifact that the plugin serves
 // itself. The supervisor therefore:
 //
-//   src/client/**, src/office/**  → rebuild client.js / office.js, then the
+//   src/client/**, src/office/**,
+//   src/shared/**               → rebuild client.js / office.js, then the
 //                                   browser needs a refresh
 //   src/host/**, src/shared/**,    → restart dsh, which is how the new code
 //   index.js, web-search.js           gets loaded
@@ -60,6 +61,11 @@ const linkProfile = () => {
   if (!existsSync(backupPath)) {
     writeFileSync(backupPath, readFileSync(manifestPath, 'utf8'))
     log('kept the release profile manifest as package.json.release')
+  }
+  const lockPath = join(PROFILE, 'pnpm-lock.yaml')
+  const lockBackupPath = join(PROFILE, 'pnpm-lock.yaml.release')
+  if (existsSync(lockPath) && !existsSync(lockBackupPath)) {
+    writeFileSync(lockBackupPath, readFileSync(lockPath, 'utf8'))
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   manifest.dependencies = { ...manifest.dependencies, 'ds-bot': `link:${PLUGIN}` }
@@ -183,7 +189,8 @@ const apply = async () => {
   const files = [...pending]
   pending = new Set()
   if (files.length === 0) return
-  const bundle = files.some(file => file.startsWith('src/client/') || file.startsWith('src/office/'))
+  const bundle = files.some(file => file.startsWith('src/client/') || file.startsWith('src/office/')
+    || file.startsWith('src/shared/'))
   const host = files.some(file => file.startsWith('src/host/') || file.startsWith('src/shared/')
     || file === 'index.js' || file === 'web-search.js' || file === 'package.json'
     || file === 'cordis.patch.yml')
@@ -266,6 +273,7 @@ const main = async () => {
   if (DSH.length === 0) throw new Error('usage: dev-supervisor.mjs <command> [args...]')
   linkProfile()
   await installProfile()
+  await rebuild()
   clearForeignLock()
   startDsh()
   watchPlugin()
