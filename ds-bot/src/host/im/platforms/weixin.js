@@ -60,7 +60,7 @@ export default {
       connection: {
         settings: { baseUrl: String(body.baseurl ?? QR_BASE) },
         secrets: { token: String(body.bot_token ?? '') },
-        account: { id: String(body.ilink_bot_id ?? ''), name: '微信' },
+        account: { id: String(body.ilink_bot_id ?? ''), name: 'WeChat' },
       },
       owner: { id: String(body.ilink_user_id ?? ''), name: String(body.ilink_user_id ?? '') },
     }
@@ -70,7 +70,7 @@ export default {
   async check(fields, env) {
     const answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: '', timeout_ms: 0 }, 8_000)
     if (Number(answer.ret) !== 0) throw fail(`WeChat answered ${answer.ret}`, { permanent: true })
-    return { account: { id: String(fields.ilinkBotId ?? ''), name: '微信' } }
+    return { account: { id: String(fields.ilinkBotId ?? ''), name: 'WeChat' } }
   },
 
   // -------------------------------------------------------------------------

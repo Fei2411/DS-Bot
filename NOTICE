@@ -78,8 +78,9 @@ Simple Icons (https://simpleicons.org)
 CC0 1.0 Universal, the Simple Icons contributors
 
   - ds-bot/src/client/connector-marks.js keeps the single-color brand path of
-    each connector service from Simple Icons 16.36.0 (the SI table), and the
-    Gmail, iCloud and QQ paths for the mailbox rows.
+    each connector service from Simple Icons 16.36.0 (the SI table), the
+    Gmail, iCloud and QQ paths for the mailbox rows, and the Telegram, WeChat
+    and Discord paths for the IM page.
 
 Context7 (https://github.com/upstash/context7)
 MIT License, Copyright (c) Upstash
