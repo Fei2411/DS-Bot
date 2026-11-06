@@ -235,6 +235,7 @@ const ZH = {
   'Open this earlier session': '打开这个较早的会话',
   'Session {number}': '会话 {number}',
   'Current session': '当前会话',
+  'This page could not be shown.': '这个页面无法显示。',
   'Current': '当前',
   'This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.': '这个 key 来自 DS Bot 之外（例如环境变量），这里改不了。',
   'and {count} more': '还有 {count} 个',
