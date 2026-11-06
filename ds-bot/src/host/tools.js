@@ -797,9 +797,15 @@ export function install(rt) {
     const relayOnly = !owns && rt.roomOf(id) !== undefined
     const wanted = owns || relayOnly
     let held = scoped.get(id)
-    // A Session that left the team, a scope of the wrong kind, or a fresh Agent
-    // for one Session all start over; a wanted scope is registered again below.
-    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly)) {
+    // The local-agent tools (the CLI permission bridge) join the scope only of
+    // a Bot whose route is a local agent; they are not in rt.teamTools. A Bot
+    // can move onto or off a local route after its Agent exists.
+    const self = owns ? rt.botOf(rt.selfOf(id)) : undefined
+    const localBot = rt.isLocalAgentRef?.(self?.appliedModel ?? self?.model) === true
+    // A Session that left the team, a scope of the wrong kind, a fresh Agent
+    // for one Session, or a Bot that changed between a local route and a model
+    // all start over; a wanted scope is registered again below.
+    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly || (held.tools === true && held.local !== localBot))) {
       unscope(id)
       held = undefined
     }
@@ -814,9 +820,6 @@ export function install(rt) {
     const disposers = []
     const failed = []
     const registered = []
-    // The local-agent tools (the CLI permission bridge) join the scope only of
-    // a Bot whose route is a local agent; they are not in rt.teamTools.
-    const localBot = rt.isLocalAgentRef?.(rt.botOf(rt.selfOf(id))?.appliedModel ?? rt.botOf(rt.selfOf(id))?.model) === true
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
       try {
@@ -837,6 +840,7 @@ export function install(rt) {
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
+    held.local = localBot
     held.disposers.push(...disposers)
     scoped.set(id, held)
     // A scope made outside creation never reached a collected tool list; the

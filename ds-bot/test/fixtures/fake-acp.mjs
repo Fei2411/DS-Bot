@@ -36,7 +36,7 @@ async function runPrompt(session, prompt, requestId) {
     update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: textOut } })
     reply(requestId, { stopReason: 'end_turn' })
   }
-  if (text.includes('hang')) return // session/cancel releases it below
+  if (/\bhang\b/.test(text)) return // session/cancel releases it below
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
     // the permission request names it only by id.
@@ -66,7 +66,9 @@ async function runPrompt(session, prompt, requestId) {
     return
   }
   update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `thought about: ${text.slice(0, 40)}` } })
-  update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't0', title: 'edit src/a.js', kind: 'edit', status: 'in_progress' })
+  update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't0', kind: 'read', status: 'in_progress', locations: [{ path: 'src/a.js' }] })
+  update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', kind: 'execute', status: 'in_progress', rawInput: { command: 'npm test' } })
+  update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
   finish(`ok: ${text.slice(0, 60)}`)
 }
 

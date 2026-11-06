@@ -103,6 +103,8 @@ export class AcpEngine {
       const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
+      const call = callOf(session, params?.toolCall)
+      const action = describeCall(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
@@ -111,8 +113,8 @@ export class AcpEngine {
         }
         session.push({
           type: 'permission', id, reply,
-          action: describeCall(callOf(session, params?.toolCall)),
-          detail: detailText(callOf(session, params?.toolCall)),
+          action,
+          detail: detailText(call, action),
           options,
         })
       })
@@ -209,12 +211,17 @@ export const describeCall = (call) => {
   if (verb !== undefined && target !== '') return `${verb} ${target}`
   return [title ?? verb ?? 'Use a tool', target].filter(Boolean).join(': ')
 }
-const detailText = (toolCall) => {
-  if (toolCall === undefined) return ''
-  const parts = []
-  if (toolCall.rawInput !== undefined) parts.push(JSON.stringify(toolCall.rawInput))
-  if (Array.isArray(toolCall.locations) && toolCall.locations.length > 0) parts.push(toolCall.locations.map(location => location.path).join(', '))
-  return parts.join('\n').slice(0, 4_000)
+// What the card adds under its one-line action: the call's other inputs, one
+// per line; what the action line already says is not repeated.
+const detailText = (call, action = '') => {
+  const lines = Object.entries(inputOf(call))
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)])
+    .filter(([, value]) => !action.includes(value))
+    .map(([key, value]) => `${key}: ${value}`)
+  const paths = (call.locations ?? []).map(location => location?.path).filter(path => path && !action.includes(path))
+  if (paths.length > 0) lines.push(paths.join(', '))
+  return lines.join('\n').slice(0, 4_000)
 }
 const usageOf = update => {
   const used = update.used ?? update

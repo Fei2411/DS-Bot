@@ -130,7 +130,9 @@ test('a permission prompt bridges to approve_agent_action and fails closed', asy
   assert.equal(ask.finish.kind, 'tool-calls')
   assert.equal(ask.calls[0].name, 'approve_agent_action')
   // The request named the call only by id; the card still says what it runs.
-  assert.equal(JSON.parse(ask.calls[0].arguments ?? JSON.stringify(ask.calls[0].args)).action, 'Run `rm -rf /tmp/x`')
+  const asked = JSON.parse(ask.calls[0].arguments ?? JSON.stringify(ask.calls[0].args))
+  assert.equal(asked.action, 'Run `rm -rf /tmp/x`')
+  assert.equal(asked.detail ?? '', '')
   // An allowed answer picks the agent's allow option: the tool returns its
   // structured decision, and only {"decision":"allow"} counts.
   const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
