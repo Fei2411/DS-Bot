@@ -220,6 +220,26 @@ test('claude stream-json: thinking, activity line, usage', async (t) => {
   assert.ok(out.usage.inputTokens === 10)
 })
 
+// Claude Code 2.1.302 sends `system/init` only once the first message arrives,
+// so waiting for it before the first prompt would deadlock every turn.
+test('claude: a CLI that sends init only after the first prompt still starts', async (t) => {
+  const engine = new ClaudeEngine('claude-code', { name: 'Claude Code', kind: 'claude', command: process.execPath, args: [FIXTURE('fake-claude-lazy-init.mjs')] }, { findExecutable: path => path })
+  t.after(() => engine.close())
+  const session = await Promise.race([
+    engine.open('s-lazy', { cwd: mkdtempSync(join(tmpdir(), 'dsb-cwd-')), mode: 'acceptEdits' }),
+    new Promise((_, reject) => { setTimeout(() => reject(new Error('start() waited for system/init')), 10_000).unref() }),
+  ])
+  await session.prompt([{ type: 'text', text: 'hello' }])
+  const seen = []
+  for (;;) {
+    const event = await session.next()
+    seen.push(event.type)
+    if (event.type === 'done') break
+  }
+  assert.deepEqual(seen, ['text', 'done'])
+  assert.match(session.cliSessionId, /^claude-/)
+})
+
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
   const mcp = new LoopbackMcp(() => [{ name: 'message_bot', description: 'd', parameters: { type: 'object', properties: { x: { anyOf: [{ type: 'string' }, { type: 'number' }] } }, required: ['x'] } }], async () => ({ text: 'done' }))
   await mcp.listen()

@@ -68,7 +68,9 @@ class ClaudeSession {
     const bin = this.engine.findExecutable(this.engine.engine.command)
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     // Fixture scripts in tests ride in spec.args ahead of the real CLI flags.
-    const args = [...(this.engine.engine.args ?? []), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+    // The stream-json formats only exist in print mode: without `--print` the
+    // CLI starts an interactive session and never speaks this protocol.
+    const args = [...(this.engine.engine.args ?? []), '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
     if (resumeId !== undefined) args.push('--resume', resumeId)
     if (system !== undefined) args.push('--append-system-prompt', system)
     if (mode !== undefined) args.push('--permission-mode', mode)
@@ -81,9 +83,18 @@ class ClaudeSession {
     const child = this.child = spawn(bin, args, {
       env: cleanEnv(this.engine.env ?? {}),
       cwd,
-      stdio: ['pipe', 'pipe', 'inherit'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
+    // stderr is not part of the protocol, but it is where a CLI that cannot
+    // start says why; its tail goes into the error the turn shows.
+    let stderr = ''
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4_000) })
+    const fail = (message) => Object.assign(
+      new Error(stderr.trim() === '' ? message : `${message}: ${stderr.trim().split('\n').slice(-5).join(' ')}`),
+      { code: 'LOCAL_AGENT_EXIT' },
+    )
     let rest = ''
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
@@ -95,13 +106,24 @@ class ClaudeSession {
         if (line !== '') this.onLine(line)
       }
     })
-    child.on('exit', () => {
+    child.on('error', (error) => {
       this.dead = true
-      this.emit({ type: 'error', error: new Error(`${this.engine.engine.name} exited`) })
+      const failure = fail(`${this.engine.engine.name} could not start: ${error.message}`)
+      this.rejectStart?.(failure)
+      this.rejectStart = undefined
+      this.emit({ type: 'error', error: failure })
     })
+    child.on('exit', (code, signal) => {
+      this.dead = true
+      this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
+    })
+    // The CLI sends `system/init` only once the first message arrives on stdin,
+    // and this engine writes that message after start resolves: waiting for init
+    // here would deadlock every turn. A spawned process counts as started; a CLI
+    // that cannot start reports it through 'error' instead.
     this.started = new Promise((resolve, reject) => {
-      this.onInit = resolve
-      setTimeout(() => reject(new Error('the agent did not start')), 60_000).unref?.()
+      this.rejectStart = reject
+      child.once('spawn', () => { this.rejectStart = undefined; resolve() })
     })
     return this.started.then(() => this)
   }
@@ -113,7 +135,6 @@ class ClaudeSession {
       case 'system':
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
-          this.onInit?.(this)
         }
         break
       case 'assistant': {
