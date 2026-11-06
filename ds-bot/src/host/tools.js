@@ -18,19 +18,22 @@ const BLOCKING_QUESTION_TOOL = 'ask_user_question'
 const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
 // DSH's delegation tools start child agents the user cannot watch or stop, and they
 // end with the conversation part that started them; Bots hand work to other Bots.
-const DELEGATION_TOOLS = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph']
+// Agent Teams' teammates are such children too (#973).
+const DELEGATION_TOOLS = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph', 'spawn_teammate', 'wait_agent', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update']
 // restrict() refuses a whole list when one name is registered in the Agent's own
 // scope, so each group is masked on its own.
 const HIDDEN_TOOL_GROUPS = [[BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS], DELEGATION_TOOLS]
 const HIDDEN_TOOLS = HIDDEN_TOOL_GROUPS.flat()
-// The guidance DSH writes into the prompt for the hidden tools.
-const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal'])
+// The guidance DSH writes into the prompt for the hidden tools. Agent Teams makes
+// every root Session a Team Lead and tells it to spawn teammates in `team:policy`;
+// its `team:identity` context is required, so DSH puts it back after any filter.
+const HIDDEN_SECTIONS = new Set([...HIDDEN_TOOLS.map(name => `tool:${name}`), 'tool:goal', 'team:policy'])
 const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Set a goal in its + menu.'
 // DSH 0.2.2's schedule tools can deliver to a new Session, which is outside the team and
 // has no Bot; a Bot's tasks deliver to its own chat, which DS Bot moves on with each part.
 const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
 const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
-const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
+const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
   enum: ROOM_MODES,
