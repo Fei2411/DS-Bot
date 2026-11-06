@@ -40,7 +40,9 @@ jobs:
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
       - name: Install DSH ${{ matrix.dsh }}
-        run: npm run harness -- --no-save "@deepseek-ai/dsh@${{ matrix.dsh }}"
+        # The testkit pins the DSH packages it was built with; at another version it would
+        # bring a second, mismatched set.
+        run: npm run harness -- --no-save "@deepseek-ai/dsh@${{ matrix.dsh }}" "@deepseek-ai/dsh-agent-loop-testkit@${{ matrix.dsh }}"
       - run: npm test
       - run: node scripts/build-client.mjs --check
       - run: npm run lint
