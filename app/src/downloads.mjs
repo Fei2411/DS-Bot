@@ -6,9 +6,14 @@
 // download starts into a staging folder of its own, and moves to the chosen file once both the
 // answer and the download are in. A cancelled picker cancels the download.
 import { randomUUID } from 'node:crypto'
-import { constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
+import * as nodeFs from 'node:fs'
 import { homedir as osHomedir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
+
+// In Electron's main process node:fs takes every path that ends in .asar for an archive: a real
+// file of that name with other content reads as missing, and a staged one cannot be copied.
+// original-fs sees plain files; it exists only in Electron.
+const { constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } = process.getBuiltinModule('original-fs') ?? nodeFs
 
 /**
  * @param {{

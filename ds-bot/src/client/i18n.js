@@ -117,6 +117,8 @@ const ZH = {
   'AGENTS.md update': 'AGENTS.md 更新',
   Approve: '批准',
   Decline: '拒绝',
+  Approved: '已批准',
+  Declined: '已拒绝',
   'Save changes': '保存更改',
   Edit: '编辑',
   'Click again to delete.': '再点一次删除。',
@@ -756,7 +758,9 @@ const ZH = {
   'Dismiss question': '关闭问题',
   Dismiss: '关闭',
   Dismissed: '已关闭',
+  'Answered by message': '已用消息回答',
   'Your answer': '你的回答',
+  Options: '选项',
 
   // Views
   View: '视图',

@@ -153,6 +153,8 @@ var ZH = {
   "AGENTS.md update": "AGENTS.md 更新",
   Approve: "批准",
   Decline: "拒绝",
+  Approved: "已批准",
+  Declined: "已拒绝",
   "Save changes": "保存更改",
   Edit: "编辑",
   "Click again to delete.": "再点一次删除。",
@@ -809,7 +811,9 @@ var ZH = {
   "Dismiss question": "关闭问题",
   Dismiss: "关闭",
   Dismissed: "已关闭",
+  "Answered by message": "已用消息回答",
   "Your answer": "你的回答",
+  Options: "选项",
   // Views
   View: "视图",
   Confirm: "确认",
@@ -3092,7 +3096,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 @media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled{animation:none}.bt-q-submit{animation:none}}
 
 .bt-newchat{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;animation:bt-veil-in .18s ease-out}
-.bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
+.bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px calc(100% - 32px - min(550px,100% - 64px)) 6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
 .bt-to-label{color:var(--bt-ink-2)}
 .bt-to input{flex:1;min-width:120px;border:0;outline:none;background:none;color:var(--bt-ink);font-size:14px;height:26px}
 .bt-token{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 6px 0 4px;border-radius:999px;background:var(--bt-hover);font-size:13px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
@@ -5069,36 +5073,45 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     foot
   );
 }
-function SettledQuestion({ question, answer }) {
+var closedLabel = (closed) => t(closed === "replied" ? "Answered by message" : "Dismissed");
+function SettledQuestion({ question, answer, closed }) {
   const options = optionsOf(question);
   const prompt = question?.question ?? "";
-  const chosen = [...answer.selected ?? [], ...answer.custom ? [answer.custom] : []];
-  if (chosen.length === 0) {
-    return (0, import_react8.createElement)(
-      "div",
-      { className: "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
-      (0, import_react8.createElement)(
-        "div",
-        { className: "bt-q-head" },
-        (0, import_react8.createElement)("div", { className: "bt-q-text" }, (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt)),
-        (0, import_react8.createElement)("span", { className: "bt-q-badge" }, t("Dismissed"))
-      )
-    );
+  const selected = Array.isArray(answer?.selected) ? answer.selected : [];
+  const custom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
+  const answered = closed === void 0 && (selected.length > 0 || custom !== "");
+  const row = (key, label, { letter, description, chosen }) => (0, import_react8.createElement)(
+    "div",
+    { key, className: "bt-q-opt" },
+    letter ? (0, import_react8.createElement)("span", { className: "bt-key", "aria-hidden": true }, letter) : null,
+    (0, import_react8.createElement)(
+      "span",
+      { className: "bt-q-body" },
+      (0, import_react8.createElement)("span", { className: "bt-q-label" }, label),
+      description ? (0, import_react8.createElement)("span", { className: "bt-q-desc" }, description) : null
+    ),
+    chosen ? (0, import_react8.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react8.createElement)(CheckIcon)) : null
+  );
+  const rows2 = options.map((option, index) => row(`o-${index}`, option.label, { letter: keyLetter(index), description: option.description, chosen: answered && selected.includes(option.label) }));
+  if (answered) {
+    selected.filter((label) => !options.some((option) => option.label === label)).forEach((label, index) => rows2.push(row(`s-${index}`, label, { chosen: true })));
+    if (custom !== "") rows2.push(row("own", custom, { chosen: true }));
   }
   return (0, import_react8.createElement)(
     "div",
-    { className: "bt-q bt-q-settled", role: "group", "aria-label": prompt },
-    prompt ? (0, import_react8.createElement)("div", { className: "bt-q-head" }, (0, import_react8.createElement)("div", { className: "bt-q-text" }, (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt))) : null,
-    (0, import_react8.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t("Your answer") }, chosen.map((label, index) => {
-      const optionIndex = options.findIndex((option) => option.label === label);
-      return (0, import_react8.createElement)(
+    { className: answered ? "bt-q bt-q-settled" : "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
+    (0, import_react8.createElement)(
+      "div",
+      { className: "bt-q-head" },
+      (0, import_react8.createElement)(
         "div",
-        { key: `${label}-${index}`, className: "bt-q-opt" },
-        optionIndex >= 0 ? (0, import_react8.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(optionIndex)) : null,
-        (0, import_react8.createElement)("span", { className: "bt-q-body" }, (0, import_react8.createElement)("span", { className: "bt-q-label" }, label)),
-        (0, import_react8.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react8.createElement)(CheckIcon))
-      );
-    }))
+        { className: "bt-q-text" },
+        prompt ? (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt) : null,
+        question?.detail ? (0, import_react8.createElement)("div", { className: "bt-q-detail" }, question.detail) : null
+      ),
+      answered ? null : (0, import_react8.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed))
+    ),
+    rows2.length > 0 ? (0, import_react8.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t(answered ? "Your answer" : "Options") }, rows2) : null
   );
 }
 function QuestionCard({ matched }) {
@@ -5153,7 +5166,14 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
 }
 function AnsweredCell({ node }) {
   const data = node.data ?? {};
-  const questions = Array.isArray(data.questions) ? data.questions : [];
+  let sent = null;
+  try {
+    sent = typeof data.text === "string" ? JSON.parse(data.text) : null;
+  } catch {
+    sent = null;
+  }
+  const asked = Array.isArray(sent?.questions) ? sent.questions.filter((item) => typeof item?.id === "string" && typeof item.question === "string") : [];
+  const questions = (Array.isArray(data.questions) ? data.questions : []).map((question) => ({ ...asked.find((item) => item.id === question.id), ...question }));
   if (questions.length === 0) {
     return data.text ? (0, import_react8.createElement)("div", { className: "bt-urow" }, (0, import_react8.createElement)("div", { className: "bt-ububble" }, data.text)) : (0, import_react8.createElement)(CellEmpty);
   }
@@ -8241,10 +8261,17 @@ function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, h
   }
   if (done && isError) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
   const shown = checkShownView(args?.text?.("title"), args?.value?.("view"));
-  if (shown.error !== void 0 || shown.interactive || args?.value?.("await_reply") === true) {
-    return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
+  if (shown.error !== void 0) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
+  if (shown.interactive || args?.value?.("await_reply") === true) {
+    const closed = callId === void 0 ? void 0 : roster.closedCards?.[sessionId]?.[callId];
+    if (closed === void 0) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
+    return (0, import_react15.createElement)(ClosedView, { title: shown.title, view: shown.view, closed });
   }
   return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(Card, { title: shown.title, view: shown.view }));
+}
+function ClosedView({ title, view, closed }) {
+  const head = (0, import_react15.createElement)("span", { className: "bt-view-closed" }, (0, import_react15.createElement)("span", { className: "bt-view-closed-title" }, title ?? ""), (0, import_react15.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed)));
+  return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(Card, { title: head, view, settled: true }));
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
@@ -8307,6 +8334,8 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+.bt-view-closed{display:flex;align-items:flex-start;gap:8px}
+.bt-view-closed-title{flex:1 1 0;min-width:0}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */
@@ -13347,6 +13376,9 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return (0, import_react30.createElement)(EarlierUser, { key, row, actions });
     case "answer":
       return (0, import_react30.createElement)(AnsweredReply, { key, node: { data: row } });
+    // A question or view card closed without an answer on it.
+    case "closed":
+      return row.view === void 0 ? (0, import_react30.createElement)("div", { key, className: "bt-q-inline" }, (0, import_react30.createElement)(SettledQuestion, { question: row.question, closed: row.closed })) : (0, import_react30.createElement)(ClosedView, { key, title: row.title, view: row.view, closed: row.closed });
     // A display-only view replays from the blueprint the host kept on the call.
     case "view":
       return (0, import_react30.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
@@ -13845,7 +13877,12 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
     }
     case "ask_user": {
       const question = roster.questions?.[sessionId];
-      if (!question || question.callId !== call2.callId) return (0, import_react30.createElement)(CellEmpty, { className: "bt-q-gone" });
+      if (!question || question.callId !== call2.callId) {
+        const closed = roster.closedCards?.[sessionId]?.[call2.callId];
+        if (closed === void 0) return (0, import_react30.createElement)(CellEmpty, { className: "bt-q-gone" });
+        const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
+        return (0, import_react30.createElement)("div", { className: "bt-q-inline" }, (0, import_react30.createElement)(SettledQuestion, { question: asked, closed }));
+      }
       if (heldCards?.[heldCardKey("question", question.id)] > 0) return (0, import_react30.createElement)(CellEmpty);
       return (0, import_react30.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) });
     }
@@ -15318,14 +15355,23 @@ function mainAvatarPlace(roster) {
   if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return void 0;
   const mark2 = mainMarkOf(main.id);
   if (!mark2 || mark2.checkVisibility?.({ visibilityProperty: true }) === false) return void 0;
-  const box = mark2.getBoundingClientRect();
+  const box = restingBox(mark2);
   const view = document.documentElement;
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight };
+}
+function restingBox(mark2) {
+  const box = mark2.getBoundingClientRect();
+  const column = mark2.closest?.(".bt-leftcol");
+  if (!column) return box;
+  const now = column.getBoundingClientRect();
+  const dx = column.offsetLeft - now.left;
+  const dy = column.offsetTop - now.top;
+  return { left: box.left + dx, top: box.top + dy, width: box.width, height: box.height };
 }
 var GLIDE_MS = 460;
 function glideOnto(mark2, from) {
   if (!mark2 || reducedMotion()) return;
-  const box = mark2.getBoundingClientRect();
+  const box = restingBox(mark2);
   if (!box.width) return;
   const outer = document.createElement("div");
   const inner = document.createElement("div");
@@ -25337,18 +25383,20 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 
 // src/client/learning-card-model.js
 function proposalPlacement(proposal, turns) {
-  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== "function") return { kind: "dock" };
-  let latest;
-  let before;
-  for (const location2 of turns.values()) {
-    const end = location2?.end?.time;
-    if (location2?.status !== "closed" || !Number.isFinite(end)) continue;
-    const later = (target) => target === void 0 || end > target.end.time || end === target.end.time && location2.turn > target.turn;
-    if (later(latest)) latest = location2;
-    if (end <= proposal.at && later(before)) before = location2;
-  }
-  const turn = (before ?? latest)?.turn;
-  return turn === void 0 ? { kind: "dock" } : { kind: "turn", turn };
+  const settled = proposal?.outcome !== void 0;
+  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== "function") return { kind: settled ? "none" : "dock" };
+  const lastBy = (time) => {
+    let found;
+    for (const location2 of turns.values()) {
+      const end = location2?.end?.time;
+      if (location2?.status !== "closed" || !Number.isFinite(end) || end > time) continue;
+      if (found === void 0 || end > found.end.time || end === found.end.time && location2.turn > found.turn) found = location2;
+    }
+    return found;
+  };
+  const turn = (lastBy(proposal.at) ?? lastBy(settled ? proposal.settledAt ?? proposal.at : Infinity))?.turn;
+  if (turn === void 0) return { kind: settled ? "none" : "dock" };
+  return { kind: "turn", turn };
 }
 function fileLines(text) {
   const body = String(text ?? "").replace(/\n+$/, "");
@@ -25403,6 +25451,7 @@ function lineDiff(before, after) {
 var import_react57 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
+  const outcome = proposal.outcome;
   const [busy, setBusy] = (0, import_react57.useState)(false);
   const [error, setError] = (0, import_react57.useState)(initialError);
   const busyRef = (0, import_react57.useRef)(false);
@@ -25430,26 +25479,26 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
     ]);
     return (0, import_react57.createElement)(
       "section",
-      { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-      (0, import_react57.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: t("AGENTS.md update") }),
+      { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy, "data-outcome": outcome },
+      (0, import_react57.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: t("AGENTS.md update"), outcome }),
       (0, import_react57.createElement)(FileBox, { name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks }),
       proposal.edits.map((edit, index) => edit.why ? (0, import_react57.createElement)("p", { className: "bt-learning-why", key: index }, edit.why) : null),
       error ? (0, import_react57.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-      (0, import_react57.createElement)(ProposalFoot, { busy, answer })
+      outcome ? null : (0, import_react57.createElement)(ProposalFoot, { busy, answer })
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
   return (0, import_react57.createElement)(
     "section",
-    { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-    (0, import_react57.createElement)(ProposalHead, { titleId, title: proposal.name, kind: t(update ? "Skill update" : "New skill"), detail: proposal.description, oldDetail }),
+    { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy, "data-outcome": outcome },
+    (0, import_react57.createElement)(ProposalHead, { titleId, title: proposal.name, kind: t(update ? "Skill update" : "New skill"), detail: proposal.description, oldDetail, outcome }),
     (0, import_react57.createElement)(FileBox, { name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
     proposal.why ? (0, import_react57.createElement)("p", { className: "bt-learning-why" }, proposal.why) : null,
     error ? (0, import_react57.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-    (0, import_react57.createElement)(ProposalFoot, { busy, answer })
+    outcome ? null : (0, import_react57.createElement)(ProposalFoot, { busy, answer })
   );
 }
-function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail }) {
+function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail, outcome }) {
   return (0, import_react57.createElement)(
     "div",
     { className: "bt-q-head" },
@@ -25462,7 +25511,7 @@ function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, 
       oldDetail ? (0, import_react57.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react57.createElement)("del", null, oldDetail)) : null,
       detail ? (0, import_react57.createElement)("p", { className: "bt-learning-description" }, detail) : null
     ),
-    (0, import_react57.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react57.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
+    outcome ? (0, import_react57.createElement)("span", { className: "bt-q-badge" }, t(outcome === "approved" ? "Approved" : "Declined")) : (0, import_react57.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react57.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
   );
 }
 function ProposalFoot({ busy, answer }) {
@@ -25532,13 +25581,15 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const bot = roster.byId?.[sessionId];
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
-  const visible = [...proposals];
+  const settled = (roster.learningSettled?.[bot.id] ?? []).filter((entry) => !proposals.some((proposal) => proposal.id === entry.id));
+  const visible = [...settled, ...proposals];
   for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
+    if (entry.proposal.botId === bot.id && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
   }
   for (const entry of failedAnswers.values()) {
     if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
   }
+  visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
   const cards = visible.filter((proposal) => {
     const placement = proposalPlacement(proposal, facts?.turns);
     return dock ? placement.kind === "dock" : placement.kind === "turn" && placement.turn === turn?.turn;
@@ -25839,6 +25890,7 @@ function apply(ctx) {
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.learning !== void 0 && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live2.learning = value.learning;
+    if (value.learningSettled !== void 0 && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live2.learningSettled = value.learningSettled;
     if (value.btwCards !== void 0 && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live2.btwCards = value.btwCards;
     if (value.sideChats !== void 0 && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live2.sideChats = value.sideChats;
     if (value.imStatus !== void 0 && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live2.imStatus = value.imStatus;

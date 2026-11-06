@@ -9,7 +9,7 @@ import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
 import { sendsOnEnter } from './enter-key.js'
 import { SettledQuestion, PendingQuestion } from './questions.js'
-import { AnsweredReply, WidgetCell } from './widget-cell.js'
+import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
 import { ConnectorToolCell, MailToolCell } from './connectors.js'
 import { HandoffCall } from './handoff-card.js'
@@ -592,6 +592,10 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case 'divider': return h(PartLine, { key, time: row.time })
     case 'user': return h(EarlierUser, { key, row, actions })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
+    // A question or view card closed without an answer on it.
+    case 'closed': return row.view === undefined
+      ? h('div', { key, className: 'bt-q-inline' }, h(SettledQuestion, { question: row.question, closed: row.closed }))
+      : h(ClosedView, { key, title: row.title, view: row.view, closed: row.closed })
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })
     case 'bot': {
@@ -1101,8 +1105,14 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     }
     case 'ask_user': {
       const question = roster.questions?.[sessionId]
-      // Answered or closed: the card leaves no gap where it was.
-      if (!question || question.callId !== call.callId) return h(CellEmpty, { className: 'bt-q-gone' })
+      if (!question || question.callId !== call.callId) {
+        // Dismissed or answered by a message: the card stays here, read-only.
+        // Answered on the card: its reply message carries it, so no gap here.
+        const closed = roster.closedCards?.[sessionId]?.[call.callId]
+        if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
+        const asked = { question: arg('question') ?? '', detail: arg('detail'), options: argValue('options') ?? [], multiSelect: argValue('multiSelect') === true }
+        return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question: asked, closed }))
+      }
       if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
       return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) })
     }
