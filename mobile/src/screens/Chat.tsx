@@ -227,6 +227,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
+      {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
       <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
@@ -299,6 +300,40 @@ function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] 
         </View>
       )) : null}
     </Pressable>
+  )
+}
+
+// Computer use (computer.js): a Bot's ask to use an app, answered Deny / This time /
+// Always, and a bar with Stop while it holds the computer.
+function ComputerCards({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p'] }) {
+  const { team, call } = useTeam()
+  const [error, setError] = useState<string | null>(null)
+  const live = (team as { computerLive?: { bots?: Record<string, { state?: string; app?: string }>; asks?: Record<string, { id: string; botId: string; appName?: string }> } } | null)?.computerLive
+  const asks = Object.values(live?.asks ?? {}).filter(ask => ask.botId === bot.id)
+  const control = live?.bots?.[bot.id]
+  const acting = control !== undefined && control.state !== undefined && control.state !== 'idle'
+  const act = (endpoint: string, body: Record<string, unknown>) => { call(endpoint, body).then(() => setError(null), (failure: Error) => setError(failure?.message ?? String(failure))) }
+  if (asks.length === 0 && !acting) return null
+  return (
+    <View>
+      {asks.map(ask => (
+        <View key={ask.id} style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
+          <Text style={[type.settingsRow, { color: p.ink }]}>{t('Allow {name} to use {app}?', { name: bot.name, app: ask.appName ?? '' })}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('This time')}</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Always')}</Text></Pressable>
+          </View>
+        </View>
+      ))}
+      {acting ? (
+        <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line, flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }]}>
+          <Text style={[type.small, { color: p.ink, flex: 1 }]} numberOfLines={1}>{control?.app ? `${t('Computer use')} · ${control.app}` : t('Computer use')}</Text>
+          <Pressable accessibilityRole="button" onPress={() => act('computer-stop', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover, minHeight: 36 }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Pressable>
+        </View>
+      ) : null}
+      {error ? <Text style={[type.small, { color: p.danger, marginHorizontal: 16, marginBottom: 6 }]}>{error}</Text> : null}
+    </View>
   )
 }
 
