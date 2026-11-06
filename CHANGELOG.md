@@ -4,12 +4,15 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-07
+
 ### Added
 
 - Bots can use the apps on your computer, as far as you allow: turn it on in Settings → Computer use, give each Bot a level and its apps, and take over or hand back at any time. ([#917](https://github.com/Fei2411/DS-Bot/issues/917), [#918](https://github.com/Fei2411/DS-Bot/pull/918))
 - Talk to your Bots from WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord and Slack, with pairing, group chats, approval cards and replies (Settings → IM). ([#904](https://github.com/Fei2411/DS-Bot/issues/904), [#910](https://github.com/Fei2411/DS-Bot/pull/910), [#967](https://github.com/Fei2411/DS-Bot/pull/967))
 - Connectors: connect services from a catalog with one sign-in, add your own or import them from other apps, connect QQ Mail, 163, Gmail and other mailboxes, and choose which Bots use each connector. ([#905](https://github.com/Fei2411/DS-Bot/issues/905), [#906](https://github.com/Fei2411/DS-Bot/pull/906))
 - A local agent CLI (Devin CLI, Claude Code, Codex CLI, OpenCode, Cursor, Gemini, Grok, Cline, Qwen Code, Goose or a custom ACP agent) can run a Bot with the CLI's own sign-in and models, and the Bot works with the rest of the team. ([#916](https://github.com/Fei2411/DS-Bot/issues/916), [#920](https://github.com/Fei2411/DS-Bot/pull/920), [#1000](https://github.com/Fei2411/DS-Bot/pull/1000))
+- Local agent Bots show each command they run and what an approval is for, and carry their agent's logo. ([#1009](https://github.com/Fei2411/DS-Bot/pull/1009))
 - The model menu keeps a stepped thinking-level slider at its bottom while you scroll through models. ([#898](https://github.com/Fei2411/DS-Bot/pull/898))
 
 ### Changed
@@ -18,11 +21,17 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 - Question, view and skill proposal cards stay in the chat after you answer, dismiss or approve them, folded to a short line with the result. ([#971](https://github.com/Fei2411/DS-Bot/issues/971), [#972](https://github.com/Fei2411/DS-Bot/pull/972), [#981](https://github.com/Fei2411/DS-Bot/pull/981))
 - `browser_exec` scripts run in a separate process without access to the host or the network, and a script past its 20-second limit is stopped. ([#1005](https://github.com/Fei2411/DS-Bot/pull/1005))
 - Models on a custom OpenAI-compatible gateway get system instructions as `system`, and take the known context window and image support of their model. ([#982](https://github.com/Fei2411/DS-Bot/issues/982), [#989](https://github.com/Fei2411/DS-Bot/pull/989))
+- The IM settings page is redesigned: setup steps for each platform, pairing requests on top, and a detail view for each IM bot. ([#1006](https://github.com/Fei2411/DS-Bot/pull/1006))
+- Bots no longer start Agent Teams teammates that you cannot see or stop; they do the work themselves or hand it to another Bot. ([#973](https://github.com/Fei2411/DS-Bot/issues/973), [#996](https://github.com/Fei2411/DS-Bot/pull/996))
 - Classic Agent mode is only in Settings → General → Mode; the entry in the bottom-left menu is gone. ([#933](https://github.com/Fei2411/DS-Bot/pull/933))
 - The start window and the app's own cards use the same rounded buttons as the team view. ([#886](https://github.com/Fei2411/DS-Bot/pull/886))
 
 ### Fixed
 
+- Bots in a group chat see images sent to the group and can read their saved copy, as in private chats. ([#955](https://github.com/Fei2411/DS-Bot/issues/955), [#956](https://github.com/Fei2411/DS-Bot/pull/956))
+- A Bot's messages to another Bot no longer appear in your queued-message bar as if you had typed them. ([#663](https://github.com/Fei2411/DS-Bot/issues/663), [#1001](https://github.com/Fei2411/DS-Bot/pull/1001))
+- When a Bot in a group stops because its model call failed, the group keeps a line that says so and how to go on. ([#974](https://github.com/Fei2411/DS-Bot/issues/974), [#1010](https://github.com/Fei2411/DS-Bot/pull/1010))
+- A Bot no longer stops answering after you open one of its earlier sessions, and a current session that DSH archived is taken back out of the archive. ([#1008](https://github.com/Fei2411/DS-Bot/pull/1008))
 - With DeepSeek Harness 0.2.2, Bot replies no longer fail with "Cannot read properties of undefined (reading 'filter')", and scheduled tasks keep working when a Bot's chat goes on in a fresh part. ([#908](https://github.com/Fei2411/DS-Bot/pull/908))
 - Switching a Bot to another model no longer fails with `context compaction failed` when the conversation is too large for the new model or the old model is out of quota. ([#965](https://github.com/Fei2411/DS-Bot/pull/965))
 - Stopping a group's work or deleting a Bot no longer fails with `cannot get property "subagents"`, and the other members stop even when one does not. ([#930](https://github.com/Fei2411/DS-Bot/pull/930))
