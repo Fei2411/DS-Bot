@@ -169,7 +169,7 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.equal(env.PATH, process.env.PATH)
+  assert.equal(env.PATH ?? env.Path, process.env.PATH ?? process.env.Path)
 })
 
 test('custom agent validation', () => {
