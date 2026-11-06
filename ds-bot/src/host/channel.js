@@ -74,6 +74,8 @@ export function install(rt) {
     secrets: rt.secretsView(),
     capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
+    connectorRequests: state.connectorRequests ?? {},
+    mailRequests: state.mailRequests ?? {},
     colors: [...COLORS, ...EXTRA_COLORS],
     models: rt.cachedCatalog(),
     defaultModel: rt.cachedDefault() ?? null,
@@ -427,6 +429,20 @@ export function install(rt) {
         case 'connector-connect':
         case 'connector-disconnect':
         case 'connector-retry':
+        case 'connector-sign-in-code':
+        case 'connector-cancel':
+        case 'connector-client':
+        case 'connector-set':
+        case 'connector-add':
+        case 'connector-remove':
+        case 'connector-import-scan':
+        case 'connector-import':
+        case 'connector-request-cancel':
+        case 'mail-account-add':
+        case 'mail-account-remove':
+        case 'mail-rule-set':
+        case 'mail-send-answer':
+        case 'mail-sign-in-code':
           await rt.load()
           return ok(await rt.connectorEndpoint(endpoint, body))
         case 'capability-save':
