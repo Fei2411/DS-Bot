@@ -114,8 +114,8 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
         ))}
       </Pressable>
     )
-    // An answered ask_user card stays a card on the Bot's side with the picks ticked,
-    // as the desktop's settled question card shows it.
+    // An answered ask_user card folds to its result on the Bot's side, as the desktop's
+    // settled question card does: the question muted, only the chosen rows.
     if ((item.questions ?? []).length > 0) return (
       <Pressable onLongPress={longPress} style={[styles.answeredCard, { backgroundColor: p.card, borderColor: p.line, maxWidth }]}>
         {(item.questions ?? []).map((question, i) => {
@@ -123,11 +123,13 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
           const picks = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
           return (
             <View key={i} style={{ gap: 2 }}>
-              <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginBottom: 4 }]}>{question.question}</Text>
+              <Text style={[type.small, { color: p.ink2, fontWeight: '500', marginBottom: 2 }]}>{question.question}</Text>
               {picks.map((pick, j) => (
-                <View key={j} style={[styles.pickLine, j > 0 ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line } : null]}>
-                  <Text style={[type.small, { color: p.ink2, flex: 1 }]}>{pick}</Text>
-                  <Text style={{ color: p.ink3, fontSize: 13 }}>✓</Text>
+                <View key={j} style={[styles.pickLine, { gap: 10 }]}>
+                  <View style={{ width: 20, height: 20, borderRadius: 6, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: p.accentInk, fontSize: 11, fontWeight: '600' }}>{String.fromCharCode(65 + j)}</Text>
+                  </View>
+                  <Text style={[type.small, { color: p.ink, flex: 1 }]}>{pick}</Text>
                 </View>
               ))}
             </View>
