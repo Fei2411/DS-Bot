@@ -51,6 +51,7 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 
@@ -818,6 +819,13 @@ export function apply(ctx) {
     })
   }
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
+  // The queue dock's per-session verbs, supplied the way the shell's own dock
+  // injects them (the session facade and the conversation service).
+  const queueFace = (sessionId) => ({
+    ...face(),
+    updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
+    loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
+  })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -1048,6 +1056,7 @@ export function apply(ctx) {
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
+    () => installCompiledStyles(QUEUE_CSS, 'queue'),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
@@ -1097,6 +1106,10 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-computer-handoff', order: -84, inject: face }, ComputerHandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-app', order: -83, inject: face }, AppAccessDock),
     () => shadow('conversation.input.dock', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock),
+    // The shell's own queue dock lists every queued inbox row as the user's
+    // drafts — including the team's relayed mail. Reusing its id puts ours in
+    // its cell; it lists only the sends the user authored (#663).
+    () => shadow('conversation.input.dock', { id: 'queue', order: 20, priority: BOT_PRIORITY, inject: queueFace }, QueueDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.
   ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')
