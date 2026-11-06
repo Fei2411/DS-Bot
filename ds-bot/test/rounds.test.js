@@ -453,6 +453,28 @@ test('a member turn that fails before it takes the call fails that member in the
   assert.deepEqual(result.replies.map(reply => [reply.kind ?? 'reply', reply.name]), [['failed', 'Chief'], ['reply', 'Writer']])
 })
 
+// #974: a turn that ends on a quota error stops the work it was doing. The round's red row
+// goes with the round, so the group log keeps a line that the admin and the members read.
+test('a member turn that runs out of quota leaves a lasting line in the group log', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Deploy it'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await emit(first.sessionId, { type: 'turn/start', data: { turn: 1 } })
+  await emit(first.sessionId, { type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'coding plan quota used up', code: 'QUOTA', status: 402 } } } })
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Writer here.', 1)
+  await running
+  const failed = rt.roomOf(room.id).log.filter(line => line.kind === 'notice' && line.reason === 'failed')
+  assert.equal(failed.length, 1)
+  assert.deepEqual(failed[0].names, ['Chief'])
+  assert.match(failed[0].detail, /^QUOTA/)
+  const { lineText } = await import('../src/host/groups.js')
+  assert.match(lineText(failed[0]), /^\[Chief stopped: its model call failed \(QUOTA.*\)\. What it was doing here is not finished; the user can switch its model in its settings or ask it to go on\.\]$/)
+})
+
 // A member deleted while its group Session is made sits the round out; the Session it was
 // getting belongs to no one, so it is archived instead of left over.
 test('a member deleted while its group Session is made is left out, and the Session is not kept', async (t) => {

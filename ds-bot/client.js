@@ -1203,7 +1203,7 @@ var ZH = {
   Clear: "清空",
   "Settings → Feedback has the details.": "详情见 设置 → 反馈。",
   "Could not reach DSH. Check that it is still running.": "连不上 DSH，请确认它还在运行。",
-  "{name} could not answer: {reason}": "{name} 没能回答：{reason}",
+  "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 停下了：{reason}。换个模型，或让它继续。",
   "Unknown error": "未知错误",
   "The model has no API key": "模型还没有 API Key",
   "The API key is not in the right format": "API Key 格式不对",
@@ -13968,7 +13968,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     return (0, import_react31.createElement)(
       "div",
       { className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
-      t("{name} could not answer: {reason}", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
+      t("{name} stopped: {reason}. Switch its model or ask it to go on.", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
     );
   }
   if (reply.kind === "lookup") {
