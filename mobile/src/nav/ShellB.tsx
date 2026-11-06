@@ -1,7 +1,7 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Dimensions, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
@@ -9,8 +9,8 @@ import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
-import { Avatar, RoomAvatar, YouMark } from '../ui/marks.tsx'
-import { GearIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
+import { Avatar, RoomAvatar } from '../ui/marks.tsx'
+import { GearIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
 import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
@@ -34,6 +34,20 @@ function DrawerContent() {
   const navigation = useNavigation<any>()
   const drawer = useDrawer()
   const pending = pendingCountOf(team)
+  const [searching, setSearching] = useState(false)
+  const [query, setQuery] = useState('')
+  // The chat on screen is marked in the list, as the desktop marks its open chat. The
+  // drawer sits outside the navigator, so it follows the container's own state.
+  const [current, setCurrent] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    const update = () => {
+      const state = navigation.getState()
+      const top = state?.routes?.[state.index ?? 0]
+      setCurrent(top?.name === 'Chat' ? (top.params as ChatTarget | undefined)?.id : undefined)
+    }
+    update()
+    return navigation.addListener('state', update)
+  }, [navigation])
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
     drawer.close()
     if (target.kind === 'needs') navigation.navigate('Needs')
@@ -42,24 +56,36 @@ function DrawerContent() {
   }
   return (
     <View style={{ flex: 1, backgroundColor: p.sidebar }}>
+      {/* The desktop sidebar's head: the product name, search and New. */}
+      <View style={[styles.drawerHead, { paddingTop: insets.top + 6 }]}>
+        <Text style={{ color: p.ink, fontSize: 17, fontWeight: '600', flex: 1 }}>DS Bot</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Search')} onPress={() => setSearching(on => !on)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+          <SearchIcon size={16} color={p.ink2} />
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('New')} onPress={() => { drawer.close(); navigation.navigate('NewMenu') }} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+          <PlusIcon size={16} color={p.ink2} />
+        </Pressable>
+      </View>
+      {searching ? (
+        <View style={[styles.search, { backgroundColor: p.hover }]}>
+          <SearchIcon size={15} color={p.ink3} />
+          <TextInput value={query} onChangeText={setQuery} placeholder={t('Search the team')} placeholderTextColor={p.ink3} autoFocus
+            style={{ flex: 1, fontSize: 15, paddingVertical: 4, color: p.ink }} autoCapitalize="none" autoCorrect={false} />
+        </View>
+      ) : null}
       {pending > 0 ? (
         <Pressable accessibilityRole="button" onPress={() => open({ kind: 'needs' })}
-          style={({ pressed }) => [styles.needsRow, { backgroundColor: pressed ? p.hover : 'transparent', marginTop: insets.top + 8 }]}>
+          style={({ pressed }) => [styles.needsRow, { backgroundColor: pressed ? p.hover : 'transparent' }]}>
           <Text style={[typeScale.rowName, { color: p.accent, flex: 1 }]}>{t('Needs you')}</Text>
           <View style={[styles.badge, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontSize: 12, fontWeight: '600' }}>{pending}</Text></View>
         </Pressable>
-      ) : <View style={{ height: insets.top + 8 }} />}
+      ) : null}
       <View style={{ flex: 1 }}>
-        <TeamList onOpen={open} />
+        <TeamList onOpen={open} query={searching ? query : ''} current={current} />
       </View>
-      <Pressable accessibilityRole="button" onPress={() => { drawer.close(); navigation.navigate('NewMenu') }}
-        style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 12, backgroundColor: pressed ? p.hover : 'transparent' }]}>
-        <Text style={[typeScale.rowName, { color: p.accent }]}>+ {t('New')}</Text>
-      </Pressable>
-      <View style={[styles.foot, { borderTopColor: p.line, paddingBottom: insets.bottom + 8 }]}>
-        <View style={styles.you}><YouMark dark={useTheme().dark} size={24} /><Text style={[typeScale.rowName, { color: p.ink }]}>{t('You')}</Text></View>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-          <GearIcon size={20} color={p.ink2} />
+      <View style={[styles.foot, { paddingBottom: insets.bottom + 8 }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+          <GearIcon size={18} color={p.ink2} />
         </Pressable>
       </View>
     </View>
@@ -279,7 +305,10 @@ export default function ShellB() {
 const styles = StyleSheet.create({
   needsRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 4, borderRadius: 10, paddingHorizontal: 12, height: 44 },
   badge: { minWidth: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  foot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 8 },
+  foot: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 8 },
+  drawerHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  round: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 8, borderRadius: 10, paddingHorizontal: 10, height: 36 },
   you: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, height: 44 },
   pill: { flexDirection: 'row', alignItems: 'center', height: 40, borderRadius: 20, paddingHorizontal: 14, borderWidth: 0.5, maxWidth: '100%', ...shadow(1) },
 })

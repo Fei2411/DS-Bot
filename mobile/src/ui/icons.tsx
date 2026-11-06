@@ -28,6 +28,11 @@ export function SearchIcon({ size = 16, color }: IconProps) {
     h(Circle, { cx: 8.5, cy: 8.5, r: 5.5, stroke: use(color, p.ink2), strokeWidth: 1.6, fill: 'none' }),
     h(Path, { d: 'M13 13l4 4', stroke: use(color, p.ink2), strokeWidth: 1.6, strokeLinecap: 'round' }))
 }
+export function PlusIcon({ size = 16, color }: IconProps) {
+  const { p } = useTheme()
+  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20' },
+    h(Path, { d: 'M10 4v12M4 10h12', stroke: use(color, p.ink2), strokeWidth: 1.6, strokeLinecap: 'round' }))
+}
 export function ArrowUpIcon({ size = 16, color }: IconProps) {
   const { p } = useTheme()
   return h(Svg, { width: size, height: size, viewBox: '0 0 20 20' },
