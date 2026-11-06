@@ -915,7 +915,7 @@ function useLiveNote(actions, sessionId, id, entry) {
 function RelayEvent({ reply, bot, sessionId, actions }) {
   if (reply.kind === 'failed') {
     return h('div', { className: 'bt-event bt-event-error', role: 'status', title: [reply.code, reply.status, reply.text].filter(Boolean).join(' · ') },
-      t('{name} could not answer: {reason}', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
+      t('{name} stopped: {reason}. Switch its model or ask it to go on.', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
   }
   if (reply.kind === 'lookup') {
     return h('div', { className: 'bt-event' },

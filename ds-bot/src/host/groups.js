@@ -92,6 +92,7 @@ const noticeText = (line) => {
   if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
   if (line.reason === 'folder') return `The group's folder ${line.path} is gone, so its members work in the team workspace; set the group's folder again in the group's settings.`
   if (line.reason === 'goal') return goalNotice(line)
+  if (line.reason === 'failed') return `${(line.names ?? []).join(' and ')} stopped: its model call failed (${line.detail}). What it was doing here is not finished; the user can switch its model in its settings or ask it to go on.`
   return line.text ?? ''
 }
 // `text` is what to show of a message line, by default what the log keeps of it.
@@ -257,6 +258,14 @@ export function install(rt) {
   // The folder a group was set to work in is gone: its members' Sessions move on in
   // the team workspace (parts.js), and the group is told once per folder, so a later
   // round does not say it again. Changing the folder clears the mark (updateRoom).
+  // A failed turn stays in the log, so the admin and the other members read on their
+  // next turn that the work stopped there and why (#974); the round's row is gone once
+  // the round is.
+  const noteFailure = (room, name, failure) => {
+    ensureRoomLog(room)
+    appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [name], detail: failureLine(failure) })
+  }
+
   async function roomFolderNotice(roomId, folder) {
     const room = rt.roomOf(roomId)
     if (room === undefined || folder === undefined || room.workDir !== folder || room.folderNotice === folder) return
@@ -784,7 +793,9 @@ export function install(rt) {
       slot.status = 'failed'
       dropMemberFromBatch(room, member.id)
       round.failed.push(member.name)
-      round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code: 'SESSION', text: String(error?.message ?? error).slice(0, 300), time: Date.now() })
+      const failure = { code: 'SESSION', message: String(error?.message ?? error).slice(0, 300) }
+      round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code: failure.code, text: failure.message, time: Date.now() })
+      noteFailure(room, member.name, failure)
       return
     }
     if (session === undefined) {
@@ -819,6 +830,7 @@ export function install(rt) {
       round.failed.push(member.name)
       const { code, status, message } = reply.failure
       round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
+      noteFailure(room, member.name, reply.failure)
     } else if (reply?.approval) {
       // The member's turn goes on in the background and posts when it ends.
       slot.status = 'waiting-approval'
@@ -1402,6 +1414,7 @@ export function install(rt) {
     const wakeCaller = batch !== undefined && batch.pending.size === 0 && batch.done.length > 0 && !batch.answered ? batch.by : undefined
     const { code, status, message } = failure
     rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
+    noteFailure(room, member.name, failure)
     await postToRoom(room, member, `Could not finish: its model call failed (${failureLine(failure)}).`, {
       late: true,
       ...(wakeCaller ? { askedBy: wakeCaller } : { quiet: true }),
