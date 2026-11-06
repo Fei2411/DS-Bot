@@ -3,6 +3,7 @@ import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, Sty
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { t, clockLabel } from '../../ui/i18n.ts'
+import { imPlatform } from '../../../../ds-bot/src/shared/im-platforms.js'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
@@ -24,6 +25,8 @@ export interface ChatItem {
   name?: string
   botId?: string
   images?: number
+  // The IM platform a user message came in over (parts.js viaOf).
+  via?: string
   imageRefs?: ImageRef[]
   files?: { name: string; bytes?: number; attachmentId?: string }[]
   file?: string
@@ -136,7 +139,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     )
   }
   if (item.kind === 'user') {
-    return (
+    const bubble = (
       <Pressable onLongPress={longPress} style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth }]}>
         {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} /> : null}
         {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
@@ -144,6 +147,16 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
           : item.images ? <Text style={[type.caption, { color: p.userInk, opacity: 0.8, marginTop: 4 }]}>{t('{count} images', { count: item.images })}</Text> : null}
       </Pressable>
     )
+    // user-message.js: the time under the bubble, after an IM message's platform tag.
+    return stamp || item.via ? (
+      <View style={{ alignSelf: 'flex-end', alignItems: 'flex-end', maxWidth }}>
+        {bubble}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, marginRight: 2 }}>
+          {item.via ? <Text style={[styles.via, { backgroundColor: p.hover, color: p.ink3 }]}>{t('via {platform}', { platform: imPlatform(item.via)?.name ?? item.via })}</Text> : null}
+          {stamp ? <Text style={[type.caption, { color: p.ink3 }]}>{stamp}</Text> : null}
+        </View>
+      </View>
+    ) : bubble
   }
   const name = inRoom && item.name ? <Text style={[type.caption, { color: p.ink3, marginBottom: 2, marginLeft: 2 }]}>{item.name}</Text> : null
   const wide = hasBlockContent(item.text ?? '') || (item.imageRefs !== undefined && item.imageRefs.length > 0)
@@ -293,6 +306,7 @@ const styles = StyleSheet.create({
   viewerClose: { position: 'absolute', top: 50, right: 20, padding: 10 },
   reader: { flex: 1, paddingTop: 60 },
   answeredCard: { alignSelf: 'flex-start', borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 12, marginVertical: 4, gap: 10 },
+  via: { fontSize: 11, lineHeight: 16, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden' },
   pickLine: { flexDirection: 'row', alignItems: 'center', minHeight: 32 },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,.35)', justifyContent: 'flex-end' },

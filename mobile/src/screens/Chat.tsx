@@ -246,10 +246,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   )
 }
 
-// As on the desktop, a run of one Bot's bubbles ends with the time of its last one.
+// As on the desktop, a run of one Bot's bubbles ends with the time of its last one,
+// and each user message carries its own.
 function stampOf(items: ChatItem[], index: number): string | undefined {
   const item = items[index]
-  if (item.kind !== 'bot' || typeof item.time !== 'number') return undefined
+  if (typeof item.time !== 'number') return undefined
+  if (item.kind === 'user') return messageClock(item.time)
+  if (item.kind !== 'bot') return undefined
   const next = items[index + 1]
   if (next !== undefined && next.kind === 'bot' && (next.name ?? '') === (item.name ?? '')) return undefined
   return messageClock(item.time)
