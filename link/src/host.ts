@@ -92,6 +92,7 @@ export class HostLink {
   private running = false
   private loopDone?: Promise<void>
   private wake?: () => void
+  private endAttempt?: () => void
   private currentStatus: HostLinkStatus = 'stopped'
   private lastError?: string
   private readonly statusWaiters = new Set<() => void>()
@@ -118,6 +119,9 @@ export class HostLink {
     this.running = false
     this.wake?.()
     this.socket?.close()
+    // A socket closed while it is still connecting may never report its close, so
+    // the attempt is ended here too.
+    this.endAttempt?.()
     await this.loopDone
     this.loopDone = undefined
   }
@@ -233,12 +237,26 @@ export class HostLink {
           socket.close()
         }
       }
-      socket.onerror = () => { this.lastError = 'The Server did not answer the connection.'; socket.close() }
-      socket.onclose = () => {
+      const end = (): void => {
         clearInterval(watchdog)
         if (this.socket === socket) this.socket = undefined
-        if (!accepted && this.lastError === undefined) this.lastError = 'The Server closed the connection.'
+        if (this.endAttempt === end) this.endAttempt = undefined
         resolve(accepted)
+      }
+      this.endAttempt = end
+      // An error ends the attempt here: on Node 22's WebSocket, close() on a socket that
+      // failed while connecting fires error again and no close, so it is called once.
+      let closing = false
+      socket.onerror = () => {
+        this.lastError = 'The Server did not answer the connection.'
+        if (closing) return
+        closing = true
+        socket.close()
+        end()
+      }
+      socket.onclose = () => {
+        if (!accepted && this.lastError === undefined) this.lastError = 'The Server closed the connection.'
+        end()
       }
     })
   }

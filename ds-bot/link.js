@@ -7514,6 +7514,7 @@ var HostLink = class {
   running = false;
   loopDone;
   wake;
+  endAttempt;
   currentStatus = "stopped";
   lastError;
   statusWaiters = /* @__PURE__ */ new Set();
@@ -7539,6 +7540,7 @@ var HostLink = class {
     this.running = false;
     this.wake?.();
     this.socket?.close();
+    this.endAttempt?.();
     await this.loopDone;
     this.loopDone = void 0;
   }
@@ -7650,15 +7652,24 @@ var HostLink = class {
           socket.close();
         }
       };
-      socket.onerror = () => {
-        this.lastError = "The Server did not answer the connection.";
-        socket.close();
-      };
-      socket.onclose = () => {
+      const end = () => {
         clearInterval(watchdog);
         if (this.socket === socket) this.socket = void 0;
-        if (!accepted && this.lastError === void 0) this.lastError = "The Server closed the connection.";
+        if (this.endAttempt === end) this.endAttempt = void 0;
         resolve(accepted);
+      };
+      this.endAttempt = end;
+      let closing = false;
+      socket.onerror = () => {
+        this.lastError = "The Server did not answer the connection.";
+        if (closing) return;
+        closing = true;
+        socket.close();
+        end();
+      };
+      socket.onclose = () => {
+        if (!accepted && this.lastError === void 0) this.lastError = "The Server closed the connection.";
+        end();
       };
     });
   }

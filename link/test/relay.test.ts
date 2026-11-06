@@ -320,3 +320,23 @@ test('probe() sends a ping at once', async () => {
   assert.equal(socket.sent.length, 2, 'no second ping while one is pending')
   void transport.close()
 })
+
+test('the computer stops while its socket is still connecting', async () => {
+  const self = identity()
+  const registry = new DeviceRegistry()
+  const host = new HostLink({
+    url: 'ws://unused',
+    identity: self,
+    accessToken: randomToken(),
+    name: 'Desk',
+    admits: (deviceId, key) => registry.admits(deviceId, key),
+    authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
+    handle: async () => null,
+    // A socket that never reports its close.
+    createSocket: () => new FakeSocket() as unknown as WebSocket,
+  })
+  host.start()
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const stopped = await Promise.race([host.stop().then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 1_000))])
+  assert.equal(stopped, true)
+})
