@@ -236,7 +236,22 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
                   h(InlineText, { label: t('Remote Port'), value: String(bot.worker?.remotePort ?? ''), placeholder: '19387', onSave: v => save({ worker: { ...bot.worker, remotePort: Number(v) || undefined } }) })),
                 h(Row, { label: t('Token') },
                   h(InlineText, { label: t('Enrollment token'), value: bot.worker?.token ?? '', placeholder: t('Enrollment token'), onSave: v => save({ worker: { ...bot.worker, token: v } }) })))
-            : null)
+            : null,
+          h('div', { className: 'bt-set-row bt-bs-row' },
+            h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Memory Backend'))),
+            h('select', {
+              className: 'bt-input',
+              value: bot.memoryConfig?.backend ?? 'auto',
+              onChange: e => {
+                const v = e.target.value
+                save({ memoryConfig: { ...bot.memoryConfig, backend: v === 'auto' ? undefined : v } })
+              },
+              'aria-label': t('Memory backend'),
+            },
+              h('option', { value: 'auto' }, t('Auto Detect')),
+              h('option', { value: 'mneme' }, t('dsh-mneme (Force)')),
+              h('option', { value: 'file' }, t('File Memory (Force)')),
+              h('option', { value: 'none' }, t('Disabled')))))
       : null,
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {

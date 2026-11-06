@@ -15093,7 +15093,28 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
           { label: t("Token") },
           (0, import_react33.createElement)(InlineText, { label: t("Enrollment token"), value: bot.worker?.token ?? "", placeholder: t("Enrollment token"), onSave: (v) => save({ worker: { ...bot.worker, token: v } }) })
         )
-      ) : null
+      ) : null,
+      (0, import_react33.createElement)(
+        "div",
+        { className: "bt-set-row bt-bs-row" },
+        (0, import_react33.createElement)("span", { className: "bt-set-copy" }, (0, import_react33.createElement)("span", { className: "bt-bs-label" }, t("Memory Backend"))),
+        (0, import_react33.createElement)(
+          "select",
+          {
+            className: "bt-input",
+            value: bot.memoryConfig?.backend ?? "auto",
+            onChange: (e) => {
+              const v = e.target.value;
+              save({ memoryConfig: { ...bot.memoryConfig, backend: v === "auto" ? void 0 : v } });
+            },
+            "aria-label": t("Memory backend")
+          },
+          (0, import_react33.createElement)("option", { value: "auto" }, t("Auto Detect")),
+          (0, import_react33.createElement)("option", { value: "mneme" }, t("dsh-mneme (Force)")),
+          (0, import_react33.createElement)("option", { value: "file" }, t("File Memory (Force)")),
+          (0, import_react33.createElement)("option", { value: "none" }, t("Disabled"))
+        )
+      )
     ) : null,
     (0, import_react33.createElement)(
       Card2,

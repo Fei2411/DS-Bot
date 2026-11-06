@@ -145,7 +145,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, type, worker }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, type, worker, memoryConfig }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -194,6 +194,10 @@ export function install(rt) {
             mem: null,
           },
         } : {}),
+        // Per-bot memory backend override (only stored when explicitly set)
+        ...(memoryConfig?.backend && ['mneme', 'file', 'none'].includes(memoryConfig.backend)
+          ? { memoryConfig: { backend: memoryConfig.backend } }
+          : {}),
       }
       if (main) state.mainBotIds.push(id)
 
