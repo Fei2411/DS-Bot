@@ -11,7 +11,23 @@ import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer } from './chat/composer.tsx'
 import { Actions, Item, itemKey, type ChatItem } from './chat/items.tsx'
 
-const POLL_MS = 2_500
+// Feed events refresh the chat as things happen; the poll only catches what a
+// dropped event missed, so it runs rarely.
+const POLL_MS = 15_000
+
+// A refreshed page reuses the item objects that did not change, so the memoized
+// rows keep their identity and only new or changed rows render again.
+function keepSame(prev: ChatItem[], next: ChatItem[]): ChatItem[] {
+  const known = new Map(prev.map((item, index) => [itemKey(item, index), item]))
+  let same = prev.length === next.length
+  const merged = next.map((item, index) => {
+    const old = known.get(itemKey(item, index))
+    if (old !== undefined && JSON.stringify(old) === JSON.stringify(item)) { if (prev[index] !== old) same = false; return old }
+    same = false
+    return item
+  })
+  return same ? prev : merged
+}
 
 interface ChatPage { sessionId: string; items: ChatItem[]; cursor: unknown }
 
@@ -39,26 +55,37 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const atBottom = useRef(true)
   const seen = useRef(0)
 
-  const refresh = useCallback(async (gen: number) => {
+  // One chat read at a time, like the team state: a burst of messages becomes one
+  // read now and at most one more after it.
+  const reading = useRef(false)
+  const again = useRef(false)
+  const refresh = useCallback(async (gen: number): Promise<void> => {
     if (id === '' || generation.current !== gen) return
+    if (reading.current) { again.current = true; return }
+    reading.current = true
     try {
       const next = (room !== undefined
         ? await call('room-chat', { roomId: room.id, steps: true })
         : await call('chat', { botId: id, steps: true })) as ChatPage
-      if (generation.current === gen) { setPage(next); setLoadError(null) }
+      if (generation.current === gen) { setPage(prev => prev !== null && prev.sessionId === next.sessionId ? { ...next, items: keepSame(prev.items, next.items) } : next); setLoadError(null) }
     } catch (failure) {
       if (generation.current !== gen) return
       const code = (failure as { code?: string })?.code
       if (code === 'bot/not-found') { setGone(true); onMissing?.() }
       // Offline is the link's state, not this chat's; the reconnect refreshes.
       else if (code !== 'link/offline') setLoadError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      reading.current = false
+      // The latest refresh, not this closure's: the chat may have changed meanwhile.
+      if (again.current) { again.current = false; void latest.current(generation.current) }
     }
   }, [call, id])
+  const latest = useRef(refresh)
+  latest.current = refresh
 
   useEffect(() => {
     const gen = ++generation.current
     setPage(null); setOlder([]); cursor.current = undefined; setGone(false); setLoaded(false)
-    streamAttempts.current.clear(); setStreamText('')
     const loop = async () => {
       await refresh(gen)
       if (generation.current === gen) setTimeout(() => void loop(), POLL_MS)
@@ -109,18 +136,21 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [readerText, setReaderText] = useState<string | null>(null)
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
-  const openFile = (file: { name: string; attachmentId?: string }) => {
+  const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string
       setReaderTitle(file.name)
       setReaderText(typeof read === 'string' ? read : read?.text ?? '')
     }, (failure: { code?: string; message?: string }) => setFileError(failure?.message ?? t('This file cannot be read here')))
+  }, [call])
+  const onLongPress = setMenuText
+  // One stable toggle per steps row, so a memoized row is not redrawn for a new closure.
+  const toggles = useRef(new Map<string, () => void>())
+  const toggleOf = (key: string) => {
+    let toggle = toggles.current.get(key)
+    if (toggle === undefined) { toggle = () => setOpenSteps(prev => ({ ...prev, [key]: !prev[key] })); toggles.current.set(key, toggle) }
+    return toggle
   }
-  const onLongPress = (text: string) => setMenuText(text)
-  // The turn being streamed by the model, per attempt id; the real item lands
-  // with the 'message' event when the turn's text is saved.
-  const [streamText, setStreamText] = useState('')
-  const streamAttempts = useRef(new Map<string, string>())
   const { onFeed, online } = useTeam()
   useEffect(() => { markSeen(id) }, [id])
   useEffect(() => { if (online) void refresh(generation.current) }, [online, refresh])
@@ -135,16 +165,6 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
         if (item !== undefined) setPage(prev => prev === null || prev.items.some(it => it.seq !== undefined && it.seq === item.seq) ? prev : { ...prev, items: [...prev.items, item] })
         markSeen(id)
         void refresh(gen)
-      }
-      if (event === 'stream' && data?.sessionId === sessionId) {
-        if (data.phase === 'start') streamAttempts.current.set(data.attemptId, '')
-        else if (typeof data.text === 'string') {
-          streamAttempts.current.set(data.attemptId, (streamAttempts.current.get(data.attemptId) ?? '') + data.text)
-          setStreamText([...streamAttempts.current.values()].join(''))
-        } else if (data.phase === 'end') {
-          streamAttempts.current.delete(data.attemptId)
-          setStreamText([...streamAttempts.current.values()].join(''))
-        }
       }
     })
   }, [onFeed, room, sessionId, refresh, id])
@@ -199,8 +219,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={() => setOpenSteps(prev => ({ ...prev, [skey]: !prev[skey] }))} /> })}
-              {streamText !== '' ? <Item item={{ kind: 'bot', text: streamText }} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} sessionId={sessionId} /> : null}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={toggleOf(skey)} /> })}
+              <Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} />
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
@@ -224,6 +244,26 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       </Modal>
     </KeyboardAvoidingView>
   )
+}
+
+// The turn being streamed by the model, per attempt id. It holds its own state so a
+// token redraws this one bubble, not the whole chat; the real item lands with the
+// 'message' event when the turn's text is saved.
+function Streaming({ sessionId, p, flat, maxWidth, inRoom }: { sessionId: string; p: ReturnType<typeof useTheme>['p']; flat: boolean; maxWidth: number; inRoom: boolean }) {
+  const { onFeed } = useTeam()
+  const [text, setText] = useState('')
+  useEffect(() => {
+    if (onFeed === undefined) return
+    const attempts = new Map<string, string>()
+    return onFeed((event, data) => {
+      if (event !== 'stream' || data?.sessionId !== sessionId) return
+      if (data.phase === 'start') attempts.set(data.attemptId, '')
+      else if (typeof data.text === 'string') attempts.set(data.attemptId, (attempts.get(data.attemptId) ?? '') + data.text)
+      else if (data.phase === 'end') attempts.delete(data.attemptId)
+      setText([...attempts.values()].join(''))
+    })
+  }, [onFeed, sessionId])
+  return text === '' ? null : <Item item={{ kind: 'bot', text }} p={p} flat={flat} maxWidth={maxWidth} inRoom={inRoom} sessionId={sessionId} />
 }
 
 const type = { caption: { fontSize: 12, lineHeight: 16 }, small: { fontSize: 13, lineHeight: 18 }, bubble: { fontSize: 16, lineHeight: 24 }, settingsRow: { fontSize: 16, lineHeight: 22 } }

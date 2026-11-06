@@ -112,8 +112,14 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     let timer: ReturnType<typeof setTimeout> | undefined
     // One pending timer: every feed event polls, and each poll would otherwise start another loop.
     const later = (run: () => void, ms: number) => { clearTimeout(timer); if (!stopped) timer = setTimeout(run, ms) }
+    // One read at a time: a burst of feed events while a Bot works becomes one
+    // read now and at most one more after it, not a pile of reads over a slow link.
+    let reading = false
+    let again = false
     const poll = async () => {
       if (stopped || clientRef.current === undefined) return
+      if (reading) { again = true; return }
+      reading = true
       try {
         const next = await callBot<TeamState>(clientRef.current, 'state', { since: revision.current, avatars: 'ref', live: liveKey.current })
         apply(next)
@@ -121,6 +127,9 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         later(() => void poll(), POLL_MS)
       } catch (failure) {
         setError(errorText(failure))
+      } finally {
+        reading = false
+        if (again) { again = false; void poll() }
       }
     }
     pollRef.current = () => void poll()
