@@ -16,6 +16,9 @@ jobs:
   test:
     name: ${{ matrix.os }} · Node ${{ matrix.node }} · DSH ${{ matrix.dsh }}
     runs-on: ${{ matrix.os }}
+    # The suite takes a few minutes; a test that never settles used to hold the job for the
+    # runner's six-hour limit.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:

@@ -386,6 +386,78 @@ test('own-chat approval races DSH: IM allow resolves and withdraws the card; lat
   void seenSignal
 })
 
+test('an approval button answers its own card, not the newest one in the chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  const hang = () => new Promise(() => {})
+  const first = s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'first', signal: new AbortController().signal }, hang)
+  await s.flush()
+  const firstId = s.fake.sent.at(-1).buttons[0].data.split(':')[1]
+  let secondOutcome
+  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'second', signal: new AbortController().signal }, hang)
+    .then(([outcome]) => { secondOutcome = outcome })
+  await s.flush()
+  const secondId = s.fake.sent.at(-1).buttons[0].data.split(':')[1]
+  assert.notEqual(firstId, secondId)
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${firstId}:allow`, messageId: 1 })
+  assert.equal((await first)[0], 'allowed-once', 'the pressed card is the one answered')
+  await s.flush()
+  assert.equal(secondOutcome, undefined, 'the newer card stays open')
+  assert.ok(s.rt.approvalsView().some(entry => entry.id === secondId))
+})
+
+test('a button for a card this chat was never sent gets the stale text and answers nothing', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 }, { id: 'u2', name: 'U2', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  let outcome
+  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'r', signal: new AbortController().signal }, () => new Promise(() => {}))
+    .then(([value]) => { outcome = value })
+  await s.flush()
+  const approvalId = s.fake.sent.at(-1).buttons[0].data.split(':')[1]
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u2', kind: 'direct', title: 'U2' }, sender: { id: 'u2', name: 'U2' }, data: `a:${approvalId}:allow`, messageId: 1 })
+  await s.flush()
+  assert.equal(outcome, undefined, 'another chat cannot answer this card')
+  assert.match(s.fake.sent.at(-1).text, /already answered/)
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'a:no-such-card:allow', messageId: 1 })
+  await s.flush()
+  assert.equal(outcome, undefined, 'an unknown id answers nothing')
+})
+
+test('a question button answers its own question even when a newer one has the same option', async (t) => {
+  // Bot a asks from its current chat and from an earlier part: both cards reach dm-u1.
+  const seed = TEAM()
+  seed.bots.a.segments = [{ sessionId: 'a-old' }]
+  const s = await start({ seed })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.rt.state.questions.a = { id: 'q1', question: 'First?', options: [{ label: 'yes' }, { label: 'no' }] }
+  s.rt.state.questions['a-old'] = { id: 'q2', question: 'Second?', options: [{ label: 'yes' }, { label: 'no' }] }
+  await s.rt.save()
+  await s.flush()
+  const cards = s.fake.sent
+  assert.ok(cards.some(entry => entry.buttons?.[0]?.data.startsWith('q:q1:')), 'the first card reached the chat')
+  assert.ok(cards.some(entry => entry.buttons?.[0]?.data.startsWith('q:q2:')), 'the newer card reached the same chat')
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
+  assert.ok(s.rt.state.questions.a === undefined, 'the pressed question is answered')
+  assert.ok(s.rt.state.questions['a-old'] !== undefined, 'the newer question stays open')
+})
+
 test('DSH answering first settles the race; the original signal aborting cancels', async (t) => {
   const s = await start()
   t.after(s.stop)

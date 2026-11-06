@@ -299,7 +299,7 @@ export function install(rt) {
   const on = config.learning !== false && config.memory !== false
   const view = () => ({})
   if (!on) {
-    Object.assign(rt, { learningView: view, learningEndpoint: async () => { throw new Error('Learning is turned off on this host') }, learningRun: async () => 0 })
+    Object.assign(rt, { learningView: view, learningSettledView: view, learningEndpoint: async () => { throw new Error('Learning is turned off on this host') }, learningRun: async () => 0 })
     return
   }
 
@@ -307,7 +307,9 @@ export function install(rt) {
   const path = join(root, 'state.json')
   // `pending`: Bot id → chats with a long turn since the last pass. `agentsPending`:
   // folder → queued work waiting for AGENTS.md review. `cursors`: newest line read.
-  // `proposals`: waiting for the user, by id. `learned`: skill names learned by Bot.
+  // `proposals`: waiting for the user, by id. `settled`: answered ones, by id, with
+  // the outcome; their cards stay in the chat part they were answered in.
+  // `learned`: skill names learned by Bot.
   let saved
   const data = () => {
     if (saved !== undefined) return saved
@@ -320,6 +322,7 @@ export function install(rt) {
     saved.pending ??= {}
     saved.cursors ??= {}
     saved.proposals ??= {}
+    saved.settled ??= {}
     saved.declined ??= []
     saved.learned ??= {}
     saved.agentsPending ??= {}
@@ -658,8 +661,15 @@ export function install(rt) {
     const store = data()
     const proposal = Object.hasOwn(store.proposals, id) ? store.proposals[id] : undefined
     if (proposal === undefined) throw Object.assign(new Error('This proposal is no longer open'), { code: 'bot/stale' })
-    if (approve !== true) {
+    // The answered card stays where it was, read-only, with how it ended. A waiting
+    // card shows in the Bot's current chat part, so that is where it stays.
+    const settle = (outcome) => {
       delete store.proposals[id]
+      const { saved: _saved, ...kept } = proposal
+      store.settled[id] = { ...kept, sessionId: rt.chatOf(proposal.botId), outcome, settledAt: Date.now() }
+    }
+    if (approve !== true) {
+      settle('declined')
       const decline = proposal.kind === 'agents'
         ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
         : { name: proposal.name, description: proposal.description, at: Date.now() }
@@ -670,7 +680,7 @@ export function install(rt) {
     // A failed approval keeps the card, so the user can still decline it.
     if (proposal.kind === 'agents') await applyAgents(proposal)
     else await applySkill(proposal)
-    delete store.proposals[id]
+    settle('approved')
     await persist()
     return { applied: true }
   }
@@ -763,6 +773,14 @@ export function install(rt) {
     for (const entry of Object.values(data().proposals)) (byBot[entry.botId] ??= []).push(entry)
     return byBot
   }
+  // Per Bot, the answered proposals of its current chat part.
+  const learningSettledView = () => {
+    const byBot = {}
+    for (const entry of Object.values(data().settled)) {
+      if (rt.botOf(entry.botId) !== undefined && entry.sessionId === rt.chatOf(entry.botId)) (byBot[entry.botId] ??= []).push(entry)
+    }
+    return byBot
+  }
 
   const capabilityDelete = rt.capabilityDelete
   rt.capabilityDelete = async (...args) => {
@@ -777,5 +795,5 @@ export function install(rt) {
     return result
   }
 
-  Object.assign(rt, { learningView, learningEndpoint, learningRun: run })
+  Object.assign(rt, { learningView, learningSettledView, learningEndpoint, learningRun: run })
 }

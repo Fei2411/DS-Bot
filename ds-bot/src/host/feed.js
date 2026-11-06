@@ -92,8 +92,13 @@ export function install(rt) {
     }
   })
 
+  // A Request built on a caller's signal only follows it while the Request is reachable;
+  // once collected, its abort never fires and the feed stays open. Each open feed keeps
+  // its Request until it leaves.
+  const requests = new Map()
   const leave = (controller) => {
     clients.delete(controller)
+    requests.delete(controller)
     if (!listening()) writing.clear()
     try { controller.close() } catch { /* already closed or errored */ }
   }
@@ -113,6 +118,7 @@ export function install(rt) {
         },
         cancel() { leave(controller) },
       })
+      requests.set(controller, request)
       request.signal.addEventListener('abort', () => leave(controller), { once: true })
       return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } })
     },

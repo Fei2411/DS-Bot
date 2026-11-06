@@ -1,14 +1,15 @@
 // The first-run import: a copy of the Bot team in the user's own DSH home. It only reads there.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { chmod, cp, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { parseSessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import { parse, stringify } from 'yaml'
-import { copyTree, within } from './copy-tree.mjs'
+import { copyTree, disk, within } from './copy-tree.mjs'
 
 export { within }
+
+const { existsSync, readdirSync, readFileSync, statSync } = disk
+const { chmod, cp, lstat, mkdir, readdir, readFile, rename, rm, writeFile } = disk.promises
 
 // The rows of a profile patch that hold model settings: DeepSeek's API and account, other
 // providers, the default model and the agent presets. Rows of other plugins may name plugins

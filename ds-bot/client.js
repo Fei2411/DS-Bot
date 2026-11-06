@@ -153,6 +153,8 @@ var ZH = {
   "AGENTS.md update": "AGENTS.md 更新",
   Approve: "批准",
   Decline: "拒绝",
+  Approved: "已批准",
+  Declined: "已拒绝",
   "Save changes": "保存更改",
   Edit: "编辑",
   "Click again to delete.": "再点一次删除。",
@@ -825,6 +827,7 @@ var ZH = {
   "Dismiss question": "关闭问题",
   Dismiss: "关闭",
   Dismissed: "已关闭",
+  "Answered by message": "已用消息回答",
   "Your answer": "你的回答",
   // Views
   View: "视图",
@@ -2947,6 +2950,10 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-check svg{width:16px;height:16px}
 .bt-q-settled .bt-key{opacity:.4}
 .bt-q-settled .bt-q-label{color:color-mix(in srgb,var(--bt-ink) 45%,transparent)}
+.bt-q-answered .bt-q-title{color:var(--bt-ink-2)}
+.bt-q-answered .bt-key{opacity:1;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-answered .bt-q-label{color:var(--bt-ink)}
+.bt-q-answered .bt-q-opt+.bt-q-opt::before{display:none}
 .bt-q-dismissed .bt-q-title{color:var(--bt-ink-2)}
 .bt-q.bt-q-settled{gap:6px;padding:12px 16px}
 .bt-q-settled .bt-q-title{font-size:14px;line-height:20px;font-weight:500}
@@ -2986,7 +2993,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 @media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled{animation:none}.bt-q-submit{animation:none}}
 
 .bt-newchat{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;animation:bt-veil-in .18s ease-out}
-.bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
+.bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px calc(100% - 32px - min(550px,100% - 64px)) 6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
 .bt-to-label{color:var(--bt-ink-2)}
 .bt-to input{flex:1;min-width:120px;border:0;outline:none;background:none;color:var(--bt-ink);font-size:14px;height:26px}
 .bt-token{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 6px 0 4px;border-radius:999px;background:var(--bt-hover);font-size:13px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
@@ -4972,36 +4979,32 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     foot
   );
 }
-function SettledQuestion({ question, answer }) {
+var closedLabel = (closed) => t(closed === "replied" ? "Answered by message" : "Dismissed");
+function SettledQuestion({ question, answer, closed }) {
   const options = optionsOf(question);
   const prompt = question?.question ?? "";
-  const chosen = [...answer.selected ?? [], ...answer.custom ? [answer.custom] : []];
-  if (chosen.length === 0) {
-    return (0, import_react8.createElement)(
-      "div",
-      { className: "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
-      (0, import_react8.createElement)(
-        "div",
-        { className: "bt-q-head" },
-        (0, import_react8.createElement)("div", { className: "bt-q-text" }, (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt)),
-        (0, import_react8.createElement)("span", { className: "bt-q-badge" }, t("Dismissed"))
-      )
-    );
-  }
+  const selected = Array.isArray(answer?.selected) ? answer.selected : [];
+  const custom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
+  const answered = closed === void 0 && (selected.length > 0 || custom !== "");
+  const chosen = answered ? [
+    ...selected.map((label) => ({ label, at: options.findIndex((option) => option.label === label) })),
+    ...custom !== "" ? [{ label: custom, at: options.length }] : []
+  ] : [];
   return (0, import_react8.createElement)(
     "div",
-    { className: "bt-q bt-q-settled", role: "group", "aria-label": prompt },
-    prompt ? (0, import_react8.createElement)("div", { className: "bt-q-head" }, (0, import_react8.createElement)("div", { className: "bt-q-text" }, (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt))) : null,
-    (0, import_react8.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t("Your answer") }, chosen.map((label, index) => {
-      const optionIndex = options.findIndex((option) => option.label === label);
-      return (0, import_react8.createElement)(
-        "div",
-        { key: `${label}-${index}`, className: "bt-q-opt" },
-        optionIndex >= 0 ? (0, import_react8.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(optionIndex)) : null,
-        (0, import_react8.createElement)("span", { className: "bt-q-body" }, (0, import_react8.createElement)("span", { className: "bt-q-label" }, label)),
-        (0, import_react8.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react8.createElement)(CheckIcon))
-      );
-    }))
+    { className: answered ? "bt-q bt-q-settled bt-q-answered" : "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
+    (0, import_react8.createElement)(
+      "div",
+      { className: "bt-q-head" },
+      (0, import_react8.createElement)("div", { className: "bt-q-text" }, prompt ? (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt) : null),
+      answered ? null : (0, import_react8.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed))
+    ),
+    chosen.length > 0 ? (0, import_react8.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react8.createElement)(
+      "div",
+      { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
+      at >= 0 ? (0, import_react8.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
+      (0, import_react8.createElement)("span", { className: "bt-q-body" }, (0, import_react8.createElement)("span", { className: "bt-q-label" }, label))
+    ))) : null
   );
 }
 function QuestionCard({ matched }) {
@@ -5056,7 +5059,14 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
 }
 function AnsweredCell({ node }) {
   const data = node.data ?? {};
-  const questions = Array.isArray(data.questions) ? data.questions : [];
+  let sent = null;
+  try {
+    sent = typeof data.text === "string" ? JSON.parse(data.text) : null;
+  } catch {
+    sent = null;
+  }
+  const asked = Array.isArray(sent?.questions) ? sent.questions.filter((item) => typeof item?.id === "string" && typeof item.question === "string") : [];
+  const questions = (Array.isArray(data.questions) ? data.questions : []).map((question) => ({ ...asked.find((item) => item.id === question.id), ...question }));
   if (questions.length === 0) {
     return data.text ? (0, import_react8.createElement)("div", { className: "bt-urow" }, (0, import_react8.createElement)("div", { className: "bt-ububble" }, data.text)) : (0, import_react8.createElement)(CellEmpty);
   }
@@ -8049,10 +8059,16 @@ function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, h
   }
   if (done && isError) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
   const shown = checkShownView(args?.text?.("title"), args?.value?.("view"));
-  if (shown.error !== void 0 || shown.interactive || args?.value?.("await_reply") === true) {
-    return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
+  if (shown.error !== void 0) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
+  if (shown.interactive || args?.value?.("await_reply") === true) {
+    const closed = callId === void 0 ? void 0 : roster.closedCards?.[sessionId]?.[callId];
+    if (closed === void 0) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
+    return (0, import_react15.createElement)(ClosedView, { title: shown.title, closed });
   }
   return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(Card, { title: shown.title, view: shown.view }));
+}
+function ClosedView({ title, closed }) {
+  return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(SettledQuestion, { question: { question: title || t("View") }, closed }));
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
@@ -8115,6 +8131,16 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+/* An answered options view keeps only the chosen rows, each under its card letter
+   (a counter, since the core draws no letters on a settled card), like ds-bot's
+   own answered question card. Unchosen rows stay in the flow, invisible and
+   zero-height, so they still count their letters. */
+.dv-q-settled .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */
@@ -9898,6 +9924,9 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return (0, import_react21.createElement)(EarlierUser, { key, row, actions });
     case "answer":
       return (0, import_react21.createElement)(AnsweredReply, { key, node: { data: row } });
+    // A question or view card closed without an answer on it.
+    case "closed":
+      return row.view === void 0 ? (0, import_react21.createElement)("div", { key, className: "bt-q-inline" }, (0, import_react21.createElement)(SettledQuestion, { question: row.question, closed: row.closed })) : (0, import_react21.createElement)(ClosedView, { key, title: row.title, view: row.view, closed: row.closed });
     // A display-only view replays from the blueprint the host kept on the call.
     case "view":
       return (0, import_react21.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
@@ -10396,7 +10425,12 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
     }
     case "ask_user": {
       const question = roster.questions?.[sessionId];
-      if (!question || question.callId !== call2.callId) return (0, import_react21.createElement)(CellEmpty, { className: "bt-q-gone" });
+      if (!question || question.callId !== call2.callId) {
+        const closed = roster.closedCards?.[sessionId]?.[call2.callId];
+        if (closed === void 0) return (0, import_react21.createElement)(CellEmpty, { className: "bt-q-gone" });
+        const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
+        return (0, import_react21.createElement)("div", { className: "bt-q-inline" }, (0, import_react21.createElement)(SettledQuestion, { question: asked, closed }));
+      }
       if (heldCards?.[heldCardKey("question", question.id)] > 0) return (0, import_react21.createElement)(CellEmpty);
       return (0, import_react21.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) });
     }
@@ -11865,14 +11899,23 @@ function mainAvatarPlace(roster) {
   if (look.shape !== MAIN_LOOK.shape || look.color !== MAIN_LOOK.color) return void 0;
   const mark = mainMarkOf(main.id);
   if (!mark || mark.checkVisibility?.({ visibilityProperty: true }) === false) return void 0;
-  const box = mark.getBoundingClientRect();
+  const box = restingBox(mark);
   const view = document.documentElement;
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight };
+}
+function restingBox(mark) {
+  const box = mark.getBoundingClientRect();
+  const column = mark.closest?.(".bt-leftcol");
+  if (!column) return box;
+  const now = column.getBoundingClientRect();
+  const dx = column.offsetLeft - now.left;
+  const dy = column.offsetTop - now.top;
+  return { left: box.left + dx, top: box.top + dy, width: box.width, height: box.height };
 }
 var GLIDE_MS = 460;
 function glideOnto(mark, from) {
   if (!mark || reducedMotion()) return;
-  const box = mark.getBoundingClientRect();
+  const box = restingBox(mark);
   if (!box.width) return;
   const outer = document.createElement("div");
   const inner = document.createElement("div");
@@ -24400,18 +24443,20 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 
 // src/client/learning-card-model.js
 function proposalPlacement(proposal, turns) {
-  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== "function") return { kind: "dock" };
-  let latest;
-  let before;
-  for (const location2 of turns.values()) {
-    const end = location2?.end?.time;
-    if (location2?.status !== "closed" || !Number.isFinite(end)) continue;
-    const later = (target) => target === void 0 || end > target.end.time || end === target.end.time && location2.turn > target.turn;
-    if (later(latest)) latest = location2;
-    if (end <= proposal.at && later(before)) before = location2;
-  }
-  const turn = (before ?? latest)?.turn;
-  return turn === void 0 ? { kind: "dock" } : { kind: "turn", turn };
+  const settled = proposal?.outcome !== void 0;
+  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== "function") return { kind: settled ? "none" : "dock" };
+  const lastBy = (time) => {
+    let found;
+    for (const location2 of turns.values()) {
+      const end = location2?.end?.time;
+      if (location2?.status !== "closed" || !Number.isFinite(end) || end > time) continue;
+      if (found === void 0 || end > found.end.time || end === found.end.time && location2.turn > found.turn) found = location2;
+    }
+    return found;
+  };
+  const turn = (lastBy(proposal.at) ?? lastBy(settled ? proposal.settledAt ?? proposal.at : Infinity))?.turn;
+  if (turn === void 0) return { kind: settled ? "none" : "dock" };
+  return { kind: "turn", turn };
 }
 function fileLines(text) {
   const body = String(text ?? "").replace(/\n+$/, "");
@@ -24466,8 +24511,10 @@ function lineDiff(before, after) {
 var import_react57 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
+  const outcome = proposal.outcome;
   const [busy, setBusy] = (0, import_react57.useState)(false);
   const [error, setError] = (0, import_react57.useState)(initialError);
+  const [open, setOpen] = (0, import_react57.useState)(false);
   const busyRef = (0, import_react57.useRef)(false);
   const titleId = (0, import_react57.useId)();
   const answer = (approve) => {
@@ -24485,29 +24532,40 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
     });
   };
   const update = proposal.action === "update";
+  const agents = proposal.kind === "agents";
   const rows2 = (0, import_react57.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
-  if (proposal.kind === "agents") {
-    const blocks = proposal.edits.map((edit) => [
+  const change = agents ? [
+    (0, import_react57.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map((edit) => [
       ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
       ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
-    ]);
+    ]) }),
+    ...proposal.edits.map((edit, index) => edit.why ? (0, import_react57.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
+  ] : [
+    (0, import_react57.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
+    proposal.why ? (0, import_react57.createElement)("p", { className: "bt-learning-why", key: "why" }, proposal.why) : null
+  ];
+  const kind = t(agents ? "AGENTS.md update" : update ? "Skill update" : "New skill");
+  if (outcome) {
+    const what = agents ? proposal.folder : proposal.name;
     return (0, import_react57.createElement)(
       "section",
-      { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-      (0, import_react57.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: t("AGENTS.md update") }),
-      (0, import_react57.createElement)(FileBox, { name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks }),
-      proposal.edits.map((edit, index) => edit.why ? (0, import_react57.createElement)("p", { className: "bt-learning-why", key: index }, edit.why) : null),
-      error ? (0, import_react57.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-      (0, import_react57.createElement)(ProposalFoot, { busy, answer })
+      { className: "bt-q bt-q-settled bt-learning-card bt-learning-settled", role: "group", "aria-label": `${kind} · ${what}`, "data-outcome": outcome },
+      (0, import_react57.createElement)(
+        "button",
+        { type: "button", className: "bt-learning-fold", "aria-expanded": open, onClick: () => setOpen(!open) },
+        (0, import_react57.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react57.createElement)(agents ? PencilIcon : MemoryIcon)),
+        (0, import_react57.createElement)("span", { className: "bt-learning-kind" }, kind),
+        (0, import_react57.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
+      ),
+      open ? change : null
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
   return (0, import_react57.createElement)(
     "section",
     { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-    (0, import_react57.createElement)(ProposalHead, { titleId, title: proposal.name, kind: t(update ? "Skill update" : "New skill"), detail: proposal.description, oldDetail }),
-    (0, import_react57.createElement)(FileBox, { name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
-    proposal.why ? (0, import_react57.createElement)("p", { className: "bt-learning-why" }, proposal.why) : null,
+    agents ? (0, import_react57.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react57.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
+    change,
     error ? (0, import_react57.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
     (0, import_react57.createElement)(ProposalFoot, { busy, answer })
   );
@@ -24595,13 +24653,15 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const bot = roster.byId?.[sessionId];
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
-  const visible = [...proposals];
+  const settled = (roster.learningSettled?.[bot.id] ?? []).filter((entry) => !proposals.some((proposal) => proposal.id === entry.id));
+  const visible = [...settled, ...proposals];
   for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
+    if (entry.proposal.botId === bot.id && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
   }
   for (const entry of failedAnswers.values()) {
     if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
   }
+  visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
   const cards = visible.filter((proposal) => {
     const placement = proposalPlacement(proposal, facts?.turns);
     return dock ? placement.kind === "dock" : placement.kind === "turn" && placement.turn === turn?.turn;
@@ -24684,6 +24744,13 @@ var LEARNING_CSS = `
 .bt-learning-btn:active:not(:disabled){scale:.96}
 .bt-learning-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.bt-learning-btn{transition:background-color .12s ease,opacity .12s ease}.bt-learning-btn:active:not(:disabled){scale:none}}
+.bt-learning-settled{gap:10px}
+.bt-learning-fold{display:flex;align-items:center;gap:10px;min-width:0;width:100%;margin:-4px 0;padding:4px 0;border:0;background:none;font:inherit;text-align:start;color:var(--bt-ink);cursor:pointer}
+.bt-learning-fold .bt-learning-icon{width:28px;height:28px;border-radius:8px}
+.bt-learning-fold .bt-learning-icon svg{width:16px;height:16px}
+.bt-learning-kind{flex:none;font-size:14px;line-height:20px;font-weight:600}
+.bt-learning-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
+.bt-learning-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:8px}
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
 
@@ -24903,6 +24970,7 @@ function apply(ctx) {
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.phone !== void 0 && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live2.phone = value.phone;
     if (value.learning !== void 0 && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live2.learning = value.learning;
+    if (value.learningSettled !== void 0 && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live2.learningSettled = value.learningSettled;
     if (value.btwCards !== void 0 && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live2.btwCards = value.btwCards;
     if (value.sideChats !== void 0 && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live2.sideChats = value.sideChats;
     if (value.imStatus !== void 0 && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live2.imStatus = value.imStatus;
