@@ -6215,9 +6215,10 @@ var PROPS = {
   number: ["id", "label", "min", "max", "step", "value", "unit"],
   options: ["id", "options", "multi"],
   confirm: ["id", "confirmLabel", "cancelLabel"],
-  form: ["id", "fields", "submitLabel"],
+  form: ["id", "fields", "submitLabel", "cancelLabel"],
   submit: ["id", "label"]
 };
+var FIELD_PROPS = ["id", "label", "placeholder", "value", "multiline", "readOnly"];
 var MAX_DEPTH = 8;
 var MAX_NODES = 64;
 var MAX_CHILDREN = 16;
@@ -6242,17 +6243,17 @@ function viewBytes(title, view) {
 }
 var NUMERIC = ["value", "percent", "min", "max", "step", "height"];
 var numeric = (value) => typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value)) ? Number(value) : value;
-function normalizeView(value) {
-  if (Array.isArray(value)) return value.map(normalizeView);
+function normalizeView(value, inFormFields = false) {
+  if (Array.isArray(value)) return value.map((item) => normalizeView(item, inFormFields));
   if (!isRecord(value)) return value;
   const keys = Object.keys(value);
   if (keys.length === 1 && keys[0] === "item") {
-    const inner = normalizeView(value.item);
+    const inner = normalizeView(value.item, inFormFields);
     if (Array.isArray(inner)) return inner;
   }
   const out = {};
-  for (const key of keys) Object.defineProperty(out, key, { value: normalizeView(value[key]), writable: true, enumerable: true, configurable: true });
-  for (const field of NUMERIC) if (Object.hasOwn(out, field)) out[field] = numeric(out[field]);
+  for (const key of keys) Object.defineProperty(out, key, { value: normalizeView(value[key], inFormFields || key === "fields"), writable: true, enumerable: true, configurable: true });
+  for (const field of NUMERIC) if ((field !== "value" || !inFormFields) && Object.hasOwn(out, field)) out[field] = numeric(out[field]);
   if (Array.isArray(out.values)) out.values = out.values.map(numeric);
   return out;
 }
@@ -6550,6 +6551,7 @@ function checkForm(node, path2, ctx) {
   const idError = checkId(node, path2, ctx);
   if (idError !== void 0) return idError;
   if (node.submitLabel !== void 0 && typeof node.submitLabel !== "string") return `${path2}.submitLabel: expected a string`;
+  if (node.cancelLabel !== void 0 && typeof node.cancelLabel !== "string") return `${path2}.cancelLabel: expected a string`;
   if (!Array.isArray(node.fields)) return `${path2}.fields: expected an array of at most ${MAX_FIELDS} fields`;
   if (node.fields.length > MAX_FIELDS) return `${path2}.fields: ${node.fields.length} fields exceeds the limit of ${MAX_FIELDS}`;
   const seen = /* @__PURE__ */ new Set();
@@ -6558,7 +6560,7 @@ function checkForm(node, path2, ctx) {
     const at = `${path2}.fields[${index}]`;
     if (!isRecord(field)) return `${at}: expected a field object`;
     for (const key of Object.keys(field)) {
-      if (key !== "id" && key !== "label" && key !== "placeholder") return `${at}.${key}: unknown property ${quoted(key)}; allowed: id, label, placeholder`;
+      if (!FIELD_PROPS.includes(key)) return `${at}.${key}: unknown property ${quoted(key)}; allowed: ${allowed(FIELD_PROPS)}`;
     }
     if (typeof field.id !== "string" || field.id === "") return `${at}.id: expected a non-empty string`;
     if (field.id === "__proto__") return `${at}.id: "__proto__" cannot be an id`;
@@ -6566,6 +6568,12 @@ function checkForm(node, path2, ctx) {
     seen.add(field.id);
     if (typeof field.label !== "string") return `${at}.label: expected a string`;
     if (field.placeholder !== void 0 && typeof field.placeholder !== "string") return `${at}.placeholder: expected a string`;
+    if (field.value !== void 0) {
+      if (typeof field.value !== "string") return `${at}.value: expected a string`;
+      if (field.value.length > MAX_TEXT) return `${at}.value: ${field.value.length} characters exceeds the limit of ${MAX_TEXT}`;
+    }
+    if (field.multiline !== void 0 && typeof field.multiline !== "boolean") return `${at}.multiline: expected a boolean`;
+    if (field.readOnly !== void 0 && typeof field.readOnly !== "boolean") return `${at}.readOnly: expected a boolean`;
   }
   return void 0;
 }
@@ -6715,7 +6723,7 @@ function componentSummary(node, lookup) {
     case "confirm":
       return "confirm";
     case "form":
-      return `form: ${(Array.isArray(node.fields) ? node.fields : []).map((field) => field?.label ?? field?.id).filter(Boolean).join("/")}`;
+      return `form: ${(Array.isArray(node.fields) ? node.fields : []).map((field) => field?.label || field?.id).filter(Boolean).join("/")}`;
     case "submit":
       return `submit: ${node.label ?? "Send"}`;
     default:
@@ -6793,15 +6801,19 @@ function validateConfirm(values) {
   return { confirmed: values.confirmed };
 }
 function validateForm(node, values) {
+  if (values.canceled === true) return { canceled: true };
   if (!isRecord(values.fields)) return { error: "values.fields: expected an object of field ids to strings" };
-  const declared = (node.fields ?? []).map((field) => field?.id).filter((id) => typeof id === "string");
+  const declaredFields = (node.fields ?? []).filter((field) => typeof field?.id === "string");
+  const declared = declaredFields.map((field) => field.id);
+  const byId = new Map(declaredFields.map((field) => [field.id, field]));
   const allowedIds = new Set(declared);
   const fields = {};
   for (const [key, value] of Object.entries(values.fields)) {
     if (!allowedIds.has(key)) return { error: `values.fields.${key}: unknown field; allowed: ${allowed(declared)}` };
     if (typeof value !== "string") return { error: `values.fields.${key}: expected a string` };
     if (value.length > MAX_TEXT) return { error: `values.fields.${key}: ${value.length} characters exceeds the limit of ${MAX_TEXT}` };
-    fields[key] = value;
+    const spec = byId.get(key);
+    fields[key] = spec?.readOnly === true ? spec.value ?? "" : value;
   }
   return { fields };
 }
@@ -7419,11 +7431,12 @@ function SettledOptions({ node, answer }) {
     ))
   );
 }
-function ConfirmInput({ node, onSubmit, busy = false }) {
+function ConfirmInput({ node, onSubmit, busy = false, footStart = null }) {
   const ui2 = useViewUi();
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-q-foot" },
+    footStart ? (0, import_react15.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
     (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui2.t("Cancel")),
     (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui2.t("Confirm"))
   );
@@ -7442,12 +7455,15 @@ function SettledConfirm({ node, answer }) {
   const label = confirmed ? node.confirmLabel ?? ui2.t("Confirm") : node.cancelLabel ?? ui2.t("Cancel");
   return (0, import_react15.createElement)("span", { className: "dv-q-badge" }, label);
 }
-function FormInput({ node, onSubmit, busy = false }) {
+function FormInput({ node, onSubmit, busy = false, footStart = null }) {
   const ui2 = useViewUi();
   const fields = fieldsOf(node);
-  const [draft, setDraft] = (0, import_react15.useState)({});
+  const [draft, setDraft] = (0, import_react15.useState)(() => Object.fromEntries(fields.map((field) => [field.id, field.value ?? ""])));
   const submit = () => {
-    if (!busy) onSubmit?.(node.id, { fields: Object.fromEntries(fields.map((field) => [field.id, draft[field.id] ?? ""])) });
+    if (!busy) onSubmit?.(node.id, { fields: Object.fromEntries(fields.map((field) => [field.id, field.readOnly === true ? field.value ?? "" : draft[field.id] ?? ""])) });
+  };
+  const cancel = () => {
+    if (!busy) onSubmit?.(node.id, { canceled: true });
   };
   return (0, import_react15.createElement)(
     "form",
@@ -7458,52 +7474,109 @@ function FormInput({ node, onSubmit, busy = false }) {
         submit();
       }
     },
-    fields.map((field) => (0, import_react15.createElement)(
-      "label",
-      { key: field.id, className: "dv-widget-field" },
-      (0, import_react15.createElement)("span", { className: "dv-widget-field-label" }, field.label),
-      (0, import_react15.createElement)(
-        "span",
-        { className: "dv-q-field" },
-        (0, import_react15.createElement)("input", {
-          className: "dv-q-input",
-          type: "text",
-          value: draft[field.id] ?? "",
-          autoComplete: "off",
-          spellCheck: false,
-          readOnly: busy,
-          "aria-label": field.label,
-          placeholder: field.placeholder ?? void 0,
-          onChange: (event) => {
-            if (!busy) setDraft((current) => ({ ...current, [field.id]: event.target.value }));
-          },
-          onKeyDown: (event) => {
-            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            submit();
-          }
-        })
-      )
-    )),
-    (0, import_react15.createElement)("div", { className: "dv-q-foot" }, (0, import_react15.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit")))
+    fields.map((field) => {
+      const val = field.readOnly === true ? field.value ?? "" : draft[field.id] ?? "";
+      const hasLabel = typeof field.label === "string" && field.label.trim() !== "";
+      const multiline = field.multiline === true;
+      const readOnly = field.readOnly === true;
+      const heading = !multiline && !hasLabel;
+      const labelText = hasLabel ? field.label : field.placeholder ?? field.id;
+      return (0, import_react15.createElement)(
+        "label",
+        {
+          key: field.id,
+          className: "dv-widget-field",
+          "data-inline": !multiline && hasLabel ? "" : void 0,
+          "data-heading": heading ? "" : void 0,
+          "data-multiline": multiline ? "" : void 0,
+          "data-readonly": readOnly ? "" : void 0
+        },
+        hasLabel ? (0, import_react15.createElement)("span", { className: "dv-widget-field-label" }, field.label) : null,
+        (0, import_react15.createElement)(
+          "span",
+          { className: "dv-q-field" },
+          multiline ? (0, import_react15.createElement)("textarea", {
+            className: "dv-q-input dv-q-textarea",
+            rows: Math.min(10, Math.max(3, (val.match(/\n/g)?.length ?? 0) + 1)),
+            value: val,
+            autoComplete: "off",
+            spellCheck: false,
+            readOnly: busy || readOnly,
+            "aria-label": labelText,
+            placeholder: field.placeholder ?? void 0,
+            onChange: (event) => {
+              if (!busy && !readOnly) setDraft((current) => ({ ...current, [field.id]: event.target.value }));
+            },
+            onKeyDown: (event) => {
+              if (event.key !== "Enter" || !event.metaKey && !event.ctrlKey || event.nativeEvent?.isComposing) return;
+              event.preventDefault();
+              submit();
+            }
+          }) : (0, import_react15.createElement)("input", {
+            className: "dv-q-input",
+            type: "text",
+            value: val,
+            autoComplete: "off",
+            spellCheck: false,
+            readOnly: busy || readOnly,
+            "aria-label": labelText,
+            placeholder: field.placeholder ?? void 0,
+            onChange: (event) => {
+              if (!busy && !readOnly) setDraft((current) => ({ ...current, [field.id]: event.target.value }));
+            },
+            onKeyDown: (event) => {
+              if (event.key !== "Enter" || event.nativeEvent?.isComposing) return;
+              event.preventDefault();
+              submit();
+            }
+          })
+        )
+      );
+    }),
+    (0, import_react15.createElement)(
+      "div",
+      { className: "dv-q-foot" },
+      footStart ? (0, import_react15.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
+      node.cancelLabel ? (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: cancel }, node.cancelLabel) : null,
+      (0, import_react15.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit"))
+    )
   );
 }
 function SettledForm({ node, answer }) {
-  const fields = answerValues(answer, node)?.fields;
+  const ui2 = useViewUi();
+  const ans = answerValues(answer, node);
+  const fields = ans?.fields;
   const values = fields !== null && typeof fields === "object" ? fields : {};
+  const canceled = ans?.canceled === true;
+  const badge = canceled ? node.cancelLabel ?? ui2.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui2.t("Submit") : null;
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-widget-form" },
-    fieldsOf(node).map((field) => (0, import_react15.createElement)(
-      "label",
-      { key: field.id, className: "dv-widget-field" },
-      (0, import_react15.createElement)("span", { className: "dv-widget-field-label" }, field.label),
-      (0, import_react15.createElement)(
-        "span",
-        { className: "dv-q-field" },
-        (0, import_react15.createElement)("input", { className: "dv-q-input", type: "text", value: values[field.id] ?? "", disabled: true, readOnly: true, "aria-label": field.label })
-      )
-    ))
+    fieldsOf(node).map((field) => {
+      const val = values[field.id] ?? field.value ?? "";
+      const hasLabel = typeof field.label === "string" && field.label.trim() !== "";
+      const multiline = field.multiline === true;
+      const heading = !multiline && !hasLabel;
+      const labelText = hasLabel ? field.label : field.placeholder ?? field.id;
+      return (0, import_react15.createElement)(
+        "label",
+        {
+          key: field.id,
+          className: "dv-widget-field",
+          "data-inline": !multiline && hasLabel ? "" : void 0,
+          "data-heading": heading ? "" : void 0,
+          "data-multiline": multiline ? "" : void 0,
+          "data-readonly": field.readOnly === true ? "" : void 0
+        },
+        hasLabel ? (0, import_react15.createElement)("span", { className: "dv-widget-field-label" }, field.label) : null,
+        (0, import_react15.createElement)(
+          "span",
+          { className: "dv-q-field" },
+          multiline ? (0, import_react15.createElement)("textarea", { className: "dv-q-input dv-q-textarea", rows: Math.min(10, Math.max(2, (val.match(/\n/g)?.length ?? 0) + 1)), value: val, disabled: true, readOnly: true, "aria-label": labelText }) : (0, import_react15.createElement)("input", { className: "dv-q-input", type: "text", value: val, disabled: true, readOnly: true, "aria-label": labelText })
+        )
+      );
+    }),
+    badge ? (0, import_react15.createElement)("div", { className: "dv-q-foot" }, (0, import_react15.createElement)("span", { className: "dv-q-badge" }, badge)) : null
   );
 }
 function SubmitInput({ node, ctx }) {
@@ -7756,14 +7829,14 @@ function WidgetNode({ node, ctx }) {
     case "options":
       return ctx.settled ? (0, import_react15.createElement)(SettledOptions, { node, answer: ctx.answer }) : (0, import_react15.createElement)(OptionsInput, { node, onSubmit: ctx.onSubmit, keys: ctx.keys, busy: ctx.busy });
     case "confirm":
-      return ctx.settled ? (0, import_react15.createElement)(SettledConfirm, { node, answer: ctx.answer }) : (0, import_react15.createElement)(ConfirmInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy });
+      return ctx.settled ? (0, import_react15.createElement)(SettledConfirm, { node, answer: ctx.answer }) : (0, import_react15.createElement)(ConfirmInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy, footStart: ctx.footStart });
     case "form":
-      return ctx.settled ? (0, import_react15.createElement)(SettledForm, { node, answer: ctx.answer }) : (0, import_react15.createElement)(FormInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy });
+      return ctx.settled ? (0, import_react15.createElement)(SettledForm, { node, answer: ctx.answer }) : (0, import_react15.createElement)(FormInput, { node, onSubmit: ctx.onSubmit, busy: ctx.busy, footStart: ctx.footStart });
     default:
       return null;
   }
 }
-function WidgetView({ view, onSubmit, settled = false, answer = null, busy = false, registerChart, refreshCharts }) {
+function WidgetView({ view, onSubmit, settled = false, answer = null, busy = false, footStart = null, registerChart, refreshCharts }) {
   const inputs = viewInputs(view);
   const [values, setValues] = (0, import_react15.useState)(() => Object.fromEntries(inputs.map((node) => [node.id, inputDefault(node)])));
   const sent = answer?.values?.inputs;
@@ -7774,6 +7847,7 @@ function WidgetView({ view, onSubmit, settled = false, answer = null, busy = fal
     settled,
     answer,
     busy,
+    footStart,
     keys: !settled && countType(view, "options") === 1,
     lookup: viewScope(view, current),
     values: current,
@@ -7854,15 +7928,16 @@ function ViewMenu({ charts }) {
     open ? (0, import_react15.createElement)(ViewMenuList, { charts, pick: pick2 }) : null
   );
 }
-function WidgetCard({ title, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
+function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
   const ui2 = useViewUi();
   const titleId = (0, import_react15.useId)();
   const { charts, registerChart, refreshCharts } = useChartHandles();
   const framed = raised || hasControls(view);
   const className = ["dv-view", framed ? "dv-q" : "dv-view-bare", settled ? "dv-q-settled" : "", raised ? "dv-q-raised" : ""].filter(Boolean).join(" ");
-  const head = title || onDismiss || countType(view, "chart") > 0 ? (0, import_react15.createElement)(
+  const head = title || icon2 || onDismiss || countType(view, "chart") > 0 ? (0, import_react15.createElement)(
     "div",
     { className: "dv-view-head" },
+    icon2 ? (0, import_react15.createElement)("span", { className: "dv-view-icon", "aria-hidden": true }, icon2) : null,
     title ? (0, import_react15.createElement)("p", { className: "dv-view-title", id: titleId }, title) : (0, import_react15.createElement)("span", { className: "dv-view-title" }),
     countType(view, "chart") > 0 ? (0, import_react15.createElement)(ViewMenu, { charts }) : null,
     onDismiss ? (0, import_react15.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui2.t("Dismiss view"), title: ui2.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react15.createElement)(CloseIcon2)) : null
@@ -7877,7 +7952,7 @@ function WidgetCard({ title, view, onSubmit, onDismiss, busy = false, raised = f
       "aria-busy": busy || void 0
     },
     head,
-    (0, import_react15.createElement)("div", { className: "dv-view-body" }, (0, import_react15.createElement)(WidgetView, { view, onSubmit, settled, answer, busy, registerChart, refreshCharts }))
+    (0, import_react15.createElement)("div", { className: "dv-view-body" }, (0, import_react15.createElement)(WidgetView, { view, onSubmit, settled, answer, busy, footStart: settled ? null : footStart, registerChart, refreshCharts }))
   );
 }
 function AnsweredView({ node }) {
@@ -7901,7 +7976,9 @@ function AnsweredView({ node }) {
 var WIDGET_CSS = `
 .dv-view{min-width:0}
 .dv-view-bare{display:flex;flex-direction:column;gap:8px;width:100%;color:var(--dv-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;animation:dv-veil-in .2s ease-out backwards}
-.dv-view-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.dv-view-head{display:flex;align-items:center;gap:8px;min-width:0}
+.dv-view-icon{flex:none;width:22px;height:22px;border-radius:6px;background:var(--dv-hover);color:var(--dv-ink-2);display:inline-flex;align-items:center;justify-content:center}
+.dv-view-icon svg{width:14px;height:14px}
 .dv-view-title{flex:1 1 0;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:500;color:var(--dv-ink);overflow-wrap:anywhere}
 .dv-q-settled .dv-view-title{color:var(--dv-ink-2)}
 .dv-view-tools{position:relative;flex:none;align-self:flex-start;opacity:0;transition:opacity .12s ease}
@@ -7937,6 +8014,14 @@ var WIDGET_CSS = `
 .dv-widget-field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .dv-widget-field-label{font-size:12px;line-height:16px;color:var(--dv-ink-2)}
 .dv-widget-field .dv-q-field:has(.dv-q-input:disabled){cursor:default;opacity:.75}
+.dv-widget-field[data-inline]{flex-direction:row;align-items:center;gap:12px;padding:7px 0;border-bottom:.5px solid var(--dv-line)}
+.dv-widget-field[data-inline] .dv-widget-field-label{flex:none;min-width:44px;font-size:13px;line-height:20px}
+.dv-widget-field[data-inline] .dv-q-field{border:0;border-radius:0;padding:0;min-height:20px;background:none}
+.dv-widget-field[data-inline][data-readonly] .dv-q-input{color:var(--dv-ink-2);cursor:default}
+.dv-widget-field[data-heading] .dv-q-field{border:0;border-radius:0;padding:2px 0;min-height:24px;background:none}
+.dv-widget-field[data-heading] .dv-q-input{font-size:16px;line-height:22px;font-weight:600}
+.dv-widget-field[data-multiline]:not(:has(.dv-widget-field-label)) .dv-q-field{border:0;border-radius:0;padding:4px 0;background:none}
+.dv-q-textarea{max-height:240px;overflow-y:auto;line-height:22px}
 .dv-widget-progress{display:flex;flex-direction:column;gap:5px;min-width:0}
 .dv-widget-progress-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:16px;color:var(--dv-ink-2);font-variant-numeric:tabular-nums}
 .dv-widget-progress-name{color:var(--dv-ink);font-weight:500}
@@ -8067,7 +8152,8 @@ button.dv-q-opt:active{background:var(--dv-active)}
 .dv-q-submit:disabled{opacity:.4;cursor:default}
 .dv-q-btn{background:var(--dv-hover);color:var(--dv-ink)}
 .dv-q-btn:hover{background:var(--dv-active)}
-.dv-q-foot{display:flex;justify-content:flex-end;gap:8px}
+.dv-q-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.dv-q-foot-start{margin-right:auto;display:flex;align-items:center}
 .dv-menu{position:fixed;pointer-events:auto;z-index:60;min-width:200px;padding:6px;border-radius:12px;background:var(--dv-main);border:.5px solid var(--dv-line-2);box-shadow:0 10px 20px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1),0 0 0 1px rgba(228,228,228,.04);display:flex;flex-direction:column;gap:2px;transform-origin:var(--dv-origin,top left);animation:dv-veil-in .14s ease-out;font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);box-sizing:border-box}
 .dv-menu.dv-view-menu{position:absolute;z-index:4}
 .dv-menu button{display:flex;align-items:center;gap:4px;width:100%;min-height:30px;text-align:left;border:0;background:none;border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;line-height:18px;color:var(--dv-ink);cursor:pointer;box-sizing:border-box}
@@ -8098,6 +8184,7 @@ var DEEP_VIEW_CSS = THEME_CSS + QUESTION_CSS + WIDGET_CSS;
 
 // node_modules/deep-view/src/core/reply.js
 var REPLY_KIND = "user-question-reply";
+var REPLY_SOURCE_KIND = "deep-view-reply";
 function viewCardText(args) {
   let card = args;
   if (typeof card === "string") {
@@ -8152,10 +8239,16 @@ function viewAnswerText(view, answer) {
       }
     });
     parts.push(values.confirmed ? confirmLabel ?? "Confirmed" : cancelLabel ?? "Cancelled");
+  } else if (values.canceled === true) {
+    let cancelLabel;
+    eachNode(view, (node) => {
+      if (node.id === answer.action) cancelLabel = node.cancelLabel;
+    });
+    parts.push(cancelLabel ?? "Cancelled");
   } else if (isRecord2(values.fields)) {
     const labels = /* @__PURE__ */ new Map();
     eachNode(view, (node) => {
-      for (const field of Array.isArray(node.fields) ? node.fields : []) labels.set(field?.id, field?.label ?? field?.id);
+      for (const field of Array.isArray(node.fields) ? node.fields : []) labels.set(field?.id, field?.label || field?.id);
     });
     parts.push(...Object.entries(values.fields).map(([key, value]) => `${labels.get(key) ?? key}: ${value}`));
   }
@@ -8191,6 +8284,7 @@ function actionSummary(answer, view) {
   let text;
   if (Array.isArray(values.selected)) text = `selected: ${values.selected.join(", ")}`;
   else if (typeof values.confirmed === "boolean") text = values.confirmed ? "confirmed" : "cancelled";
+  else if (values.canceled === true) text = "cancelled";
   else if (isRecord2(values.fields)) text = Object.entries(values.fields).map(([key, value]) => `${key}: ${value}`).join("; ");
   else if (inputs !== "") text = "";
   else text = typeof answer.action === "string" && answer.action !== "" ? answer.action : "(skipped)";
