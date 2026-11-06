@@ -629,6 +629,7 @@ var ZH = {
   "New session": "新会话",
   Archive: "归档",
   "Session actions": "会话操作",
+  Plugins: "插件",
   "Plain dsh session": "原生 dsh 会话",
   "just now": "刚刚",
   "{n} min": "{n} 分钟",
@@ -15056,11 +15057,12 @@ function TeamSidebar(props) {
     main ? (0, import_react33.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react33.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react33.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react33.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react33.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react33.createElement)(
+  const foot = wideContent ? (0, import_react33.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react33.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react33.createElement)(PluginsButton, { actions })) : (0, import_react33.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react33.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react33.createElement)(PlusIcon)),
-    (0, import_react33.createElement)(AccountLauncher, { seat: false, actions })
+    (0, import_react33.createElement)(AccountLauncher, { seat: false, actions }),
+    (0, import_react33.createElement)(PluginsButton, { actions })
   );
   const content = (0, import_react33.createElement)(
     "div",
@@ -15548,6 +15550,14 @@ function FooterAccount(props) {
   const seated = props.useUi((value) => value.accountSeated === true);
   if (seated) return null;
   return (0, import_react33.createElement)("span", { className: "bt-foot-account" }, (0, import_react33.createElement)(AccountLauncher, { ...props, seat: false }));
+}
+function PluginsButton({ actions }) {
+  if (!actions.hasPlugins?.()) return null;
+  return (0, import_react33.createElement)(
+    "button",
+    { type: "button", className: "bt-account", "aria-label": t("Plugins"), title: t("Plugins"), onClick: () => actions.openPlugins() },
+    (0, import_react33.createElement)("span", { className: "bt-you", "aria-hidden": true }, (0, import_react33.createElement)(PlugIcon))
+  );
 }
 function BotReturn({ wide, useSurface, useRoster, actions }) {
   const mode = useSurface((value) => value.mode);
@@ -26892,6 +26902,8 @@ function apply(ctx) {
   actions.signIn = () => ui2.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
   actions.closeSignIn = () => ui2.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale").bind("settings.account");
+  actions.hasPlugins = () => ctx.get("pluginNavigation") !== void 0;
+  actions.openPlugins = () => ctx.get("pluginNavigation")?.openList();
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
   actions.openHarnessSettings = openHarnessSettings;
   actions.openHarnessOnboarding = openHarnessOnboarding;
