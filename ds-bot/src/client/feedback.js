@@ -6,6 +6,7 @@ import { clearClientErrors, clientErrors, clientFacts, failureLabel, issueUrl, W
 import { dateLocale, t } from './i18n.js'
 import { CloseIcon } from './icons.js'
 import { SPRING_SHAPE } from './motion.js'
+import { reserveWindow } from './open-window.js'
 
 export const FeedbackIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('path', { d: 'M4 4.5h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9l-3.5 3v-3H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z' }), h('path', { d: 'M10 7v2.6M10 11.4h.01' }))
@@ -39,23 +40,8 @@ function entrySummary(entry) {
 
 const SOURCES = { turn: 'Model call', host: 'DS Bot', api: 'DS Bot', browser: 'This window' }
 
-// Where the new issue opens; `go(url)` tells whether it did. In a browser the window is
-// reserved inside the click gesture and addressed once the diagnostics are gathered:
-// opening after the awaits would hit the popup blocker. The Desktop makes no window. It
-// hands an http(s) address to the system browser, has no blocker, and returns null even
-// then, so it gets the address itself.
-function issueWindow() {
-  if (window.dshDesktop !== undefined) return { go: (url) => { window.open(url, '_blank'); return true } }
-  const reserved = window.open('', '_blank')
-  if (reserved !== null) reserved.opener = null
-  return {
-    go: (url) => {
-      if (reserved === null) return false
-      reserved.location.href = url
-      return true
-    },
-  }
-}
+// Where the new issue opens; `go(url)` tells whether it did.
+const issueWindow = reserveWindow
 
 export function FeedbackPage({ actions, run, Section, Row }) {
   const [what, setWhat] = useState('')

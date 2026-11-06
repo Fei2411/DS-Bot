@@ -109,6 +109,9 @@ async function boot(home, seed) {
   return { ctx, rt, agents, agentOf, emit, tool, stop }
 }
 
+// After a restart, a message its recipient never read is sent again on purpose (resume.js);
+// what a repeated request adds is everything else.
+const freshSends = agent => agent.calls.filter(([, message]) => !message?.content?.[0]?.text?.includes('restarted before it could reach you'))
 const tempHome = () => mkdtempSync(join(tmpdir(), 'ds-bot-request-'))
 const cleanup = home => rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 
@@ -177,7 +180,7 @@ test('a repeat after a restart gives the receipt back and sends nothing', async 
   t.after(async () => { await again.stop(); cleanup(home) })
   const out = await again.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
   assert.equal(out, receipt)
-  assert.equal(again.agentOf('b').calls.length, 0)
+  assert.equal(freshSends(again.agentOf('b')).length, 0)
 })
 
 test('a repeat after the recipient read the message does not send it again', async (t) => {
@@ -278,7 +281,7 @@ test('a request that was in the air when DS Bot stopped is not sent again', asyn
   t.after(async () => { await again.stop(); cleanup(home) })
   // The outcome of that admission is not known, so it is not sent again.
   await assert.rejects(again.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
-  assert.equal(again.agentOf('b').calls.length, 0)
+  assert.equal(freshSends(again.agentOf('b')).length, 0)
 })
 
 test('a name whose receipt is no longer kept is not used again', async (t) => {
