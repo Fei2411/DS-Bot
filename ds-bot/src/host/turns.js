@@ -846,10 +846,12 @@ export function install(rt) {
           // Any user message answers or supersedes the open question card and view card.
           let dropped = false
           if (state.questions[id] !== undefined) {
+            rt.closeCard(id, state.questions[id], 'replied')
             delete state.questions[id]
             dropped = true
           }
           if (state.views?.[id] !== undefined) {
+            rt.closeCard(id, state.views[id], 'replied')
             delete state.views[id]
             dropped = true
           }

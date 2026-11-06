@@ -8,7 +8,9 @@ import { spring, SPRING_TAP } from './motion.js'
 
 const failedAnswers = new Map()
 
+// `proposal.outcome` set: an answered card, read-only, with how it ended.
 function ProposalCard({ proposal, initialError = '', onFailure, onResolved, actions }) {
+  const outcome = proposal.outcome
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(initialError)
   const busyRef = useRef(false)
@@ -36,23 +38,23 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
       ...(edit.op === 'add' ? [] : editLines(edit.old)).map(line => ({ kind: 'removed', line })),
       ...(edit.op === 'remove' ? [] : editLines(edit.text)).map(line => ({ kind: 'added', line })),
     ])
-    return h('section', { className: 'bt-q bt-learning-card', role: 'group', 'aria-labelledby': titleId, 'aria-busy': busy },
-      h(ProposalHead, { titleId, icon: PencilIcon, title: t('AGENTS.md update') }),
+    return h('section', { className: 'bt-q bt-learning-card', role: 'group', 'aria-labelledby': titleId, 'aria-busy': busy, 'data-outcome': outcome },
+      h(ProposalHead, { titleId, icon: PencilIcon, title: t('AGENTS.md update'), outcome }),
       h(FileBox, { name: 'AGENTS.md', path: proposal.folder, state: proposal.exists === false ? 'Added' : 'Modified', blocks }),
       proposal.edits.map((edit, index) => edit.why ? h('p', { className: 'bt-learning-why', key: index }, edit.why) : null),
       error ? h('div', { className: 'bt-learning-error', role: 'alert' }, error) : null,
-      h(ProposalFoot, { busy, answer }))
+      outcome ? null : h(ProposalFoot, { busy, answer }))
   }
   const oldDetail = update && typeof proposal.previous?.description === 'string' && proposal.previous.description !== proposal.description ? proposal.previous.description : undefined
-  return h('section', { className: 'bt-q bt-learning-card', role: 'group', 'aria-labelledby': titleId, 'aria-busy': busy },
-    h(ProposalHead, { titleId, title: proposal.name, kind: t(update ? 'Skill update' : 'New skill'), detail: proposal.description, oldDetail }),
+  return h('section', { className: 'bt-q bt-learning-card', role: 'group', 'aria-labelledby': titleId, 'aria-busy': busy, 'data-outcome': outcome },
+    h(ProposalHead, { titleId, title: proposal.name, kind: t(update ? 'Skill update' : 'New skill'), detail: proposal.description, oldDetail, outcome }),
     h(FileBox, { name: 'SKILL.md', path: `skills/${proposal.name}`, state: update ? 'Updated' : 'Added', blocks: [rows] }),
     proposal.why ? h('p', { className: 'bt-learning-why' }, proposal.why) : null,
     error ? h('div', { className: 'bt-learning-error', role: 'alert' }, error) : null,
-    h(ProposalFoot, { busy, answer }))
+    outcome ? null : h(ProposalFoot, { busy, answer }))
 }
 
-function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDetail }) {
+function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDetail, outcome }) {
   return h('div', { className: 'bt-q-head' },
     h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(icon)),
     h('div', { className: 'bt-q-text' },
@@ -60,7 +62,9 @@ function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDeta
       kind ? h('div', { className: 'bt-q-detail' }, kind) : null,
       oldDetail ? h('p', { className: 'bt-learning-description bt-learning-old' }, h('del', null, oldDetail)) : null,
       detail ? h('p', { className: 'bt-learning-description' }, detail) : null),
-    h('span', { className: 'bt-q-badge bt-learning-status' }, h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval')))
+    outcome
+      ? h('span', { className: 'bt-q-badge' }, t(outcome === 'approved' ? 'Approved' : 'Declined'))
+      : h('span', { className: 'bt-q-badge bt-learning-status' }, h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval')))
 }
 
 function ProposalFoot({ busy, answer }) {
@@ -108,14 +112,17 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const bot = roster.byId?.[sessionId]
   if (!bot || currentPart(bot) !== sessionId) return null
   const proposals = roster.learning?.[bot.id] ?? []
-  const visible = [...proposals]
+  // Answered cards stay in place, read-only; a waiting copy of the same card wins.
+  const settled = (roster.learningSettled?.[bot.id] ?? []).filter(entry => !proposals.some(proposal => proposal.id === entry.id))
+  const visible = [...settled, ...proposals]
   for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !proposals.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
+    if (entry.proposal.botId === bot.id && !visible.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
   }
   for (const entry of failedAnswers.values()) {
     if (entry.proposal.botId === bot.id && !proposals.some(proposal => proposal.id === entry.proposal.id)
       && !visible.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
   }
+  visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
   const cards = visible.filter(proposal => {
     const placement = proposalPlacement(proposal, facts?.turns)
     return dock ? placement.kind === 'dock' : placement.kind === 'turn' && placement.turn === turn?.turn
