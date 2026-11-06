@@ -53,7 +53,7 @@ COPY ds-bot/package.json ds-bot/package-lock.json ds-bot/.npmrc ./
 RUN npm ci --no-fund --no-audit
 
 COPY docker/docker.patch.yml /opt/ds-bot/docker.patch.yml
-COPY docker/dev-supervisor.mjs /opt/ds-bot/dev-supervisor.mjs
+COPY --chmod=0755 docker/dev-supervisor.mjs /opt/ds-bot/dev-supervisor.mjs
 COPY --chmod=0755 docker/entrypoint.dev.sh /usr/local/bin/entrypoint.sh
 
 ENV DSH_HOME=/data \

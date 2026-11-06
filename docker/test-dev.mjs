@@ -104,5 +104,8 @@ try {
 } finally {
   if (server) docker(['rm', '--force', server], { allowFailure: true })
   for (const volume of volumes) docker(['volume', 'rm', volume], { allowFailure: true })
+  if (process.platform === 'win32') rmSync(temporary, { recursive: true, force: true })
+  // The container leaves its build tools owned by node on a native Linux mount.
+  else docker(['run', '--rm', '--user', 'root', '--entrypoint', 'sh', '--mount', `type=bind,src=${temporary},dst=/tmp/ds-bot-test`, image, '-c', 'rm -rf /tmp/ds-bot-test/* /tmp/ds-bot-test/.[!.]* /tmp/ds-bot-test/..?*'], { allowFailure: true })
   rmSync(temporary, { recursive: true, force: true })
 }
