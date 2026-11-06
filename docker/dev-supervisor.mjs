@@ -17,7 +17,7 @@
 // The changes are found by polling: a bind mount on Docker Desktop does not
 // deliver the host's file events into the container, so fs.watch stays quiet.
 import { spawn } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 
@@ -62,6 +62,8 @@ const linkProfile = () => {
   if (!existsSync(backupPath)) {
     writeFileSync(backupPath, readFileSync(manifestPath, 'utf8'))
     log('kept the release profile manifest as package.json.release')
+    const modulesPath = join(PROFILE, 'node_modules')
+    if (existsSync(modulesPath)) renameSync(modulesPath, join(PROFILE, 'node_modules.release'))
   }
   const lockPath = join(PROFILE, 'pnpm-lock.yaml')
   const lockBackupPath = join(PROFILE, 'pnpm-lock.yaml.release')
@@ -265,7 +267,6 @@ const pollPlugin = () => {
 }
 
 const watchPlugin = () => {
-  known = snapshot()
   log(`watching ${PLUGIN} for changes (every ${POLL_MS} ms)`)
   setInterval(() => {
     try {
@@ -280,7 +281,9 @@ const main = async () => {
   if (DSH.length === 0) throw new Error('usage: dev-supervisor.mjs <command> [args...]')
   linkProfile()
   await installProfile()
+  known = snapshot()
   await rebuild()
+  pollPlugin()
   clearForeignLock()
   startDsh()
   watchPlugin()

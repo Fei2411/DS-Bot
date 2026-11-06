@@ -75,6 +75,7 @@ try {
     '',
   ].join('\n')
   writeFileSync(buildScript, holdableBuild + readFileSync(buildScript, 'utf8'))
+  writeFileSync(join(plugin, '.build-hold'), '')
   for (const volume of volumes) docker(['volume', 'create', volume])
 
   const uid = process.getuid?.() ?? 1000
@@ -91,12 +92,17 @@ try {
 
   const builds = () => logs().match(/rebuilt client\.js and office\.js/g)?.length ?? 0
   const starts = () => logs().match(/\[ds-bot-dev\] dsh started \(pid /g)?.length ?? 0
-  await waitFor('the initial browser bundle build', () => builds() > 0)
+  await waitFor('the held initial build', () => docker(['exec', name, 'test', '-f', '/tmp/ds-bot-dev-build-started'], { allowFailure: true }).status === 0)
+  writeFileSync(join(plugin, 'src', 'client', 'dev-startup-probe.js'), 'export const devStartupProbe = true\n')
+  docker(['exec', name, 'rm', '-f', '/app/ds-bot/.build-hold'])
+  await waitFor('the initial follow-up build', () => builds() >= 2)
   await waitFor('the source watcher', () => logs().includes('[ds-bot-dev] watching /app/ds-bot'))
+  console.log('PASS: an edit during the initial build triggers a follow-up build')
   const linked = docker(['exec', name, 'readlink', '-f', '/data/profiles/web/node_modules/ds-bot']).stdout.trim()
   assert.equal(linked, '/app/ds-bot')
   docker(['exec', name, 'test', '-f', '/data/profiles/web/package.json.release'])
   docker(['exec', name, 'test', '-f', '/data/profiles/web/pnpm-lock.yaml.release'])
+  docker(['exec', name, 'test', '-d', '/data/profiles/web/node_modules.release'])
   await waitFor('the fresh web server', httpReady())
   console.log('PASS: fresh data builds the checkout and links the mounted plugin into the profile')
 
@@ -124,6 +130,10 @@ try {
   await waitFor('the restarted web server', httpReady())
   console.log('PASS: a host source change restarts DSH and restores HTTP service')
 
+  docker(['exec', name, 'sh', '-eu', '-c', `
+    mkdir -p /data/profiles/web/node_modules.release/extra-plugin
+    printf 'extra plugin' > /data/profiles/web/node_modules.release/extra-plugin/index.js
+  `])
   docker(['stop', name])
   docker(['rm', name])
   server = ''
@@ -144,6 +154,7 @@ try {
     test ! -L /data/profiles/web/node_modules/ds-bot
     test -f /data/profiles/web/node_modules/ds-bot/index.js
     test -f /data/profiles/web/node_modules/deep-view/package.json
+    test -f /data/profiles/web/node_modules/extra-plugin/index.js
     test ! -e /data/profiles/web/package.json.release
     test ! -e /data/profiles/web/pnpm-lock.yaml.release
     node -e 'const assert = require("node:assert/strict"); const fs = require("node:fs"); const profile = "/data/profiles/web/"; const pkg = JSON.parse(fs.readFileSync(profile + "package.json", "utf8")); assert.notEqual(pkg.dependencies["ds-bot"], "link:/app/ds-bot"); assert.ok(!fs.readFileSync(profile + "pnpm-lock.yaml", "utf8").includes("link:/app/ds-bot")); assert.deepEqual(fs.readFileSync(profile + "node_modules/ds-bot/index.js"), fs.readFileSync("/opt/dsh-template/profiles/web/node_modules/ds-bot/index.js"))'

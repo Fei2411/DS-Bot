@@ -50,11 +50,11 @@ those dependencies.
 
 ## Data and release switching
 
-The first development start saves the profile's release manifest and lockfile,
-then links the profile to the checkout. To return the same data directory to the
-release image, stop the development container and start the release Compose
-setup. Its entrypoint restores the release manifest, lockfile and complete
-installed dependency tree from the image before starting DSH.
+The first development start saves the profile's release manifest, lockfile and
+installed dependency tree, then links the profile to the checkout. To return the
+same data directory to the release image, stop the development container and
+start the release Compose setup. Its entrypoint restores those saved files,
+including additional installed plugins, before starting DSH.
 
 Use one container with a given data directory at a time. The supervisor removes
 a team lock left by a previous container whose hostname differs, which covers

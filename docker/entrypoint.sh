@@ -18,7 +18,7 @@ fi
 # A development container links the plugin to its source mount. Restore the
 # release dependency tree before that mount disappears, keeping the profile data.
 PROFILE=/data/profiles/web
-if [ -f "$PROFILE/package.json.release" ] && [ -L "$PROFILE/node_modules/ds-bot" ]; then
+if [ -f "$PROFILE/package.json.release" ]; then
   cp "$PROFILE/package.json.release" "$PROFILE/package.json"
   if [ -f "$PROFILE/pnpm-lock.yaml.release" ]; then
     cp "$PROFILE/pnpm-lock.yaml.release" "$PROFILE/pnpm-lock.yaml"
@@ -26,7 +26,11 @@ if [ -f "$PROFILE/package.json.release" ] && [ -L "$PROFILE/node_modules/ds-bot"
     rm -f "$PROFILE/pnpm-lock.yaml"
   fi
   rm -rf "$PROFILE/node_modules"
-  cp -a /opt/dsh-template/profiles/web/node_modules "$PROFILE/node_modules"
+  if [ -d "$PROFILE/node_modules.release" ]; then
+    mv "$PROFILE/node_modules.release" "$PROFILE/node_modules"
+  else
+    cp -a /opt/dsh-template/profiles/web/node_modules "$PROFILE/node_modules"
+  fi
   rm -f "$PROFILE/package.json.release" "$PROFILE/pnpm-lock.yaml.release"
 fi
 
