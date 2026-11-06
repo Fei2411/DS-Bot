@@ -2,7 +2,7 @@ import { createElement as h, useRef, useState } from 'react'
 import { MarkdownText } from './dsh-primitives.js'
 import { CellEmpty } from './cell-empty.js'
 import { t } from './i18n.js'
-import { AnsweredCell, closedLabel } from './questions.js'
+import { AnsweredCell, SettledQuestion } from './questions.js'
 import { useDockHold } from './card-hold.js'
 import { SettledHandoff } from './handoff-card.js'
 import { SettledComputerHandoff } from './computer.js'
@@ -66,16 +66,15 @@ export function WidgetCell({ sessionId, callId, args, done, isError, roster, act
   if (shown.interactive || args?.value?.('await_reply') === true) {
     const closed = callId === undefined ? undefined : roster.closedCards?.[sessionId]?.[callId]
     if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
-    return h(ClosedView, { title: shown.title, view: shown.view, closed })
+    return h(ClosedView, { title: shown.title, closed })
   }
   return h('div', { className: 'bt-q-inline' }, h(Card, { title: shown.title, view: shown.view }))
 }
 
-// A view closed without an answer on it: settled with nothing chosen, and a badge
-// beside its title for how it closed.
-export function ClosedView({ title, view, closed }) {
-  const head = h('span', { className: 'bt-view-closed' }, h('span', { className: 'bt-view-closed-title' }, title ?? ''), h('span', { className: 'bt-q-badge' }, closedLabel(closed)))
-  return h('div', { className: 'bt-q-inline' }, h(Card, { title: head, view, settled: true }))
+// A view closed without an answer on it: compact like a closed question card, its
+// title (or "View") and a badge for how it closed.
+export function ClosedView({ title, closed }) {
+  return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question: { question: title || t('View') }, closed }))
 }
 
 // Views asked by a call the transcript does not draw wait above the composer,
@@ -142,8 +141,16 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
-.bt-view-closed{display:flex;align-items:flex-start;gap:8px}
-.bt-view-closed-title{flex:1 1 0;min-width:0}
+/* An answered options view keeps only the chosen rows, each under its card letter
+   (a counter, since the core draws no letters on a settled card), like ds-bot's
+   own answered question card. Unchosen rows stay in the flow, invisible and
+   zero-height, so they still count their letters. */
+.dv-q-settled .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */
