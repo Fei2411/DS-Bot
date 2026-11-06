@@ -808,7 +808,14 @@ export function install(rt) {
   // state.switching. Hand on what it kept: input an earlier part still holds goes to
   // the part that replaced it and the earlier part is archived as the switch meant
   // to; a part that stayed just wakes so its kept input goes on.
-  async function heldBack() {
+  // The start timer and a direct call can overlap on a slow start; both share one pass,
+  // so kept input is handed on once.
+  let heldBackRun
+  function heldBack() {
+    heldBackRun ??= handOnHeld().finally(() => { heldBackRun = undefined })
+    return heldBackRun
+  }
+  async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
