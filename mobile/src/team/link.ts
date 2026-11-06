@@ -3,7 +3,7 @@ import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
-import { OPTIMISTIC, optimistic } from './optimistic.ts'
+import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
@@ -32,6 +32,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   const [hello, setHello] = useState<Hello | null>(null)
   const clientRef = useRef<RpcClient | undefined>(undefined)
   const revision = useRef<number>(-1)
+  const writes = useRef<Write[]>([])
   const liveKey = useRef<string | undefined>(undefined)
   const pollRef = useRef<() => void>(() => {})
   const feedHandlers = useRef(new Set<FeedHandler>())
@@ -79,7 +80,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     if (typeof next.liveKey === 'string') liveKey.current = next.liveKey
     setTeam(prev => {
       const merged = next.unchanged === true && prev !== null ? { ...prev, ...next } : next
-      return fillPhotos(merged, prev)
+      return fillPhotos(withWrites(merged, writes.current), prev)
     })
   }, [])
 
@@ -93,10 +94,17 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       }
       // Show the write's effect at once; the reply's state (or a full reload
       // on failure) puts the computer's truth back over it.
-      setTeam(prev => optimistic(prev, endpoint, payload as Record<string, unknown>))
-      const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
-      if (answer.state !== undefined) apply(answer.state)
-      return answer.value
+      const write: Write = { endpoint, payload: payload as Record<string, unknown> }
+      if (OPTIMISTIC.has(endpoint)) writes.current.push(write)
+      setTeam(prev => optimistic(prev, endpoint, write.payload))
+      try {
+        const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
+        writes.current = writes.current.filter(entry => entry !== write)
+        if (answer.state !== undefined) apply(answer.state)
+        return answer.value
+      } finally {
+        writes.current = writes.current.filter(entry => entry !== write)
+      }
     } catch (failure) {
       // Snap back to the computer's truth: forget the revision and re-read all.
       if (OPTIMISTIC.has(endpoint)) {

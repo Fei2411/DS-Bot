@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { optimistic } from './optimistic.ts'
+import { optimistic, withWrites } from './optimistic.ts'
 import type { TeamState } from '../connection.ts'
 
 const team: TeamState = {
@@ -71,4 +71,11 @@ test('unknown ids, unknown endpoints and an empty team change nothing', () => {
   assert.equal(optimistic(team, 'update-room', { id: 'ghost', name: 'x' }), team)
   assert.equal(optimistic(team, 'delete-bot', { id: 'b1' }), team)
   assert.equal(optimistic(null, 'update-bot', { id: 'b1' }), null)
+})
+
+test('a stale read keeps the guess of a write still in flight', () => {
+  const stale = { ...team, bots: [{ ...team.bots[0], permission: 'workspace-write' }, team.bots[1]] }
+  const next = withWrites(stale, [{ endpoint: 'update-bot', payload: { id: 'b1', permission: 'read-only' } }])
+  assert.equal(next.bots[0].permission, 'read-only')
+  assert.equal(withWrites(stale, []), stale)
 })

@@ -53,3 +53,11 @@ export function optimistic(team: TeamState | null, endpoint: string, payload: Re
       return team
   }
 }
+
+export interface Write { endpoint: string; payload: Record<string, unknown> }
+
+// A state read that left before a write landed would undo the write's guess, so
+// every write still in flight is laid over each state the phone takes in.
+export function withWrites(team: TeamState, writes: Write[]): TeamState {
+  return writes.reduce<TeamState>((next, write) => optimistic(next, write.endpoint, write.payload) ?? next, team)
+}
