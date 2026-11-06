@@ -725,6 +725,7 @@ export function install(rt) {
     for (const part of parts) {
       delete state.questions[part]
       if (state.views !== undefined) delete state.views[part]
+      if (state.closedCards !== undefined) delete state.closedCards[part]
       delete state.exchangeTurns[part]
       delete state.switching[part]
     }

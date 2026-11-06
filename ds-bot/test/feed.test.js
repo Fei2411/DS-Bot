@@ -24,9 +24,9 @@ const TEAM = {
 const userMessage = (text, time) => ({ type: 'user/message', time, data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
 const botMessage = (text, time, turn = 1) => ({ type: 'assistant/message', time, data: { turn, message: { content: [{ type: 'text', text }] } } })
 
-function start({ pages = {}, services = {} } = {}) {
+function start({ pages = {}, services = {}, team = TEAM } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-feed-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext({ services })
   ctx.sessionController = {
     resolveAgent: async sessionId => ({ agent: { session: { id: sessionId, seq: 100 } } }),
@@ -231,6 +231,25 @@ test('a display view is retained when its part becomes earlier history', async (
   await call('state')
   const page = (await call('earlier', { sessionId: 'm1c' })).value
   assert.deepEqual(page.items, [{ kind: 'view', title: 'Earlier card', view, callId: 'old-view', time: 20 }])
+})
+
+test('a question or view card closed without an answer reads back in earlier history; an answered one does not', async (t) => {
+  const options = [{ label: 'Short' }, { label: 'Long' }]
+  const pick = { type: 'options', id: 'lane', options: [{ label: 'Ship now' }] }
+  const events = [
+    { type: 'tool/call', time: 20, seq: 3, data: { turn: 1, callId: 'q-closed', name: 'ask_user', arguments: JSON.stringify({ question: 'Which draft?', options }) } },
+    { type: 'tool/call', time: 21, seq: 4, data: { turn: 1, callId: 'q-answered', name: 'ask_user', arguments: JSON.stringify({ question: 'Answered', options }) } },
+    { type: 'tool/call', time: 22, seq: 5, data: { turn: 1, callId: 'v-closed', name: 'show_view', arguments: JSON.stringify({ title: 'Pick a lane', view: pick }) } },
+  ]
+  const team = { ...TEAM, closedCards: { m1: { 'q-closed': 'replied', 'v-closed': 'dismissed' } } }
+  const { call, stop } = start({ team, pages: { 'm1:end': { records: events.map(event => ({ event })), hasMore: false } } })
+  t.after(stop)
+  await call('state')
+  const page = (await call('earlier', { sessionId: 'm1c' })).value
+  assert.deepEqual(page.items, [
+    { kind: 'closed', closed: 'replied', question: { question: 'Which draft?', options, multiSelect: false }, callId: 'q-closed', time: 20 },
+    { kind: 'closed', closed: 'dismissed', title: 'Pick a lane', view: pick, callId: 'v-closed', time: 22 },
+  ])
 })
 
 test('the run-stats endpoint reads DSH\'s figures for the current part of a Bot\'s chat', async (t) => {

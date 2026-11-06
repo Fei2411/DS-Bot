@@ -29,7 +29,7 @@
 | `fix/<Issue 号>-<短名>`、`feat/<Issue 号>-<短名>`、`docs/<短名>`、`chore/<短名>` | 你的工作分支。从最新的 `dev` 切出 | — |
 
 - 分支名不要以 `dev/` 开头。有 `dev` 分支时，Git 建不了 `dev/<名字>`。
-- 同步分支用 `git merge dev`（热修分支用 `git merge main`）。已推送的分支不要 rebase，也不要强推。
+- 同步分支用 `scripts/merge-dev.sh`：合入 `origin/dev`，生成文件 `ds-bot/client.js` 冲突时取 dev 的版本再重新生成（热修分支用 `git merge main`）。已推送的分支不要 rebase，也不要强推。
 - 默认分支是 `main`，所以 GitHub 新建 Pull Request 时默认的 base 是 `main`。请改成 `dev`。
 
 ### Issue

@@ -9,12 +9,13 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme,
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { canonicalExecPath } from './canonical-path.mjs'
+import { disk } from './copy-tree.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
@@ -26,6 +27,8 @@ import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { CAPTION_HEIGHT, cssColor, micaAvailable, nativeThemeSource } from './window-frame.mjs'
+
+const { rm } = disk.promises
 
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
@@ -555,6 +558,7 @@ async function removeMade() {
 
 const profileDir = () => join(places.dataDir, 'profiles', PROFILE)
 const pnpmEntry = () => join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
+const runtimeDir = () => app.isPackaged ? process.resourcesPath : join(here, '..', 'build', 'runtime')
 const hostOutput = (stream, chunk) => {
   logs.write('engine', chunk)
   rawOutput[stream](chunk)
@@ -566,7 +570,7 @@ function newHost() {
   return new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: app.isPackaged ? process.resourcesPath : join(here, '..', 'build', 'runtime'), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -577,7 +581,7 @@ function newHost() {
 function newCheck(home, list) {
   const cwd = join(home, 'profiles', CHECK_PROFILE)
   mkdirSync(cwd, { recursive: true })
-  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput })
+  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput })
 }
 
 /**
