@@ -356,6 +356,21 @@ test('a reinstall refused by an application state also puts the old version back
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 
+test('a newer release is offered in the run that reported the last update', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString() }))
+  const { rt } = start({
+    home,
+    source: `${PKG.name}@^${PKG.version}`,
+    answers: { [`https://registry.npmjs.org/${PKG.name}/latest`]: { version: '9.0.0' } },
+  })
+  assert.equal(rt.updateView().phase, 'updated')
+  const view = await rt.updateCheck({ fresh: true })
+  assert.equal(view.available, true)
+  assert.equal(view.phase, 'idle')
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
 test('the note for the version now running shows the update once and is consumed', async () => {
   const home = newHome()
   writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString() }))

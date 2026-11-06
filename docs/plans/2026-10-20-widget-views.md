@@ -65,7 +65,7 @@ Bot 的回答现在只有 Markdown 文本。有些回答天生是结构化的：
 
 - `options`：`{ id, options: [{ label, description? }], multi? }`。单选按下即提交；多选切换勾选、出 Submit 按钮（和提问卡一致）。
 - `confirm`：`{ id, confirmLabel?, cancelLabel? }`，按下即提交。
-- `form`：`{ id, fields: [{ id, label, placeholder? }], submitLabel? }`，短文本输入框 + 提交按钮。说明里禁止用 form 收集密钥——密钥走 `request_secret`。
+- `form`：`{ id, fields: [{ id, label, placeholder?, value?, multiline?, readOnly? }], submitLabel?, cancelLabel? }`，支持预设初值、单行与多行输入、只读字段，以及可选的取消/丢弃按钮（取消时结算为 `{ canceled: true }`）。说明里禁止用 form 收集密钥——密钥走 `request_secret`。
 - `submit`：`{ id, label? }`，把输入控件当前的值发给 Bot（「发给 Bot」）。
 
 标识约束：交互组件和输入的 `id` 在整棵树里唯一；输入的 `id` 必须是公式能引用的名字（字母、数字、下划线，不以数字开头）；form 内字段 `id` 在该 form 内唯一；options 的选项以 label 为身份（和提问卡一致）；choice 的选项值唯一。

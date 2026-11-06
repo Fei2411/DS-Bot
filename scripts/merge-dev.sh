@@ -37,6 +37,11 @@ if [ "$merged" -eq 0 ]; then
   fi
 fi
 
+# The bundle includes locked packages (deep-view), so a lockfile that changed with the
+# merge, or a checkout that never installed, needs `npm ci` before the build.
+if [ ! -d ds-bot/node_modules ] || ! git diff --quiet ORIG_HEAD -- ds-bot/package-lock.json; then
+  (cd ds-bot && npm ci --no-fund --no-audit >/dev/null)
+fi
 # The merged sources may differ from both sides' bundles even without a conflict.
 (cd ds-bot && npm run build >/dev/null)
 git add ds-bot/client.js

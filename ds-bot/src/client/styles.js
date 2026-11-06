@@ -2,6 +2,7 @@ import { INKS } from './inks.js'
 import { DEFAULT_MASK } from './characters.js'
 import { MENTION_ORIGIN } from './text.js'
 import { SPRING_SHAPE, SPRING_TAP, SPRING_STRETCH, SPRING_POP, spring } from './motion.js'
+import { DSH_NARROW } from './frame-layout.js'
 
 // The pill stretches for "Memory updated" on SPRING_STRETCH, and its icon pops on
 // SPRING_POP; it closes on SPRING_SHAPE.
@@ -164,8 +165,11 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 .bt-leftcol-grip:hover,.bt-leftcol-grip:active{background:linear-gradient(to right,transparent 3px,var(--bt-line-2) 3px,var(--bt-line-2) 5px,transparent 5px)}
 /* The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
    column leaves nothing behind (the shell's right column, when open, keeps its
-   own geometry). Our own collapse of it lands without the shell's slide. */
+   own geometry). Narrow hosts may put the conversation in the first track,
+   so only the desktop layout can force that track to zero. */
+@media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
+}
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
@@ -289,6 +293,10 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-check svg{width:16px;height:16px}
 .bt-q-settled .bt-key{opacity:.4}
 .bt-q-settled .bt-q-label{color:color-mix(in srgb,var(--bt-ink) 45%,transparent)}
+.bt-q-answered .bt-q-title{color:var(--bt-ink-2)}
+.bt-q-answered .bt-key{opacity:1;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-answered .bt-q-label{color:var(--bt-ink)}
+.bt-q-answered .bt-q-opt+.bt-q-opt::before{display:none}
 .bt-q-dismissed .bt-q-title{color:var(--bt-ink-2)}
 .bt-q.bt-q-settled{gap:6px;padding:12px 16px}
 .bt-q-settled .bt-q-title{font-size:14px;line-height:20px;font-weight:500}
@@ -603,8 +611,23 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-connector-actions{flex:none;display:flex;gap:6px}
 .bt-connector-form{display:flex;flex-direction:column;gap:8px;padding-left:48px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-connector-form-row{display:flex;align-items:center;gap:6px}
-.bt-connector-link{flex:1;font-size:12px;color:var(--bt-ink-2)}
+.bt-connector-form-row>:first-child{margin-right:auto}
+.bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
+.bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
+.bt-connector-banner{padding:0 0 8px}
+.bt-mail-form{gap:10px}
+.bt-mail-seg{align-self:flex-start}
+.bt-mail-guide{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-mail-guide ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px}
+.bt-mail-links{display:flex;gap:16px}
+.bt-mail-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
+.bt-mail-rules{gap:4px}
+.bt-mail-rules-title{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-mail-rule{display:flex;align-items:center;gap:12px;min-height:36px}
+.bt-mail-rule-name{font-size:13px;line-height:18px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-im-mark{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--bt-im-mark-ink)}
 .bt-im-line{display:flex;align-items:center;gap:8px}
 .bt-im-label{flex:1;font-size:12px;color:var(--bt-ink-2)}
