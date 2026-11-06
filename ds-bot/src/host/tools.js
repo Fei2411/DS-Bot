@@ -845,13 +845,18 @@ export function install(rt) {
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const assembled = await next()
-      // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
-      // older assembly still carries tools to drop here.
+      // DSH 0.2.2 hands this waterfall a presentation only — sections, contexts
+      // and variables — and adds the tool list after it (#814), so neither list
+      // can be counted on here. A plugin that listened earlier in the chain may
+      // also hand back nothing at all (#946). Fall back to an empty list instead
+      // of reading the missing list, the guard the reports in #922, #951 and #952
+      // verified: the host drops a tool list we hand back (#922 comment), and a
+      // host that carries sections always hands them over.
+      const assembled = (await next()) ?? {}
       return {
         ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        tools: (assembled.tools ?? []).filter(tool => !HIDDEN_TOOLS.includes(tool.name)),
+        sections: (assembled.sections ?? []).filter(section => !HIDDEN_SECTIONS.has(section.name)),
       }
     })
     held.filtered = true
@@ -952,8 +957,10 @@ export function install(rt) {
     const assembled = await next()
     const held = scoped.get(agent.session?.id)
     if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
-    // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
-    if (!Array.isArray(assembled.tools)) {
+    // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814),
+    // and a plugin that listened earlier in the chain may hand back no assembly
+    // at all (#946) — either way there is no tool list here to add names to.
+    if (!Array.isArray(assembled?.tools)) {
       held.unlisted.clear()
       return assembled
     }

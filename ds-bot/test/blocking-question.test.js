@@ -291,13 +291,14 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.contexts, [{ name: 'x' }])
   assert.deepEqual(filtered.variables, { a: 1 })
   // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
-  // assembly it passes has none; the guidance is still filtered and no tools appear.
+  // assembly it passes has none; the guidance is still filtered, and the missing
+  // tool list falls back to an empty one (#922) that the host replaces right after.
   const current = await filters[1].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
     contexts: [],
     variables: {},
   }))
-  assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
+  assert.deepEqual(current, { tools: [], sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   // The computer-use filter keeps everything but the provider's own sections.
   const computer = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'computer-use:dsh-cua' }],
