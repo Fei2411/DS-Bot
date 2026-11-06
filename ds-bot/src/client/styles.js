@@ -603,12 +603,23 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-connector-actions{flex:none;display:flex;gap:6px}
 .bt-connector-form{display:flex;flex-direction:column;gap:8px;padding-left:48px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-connector-form-row{display:flex;align-items:center;gap:6px}
-.bt-connector-link{flex:1;font-size:12px;color:var(--bt-ink-2)}
+.bt-connector-form-row>:first-child{margin-right:auto}
+.bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
+.bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
-.bt-mail-guide{margin:0;padding-left:20px;font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3));display:flex;flex-direction:column;gap:4px}
-.bt-mail-form .bt-connector-error{padding-left:0}
-.bt-mail-links{gap:16px}
-.bt-mail-links .bt-connector-link{flex:none}
+.bt-connector-banner{padding:0 0 8px}
+.bt-mail-form{gap:10px}
+.bt-mail-seg{align-self:flex-start}
+.bt-mail-guide{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-mail-guide ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px}
+.bt-mail-links{display:flex;gap:16px}
+.bt-mail-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
+.bt-mail-rules{gap:4px}
+.bt-mail-rules-title{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-mail-rule{display:flex;align-items:center;gap:12px;min-height:36px}
+.bt-mail-rule-name{font-size:13px;line-height:18px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-im-mark{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--bt-im-mark-ink)}
 .bt-im-line{display:flex;align-items:center;gap:8px}
 .bt-im-label{flex:1;font-size:12px;color:var(--bt-ink-2)}

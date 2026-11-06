@@ -10,12 +10,12 @@ import { build } from 'esbuild'
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..', 'deepseek-harness'), 'package.json'))('jsdom')
 
-// The mail section, bundled once and rendered with a minimal React stand-in whose
+// The mailbox catalog row, bundled once and rendered with a minimal React stand-in whose
 // useState survives re-renders: hooks are numbered by expansion order, which is
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { MailSection, MailToolCell } from './src/client/connectors.js'",
+    contents: "export { MailCatalogRow, MailToolCell } from './src/client/connectors.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -32,7 +32,7 @@ const expand = (node) => {
   if (typeof node.type === 'function') return expand(node.type(node.props))
   return { ...node, props: { ...(node.props ?? {}), children: expand(node.props?.children) } }
 }
-let active = () => expand(MailSection(props))
+let active = () => expand(MailCatalogRow(props))
 const rerender = () => { idx = 0; concrete = active() }
 const react = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
@@ -47,18 +47,25 @@ const react = {
     if (!(i in slots)) slots[i] = typeof init === 'function' ? init() : init
     return [slots[i], (value) => { slots[i] = typeof value === 'function' ? value(slots[i]) : value; rerender() }]
   },
-  useMemo: make => make(), useRef: current => ({ current }), useId: () => 'id',
+  useMemo: make => make(),
+  useRef: (current) => {
+    const i = idx++
+    if (!(i in slots)) slots[i] = { current }
+    return slots[i]
+  },
+  useId: () => 'id',
 }
+const opened = []
 const dom = new JSDOM('<!doctype html><body></body>')
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   document: dom.window.document,
-  window: { matchMedia: () => ({ matches: false }) },
+  window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { MailSection, MailToolCell } = module.exports
-const render = () => { active = () => expand(MailSection(props)); rerender() }
+const { MailCatalogRow, MailToolCell } = module.exports
+const render = () => { active = () => expand(MailCatalogRow(props)); rerender() }
 const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
 
 const flatten = (node, out = []) => {
@@ -98,23 +105,23 @@ test('the mail form shows the QQ guide with its links and closes after a good ad
     mailAccountAdd: (body) => { adds.push(body); return Promise.resolve({ accounts: [] }) },
     mailAccountRemove: () => Promise.resolve(true),
   }
-  const run = (task, onDone) => Promise.resolve(task).then(() => onDone?.(), () => {})
-  props = { mail: { accounts: [] }, actions, run }
+  props = { mail: { accounts: [] }, actions }
   slots.length = 0
   render()
-  click('Add an account')
+  click('Connect')
   click('QQ')
   const guide = collect(n => n.props?.className === 'bt-mail-guide')[0]
   assert.ok(guide, 'guide list')
   assert.equal(collect(n => n.type === 'li').length, 3)
-  const links = collect(n => n.type === 'a' && n.props?.className === 'bt-connector-link')
+  const links = collect(n => n.type === 'button' && n.props?.className === 'bt-connector-link')
   assert.equal(links.length, 2)
-  assert.equal(links[0].props.href, 'https://mail.qq.com')
-  assert.match(links[1].props.href, /help\.mail\.qq\.com/)
-  assert.equal(links[0].props.target, '_blank')
+  opened.length = 0
+  links.forEach(link => link.props.onClick())
+  assert.equal(opened[0], 'https://mail.qq.com')
+  assert.match(opened[1], /help\.mail\.qq\.com/)
   fill('Email address', addressAt('qq.com'))
   fill('Authorization code', 'CODE')
-  click('Add account')
+  click('Add')
   await flush()
   assert.equal(adds.length, 1)
   assert.equal(adds[0].provider, 'qq')
@@ -128,14 +135,13 @@ test('a busy mail add blocks a second click and a good add clears the fields', a
     mailAccountAdd: (body) => { adds.push(body); return new Promise(resolve => { release = resolve }) },
     mailAccountRemove: () => Promise.resolve(true),
   }
-  const run = (task, onDone) => Promise.resolve(task).then(() => onDone?.(), () => {})
-  props = { mail: { accounts: [] }, actions, run }
+  props = { mail: { accounts: [] }, actions }
   slots.length = 0
   render()
-  click('Add an account')
+  click('Connect')
   fill('Email address', addressAt('qq.com'))
   fill('Authorization code', 'CODE')
-  click('Add account')
+  click('Add')
   await flush()
   assert.equal(adds.length, 1)
   const adding = collect(n => n.type === 'button' && flatten(n).join('') === 'Verifying…')[0]
@@ -149,11 +155,15 @@ test('a busy mail add blocks a second click and a good add clears the fields', a
   release({ accounts: [] })
   await flush()
   assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-mail-form')).length, 0, 'form closed after a resolved add')
-  click('Add an account')
+  // The closed form unmounted; the stand-in keeps hook slots by index, so start them over.
+  slots.length = 0
+  render()
+  click('Connect')
   assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'Email address')[0].props.value, '', 'address cleared')
   assert.equal(collect(n => n.type === 'input' && String(n.props?.className ?? '') === 'bt-secret-input')[0].props.value, '', 'code cleared')
-  const other = collect(n => n.type === 'button' && flatten(n).join('') === 'Other')[0]
-  assert.equal(other.props['aria-checked'], true, 'provider chip back to the default')
+  const qq = collect(n => n.type === 'button' && flatten(n).join('') === 'QQ')[0]
+  assert.equal(qq.props['aria-pressed'], true, 'provider back to the default')
+  click('Other')
   assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'IMAP host')[0].props.value, '', 'IMAP host cleared')
   assert.equal(collect(n => n.type === 'input' && n.props?.['aria-label'] === 'SMTP host')[0].props.value, '', 'SMTP host cleared')
 })
@@ -234,14 +244,13 @@ test('a failed mail add shows the host message inside the form', async () => {
     mailAccountAdd: () => Promise.reject(new Error('The password was refused. Use the mailbox app password or authorization code, not the account password.')),
     mailAccountRemove: () => Promise.resolve(true),
   }
-  const run = (task, onDone) => Promise.resolve(task).then(() => onDone?.(), () => {})
-  props = { mail: { accounts: [] }, actions, run }
+  props = { mail: { accounts: [] }, actions }
   slots.length = 0
   render()
-  click('Add an account')
+  click('Connect')
   fill('Email address', addressAt('qq.com'))
   fill('Authorization code', 'WRONG')
-  click('Add account')
+  click('Add')
   await flush()
   const alert = collect(n => n.props?.role === 'alert')[0]
   assert.ok(alert, 'inline error')

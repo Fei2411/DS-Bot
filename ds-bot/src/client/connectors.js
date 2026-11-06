@@ -2,9 +2,10 @@
 // an Add menu, and the mailbox. One row component draws the mark, name, status
 // and the expanding panels (browser sign-in, device code, key/token, client).
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { useMorph } from './motion.js'
 import { MaskedInput } from './secret-card.js'
-import { SwitchRow } from './bot-settings.js'
+import { Switch, SwitchRow } from './bot-settings.js'
+import { Segmented, useMorph } from './motion.js'
+import { openPage, reserveWindow } from './open-window.js'
 import { contentText, currentPart } from './text.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
@@ -17,7 +18,7 @@ export { GitHubMark } from './connector-marks.js'
 import { MARKS } from './connector-marks.js'
 
 const TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
-// Rows show a generated monogram: first letter, color from the id hash.
+// Rows show the service mark, or a generated monogram for custom entries.
 export function ConnectorMark({ connector }) {
   const Mark = MARKS[connector.id]
   if (Mark) return h(Mark)
@@ -26,37 +27,47 @@ export function ConnectorMark({ connector }) {
   return h('span', { className: 'bt-connector-mono', style: { '--bt-hue': hash % 360 }, 'aria-hidden': true }, (connector.name ?? '?').slice(0, 1).toUpperCase())
 }
 
-const CATEGORIES = ['dev', 'docs', 'work', 'design', 'data', 'commerce', 'search']
-const CATEGORY_LABEL = { dev: 'Developer', docs: 'Docs & files', work: 'Work', design: 'Design', data: 'Data', commerce: 'Commerce', search: 'Search' }
 
 function statusText(connector) {
   if (connector.state === 'connecting') return connector.pending ? t('Waiting for sign-in…') : t('Connecting…')
   if (connector.state === 'needs-sign-in') return t('Sign in again')
   if (connector.state === 'needs-client') return t('This service needs an app client ID')
   if (connector.state === 'error') return t('Could not connect: {error}', { error: connector.error ?? '' })
-  if (connector.state === 'ready') return connector.account ? t('Connected as {account}', { account: connector.account }) : t('Connected')
-  return connector.about ?? ''
+  if (connector.state === 'ready') {
+    const who = connector.account ? t('Connected as {account}', { account: connector.account }) : t('Connected')
+    return connector.tools > 0 ? `${who} · ${t('{count} tools', { count: connector.tools })}` : who
+  }
+  return connector.about ? t(connector.about) : ''
 }
 
+// Sign-in pages open on their own when Connect is clicked; these panels say what
+// is happening and keep a way back if the page was closed or never came back.
 function BrowserPanel({ connector, actions, run }) {
+  const [pasting, setPasting] = useState(false)
   const [input, setInput] = useState('')
   return h('div', { className: 'bt-connector-form' },
     h('div', { className: 'bt-connector-form-row' },
-      h('a', { className: 'bt-connector-link', href: connector.pending.url, target: '_blank', rel: 'noopener noreferrer' }, t('Open the sign-in page')),
+      h('span', { className: 'bt-connector-wait' }, t('Finish signing in in your browser.')),
+      h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(connector.pending.url) }, t('Open again')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel'))),
-    h('input', { className: 'bt-input', 'aria-label': t('Paste the address you land on'), placeholder: t('Or paste the address you land on'), value: input, spellCheck: false, autoComplete: 'off', onChange: e => setInput(e.target.value) }),
-    input.trim() !== '' ? h('div', { className: 'bt-connector-form-row' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorSignInCode(connector.id, input.trim())) }, t('Finish sign-in'))) : null)
+    pasting
+      ? h('div', { className: 'bt-connector-form-row' },
+        h('input', { className: 'bt-input', 'aria-label': t('Paste the address you land on'), placeholder: t('Paste the address you land on'), value: input, spellCheck: false, autoComplete: 'off', autoFocus: true, onChange: e => setInput(e.target.value) }),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: input.trim() === '', onClick: () => void run(actions.connectorSignInCode(connector.id, input.trim())) }, t('Finish sign-in')))
+      : h('button', { type: 'button', className: 'bt-connector-link bt-connector-aside', onClick: () => setPasting(true) }, t('Did not come back here?')))
 }
 
 function DevicePanel({ connector, actions, run, onUseToken }) {
+  const { userCode, verificationUri } = connector.pending
   const [copied, setCopied] = useState(false)
+  const copy = () => { void navigator.clipboard?.writeText(userCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600) }) }
   return h('div', { className: 'bt-connector-form' },
     h('div', { className: 'bt-connector-device' },
-      h('code', { className: 'bt-connector-code' }, connector.pending.userCode),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void navigator.clipboard?.writeText(connector.pending.userCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600) }) } }, copied ? t('Copied') : t('Copy'))),
+      h('code', { className: 'bt-connector-code' }, userCode),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copy }, copied ? t('Copied') : t('Copy'))),
     h('div', { className: 'bt-connector-form-row' },
-      h('a', { className: 'bt-connector-link', href: connector.pending.verificationUri, target: '_blank', rel: 'noopener noreferrer' }, t('Open {host}', { host: connector.pending.verificationUri.replace(/^https?:\/\//, '') })),
+      h('span', { className: 'bt-connector-wait' }, t('Paste the code on {host} and authorize.', { host: verificationUri.replace(/^https?:\/\//, '') })),
+      h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(verificationUri) }, t('Open again')),
       connector.auth?.token === true && onUseToken ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => void run(actions.connectorCancel(connector.id), onUseToken) }, t('Use a token instead')) : null,
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel'))))
 }
@@ -83,54 +94,73 @@ function TokenPanel({ connector, actions, run, onDone }) {
     h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: token, onChange: setToken, onEnter: connect, label: isKey ? t('{name} key', { name: connector.name }) : t('{name} token', { name: connector.name }), autoFocus: true })),
     h('div', { className: 'bt-connector-form-row' },
       (connector.id === 'github' ? h('a', { className: 'bt-connector-link', href: TOKEN_URL, target: '_blank', rel: 'noopener noreferrer' }, t('Create a token on GitHub'))
-        : connector.auth?.keyUrl ? h('a', { className: 'bt-connector-link', href: connector.auth.keyUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Get a key')) : h('span', { className: 'bt-connector-link' })),
+        : connector.auth?.keyUrl ? h('a', { className: 'bt-connector-link', href: connector.auth.keyUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Get a key')) : h('span', { className: 'bt-connector-wait' })),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDone }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: token.trim() === '', onClick: connect }, t('Connect'))))
+}
+
+// Opens the sign-in page the host answers with: the browser page for OAuth, or the
+// device page with the code already on the clipboard.
+export const openSignIn = (win, id, view) => {
+  const pending = view?.connectors?.find(entry => entry.id === id)?.pending
+  if (pending?.kind === 'browser') return void win.go(pending.url)
+  if (pending?.kind === 'device') {
+    void navigator.clipboard?.writeText(pending.userCode).catch(() => {})
+    return void win.go(pending.verificationUri)
+  }
+  win.close()
 }
 
 export function ConnectorRow({ connector, actions }) {
   const [form, setForm] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const run = (task, after) => {
+  const run = (task, after, failed) => {
     setBusy(true); setError(null)
-    return Promise.resolve(task).then(() => { after?.() }, failure => setError(failure?.message ?? String(failure))).finally(() => setBusy(false))
+    return Promise.resolve(task).then(value => { after?.(value) }, (failure) => { failed?.(); setError(failure?.message ?? String(failure)) }).finally(() => setBusy(false))
   }
   const on = connector.state !== 'off' && connector.state !== 'needs-client'
   const pending = connector.pending
   const row = useRef(null)
   useMorph(row, `${form}:${error !== null}:${connector.state}:${pending?.kind ?? ''}`)
+  const signIn = () => {
+    const win = reserveWindow()
+    void run(actions.connectorConnect(connector.id, {}), view => openSignIn(win, connector.id, view), () => win.close())
+  }
   const connect = () => {
     if (connector.auth?.kind === 'none') return void run(actions.connectorConnect(connector.id, {}))
     if (connector.auth?.kind === 'key') return setForm('token')
-    if (connector.auth?.kind === 'oauth') {
-      if (connector.auth.client?.id || !connector.auth.token) return void run(actions.connectorConnect(connector.id, {}))
-      return setForm('token')
-    }
+    if (connector.auth?.kind === 'oauth') return connector.auth.client?.id || !connector.auth.token ? signIn() : setForm('token')
     return undefined
+  }
+  const button = (label, onClick) => h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick }, label)
+  let actionsNode = null
+  if (pending || form) actionsNode = null
+  else if (connector.state === 'needs-sign-in') actionsNode = [button(t('Sign in again'), signIn), button(t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
+  else if (connector.state === 'error') actionsNode = [button(t('Try again'), () => void run(actions.connectorRetry(connector.id))), button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
+  else if (on) actionsNode = button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))
+  else {
+    actionsNode = [
+      connector.auth?.kind === 'oauth' && connector.auth.token === true && connector.auth.client?.id
+        ? h('button', { key: 'token', type: 'button', className: 'bt-connector-link', disabled: busy, onClick: () => setForm('token') }, t('Use a token instead'))
+        : null,
+      h('button', { key: 'connect', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, busy ? t('Connecting…') : t('Connect')),
+    ]
   }
   return h('div', { ref: row, className: 'bt-connector', 'data-state': connector.state },
     h('div', { className: 'bt-connector-head' },
       h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector })),
       h('span', { className: 'bt-connector-text' },
         h('span', { className: 'bt-connector-name' }, connector.name, connector.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null),
-        h('span', { className: 'bt-connector-status' }, t(statusText(connector)))),
-      h('span', { className: 'bt-connector-actions' },
-        connector.state === 'error' || connector.state === 'needs-sign-in' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorRetry(connector.id)) }, connector.state === 'needs-sign-in' ? t('Sign in again') : t('Try again')) : null,
-        on && !pending
-          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorDisconnect(connector.id)) }, connector.custom ? t('Remove') : t('Disconnect'))
-          : pending || form ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, t('Connect')),
-        !on && !pending && form === null && connector.auth?.kind === 'oauth' && connector.auth.token === true && connector.auth.client?.id
-          ? h('button', { type: 'button', className: 'bt-connector-link', disabled: busy, onClick: () => setForm('token') }, t('Use a token instead'))
-          : null)),
-    connector.readOnly !== undefined && on ? h('div', { className: 'bt-connector-ro' },
+        h('span', { className: 'bt-connector-status' }, statusText(connector))),
+      actionsNode ? h('span', { className: 'bt-connector-actions' }, actionsNode) : null),
+    connector.readOnly !== undefined && on && connector.state === 'ready' ? h('div', { className: 'bt-connector-ro' },
       h(SwitchRow, { label: t('Read-only'), on: connector.readOnly === true, onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) })) : null,
     pending?.kind === 'browser' ? h(BrowserPanel, { connector, actions, run }) : null,
     pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run, onUseToken: () => setForm('token') }) : null,
     connector.state === 'needs-client' && !pending?.kind ? h(ClientPanel, { connector, actions, run }) : null,
     form === 'token' ? h(TokenPanel, { connector, actions, run, onDone: () => { setForm(null); setError(null) } }) : null,
-    error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null,
-    connector.tools > 0 ? h('div', { className: 'bt-connector-status' }, t('{count} tools', { count: connector.tools })) : null)
+    error ? h('div', { className: 'bt-connector-error', role: 'alert' }, hostText(error)) : null)
 }
 
 // Where each mail provider's authorization code or app password comes from.
@@ -178,18 +208,17 @@ const MAIL_GUIDES = {
   },
 }
 
-function MailAccount({ account, actions, run }) {
+export function MailAccount({ account, actions, run }) {
   const [busy, setBusy] = useState(false)
-  const busyRef = useRef(false)
   const remove = () => {
-    if (busyRef.current || busy) return
-    busyRef.current = true
+    if (busy) return
     setBusy(true)
-    void Promise.resolve(run(actions.mailAccountRemove(account.id))).finally(() => { busyRef.current = false; setBusy(false) })
+    void Promise.resolve(run(actions.mailAccountRemove(account.id))).finally(() => setBusy(false))
   }
+  const markId = `mail-${account.provider}`
   return h('div', { className: 'bt-connector', 'data-state': account.error ? 'error' : 'ready' },
     h('div', { className: 'bt-connector-head' },
-      h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector: { id: `mail-${account.provider}`, name: account.address } })),
+      h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector: { id: markId, name: account.address } })),
       h('span', { className: 'bt-connector-text' },
         h('span', { className: 'bt-connector-name' }, account.address),
         h('span', { className: 'bt-connector-status' }, account.error ? hostText(account.error) : t('Connected'))),
@@ -197,184 +226,155 @@ function MailAccount({ account, actions, run }) {
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: remove }, t('Remove')))))
 }
 
-// The Google sign-in the host started: it waits as a row that looks like the
-// connector rows, with the sign-in page one click away.
-function MailPending({ pending }) {
+// A Google sign-in the host started; its page opened with the click.
+export function MailPending({ pending }) {
   return h('div', { className: 'bt-connector', 'data-state': 'connecting' },
     h('div', { className: 'bt-connector-head' },
       h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector: { id: 'mail-gmail', name: 'Google' } })),
       h('span', { className: 'bt-connector-text' },
-        h('span', { className: 'bt-connector-name' }, pending.address ?? 'Google'),
-        h('span', { className: 'bt-connector-status' }, t('Waiting for sign-in…'))),
+        h('span', { className: 'bt-connector-name' }, pending.address ?? 'Gmail'),
+        h('span', { className: 'bt-connector-status' }, t('Finish signing in in your browser.'))),
       h('span', { className: 'bt-connector-actions' },
-        h('a', { className: 'bt-soft bt-soft-sm bt-mail-open', href: pending.url, target: '_blank', rel: 'noopener noreferrer' }, t('Open the sign-in page')))))
+        h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(pending.url) }, t('Open again')))))
 }
 
-// The add form lives in the card like the other pages' add rows. While the host
-// verifies the sign-in every field and button is disabled, so a second click
-// cannot start a second add. A good add closes the form, which drops the typed
-// address, code, provider and hosts with it.
-function MailForm({ mail, actions, mailRun, busy, error, fields, setField, onClose }) {
-  const { address, password, provider, imapHost, smtpHost } = fields
-  const setAddress = value => setField('address', value)
-  const setPassword = value => setField('password', value)
-  const setProvider = value => setField('provider', value)
-  const setImapHost = value => setField('imapHost', value)
-  const setSmtpHost = value => setField('smtpHost', value)
-  const domain = address.split('@')[1]?.toLowerCase() ?? ''
-  const guessed = ['qq.com', 'foxmail.com'].includes(domain) ? 'qq' : ['163.com', '126.com', 'gmail.com', 'googlemail.com'].includes(domain) ? domain.replace(/\..*/, '').replace('googlemail', 'gmail') : ['icloud.com', 'me.com', 'mac.com'].includes(domain) ? 'icloud' : ''
-  const chosen = provider || guessed || 'other'
-  const guide = MAIL_GUIDES[chosen]
-  const add = () => void mailRun(() => actions.mailAccountAdd({ address: address.trim(), password, provider: chosen, imapHost: imapHost.trim(), smtpHost: smtpHost.trim() }), onClose)
-  return h('div', { className: 'bt-set-row bt-set-paste bt-mail-form' },
-    h('div', { className: 'bt-mail-providers', role: 'radiogroup', 'aria-label': t('Provider') },
-      [['qq', 'QQ'], ['163', '163'], ['126', '126'], ['gmail', 'Gmail'], ['icloud', 'iCloud'], ['other', t('Other')]].map(([id, label]) =>
-        h('button', { key: id, type: 'button', role: 'radio', 'aria-checked': chosen === id, className: 'bt-secret-seg', disabled: busy, onClick: () => setProvider(id) }, label))),
-    guide ? [
-      h('ol', { key: 'guide', className: 'bt-mail-guide' }, guide.steps.map(step => h('li', { key: step }, t(step, { host: guide.host })))),
-      h('div', { key: 'links', className: 'bt-connector-form-row bt-mail-links' },
-        h('a', { className: 'bt-connector-link', href: guide.open, target: '_blank', rel: 'noopener noreferrer' }, t('Open {host}', { host: guide.host })),
-        h('a', { className: 'bt-connector-link', href: guide.help, target: '_blank', rel: 'noopener noreferrer' }, t('Official help'))),
-    ] : null,
-    h('input', { className: 'bt-input', 'aria-label': t('Email address'), placeholder: t('Email address'), value: address, autoComplete: 'off', disabled: busy, onChange: e => setAddress(e.target.value) }),
-    h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: password, onChange: setPassword, label: t(guide?.label ?? 'Password or app password'), disabled: busy })),
-    chosen === 'other' ? [
-      h('input', { key: 'ih', className: 'bt-input', 'aria-label': t('IMAP host'), placeholder: t('IMAP host'), value: imapHost, disabled: busy, onChange: e => setImapHost(e.target.value) }),
-      h('input', { key: 'sh', className: 'bt-input', 'aria-label': t('SMTP host'), placeholder: t('SMTP host'), value: smtpHost, disabled: busy, onChange: e => setSmtpHost(e.target.value) }),
-    ] : null,
-    error ? h('div', { className: 'bt-connector-error', role: 'alert' }, hostText(error)) : null,
-    h('div', { className: 'bt-secret-row-actions' },
-      mail?.google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void mailRun(() => actions.mailAccountAdd({ address: address.trim(), google: true }), onClose) }, t('Sign in with Google')) : h('span', { className: 'bt-connector-link' }),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: onClose }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !address.includes('@') || password === '', onClick: add }, busy ? t('Verifying…') : t('Add account'))))
-}
-
-const EMPTY_MAIL = { address: '', password: '', provider: '', imapHost: '', smtpHost: '' }
-function MailRules({ mail, bots, actions, run }) {
-  const [recipient, setRecipient] = useState('')
+// The sending rules a mail card added; they only show once there is one.
+export function MailRules({ mail, bots, actions, run }) {
   const allowed = mail?.allowedRecipients ?? []
-  const noDraft = mail?.noDraftFor ?? []
-  const add = () => {
-    const addr = recipient.trim()
-    if (!addr.includes('@')) return
-    void run(actions.mailRuleSet({ addRecipient: addr }), () => setRecipient(''))
-  }
-  return h('div', { className: 'bt-set-row bt-set-paste bt-mail-rules' },
-    h('div', { className: 'bt-connector-name' }, t('Sending rules')),
-    allowed.map(addr => h('div', { key: `r:${addr}`, className: 'bt-connector-head' },
-      h('span', { className: 'bt-connector-text' },
-        h('span', { className: 'bt-connector-name' }, addr),
-        h('span', { className: 'bt-connector-status' }, t('Allow recipient'))),
-      h('span', { className: 'bt-connector-actions' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.mailRuleSet({ removeRecipient: addr })) }, t('Remove'))))),
-    noDraft.map((botId) => {
-      const botName = (bots ?? []).find(b => b.id === botId)?.name ?? botId
-      return h('div', { key: `b:${botId}`, className: 'bt-connector-head' },
-        h('span', { className: 'bt-connector-text' },
-          h('span', { className: 'bt-connector-name' }, botName),
-          h('span', { className: 'bt-connector-status' }, t('Allow this Bot to send directly'))),
-        h('span', { className: 'bt-connector-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.mailRuleSet({ botId, noDraft: false })) }, t('Needs approval'))))
-    }),
-    h('div', { className: 'bt-connector-form-row' },
-      h('input', { className: 'bt-input', 'aria-label': t('Allow recipient'), placeholder: 'name@example.com', value: recipient, autoComplete: 'off', onChange: e => setRecipient(e.target.value) }),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !recipient.includes('@'), onClick: add }, t('Add'))))
+  const direct = mail?.noDraftFor ?? []
+  if (allowed.length === 0 && direct.length === 0) return null
+  const rule = (key, name, kind, onRemove) => h('div', { key, className: 'bt-mail-rule' },
+    h('span', { className: 'bt-connector-text' },
+      h('span', { className: 'bt-mail-rule-name' }, name),
+      h('span', { className: 'bt-connector-status' }, kind)),
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onRemove }, t('Remove')))
+  return h('div', { className: 'bt-connector bt-mail-rules', 'data-state': 'ready' },
+    h('div', { className: 'bt-mail-rules-title' }, t('Sending rules')),
+    allowed.map(addr => rule(`r:${addr}`, addr, t('Allow recipient'), () => void run(actions.mailRuleSet({ removeRecipient: addr })))),
+    direct.map(botId => rule(`b:${botId}`, (bots ?? []).find(b => b.id === botId)?.name ?? botId, t('Allow this Bot to send directly'), () => void run(actions.mailRuleSet({ botId, noDraft: false })))))
 }
 
-export function MailSection({ mail, bots, actions, run }) {
-  const [form, setForm] = useState(false)
-  const [rulesOpen, setRulesOpen] = useState(false)
+const PROVIDERS = [['qq', 'QQ'], ['163', '163'], ['126', '126'], ['gmail', 'Gmail'], ['icloud', 'iCloud'], ['other', 'Other']]
+const guessProvider = (address) => {
+  const domain = address.split('@')[1]?.toLowerCase() ?? ''
+  if (['qq.com', 'foxmail.com'].includes(domain)) return 'qq'
+  if (['163.com', '126.com'].includes(domain)) return domain.slice(0, 3)
+  if (['gmail.com', 'googlemail.com'].includes(domain)) return 'gmail'
+  if (['icloud.com', 'me.com', 'mac.com'].includes(domain)) return 'icloud'
+  return ''
+}
+
+// The add form opens under the Mailbox catalog row. While the host verifies the
+// login every field is disabled, so a second click cannot add twice; a good add
+// closes the form and drops what was typed.
+function MailForm({ mail, actions, onClose }) {
+  const [fields, setFields] = useState({ address: '', password: '', provider: '', imapHost: '', smtpHost: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const [fields, setFields] = useState(EMPTY_MAIL)
   const busyRef = useRef(false)
-  const accounts = mail?.accounts ?? []
-  const hasRules = (mail?.allowedRecipients?.length ?? 0) > 0 || (mail?.noDraftFor?.length ?? 0) > 0
-  const setField = (key, value) => setFields(current => ({ ...current, [key]: value }))
-  const close = () => { setError(null); setForm(false); setFields(EMPTY_MAIL) }
-  const mailRun = (task, onDone) => {
-    if (busyRef.current || busy) return false
+  const set = (key, value) => setFields(current => ({ ...current, [key]: value }))
+  const chosen = fields.provider || guessProvider(fields.address) || 'qq'
+  const guide = MAIL_GUIDES[chosen]
+  const google = chosen === 'gmail' && mail?.google === true
+  const go = (task, done) => {
+    if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
     setError(null)
-    void Promise.resolve().then(task).then(() => { onDone?.() }, (failure) => { setError(failure?.message ?? String(failure)) }).finally(() => { busyRef.current = false; setBusy(false) })
-    return true
+    void Promise.resolve().then(task).then(done, (failure) => { setError(failure?.message ?? String(failure)) }).finally(() => { busyRef.current = false; setBusy(false) })
   }
-  return [
-    h('div', { key: 'title', className: 'bt-section-title' }, t('Mailbox')),
-    h('div', { key: 'card', className: 'bt-set-card bt-connectors-card' },
-      accounts.length === 0 && !form ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No mail accounts yet'))) : null,
-      accounts.map(account => h(MailAccount, { key: account.id, account, actions, run })),
-      (mail?.pending ?? []).map(p => h(MailPending, { key: p.address ?? 'google', pending: p })),
-      form ? h(MailForm, { mail, actions, mailRun, busy, error, fields, setField, onClose: close }) : null,
-      hasRules || rulesOpen ? h(MailRules, { mail, bots, actions, run }) : null),
-    form ? null : h('div', { key: 'add', className: 'bt-actions' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setError(null); setForm(true) } }, t('Add an account')),
-      mail?.google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.mailAccountAdd({ google: true })) }, t('Sign in with Google')) : null,
-      !hasRules && accounts.length > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setRulesOpen(v => !v) }, t('Manage rules')) : null),
-  ]
+  const add = () => go(() => actions.mailAccountAdd({ address: fields.address.trim(), password: fields.password, provider: chosen, imapHost: fields.imapHost.trim(), smtpHost: fields.smtpHost.trim() }), onClose)
+  const signInWithGoogle = () => {
+    const win = reserveWindow()
+    go(() => actions.mailAccountAdd({ address: fields.address.trim(), google: true }).catch((failure) => { win.close(); throw failure }), (view) => {
+      const url = view?.mail?.pending?.at(-1)?.url ?? view?.pending?.at(-1)?.url
+      if (url) win.go(url)
+      else win.close()
+      onClose()
+    })
+  }
+  const input = (key, label, extra = {}) => h('input', { className: 'bt-input', 'aria-label': label, placeholder: label, value: fields[key], autoComplete: 'off', spellCheck: false, disabled: busy, onChange: e => set(key, e.target.value), ...extra })
+  return h('div', { className: 'bt-connector-form bt-mail-form' },
+    h(Segmented, { label: t('Provider'), value: chosen, className: 'bt-mail-seg' },
+      PROVIDERS.map(([id, label]) => h('button', { key: id, type: 'button', 'aria-pressed': chosen === id, disabled: busy, onClick: () => set('provider', id) }, id === 'other' ? t(label) : label))),
+    guide ? h('div', { className: 'bt-mail-guide' },
+      h('ol', null, guide.steps.map(step => h('li', { key: step }, t(step, { host: guide.host })))),
+      h('div', { className: 'bt-mail-links' },
+        h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(guide.open) }, t('Open {host}', { host: guide.host })),
+        h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(guide.help) }, t('Official help')))) : null,
+    input('address', t('Email address'), { type: 'email' }),
+    h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: fields.password, onChange: value => set('password', value), onEnter: add, label: t(guide?.label ?? 'Password or app password'), disabled: busy })),
+    chosen === 'other' ? h('div', { className: 'bt-provider-pair' }, input('imapHost', t('IMAP host')), input('smtpHost', t('SMTP host'))) : null,
+    error ? h('div', { className: 'bt-mail-error', role: 'alert' }, hostText(error)) : null,
+    h('div', { className: 'bt-secret-row-actions' },
+      google ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: signInWithGoogle }, t('Sign in with Google')) : null,
+      h('span', { className: 'bt-set-hint' }),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: onClose }, t('Cancel')),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !fields.address.includes('@') || fields.password === '' || (chosen === 'other' && (fields.imapHost.trim() === '' || fields.smtpHost.trim() === '')), onClick: add }, busy ? t('Verifying…') : t('Add'))))
 }
 
-function AddMenu({ actions, run }) {
+// The Mailbox in the catalog: one row for every mail service, with the add form.
+export function MailCatalogRow({ mail, actions }) {
+  const [open, setOpen] = useState(false)
+  const row = useRef(null)
+  useMorph(row, String(open))
+  return h('div', { ref: row, className: 'bt-connector', 'data-state': 'off' },
+    h('div', { className: 'bt-connector-head' },
+      h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector: { id: 'mail', name: t('Mailbox') } })),
+      h('span', { className: 'bt-connector-text' },
+        h('span', { className: 'bt-connector-name' }, t('Mailbox')),
+        h('span', { className: 'bt-connector-status' }, t('QQ, 163, 126, Gmail, iCloud, and other IMAP mail'))),
+      open ? null : h('span', { className: 'bt-connector-actions' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setOpen(true) }, (mail?.accounts?.length ?? 0) > 0 ? t('Add another') : t('Connect')))),
+    open ? h(MailForm, { mail, actions, onClose: () => setOpen(false) }) : null)
+}
+
+// Your own MCP servers: an address, a command, or ones found in other apps.
+export function AddMenu({ actions, run }) {
   const [kind, setKind] = useState(null)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [command, setCommand] = useState('')
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
+  const row = useRef(null)
+  useMorph(row, `${kind}:${found === null}`)
   const reset = () => { setKind(null); setName(''); setUrl(''); setCommand(''); setFound(null); setPicked([]) }
-  if (kind === 'import' && found === null) { void Promise.resolve(actions.connectorImportScan()).then(list => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([])) }
-  return h('div', { className: 'bt-connector-add' },
-    kind === null ? h('div', { className: 'bt-connector-form-row' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setKind('url') }, t('Add an address')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setKind('command') }, t('Add a command')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setKind('import') }, t('Import from other apps'))) : null,
-    kind === 'url' || kind === 'command' ? h('div', { className: 'bt-connector-form' },
-      h('input', { className: 'bt-input', 'aria-label': t('Name'), placeholder: t('Name'), value: name, onChange: e => setName(e.target.value) }),
-      kind === 'url'
-        ? h('input', { className: 'bt-input', 'aria-label': t('Server address'), placeholder: 'https://…', value: url, onChange: e => setUrl(e.target.value) })
-        : h('input', { className: 'bt-input', 'aria-label': t('Command'), placeholder: t('Command, e.g. npx -y some-mcp'), value: command, onChange: e => setCommand(e.target.value) }),
-      h('div', { className: 'bt-connector-form-row' },
+  const choose = (next) => {
+    setKind(next)
+    if (next === 'import' && found === null) void Promise.resolve(actions.connectorImportScan()).then(list => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([]))
+  }
+  const key = (item) => `${item.source}:${item.name}`
+  const ready = name.trim() !== '' && (kind === 'url' ? url.trim() !== '' : command.trim() !== '')
+  return h('div', { ref: row, className: 'bt-connector', 'data-state': 'off' },
+    h('div', { className: 'bt-connector-head' },
+      h('span', { className: 'bt-connector-mark' }, h(ConnectorMark, { connector: { id: 'custom', name: '+' } })),
+      h('span', { className: 'bt-connector-text' },
+        h('span', { className: 'bt-connector-name' }, t('Other MCP server')),
+        h('span', { className: 'bt-connector-status' }, t('An address, a command, or one from Claude Desktop, Cursor, or VS Code'))),
+      kind === null ? h('span', { className: 'bt-connector-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => choose('url') }, t('Add'))) : null),
+    kind === null ? null : h('div', { className: 'bt-connector-form' },
+      h(Segmented, { label: t('Kind of server'), value: kind },
+        [['url', t('Address')], ['command', t('Command')], ['import', t('Import from other apps')]].map(([id, label]) => h('button', { key: id, type: 'button', 'aria-pressed': kind === id, onClick: () => choose(id) }, label))),
+      kind === 'import'
+        ? (found === null ? h('span', { className: 'bt-set-hint' }, t('Scanning…'))
+          : found.length === 0 ? h('span', { className: 'bt-set-hint' }, t('No MCP servers found in Claude Desktop, Cursor, or VS Code settings.'))
+            : h('div', { className: 'bt-mail-rules' }, found.map(item => h('div', { key: key(item), className: 'bt-mail-rule' },
+              h('span', { className: 'bt-connector-text' },
+                h('span', { className: 'bt-mail-rule-name' }, item.name),
+                h('span', { className: 'bt-connector-status' }, `${item.source} · ${item.url ?? item.command}`)),
+              h(Switch, { label: item.name, on: picked.some(p => key(p) === key(item)), onChange: on => setPicked(list => on ? [...list, { source: item.source, name: item.name }] : list.filter(p => key(p) !== key(item))) })))))
+        : [
+          h('input', { key: 'name', className: 'bt-input', 'aria-label': t('Name'), placeholder: t('Name'), value: name, onChange: e => setName(e.target.value) }),
+          kind === 'url'
+            ? h('input', { key: 'url', className: 'bt-input', 'aria-label': t('Server address'), placeholder: 'https://…', value: url, spellCheck: false, onChange: e => setUrl(e.target.value) })
+            : h('input', { key: 'cmd', className: 'bt-input', 'aria-label': t('Command'), placeholder: t('Command, e.g. npx -y some-mcp'), value: command, spellCheck: false, onChange: e => setCommand(e.target.value) }),
+        ],
+      h('div', { className: 'bt-secret-row-actions' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: name.trim() === '' || (kind === 'url' ? url.trim() === '' : command.trim() === ''), onClick: () => void run(kind === 'url' ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t('Add')))) : null,
-    kind === 'import' ? h('div', { className: 'bt-connector-form' },
-      found === null ? h('span', { className: 'bt-set-hint' }, t('Scanning…')) : found.length === 0 ? h('span', { className: 'bt-set-hint' }, t('No MCP servers found in Claude Desktop, Cursor, or VS Code settings.')) : [
-        found.map(item => h('label', { key: `${item.source}:${item.name}`, className: 'bt-connector-import' },
-          h('input', { type: 'checkbox', checked: picked.some(p => p.source === item.source && p.name === item.name), onChange: e => setPicked(list => e.target.checked ? [...list, { source: item.source, name: item.name }] : list.filter(p => !(p.source === item.source && p.name === item.name))) }),
-          h('span', null, item.name), h('span', { className: 'bt-set-hint' }, `${item.source} · ${item.url ?? item.command}${item.envNames?.length ? ` · ${item.envNames.length} env` : ''}`))),
-        h('div', { key: 'go', className: 'bt-connector-form-row' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: picked.length === 0, onClick: () => void run(actions.connectorImport(picked), reset) }, t('Import {count}', { count: picked.length }))),
-      ]) : null)
-}
-
-export function ConnectorsPage({ roster, actions }) {
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState('')
-  const [error, setError] = useState(null)
-  const run = (task, onDone) => Promise.resolve(task).then(() => { setError(null); onDone?.() }, failure => setError(failure?.message ?? String(failure)))
-  const data = roster?.connectors ?? { connectors: [], mail: { accounts: [], google: false } }
-  const list = data.connectors ?? []
-  const connected = list.filter(c => c.state !== 'off' || c.pending)
-  const catalog = list.filter(c => c.state === 'off' && !c.pending)
-    .filter(c => category === '' || c.category === category)
-    .filter(c => query === '' || `${c.name} ${c.about}`.toLowerCase().includes(query.toLowerCase()))
-  return h('section', { className: 'bt-set-section' },
-    error ? h('div', { className: 'bt-connector-error', role: 'alert' }, error) : null,
-    h('div', { className: 'bt-section-title' }, t('Connected')),
-    h('div', { className: 'bt-set-card bt-connectors-card' },
-      connected.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No connectors connected'))) : null,
-      connected.map(connector => h(ConnectorRow, { key: connector.id, connector, actions }))),
-    h(MailSection, { mail: data.mail, bots: roster?.bots, actions, run }),
-    h('div', { className: 'bt-section-title' }, t('Catalog')),
-    h('div', { className: 'bt-set-card bt-connectors-card' },
-      h('div', { className: 'bt-connector-search' },
-        h('input', { className: 'bt-input', 'aria-label': t('Search connectors'), placeholder: t('Search'), value: query, onChange: e => setQuery(e.target.value) }),
-        h('div', { className: 'bt-connector-chips' },
-          h('button', { type: 'button', className: 'bt-secret-seg', 'aria-pressed': category === '', onClick: () => setCategory('') }, t('All')),
-          CATEGORIES.map(id => h('button', { key: id, type: 'button', className: 'bt-secret-seg', 'aria-pressed': category === id, onClick: () => setCategory(category === id ? '' : id) }, t(CATEGORY_LABEL[id]))))),
-      catalog.map(connector => h(ConnectorRow, { key: connector.id, connector, actions })),
-      h(AddMenu, { actions, run })))
+        kind === 'import'
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: picked.length === 0, onClick: () => void run(actions.connectorImport(picked), reset) }, t('Import {count}', { count: picked.length }))
+          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: () => void run(kind === 'url' ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t('Add')))))
 }
 
 // Bot details → Connectors: one switch per connected connector (default on).
@@ -625,16 +625,10 @@ export const CONNECTOR_CSS = `
 .bt-connector-chips{display:flex;flex-wrap:wrap;gap:6px}
 .bt-connector-chips .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-connector-chips .bt-secret-seg[aria-pressed=true]{background:var(--bt-active)}
-.bt-connector-add{padding:0 12px 12px}
 .bt-connector-ro{padding-left:48px}
 .bt-connector-device{display:flex;align-items:center;gap:10px}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
-.bt-connector-import{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer}
-.bt-mail-providers{display:flex;gap:4px;flex-wrap:wrap}
-.bt-mail-providers .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
-.bt-mail-providers .bt-secret-seg[aria-checked=true]{background:var(--bt-active)}
 .bt-connector-bot .bt-set-copy{min-width:0}
-.bt-mail-open{text-decoration:none}
 .bt-mail-rule-wrap{position:relative;display:inline-flex;align-items:center}
 .bt-mail-rule-btn{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
@@ -643,7 +637,6 @@ export const CONNECTOR_CSS = `
 .dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
 .dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
-.bt-mail-rules{display:flex;flex-direction:column;gap:8px}
 .dv-widget-stack:has(>.dv-widget-form){gap:8px}
 .dv-widget-stack>.dv-widget-form{display:contents}
 .dv-widget-stack>.dv-widget-form>.dv-q-foot{order:2;padding-top:4px}
