@@ -45,6 +45,8 @@ export function install(rt) {
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
     bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => ({
       ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
+      // `engine` is the Bot's local-agent route, present only on abots.
+      ...(rt.localAgentBadge?.(bot.appliedModel ?? bot.model) !== undefined ? { engine: rt.localAgentBadge(bot.appliedModel ?? bot.model) } : {}),
     })),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier
     // ones; `parts` the members' hidden group Sessions and their earlier segments,
@@ -59,6 +61,7 @@ export function install(rt) {
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     views: state.views ?? {},
+    closedCards: state.closedCards ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
@@ -71,6 +74,8 @@ export function install(rt) {
     secrets: rt.secretsView(),
     capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
+    connectorRequests: state.connectorRequests ?? {},
+    mailRequests: state.mailRequests ?? {},
     colors: [...COLORS, ...EXTRA_COLORS],
     models: rt.cachedCatalog(),
     defaultModel: rt.cachedDefault() ?? null,
@@ -89,7 +94,8 @@ export function install(rt) {
     computer: rt.computerView?.() ?? { enabled: false },
   })
   // What changes without a new revision, sent with every state answer. `learning`:
-  // each Bot's pending skill proposals. `memoryNews`:
+  // each Bot's pending skill proposals; `learningSettled`: the answered ones of its
+  // current chat part. `memoryNews`:
   // per Bot or group chat, its latest memory change; `memoryReviews`: memory reviews waiting or
   // running; `work`: per Bot, the turn it runs and its tool; per group, the members whose
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
@@ -100,6 +106,7 @@ export function install(rt) {
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
+    learningSettled: rt.learningSettledView(),
     connectors: rt.connectorsView(),
     capabilityStatuses: rt.capabilityStatusesView(),
     imStatus: rt.imStatusView?.() ?? {},
@@ -125,7 +132,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot'])
+  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -373,16 +380,19 @@ export function install(rt) {
         case 'approval-answer':
           rt.answerApproval(body.id, body.choice)
           return ok(true)
-        case 'stop-member-work': {
-          const stopped = await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? ''))
-          rt.goalUserStopped?.(String(body.roomId ?? ''))
-          return ok(stopped)
-        }
-        case 'stop-room-work': {
-          const stopped = await rt.stopRoomWork(String(body.roomId ?? ''))
-          rt.goalUserStopped?.(String(body.roomId ?? ''))
-          return ok(stopped)
-        }
+        // A stop that fails partway still parks the goal, or it wakes the admin again.
+        case 'stop-member-work':
+          try {
+            return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
+          } finally {
+            rt.goalUserStopped?.(String(body.roomId ?? ''))
+          }
+        case 'stop-room-work':
+          try {
+            return ok(await rt.stopRoomWork(String(body.roomId ?? '')))
+          } finally {
+            rt.goalUserStopped?.(String(body.roomId ?? ''))
+          }
         case 'goal-draft': {
           await rt.load()
           const result = await rt.goalDraft(String(body.roomId ?? ''), body.text)
@@ -396,6 +406,7 @@ export function install(rt) {
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
+            rt.closeCard(body.sessionId, state.questions[body.sessionId], 'dismissed')
             delete state.questions[body.sessionId]
             await rt.save()
           }
@@ -403,6 +414,7 @@ export function install(rt) {
         case 'dismiss-view':
           await rt.load()
           if (rt.own(state.views, body.sessionId) !== undefined) {
+            rt.closeCard(body.sessionId, state.views[body.sessionId], 'dismissed')
             delete state.views[body.sessionId]
             await rt.save()
           }
@@ -417,6 +429,20 @@ export function install(rt) {
         case 'connector-connect':
         case 'connector-disconnect':
         case 'connector-retry':
+        case 'connector-sign-in-code':
+        case 'connector-cancel':
+        case 'connector-client':
+        case 'connector-set':
+        case 'connector-add':
+        case 'connector-remove':
+        case 'connector-import-scan':
+        case 'connector-import':
+        case 'connector-request-cancel':
+        case 'mail-account-add':
+        case 'mail-account-remove':
+        case 'mail-rule-set':
+        case 'mail-send-answer':
+        case 'mail-sign-in-code':
           await rt.load()
           return ok(await rt.connectorEndpoint(endpoint, body))
         case 'capability-save':
@@ -594,6 +620,27 @@ export function install(rt) {
         case 'im-login-wait':
           await rt.load()
           return ok(await rt.imEndpoint(endpoint, body))
+        case 'local-agents':
+        case 'local-agent-refresh':
+        case 'local-agent-add':
+        case 'local-agent-update':
+        case 'local-agent-remove':
+          await rt.load()
+          return ok(await rt.localAgentsEndpoint(endpoint, body))
+        // "New session" and "open an earlier session" on an abot's chat: ordinary
+        // parts moves (parts.js), the same mechanism every Bot's chat uses.
+        case 'bot-new-part': {
+          await rt.load()
+          const bot = rt.botOf(String(body.botId ?? ''))
+          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
+          return ok(await rt.newPart(rt.chatOf(bot.id)))
+        }
+        case 'bot-open-part': {
+          await rt.load()
+          const bot = rt.botOf(String(body.botId ?? ''))
+          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
+          return ok(await rt.switchPart(bot.id, String(body.sessionId ?? '')))
+        }
         case 'diagnostics':
           await rt.load()
           return ok(await rt.diagnostics.report(body))

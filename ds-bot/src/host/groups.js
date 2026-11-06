@@ -1010,7 +1010,10 @@ export function install(rt) {
         rt.roomProgress.delete(exec.callId)
       }
       if (exec.signal?.aborted) {
-        for (const turn of round.started) void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
+        for (const turn of round.started) {
+          void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
+            ?.catch(error => rt.warn('ds-bot: stopping a turn of the round in %s failed: %s', room.name, error))
+        }
       } else if (rt.goalDrive !== undefined) {
         // A round that ends with an active goal and nothing running may wake the admin.
         try {
@@ -1358,15 +1361,27 @@ export function install(rt) {
   // The user stops everything at work in this group at once: the round the group's own
   // Session runs, which takes the member turns it started with it, then each member's
   // turn here. The round goes first, so it calls no one else meanwhile. Work the same
-  // Bots do in their own chats or other groups goes on.
+  // Bots do in their own chats or other groups goes on. What cannot be stopped does not
+  // keep the rest going; the first failure is reported once the others are stopped.
   async function stopRoomWork(roomId) {
     await rt.load()
     const room = rt.roomOf(roomId)
     if (room === undefined) return false
+    const failures = []
+    const attempt = async (work) => {
+      try {
+        return await work()
+      } catch (error) {
+        rt.warn('ds-bot: stopping work in %s failed: %s', room.name, error)
+        failures.push(error)
+        return false
+      }
+    }
     const round = rt.roomBusy(room.id)
-    if (round) (await rt.resolveAgent(rt.sessionOfRoom(room))).cancel({ kind: 'user' })
+    if (round) await attempt(async () => (await rt.resolveAgent(rt.sessionOfRoom(room))).cancel({ kind: 'user' }))
     let stopped = false
-    for (const botId of room.members) stopped = (await stopMemberWork(room.id, botId)) || stopped
+    for (const botId of room.members) stopped = (await attempt(() => stopMemberWork(room.id, botId))) || stopped
+    if (failures.length > 0) throw failures[0]
     return round || stopped
   }
   rt.stopRoomWork = stopRoomWork

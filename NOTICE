@@ -74,6 +74,22 @@ MIT License, Copyright (c) 2026 DeepSeek
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+Simple Icons (https://simpleicons.org)
+CC0 1.0 Universal, the Simple Icons contributors
+
+  - ds-bot/src/client/connector-marks.js keeps the single-color brand path of
+    each connector service from Simple Icons 16.36.0 (the SI table), the
+    Gmail, iCloud and QQ paths for the mailbox rows, and the Telegram, WeChat
+    and Discord paths for the IM page.
+
+Context7 (https://github.com/upstash/context7)
+MIT License, Copyright (c) Upstash
+
+  - ds-bot/src/client/connector-marks.js keeps the Context7 connector mark
+    from public/context7-icon.svg, without the brand square.
+
+  MIT license text: see the DeepSeek Harness section above.
+
 Microsoft Playwright (https://github.com/microsoft/playwright) and
 Playwright MCP (https://github.com/microsoft/playwright-mcp)
 Apache License, Version 2.0, Copyright (c) Microsoft Corporation

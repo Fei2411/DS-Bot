@@ -43,7 +43,7 @@
   ],
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "test": "node --import ./test/harness-resolve.mjs --test \"test/*.test.js\"",
+    "test": "node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
     "lint": "node scripts/lint.mjs",
     "harness": "npm install --prefix dev/harness --legacy-peer-deps=false --no-package-lock --no-fund --no-audit",
     "check": "sh dev/check.sh"
@@ -69,6 +69,10 @@
     "qrcode-generator": "2.0.4"
   },
   "dependencies": {
-    "deep-view": "0.1.0"
+    "@modelcontextprotocol/client": "2.4.0",
+    "deep-view": "0.1.2",
+    "imapflow": "2.9.1",
+    "mailparser": "3.12.4",
+    "nodemailer": "10.2.1"
   }
 }

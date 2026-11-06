@@ -63,7 +63,7 @@
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.1",
     "@deepseek-ai/dsh-workflow": "0.2.2-rc.1",
     "@deepseek-ai/libreoffice-kit": "0.1.5",
-    "deep-view": "0.1.0",
+    "deep-view": "0.1.2",
     "ds-bot": "file:../ds-bot",
     "electron-updater": "6.8.10",
     "js-yaml": "4.3.2",

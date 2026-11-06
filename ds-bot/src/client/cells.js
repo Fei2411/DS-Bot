@@ -9,8 +9,9 @@ import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
 import { sendsOnEnter } from './enter-key.js'
 import { SettledQuestion, PendingQuestion } from './questions.js'
-import { AnsweredReply, WidgetCell } from './widget-cell.js'
+import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
+import { ConnectorToolCell, MailToolCell } from './connectors.js'
 import { HandoffCall } from './handoff-card.js'
 import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.js'
 import { t } from './i18n.js'
@@ -591,6 +592,10 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case 'divider': return h(PartLine, { key, time: row.time })
     case 'user': return h(EarlierUser, { key, row, actions })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
+    // A question or view card closed without an answer on it.
+    case 'closed': return row.view === undefined
+      ? h('div', { key, className: 'bt-q-inline' }, h(SettledQuestion, { question: row.question, closed: row.closed }))
+      : h(ClosedView, { key, title: row.title, view: row.view, closed: row.closed })
     // A display-only view replays from the blueprint the host kept on the call.
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })
     case 'bot': {
@@ -1021,9 +1026,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
 const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'remember', 'forget'])
+const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
-const CARDS = new Set(['ask_user', 'request_secret', 'show_view', 'browser_handoff', 'computer_handoff'])
+const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {
@@ -1100,8 +1105,14 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     }
     case 'ask_user': {
       const question = roster.questions?.[sessionId]
-      // Answered or closed: the card leaves no gap where it was.
-      if (!question || question.callId !== call.callId) return h(CellEmpty, { className: 'bt-q-gone' })
+      if (!question || question.callId !== call.callId) {
+        // Dismissed or answered by a message: the card stays here, read-only.
+        // Answered on the card: its reply message carries it, so no gap here.
+        const closed = roster.closedCards?.[sessionId]?.[call.callId]
+        if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
+        const asked = { question: arg('question') ?? '', detail: arg('detail'), options: argValue('options') ?? [], multiSelect: argValue('multiSelect') === true }
+        return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question: asked, closed }))
+      }
       if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
       return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) })
     }
@@ -1109,6 +1120,10 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       return h(WidgetCell, { sessionId, callId: call.callId, args: { text: arg, value: argValue }, done, isError: call.isError, roster, actions, heldCards })
     case 'request_secret':
       return h(SecretToolCell, { sessionId, callId: call.callId, name: arg('name'), done, content: call.content, roster, actions, heldCards })
+    case 'request_connector':
+      return h(ConnectorToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
+    case 'mail_send':
+      return h(MailToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
     case 'browser_handoff':
       return h(HandoffCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
     case 'computer_handoff':

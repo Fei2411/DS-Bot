@@ -19,7 +19,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, prefs: {}, switching: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -174,6 +174,7 @@ export function install(rt) {
     if (state.works === null || typeof state.works !== 'object' || Array.isArray(state.works)) state.works = {}
     if (state.requests === null || typeof state.requests !== 'object' || Array.isArray(state.requests)) state.requests = {}
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
+    if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
     // LEGACY: aside cards lived in this file only before the feature shipped;
     // they are kept under btw/ per part now. A saved copy is dropped, not moved.
     if ('btwCards' in state) {
@@ -516,8 +517,16 @@ export function install(rt) {
     return () => savedListeners.delete(listener)
   }
 
+  // A question or view card closed without an answer on the card (dismissed, or
+  // answered by a message) stays in the chat, read-only: by Session, its call id
+  // and how it closed. A card answered on the card shows on its reply message.
+  const closeCard = (sessionId, card, outcome) => {
+    if (typeof card?.callId !== 'string') return
+    state.closedCards[sessionId] = { ...own(state.closedCards, sessionId), [card.callId]: outcome }
+  }
+
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, own, onSaved,
+    state, load, save, refresh, readOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

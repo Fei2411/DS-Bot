@@ -16,6 +16,9 @@ jobs:
   test:
     name: ${{ matrix.os }} · Node ${{ matrix.node }} · DSH ${{ matrix.dsh }}
     runs-on: ${{ matrix.os }}
+    # The suite takes a few minutes; a test that never settles used to hold the job for the
+    # runner's six-hour limit.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +38,9 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci --no-fund --no-audit
       - name: Install DSH ${{ matrix.dsh }}
-        run: npm run harness -- --no-save "@deepseek-ai/dsh@${{ matrix.dsh }}"
+        # The testkit pins the DSH packages it was built with; at another version it would
+        # bring a second, mismatched set.
+        run: npm run harness -- --no-save "@deepseek-ai/dsh@${{ matrix.dsh }}" "@deepseek-ai/dsh-agent-loop-testkit@${{ matrix.dsh }}"
       - run: npm test
       - run: node scripts/build-client.mjs --check
       - run: npm run lint
