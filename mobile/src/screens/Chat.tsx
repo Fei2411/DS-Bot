@@ -192,6 +192,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   return (
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? -insets.bottom : 0} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
+      {room !== undefined && (room as { goal?: Goal }).goal ? <GoalBar goal={(room as { goal?: Goal }).goal!} p={p} /> : null}
       {gone
         ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
         : page === null && loadError !== null
@@ -260,6 +261,46 @@ function stampOf(items: ChatItem[], index: number): string | undefined {
   return messageClock(item.time)
 }
 
+// A group's goal, as the desktop's goal island (goal.js goalView) shows it: the goal
+// and the stage it is at, the stage bar, and on a tap every stage with its state.
+interface Goal { status?: string; idle?: boolean; title?: string; current?: number; stages?: { title?: string; status?: string; tasks?: { status?: string }[] }[] }
+const REPORTED = new Set(['reported', 'done'])
+const RUNNING = new Set(['active', 'paused'])
+function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] }) {
+  const [open, setOpen] = useState(false)
+  const stages = goal.stages ?? []
+  const at = goal.current ?? 0
+  const current = RUNNING.has(goal.status ?? '') ? stages[at] : undefined
+  const checking = current !== undefined && (current.tasks ?? []).every(task => REPORTED.has(task.status ?? ''))
+  const number = goal.status === 'drafting' ? undefined : goal.status === 'stopped' ? stages.filter(stage => stage.status === 'passed').length : current !== undefined ? at + 1 : stages.length
+  const label = goal.status === 'drafting' ? t('Aligning the goal with you')
+    : goal.status === 'stopped' ? t('Stopped')
+      : goal.status === 'complete' ? t('Goal reached')
+        : goal.status === 'paused' ? (current ? t('Paused · {title}', { title: current.title ?? '' }) : t('Paused'))
+          : goal.idle === true ? (current ? t('Waiting for you · {title}', { title: current.title ?? '' }) : t('Waiting for you'))
+            : current === undefined ? t('Final check')
+              : checking ? t('Checking · {title}', { title: current.title ?? '' }) : current.title ?? ''
+  const segment = (i: number) => stages[i].status === 'passed' ? p.green : i === at && RUNNING.has(goal.status ?? '') ? p.accent : p.line
+  return (
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(on => !on)}
+      style={[styles.goal, { backgroundColor: p.card, borderColor: p.line }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', flex: 1 }]} numberOfLines={1}>{goal.title ?? ''}</Text>
+        {number !== undefined ? <Text style={[type.caption, { color: p.ink3 }]}>{`${number}/${stages.length}`}</Text> : null}
+      </View>
+      <Text style={[type.small, { color: p.ink2, marginTop: 2 }]} numberOfLines={open ? undefined : 1}>{label}</Text>
+      {stages.length > 0 ? <View style={{ flexDirection: 'row', gap: 3, marginTop: 8 }}>{stages.map((_, i) => <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: segment(i) }} />)}</View> : null}
+      {open ? stages.map((stage, i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+          <Text style={[type.small, { color: p.ink3, width: 18 }]}>{i + 1}</Text>
+          <Text style={[type.small, { color: stage.status === 'passed' ? p.ink3 : p.ink, flex: 1 }]}>{stage.title ?? ''}</Text>
+          {stage.status === 'passed' ? <Text style={{ color: p.green, fontSize: 13 }}>✓</Text> : null}
+        </View>
+      )) : null}
+    </Pressable>
+  )
+}
+
 // The desktop's repair card (turn-error.js) for a failure only the user can fix: what
 // went wrong, by DSH's failure code, and the way to the fix.
 function failureText(code: string, name: string, provider: string, status?: number): string {
@@ -320,6 +361,7 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingVertical: 8, paddingHorizontal: 12 },
   reader: { flex: 1, paddingTop: 60 },
+  goal: { marginHorizontal: 12, marginBottom: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   blocked: { marginHorizontal: 12, marginBottom: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
   fix: { minHeight: 40, borderRadius: 20, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
