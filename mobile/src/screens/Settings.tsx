@@ -48,15 +48,16 @@ export function Settings({ navigation }: { navigation?: any }) {
           onPress={() => { const next = lang === 'system' ? 'zh' : lang === 'zh' ? 'en' : 'system'; set('lang', next); setLang(next); bump(v => v + 1) }} />
         <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ true: p.accent }} />} />
       </Section>
+      {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>
-        <Row label={t('Model providers')} onPress={() => navigation?.navigate('Providers')} />
-        <Row label={t('Secrets')} onPress={() => navigation?.navigate('Secrets')} />
+        <Row label={t('Models')} onPress={() => navigation?.navigate('Providers')} />
         <Row label={t('Connectors')} onPress={() => navigation?.navigate('Connectors')} />
         <Row label={t('Capabilities')} onPress={() => navigation?.navigate('Capabilities')} />
         <Row label={t('Usage')} onPress={() => navigation?.navigate('TeamUsage')} />
+        <Row label={t('Secrets')} onPress={() => navigation?.navigate('Secrets')} />
         <Row label={t('Location')} onPress={() => navigation?.navigate('Location')} />
         <Row label={t('Updates & diagnostics')} onPress={() => navigation?.navigate('Updates')} />
-        <Row label={t('About')} onPress={() => navigation?.navigate('About')} />
+        <Row label={t('About DS Bot')} onPress={() => navigation?.navigate('About')} />
       </Section>
     </ScrollView>
   )
