@@ -26,7 +26,9 @@ export function cleanEnv(extra = {}) {
 // A command's output, or undefined. Never synchronous: this runs inside the DSH
 // host, and a blocking child process there freezes every Session.
 const outputOf = (file, args) => new Promise((resolve) => {
-  execFile(file, args, { encoding: 'utf8', timeout: 5_000, env: cleanEnv() }, (error, stdout) => resolve(error === null ? stdout : undefined))
+  try {
+    execFile(file, args, { encoding: 'utf8', timeout: 5_000, env: cleanEnv() }, (error, stdout) => resolve(error === null ? stdout : undefined))
+  } catch { resolve(undefined) }
 })
 
 // macOS/Linux apps launched from a dock icon inherit a sparse PATH; the login
@@ -36,12 +38,15 @@ let found = { at: 0, dirs: [] }
 let looking
 export function refreshSearchDirs() {
   if (Date.now() - found.at < 60_000) return Promise.resolve()
+  const windows = process.platform === 'win32'
   looking ??= Promise.all([
-    process.platform === 'win32' ? undefined : outputOf(process.env.SHELL ?? '/bin/sh', ['-l', '-c', 'printf %s "$PATH"']),
-    // `npm bin -g` is gone since npm 9; the prefix holds the bin folder.
-    outputOf(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['prefix', '-g']),
+    windows ? undefined : outputOf(process.env.SHELL ?? '/bin/sh', ['-l', '-c', 'printf %s "$PATH"']),
+    // `npm bin -g` is gone since npm 9; the prefix holds the bin folder. Node starts
+    // no `.cmd` without a shell, and npm's Windows prefix is fixed, so it is not asked.
+    windows ? undefined : outputOf('npm', ['prefix', '-g']),
   ]).then(([loginPath, prefix]) => {
-    const npmBin = prefix?.trim() ? (process.platform === 'win32' ? prefix.trim() : join(prefix.trim(), 'bin')) : undefined
+    const npmBin = windows ? (process.env.APPDATA ? join(process.env.APPDATA, 'npm') : undefined)
+      : prefix?.trim() ? join(prefix.trim(), 'bin') : undefined
     found = { at: Date.now(), dirs: [...(loginPath ?? '').split(delimiter).filter(Boolean), ...(npmBin ? [npmBin] : [])] }
   }).finally(() => { looking = undefined })
   return looking
