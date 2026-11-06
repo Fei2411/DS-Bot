@@ -29,8 +29,11 @@ function AgentForm({ initial, submit, close }) {
 export function LocalAgentsPage({ run, Section, Row }) {
   const [view, setView] = useState(null)
   const [editing, setEditing] = useState(null) // 'new' | agent object
-  const refresh = () => run(call('local-agent-refresh')).then(setView)
-  useEffect(() => { void run(call('local-agents')).then(setView) }, [])
+  // run() reports a failure and resolves to whether it worked, so the page's
+  // data is taken from the call itself.
+  const load = endpoint => run(call(endpoint).then(setView))
+  const refresh = () => load('local-agent-refresh')
+  useEffect(() => { void load('local-agents') }, [])
   if (view === null) return null
   if (view.available === false) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot register local agent routes.'))
   return [
@@ -48,13 +51,13 @@ export function LocalAgentsPage({ run, Section, Row }) {
     h(Section, { key: 'custom', title: t('Custom agents') },
       h('p', { className: 'bt-set-hint' }, t('ACP-compatible agents, added by command.')),
       view.custom.map(agent => (editing === agent
-        ? h(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: payload => run(call('local-agent-update', { id: agent.id, ...payload })).then(() => run(call('local-agents'))).then(setView) })
+        ? h(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: payload => call('local-agent-update', { id: agent.id, ...payload }).then(() => load('local-agents')) })
         : h(Row, { key: agent.id, label: agent.name, hint: [agent.command, ...(agent.args ?? [])].join(' ') },
           h('div', { className: 'bt-set-actions' },
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setEditing(agent) }, h(ChevronRightIcon)),
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-danger', 'aria-label': t('Remove'), onClick: () => run(call('local-agent-remove', { id: agent.id })).then(() => run(call('local-agents'))).then(setView) }, h(TrashIcon)))))),
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-danger', 'aria-label': t('Remove'), onClick: () => run(call('local-agent-remove', { id: agent.id })).then(() => load('local-agents')) }, h(TrashIcon)))))),
       editing === 'new'
-        ? h(AgentForm, { key: 'new', close: () => setEditing(null), submit: payload => run(call('local-agent-add', payload)).then(() => run(call('local-agents'))).then(setView) })
+        ? h(AgentForm, { key: 'new', close: () => setEditing(null), submit: payload => call('local-agent-add', payload).then(() => load('local-agents')) })
         : h(Row, { key: 'add', label: t('Add agent') },
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'aria-label': t('Add agent'), onClick: () => setEditing('new') }, h(PlusIcon)))),
   ]
