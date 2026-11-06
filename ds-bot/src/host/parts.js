@@ -256,10 +256,13 @@ export function install(rt) {
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
   // records included: automatic pressure and overflow compaction do nothing, and
-  // /compact and explicit ranges are refused. Only DS Bot condenses a Bot Session,
-  // when the steward says so, and then the summary is DS Bot's checkpoint. Each preset
-  // mount has its own compaction backend. Every other Session, subagents included, is
-  // as it was.
+  // /compact is refused. Only DS Bot condenses a Bot Session, when the steward says so,
+  // and then the summary is DS Bot's checkpoint. An explicit range is different: with
+  // those entry points closed, the only range DSH still asks of a Bot Session is the one
+  // a model switch needs to fit the new model's window, and a refusal there ended the
+  // switch itself (MODEL_SWITCH_COMPACTION_FAILED). So DS Bot condenses that range as its
+  // own checkpoint instead. Each preset mount has its own compaction backend. Every other
+  // Session, subagents included, is as it was.
   const adoptedEngines = new Set()
   // Sessions DS Bot itself is condensing right now.
   const condensing = new Set()
@@ -270,6 +273,18 @@ export function install(rt) {
     return id !== undefined && (rt.selfOf(id) !== undefined || rt.roomOf(id) !== undefined)
   }
   const ownedByBot = target => isBotTarget(target) && !condensing.has(target.session.id)
+  // Condenses a range of a Bot Session the way DS Bot condenses its own parts: the
+  // session counts as condensing, so the summary hook writes DS Bot's checkpoint rather
+  // than the backend writing one of its own.
+  async function condenseRange(target, run) {
+    const sessionId = target.session.id
+    condensing.add(sessionId)
+    try {
+      return await run()
+    } finally {
+      condensing.delete(sessionId)
+    }
+  }
   // The engine that serves this agent, when DS Bot can condense through it.
   const engineOf = agent => [ctx.get('agentPresets')?.serviceFor(agent, 'compaction'), ctx.get('compaction')]
     .find(engine => typeof engine?.[ORIGINAL_COMPACT]?.summarize === 'function')
@@ -297,8 +312,11 @@ export function install(rt) {
       return original.compactNow.call(this, target, signal, commandId)
     }
     engine.compactRegion = function compactRegionOutsideBots(start, end, target, signal) {
-      if (ownedByBot(target)) return refuseCompaction()
-      return original.compactRegion.call(this, start, end, target, signal)
+      if (!ownedByBot(target)) return original.compactRegion.call(this, start, end, target, signal)
+      // Without the summary hook the backend would summarize a Bot conversation itself,
+      // so that case keeps the refusal.
+      if (original.summarize === undefined) return refuseCompaction()
+      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal))
     }
     if (original.summarize !== undefined) {
       engine.summarize = function summarizeForBots(input, agent, signal) {
