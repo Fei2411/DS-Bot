@@ -62,7 +62,7 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
 
   await desk.call('phone-set', { server: server.url, on: true })
   await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
-  assert.equal(statSync(join(home, 'phone.json')).mode & 0o777, 0o600)
+  if (process.platform !== 'win32') assert.equal(statSync(join(home, 'phone.json')).mode & 0o777, 0o600)
 
   const paired = await desk.call('phone-pair', {})
   const offer = parsePairingUri(paired.value.pairing.uri)
@@ -143,9 +143,10 @@ test('a bare Server host means the link path; a dead Server shows why', async (t
   assert.equal((await desk.call('state', {})).value.phone.server, server.url)
   await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
 
-  // An explicit path is kept as typed.
-  await desk.call('phone-set', { server: 'wss://relay.example/some-path' })
-  assert.equal((await desk.call('state', {})).value.phone.server, 'wss://relay.example/some-path')
+  // An explicit path is kept as typed. The dead Server is a closed local port, so the
+  // refusal is immediate wherever the test runs (a public name may hang on DNS or TCP).
+  await desk.call('phone-set', { server: 'ws://127.0.0.1:1/some-path' })
+  assert.equal((await desk.call('state', {})).value.phone.server, 'ws://127.0.0.1:1/some-path')
   const state = await until(() => desk.call('state', {}), next => next.value.phone.status === 'offline')
   assert.equal(typeof state.value.phone.error, 'string')
 })
