@@ -1342,13 +1342,22 @@ export function install(rt) {
         if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
         // Hidden turns and refused calls never showed a display card. Interactive
         // cards live in the pending dock or on their answer message instead.
-        if (event.data?.name === 'show_view' && !hidden.has(event.data?.turn)) {
+        const named = event.data?.name
+        if ((named === 'show_view' || named === 'ask_user') && !hidden.has(event.data?.turn)) {
           let args = event.data?.arguments
           if (typeof args === 'string') { try { args = JSON.parse(args) } catch { args = undefined } }
+          const callId = event.data?.callId ?? null
+          const closed = callId === null ? undefined : rt.own(rt.own(state.closedCards, partId), callId)
+          if (named === 'ask_user') {
+            if (closed !== undefined) items.push({ kind: 'closed', closed, question: { question: String(args?.question ?? ''), ...(args?.detail ? { detail: String(args.detail) } : {}), options: Array.isArray(args?.options) ? args.options : [], multiSelect: args?.multiSelect === true }, callId, time: event.time })
+            continue
+          }
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
           if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
-            items.push({ kind: 'view', title: shown.title, view, callId: event.data?.callId ?? null, time: event.time })
+            items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
+          } else if (shown.error === undefined && closed !== undefined) {
+            items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })
           }
         }
         continue

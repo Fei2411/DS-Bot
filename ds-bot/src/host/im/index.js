@@ -232,17 +232,12 @@ export function install(rt) {
     return undefined
   }
 
-  // The newest open card for this chat, and how to answer it.
-  const openCard = (conn, chatKey, kind) => {
-    const data = runtimes.get(conn.id)?.data
-    if (data === undefined) return undefined
-    for (const [cardKey, entries] of Object.entries(data.cards).reverse()) {
-      if (!cardKey.startsWith(`${kind}:`)) continue
-      const entry = entries.find(item => item.chatKey === chatKey && item.answer === undefined)
-      if (entry === undefined) continue
-      return { cardKey, entry }
-    }
-    return undefined
+  // One card this chat was sent and has not answered yet. A button names its own
+  // card, so it must never fall through to a newer card of the same kind.
+  const openCard = (conn, chatKey, cardKey) => {
+    const entries = runtimes.get(conn.id)?.data?.cards[cardKey]
+    const entry = entries?.find(item => item.chatKey === chatKey && item.answer === undefined)
+    return entry === undefined ? undefined : { cardKey, entry }
   }
   const questionById = (id) => {
     for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
@@ -250,8 +245,8 @@ export function install(rt) {
     }
     return undefined
   }
-  const answerQuestionCard = async (conn, chat, labels) => {
-    const held = openCard(conn, chat.key, 'q')
+  const answerQuestionCard = async (conn, chat, cardKey, labels) => {
+    const held = openCard(conn, chat.key, cardKey)
     if (held === undefined) return false
     const found = questionById(held.cardKey.slice(2))
     if (found === undefined) {
@@ -275,8 +270,8 @@ export function install(rt) {
     }
     return true
   }
-  const answerApprovalCard = async (conn, chat, choice) => {
-    const held = openCard(conn, chat.key, 'a')
+  const answerApprovalCard = async (conn, chat, cardKey, choice) => {
+    const held = openCard(conn, chat.key, cardKey)
     if (held === undefined) return false
     try {
       rt.answerApproval(held.cardKey.slice(2), choice)
@@ -349,12 +344,12 @@ export function install(rt) {
           const options = found.question.options ?? []
           const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
             && picked.every(index => options[index - 1] !== undefined)
-          if (inRange && await answerQuestionCard(conn, msg.chat, picked.map(index => options[index - 1].label))) return
+          if (inRange && await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label))) return
         }
       } else if (held !== undefined && held.cardKey.startsWith('a:')
         && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
         && rt.approvalsView().some(entry => `a:${entry.id}` === held.cardKey)) {
-        if (await answerApprovalCard(conn, msg.chat, picked[0] === 1 ? 'allow' : 'reject')) return
+        if (await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')) return
       }
     }
     if (target === undefined) {
@@ -382,21 +377,24 @@ export function install(rt) {
     if (!paired(conn, action.sender.id)) return
     const data = String(action.data ?? '')
     const chat = { key: action.chat.key, kind: action.chat.kind, title: action.chat.title }
-    if (data.startsWith('q:')) {
-      const [, id, index] = data.split(':')
-      const found = questionById(id)
-      const label = found?.question.options?.[Number(index)]?.label
+    // Button data is `<kind>:<id>:<choice>`; the id is everything between the
+    // first and the last colon, so an id with a colon in it still parses.
+    const cut = data.lastIndexOf(':')
+    const cardKey = data.slice(0, cut)
+    const choice = data.slice(cut + 1)
+    if (data.startsWith('q:') && cut > 2) {
+      const found = questionById(cardKey.slice(2))
+      const label = found?.question.options?.[Number(choice)]?.label
       if (label === undefined) {
         await sendCardReply(conn, chat, text('stale'))
         return
       }
-      if (!(await answerQuestionCard(conn, chat, [label]))) await sendCardReply(conn, chat, text('stale'))
+      if (!(await answerQuestionCard(conn, chat, cardKey, [label]))) await sendCardReply(conn, chat, text('stale'))
       return
     }
-    if (data.startsWith('a:')) {
-      const [, , choice] = data.split(':')
+    if (data.startsWith('a:') && cut > 2) {
       if (choice === 'allow' || choice === 'reject') {
-        if (!(await answerApprovalCard(conn, chat, choice))) await sendCardReply(conn, chat, text('stale'))
+        if (!(await answerApprovalCard(conn, chat, cardKey, choice))) await sendCardReply(conn, chat, text('stale'))
       }
     }
   }

@@ -1,4 +1,4 @@
-// Check a packaged app: process an image with its sharp, convert a Word document with its LibreOffice engine, then start it on throwaway folders with the ds-bot mock model, choose a model,
+// Check a packaged app: copy files that end in .asar with its copy of a user's folders, process an image with its sharp, convert a Word document with its LibreOffice engine, then start it on throwaway folders with the ds-bot mock model, choose a model,
 // send a message, wait for the reply, then close the window the way a user does: the window hides
 // and the app goes on. The window comes back when the app is started again, and the app ends the
 // way the tray's Quit ends it. Fails on a page error or a non-zero exit.
@@ -6,7 +6,7 @@
 // The executable defaults to the one that `npm run pack` or `npm run dist` writes into dist-pack/.
 import { spawn, spawnSync } from 'node:child_process'
 import { connect, createServer } from 'node:net'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -47,6 +47,17 @@ if (!existsSync(executable)) {
     join(unpacked, 'node_modules', 'ds-bot', 'office.js'),
   ]
   const missing = required.filter((entry) => !existsSync(join(resources, entry)))
+  // macOS carries the signed "DSH Computer Use" helper outside the asar, in a
+  // hash-named folder; find it by its name rather than the changing hash.
+  if (process.platform === 'darwin') {
+    const rootDir = join(resources, unpacked, 'node_modules', '@deepseek-ai', 'dsh-experimental-cua-macos', 'native', 'bin')
+    const dirs = existsSync(rootDir) ? readdirSync(rootDir) : []
+    const helper = dirs.flatMap(dir => {
+      const here = join(rootDir, dir)
+      return existsSync(here) ? readdirSync(here).map(hash => join(here, hash, 'DSH Computer Use.app')) : []
+    }).find(entry => existsSync(entry))
+    if (helper === undefined) missing.push(join(unpacked, 'node_modules', '@deepseek-ai', 'dsh-experimental-cua-macos', 'native', 'bin', '<arch>', '<hash>', 'DSH Computer Use.app'))
+  }
   if (missing.length > 0) {
     console.error(`check-packed: FAILED: missing from ${resources}:\n  ${missing.join('\n  ')}`)
     process.exit(1)
@@ -87,6 +98,41 @@ function outsideCheckout(file) {
   cpSync(appDir, copy, { recursive: true, verbatimSymlinks: true })
   console.log(`check-packed: runs a copy of ${appDir} in ${work}`)
   return join(copy, relative(appDir, file))
+}
+
+// The copy that the import and the data move share, in Electron's own fs, which plain Node and so
+// the tests do not have: a user's files that end in .asar arrive as they are and can be removed.
+function checkAsarCopy(app) {
+  const resources = process.platform === 'darwin' ? resolve(app, '..', '..', 'Resources') : join(dirname(app), 'resources')
+  const tree = join(resources, process.platform === 'linux' ? 'app' : 'app.asar', 'src', 'copy-tree.mjs')
+  const result = spawnSync(app, ['-e', `
+    const assert = require('node:assert/strict')
+    const { join } = require('node:path')
+    const { pathToFileURL } = require('node:url')
+    const work = ${JSON.stringify(join(work, 'asar-copy'))}
+    // asar's own format: two size headers, the length of the JSON, the JSON padded to 4 bytes, the files.
+    const json = Buffer.from(JSON.stringify({ files: { 'f.txt': { size: 2, offset: '0' } } }))
+    const padded = Math.ceil(json.length / 4) * 4
+    const archive = Buffer.alloc(16 + padded + 2)
+    for (const [at, size] of [[0, 4], [4, 8 + padded], [8, 4 + padded], [12, json.length]]) archive.writeUInt32LE(size, at)
+    json.copy(archive, 16)
+    archive.write('hi', 16 + padded)
+    import(pathToFileURL(${JSON.stringify(tree)}).href).then(async ({ copyTree, disk }) => {
+      assert.ok(process.versions.electron, 'this check needs Electron')
+      const files = { 'valid.asar': archive, 'junk.asar': Buffer.from('no archive'), 'folder.asar/in.txt': Buffer.from('in') }
+      for (const [name, content] of Object.entries(files)) {
+        disk.mkdirSync(join(work, 'from', name, '..'), { recursive: true })
+        disk.writeFileSync(join(work, 'from', name), content)
+      }
+      assert.deepEqual(await copyTree(join(work, 'from'), join(work, 'to'), { skip: true }), [])
+      for (const [name, content] of Object.entries(files)) assert.ok(disk.readFileSync(join(work, 'to', name)).equals(content), name)
+      await disk.promises.rm(join(work, 'to'), { recursive: true })
+      assert.equal(disk.existsSync(join(work, 'to')), false)
+      console.log('check-packed: files that end in .asar are copied as they are')
+    }).catch((error) => { console.error(error); process.exit(1) })
+  `], { cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' }, encoding: 'utf8', timeout: 60_000 })
+  if (result.error || result.status !== 0) throw new Error(`the .asar copy check failed (exit ${String(result.status)}): ${result.error?.message ?? result.stderr}`)
+  console.log(result.stdout.trim())
 }
 
 // Run a script with the Host's runtime and the app's dependencies as the Host loads them,
@@ -394,6 +440,7 @@ let failed = false
 const problems = []
 try {
   const packedApp = outsideCheckout(resolve(executable))
+  checkAsarCopy(packedApp)
   checkSharp(packedApp)
   checkOffice(packedApp)
   const modelUrl = await startMock()

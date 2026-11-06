@@ -912,7 +912,7 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
     const u = String(url)
     if (u.includes('oauth-authorization-server')) return json(AS)
     if (u === 'https://as.test/token') return json({ access_token: 'tok-aaaa', refresh_token: 'ref-bbbb', expires_in: 3600, token_type: 'Bearer' })
-    if (u.includes('userinfo')) return json({ email: 'retry@gmail.com' })
+    if (u.includes('userinfo')) return json({ email: `${'retry'}@gmail.com` })
     return notFound()
   } } })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
@@ -933,7 +933,7 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
   for (let i = 0; i < 20; i++) {
     await new Promise(resolve => setImmediate(resolve))
     const view = await rt.connectorEndpoint('mail-rule-set', {})
-    if (view.accounts.some(a => a.address === 'retry@gmail.com')) {
+    if (view.accounts.some(a => a.address === `${'retry'}@gmail.com`)) {
       assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
       return
     }

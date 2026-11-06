@@ -2,9 +2,10 @@ import { createElement as h, useRef, useState } from 'react'
 import { MarkdownText } from './dsh-primitives.js'
 import { CellEmpty } from './cell-empty.js'
 import { t } from './i18n.js'
-import { AnsweredCell } from './questions.js'
+import { AnsweredCell, closedLabel } from './questions.js'
 import { useDockHold } from './card-hold.js'
 import { SettledHandoff } from './handoff-card.js'
+import { SettledComputerHandoff } from './computer.js'
 import { heldCardKey } from './sources.js'
 import { WidgetCard, ViewUi, DEEP_VIEW_CSS, WidgetView as CoreWidgetView, ViewMenuList as CoreViewMenuList } from 'deep-view/react'
 import { checkShownView } from 'deep-view/core'
@@ -60,13 +61,23 @@ export function WidgetCell({ sessionId, callId, args, done, isError, roster, act
   // The args accessor reads strings through `text`; `value` drops them.
   const shown = checkShownView(args?.text?.('title'), args?.value?.('view'))
   // A call the host refused — a blueprint it would not show, or a reply it cannot
-  // wait for — leaves no card; the model's retry then stays the only one. So does
-  // a settled interactive call: answered, dismissed or replaced, it leaves no gap
-  // where it was (same as ask_user).
-  if (shown.error !== undefined || shown.interactive || args?.value?.('await_reply') === true) {
-    return h(CellEmpty, { className: 'bt-q-gone' })
+  // wait for — leaves no card; the model's retry then stays the only one. An
+  // answered interactive call leaves no gap either: its reply message carries the
+  // card. Dismissed or answered by a message, the card stays here, read-only.
+  if (shown.error !== undefined) return h(CellEmpty, { className: 'bt-q-gone' })
+  if (shown.interactive || args?.value?.('await_reply') === true) {
+    const closed = callId === undefined ? undefined : roster.closedCards?.[sessionId]?.[callId]
+    if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
+    return h(ClosedView, { title: shown.title, view: shown.view, closed })
   }
   return h('div', { className: 'bt-q-inline' }, h(Card, { title: shown.title, view: shown.view }))
+}
+
+// A view closed without an answer on it: settled with nothing chosen, and a badge
+// beside its title for how it closed.
+export function ClosedView({ title, view, closed }) {
+  const head = h('span', { className: 'bt-view-closed' }, h('span', { className: 'bt-view-closed-title' }, title ?? ''), h('span', { className: 'bt-q-badge' }, closedLabel(closed)))
+  return h('div', { className: 'bt-q-inline' }, h(Card, { title: head, view, settled: true }))
 }
 
 // Views asked by a call the transcript does not draw wait above the composer,
@@ -107,7 +118,8 @@ export function AnsweredReply({ node }) {
     try { parsed = typeof data.text === 'string' ? JSON.parse(data.text) : null } catch { parsed = null }
     if (parsed?.kind === 'answer_to_pending_view') return h(AnsweredView, { node })
     if (parsed?.kind === 'answer_to_pending_handoff' && typeof parsed.reason === 'string') {
-      return h(SettledHandoff, { handoff: { reason: parsed.reason, note: parsed.note ?? '', outcome: parsed.outcome } })
+      const reply = { reason: parsed.reason, note: parsed.note ?? '', outcome: parsed.outcome }
+      return parsed.tool === 'computer_handoff' ? h(SettledComputerHandoff, { handoff: reply }) : h(SettledHandoff, { handoff: reply })
     }
   }
   return h(AnsweredCell, { node })
@@ -132,6 +144,8 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+.bt-view-closed{display:flex;align-items:flex-start;gap:8px}
+.bt-view-closed-title{flex:1 1 0;min-width:0}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */

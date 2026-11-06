@@ -1022,6 +1022,85 @@ test('one press stops the group\'s round and every member at work there, and not
   assert.deepEqual(kinds(first()).filter(([kind]) => kind === 'stopped'), [['stopped', 'Chief'], ['stopped', 'Writer']])
 })
 
+test('a member that cannot be stopped leaves the others stopped and reports the failure', async (t) => {
+  const host = await start(t)
+  host.emit('ga', 'turn/start', { turn: 1 })
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.agentOf('ga').cancel = () => { throw new Error('cancel failed') }
+  const stopped = await host.call('stop-room-work', { roomId: 'r1' })
+  assert.equal(stopped.ok, false)
+  assert.match(stopped.error.message, /cancel failed/)
+  assert.deepEqual(host.agentOf('gb').cancelled, [{ kind: 'user' }])
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  assert.equal(host.takePost().source.stopped, true)
+})
+
+test('a round that cannot be stopped leaves the members stopped and reports the failure', async (t) => {
+  const host = await start(t)
+  const stop = new AbortController()
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('r1', 'user/message', host.say('@Chief 看看进度'))
+  const relay = host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal })
+  try {
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.agentOf('r1').cancel = () => { throw new Error('round cancel failed') }
+    const stopped = await host.call('stop-room-work', { roomId: 'r1' })
+    assert.equal(stopped.ok, false)
+    assert.match(stopped.error.message, /round cancel failed/)
+    for (const id of ['ga', 'gb']) assert.deepEqual(host.agentOf(id).cancelled, [{ kind: 'user' }], id)
+  } finally {
+    stop.abort()
+    host.emit('ga', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    await relay
+  }
+})
+
+test('a subagent whose interrupt throws is still cancelled, and so is the member', async (t) => {
+  const cancelled = []
+  const host = await start(t, undefined, {
+    subagents: { interrupt: () => { throw new Error('belongs to another parent') } },
+    agents: { list: () => [], get: id => (id === 'sub-1' ? { cancel: reason => cancelled.push(reason) } : undefined) },
+  })
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Long run', mode: 'continuable' })
+  const stopped = await host.call('stop-room-work', { roomId: 'r1' })
+  assert.deepEqual([stopped.ok, stopped.value], [true, true])
+  assert.deepEqual(cancelled, [{ kind: 'user' }])
+  assert.deepEqual(host.agentOf('gb').cancelled, [{ kind: 'user' }])
+})
+
+test('stopping a member stops its subagents and leaves Sessions forked from it alone', async (t) => {
+  const interrupted = []
+  const cancelled = []
+  const live = (id, header) => ({ id, session: { header: { parentSession: 'gb', ...header } }, cancel: () => cancelled.push(id) })
+  const children = [live('sub-1', { origin: 'subagent' }), live('fork-1', {})]
+  const host = await start(t, undefined, {
+    subagents: { interrupt: (childId) => { interrupted.push(childId) } },
+    agents: { list: () => children, get: id => children.find(child => child.id === id) },
+  })
+  host.emit('gb', 'turn/start', { turn: 1 })
+  assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).value, true)
+  assert.deepEqual(interrupted, ['sub-1'])
+  assert.deepEqual(cancelled, ['sub-1'])
+})
+
+// An unhandled rejection here would end the Host.
+test('a stopped round warns when a member turn cannot be stopped', async (t) => {
+  const host = await start(t)
+  const warned = []
+  host.ctx.logger.warn = (...args) => { warned.push(args.join(' ')) }
+  const stop = new AbortController()
+  host.emit('r1', 'user/message', host.say('@Writer 写一下'))
+  const relay = host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal })
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.agentOf('gb').cancel = () => { throw new Error('cancel failed') }
+  stop.abort()
+  await relay
+  await settle(() => warned.some(line => /cancel failed/.test(line)))
+})
+
 test('members still at work show in the team view and in the prompts of the others', async (t) => {
   const host = await start(t)
   host.emit('gb', 'turn/start', { turn: 1 })
@@ -1557,11 +1636,10 @@ test('consecutive 0-tool ack ping-pong relays pause after 6 turns and go on only
 // stays marked as working in the group, and stopping the group interrupts the subagent
 // and suppresses its late settlement notice.
 test('a group member with a running DSH subagent stays working and stop-room-work interrupts the subagent (#701)', async (t) => {
-  const host = await start(t)
   const interrupted = []
-  host.ctx.subagents = {
-    interrupt: async (childId, opts) => { interrupted.push({ childId, opts }) },
-  }
+  const host = await start(t, undefined, {
+    subagents: { interrupt: async (childId, opts) => { interrupted.push({ childId, opts }) } },
+  })
   const first = host.round('c1', host.say('@Writer 派子代理跑长任务'))
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
@@ -1581,9 +1659,7 @@ test('a group member with a running DSH subagent stays working and stop-room-wor
   // User clicks "Stop all" in the group: it interrupts sub-1 and logs Writer as stopped.
   const stopped = await host.call('stop-room-work', { roomId: 'r1' })
   assert.deepEqual([stopped.ok, stopped.value], [true, true])
-  assert.equal(interrupted.length, 1)
-  assert.equal(interrupted[0].childId, 'sub-1')
-  assert.equal(interrupted[0].opts.parentSessionId, 'gb')
+  assert.deepEqual(interrupted, [{ childId: 'sub-1', opts: { kind: 'user', parentSessionId: 'gb' } }])
   assert.deepEqual((await host.call('state', {})).value.work.rooms.r1, undefined)
 
   // Clear the stopped event post from r1's inbox.

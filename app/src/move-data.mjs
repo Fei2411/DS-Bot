@@ -1,12 +1,13 @@
 // Moving the app's data to another folder. The copy is put together in a folder beside the new
 // one and takes its name only once it is whole, so a copy that stopped or failed leaves nothing
 // that looks like data. The old folder stays as it was.
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { mkdir, rename, rm, rmdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import { copyTree, real, within } from './copy-tree.mjs'
+import { copyTree, disk, real, within } from './copy-tree.mjs'
 
 export { copyReason } from './copy-tree.mjs'
+
+const { existsSync, readdirSync, statSync } = disk
+const { mkdir, rename, rm, rmdir, writeFile } = disk.promises
 
 // The engine's lock on the team belongs to the old folder; the first-run copy and its check
 // leave their temporary folders only when they were cut short.
