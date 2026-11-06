@@ -172,7 +172,8 @@ export function install(rt) {
       roomTimers.delete(roomId)
       rt.publishFeed?.('room', { roomId })
     }, ROOM_SIGNAL_MS)
-    timer.unref?.()
+    // Not unref'd: the signal is due shortly and dispose clears it; an unref'd timer left
+    // a client waiting on it with nothing else to keep the loop alive (Node 22).
     roomTimers.set(roomId, timer)
   }
 
