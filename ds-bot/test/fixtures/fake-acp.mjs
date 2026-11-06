@@ -38,9 +38,12 @@ async function runPrompt(session, prompt, requestId) {
   }
   if (text.includes('hang')) return // session/cancel releases it below
   if (text.includes('ask-permission')) {
+    // Like Devin: the call's kind and input arrive with its tool_call update;
+    // the permission request names it only by id.
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'perm-call', kind: 'execute', status: 'pending', rawInput: { command: 'rm -rf /tmp/x' } })
     const answer = await ask('session/request_permission', {
       sessionId,
-      toolCall: { title: 'Run rm -rf /tmp/x', kind: 'execute', rawInput: { command: 'rm -rf /tmp/x' } },
+      toolCall: { toolCallId: 'perm-call' },
       options: [
         { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
         { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
