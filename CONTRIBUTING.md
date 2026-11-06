@@ -29,7 +29,7 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 | `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `dev` | — |
 
 - Do not start a branch name with `dev/`. Git cannot create `dev/<name>` while the branch `dev` exists.
-- To bring your branch up to date, run `git merge dev` (on a hotfix branch, `git merge main`). Do not rebase a pushed branch and do not force-push.
+- To bring your branch up to date, run `scripts/merge-dev.sh`: it merges `origin/dev`, and a conflict in the generated `ds-bot/client.js` is taken from dev and rebuilt (on a hotfix branch, `git merge main`). Do not rebase a pushed branch and do not force-push.
 - `main` is the default branch, so GitHub suggests `main` as the base of a new pull request. Change the base to `dev`.
 
 ### Issues
