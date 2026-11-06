@@ -191,8 +191,23 @@ export function EffortBar({ reasoning, current, onPick }) {
     h('span', { className: 'bt-effort-knob', 'aria-hidden': true })))
 }
 
-function ModelRows({ roster, current, onPick }) {
-  return groupModels(roster.models).map(([provider, list]) => h(Fragment, { key: list[0].provider ?? provider },
+// A free-text query over the model list. Every token must match part of the
+// name, ref, provider id or provider display name; groups left empty are dropped
+// so the menu never shows a bare provider heading. Exported for the tests.
+export function filterModelGroups(models, query) {
+  const tokens = typeof query === 'string' ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : []
+  const groups = groupModels(models)
+  if (tokens.length === 0) return groups
+  return groups.map(([provider, list]) => [provider, list.filter(model => {
+    const hay = `${model.name ?? ''} ${model.ref ?? ''} ${model.provider ?? ''} ${model.providerName ?? ''}`.toLowerCase()
+    return tokens.every(token => hay.includes(token))
+  })]).filter(([, list]) => list.length > 0)
+}
+
+function ModelRows({ roster, current, onPick, query }) {
+  const groups = filterModelGroups(roster.models, query)
+  if (groups.length === 0) return h('div', { className: 'bt-model-none', role: 'status' }, t('No matching models.'))
+  return groups.map(([provider, list]) => h(Fragment, { key: list[0].provider ?? provider },
     h('div', { className: 'bt-model-group', role: 'presentation' }, provider),
     list.map(model => h('button', {
       key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
@@ -257,6 +272,7 @@ export function useAnchoredMenu() {
 // `withEfforts: false` keeps the Thinking section out, for a pick that has no level of its own.
 export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
+  const [modelQuery, setModelQuery] = useState('')
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
   const served = servedOf(roster, current)
@@ -271,6 +287,7 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     if (isOpen) { close(); return }
     // DSH settings can change the list at any time, so opening asks again.
     void actions?.refreshModels?.()
+    setModelQuery('')
     open()
   }
   const pick = (ref) => {
@@ -298,8 +315,15 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
         : t('{provider} · not available', { provider: shown.provider })) : null),
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
+      models.length > 0 ? h('div', { className: 'bt-model-search', role: 'presentation' },
+        h('input', {
+          type: 'search', className: 'bt-input bt-model-search-input',
+          placeholder: t('Search models…'), 'aria-label': t('Search models'),
+          value: modelQuery, autoFocus: true, autoComplete: 'off', spellCheck: false,
+          onInput: event => setModelQuery(event.target.value),
+        })) : null,
       h('div', { className: 'bt-model-scroll' },
-        models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
+        models.length > 0 ? h(ModelRows, { roster, current, onPick: pick, query: modelQuery })
           : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.'))),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning, current: picked, onPick: pickEffort }) : null,
@@ -449,6 +473,11 @@ export const MODEL_CSS = `
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
+.bt-model-search{flex:none;display:flex;padding:6px 6px 4px;border-bottom:.5px solid var(--bt-line-2)}
+.bt-model-search-input{flex:1 1 auto;width:100%;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;outline:0}
+.bt-model-search-input:focus-visible{box-shadow:inset 0 0 0 1px var(--bt-accent)}
+.bt-model-search-input::placeholder{color:var(--bt-ink-3)}
+.bt-model-search-input::-webkit-search-cancel-button{cursor:pointer}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
 .bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:4px 6px 5px}
 .bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:18px;padding:0 2px}

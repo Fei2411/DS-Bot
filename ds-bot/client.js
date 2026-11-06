@@ -585,6 +585,9 @@ var ZH = {
   "Harness default": "Harness 默认",
   Saving: "保存中",
   "Manage models": "管理模型",
+  "Search models": "搜索模型",
+  "Search models…": "搜索模型…",
+  "No matching models.": "没有匹配的模型。",
   // Shapes
   Whale: "鲸鱼",
   Star: "星星",
@@ -9336,8 +9339,19 @@ function EffortBar({ reasoning, current, onPick }) {
     )
   );
 }
-function ModelRows({ roster, current, onPick }) {
-  return groupModels(roster.models).map(([provider, list]) => (0, import_react19.createElement)(
+function filterModelGroups(models, query) {
+  const tokens = typeof query === "string" ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const groups = groupModels(models);
+  if (tokens.length === 0) return groups;
+  return groups.map(([provider, list]) => [provider, list.filter((model) => {
+    const hay = `${model.name ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
+    return tokens.every((token) => hay.includes(token));
+  })]).filter(([, list]) => list.length > 0);
+}
+function ModelRows({ roster, current, onPick, query }) {
+  const groups = filterModelGroups(roster.models, query);
+  if (groups.length === 0) return (0, import_react19.createElement)("div", { className: "bt-model-none", role: "status" }, t("No matching models."));
+  return groups.map(([provider, list]) => (0, import_react19.createElement)(
     import_react19.Fragment,
     { key: list[0].provider ?? provider },
     (0, import_react19.createElement)("div", { className: "bt-model-group", role: "presentation" }, provider),
@@ -9408,6 +9422,7 @@ function useAnchoredMenu() {
 }
 function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
+  const [modelQuery, setModelQuery] = (0, import_react19.useState)("");
   const shown = modelOf(bot, roster);
   const current = bot.model ?? bot.appliedModel;
   const served = servedOf(roster, current);
@@ -9421,6 +9436,7 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
       return;
     }
     void actions?.refreshModels?.();
+    setModelQuery("");
     open();
   };
   const pick2 = (ref) => {
@@ -9462,10 +9478,25 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react19.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": t("Model for {name}", { name: bot.name }), style: shownPlace, "data-leaving": leaving || void 0 },
+      models.length > 0 ? (0, import_react19.createElement)(
+        "div",
+        { className: "bt-model-search", role: "presentation" },
+        (0, import_react19.createElement)("input", {
+          type: "search",
+          className: "bt-input bt-model-search-input",
+          placeholder: t("Search models…"),
+          "aria-label": t("Search models"),
+          value: modelQuery,
+          autoFocus: true,
+          autoComplete: "off",
+          spellCheck: false,
+          onInput: (event) => setModelQuery(event.target.value)
+        })
+      ) : null,
       (0, import_react19.createElement)(
         "div",
         { className: "bt-model-scroll" },
-        models.length > 0 ? (0, import_react19.createElement)(ModelRows, { roster, current, onPick: pick2 }) : (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet."))
+        models.length > 0 ? (0, import_react19.createElement)(ModelRows, { roster, current, onPick: pick2, query: modelQuery }) : (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet."))
       ),
       hasEfforts || manage ? (0, import_react19.createElement)(
         "div",
@@ -9627,6 +9658,11 @@ var MODEL_CSS = `
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
+.bt-model-search{flex:none;display:flex;padding:6px 6px 4px;border-bottom:.5px solid var(--bt-line-2)}
+.bt-model-search-input{flex:1 1 auto;width:100%;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;outline:0}
+.bt-model-search-input:focus-visible{box-shadow:inset 0 0 0 1px var(--bt-accent)}
+.bt-model-search-input::placeholder{color:var(--bt-ink-3)}
+.bt-model-search-input::-webkit-search-cancel-button{cursor:pointer}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
 .bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:4px 6px 5px}
 .bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:18px;padding:0 2px}
