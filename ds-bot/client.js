@@ -23323,6 +23323,9 @@ var PageBoundary = class extends import_react54.Component {
   static getDerivedStateFromError() {
     return { failed: true };
   }
+  componentDidUpdate(previous) {
+    if (this.state.failed && previous.reset !== this.props.reset) this.setState({ failed: false });
+  }
   componentDidCatch(error) {
     console.error("ds-bot: a settings page failed", error);
   }
@@ -23424,7 +23427,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
           "div",
           { key: "usage", className: "bt-settings-scroll bt-settings-usage", "data-off": shown === "usage" ? void 0 : "", "aria-hidden": shown === "usage" ? void 0 : true },
           shown === "usage" ? errorLine : null,
-          (0, import_react54.createElement)(PageBoundary, null, (0, import_react54.createElement)(UsagePage, { roster, actions, focusId: usageFocus }))
+          (0, import_react54.createElement)(PageBoundary, { reset: shown }, (0, import_react54.createElement)(UsagePage, { roster, actions, focusId: usageFocus }))
         ) : null
       ),
       (0, import_react54.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react54.createElement)(CloseIcon))

@@ -245,10 +245,12 @@ function GroupsPage({ roster, actions, run }) {
 
 // A page that throws while it renders shows a line in its place. Uncaught, the
 // error takes down the plugin's whole overlay, and no dialog opens again until
-// the window reloads. The page's key resets it.
+// the window reloads. The page's key resets it; Usage stays mounted, so its
+// boundary resets when the shown page changes.
 class PageBoundary extends Component {
   state = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
+  componentDidUpdate(previous) { if (this.state.failed && previous.reset !== this.props.reset) this.setState({ failed: false }) }
   componentDidCatch(error) { console.error('ds-bot: a settings page failed', error) }
   render() { return this.state.failed ? h('div', { className: 'bt-error', role: 'alert' }, t('This page could not be shown.')) : this.props.children }
 }
@@ -322,6 +324,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'about' ? h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow }) : null)),
         usageOpened ? h('div', { key: 'usage', className: 'bt-settings-scroll bt-settings-usage', 'data-off': shown === 'usage' ? undefined : '', 'aria-hidden': shown === 'usage' ? undefined : true },
           shown === 'usage' ? errorLine : null,
-          h(PageBoundary, null, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
+          h(PageBoundary, { reset: shown }, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
       h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon))))
 }
