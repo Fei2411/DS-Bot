@@ -83,7 +83,7 @@ const linkProfile = () => {
 
 const installProfile = async () => {
   log('linking the plugin into the mounted checkout')
-  const code = await run('pnpm', ['--store-dir', '/opt/pnpm-store', 'install', '--offline', '--no-frozen-lockfile'], {
+  const code = await run('pnpm', ['--store-dir', '/opt/pnpm-store', 'install', '--prefer-offline', '--no-frozen-lockfile'], {
     cwd: PROFILE,
     env: { ...process.env, CI: 'true' },
   })

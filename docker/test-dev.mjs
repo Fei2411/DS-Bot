@@ -46,14 +46,14 @@ async function waitFor(description, check, timeout = 90_000) {
   throw new Error(`timed out waiting for ${description}`)
 }
 
-function httpReady() {
-  const address = docker(['exec', name, 'sh', '-c', 'hostname -i 2>/dev/null || echo 127.0.0.1']).stdout.trim().split(/\s+/)[0]
-  assert.ok(address, 'the development container must have a listen address')
+function httpReady(container = name) {
+  const address = docker(['exec', container, 'sh', '-c', 'hostname -i 2>/dev/null || echo 127.0.0.1']).stdout.trim().split(/\s+/)[0]
+  assert.ok(address, 'the container must have a listen address')
   const probe = `
     const response = await fetch('http://${address}:3080/');
     if (![200, 401].includes(response.status)) throw new Error('Unexpected HTTP status: ' + response.status);
   `
-  return () => docker(['exec', name, 'node', '--input-type=module', '-e', probe], { allowFailure: true }).status === 0
+  return () => docker(['exec', container, 'node', '--input-type=module', '-e', probe], { allowFailure: true }).status === 0
 }
 
 try {
@@ -80,10 +80,32 @@ try {
 
   const uid = process.getuid?.() ?? 1000
   const gid = process.getgid?.() ?? 1000
-  docker([
-    'run', '--detach', '--name', name, '--network', 'none',
+  const dataMounts = [
     '--mount', `type=volume,src=${data},dst=/data`,
     '--mount', `type=volume,src=${workspace},dst=/workspace`,
+  ]
+  docker([
+    'run', '--detach', '--rm', '--name', releaseName, '--network', 'none', ...dataMounts,
+    '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, '-e', 'DSH_TELEMETRY_DISABLED=1', releaseImage,
+  ])
+  await waitFor('the release profile initialization', httpReady(releaseName))
+  docker(['stop', releaseName])
+  const addUncachedDependency = `
+    const fs = require('node:fs');
+    const profile = '/data/profiles/web/';
+    const pkg = JSON.parse(fs.readFileSync(profile + 'package.json', 'utf8'));
+    pkg.dependencies['left-pad'] = '1.3.0';
+    fs.writeFileSync(profile + 'package.json', JSON.stringify(pkg, null, 2) + '\\n');
+    fs.mkdirSync(profile + 'node_modules/left-pad', { recursive: true });
+    fs.writeFileSync(profile + 'node_modules/left-pad/package.json', JSON.stringify({ name: 'left-pad', version: '1.3.0', main: 'index.js' }));
+    fs.writeFileSync(profile + 'node_modules/left-pad/index.js', 'module.exports = (value) => String(value)\\n');
+  `
+  docker([
+    'run', '--rm', '--network', 'none', '--user', 'root', '--entrypoint', 'node',
+    ...dataMounts, releaseImage, '-e', addUncachedDependency,
+  ])
+  docker([
+    'run', '--detach', '--name', name, ...dataMounts,
     '--mount', `type=bind,src=${plugin},dst=/app/ds-bot`,
     '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, '-e', 'DSH_TELEMETRY_DISABLED=1',
     image,
@@ -104,7 +126,8 @@ try {
   docker(['exec', name, 'test', '-f', '/data/profiles/web/pnpm-lock.yaml.release'])
   docker(['exec', name, 'test', '-d', '/data/profiles/web/node_modules.release'])
   await waitFor('the fresh web server', httpReady())
-  console.log('PASS: fresh data builds the checkout and links the mounted plugin into the profile')
+  docker(['exec', name, 'test', '-f', '/data/profiles/web/node_modules/left-pad/index.js'])
+  console.log('PASS: development startup fetches an existing profile dependency missing from the image cache')
 
   docker(['exec', name, 'rm', '-f', '/tmp/ds-bot-dev-build-started'])
   writeFileSync(join(plugin, '.build-hold'), '')
@@ -137,10 +160,6 @@ try {
   docker(['stop', name])
   docker(['rm', name])
   server = ''
-  const dataMounts = [
-    '--mount', `type=volume,src=${data},dst=/data`,
-    '--mount', `type=volume,src=${workspace},dst=/workspace`,
-  ]
   docker([
     'run', '--detach', '--rm', '--name', releaseName, '--network', 'none', ...dataMounts,
     '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, '-e', 'DSH_TELEMETRY_DISABLED=1', releaseImage,
@@ -155,6 +174,7 @@ try {
     test -f /data/profiles/web/node_modules/ds-bot/index.js
     test -f /data/profiles/web/node_modules/deep-view/package.json
     test -f /data/profiles/web/node_modules/extra-plugin/index.js
+    test -f /data/profiles/web/node_modules/left-pad/index.js
     test ! -e /data/profiles/web/package.json.release
     test ! -e /data/profiles/web/pnpm-lock.yaml.release
     node -e 'const assert = require("node:assert/strict"); const fs = require("node:fs"); const profile = "/data/profiles/web/"; const pkg = JSON.parse(fs.readFileSync(profile + "package.json", "utf8")); assert.notEqual(pkg.dependencies["ds-bot"], "link:/app/ds-bot"); assert.ok(!fs.readFileSync(profile + "pnpm-lock.yaml", "utf8").includes("link:/app/ds-bot")); assert.deepEqual(fs.readFileSync(profile + "node_modules/ds-bot/index.js"), fs.readFileSync("/opt/dsh-template/profiles/web/node_modules/ds-bot/index.js"))'
