@@ -13,6 +13,7 @@ import { AnsweredReply, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
 import { ConnectorToolCell, MailToolCell } from './connectors.js'
 import { HandoffCall } from './handoff-card.js'
+import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.js'
 import { t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
@@ -838,6 +839,7 @@ export const PHRASES = {
   working: ['On it', 'Busy with it', 'Moving ahead', 'Taking care of it', 'Making headway'],
 }
 const TOOL_PHRASES = [
+  [/^cua(_driver_native__|$)|^computer_/, 'Using the computer'],
   [/web_?search|search_?web/i, 'Searching online'],
   [/fetch|browse|browser|web/i, 'Reading a page'],
   [/shell|bash|pwsh|powershell|exec|command|terminal/i, 'Running shell commands'],
@@ -1019,9 +1021,10 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
+const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
 const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
-const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff'])
+const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {
@@ -1113,6 +1116,8 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       return h(MailToolCell, { sessionId, callId: call.callId, done, content: call.content, roster, actions, heldCards })
     case 'browser_handoff':
       return h(HandoffCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
+    case 'computer_handoff':
+      return h(ComputerHandoffCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks })
     case 'ask_user_question': {
       if (!done) return h(CellEmpty)
       let parsed = null
@@ -1131,11 +1136,16 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     case 'forget':
       return done ? h(MemoryEvent, { sessionId, scope: arg('scope'), tool, result: contentText(call.content), failed: call.isError === true, code: call.error?.code, roster, actions, findBot }) : h(CellEmpty)
     default:
+      if (isComputerCall(tool)) {
+        return h(Fragment, null,
+          h(ComputerCallRow, { sessionId, call, roster, actions, hooks }),
+          h(AppAccessCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks }))
+      }
       return h(CellEmpty)
   }
 }
 
-export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) {
+export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRoster(value => value)
   const heldCards = useHeldCards?.(state => state[sessionId])
   const root = node.data.root
@@ -1143,14 +1153,14 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   const hidden = isHiddenTurn(roster, sessionId, turn)
   const findBot = nameOrId => roster.byId[nameOrId] ?? roster.bots.find(bot => bot.name.toLowerCase() === String(nameOrId ?? '').toLowerCase())
   const calls = hidden ? [] : callTree(root)
-  const drawn = calls.filter(call => DRAWN.has(toolName(call)))
+  const drawn = calls.filter(call => DRAWN.has(toolName(call)) || isComputerCall(toolName(call)))
   // The newest call still running names the work, so a program reads as the tool it is in.
   const running = root.kind === 'tool-result' ? undefined : calls.findLast(call => call.kind !== 'tool-result')
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null
   // A running tool shows only as the activity row's phrase.
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
-  useShownCards(actions, sessionId, drawn.filter(call => CARDS.has(toolName(call)) && call.callId).map(call => call.callId))
+  useShownCards(actions, sessionId, drawn.filter(call => (CARDS.has(toolName(call)) || isComputerCall(toolName(call))) && call.callId).map(call => call.callId))
   if (drawn.length === 0) return h(CellEmpty)
-  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages } }
+  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
   return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }
