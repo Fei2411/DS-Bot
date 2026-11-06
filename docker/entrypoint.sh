@@ -25,11 +25,11 @@ if [ -f "$PROFILE/package.json.release" ]; then
   else
     rm -f "$PROFILE/pnpm-lock.yaml"
   fi
-  rm -rf "$PROFILE/node_modules"
-  if [ -d "$PROFILE/node_modules.release" ]; then
-    mv "$PROFILE/node_modules.release" "$PROFILE/node_modules"
+  rm -rf "$PROFILE/node_modules/ds-bot"
+  if [ -d "$PROFILE/ds-bot.release" ]; then
+    mv "$PROFILE/ds-bot.release" "$PROFILE/node_modules/ds-bot"
   else
-    cp -a /opt/dsh-template/profiles/web/node_modules "$PROFILE/node_modules"
+    cp -a /opt/dsh-template/profiles/web/node_modules/ds-bot "$PROFILE/node_modules/ds-bot"
   fi
   rm -f "$PROFILE/package.json.release" "$PROFILE/pnpm-lock.yaml.release"
 fi

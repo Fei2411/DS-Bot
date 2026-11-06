@@ -17,9 +17,9 @@
 // The changes are found by polling: a bind mount on Docker Desktop does not
 // deliver the host's file events into the container, so fs.watch stays quiet.
 import { spawn } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const PLUGIN = process.env.DSBOT_PLUGIN_DIR || '/app/ds-bot'
 const PROFILE = process.env.DSH_PROFILE_DIR || '/data/profiles/web'
@@ -62,8 +62,8 @@ const linkProfile = () => {
   if (!existsSync(backupPath)) {
     writeFileSync(backupPath, readFileSync(manifestPath, 'utf8'))
     log('kept the release profile manifest as package.json.release')
-    const modulesPath = join(PROFILE, 'node_modules')
-    if (existsSync(modulesPath)) renameSync(modulesPath, join(PROFILE, 'node_modules.release'))
+    const installed = join(PROFILE, 'node_modules', 'ds-bot')
+    if (existsSync(installed)) renameSync(installed, join(PROFILE, 'ds-bot.release'))
   }
   const lockPath = join(PROFILE, 'pnpm-lock.yaml')
   const lockBackupPath = join(PROFILE, 'pnpm-lock.yaml.release')
@@ -72,25 +72,15 @@ const linkProfile = () => {
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   manifest.dependencies = { ...manifest.dependencies, 'ds-bot': `link:${PLUGIN}` }
-  // Pinned, so corepack does not look for the latest pnpm over the network.
-  manifest.packageManager = 'pnpm@11.28.5'
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-  const workspacePath = join(PROFILE, 'pnpm-workspace.yaml')
-  if (!existsSync(workspacePath)) {
-    writeFileSync(workspacePath, 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
-  }
 }
 
 const installProfile = async () => {
   log('linking the plugin into the mounted checkout')
-  const code = await run('pnpm', ['--store-dir', '/opt/pnpm-store', 'install', '--prefer-offline', '--no-frozen-lockfile'], {
-    cwd: PROFILE,
-    env: { ...process.env, CI: 'true' },
-  })
   const installed = join(PROFILE, 'node_modules', 'ds-bot')
-  if (code !== 0 && !existsSync(installed)) {
-    throw new Error('pnpm install failed and the profile has no plugin')
-  }
+  mkdirSync(dirname(installed), { recursive: true })
+  rmSync(installed, { recursive: true, force: true })
+  symlinkSync(PLUGIN, installed, 'dir')
   // The profile must resolve to the checkout, or the container would keep
   // serving the packed plugin and every change would be ignored.
   let target = ''

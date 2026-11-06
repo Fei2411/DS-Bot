@@ -91,11 +91,11 @@ try {
   ])
   await waitFor('the release profile initialization', httpReady(releaseName))
   docker(['stop', releaseName])
-  const addUncachedDependency = `
+  const addLocalDependency = `
     const fs = require('node:fs');
     const profile = '/data/profiles/web/';
     const pkg = JSON.parse(fs.readFileSync(profile + 'package.json', 'utf8'));
-    pkg.dependencies['left-pad'] = '1.3.0';
+    pkg.dependencies['left-pad'] = 'file:/tmp/left-pad.tgz';
     fs.writeFileSync(profile + 'package.json', JSON.stringify(pkg, null, 2) + '\\n');
     fs.mkdirSync(profile + 'node_modules/left-pad', { recursive: true });
     fs.writeFileSync(profile + 'node_modules/left-pad/package.json', JSON.stringify({ name: 'left-pad', version: '1.3.0', main: 'index.js' }));
@@ -103,10 +103,10 @@ try {
   `
   docker([
     'run', '--rm', '--network', 'none', '--user', 'root', '--entrypoint', 'node',
-    ...dataMounts, releaseImage, '-e', addUncachedDependency,
+    ...dataMounts, releaseImage, '-e', addLocalDependency,
   ])
   docker([
-    'run', '--detach', '--name', name, ...dataMounts,
+    'run', '--detach', '--name', name, '--network', 'none', ...dataMounts,
     '--mount', `type=bind,src=${plugin},dst=/app/ds-bot`,
     '-e', `PUID=${uid}`, '-e', `PGID=${gid}`, '-e', 'DSH_TELEMETRY_DISABLED=1',
     image,
@@ -125,10 +125,10 @@ try {
   assert.equal(linked, '/app/ds-bot')
   docker(['exec', name, 'test', '-f', '/data/profiles/web/package.json.release'])
   docker(['exec', name, 'test', '-f', '/data/profiles/web/pnpm-lock.yaml.release'])
-  docker(['exec', name, 'test', '-d', '/data/profiles/web/node_modules.release'])
+  docker(['exec', name, 'test', '-d', '/data/profiles/web/ds-bot.release'])
   await waitFor('the fresh web server', httpReady())
   docker(['exec', name, 'test', '-f', '/data/profiles/web/node_modules/left-pad/index.js'])
-  console.log('PASS: development startup fetches an existing profile dependency missing from the image cache')
+  console.log('PASS: development startup preserves a local plugin whose original archive is absent')
 
   docker(['exec', name, 'rm', '-f', '/tmp/ds-bot-dev-build-started'])
   writeFileSync(join(plugin, '.build-hold'), '')
@@ -168,8 +168,8 @@ try {
   console.log('PASS: a host source change restarts DSH and restores HTTP service')
 
   docker(['exec', name, 'sh', '-eu', '-c', `
-    mkdir -p /data/profiles/web/node_modules.release/extra-plugin
-    printf 'extra plugin' > /data/profiles/web/node_modules.release/extra-plugin/index.js
+    mkdir -p /data/profiles/web/node_modules/extra-plugin
+    printf 'extra plugin' > /data/profiles/web/node_modules/extra-plugin/index.js
   `])
   docker(['stop', name])
   docker(['rm', name])
@@ -185,7 +185,7 @@ try {
     '',
   ].join('\n'))
   docker([
-    'run', '--detach', '--name', drainName, '--user', `${uid}:${gid}`, ...dataMounts,
+    'run', '--detach', '--name', drainName, '--network', 'none', '--user', `${uid}:${gid}`, ...dataMounts,
     '--mount', `type=bind,src=${plugin},dst=/app/ds-bot`,
     '--mount', `type=bind,src=${drainScript},dst=/tmp/drain-dsh.mjs,readonly`,
     '--mount', `type=bind,src=${temporary},dst=/tmp/drain-output`,
@@ -219,6 +219,7 @@ try {
     test -f /data/profiles/web/node_modules/left-pad/index.js
     test ! -e /data/profiles/web/package.json.release
     test ! -e /data/profiles/web/pnpm-lock.yaml.release
+    test ! -e /data/profiles/web/ds-bot.release
     node -e 'const assert = require("node:assert/strict"); const fs = require("node:fs"); const profile = "/data/profiles/web/"; const pkg = JSON.parse(fs.readFileSync(profile + "package.json", "utf8")); assert.notEqual(pkg.dependencies["ds-bot"], "link:/app/ds-bot"); assert.ok(!fs.readFileSync(profile + "pnpm-lock.yaml", "utf8").includes("link:/app/ds-bot")); assert.deepEqual(fs.readFileSync(profile + "node_modules/ds-bot/index.js"), fs.readFileSync("/opt/dsh-template/profiles/web/node_modules/ds-bot/index.js"))'
   `])
   console.log('PASS: release startup restores all dependencies and loads the plugin')

@@ -71,8 +71,8 @@ docker build -f docker/Dockerfile.dev -t ds-bot:dev .
 node docker/test-dev.mjs ds-bot:dev ds-bot:local
 ```
 
-The test copies the plugin to a temporary directory and uses isolated
-containers and temporary volumes. Development startup may fetch an existing
-profile dependency missing from the image cache. The test makes no model calls
-and removes its resources when it finishes. The release image continues to use
-`docker/test.mjs`.
+The test copies the plugin to a temporary directory and uses isolated,
+network-disabled containers and temporary volumes. Development startup reuses
+the installed dependency tree, including local plugins whose original archives
+are absent. The test makes no model calls and removes its resources when it
+finishes. The release image continues to use `docker/test.mjs`.
