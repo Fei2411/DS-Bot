@@ -2,7 +2,7 @@ import { createElement as h, useCallback, useEffect, useRef, useState } from 're
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
@@ -13,6 +13,7 @@ import { KeptPrivateSection } from './kept-private.js'
 import { KeyIcon, SecretsPage } from './secret-card.js'
 import { UsagePage } from './usage-page.js'
 import { ConnectorsPage } from './connectors-page.js'
+import { PhonePage } from './phone-page.js'
 import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
 import { BrowserPage } from './browser-settings.js'
@@ -31,8 +32,8 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // Settings dialog: a 198px page list beside the page. Bots and group chats each list
 // their members, and one opens on its own settings form. Usage widens the dialog.
 // Models is there wherever the host serves the model providers, beside DSH's own settings.
-const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 function SetSection({ title, className = '', children }) {
   return h('section', { className: `bt-set-section ${className}`.trim() }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
@@ -304,6 +305,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
           shown === 'im' ? h(ImPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
+          shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
           shown === 'browser' ? h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow }) : null,
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
           shown === 'secrets' ? h(SecretsPage, { roster, actions, run, Section: SetSection }) : null,

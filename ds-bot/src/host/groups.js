@@ -244,6 +244,7 @@ export function install(rt) {
     for (const listener of roomLineListeners) {
       try { listener(room, whole) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
     }
+    rt.roomLineAdded?.(room, whole)
   }
   Object.assign(rt, {
     keepGroupLine, dropGroupLines,
