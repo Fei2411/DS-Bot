@@ -17,6 +17,10 @@ export const SIDEBAR_MAX = 420
 export const FALLBACK_SIDEBAR_WIDTH = 280
 export const RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2
 
+// Add any measured overlap to the inset already applied to the conversation.
+export const measuredLeftInset = (panelRight, columnLeft, currentInset = 0) =>
+  Math.max(0, currentInset + panelRight - columnLeft)
+
 /**
  * @param {{viewport: number, sidebarWidth: number,
  *   pref: 'open'|'rail'|'hidden', drawer?: boolean,

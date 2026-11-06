@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   RAIL_WIDTH, RAIL_SNAP, SIDEBAR_MIN, SIDEBAR_MAX, MIN_CHAT, FALLBACK_SIDEBAR_WIDTH,
-  frameLayout, dragColumn, toggledPref, userSidebarToggle, readSidebar, writeSidebar,
+  frameLayout, dragColumn, toggledPref, userSidebarToggle, readSidebar, writeSidebar, measuredLeftInset,
 } from '../src/client/frame-layout.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
@@ -13,6 +13,12 @@ const at = (viewport, sidebarWidth, { pref = 'open', drawer = false, panel = nul
   frameLayout({ viewport, sidebarWidth, pref, drawer, panel })
 const details = (yielded = false) => ({ view: 'details', yielded })
 const browser = (yielded = false) => ({ view: 'browser', yielded })
+
+test('measured left inset adds only the overlap to the inset already applied', () => {
+  assert.equal(measuredLeftInset(312, 108, 52), 256)
+  assert.equal(measuredLeftInset(340, 400, 240), 180)
+  assert.equal(measuredLeftInset(100, 400, 0), 0)
+})
 
 test('a wide window keeps the open column and a shown panel', () => {
   const layout = at(1400, 280, { panel: details() })

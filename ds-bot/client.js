@@ -2943,6 +2943,7 @@ var SIDEBAR_MIN = 264;
 var SIDEBAR_MAX = 420;
 var FALLBACK_SIDEBAR_WIDTH = 280;
 var RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2;
+var measuredLeftInset = (panelRight, columnLeft, currentInset = 0) => Math.max(0, currentInset + panelRight - columnLeft);
 function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
   const fits = pref === "open" && viewport >= sidebarWidth + MIN_CHAT;
   let left = pref === "hidden" ? "hidden" : fits ? "open" : drawer && pref === "open" ? "drawer" : "rail";
@@ -14909,8 +14910,27 @@ function TeamSidebar(props) {
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
   (0, import_react33.useLayoutEffect)(() => {
     if (typeof document === "undefined") return;
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [pushed, frameSnap.collapsedWidth]);
+    const measure = () => {
+      const panel2 = document.querySelector(".bt-leftcol");
+      const column = document.querySelector('[class*="_centerCol"]');
+      if (panel2 && column && (mode === "open" || mode === "rail")) {
+        const inset = Number.parseFloat(document.defaultView?.getComputedStyle(column).marginLeft) || 0;
+        chatRoom.setLeft(measuredLeftInset(panel2.getBoundingClientRect().right, column.getBoundingClientRect().left, inset));
+      } else chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
+    };
+    measure();
+    const panel = document.querySelector(".bt-leftcol");
+    if (!panel || mode !== "open" && mode !== "rail") return;
+    const onSettle = (event) => {
+      if (event.target === panel) measure();
+    };
+    panel.addEventListener("animationend", onSettle);
+    panel.addEventListener("transitionend", onSettle);
+    return () => {
+      panel.removeEventListener("animationend", onSettle);
+      panel.removeEventListener("transitionend", onSettle);
+    };
+  }, [mode, pushed, frameSnap.collapsedWidth]);
   (0, import_react33.useEffect)(() => () => {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
