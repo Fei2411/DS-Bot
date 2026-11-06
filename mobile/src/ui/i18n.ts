@@ -260,3 +260,20 @@ export const dayLabel = (time: number) => {
   return isZh() ? `${d.getMonth() + 1}月${d.getDate()}日` : `${MONTHS[d.getMonth()]} ${d.getDate()}`
 }
 export const timeLabel = (time: number) => `${dayLabel(time)} ${pad(new Date(time).getHours())}:${pad(new Date(time).getMinutes())}`
+
+// The desktop's message stamps (text.js clockLabel / messageClock), built by hand
+// for the same Hermes reason as dayLabel.
+const clock = (time: number) => `${new Date(time).getHours()}:${pad(new Date(time).getMinutes())}`
+const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+const daysBefore = (time: number, now: number) => Math.round((midnight(new Date(now)) - midnight(new Date(time))) / 86400000)
+const WEEK_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+const WEEK_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+export function clockLabel(time: number, now = Date.now()): string {
+  const days = daysBefore(time, now)
+  if (days === 0) return t('Today {time}', { time: clock(time) })
+  if (days === 1) return t('Yesterday {time}', { time: clock(time) })
+  const d = new Date(time)
+  const year = d.getFullYear() === new Date(now).getFullYear() ? '' : isZh() ? `${d.getFullYear()}年` : `, ${d.getFullYear()}`
+  return isZh() ? `${year}${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_ZH[d.getDay()]} ${clock(time)}` : `${WEEK_EN[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}${year} ${clock(time)}`
+}
+export const messageClock = (time: number, now = Date.now()) => (daysBefore(time, now) === 0 ? clock(time) : clockLabel(time, now))

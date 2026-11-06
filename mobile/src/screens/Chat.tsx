@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
-import { t } from '../ui/i18n.ts'
+import { messageClock, t } from '../ui/i18n.ts'
 import { useTheme } from '../ui/tokens.ts'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
@@ -219,7 +219,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 if (contentOffset.y < 120) void loadMore()
               }}
               scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={toggleOf(skey)} /> })}
+              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} stamp={stampOf(items, index)} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={toggleOf(skey)} /> })}
               <Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} />
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
@@ -244,6 +244,15 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       </Modal>
     </KeyboardAvoidingView>
   )
+}
+
+// As on the desktop, a run of one Bot's bubbles ends with the time of its last one.
+function stampOf(items: ChatItem[], index: number): string | undefined {
+  const item = items[index]
+  if (item.kind !== 'bot' || typeof item.time !== 'number') return undefined
+  const next = items[index + 1]
+  if (next !== undefined && next.kind === 'bot' && (next.name ?? '') === (item.name ?? '')) return undefined
+  return messageClock(item.time)
 }
 
 // The turn being streamed by the model, per attempt id. It holds its own state so a

@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { t, dayLabel } from '../../ui/i18n.ts'
+import { t, clockLabel } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
@@ -47,7 +47,7 @@ const imageCache = new Map<string, string>()
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, stamp }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void }) {
   const chips = (item.files ?? []).map(file => (
     <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 14, borderWidth: 1, borderColor: p.line, backgroundColor: p.card }}>
@@ -63,7 +63,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
   const longPress = () => { void Haptics.selectionAsync(); onLongPress?.(source) }
   if (item.kind === 'steps') return <Steps item={item} p={p} open={open === true} onToggle={onToggle ?? (() => {})} />
   if (item.kind === 'divider') {
-    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? dayLabel(item.time) : ''}</Text>
+    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? clockLabel(item.time) : ''}</Text>
   }
   if (item.kind === 'event') {
     if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
@@ -108,6 +108,27 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
         ))}
       </Pressable>
     )
+    // An answered ask_user card stays a card on the Bot's side with the picks ticked,
+    // as the desktop's settled question card shows it.
+    if ((item.questions ?? []).length > 0) return (
+      <Pressable onLongPress={longPress} style={[styles.answeredCard, { backgroundColor: p.card, borderColor: p.line, maxWidth }]}>
+        {(item.questions ?? []).map((question, i) => {
+          const answer = item.answers?.[i]
+          const picks = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
+          return (
+            <View key={i} style={{ gap: 2 }}>
+              <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginBottom: 4 }]}>{question.question}</Text>
+              {picks.map((pick, j) => (
+                <View key={j} style={[styles.pickLine, j > 0 ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line } : null]}>
+                  <Text style={[type.small, { color: p.ink2, flex: 1 }]}>{pick}</Text>
+                  <Text style={{ color: p.ink3, fontSize: 13 }}>✓</Text>
+                </View>
+              ))}
+            </View>
+          )
+        })}
+      </Pressable>
+    )
     return (
       <Pressable onLongPress={longPress} style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth }]}>
         <Text style={[type.bubble, { color: p.userInk }]}>{source}</Text>
@@ -142,6 +163,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
         <Markdown text={item.text ?? ''} p={p} textColor={p.ink} />
         {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
       </View>
+      {stamp ? <Text style={[type.caption, { color: p.ink3, marginTop: 2, marginLeft: 2 }]}>{stamp}</Text> : null}
     </Pressable>
   )
 })
@@ -270,7 +292,8 @@ const styles = StyleSheet.create({
   viewer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
   viewerClose: { position: 'absolute', top: 50, right: 20, padding: 10 },
   reader: { flex: 1, paddingTop: 60 },
-  answeredCard: { alignSelf: 'flex-end', borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 3 },
+  answeredCard: { alignSelf: 'flex-start', borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 12, marginVertical: 4, gap: 10 },
+  pickLine: { flexDirection: 'row', alignItems: 'center', minHeight: 32 },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,.35)', justifyContent: 'flex-end' },
   sheet: { marginHorizontal: 12, marginBottom: 34, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
