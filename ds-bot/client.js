@@ -812,7 +812,6 @@ var ZH = {
   Dismissed: "已关闭",
   "Answered by message": "已用消息回答",
   "Your answer": "你的回答",
-  Options: "选项",
   // Views
   View: "视图",
   Confirm: "确认",
@@ -2922,6 +2921,10 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-check svg{width:16px;height:16px}
 .bt-q-settled .bt-key{opacity:.4}
 .bt-q-settled .bt-q-label{color:color-mix(in srgb,var(--bt-ink) 45%,transparent)}
+.bt-q-answered .bt-q-title{color:var(--bt-ink-2)}
+.bt-q-answered .bt-key{opacity:1;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-answered .bt-q-label{color:var(--bt-ink)}
+.bt-q-answered .bt-q-opt+.bt-q-opt::before{display:none}
 .bt-q-dismissed .bt-q-title{color:var(--bt-ink-2)}
 .bt-q.bt-q-settled{gap:6px;padding:12px 16px}
 .bt-q-settled .bt-q-title{font-size:14px;line-height:20px;font-weight:500}
@@ -4941,38 +4944,25 @@ function SettledQuestion({ question, answer, closed }) {
   const selected = Array.isArray(answer?.selected) ? answer.selected : [];
   const custom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
   const answered = closed === void 0 && (selected.length > 0 || custom !== "");
-  const row = (key, label, { letter, description, chosen }) => (0, import_react8.createElement)(
-    "div",
-    { key, className: "bt-q-opt" },
-    letter ? (0, import_react8.createElement)("span", { className: "bt-key", "aria-hidden": true }, letter) : null,
-    (0, import_react8.createElement)(
-      "span",
-      { className: "bt-q-body" },
-      (0, import_react8.createElement)("span", { className: "bt-q-label" }, label),
-      description ? (0, import_react8.createElement)("span", { className: "bt-q-desc" }, description) : null
-    ),
-    chosen ? (0, import_react8.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react8.createElement)(CheckIcon)) : null
-  );
-  const rows2 = options.map((option, index) => row(`o-${index}`, option.label, { letter: keyLetter(index), description: option.description, chosen: answered && selected.includes(option.label) }));
-  if (answered) {
-    selected.filter((label) => !options.some((option) => option.label === label)).forEach((label, index) => rows2.push(row(`s-${index}`, label, { chosen: true })));
-    if (custom !== "") rows2.push(row("own", custom, { chosen: true }));
-  }
+  const chosen = answered ? [
+    ...selected.map((label) => ({ label, at: options.findIndex((option) => option.label === label) })),
+    ...custom !== "" ? [{ label: custom, at: options.length }] : []
+  ] : [];
   return (0, import_react8.createElement)(
     "div",
-    { className: answered ? "bt-q bt-q-settled" : "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
+    { className: answered ? "bt-q bt-q-settled bt-q-answered" : "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
     (0, import_react8.createElement)(
       "div",
       { className: "bt-q-head" },
-      (0, import_react8.createElement)(
-        "div",
-        { className: "bt-q-text" },
-        prompt ? (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt) : null,
-        question?.detail ? (0, import_react8.createElement)("div", { className: "bt-q-detail" }, question.detail) : null
-      ),
+      (0, import_react8.createElement)("div", { className: "bt-q-text" }, prompt ? (0, import_react8.createElement)("p", { className: "bt-q-title" }, prompt) : null),
       answered ? null : (0, import_react8.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed))
     ),
-    rows2.length > 0 ? (0, import_react8.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t(answered ? "Your answer" : "Options") }, rows2) : null
+    chosen.length > 0 ? (0, import_react8.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react8.createElement)(
+      "div",
+      { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
+      at >= 0 ? (0, import_react8.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
+      (0, import_react8.createElement)("span", { className: "bt-q-body" }, (0, import_react8.createElement)("span", { className: "bt-q-label" }, label))
+    ))) : null
   );
 }
 function QuestionCard({ matched }) {
@@ -8031,13 +8021,12 @@ function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, h
   if (shown.interactive || args?.value?.("await_reply") === true) {
     const closed = callId === void 0 ? void 0 : roster.closedCards?.[sessionId]?.[callId];
     if (closed === void 0) return (0, import_react15.createElement)(CellEmpty, { className: "bt-q-gone" });
-    return (0, import_react15.createElement)(ClosedView, { title: shown.title, view: shown.view, closed });
+    return (0, import_react15.createElement)(ClosedView, { title: shown.title, closed });
   }
   return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(Card, { title: shown.title, view: shown.view }));
 }
-function ClosedView({ title, view, closed }) {
-  const head = (0, import_react15.createElement)("span", { className: "bt-view-closed" }, (0, import_react15.createElement)("span", { className: "bt-view-closed-title" }, title ?? ""), (0, import_react15.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed)));
-  return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(Card, { title: head, view, settled: true }));
+function ClosedView({ title, closed }) {
+  return (0, import_react15.createElement)("div", { className: "bt-q-inline" }, (0, import_react15.createElement)(SettledQuestion, { question: { question: title || t("View") }, closed }));
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
@@ -8100,8 +8089,16 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
-.bt-view-closed{display:flex;align-items:flex-start;gap:8px}
-.bt-view-closed-title{flex:1 1 0;min-width:0}
+/* An answered options view keeps only the chosen rows, each under its card letter
+   (a counter, since the core draws no letters on a settled card), like ds-bot's
+   own answered question card. Unchosen rows stay in the flow, invisible and
+   zero-height, so they still count their letters. */
+.dv-q-settled .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */
@@ -24373,6 +24370,7 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   const outcome = proposal.outcome;
   const [busy, setBusy] = (0, import_react56.useState)(false);
   const [error, setError] = (0, import_react56.useState)(initialError);
+  const [open, setOpen] = (0, import_react56.useState)(false);
   const busyRef = (0, import_react56.useRef)(false);
   const titleId = (0, import_react56.useId)();
   const answer = (approve) => {
@@ -24390,34 +24388,45 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
     });
   };
   const update = proposal.action === "update";
+  const agents = proposal.kind === "agents";
   const rows2 = (0, import_react56.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
-  if (proposal.kind === "agents") {
-    const blocks = proposal.edits.map((edit) => [
+  const change = agents ? [
+    (0, import_react56.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map((edit) => [
       ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
       ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
-    ]);
+    ]) }),
+    ...proposal.edits.map((edit, index) => edit.why ? (0, import_react56.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
+  ] : [
+    (0, import_react56.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
+    proposal.why ? (0, import_react56.createElement)("p", { className: "bt-learning-why", key: "why" }, proposal.why) : null
+  ];
+  const kind = t(agents ? "AGENTS.md update" : update ? "Skill update" : "New skill");
+  if (outcome) {
+    const what = agents ? proposal.folder : proposal.name;
     return (0, import_react56.createElement)(
       "section",
-      { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy, "data-outcome": outcome },
-      (0, import_react56.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: t("AGENTS.md update"), outcome }),
-      (0, import_react56.createElement)(FileBox, { name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks }),
-      proposal.edits.map((edit, index) => edit.why ? (0, import_react56.createElement)("p", { className: "bt-learning-why", key: index }, edit.why) : null),
-      error ? (0, import_react56.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-      outcome ? null : (0, import_react56.createElement)(ProposalFoot, { busy, answer })
+      { className: "bt-q bt-q-settled bt-learning-card bt-learning-settled", role: "group", "aria-label": `${kind} · ${what}`, "data-outcome": outcome },
+      (0, import_react56.createElement)(
+        "button",
+        { type: "button", className: "bt-learning-fold", "aria-expanded": open, onClick: () => setOpen(!open) },
+        (0, import_react56.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react56.createElement)(agents ? PencilIcon : MemoryIcon)),
+        (0, import_react56.createElement)("span", { className: "bt-learning-kind" }, kind),
+        (0, import_react56.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
+      ),
+      open ? change : null
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
   return (0, import_react56.createElement)(
     "section",
-    { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy, "data-outcome": outcome },
-    (0, import_react56.createElement)(ProposalHead, { titleId, title: proposal.name, kind: t(update ? "Skill update" : "New skill"), detail: proposal.description, oldDetail, outcome }),
-    (0, import_react56.createElement)(FileBox, { name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
-    proposal.why ? (0, import_react56.createElement)("p", { className: "bt-learning-why" }, proposal.why) : null,
+    { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
+    agents ? (0, import_react56.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react56.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
+    change,
     error ? (0, import_react56.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-    outcome ? null : (0, import_react56.createElement)(ProposalFoot, { busy, answer })
+    (0, import_react56.createElement)(ProposalFoot, { busy, answer })
   );
 }
-function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail, outcome }) {
+function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail }) {
   return (0, import_react56.createElement)(
     "div",
     { className: "bt-q-head" },
@@ -24430,7 +24439,7 @@ function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, 
       oldDetail ? (0, import_react56.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react56.createElement)("del", null, oldDetail)) : null,
       detail ? (0, import_react56.createElement)("p", { className: "bt-learning-description" }, detail) : null
     ),
-    outcome ? (0, import_react56.createElement)("span", { className: "bt-q-badge" }, t(outcome === "approved" ? "Approved" : "Declined")) : (0, import_react56.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react56.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
+    (0, import_react56.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react56.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
   );
 }
 function ProposalFoot({ busy, answer }) {
@@ -24591,6 +24600,13 @@ var LEARNING_CSS = `
 .bt-learning-btn:active:not(:disabled){scale:.96}
 .bt-learning-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.bt-learning-btn{transition:background-color .12s ease,opacity .12s ease}.bt-learning-btn:active:not(:disabled){scale:none}}
+.bt-learning-settled{gap:10px}
+.bt-learning-fold{display:flex;align-items:center;gap:10px;min-width:0;width:100%;margin:-4px 0;padding:4px 0;border:0;background:none;font:inherit;text-align:start;color:var(--bt-ink);cursor:pointer}
+.bt-learning-fold .bt-learning-icon{width:28px;height:28px;border-radius:8px}
+.bt-learning-fold .bt-learning-icon svg{width:16px;height:16px}
+.bt-learning-kind{flex:none;font-size:14px;line-height:20px;font-weight:600}
+.bt-learning-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
+.bt-learning-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:8px}
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
 
