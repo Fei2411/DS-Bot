@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -13,7 +14,7 @@ import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { output } from '../src/host/tools.js'
 
-const FIXTURE = new URL('./fixtures/fake-acp.mjs', import.meta.url).pathname
+const FIXTURE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
 const TEAM = ['message_bot', 'approve_agent_action']
 
 function makeAdapter(records = {}) {

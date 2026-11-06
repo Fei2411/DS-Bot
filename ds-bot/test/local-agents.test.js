@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
@@ -14,7 +15,7 @@ import { validateCustom, isLocalAgentRoute, cliMode } from '../src/host/local-ag
 import { install as partsInstall } from '../src/host/parts.js'
 import { fakeContext } from './fake-ctx.js'
 
-const FIXTURE = name => new URL(`./fixtures/${name}`, import.meta.url).pathname
+const FIXTURE = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
 const FIXTURES = { acp: FIXTURE('fake-acp.mjs'), codex: FIXTURE('fake-codex.mjs'), claude: FIXTURE('fake-claude.mjs') }
 
 const user = (id, text) => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
