@@ -271,6 +271,7 @@ var ZH = {
   "Open this earlier session": "打开这个较早的会话",
   "Session {number}": "会话 {number}",
   "Current session": "当前会话",
+  "This page could not be shown.": "这个页面无法显示。",
   "Current": "当前",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "这个 key 来自 DS Bot 之外（例如环境变量），这里改不了。",
   "and {count} more": "还有 {count} 个",
@@ -8570,7 +8571,7 @@ var viewT = (key, params) => key === "Send" ? t("Send to Bot") : t(key, params);
 var VIEW_UI = { t: viewT, Markdown: import_dsh_client_ui_primitives.MarkdownText };
 var Card = (props) => (0, import_react16.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react16.createElement)(WidgetCard, props));
 var ViewCard = Card;
-var withUi = (Component) => (props) => (0, import_react16.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react16.createElement)(Component, props));
+var withUi = (Component2) => (props) => (0, import_react16.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react16.createElement)(Component2, props));
 var WidgetView2 = withUi(WidgetView);
 var ViewMenuList2 = withUi(ViewMenuList);
 function PendingView({ sessionId, view, actions, inline }) {
@@ -22945,9 +22946,10 @@ function AgentForm({ initial, submit, close }) {
 function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
   const [view, setView] = (0, import_react53.useState)(null);
   const [editing, setEditing] = (0, import_react53.useState)(null);
-  const refresh = () => run2(call("local-agent-refresh")).then(setView);
+  const load = (endpoint) => run2(call(endpoint).then(setView));
+  const refresh = () => load("local-agent-refresh");
   (0, import_react53.useEffect)(() => {
-    void run2(call("local-agents")).then(setView);
+    void load("local-agents");
   }, []);
   if (view === null) return null;
   if (view.available === false) return (0, import_react53.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot register local agent routes."));
@@ -22981,17 +22983,17 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
       Section2,
       { key: "custom", title: t("Custom agents") },
       (0, import_react53.createElement)("p", { className: "bt-set-hint" }, t("ACP-compatible agents, added by command.")),
-      view.custom.map((agent) => editing === agent ? (0, import_react53.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => run2(call("local-agent-update", { id: agent.id, ...payload })).then(() => run2(call("local-agents"))).then(setView) }) : (0, import_react53.createElement)(
+      view.custom.map((agent) => editing === agent ? (0, import_react53.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => call("local-agent-update", { id: agent.id, ...payload }).then(() => load("local-agents")) }) : (0, import_react53.createElement)(
         Row4,
         { key: agent.id, label: agent.name, hint: [agent.command, ...agent.args ?? []].join(" ") },
         (0, import_react53.createElement)(
           "div",
           { className: "bt-set-actions" },
           (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setEditing(agent) }, (0, import_react53.createElement)(ChevronRightIcon)),
-          (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-danger", "aria-label": t("Remove"), onClick: () => run2(call("local-agent-remove", { id: agent.id })).then(() => run2(call("local-agents"))).then(setView) }, (0, import_react53.createElement)(TrashIcon))
+          (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-danger", "aria-label": t("Remove"), onClick: () => run2(call("local-agent-remove", { id: agent.id })).then(() => load("local-agents")) }, (0, import_react53.createElement)(TrashIcon))
         )
       )),
-      editing === "new" ? (0, import_react53.createElement)(AgentForm, { key: "new", close: () => setEditing(null), submit: (payload) => run2(call("local-agent-add", payload)).then(() => run2(call("local-agents"))).then(setView) }) : (0, import_react53.createElement)(
+      editing === "new" ? (0, import_react53.createElement)(AgentForm, { key: "new", close: () => setEditing(null), submit: (payload) => call("local-agent-add", payload).then(() => load("local-agents")) }) : (0, import_react53.createElement)(
         Row4,
         { key: "add", label: t("Add agent") },
         (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", "aria-label": t("Add agent"), onClick: () => setEditing("new") }, (0, import_react53.createElement)(PlusIcon))
@@ -23316,6 +23318,18 @@ function GroupsPage({ roster, actions, run: run2 }) {
     )
   ];
 }
+var PageBoundary = class extends import_react54.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error) {
+    console.error("ds-bot: a settings page failed", error);
+  }
+  render() {
+    return this.state.failed ? (0, import_react54.createElement)("div", { className: "bt-error", role: "alert" }, t("This page could not be shown.")) : this.props.children;
+  }
+};
 function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false }) {
   const [error, setError] = (0, import_react54.useState)("");
   const close = (0, import_react54.useCallback)(() => actions.closeSettings(), []);
@@ -23385,28 +23399,32 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
           "div",
           { key: pageKey, className: "bt-settings-scroll bt-settings-page", "data-move": last.current.move },
           errorLine,
-          shown === "computer" ? (0, import_react54.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
-          shown === "general" ? (0, import_react54.createElement)(GeneralPage, { roster, actions, run: run2 }) : null,
-          shown === "models" ? (0, import_react54.createElement)(ProvidersPage, { actions, run: run2, Section: SetSection }) : null,
-          shown === "local-agents" ? (0, import_react54.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow }) : null,
-          bot ? (0, import_react54.createElement)("div", { className: "bt-settings-form" }, (0, import_react54.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
-          shown === "bots" && !bot ? (0, import_react54.createElement)(BotsPage, { roster, actions, run: run2 }) : null,
-          room2 ? (0, import_react54.createElement)("div", { className: "bt-settings-form" }, (0, import_react54.createElement)(GroupSettingsForm, { key: room2.id, room: room2, roster, actions, run: run2 })) : null,
-          shown === "groups" && !room2 ? (0, import_react54.createElement)(GroupsPage, { roster, actions, run: run2 }) : null,
-          shown === "connectors" ? (0, import_react54.createElement)(ConnectorsPage, { roster, actions }) : null,
-          shown === "im" ? (0, import_react54.createElement)(ImPage, { roster, actions }) : null,
-          shown === "capabilities" ? (0, import_react54.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
-          shown === "browser" ? (0, import_react54.createElement)(BrowserPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow }) : null,
-          shown === "schedules" ? (0, import_react54.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
-          shown === "secrets" ? (0, import_react54.createElement)(SecretsPage, { roster, actions, run: run2, Section: SetSection }) : null,
-          shown === "feedback" ? (0, import_react54.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow }) : null,
-          shown === "about" ? (0, import_react54.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow }) : null
+          (0, import_react54.createElement)(
+            PageBoundary,
+            null,
+            shown === "computer" ? (0, import_react54.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
+            shown === "general" ? (0, import_react54.createElement)(GeneralPage, { roster, actions, run: run2 }) : null,
+            shown === "models" ? (0, import_react54.createElement)(ProvidersPage, { actions, run: run2, Section: SetSection }) : null,
+            shown === "local-agents" ? (0, import_react54.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow }) : null,
+            bot ? (0, import_react54.createElement)("div", { className: "bt-settings-form" }, (0, import_react54.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
+            shown === "bots" && !bot ? (0, import_react54.createElement)(BotsPage, { roster, actions, run: run2 }) : null,
+            room2 ? (0, import_react54.createElement)("div", { className: "bt-settings-form" }, (0, import_react54.createElement)(GroupSettingsForm, { key: room2.id, room: room2, roster, actions, run: run2 })) : null,
+            shown === "groups" && !room2 ? (0, import_react54.createElement)(GroupsPage, { roster, actions, run: run2 }) : null,
+            shown === "connectors" ? (0, import_react54.createElement)(ConnectorsPage, { roster, actions }) : null,
+            shown === "im" ? (0, import_react54.createElement)(ImPage, { roster, actions }) : null,
+            shown === "capabilities" ? (0, import_react54.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
+            shown === "browser" ? (0, import_react54.createElement)(BrowserPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow }) : null,
+            shown === "schedules" ? (0, import_react54.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
+            shown === "secrets" ? (0, import_react54.createElement)(SecretsPage, { roster, actions, run: run2, Section: SetSection }) : null,
+            shown === "feedback" ? (0, import_react54.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow }) : null,
+            shown === "about" ? (0, import_react54.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow }) : null
+          )
         ),
         usageOpened ? (0, import_react54.createElement)(
           "div",
           { key: "usage", className: "bt-settings-scroll bt-settings-usage", "data-off": shown === "usage" ? void 0 : "", "aria-hidden": shown === "usage" ? void 0 : true },
           shown === "usage" ? errorLine : null,
-          (0, import_react54.createElement)(UsagePage, { roster, actions, focusId: usageFocus })
+          (0, import_react54.createElement)(PageBoundary, null, (0, import_react54.createElement)(UsagePage, { roster, actions, focusId: usageFocus }))
         ) : null
       ),
       (0, import_react54.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react54.createElement)(CloseIcon))
