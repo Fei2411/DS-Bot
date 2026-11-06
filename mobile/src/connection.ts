@@ -10,6 +10,8 @@ export interface Bot {
   role?: string
   // The DSH permission preset the Bot runs with; unset runs on the default one.
   permission?: string
+  // A credential or balance failure that stops the Bot until the user fixes it (turns.js).
+  blocked?: { code: string; status?: number; provider?: string; at?: number }
   color?: string
   avatar?: { shape?: string; image?: string; imageRef?: string }
   model?: string

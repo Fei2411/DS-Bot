@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
@@ -223,6 +224,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               <Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} />
               {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
             </ScrollView>}
+      {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
       <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
@@ -258,6 +260,39 @@ function stampOf(items: ChatItem[], index: number): string | undefined {
   return messageClock(item.time)
 }
 
+// The desktop's repair card (turn-error.js) for a failure only the user can fix: what
+// went wrong, by DSH's failure code, and the way to the fix.
+function failureText(code: string, name: string, provider: string, status?: number): string {
+  switch (code) {
+    case 'MISSING_CREDENTIAL': return t("{name}'s model has no API key yet.", { name })
+    case 'INVALID_CREDENTIAL': return t('This API key is not in the right format.')
+    case 'AUTH': return status === undefined ? t('{provider} did not accept the current API key.', { provider }) : t('{provider} did not accept the current API key ({status}).', { provider, status })
+    case 'QUOTA': return status === undefined ? t('{provider} is out of balance or quota.', { provider }) : t('{provider} is out of balance or quota ({status}).', { provider, status })
+    case 'ACCOUNT_QUOTA': return t('The DeepSeek account balance is too low.')
+    case 'ACCOUNT_SIGN_IN_REQUIRED': case 'ACCOUNT_SIGNED_OUT': case 'ACCOUNT_TOKEN_INVALID': return t('The DeepSeek account sign-in has expired.')
+    default: return t('This turn failed.')
+  }
+}
+
+function BlockedCard({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p'] }) {
+  const navigation = useNavigation<any>()
+  const { team } = useTeam()
+  const blocked = bot.blocked!
+  const provider = (team?.models ?? []).find(model => model.ref.split('/')[0] === blocked.provider)?.providerName ?? blocked.provider ?? ''
+  const key = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'].includes(blocked.code)
+  const topUp = blocked.code === 'QUOTA' && blocked.provider === 'deepseek-official' || blocked.code === 'ACCOUNT_QUOTA'
+  return (
+    <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]} accessibilityRole="alert">
+      <Text style={[type.settingsRow, { color: p.ink }]}>{failureText(blocked.code, bot.name, provider, blocked.status)}</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+        {key ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Providers')} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{blocked.code === 'MISSING_CREDENTIAL' ? t('Enter API key') : t('Enter the key again')}</Text></Pressable> : null}
+        {topUp ? <Pressable accessibilityRole="button" onPress={() => void Linking.openURL('https://platform.deepseek.com/top_up')} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Top up ↗')}</Text></Pressable> : null}
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BotDetails', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Pick another model')}</Text></Pressable>
+      </View>
+    </View>
+  )
+}
+
 // The turn being streamed by the model, per attempt id. It holds its own state so a
 // token redraws this one bubble, not the whole chat; the real item lands with the
 // 'message' event when the turn's text is saved.
@@ -285,5 +320,7 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingVertical: 8, paddingHorizontal: 12 },
   reader: { flex: 1, paddingTop: 60 },
+  blocked: { marginHorizontal: 12, marginBottom: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
+  fix: { minHeight: 40, borderRadius: 20, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
 })
