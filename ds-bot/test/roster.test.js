@@ -1380,3 +1380,29 @@ test('a model-less create-bot starts the Bot on the saved team default model', a
   const plain = (await call('create-bot', { name: 'Plain' })).value
   assert.equal(plain.model, 'deepseek/deepseek-v4-flash')
 })
+
+test('a memory backend is kept as picked, read back, and only the four values count', async (t) => {
+  const { call, stop } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await call('state', {})
+  const writer = (await call('create-bot', { name: 'Writer', memoryConfig: { backend: 'mneme' } })).value
+  assert.equal(writer.memoryConfig.backend, 'mneme')
+  const stored = async () => (await call('state', {})).value.bots.find(bot => bot.id === writer.id)
+  // 设置页重新打开时读的是 state 里这一份，用户选什么就存什么。
+  assert.equal((await stored()).memoryConfig.backend, 'mneme')
+  for (const backend of ['file', 'none', 'auto']) {
+    assert.equal((await call('update-bot', { id: writer.id, memoryConfig: { backend } })).ok, true)
+    assert.equal((await stored()).memoryConfig.backend, backend)
+  }
+  // 非法值不落库，也不顶掉已经存下的选择。
+  assert.equal((await call('update-bot', { id: writer.id, memoryConfig: { backend: 'memory' } })).ok, true)
+  assert.equal((await stored()).memoryConfig.backend, 'auto')
+  assert.equal((await call('update-bot', { id: writer.id, memoryConfig: {} })).ok, true)
+  assert.equal((await stored()).memoryConfig.backend, 'auto')
+  // null 清掉覆盖，回落到这台机器的插件级默认。
+  assert.equal((await call('update-bot', { id: writer.id, memoryConfig: null })).ok, true)
+  assert.equal((await stored()).memoryConfig, undefined)
+  // 创建时不给就不存覆盖，给了非法值也不存。
+  assert.equal((await call('create-bot', { name: 'Plain' })).value.memoryConfig, undefined)
+  assert.equal((await call('create-bot', { name: 'Odd', memoryConfig: { backend: 'bogus' } })).value.memoryConfig, undefined)
+})

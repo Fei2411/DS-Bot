@@ -6,8 +6,8 @@ import { test } from 'node:test'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import {
-  MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey,
-  looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
+  MEMORY_BACKENDS, MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey,
+  looksSecret, matchEntries, memoryBackendOf, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
 } from '../src/host/memory.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
@@ -2038,4 +2038,49 @@ test('a memory call names the current part of the Bot chat', async (t) => {
   const answer = await call('memory-ask', { botId: 'b2', text: 'Which part?' })
   assert.equal(answer.ok, true)
   assert.equal(requests[0].sessionId, 'b2-part2')
+})
+
+test('a Bot\'s memory backend comes from its own setting, then the host default, then auto', () => {
+  assert.deepEqual(MEMORY_BACKENDS, ['auto', 'mneme', 'file', 'none'])
+  const bot = backend => ({ name: 'B', memoryConfig: { backend } })
+  assert.equal(memoryBackendOf({}, bot('mneme')), 'mneme')
+  assert.equal(memoryBackendOf({}, bot('file')), 'file')
+  assert.equal(memoryBackendOf({}, bot('none')), 'none')
+  // auto 由这台机器上有没有 dsh-mneme 决定，测试里只断言它落在两个真实后端之一。
+  assert.ok(['mneme', 'file'].includes(memoryBackendOf({}, bot('auto'))))
+  // Bot 自己的选择覆盖这台机器的默认。
+  assert.equal(memoryBackendOf({ memoryBackend: 'mneme' }, bot('file')), 'file')
+  assert.equal(memoryBackendOf({ memoryBackend: 'file' }, {}), 'file')
+  // 不是那四个值的一律忽略：自己的回落到默认，默认也坏就回落到 auto。
+  assert.equal(memoryBackendOf({ memoryBackend: 'file' }, bot('memory')), 'file')
+  assert.ok(['mneme', 'file'].includes(memoryBackendOf({ memoryBackend: 'bogus' }, bot('bogus'))))
+  assert.ok(['mneme', 'file'].includes(memoryBackendOf({}, {})))
+})
+
+test('the backend is decided per Bot at use time: section, tools, and the host default', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-backend-'))
+  const bots = {
+    ...TEAM.bots,
+    // b2 自己选了文件记忆，插件级默认是 dsh-mneme，所以要覆盖它。
+    b2: { ...TEAM.bots.b2, memoryConfig: { backend: 'file' } },
+    // b3 关掉记忆。
+    b3: { ...TEAM.bots.b3, memoryConfig: { backend: 'none' } },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, bots }))
+  const { call, tool, section, stop } = start({ home, config: { memoryBackend: 'mneme' } })
+  t.after(() => stop())
+  // 先把团队读进来，section 才查得到这个 Bot。
+  await call('state', {})
+
+  // b2 的文件记忆仍然生效：提示里有记忆，工具能写。
+  assert.match(section('b2'), /^# Your memory/)
+  assert.match(await tool('remember', { text: 'User prefers tea' }, 'b2'), /^Saved to your memory/)
+  // b3 关闭记忆：不注入，工具拒绝。
+  assert.equal(section('b3'), '')
+  await assert.rejects(tool('remember', { text: 'x' }, 'b3'), /Memory is turned off for this Bot/)
+  await assert.rejects(tool('forget', { entry: 'x' }, 'b3'), /Memory is turned off for this Bot/)
+  assert.match(await tool('recall', {}, 'b3'), /^Memory is turned off for this Bot/)
+  // 没有自己的选择的 Bot 跟随插件级默认 dsh-mneme：拿不到文件记忆的注入和工具。
+  assert.equal(section('b4'), '')
+  await assert.rejects(tool('remember', { text: 'x' }, 'b4'), /keeps its memory in dsh-mneme/)
 })

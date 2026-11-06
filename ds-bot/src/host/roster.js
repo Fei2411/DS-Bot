@@ -1,7 +1,7 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
 import { mkdir } from 'node:fs/promises'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
+import { MAX_AVATAR_IMAGE, MEMORY_BACKENDS, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -12,6 +12,13 @@ const OWN_RULES = 'Where your instructions say otherwise, follow them.'
 const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
 // The first Main Bot's greeting when the user wrote before it had a model that works.
 const AFTER_USER = 'You were just set up as the user\'s Main Bot. The user wrote to you before your model could answer; their message above has no answer yet. Answer it now, and say in one short sentence that you run their Bot team.'
+
+// 一个 Bot 的记忆后端只能是那四个值；别的值不算后端，返回 undefined 让调用方忽略，
+// 而不是覆盖已经存下的选择。存下来的就是选的那个值本身（'auto' 也存），设置页据此读回。
+function cleanMemoryConfig(input) {
+  if (input === null || typeof input !== 'object') return undefined
+  return MEMORY_BACKENDS.includes(input.backend) ? { backend: input.backend } : undefined
+}
 
 function cleanBrowserGrants(input) {
   if (input === null) return null
@@ -160,6 +167,7 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
+    const memory = cleanMemoryConfig(memoryConfig)
     const id = await createSession(cleanName, { dir })
     try {
       state.bots[id] = {
@@ -194,10 +202,9 @@ export function install(rt) {
             mem: null,
           },
         } : {}),
-        // Per-bot memory backend override (only stored when explicitly set)
-        ...(memoryConfig?.backend && ['mneme', 'file', 'none'].includes(memoryConfig.backend)
-          ? { memoryConfig: { backend: memoryConfig.backend } }
-          : {}),
+        // Per-bot memory backend: one of the four values, stored exactly as chosen so
+        // the settings screen reads back what the user picked ('auto' included).
+        ...(memory === undefined ? {} : { memoryConfig: memory }),
       }
       if (main) state.mainBotIds.push(id)
 
@@ -419,6 +426,18 @@ export function install(rt) {
       if (effortId === null) delete bot.effort
       else bot.effort = effortId
       modelChanged = true
+    }
+    // 记忆后端：只有那四个值落库，别的值忽略（不顶掉已经存下的选择）；null 清除
+    // 这个 Bot 的覆盖，让它回落到这台机器的插件级默认。改完之后让这个 Session 的
+    // 团队工具重新登记一次，否则已经在跑的会话还拿着旧后端决定的那一套。
+    if (patch.memoryConfig !== undefined) {
+      const before = bot.memoryConfig?.backend
+      if (patch.memoryConfig === null) delete bot.memoryConfig
+      else {
+        const memory = cleanMemoryConfig(patch.memoryConfig)
+        if (memory !== undefined) bot.memoryConfig = memory
+      }
+      if (bot.memoryConfig?.backend !== before) rt.refreshBotTools?.(rt.chatOf(id))
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
     if (browserGrants !== undefined) {

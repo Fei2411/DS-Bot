@@ -821,6 +821,9 @@ export function install(rt) {
     const registered = []
     for (const def of rt.teamTools) {
       if (relayOnly && def.name !== 'group_relay') continue
+      // 15a0fd1：走 dsh-mneme / 关闭记忆的 Bot 不拿 ds-bot 的文件记忆工具。后端可以
+      // 改，改完 updateBot 会调 rt.refreshBotTools 让这个 Session 重新登记一次。
+      if (rt.fileMemoryTools?.has(def.name) === true && rt.fileMemoryFor?.(id) === false) continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') disposers.push(dispose)
@@ -1118,5 +1121,16 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools })
+  // 一个 Bot 的设置（记忆后端、类型）可能在一个活着的 Session 底下改：先撤掉它已经
+  // 登记的团队工具，再按现在的设置登记一次，不必等新会话或重启。
+  const refreshBotTools = (id) => {
+    if (id === undefined) return
+    unscope(id)
+    for (const agent of ctx.get?.('agents')?.list?.() ?? []) {
+      if (agent?.session?.id !== id) continue
+      shareBotTools(agent)
+      hideBotUnusedTools(agent)
+    }
+  }
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, refreshBotTools })
 }

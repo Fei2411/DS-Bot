@@ -27,6 +27,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
   const [botType, setBotType] = useState('normal')
+  const [memoryBackend, setMemoryBackend] = useState('auto')
   const [hubUrl, setHubUrl] = useState('')
   const [remotePort, setRemotePort] = useState('19387')
   const [workerToken, setWorkerToken] = useState('')
@@ -49,7 +50,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       const extra = botType === 'remote-worker'
         ? { type: 'remote-worker', worker: { hubUrl: hubUrl.trim() || undefined, remotePort: remotePort ? Number(remotePort) : undefined, token: workerToken.trim() || undefined } }
         : {}
-      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), ...extra })
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), memoryConfig: { backend: memoryBackend }, ...extra })
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -112,6 +113,18 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h('span', { className: 'bt-note' }, botType === 'remote-worker'
         ? t('A Worker Bot runs tasks on a remote machine via dsh-remote-agent.')
         : t('A normal Bot runs in this DeepSeek Harness instance.'))),
+    h('div', { className: 'bt-field' },
+      h('span', { className: 'bt-field-label' }, t('Memory Backend')),
+      h('select', {
+        className: 'bt-input', value: memoryBackend,
+        onChange: e => setMemoryBackend(e.target.value),
+        'aria-label': t('Memory backend'),
+      },
+        h('option', { value: 'auto' }, t('Auto Detect')),
+        h('option', { value: 'mneme' }, t('dsh-mneme (Force)')),
+        h('option', { value: 'file' }, t('File Memory (Force)')),
+        h('option', { value: 'none' }, t('Disabled'))),
+      h('span', { className: 'bt-note' }, t('Where this Bot keeps its memory. Auto Detect uses dsh-mneme when it is installed.'))),
     botType === 'remote-worker' ? h('div', null,
       h('label', { className: 'bt-field' },
         h('span', { className: 'bt-field-label' }, t('Hub URL')),

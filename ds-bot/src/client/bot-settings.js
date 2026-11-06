@@ -243,8 +243,8 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
               className: 'bt-input',
               value: bot.memoryConfig?.backend ?? 'auto',
               onChange: e => {
-                const v = e.target.value
-                save({ memoryConfig: { ...bot.memoryConfig, backend: v === 'auto' ? undefined : v } })
+                // 四个值都照原样存，'auto' 也存：设置页读回的就是用户选的那个。
+                save({ memoryConfig: { backend: e.target.value } })
               },
               'aria-label': t('Memory backend'),
             },

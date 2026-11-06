@@ -15104,8 +15104,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
             className: "bt-input",
             value: bot.memoryConfig?.backend ?? "auto",
             onChange: (e) => {
-              const v = e.target.value;
-              save({ memoryConfig: { ...bot.memoryConfig, backend: v === "auto" ? void 0 : v } });
+              save({ memoryConfig: { backend: e.target.value } });
             },
             "aria-label": t("Memory backend")
           },
@@ -15260,6 +15259,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [model, setModel] = (0, import_react34.useState)(() => startModel(roster));
   const [effort, setEffort] = (0, import_react34.useState)(void 0);
   const [botType, setBotType] = (0, import_react34.useState)("normal");
+  const [memoryBackend, setMemoryBackend] = (0, import_react34.useState)("auto");
   const [hubUrl, setHubUrl] = (0, import_react34.useState)("");
   const [remotePort, setRemotePort] = (0, import_react34.useState)("19387");
   const [workerToken, setWorkerToken] = (0, import_react34.useState)("");
@@ -15281,7 +15281,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     setBusy(true);
     try {
       const extra = botType === "remote-worker" ? { type: "remote-worker", worker: { hubUrl: hubUrl.trim() || void 0, remotePort: remotePort ? Number(remotePort) : void 0, token: workerToken.trim() || void 0 } } : {};
-      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), ...extra });
+      const bot = await actions.createBot({ ...createPayload({ name: finalName, look, image, model, effort, brief }), memoryConfig: { backend: memoryBackend }, ...extra });
       onCreated(bot);
     } catch (failure) {
       setError(failure?.message ?? String(failure));
@@ -15393,6 +15393,25 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
         (0, import_react34.createElement)("option", { value: "remote-worker" }, t("Worker Bot (Remote Machine)"))
       ),
       (0, import_react34.createElement)("span", { className: "bt-note" }, botType === "remote-worker" ? t("A Worker Bot runs tasks on a remote machine via dsh-remote-agent.") : t("A normal Bot runs in this DeepSeek Harness instance."))
+    ),
+    (0, import_react34.createElement)(
+      "div",
+      { className: "bt-field" },
+      (0, import_react34.createElement)("span", { className: "bt-field-label" }, t("Memory Backend")),
+      (0, import_react34.createElement)(
+        "select",
+        {
+          className: "bt-input",
+          value: memoryBackend,
+          onChange: (e) => setMemoryBackend(e.target.value),
+          "aria-label": t("Memory backend")
+        },
+        (0, import_react34.createElement)("option", { value: "auto" }, t("Auto Detect")),
+        (0, import_react34.createElement)("option", { value: "mneme" }, t("dsh-mneme (Force)")),
+        (0, import_react34.createElement)("option", { value: "file" }, t("File Memory (Force)")),
+        (0, import_react34.createElement)("option", { value: "none" }, t("Disabled"))
+      ),
+      (0, import_react34.createElement)("span", { className: "bt-note" }, t("Where this Bot keeps its memory. Auto Detect uses dsh-mneme when it is installed."))
     ),
     botType === "remote-worker" ? (0, import_react34.createElement)(
       "div",
