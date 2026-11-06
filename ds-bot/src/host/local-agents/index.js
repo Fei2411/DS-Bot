@@ -13,7 +13,7 @@ import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, validateCustom } from './engines.js'
-import { findExecutable, probeVersion } from './discover.js'
+import { findExecutable, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGN_IN = {
   'devin-cli': 'devin auth login',
@@ -50,6 +50,7 @@ export function install(rt) {
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
   async function scan() {
+    await refreshSearchDirs()
     for (const route of Object.keys(ENGINES)) {
       const spec = ENGINES[route]
       const path = findExecutable(spec.command)
@@ -191,6 +192,7 @@ export function install(rt) {
       }
       case 'local-agent-add': {
         const clean = validateCustom(body)
+        await refreshSearchDirs()
         if (findExecutable(clean.command) === undefined && !clean.command.includes('/') && !clean.command.includes('\\')) {
           throw new Error(`No program named ${clean.command} was found`)
         }

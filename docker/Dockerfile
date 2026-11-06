@@ -20,9 +20,10 @@ COPY ds-bot/ /src/ds-bot/
 # ds-bot has no build step at install (client.js is committed), so pack it as-is
 # and let `dsh plugin add` set up the web profile from dsh's own template.
 RUN cd /src/ds-bot \
-    && npm pack --pack-destination /tmp \
-    && mv /tmp/ds-bot-*.tgz /tmp/ds-bot.tgz \
-    && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /tmp/ds-bot.tgz
+    && mkdir -p /opt/ds-bot \
+    && npm pack --pack-destination /opt/ds-bot \
+    && mv /opt/ds-bot/ds-bot-*.tgz /opt/ds-bot/ds-bot.tgz \
+    && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz
 
 FROM node:24-bookworm-slim
 
@@ -36,6 +37,9 @@ RUN apt-get update \
 
 COPY --from=build /usr/local/ /usr/local/
 COPY --from=build /opt/dsh-template /opt/dsh-template
+COPY --from=build /opt/ds-bot/ds-bot.tgz /opt/ds-bot/ds-bot.tgz
+# Persisted profiles from earlier images still refer to the old archive path.
+RUN ln -s /opt/ds-bot/ds-bot.tgz /tmp/ds-bot.tgz
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/docker.patch.yml /opt/ds-bot/docker.patch.yml
 
