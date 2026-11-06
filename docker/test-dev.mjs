@@ -185,7 +185,7 @@ try {
     '',
   ].join('\n'))
   docker([
-    'run', '--detach', '--name', drainName, '--user', 'node', ...dataMounts,
+    'run', '--detach', '--name', drainName, '--user', `${uid}:${gid}`, ...dataMounts,
     '--mount', `type=bind,src=${plugin},dst=/app/ds-bot`,
     '--mount', `type=bind,src=${drainScript},dst=/tmp/drain-dsh.mjs,readonly`,
     '--mount', `type=bind,src=${temporary},dst=/tmp/drain-output`,
