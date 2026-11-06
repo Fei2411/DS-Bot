@@ -898,9 +898,8 @@ test('a question or view card closed without an answer on it stays at its call, 
   const dismissed = show(call('ask_user', 'q-dismissed', { args: asked }), { roster })
   assert.equal(find(dismissed, node => node.props?.className === 'bt-q-gone'), undefined)
   assert.equal(text(find(dismissed, node => node.props?.className === 'bt-q-badge')), 'Dismissed')
-  assert.deepEqual(findAll(dismissed, node => node.props?.className === 'bt-q-label').map(text), ['Short', 'Long'])
-  assert.match(text(dismissed), /Which draft\?.*Pick one.*One page/)
-  assert.equal(find(dismissed, node => node.props?.className === 'bt-q-check'), undefined)
+  // Compact: the question and the badge, no options and nothing to press.
+  assert.equal(text(dismissed), 'Which draft?Dismissed')
   assert.equal(find(dismissed, node => node.type === 'button'), undefined)
   const replied = show(call('ask_user', 'q-replied', { args: asked }), { roster })
   assert.equal(text(find(replied, node => node.props?.className === 'bt-q-badge')), 'Answered by message')
@@ -908,18 +907,17 @@ test('a question or view card closed without an answer on it stays at its call, 
   const answered = show(call('ask_user', 'q-answered', { args: asked }), { roster })
   assert.ok(find(answered, node => node.props?.className === 'bt-q-gone') !== undefined)
   const view = show(call('show_view', 'v-dismissed', { args: pick }), { roster })
-  assert.match(text(view), /Pick a lane.*Dismissed.*Ship now.*One more pass/)
-  assert.ok(find(view, node => typeof node.props?.className === 'string' && node.props.className.includes('dv-q-settled')) !== undefined)
-  assert.equal(find(view, node => node.type === 'button' && !node.props?.disabled), undefined)
+  assert.equal(text(view), 'Pick a laneDismissed')
+  assert.equal(find(view, node => node.type === 'button'), undefined)
   assert.ok(find(show(call('show_view', 'v-answered', { args: pick }), { roster }), node => node.props?.className === 'bt-q-gone') !== undefined)
 })
 
-test('an answered question card keeps every option, with a check on the chosen one and the own answer below', () => {
+test('an answered question card keeps only the chosen rows, each under its card letter, and the own answer after them', () => {
   const question = { id: 'q', question: 'Which draft?', options: [{ label: 'Short' }, { label: 'Long' }, { label: 'None' }] }
   const out = expand(SettledQuestion({ question, answer: { selected: ['Long'], custom: 'Both, really' } }))
+  assert.match(out.props.className, /bt-q-answered/)
   const rows = findAll(out, node => node.props?.className === 'bt-q-opt')
-  assert.deepEqual(rows.map(row => text(find(row, node => node.props?.className === 'bt-q-label'))), ['Short', 'Long', 'None', 'Both, really'])
-  assert.deepEqual(rows.map(row => find(row, node => node.props?.className === 'bt-q-check') !== undefined), [false, true, false, true])
+  assert.deepEqual(rows.map(row => [text(find(row, node => node.props?.className === 'bt-key')), text(find(row, node => node.props?.className === 'bt-q-label'))]), [['B', 'Long'], ['D', 'Both, really']])
   assert.equal(find(out, node => node.props?.className === 'bt-q-badge'), undefined)
 })
 

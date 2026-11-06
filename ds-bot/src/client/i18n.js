@@ -759,7 +759,6 @@ const ZH = {
   Dismissed: '已关闭',
   'Answered by message': '已用消息回答',
   'Your answer': '你的回答',
-  Options: '选项',
 
   // Views
   View: '视图',
