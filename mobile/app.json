@@ -33,6 +33,14 @@
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class com.google.mlkit.** { *; }\n-keep class com.google.android.gms.internal.mlkit_vision_barcode.** { *; }\n-keep class com.google.android.gms.internal.mlkit_vision_common.** { *; }\n-keep class com.google.android.odml.** { *; }"
+          }
+        }
       ]
     ]
   }
