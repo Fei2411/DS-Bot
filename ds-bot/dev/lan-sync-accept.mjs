@@ -1,17 +1,21 @@
 // Acceptance path for #966 "the same conversation on two screens". One dsh Web host runs
 // on the center machine (this Mac), two independent browser logins read and write the same
-// Bot Session through /api/bot, and the plugin's LAN hub serves the device path.
+// Bot Session through /api/bot, and the plugin's LAN hub serves the device path. `sync`
+// proves a second, hub-mediated path: paired node processes pull the conversation by
+// revision and push a message back through the hub, with no browser on the shared URL.
 //
 //   npm run harness                                      # once, if dev/harness has no dsh
 //   node dev/lan-sync-accept.mjs prove                   # fresh team, both directions, stop
 //   KEEP=1 node dev/lan-sync-accept.mjs prove            # leave the host up for Windows
+//   node dev/lan-sync-accept.mjs sync                    # hub-mediated center <-> node sync
 //   node dev/lan-sync-accept.mjs pair                    # code + worker command for Windows
 //   node dev/lan-sync-accept.mjs devices                 # list -> pick -> hostname (Windows)
 //   node dev/lan-sync-accept.mjs status | stop
 //
-// The proof writes JSON evidence (no token, no cookie value) to /tmp by default, or to
-// --out. It never prints the launch token; the tokenized URL goes to <home>/login-url.txt
-// with mode 0600, because a second machine needs that URL to open the same session.
+// The proof writes JSON evidence (no token, no cookie value, no pairing code) to /tmp by
+// default, or to --out. It never prints the launch token; the tokenized URL goes to
+// <home>/login-url.txt with mode 0600, because a second machine needs that URL to open the
+// same session.
 //
 // This is one dsh host and several clients, not two DSH instances syncing: a Session has a
 // single owner and the team store a single writer (docs/plans/966-lan-multi-device.md).
@@ -22,6 +26,7 @@ import { createServer, connect } from 'node:net'
 import { networkInterfaces, hostname as localHostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { replicaFile } from '../src/host/multi-device/session-client.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const HARNESS = join(PLUGIN, 'dev', 'harness')
@@ -34,23 +39,25 @@ const WORKER_HUB_NAME = 'dsbot-966-center'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 function usage(code = 2) {
-  console.error(`usage: node dev/lan-sync-accept.mjs <prove|start|prove-sync|pair|devices|status|stop> [options]
+  console.error(`usage: node dev/lan-sync-accept.mjs <prove|start|prove-sync|sync|pair|devices|status|stop> [options]
 
   prove        start a fresh team, prove both directions, run the device path, stop
   start        start the mock and one dsh Web host on the LAN address, leave them up
   prove-sync   the two-client proof against the running host
+  sync         hub-mediated proof: center -> two paired node processes -> center, and reconnect
   pair         print a pairing code and the Windows worker command
   devices      list -> auto-pick -> hostname against the running host
   status       processes, origin, paired nodes
-  stop         stop the worker, dsh and the mock
+  stop         stop the workers, dsh and the mock
 
 Options:
   --out <file>       evidence path (prove: /tmp/dsbot-966-sync-accept-report.json,
+                     sync: /tmp/dsbot-966-sync-hub.json,
                      devices: /tmp/dsbot-966-sync-devices.json)
   --ip <address>     bind address (default: en0/en1, else the first non-loopback IPv4)
   --web-port <n>     Web port (default 0: the OS picks one)
   --hub-port <n>     hub port (default: a free port)
-  --fresh            wipe the home, including the installed profile, before starting
+  --fresh            wipe the host home before starting (the installed profile stays)
   --no-worker        do not start the local stand-in worker during prove
 
 Environment: KEEP=1 leaves the processes up after prove; DSBOT_LAN_SYNC_HOME moves the
@@ -190,7 +197,7 @@ async function stopOne(name) {
 }
 
 async function stopAll() {
-  for (const name of ['worker', 'web', 'mock']) await stopOne(name)
+  for (const name of ['worker', 'worker-a', 'worker-b', 'web', 'mock']) await stopOne(name)
 }
 
 function ensureHarness() {
@@ -249,7 +256,9 @@ function prepareHome({ fresh }) {
   rmSync(join(HOME, 'sessions'), { recursive: true, force: true })
   rmSync(DATA, { recursive: true, force: true })
   rmSync(join(HOME, 'worker'), { recursive: true, force: true })
-  for (const file of ['web.log', 'mock.out', 'mock.jsonl', 'worker.log', 'pids.json', 'login-url.txt', 'launch.json']) {
+  rmSync(join(HOME, 'worker-a'), { recursive: true, force: true })
+  rmSync(join(HOME, 'worker-b'), { recursive: true, force: true })
+  for (const file of ['web.log', 'mock.out', 'mock.jsonl', 'worker.log', 'worker-a.log', 'worker-b.log', 'pids.json', 'login-url.txt', 'launch.json']) {
     rmSync(join(HOME, file), { force: true })
   }
 }
@@ -507,6 +516,54 @@ function startStandInWorker(code, ip, hubPort) {
   })
 }
 
+// A node process that follows one Bot's conversation through the hub. `code` is only for
+// its first run; a restart uses the device token it already saved.
+function startSyncWorker(name, { code, ip, hubPort, dataDir, label, botId }) {
+  const args = [
+    'src/host/multi-device/cli.js', 'worker',
+    '--hub', hubUrl(ip, hubPort),
+    '--name', label,
+    '--data', dataDir,
+    '--sync', botId,
+  ]
+  if (code !== undefined) args.push('--code', code)
+  return launch(name, process.execPath, args, { cwd: PLUGIN, log: join(HOME, `${name}.log`) })
+}
+
+function readNodeReplica(dataDir, botId) {
+  try {
+    return JSON.parse(readFileSync(replicaFile(dataDir, botId), 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+async function waitForReplica(dataDir, botId, predicate, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs
+  let last
+  while (Date.now() < deadline) {
+    const replica = readNodeReplica(dataDir, botId)
+    if (replica !== undefined) {
+      last = replica
+      if (predicate(replica)) return replica
+    }
+    await sleep(150)
+  }
+  throw new Error(`the node replica ${predicate.name || 'condition'} did not arrive within ${timeoutMs} ms (last: ${JSON.stringify(last)?.slice(0, 300)})`)
+}
+
+// A message typed on a paired machine: the same client the worker runs, as a one-shot
+// process. Its device token is read from that machine's data folder, never printed.
+function sayFromNode(dataDir, ip, hubPort, botId, text) {
+  return execFileSync(process.execPath, [
+    'src/host/multi-device/cli.js', 'say',
+    '--hub', hubUrl(ip, hubPort),
+    '--data', dataDir,
+    '--bot', botId,
+    '--text', text,
+  ], { cwd: PLUGIN, encoding: 'utf8' })
+}
+
 // The model the mock serves. The catalog also lists this machine's local-agent routes
 // (gemini-cli and friends); one of those would leave the turn waiting for a login that
 // never comes, and the queued second message would never be written.
@@ -577,6 +634,82 @@ async function pairCode(ip, hubPort) {
   return hubRequest(hubUrl(ip, hubPort), '/admin/pair-code', { method: 'POST', body: {} })
 }
 
+// The hub-mediated path: one center, two paired node processes. Each node keeps only a
+// read replica under its own data folder; every message goes through the hub, which is
+// the single writer of the Session. The reconnect step kills node B, writes on the
+// center while it is away, and restarts it with its saved cursor.
+async function hubSyncProof({ url, ip, hubPort }) {
+  const origin = webOrigin(url)
+  const browser = await login(url, 'client-hub-sync')
+  const api = client(origin, browser.cookie)
+  await settle(api).catch(() => {})
+
+  const state = await api('state')
+  const bot = state.bots.find(entry => entry.name === 'Chief') ?? state.bots[0]
+  if (bot === undefined) throw new Error('the team has no Bot to sync')
+  const model = mockModel(state.models)
+  if (model === undefined) throw new Error('the model catalog has no DeepSeek route for the mock')
+  if (bot.waiting || bot.model !== model.ref) await api('update-bot', { id: bot.id, model: model.ref })
+  await settle(api).catch(() => {})
+
+  const dataA = join(HOME, 'worker-a')
+  const dataB = join(HOME, 'worker-b')
+  rmSync(dataA, { recursive: true, force: true })
+  rmSync(dataB, { recursive: true, force: true })
+
+  const codeA = await pairCode(ip, hubPort)
+  startSyncWorker('worker-a', { code: codeA.code, ip, hubPort, dataDir: dataA, label: 'node-a', botId: bot.id })
+  const firstPull = await waitForReplica(dataA, bot.id, replica => Number.isInteger(replica.revision), 40_000)
+
+  const codeB = await pairCode(ip, hubPort)
+  startSyncWorker('worker-b', { code: codeB.code, ip, hubPort, dataDir: dataB, label: 'node-b', botId: bot.id })
+  const firstPullB = await waitForReplica(dataB, bot.id, replica => Number.isInteger(replica.revision), 40_000)
+
+  const centerText = `HUB center→nodes ${new Date().toISOString()} ${Math.random().toString(16).slice(2, 8)}`
+  const centerSentAt = Date.now()
+  await api('send', { sessionId: bot.id, text: centerText })
+  const seenByA = await waitForReplica(dataA, bot.id, replica => replica.items.some(item => item.text === centerText), 40_000)
+  const centerToNodeMs = Date.now() - centerSentAt
+  const seenByB = await waitForReplica(dataB, bot.id, replica => replica.items.some(item => item.text === centerText), 40_000)
+  const centerToSecondNodeMs = Date.now() - centerSentAt
+
+  const nodeText = `HUB node→center ${new Date().toISOString()} ${Math.random().toString(16).slice(2, 8)}`
+  const typedAt = Date.now()
+  sayFromNode(dataA, ip, hubPort, bot.id, nodeText)
+  const centerSees = await waitForText(api, bot.id, nodeText, 30_000)
+  const nodeToCenterMs = Date.now() - typedAt
+  const seenNodeMessageByB = await waitForReplica(dataB, bot.id, replica => replica.items.some(item => item.text === nodeText), 40_000)
+
+  const beforeRestart = readNodeReplica(dataB, bot.id)?.revision
+  await stopOne('worker-b')
+  const awayText = `HUB while node-b was away ${new Date().toISOString()} ${Math.random().toString(16).slice(2, 8)}`
+  await api('send', { sessionId: bot.id, text: awayText })
+  await waitForText(api, bot.id, awayText, 30_000)
+  startSyncWorker('worker-b', { ip, hubPort, dataDir: dataB, label: 'node-b', botId: bot.id })
+  const restored = await waitForReplica(dataB, bot.id, replica => replica.revision > beforeRestart && replica.items.some(item => item.text === awayText), 40_000)
+
+  const evidence = {
+    generatedAt: new Date().toISOString(),
+    origin,
+    hubUrl: hubUrl(ip, hubPort),
+    // The hub refreshes a watched Bot once a second and answers a waiting poll at once
+    // when the revision moves, so a paired screen trails the center by about this much.
+    intervalMs: 1000,
+    bot: { id: bot.id, name: bot.name },
+    nodes: [
+      { name: 'node-a', firstRevision: firstPull.revision, revision: seenByA.revision, items: seenByA.items.length, dataDir: dataA },
+      { name: 'node-b', firstRevision: firstPullB.revision, revision: restored.revision, items: restored.items.length, dataDir: dataB },
+    ],
+    centerToNode: { text: centerText, latencyMs: centerToNodeMs, revision: seenByA.revision },
+    centerToSecondNode: { text: centerText, latencyMs: centerToSecondNodeMs, revision: seenByB.revision },
+    nodeToCenter: { text: nodeText, latencyMs: nodeToCenterMs, sessionId: centerSees.sessionId, excerpt: centerSees.lines.slice(-3) },
+    secondNodeFollowsPush: { text: nodeText, revision: seenNodeMessageByB.revision },
+    reconnect: { text: awayText, fromRevision: beforeRestart, toRevision: restored.revision, items: restored.items.length },
+  }
+  evidence.noSecrets = !JSON.stringify(evidence).includes(codeA.code) && !JSON.stringify(evidence).includes(codeB.code)
+  return evidence
+}
+
 const checks = []
 function check(name, ok, detail) {
   checks.push({ name, ok, detail })
@@ -624,6 +757,43 @@ async function commandProveSync(options) {
   check('the first client reads the second client\'s message', sync.bToA.aExcerpt.includes(sync.bToA.text), sync.bToA.text)
   console.log(`evidence: ${out}`)
   return sync
+}
+
+async function commandSync(options) {
+  const startedHere = !alive(pids().web)
+  if (startedHere) await commandStart(options)
+  const { ip, hubPort } = await context(options)
+  const url = loginUrl()
+  if (url === undefined || !alive(pids().web)) throw new Error('the host is not running; run `start` first')
+  await waitForHub(hubUrl(ip, hubPort))
+  const out = options.out ?? '/tmp/dsbot-966-sync-hub.json'
+  checks.length = 0
+  try {
+    const proof = await hubSyncProof({ url, ip, hubPort })
+    check('a node process pulled a snapshot through the hub', proof.nodes[0].firstRevision >= 1,
+      `node-a first revision ${proof.nodes[0].firstRevision}`)
+    check('the center message reached node A through the hub', proof.centerToNode.latencyMs < 10_000,
+      `${proof.centerToNode.latencyMs} ms`)
+    check('a second node reads the same message', proof.centerToSecondNode.latencyMs < 10_000,
+      `node-b ${proof.centerToSecondNode.latencyMs} ms`)
+    check('a message typed on node A reached the center', proof.nodeToCenter.latencyMs < 10_000,
+      `${proof.nodeToCenter.latencyMs} ms, ${proof.nodeToCenter.sessionId}`)
+    check('the second node follows a message pushed by the first', proof.secondNodeFollowsPush.revision > proof.centerToNode.revision,
+      `revision ${proof.secondNodeFollowsPush.revision}`)
+    check('a node that reconnects catches up from its saved cursor', proof.reconnect.toRevision > proof.reconnect.fromRevision,
+      `${proof.reconnect.fromRevision} -> ${proof.reconnect.toRevision}`)
+    check('the evidence holds no pairing code or device token', proof.noSecrets === true, 'only revisions, text and paths')
+    const report = { ...proof, checks, ok: checks.every(entry => entry.ok) }
+    writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
+    console.log(`evidence: ${out}`)
+    return report.ok
+  } finally {
+    if (process.env.KEEP !== '1') {
+      await stopOne('worker-a')
+      await stopOne('worker-b')
+      if (startedHere) await stopAll()
+    }
+  }
 }
 
 async function commandProve(options) {
@@ -753,7 +923,7 @@ async function commandStatus(options) {
   const { ip, hubPort } = await context(options)
   const all = pids()
   console.log(`home: ${HOME}`)
-  for (const name of ['mock', 'web', 'worker']) {
+  for (const name of ['mock', 'web', 'worker', 'worker-a', 'worker-b']) {
     console.log(`${name}: ${alive(all[name]) ? `running (pid ${all[name]})` : 'stopped'}`)
   }
   if (alive(all.web)) {
@@ -786,6 +956,11 @@ export async function main(argv = process.argv.slice(2)) {
   if (action === 'prove-sync') {
     await commandProveSync(options)
     process.exitCode = checks.every(entry => entry.ok) ? 0 : 1
+    return
+  }
+  if (action === 'sync') {
+    const ok = await commandSync(options)
+    process.exitCode = ok ? 0 : 1
     return
   }
   if (action === 'pair') return commandPair(options)
