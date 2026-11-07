@@ -14924,7 +14924,7 @@ var DEVICES_CSS = `
 .bt-dev-strip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-dev-strip[data-online] .bt-dev-dot{background:var(--bt-green)}
 .bt-dev-strip-rail{position:relative}
-.bt-dev-strip-count{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--bt-green);color:#fff;font-size:9px;line-height:14px;text-align:center}
+.bt-dev-strip-count{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:var(--bt-green);color:var(--bt-main);font-size:9px;line-height:14px;text-align:center}
 .bt-dev-strip-row{display:flex;align-items:center;gap:2px;margin:0 4px 4px 0}
 .bt-dev-strip-row .bt-dev-strip{margin:0;flex:1;min-width:0}
 .bt-dev-strip-copy{flex:none;width:26px;height:26px}
