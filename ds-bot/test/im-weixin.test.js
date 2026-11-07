@@ -15,6 +15,11 @@ async function fakeIlink() {
     req.on('end', () => {
       const params = JSON.parse(body || '{}')
       calls.push({ method: req.method, path: req.url, params, auth: req.headers.authorization })
+      // A raw body, for a proxy error page or any other non-JSON 200.
+      if (replies.raw?.[req.url] !== undefined) {
+        res.writeHead(200, { 'content-type': 'text/html' }); res.end(replies.raw[req.url])
+        return
+      }
       if (req.url.startsWith('/ilink/bot/get_bot_qrcode')) {
         const answer = replies.qrcode ?? { qrcode: 'qr-tok-1', qrcode_img_content: 'weixin://qr/abc' }
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
@@ -221,5 +226,44 @@ test('a network failure keeps its cause for diagnosis', async () => {
     })
   } finally {
     await fake.close()
+  }
+})
+
+// A missing ret only means success when the body is a real getupdates answer: a
+// proxy error page (non-JSON) or an empty object must not read as an idle poll.
+test('check refuses a non-JSON answer and an empty object without ret', async () => {
+  const fake = await fakeIlink()
+  try {
+    fake.replies.raw = { '/ilink/bot/getupdates': '<html>bad gateway</html>' }
+    await assert.rejects(
+      () => weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake)),
+      error => error.permanent !== true && /unreadable/.test(error.message))
+    delete fake.replies.raw
+    fake.replies.updates = {}
+    await assert.rejects(
+      () => weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake)),
+      error => error.permanent !== true && /unreadable/.test(error.message))
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the poll never reports ready for a non-JSON or empty answer without ret', async () => {
+  for (const answer of ['not json at all', {}]) {
+    const fake = await fakeIlink()
+    const statuses = []
+    if (typeof answer === 'string') fake.replies.raw = { '/ilink/bot/getupdates': answer }
+    else fake.replies.updates = answer
+    const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: () => {}, onAction: () => {}, onStatus: status => { statuses.push(status) } })
+    try {
+      await until(() => statuses.filter(status => status.state === 'connecting').length >= 2)
+      await new Promise(done => setTimeout(done, 150))
+      assert.ok(statuses.length >= 2, JSON.stringify(statuses))
+      assert.ok(!statuses.some(status => status.state === 'ready'), `ready after ${JSON.stringify(answer)}: ${JSON.stringify(statuses)}`)
+      assert.ok(statuses.some(status => status.state === 'connecting'), JSON.stringify(statuses))
+    } finally {
+      handle.stop()
+      await fake.close()
+    }
   }
 })
