@@ -1110,6 +1110,15 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;gap:0!important;min-height:44px!important;border-radius:22px!important;padding:7.5px!important;box-sizing:border-box;background:var(--bt-glass-bg)!important;-webkit-backdrop-filter:blur(20px) saturate(180%)!important;backdrop-filter:blur(20px) saturate(180%)!important;border:.5px solid var(--bt-glass-rim)!important;box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04)!important;transition:border-color .15s ease,background-color .15s ease,${spring(SPRING_SHAPE, 'border-radius')}!important}
 [data-composer-card]:hover,[data-composer-card]:focus-within{border-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
+/* iOS repaints a backdrop-filtered card whenever its content repaints, and the
+   caret blinks inside this one on every keystroke: the re-sample shows as a
+   flicker. A coarse pointer paints the card and the jump-to-bottom button
+   opaque instead, and the radius stops animating under the caret when the
+   composer grows a line. */
+@media (pointer:coarse){
+[data-composer-card]{background:var(--bt-main)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transition:border-color .15s ease,background-color .15s ease!important}
+[class*="_toBottomSlot"]>button{background:var(--bt-main)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+}
 [class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
 [class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
 [data-composer-card]>[class*="_row"]{display:contents!important}
