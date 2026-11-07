@@ -10,7 +10,7 @@ import { createHub } from './hub.js'
 import { daemonCommand } from './daemon.js'
 import { APPROVED_NOTE, classifyCommand, describePolicy } from './policy.js'
 import { MAX_FILE_BYTES, taskLabel } from './protocol.js'
-import { bestDevice } from './select.js'
+import { bestDevice, hintedDevice } from './select.js'
 
 const DEFAULT_PORT = 8787
 const DEFAULT_WAIT_MS = 20_000
@@ -67,6 +67,13 @@ function formatPending(task) {
 }
 
 const seenText = node => (node.lastSeen === undefined ? 'never seen' : `last seen ${node.lastSeen}`)
+
+// Online machines with their OS, so a Bot that hit an offline one can pick again from
+// the same answer instead of asking the user which of the others is which.
+const onlineText = nodes => {
+  const online = nodes.filter(node => node.online)
+  return online.length === 0 ? 'none' : online.map(node => `${node.name} (${node.os ?? 'unknown OS'})`).join(', ')
+}
 
 function machineText(node) {
   const os = [node.os, node.arch].filter(Boolean).join('/')
@@ -142,7 +149,7 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
 
   tools.push(defineTool({
     name: 'list_devices',
-    description: 'List the user\'s other machines that are paired with this one over the local network, with their online state, operating system and hostname. Call it before run_on_device, device_read_file, device_write_file or device_transfer, and choose the machine whose OS, host, path style or role fits the task: the user does not pick a machine for you. A Windows path (C:\\..., \\\\share, .exe) points at a Windows machine; /Users/..., /Applications or /Volumes points at a macOS machine. When nothing is paired, ask for a pairing code with device_pairing_code.',
+    description: 'List the user\'s other machines that are paired with this one over the local network, with their online state, operating system and hostname. Call it before run_on_device, device_read_file, device_write_file or device_transfer, and choose the machine whose OS, host, path style or role fits the task: the user does not pick a machine for you. A Windows path (C:\\..., \\\\share, .exe) points at a Windows machine; /Users/..., /Applications or /Volumes points at a macOS machine. Never send a task to an offline machine: use an online one instead or say none fits.',
     parameters: {
       hint: { type: 'string', description: 'Optional words from the user\'s request or a path, used to name the best matching online machine' },
     },
@@ -158,8 +165,9 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
       }
       if (nodes.length === 0) lines.push('No machine is paired yet. Ask the user to run the worker on the other machine with a pairing code; call device_pairing_code for one.')
       lines.push(`Read-only commands run directly: ${describePolicy().join(', ')}. ${APPROVED_NOTE}`)
+      lines.push('Choose an online machine: a Windows path (C:\\..., .exe) means win32; /Users/..., /Applications or .app means darwin; a hostname in the request names that machine.')
       const hinted = typeof args.hint === 'string' ? args.hint : ''
-      const suggestion = hinted === '' ? undefined : bestDevice(nodes, hinted)
+      const suggestion = hinted === '' ? undefined : hintedDevice(nodes, hinted)
       if (suggestion !== undefined) lines.push(`Best match for "${hinted.slice(0, 120)}": ${suggestion.name}${suggestion.online ? '' : ' (offline, so it cannot be used now)'}.`)
       const origin = sharedOrigin()
       lines.push(origin === undefined
@@ -190,8 +198,9 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
         return `No machine named ${args.node}. Paired machines: ${known.length === 0 ? 'none' : known.join(', ')}.`
       }
       if (!target.online) {
-        const online = nodes.filter(node => node.online).map(node => node.name)
-        return `${target.name} is offline (${seenText(target)}), so this command did not run. Online machines: ${online.length === 0 ? 'none' : online.join(', ')}. Ask the user to start the worker there.`
+        const argv = Array.isArray(args.argv) ? args.argv : []
+        const alternative = bestDevice(nodes, argv.join(' '))
+        return `${target.name} is offline (${seenText(target)}), so this command did not run. Online machines: ${onlineText(nodes)}.${alternative === undefined ? '' : ` ${alternative.name} (${alternative.os ?? 'unknown OS'}) looks like the best online match.`} Ask the user to start the worker there if no online machine fits.`
       }
       const argv = Array.isArray(args.argv) ? args.argv : []
       const check = classifyCommand(argv)
@@ -227,8 +236,8 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
       return `No machine named ${node}. Paired machines: ${known.length === 0 ? 'none' : known.join(', ')}.`
     }
     if (!target.online) {
-      const online = nodes.filter(entry => entry.online).map(entry => entry.name)
-      return `${target.name} is offline (${seenText(target)}), so nothing was sent. Online machines: ${online.length === 0 ? 'none' : online.join(', ')}.`
+      const alternative = bestDevice(nodes, String(spec.path ?? ''))
+      return `${target.name} is offline (${seenText(target)}), so nothing was sent. Online machines: ${onlineText(nodes)}.${alternative === undefined ? '' : ` ${alternative.name} (${alternative.os ?? 'unknown OS'}) looks like the best online match for this path.`}`
     }
     let task
     try {

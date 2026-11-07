@@ -772,3 +772,30 @@ test('the plugin hands the device tools its approval service', async t => {
   assert.equal(approval.requests.length, 1)
   assert.match(approval.requests[0].reason, /hello\.txt/)
 })
+
+// --- Choosing a machine (issue #966, part 5) ---
+
+test('the tool help says how to choose a machine by OS and path', () => {
+  const tools = deviceTools({ hub: countingHub([onlineNode]) })
+  const list = tool(tools, 'list_devices').description
+  assert.match(list, /Windows path/)
+  assert.match(list, /Never send a task to an offline machine/)
+  assert.match(tool(tools, 'run_on_device').description, /argument list, never a shell line/)
+  assert.match(tool(tools, 'device_read_file').description, /path style/)
+})
+
+test('an offline machine is refused with the online ones and their OS', async () => {
+  const hub = countingHub([
+    { id: 'nd_1', name: 'win-pc', online: false, os: 'win32' },
+    { id: 'nd_2', name: 'mac-mini', online: true, os: 'darwin' },
+  ])
+  const tools = deviceTools({ hub })
+  const run = await tool(tools, 'run_on_device').execute({ node: 'win-pc', argv: ['ls'] }, {})
+  assert.match(run, /win-pc is offline .* Online machines: mac-mini \(darwin\)/)
+  const read = await tool(tools, 'device_read_file').execute({ node: 'win-pc', path: '/Users/me/notes.md' }, {})
+  assert.match(read, /best online match for this path/)
+  assert.equal(hub.dispatched.length, 0)
+
+  const listed = await tool(tools, 'list_devices').execute({ hint: 'C:\\Users\\me\\report.docx' }, {})
+  assert.match(listed, /Best match for "C:\\Users\\me\\report\.docx": win-pc \(offline, so it cannot be used now\)/)
+})
