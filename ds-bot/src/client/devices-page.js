@@ -65,6 +65,30 @@ function PairingPanel({ pairing, onClose }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onClose }, t('Done'))))
 }
 
+// Where another machine opens the same conversation. The Web server reports only its
+// origin: the login token belongs to the URL DSH printed at startup. A loopback origin
+// is not reachable from another machine, so the page shows a port forward instead of a
+// link that would fail.
+export function sharedSessionLink(webUrl) {
+  if (typeof webUrl !== 'string' || webUrl === '') return { kind: 'none' }
+  let url
+  try {
+    url = new URL(webUrl)
+  } catch {
+    return { kind: 'none' }
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  const loopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost')
+  if (!loopback) return { kind: 'url', url: webUrl }
+  const port = url.port === '' ? (url.protocol === 'https:' ? '443' : '80') : url.port
+  return {
+    kind: 'forward',
+    url: webUrl,
+    port,
+    command: `ssh -L ${port}:127.0.0.1:${port} <user>@<this-machine>`,
+  }
+}
+
 // What a row in the sidebar can say about the paired machines without repeating the
 // Devices page: whether multi-device is on, and how many of the paired machines are
 // online. The roster already refreshes on the normal state poll, so this needs no
@@ -81,12 +105,18 @@ export function deviceSummary(multiDevice) {
   }
 }
 
+function copyText(text) {
+  void navigator.clipboard?.writeText(text).catch(() => {})
+}
+
 // The always-visible entry to Settings → Devices: a strip above the account row when
-// the sidebar is wide, a round button with an online count on the rail.
+// the sidebar is wide, a round button with an online count on the rail. When another
+// machine can open the same conversation, the wide strip also copies that address.
 export function DevicesStrip({ multiDevice, actions, wide = true }) {
   const summary = deviceSummary(multiDevice)
   if (!summary.available || !summary.enabled) return null
   const open = () => actions?.openSettings?.('devices')
+  const link = sharedSessionLink(multiDevice?.hub?.webUrl)
   const label = summary.total === 0
     ? t('Devices · no machines paired')
     : t('Devices · {online} of {total} online', { online: summary.online, total: summary.total })
@@ -101,7 +131,7 @@ export function DevicesStrip({ multiDevice, actions, wide = true }) {
     h(DevicesIcon),
     summary.online > 0 ? h('span', { className: 'bt-dev-strip-count', 'aria-hidden': true }, String(summary.online)) : null)
   }
-  return h('button', {
+  const strip = h('button', {
     type: 'button',
     className: 'bt-dev-strip',
     'data-online': summary.online > 0 || undefined,
@@ -111,6 +141,21 @@ export function DevicesStrip({ multiDevice, actions, wide = true }) {
   },
   h('span', { className: 'bt-dev-dot', 'aria-hidden': true }),
   h('span', { className: 'bt-dev-strip-text' }, label))
+  if (link.kind !== 'url') return strip
+  return h('div', { className: 'bt-dev-strip-row' },
+    strip,
+    h('button', {
+      type: 'button',
+      className: 'bt-round bt-dev-strip-copy',
+      'aria-label': t('Copy session link'),
+      title: t('Copy session link'),
+      onClick: () => copyText(link.url),
+    }, h(LinkIcon)))
+}
+
+function LinkIcon() {
+  return h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, 'aria-hidden': true },
+    h('path', { d: 'M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 014 4l-1 1M9 11.5l-1 1a2.8 2.8 0 01-4-4l1-1' }))
 }
 
 export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
@@ -190,12 +235,23 @@ export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
       }, hubUrl === undefined ? null : h('div', { className: 'bt-dev-url' },
         h('code', null, hubUrl),
         h(CopyButton, { text: hubUrl }))),
-      hub.webUrl === undefined ? null : h(Row, {
+      hub.webUrl === undefined ? h(Row, {
         label: t('Shared chat'),
-        hint: t('Other machines open this address in a browser to see the same conversation.'),
+        hint: t('This DSH does not report a Web address. Start DSH Web on this computer, then reopen this page.'),
+      }) : h(Row, {
+        label: t('Shared chat'),
+        hint: sharedSessionLink(hub.webUrl).kind === 'forward'
+          ? t('This DSH Web listens on 127.0.0.1 only. On the other machine, forward the port first, then open this address.')
+          : t('Other machines open this address in a browser to see the same conversation.'),
       }, h('div', { className: 'bt-dev-url' },
         h('code', null, hub.webUrl),
-        h(CopyButton, { text: hub.webUrl })))) : null,
+        h(CopyButton, { text: hub.webUrl, label: 'Copy address' })),
+      sharedSessionLink(hub.webUrl).kind === 'forward' ? h('div', { className: 'bt-dev-command' },
+        h('code', null, sharedSessionLink(hub.webUrl).command),
+        h(CopyButton, { text: sharedSessionLink(hub.webUrl).command, label: 'Copy command' })) : null),
+      hub.webUrl === undefined ? null : h(Row, {
+        label: t('The login link DSH printed when it started is the credential; this address only opens the page.'),
+      })) : null,
 
     enabled ? h(Section, { key: 'machines', title: t('Machines · {count}', { count: nodes.length }) },
       nodes.length === 0
@@ -255,4 +311,8 @@ export const DEVICES_CSS = `
 .bt-dev-strip[data-online] .bt-dev-dot{background:var(--bt-green)}
 .bt-dev-strip-rail{position:relative}
 .bt-dev-strip-count{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--bt-green);color:#fff;font-size:9px;line-height:14px;text-align:center}
+.bt-dev-strip-row{display:flex;align-items:center;gap:2px;margin:0 4px 4px 0}
+.bt-dev-strip-row .bt-dev-strip{margin:0;flex:1;min-width:0}
+.bt-dev-strip-copy{flex:none;width:26px;height:26px}
+.bt-dev-strip-copy:hover{background:var(--bt-hover)}
 `

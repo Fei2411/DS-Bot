@@ -1620,6 +1620,11 @@ var HOST_ZH = {
   "On this computer: {url}": "本机地址：{url}",
   "Shared chat": "共享对话",
   "Other machines open this address in a browser to see the same conversation.": "其他机器用浏览器打开这个地址，看到同一段对话。",
+  "Copy session link": "复制会话链接",
+  "Copy address": "复制地址",
+  "This DSH does not report a Web address. Start DSH Web on this computer, then reopen this page.": "这个 DSH 没有报告 Web 地址。先在这台电脑上启动 DSH Web，再重新打开这个页面。",
+  "This DSH Web listens on 127.0.0.1 only. On the other machine, forward the port first, then open this address.": "这个 DSH Web 只监听 127.0.0.1。先在那台机器上转发端口，再打开这个地址。",
+  "The login link DSH printed when it started is the credential; this address only opens the page.": "DSH 启动时打印的登录链接才是凭据；这个地址只是打开页面。",
   "Machines · {count}": "机器 · {count}",
   "No machine is paired yet.": "还没有配对机器。",
   "Add one to let the Bots here run commands on it.": "添加一台后，这里的 Bot 就能在它上面执行命令。",
@@ -14656,6 +14661,25 @@ function PairingPanel({ pairing, onClose }) {
     )
   );
 }
+function sharedSessionLink(webUrl) {
+  if (typeof webUrl !== "string" || webUrl === "") return { kind: "none" };
+  let url;
+  try {
+    url = new URL(webUrl);
+  } catch {
+    return { kind: "none" };
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
+  if (!loopback) return { kind: "url", url: webUrl };
+  const port = url.port === "" ? url.protocol === "https:" ? "443" : "80" : url.port;
+  return {
+    kind: "forward",
+    url: webUrl,
+    port,
+    command: `ssh -L ${port}:127.0.0.1:${port} <user>@<this-machine>`
+  };
+}
 function deviceSummary(multiDevice) {
   const nodes = Array.isArray(multiDevice?.nodes) ? multiDevice.nodes : [];
   const online = nodes.filter((node) => node.online === true).length;
@@ -14667,10 +14691,15 @@ function deviceSummary(multiDevice) {
     names: nodes.map((node) => `${node.name}${node.online ? " (online)" : " (offline)"}`).join(", ")
   };
 }
+function copyText(text) {
+  void navigator.clipboard?.writeText(text).catch(() => {
+  });
+}
 function DevicesStrip({ multiDevice, actions, wide = true }) {
   const summary = deviceSummary(multiDevice);
   if (!summary.available || !summary.enabled) return null;
   const open = () => actions?.openSettings?.("devices");
+  const link = sharedSessionLink(multiDevice?.hub?.webUrl);
   const label = summary.total === 0 ? t("Devices · no machines paired") : t("Devices · {online} of {total} online", { online: summary.online, total: summary.total });
   if (!wide) {
     return (0, import_react33.createElement)(
@@ -14687,7 +14716,7 @@ ${summary.names}`,
       summary.online > 0 ? (0, import_react33.createElement)("span", { className: "bt-dev-strip-count", "aria-hidden": true }, String(summary.online)) : null
     );
   }
-  return (0, import_react33.createElement)(
+  const strip = (0, import_react33.createElement)(
     "button",
     {
       type: "button",
@@ -14700,6 +14729,26 @@ ${summary.names}`,
     },
     (0, import_react33.createElement)("span", { className: "bt-dev-dot", "aria-hidden": true }),
     (0, import_react33.createElement)("span", { className: "bt-dev-strip-text" }, label)
+  );
+  if (link.kind !== "url") return strip;
+  return (0, import_react33.createElement)(
+    "div",
+    { className: "bt-dev-strip-row" },
+    strip,
+    (0, import_react33.createElement)("button", {
+      type: "button",
+      className: "bt-round bt-dev-strip-copy",
+      "aria-label": t("Copy session link"),
+      title: t("Copy session link"),
+      onClick: () => copyText(link.url)
+    }, (0, import_react33.createElement)(LinkIcon2))
+  );
+}
+function LinkIcon2() {
+  return (0, import_react33.createElement)(
+    "svg",
+    { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.4, "aria-hidden": true },
+    (0, import_react33.createElement)("path", { d: "M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 014 4l-1 1M9 11.5l-1 1a2.8 2.8 0 01-4-4l1-1" })
   );
 }
 function DevicesPage({ roster, actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 }) {
@@ -14782,15 +14831,31 @@ function DevicesPage({ roster, actions, run: run2, Section: Section2, Row: Row4,
         (0, import_react33.createElement)("code", null, hubUrl),
         (0, import_react33.createElement)(CopyButton2, { text: hubUrl })
       )),
-      hub.webUrl === void 0 ? null : (0, import_react33.createElement)(Row4, {
+      hub.webUrl === void 0 ? (0, import_react33.createElement)(Row4, {
         label: t("Shared chat"),
-        hint: t("Other machines open this address in a browser to see the same conversation.")
-      }, (0, import_react33.createElement)(
-        "div",
-        { className: "bt-dev-url" },
-        (0, import_react33.createElement)("code", null, hub.webUrl),
-        (0, import_react33.createElement)(CopyButton2, { text: hub.webUrl })
-      ))
+        hint: t("This DSH does not report a Web address. Start DSH Web on this computer, then reopen this page.")
+      }) : (0, import_react33.createElement)(
+        Row4,
+        {
+          label: t("Shared chat"),
+          hint: sharedSessionLink(hub.webUrl).kind === "forward" ? t("This DSH Web listens on 127.0.0.1 only. On the other machine, forward the port first, then open this address.") : t("Other machines open this address in a browser to see the same conversation.")
+        },
+        (0, import_react33.createElement)(
+          "div",
+          { className: "bt-dev-url" },
+          (0, import_react33.createElement)("code", null, hub.webUrl),
+          (0, import_react33.createElement)(CopyButton2, { text: hub.webUrl, label: "Copy address" })
+        ),
+        sharedSessionLink(hub.webUrl).kind === "forward" ? (0, import_react33.createElement)(
+          "div",
+          { className: "bt-dev-command" },
+          (0, import_react33.createElement)("code", null, sharedSessionLink(hub.webUrl).command),
+          (0, import_react33.createElement)(CopyButton2, { text: sharedSessionLink(hub.webUrl).command, label: "Copy command" })
+        ) : null
+      ),
+      hub.webUrl === void 0 ? null : (0, import_react33.createElement)(Row4, {
+        label: t("The login link DSH printed when it started is the credential; this address only opens the page.")
+      })
     ) : null,
     enabled ? (0, import_react33.createElement)(
       Section2,
@@ -14860,6 +14925,10 @@ var DEVICES_CSS = `
 .bt-dev-strip[data-online] .bt-dev-dot{background:var(--bt-green)}
 .bt-dev-strip-rail{position:relative}
 .bt-dev-strip-count{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--bt-green);color:#fff;font-size:9px;line-height:14px;text-align:center}
+.bt-dev-strip-row{display:flex;align-items:center;gap:2px;margin:0 4px 4px 0}
+.bt-dev-strip-row .bt-dev-strip{margin:0;flex:1;min-width:0}
+.bt-dev-strip-copy{flex:none;width:26px;height:26px}
+.bt-dev-strip-copy:hover{background:var(--bt-hover)}
 `;
 
 // src/client/frame-watch.js

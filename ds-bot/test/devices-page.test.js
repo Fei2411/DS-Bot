@@ -6,7 +6,7 @@ import { build } from 'esbuild'
 
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { DevicesPage, NodeRow, DevicesStrip, deviceSummary } from './src/client/devices-page.js'",
+    contents: "export { DevicesPage, NodeRow, DevicesStrip, deviceSummary, sharedSessionLink } from './src/client/devices-page.js'",
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -33,10 +33,13 @@ const react = {
   },
 }
 const module = { exports: {} }
+const copied = []
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, require: name => (name === 'react' ? react : {}),
+  navigator: { clipboard: { writeText: async text => { copied.push(text) } } },
+  URL,
 }, { filename: 'bundle.cjs' })
-const { DevicesPage, NodeRow, DevicesStrip, deviceSummary } = module.exports
+const { DevicesPage, NodeRow, DevicesStrip, deviceSummary, sharedSessionLink } = module.exports
 
 function render(component, props) {
   current = { index: 0, slots: [], effects: [] }
@@ -49,7 +52,7 @@ const texts = (node, found = []) => {
   if (typeof node === 'string' || typeof node === 'number') found.push(String(node))
   if (Array.isArray(node)) node.forEach(item => texts(item, found))
   if (node && typeof node === 'object') {
-    for (const key of ['children', 'label', 'title']) if (node.props?.[key]) texts(node.props[key], found)
+    for (const key of ['children', 'label', 'title', 'hint']) if (node.props?.[key]) texts(node.props[key], found)
   }
   return found
 }
@@ -132,4 +135,69 @@ test('the sidebar strip stays out when multi-device is off or unavailable', () =
   assert.equal(DevicesStrip({ multiDevice: { available: false, enabled: true, nodes: [] }, actions: {} }), null)
   const none = render(DevicesStrip, { multiDevice: { available: true, enabled: true, nodes: [] }, actions: {}, wide: true })
   assert.ok(texts(none).includes('Devices · no machines paired'))
+})
+
+test('a session link is direct on the LAN and a port forward on loopback', () => {
+  const direct = sharedSessionLink('http://192.168.1.5:3080')
+  assert.equal(direct.kind, 'url')
+  assert.equal(direct.url, 'http://192.168.1.5:3080')
+  const loopback = sharedSessionLink('http://127.0.0.1:3080')
+  assert.equal(loopback.kind, 'forward')
+  assert.equal(loopback.port, '3080')
+  assert.equal(loopback.command, 'ssh -L 3080:127.0.0.1:3080 <user>@<this-machine>')
+  assert.equal(sharedSessionLink('http://localhost:3080').kind, 'forward')
+  assert.equal(sharedSessionLink('http://[::1]:3080').kind, 'forward')
+  assert.equal(sharedSessionLink('').kind, 'none')
+  assert.equal(sharedSessionLink('not a url').kind, 'none')
+  assert.equal(sharedSessionLink(undefined).kind, 'none')
+})
+
+test('the Devices page shows the shared address, or a port forward for a loopback server', () => {
+  const base = {
+    available: true,
+    enabled: true,
+    hub: { state: 'listening', url: 'http://192.168.1.5:8787' },
+    nodes: [],
+    policy: [],
+  }
+  const remote = render(DevicesPage, {
+    roster: { multiDevice: { ...base, hub: { ...base.hub, webUrl: 'http://192.168.1.5:3080' } } },
+    actions: {}, run: promise => promise, Section: Frame, Row: Frame, Switch,
+  })
+  assert.ok(texts(remote).includes('Other machines open this address in a browser to see the same conversation.'))
+  assert.ok(texts(remote).includes('http://192.168.1.5:3080'))
+
+  const local = render(DevicesPage, {
+    roster: { multiDevice: { ...base, hub: { ...base.hub, webUrl: 'http://127.0.0.1:3080' } } },
+    actions: {}, run: promise => promise, Section: Frame, Row: Frame, Switch,
+  })
+  assert.ok(texts(local).includes('This DSH Web listens on 127.0.0.1 only. On the other machine, forward the port first, then open this address.'))
+  assert.ok(texts(local).includes('ssh -L 3080:127.0.0.1:3080 <user>@<this-machine>'))
+
+  const none = render(DevicesPage, {
+    roster: { multiDevice: base },
+    actions: {}, run: promise => promise, Section: Frame, Row: Frame, Switch,
+  })
+  assert.ok(texts(none).includes('This DSH does not report a Web address. Start DSH Web on this computer, then reopen this page.'))
+  assert.equal(texts(none).includes('Other machines open this address in a browser to see the same conversation.'), false)
+})
+
+test('the sidebar strip copies the shared address', async () => {
+  copied.length = 0
+  const multiDevice = {
+    available: true,
+    enabled: true,
+    nodes: [{ id: 'nd_1', name: 'win-pc', online: true }],
+    hub: { webUrl: 'http://192.168.1.5:3080' },
+  }
+  const tree = render(DevicesStrip, { multiDevice, actions: {}, wide: true })
+  const [, copy] = tree.props.children
+  assert.equal(copy.props['aria-label'], 'Copy session link')
+  copy.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(copied, ['http://192.168.1.5:3080'])
+
+  // A loopback server has no address another machine can open, so there is no copy button.
+  const local = render(DevicesStrip, { multiDevice: { ...multiDevice, hub: { webUrl: 'http://127.0.0.1:3080' } }, actions: {}, wide: true })
+  assert.equal(local.type, 'button')
 })
