@@ -23,16 +23,16 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', claude = FIXTURES.claude, claudeArgs = [] } = {}) {
-  const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude }
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+  const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
     rt: { warn: () => {} },
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp] }, { findExecutable: path => path })
-        : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+        : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
       return engine
@@ -46,6 +46,15 @@ function makeAdapter({ records = {}, preset = 'workspace-write', claude = FIXTUR
   })
   adapter._spawned = spawned
   return adapter
+}
+
+// Wait for the agent process behind a live session to exit.
+async function waitForDead(adapter, sessionId = 's1') {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (adapter.live.get(sessionId)?.engineSession?.dead === true) return
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  throw new Error('the agent process did not exit')
 }
 
 // Collect a stream into {text, thinking, calls, finish} for assertions.
@@ -347,6 +356,32 @@ test('claude: the retry flow replays the unanswered message', async (t) => {
   const prompts = readFileSync(`${runs}.prompts`, 'utf8')
   assert.match(prompts, /fix the login/)
   assert.match(prompts, /last unanswered message/)
+})
+
+// ACP and Codex create their session before the prompt, so a process that exits
+// after a turn did read it: reopening sends only the new input, not a replay.
+test('acp: a reopen after the process exits sends only the new input', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--exit-after-turn'] })
+  t.after(() => adapter.dispose())
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one')])))
+  assert.match(first.text, /alpha-one/)
+  await waitForDead(adapter)
+  const second = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one'), user('m2', 'beta-two')])))
+  assert.match(second.text, /beta-two/)
+  assert.doesNotMatch(second.text, /alpha-one/)
+})
+
+// A reopened Codex thread needs its own queue: a pump still waiting on the dead
+// one takes the first event of the new turn, and the reply arrives empty.
+test('codex: a resume after the process exits still delivers the reply text', async (t) => {
+  const adapter = makeAdapter({ codexArgs: ['--exit-after-turn', '--text-only'] })
+  t.after(() => adapter.dispose())
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one')], { provider: 'codex-cli' })))
+  assert.match(first.text, /alpha-one/)
+  await waitForDead(adapter)
+  const second = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one'), user('m2', 'beta-two')], { provider: 'codex-cli' })))
+  assert.match(second.text, /beta-two/)
+  assert.doesNotMatch(second.text, /alpha-one/)
 })
 
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {

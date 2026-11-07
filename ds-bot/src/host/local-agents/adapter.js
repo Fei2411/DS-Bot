@@ -125,9 +125,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       // sign-in, for one): the cached bridge is dead, so the next call starts a
       // new process instead of writing into the one that is gone.
       if (live.engineSession?.dead === true) {
-        // A CLI that died before `system/init` never read the prompt it was
-        // handed: roll the marker back so the new process replays that input.
-        const unread = live.engineSession.cliSessionId === undefined
+        // A Claude CLI that died before `system/init` never read the prompt it
+        // was handed: roll the marker back so the new process replays that input.
+        // ACP and Codex create their session before the prompt, so theirs was read.
+        const unread = live.spec.kind === 'claude' && live.engineSession.cliSessionId === undefined
         live.engineSession = undefined
         live.pumpToken = {}
         // The queue belongs to the process that is gone: the retry starts clean

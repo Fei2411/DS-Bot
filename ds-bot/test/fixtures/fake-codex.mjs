@@ -2,6 +2,11 @@
 // dialect, newline JSON-RPC. The turn's first text picks the behavior:
 //   "ask"      -> an approval request the client must answer
 //   otherwise  -> an activity item, an agentMessage, turn/completed
+// `--exit-after-turn` exits once a turn completes, and `--text-only` sends no
+// activity items first: a test can then tell whether the one text event reached
+// the client.
+const exitAfterTurn = process.argv.includes('--exit-after-turn')
+const textOnly = process.argv.includes('--text-only')
 const threads = new Map()
 let nextId = 0
 const requests = new Map()
@@ -12,10 +17,13 @@ const fail = (id, message) => send({ jsonrpc: '2.0', id, error: { code: -32601, 
 const notice = (method, params) => send({ jsonrpc: '2.0', method, params })
 
 function runTurn(thread, turnId, text) {
-  notice('item/started', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
-  notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
+  if (!textOnly) {
+    notice('item/started', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
+    notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
+  }
   notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)}` } })
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+  if (exitAfterTurn) setTimeout(() => process.exit(0), 50)
 }
 
 let rest = ''
