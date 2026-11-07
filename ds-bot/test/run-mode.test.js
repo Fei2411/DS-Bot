@@ -541,6 +541,21 @@ test('another model reopens the same CLI session and loses nothing of the answer
   assert.equal(adapter.live.get('s1').model, 'fake-large')
 })
 
+test('a model the CLI does not take fails the turn and does not count as applied', async (t) => {
+  const { adapter, records } = adapterFor(t)
+  await assert.rejects(send(adapter, 's1', [message('m1', 'hello')], { model: 'not-there' }), (error) => {
+    assert.equal(error.code, 'LOCAL_AGENT_MODEL')
+    assert.match(error.message, /did not switch to the model not-there/)
+    return true
+  })
+  assert.equal(adapter.live.get('s1')?.engineSession, undefined)
+  assert.equal(records.s1?.model, undefined)
+  // A model it takes works in the same Session.
+  const next = await send(adapter, 's1', [message('m1', 'hello')], { model: 'fake-large' })
+  assert.match(next.text, /^ok: [^]*hello$/)
+  assert.equal(records.s1.model, 'fake-large')
+})
+
 test('the process stopped for a reopen does not take the new one down', async (t) => {
   const { adapter } = adapterFor(t)
   await send(adapter, 's1', [message('m1', 'hello')])
