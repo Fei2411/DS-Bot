@@ -46,7 +46,12 @@
     "test": "node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
     "lint": "node scripts/lint.mjs",
     "harness": "npm install --prefix dev/harness --legacy-peer-deps=false --no-package-lock --no-fund --no-audit",
-    "check": "sh dev/check.sh"
+    "check": "sh dev/check.sh",
+    "lan:hub": "node src/host/multi-device/cli.js hub",
+    "lan:code": "node src/host/multi-device/cli.js code",
+    "lan:nodes": "node src/host/multi-device/cli.js nodes",
+    "lan:run": "node src/host/multi-device/cli.js run",
+    "lan:worker": "node src/host/multi-device/cli.js worker"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
