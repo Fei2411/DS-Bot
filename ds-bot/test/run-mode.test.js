@@ -119,9 +119,20 @@ async function start(t, { saved = team() } = {}) {
         steer(message) { calls.push(['steer', message]) },
         inject(message) { calls.push(['inject', message]) },
         cancel() {},
+        send(message, target) { calls.push(['send', message, target]) },
         async whenIdle() {},
         async runMaintenance(fn) { return fn(AbortSignal.timeout(60_000)) },
-        inbox: { nextStep: [], nextTurn: [], remove() {} },
+        inbox: {
+          nextStep: [],
+          nextTurn: [],
+          remove(id) {
+            for (const list of [this.nextStep, this.nextTurn]) {
+              const at = list.findIndex(queued => queued.id === id)
+              if (at !== -1) list.splice(at, 1)
+            }
+          },
+          prepend(target, queued) { (target === 'next-turn' ? this.nextTurn : this.nextStep).unshift(queued) },
+        },
       })
     }
     return agents.get(sessionId)
@@ -170,8 +181,9 @@ async function start(t, { saved = team() } = {}) {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
   const tool = (name, args, sessionId) => rt.teamTools.find(def => def.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
-  const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(-1)(
-    { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000) }, async () => 'next')
+  // `modelSelection`: where the step is about to go, as DSH captured it for the step.
+  const preStep = (sessionId, messages = [], step = 1, modelSelection) => ctx.listeners.get('agent/pre-step').at(-1)(
+    { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000), ...(modelSelection === undefined ? {} : { modelSelection }) }, async () => 'next')
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const handoffOf = sessionId => agentOf(sessionId).calls.filter(([kind, message]) => kind === 'followup' && message.source?.role === 'handoff').map(([, message]) => textOf(message)).at(-1)
   const startCount = () => (existsSync(starts) ? readFileSync(starts, 'utf8').trim().split('\n').length : 0)
@@ -339,7 +351,39 @@ test('a part whose new route cannot be selected does not move on at every step',
   const stuck = env.state().bots.b.sessionId
   env.ctx.sessionController.selectModel = select
   env.lastRoute.set(stuck, { provider: 'ds', model: 'flash' })
-  assert.equal(await env.preStep(stuck), 'next')
+  // Meanwhile it takes no step on the other side: its input waits in its inbox.
+  const input = createUserMessage({ content: [{ type: 'text', text: 'wait for me' }], source: { kind: 'user' } })
+  assert.deepEqual(await env.preStep(stuck, [input]), { kind: 'enter', messages: [] })
+  assert.deepEqual(env.agentOf(stuck).inbox.nextTurn.map(textOf), ['wait for me'])
+  assert.equal(env.state().bots.b.sessionId, stuck)
+  // After the wait it tries again, and the input goes along.
+  const now = Date.now.bind(Date)
+  t.mock.method(Date, 'now', () => now() + 600_000)
+  assert.deepEqual(await env.preStep(stuck), { kind: 'enter', messages: [] })
+  await until(() => env.state().bots.b.sessionId !== stuck, 'the next try')
+  const next = env.state().bots.b.sessionId
+  await until(() => env.agentOf(next).calls.some(([, message]) => textOf(message) === 'wait for me'), 'the kept input')
+})
+
+test('a fresh part whose run mode did not apply waits instead of running on the other side', async (t) => {
+  const env = await start(t)
+  env.lastRoute.set('b', { provider: 'ds', model: 'flash' })
+  const select = env.ctx.sessionController.selectModel
+  // The fresh parts (s1, s2, …) cannot select the CLI.
+  env.ctx.sessionController.selectModel = async (options) => {
+    if (/^s\d+$/.test(options.sessionId) && options.provider === 'acp-fake') throw new Error('no route')
+    return select(options)
+  }
+  await env.call('update-bot', { id: 'b', model: CLI, changeEngine: true })
+  await until(() => env.state().bots.b.sessionId !== 'b', 'the fresh part')
+  const fresh = env.state().bots.b.sessionId
+  // It never made a request; the step it is about to take would go to a model.
+  const input = createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+  assert.deepEqual(await env.preStep(fresh, [input], 1, { provider: 'ds', model: 'flash' }), { kind: 'enter', messages: [] })
+  assert.deepEqual(env.agentOf(fresh).inbox.nextTurn.map(textOf), ['hello'])
+  assert.equal(env.state().bots.b.sessionId, fresh)
+  // A step to what the Bot runs on goes on.
+  assert.equal(await env.preStep(fresh, [], 1, { provider: 'acp-fake', model: 'default' }), 'next')
 })
 
 // -----------------------------------------------------------------------------

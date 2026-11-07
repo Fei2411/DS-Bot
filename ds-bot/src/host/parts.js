@@ -796,9 +796,11 @@ export function install(rt) {
   const noteFailures = new Map()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
-  // Parts that could not follow the Bot's run mode, and the time before which they run
-  // where they can: without it every step would try again, or move on again.
+  // Parts that could not follow the Bot's run mode, and the time before which they do
+  // not try again: without it every step would move on again. Until then their input
+  // waits, and engineWakes wakes them for the next try.
   const engineRetry = new Map()
+  const engineWakes = new Map()
 
   const placeOf = (sessionId) => {
     const botId = rt.chatOwners.get(sessionId)
@@ -1016,16 +1018,41 @@ export function install(rt) {
       return false
     })
 
-  // Whether a part's last request went to something other than what its Bot runs on
-  // now. A conversation never crosses that line: the tools and the context on the two
-  // sides do not fit, and a CLI session cannot take the other side's history. This also
-  // catches a part saved from before this rule and an earlier part opened again.
-  function engineMoved(agent, place) {
-    if (place?.botId === undefined || Date.now() < (engineRetry.get(agent.id) ?? 0)) return false
-    const wanted = rt.engineOfBot?.(rt.botOf(place.botId))
-    const route = agent.session.requestHeader?.()?.config
-    return wanted !== undefined && !!route?.provider && !!route?.model && rt.engineOf?.(`${route.provider}/${route.model}`) !== wanted
+  // Whether a part's last request, or the step it is about to take (`selection`), goes
+  // to something other than what its Bot runs on now. A conversation never crosses that
+  // line: the tools and the context on the two sides do not fit, and a CLI session
+  // cannot take the other side's history. This also catches a part saved from before
+  // this rule, an earlier part opened again and a fresh part whose route did not apply.
+  const engineOfRoute = route => (route?.provider && route?.model ? rt.engineOf?.(`${route.provider}/${route.model}`) : undefined)
+  function offEngine(agent, place, selection) {
+    const wanted = place?.botId === undefined ? undefined : rt.engineOfBot?.(rt.botOf(place.botId))
+    if (wanted === undefined) return false
+    return [agent.session.requestHeader?.()?.config, selection].some(route => engineOfRoute(route) !== undefined && engineOfRoute(route) !== wanted)
   }
+  const engineMoved = (agent, place, selection) => Date.now() >= (engineRetry.get(agent.id) ?? 0) && offEngine(agent, place, selection)
+
+  // A part that could not follow its Bot's run mode takes no step on the other side:
+  // its input goes back into its inbox and waits for the next try.
+  function holdStep(agent, payload) {
+    restore(agent, payload.messages)
+    rt.warn('ds-bot: %s waits for a part on what it runs on now; its input is kept', rt.botOf(placeOf(agent.id)?.botId)?.name ?? agent.id)
+    if (!readOnly() && !engineWakes.has(agent.id)) {
+      const place = placeOf(agent.id)
+      const timer = setTimeout(() => {
+        engineWakes.delete(agent.id)
+        // A part that moved on meanwhile handed its input on with the rest.
+        if (place === undefined || currentOf(place) !== agent.id) return
+        try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', agent.id, error) }
+      }, Math.max(0, (engineRetry.get(agent.id) ?? 0) - Date.now()))
+      timer.unref?.()
+      engineWakes.set(agent.id, timer)
+    }
+    return takeOverStep(agent, payload)
+  }
+  ctx.effect(() => () => {
+    for (const timer of engineWakes.values()) clearTimeout(timer)
+    engineWakes.clear()
+  }, 'ds-bot: wake parts that wait for their run mode')
 
   async function moveOn(agent, job, signal) {
     job.started = true
@@ -1205,7 +1232,8 @@ export function install(rt) {
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
     if (place.botId === undefined) return next()
-    if (!readOnly() && engineMoved(agent, place)) return switchBeforeStep(agent, payload, { engine: true })
+    if (!readOnly() && engineMoved(agent, place, payload.modelSelection)) return switchBeforeStep(agent, payload, { engine: true })
+    if (offEngine(agent, place, payload.modelSelection)) return holdStep(agent, payload)
     // A local agent CLI owns its in-session compaction; the DSH Session keeps the
     // full history for read_own_chat and never condenses or switches on size.
     if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return next()
