@@ -1057,3 +1057,20 @@ test('computer-shot serves a real screenshot attachment by its mediaType', async
   // an id this module never recorded is not readable
   assert.equal(await rt.computerEndpoint('shot', { attachmentId: 'sha256:other' }), null)
 })
+
+test('the packaged helper path resolves into app.asar.unpacked', async () => {
+  const { helperPathFrom } = await import('../src/host/computer/index.js')
+  const { mkdirSync, writeFileSync } = process.getBuiltinModule('node:fs')
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-asar-'))
+  try {
+    const bundle = 'a'.repeat(64)
+    const dir = join(home, 'app.asar.unpacked', 'node_modules', 'pkg', 'native', 'bin', 'darwin-arm64')
+    mkdirSync(join(dir, bundle, 'DSH Computer Use.app', 'Contents', 'MacOS'), { recursive: true })
+    writeFileSync(join(dir, 'current.json'), JSON.stringify({ bundle }))
+    const exe = join(dir, bundle, 'DSH Computer Use.app', 'Contents', 'MacOS', 'dsh-cua-native')
+    writeFileSync(exe, '#!/bin/sh\n', { mode: 0o755 })
+    const asarEntry = `file://${join(home, 'app.asar', 'node_modules', 'pkg', 'lib', 'index.js')}`
+    assert.equal(await helperPathFrom(asarEntry, 'arm64'), exe)
+    assert.equal(await helperPathFrom(`file://${join(home, 'plain', 'node_modules', 'pkg', 'lib', 'index.js')}`, 'arm64'), undefined)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
