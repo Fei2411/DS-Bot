@@ -38,6 +38,8 @@ export class CodexEngine {
     wireProcess(child, peer)
     child.on('exit', () => {
       peer.close(new Error(`${this.engine.name} exited`))
+      // A process close() let go of must not take the one that replaced it along.
+      if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
@@ -145,6 +147,12 @@ export class CodexEngine {
 
   cancel(thread) {
     this.peer?.request('turn/interrupt', { threadId: thread.threadId, turnId: thread.turnId }, { timeout: 15_000 }).catch(() => {})
+  }
+
+  // The adapter stopped reading this thread: a later open starts a new queue, or
+  // the pump that waits on this one would swallow its first event.
+  forget(dshSessionId) {
+    this.threads.delete(dshSessionId)
   }
 
   async listModels() {

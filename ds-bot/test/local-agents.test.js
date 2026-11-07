@@ -192,10 +192,10 @@ test('routes and modes', () => {
   assert.equal(cliMode('claude', 'workspace-write'), 'acceptEdits')
 })
 
-test('listModels reports the probe session\'s model options plus CLI default', async (t) => {
+test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.listModels('acp-fake')
+  const models = await adapter.probeModels('acp-fake')
   assert.deepEqual(models.map(model => model.id), ['default', 'fake-large', 'fake-small'])
   assert.equal(models[0].name, 'CLI default')
 })
@@ -203,7 +203,7 @@ test('listModels reports the probe session\'s model options plus CLI default', a
 test('codex app-server: thread per session, models from model/list', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.listModels('codex-cli')
+  const models = await adapter.probeModels('codex-cli')
   assert.deepEqual(models.map(model => model.id), ['default', 'gpt-5.1-codex'])
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli' })))
   assert.match(out.text, /fix it/)
