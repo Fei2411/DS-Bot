@@ -540,6 +540,10 @@ test('a write is refused without approval and written with it', async t => {
   const done = await hub.waitForTask(written.id, { timeoutMs: 5000 })
   assert.equal(done.state, 'done')
   assert.equal(readFileSync(join(workerDir, 'workspace', 'made.txt'), 'utf8'), 'yes')
+  // An approved write may replace an existing file.
+  const again = hub.dispatch({ node: 'test-node', kind: 'write_file', path: 'made.txt', data: 'second', approved: true })
+  assert.equal((await hub.waitForTask(again.id, { timeoutMs: 5000 })).state, 'done')
+  assert.equal(readFileSync(join(workerDir, 'workspace', 'made.txt'), 'utf8'), 'second')
 })
 
 test('a file larger than the limit is refused before anything is written', async () => {
@@ -569,6 +573,12 @@ test('device_transfer gets a file out and puts one back', async t => {
   const sent = await hub.waitForTask(up.id, { timeoutMs: 5000 })
   assert.equal(sent.state, 'done')
   assert.equal(readFileSync(join(workspace, 'copy.bin')).toString('hex'), '010203')
+  // A text file transferred the same way comes back as text, not base64.
+  writeFileSync(join(workspace, 'note.txt'), 'plain note\n')
+  const textDown = hub.dispatch({ node: 'test-node', kind: 'transfer', direction: 'get', path: 'note.txt' })
+  const text = await hub.waitForTask(textDown.id, { timeoutMs: 5000 })
+  assert.equal(text.result.file.encoding, 'utf8')
+  assert.equal(text.result.file.data, 'plain note\n')
 })
 
 test('an unsafe tool command waits for approval, and a refused one is never dispatched', async t => {

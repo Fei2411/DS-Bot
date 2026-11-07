@@ -81,7 +81,7 @@ export function windowsScript({ nodePath, cliPath, hubUrl, name, dataDir }) {
 rem DS Bot LAN worker. The logon task starts this file; the loop restarts it if it exits.
 :loop
 ${args}
-timeout /t 5 /nobreak >nul
+ping -n 6 127.0.0.1 >nul
 goto loop
 `
 }
@@ -125,7 +125,8 @@ export function installDaemon({
       run('launchctl', ['unload', file])
       commands.push(run('launchctl', ['load', '-w', file]))
     } else if (platform === 'win32') {
-      commands.push(run('schtasks', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', file, '/F', '/RL', 'LIMITED']))
+      // schtasks wants the task command as one argument; the script path may hold spaces.
+      commands.push(run('schtasks', ['/Create', '/TN', WINDOWS_TASK, '/SC', 'ONLOGON', '/TR', `"${file}"`, '/F', '/RL', 'LIMITED']))
     } else {
       run('systemctl', ['--user', 'daemon-reload'])
       commands.push(run('systemctl', ['--user', 'enable', '--now', `${LABEL}.service`]))

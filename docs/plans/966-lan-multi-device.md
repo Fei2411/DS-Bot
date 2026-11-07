@@ -153,7 +153,7 @@ dsh --profile web --host <中心机器的局域网 IP> --no-open
 - `echo` 由 Worker 自己实现：Windows 没有 echo 可执行文件，而且这样能保证它永远只回显文本。
 - 执行用 `spawn(program, args, { shell: false })`，从不经过 shell；`; rm -rf /` 只是参数文本，不会变成第二条命令。
 - 子进程只拿到最少的几个环境变量（PATH、SystemRoot、TEMP 等），Hub 上的模型密钥不会下发到节点。
-- 文件任务：`read_file` 默认全读（最多 1 MiB，超出标记 `truncated`）；`write_file` 原子写入并建父目录；`transfer` 的 `get` 固定用 base64 保字节，`put` 需要审批。相对路径在 worker 的 `workspace/` 下，`../` 不能逃出；绝对路径就是用户给的路径。
+- 文件任务：`read_file` 默认全读（最多 1 MiB，超出标记 `truncated`）；`write_file` 原子写入并建父目录；`transfer` 按内容返回文本或 base64（保字节），`put` 需要审批。相对路径在 worker 的 `workspace/` 下，`../` 不能逃出；绝对路径就是用户给的路径。
 
 ## 常驻 worker
 

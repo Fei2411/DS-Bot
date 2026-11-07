@@ -44,12 +44,15 @@ const MIME = {
 
 export const mimeOf = path => MIME[extname(String(path)).toLowerCase()] ?? 'application/octet-stream'
 
-// Text only when the bytes decode cleanly and hold no NUL: a binary file sent as UTF-8
-// would lose its bytes before the Bot ever sees it.
+// Text only when the bytes decode cleanly and hold no NUL or other control character
+// besides tab, newline and carriage return: a binary file sent as UTF-8 would lose its
+// bytes before the Bot ever sees it.
 export function isText(buffer) {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8192))
   if (sample.includes(0)) return false
-  return !sample.toString('utf8').includes('\uFFFD')
+  const text = sample.toString('utf8')
+  if (text.includes('\uFFFD')) return false
+  return !/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)
 }
 
 export function encodeContent(buffer, requested = 'auto') {
@@ -125,8 +128,8 @@ export function normalizeTaskSpec(input) {
         direction,
         path: path.path,
         maxBytes: sizeLimit(raw.maxBytes),
-        // A transfer preserves bytes: base64 unless the caller asks for utf8.
-        encoding: raw.encoding === 'utf8' ? 'utf8' : 'base64',
+        // Text comes back as text, anything else as base64; the bytes are preserved.
+        encoding: raw.encoding === 'base64' || raw.encoding === 'utf8' ? raw.encoding : 'auto',
       },
     }
   }
