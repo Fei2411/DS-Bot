@@ -14,7 +14,7 @@ import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
-import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
+import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle, measuredLeftInset } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 
 // -------------------------------------------------------------------------
@@ -358,8 +358,25 @@ export function TeamSidebar(props) {
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [pushed, frameSnap.collapsedWidth])
+    const measure = () => {
+      const panel = document.querySelector('.bt-leftcol')
+      const column = document.querySelector('[class*="_centerCol"]')
+      if (panel && column && (mode === 'open' || mode === 'rail')) {
+        const inset = Number.parseFloat(document.defaultView?.getComputedStyle(column).marginLeft) || 0
+        chatRoom.setLeft(measuredLeftInset(panel.getBoundingClientRect().right, column.getBoundingClientRect().left, inset))
+      } else chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
+    }
+    measure()
+    const panel = document.querySelector('.bt-leftcol')
+    if (!panel || (mode !== 'open' && mode !== 'rail')) return
+    const onSettle = (event) => { if (event.target === panel) measure() }
+    panel.addEventListener('animationend', onSettle)
+    panel.addEventListener('transitionend', onSettle)
+    return () => {
+      panel.removeEventListener('animationend', onSettle)
+      panel.removeEventListener('transitionend', onSettle)
+    }
+  }, [mode, pushed, frameSnap.collapsedWidth])
   useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
 
   // The edge drag: live while the pointer moves, the column's new state on release.
