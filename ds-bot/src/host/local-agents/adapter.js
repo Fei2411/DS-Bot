@@ -120,7 +120,19 @@ export class LocalAgentAdapter extends LlmAdapter {
     let live = this.live.get(sessionId)
     const record = this.deps.record(sessionId)
     const route = options.provider
-    if (live !== undefined && !live.dead && live.route === route) return live
+    if (live !== undefined && !live.dead && live.route === route) {
+      // An agent CLI can exit between the spawn and its first message (a failed
+      // sign-in, for one): the cached bridge is dead, so the next call starts a
+      // new process instead of writing into the one that is gone.
+      if (live.engineSession?.dead === true) {
+        live.engineSession = undefined
+        live.pumpToken = {}
+        // The queue belongs to the process that is gone: the retry starts clean
+        // instead of reading its exit as the new turn's failure.
+        live.events.length = 0
+      }
+      return live
+    }
     if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
@@ -275,7 +287,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
-      live.cliSessionId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      // A resumed CLI reports its id only with `system/init`: keep the saved one
+      // in the meantime, or a resume that fails would erase it.
+      const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      if (reportedId !== undefined) live.cliSessionId = reportedId
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -292,7 +307,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // Claude reports its session id with `system/init`, after start() resolved:
       // the record above has no id yet, so persist it when it lands or the next
       // host has nothing to resume and the conversation starts over.
-      const pendingId = live.cliSessionId === undefined ? session.whenSessionId?.() : undefined
+      const pendingId = session.whenSessionId?.()
       if (pendingId !== undefined) {
         void pendingId.then((id) => {
           if (id === undefined || live.dead) return

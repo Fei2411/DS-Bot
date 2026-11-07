@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,7 +23,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', claude = FIXTURES.claude } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', claude = FIXTURES.claude, claudeArgs = [] } = {}) {
   const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -33,7 +33,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', claude = FIXTUR
     spawnEngine: (kind, route, spec) => {
       const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp] }, { findExecutable: path => path })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex] }, { findExecutable: path => path })
-          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude] }, { findExecutable: path => path })
+          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
       return engine
     },
@@ -276,6 +276,42 @@ test('claude: a prompt written as the CLI dies becomes a typed error', async (t)
     new Promise((_, reject) => { setTimeout(() => reject(new Error('the stdin failure never reached the queue')), 10_000).unref() }),
   ])
   assert.equal(failure.error.code, 'LOCAL_AGENT_EXIT')
+})
+
+// A resume that dies before init must not erase the id the record already has:
+// the next host would have nothing to resume and would send only the delta.
+test('claude: a failed resume keeps the saved session id', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const records = {}
+  const claude = FIXTURE('fake-claude-flaky.mjs')
+  const host = () => {
+    const adapter = makeAdapter({ records, claude, claudeArgs: [runs, '2'] })
+    t.after(() => adapter.dispose())
+    return adapter
+  }
+  const first = await collect(host().stream(options('s1', [user('m1', 'hello')], { provider: 'claude-code' })))
+  assert.match(first.text, /hello/)
+  const saved = records.s1.cliSessionId
+  assert.match(saved, /^claude-/)
+  // The second host resumes, and this CLI run dies before `system/init`.
+  await assert.rejects(collect(host().stream(options('s1', [user('m2', 'again')], { provider: 'claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  assert.equal(records.s1.cliSessionId, saved)
+  // The third host still resumes the conversation the first one started.
+  const third = await collect(host().stream(options('s1', [user('m3', 'third')], { provider: 'claude-code' })))
+  assert.match(third.text, new RegExp(`resume=${saved}`))
+})
+
+// A CLI that exits before init leaves a dead bridge: the retry must start a
+// new process instead of writing into the one that is gone.
+test('claude: a retry after a pre-init exit starts a new CLI', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '1'] })
+  t.after(() => adapter.dispose())
+  await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')], { provider: 'claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  const out = await collect(adapter.stream(options('s1', [user('m2', 'again')], { provider: 'claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(out.text, /again/)
+  assert.equal(readFileSync(runs, 'utf8'), '2')
 })
 
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
