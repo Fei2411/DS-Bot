@@ -133,7 +133,7 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ### 本地 Agent
 
-你已经在用的编程 Agent CLI（Devin CLI、Claude Code、Codex CLI、OpenCode 和其他 ACP Agent）可以直接当 Bot 用。设置 → **本地 Agent** 列出 DS Bot 找到的 CLI，在 Bot 的模型里选它即可。Bot 用的是 CLI 自己的登录和套餐，其他照常：私聊、群聊、交接、审批、记忆都一样。
+你已经在用的编程 Agent CLI（Devin CLI、Claude Code、Codex CLI、OpenCode 和其他 ACP Agent）可以直接当 Bot 用。Bot 跑在 DS Bot 模型上还是某个本地 Agent CLI 上，是 Bot 自己的属性：新建时二选一，之后只能在 Bot 的设置里改，并需要确认。两类不混用：模型、工具、上下文和记忆机制各走各的。设置 → **本地 Agent** 列出 DS Bot 找到的 CLI，可以在这里登录或添加自定义 Agent。用本地 Agent CLI 的 Bot 用的是 CLI 自己的登录和套餐，其他照常：私聊、群聊、交接、审批、记忆都一样。
 
 ### 电脑操控
 
