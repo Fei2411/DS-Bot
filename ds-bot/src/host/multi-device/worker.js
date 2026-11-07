@@ -1,16 +1,17 @@
-// A worker: one machine that a hub can send a command to. It dials the hub itself and
+// A worker: one machine that a hub can send a task to. It dials the hub itself and
 // holds the connection open (server-sent events), so the machine needs no listening port
-// and no firewall rule. Every command is checked against the allowlist in policy.js and
-// started without a shell, with a minimal environment.
+// and no firewall rule. Every task is checked against the protocol and the read-only
+// allowlist, and no command goes through a shell; a child gets a minimal environment.
 import { spawn } from 'node:child_process'
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { arch, hostname as localHostname, platform as localPlatform, release, version as osVersion } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { checkCommand } from './policy.js'
+import { classifyCommand } from './policy.js'
+import { MAX_FILE_BYTES, encodeContent, mimeOf, normalizeTaskSpec, resolveNodePath, taskNeedsApproval } from './protocol.js'
 import { parseEvents } from './sse.js'
 
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 
 const MAX_OUTPUT = 64 * 1024
 const MAX_TIMEOUT_MS = 5 * 60_000
@@ -63,6 +64,41 @@ function append(existing, chunk, limit) {
   const text = chunk.toString('utf8')
   const room = limit - existing.length
   return text.length <= room ? { text: existing + text, truncated: false } : { text: existing + text.slice(0, room), truncated: true }
+}
+
+// Files a task names live beside the worker's own data unless the user gave an absolute
+// path. Keeping relative paths in one workspace means a Bot cannot wander the disk by
+// accident; an absolute path is the user's explicit choice and is allowed.
+export function workspaceOf(dataDir) {
+  return join(dataDir, 'workspace')
+}
+
+function readFileAt(path, maxBytes) {
+  const info = statSync(path)
+  if (!info.isFile()) throw new Error('that path is not a regular file')
+  const size = info.size
+  const wanted = Math.min(size, maxBytes, MAX_FILE_BYTES)
+  const buffer = Buffer.alloc(wanted)
+  const handle = openSync(path, 'r')
+  let read = 0
+  try {
+    while (read < wanted) {
+      const got = readSync(handle, buffer, read, wanted - read, read)
+      if (got === 0) break
+      read += got
+    }
+  } finally {
+    closeSync(handle)
+  }
+  const body = buffer.subarray(0, read)
+  return { buffer: body, size, truncated: size > read }
+}
+
+function writeFileAt(path, buffer) {
+  mkdirSync(dirname(path), { recursive: true })
+  const temp = `${path}.${process.pid}.tmp`
+  writeFileSync(temp, buffer, { mode: 0o600 })
+  renameSync(temp, path)
 }
 
 function runCommand(argv, timeoutMs, cwd) {
@@ -201,19 +237,61 @@ export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reco
     return false
   }
 
+  // A task is refused here as well as on the hub: the mark is checked on this side, so
+  // a hub bug cannot turn into an unapproved write on the machine.
+  function refuseTask(task, reason) {
+    log('ds-bot lan: refused task %s (%s): %s', task.id, task.kind ?? 'shell', reason)
+    return report(task.id, { stdout: '', stderr: `refused by the worker policy: ${reason}`, exitCode: 126, rejected: true, durationMs: 0 })
+  }
+
   async function runTask(task) {
     const startedAt = now()
-    const argv = Array.isArray(task.argv) ? task.argv : []
-    const check = checkCommand(argv)
-    if (!check.ok) {
-      log('ds-bot lan: refused %s: %s', argv.join(' '), check.reason)
-      await report(task.id, { stdout: '', stderr: `refused by the worker policy: ${check.reason}`, exitCode: 126, rejected: true, durationMs: 0 })
-      return
+    const normalized = normalizeTaskSpec(task)
+    if (!normalized.ok) return refuseTask(task, normalized.reason)
+    const spec = normalized.spec
+    if (taskNeedsApproval(spec) && task.approved !== true) {
+      return refuseTask(task, 'this task needs the user\'s approval on the hub and was not approved')
     }
-    const result = check.builtin
-      ? { stdout: `${check.args.join(' ')}\n`, stderr: '', exitCode: 0, truncated: false }
-      : await runCommand([check.program, ...check.args], task.timeoutMs ?? 30_000, dataDir)
-    await report(task.id, { ...result, durationMs: now() - startedAt, startedAt: new Date(startedAt).toISOString() })
+    try {
+      if (spec.kind === 'shell') {
+        const check = classifyCommand(spec.argv)
+        if (!check.ok) return refuseTask(task, check.reason)
+        const result = check.safe === true && spec.argv[0] === 'echo'
+          ? { stdout: `${spec.argv.slice(1).join(' ')}\n`, stderr: '', exitCode: 0, truncated: false }
+          : await runCommand(spec.argv, task.timeoutMs ?? 30_000, dataDir)
+        await report(task.id, { ...result, durationMs: now() - startedAt, startedAt: new Date(startedAt).toISOString() })
+        return
+      }
+      const path = resolveNodePath(spec.path, workspaceOf(dataDir))
+      if (!path.ok) return refuseTask(task, path.reason)
+      if (spec.kind === 'read_file' || (spec.kind === 'transfer' && spec.direction === 'get')) {
+        const file = readFileAt(path.path, spec.maxBytes)
+        const encoded = encodeContent(file.buffer, spec.encoding)
+        await report(task.id, {
+          stdout: '',
+          stderr: '',
+          exitCode: 0,
+          file: { path: path.path, size: file.size, mime: mimeOf(path.path), encoding: encoded.encoding, data: encoded.data, truncated: file.truncated },
+          durationMs: now() - startedAt,
+          startedAt: new Date(startedAt).toISOString(),
+        })
+        return
+      }
+      const buffer = spec.encoding === 'base64' ? Buffer.from(spec.data, 'base64') : Buffer.from(spec.data, 'utf8')
+      if (buffer.length > MAX_FILE_BYTES) return refuseTask(task, `the file is larger than ${MAX_FILE_BYTES} bytes`)
+      writeFileAt(path.path, buffer)
+      log('ds-bot lan: wrote %d bytes to %s', buffer.length, path.path)
+      await report(task.id, {
+        stdout: `Wrote ${buffer.length} bytes to ${path.path}\n`,
+        stderr: '',
+        exitCode: 0,
+        durationMs: now() - startedAt,
+        startedAt: new Date(startedAt).toISOString(),
+      })
+    } catch (error) {
+      log('ds-bot lan: task %s failed: %s', task.id, error.message)
+      await report(task.id, { stdout: '', stderr: error.message, exitCode: 1, durationMs: now() - startedAt })
+    }
   }
 
   function enqueue(task) {

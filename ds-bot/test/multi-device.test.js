@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { createCodeStore, hashToken, newToken, tokenMatches } from '../src/host/multi-device/pairing.js'
-import { checkCommand } from '../src/host/multi-device/policy.js'
+import { checkCommand, classifyCommand } from '../src/host/multi-device/policy.js'
+import { MAX_FILE_BYTES, resolveNodePath } from '../src/host/multi-device/protocol.js'
+import { bestDevice, hintOs } from '../src/host/multi-device/select.js'
 import { createRegistry, nodeName } from '../src/host/multi-device/registry.js'
 import { createHub } from '../src/host/multi-device/hub.js'
 import { createWorker } from '../src/host/multi-device/worker.js'
 import { deviceTools } from '../src/host/multi-device/tools.js'
-import { fakeContext } from './fake-ctx.js'
+import { fakeApproval, fakeContext } from './fake-ctx.js'
 
 const folder = name => mkdtempSync(join(tmpdir(), `dsb-lan-${name}-`))
 
@@ -30,9 +32,10 @@ async function bench(t, { name = 'test-node' } = {}) {
   await hub.start()
   t.after(() => hub.stop())
   const { code } = hub.issueCode()
+  const workerDir = folder('worker')
   const worker = createWorker({
     hubUrl: hub.url,
-    dataDir: folder('worker'),
+    dataDir: workerDir,
     name,
     code,
     log: () => {},
@@ -44,7 +47,7 @@ async function bench(t, { name = 'test-node' } = {}) {
   await worker.start()
   await worker.connected({ timeoutMs: 5000 })
   await until(() => hub.isOnline(worker.nodeId), { what: 'the node to come online' })
-  return { hub, worker }
+  return { hub, worker, workerDir }
 }
 
 async function pairDevice(hub, { code, name = 'win-pc', hostname: machine = 'WIN-PC' } = {}) {
@@ -198,19 +201,25 @@ test('hostname runs on the node and returns that machine name', async t => {
   assert.equal(done.nodeName, 'test-node')
 })
 
-test('a command outside the allowlist is refused by the node', async t => {
+test('a risky command is refused by the node when it was not approved', async t => {
   const { hub } = await bench(t)
   const task = hub.dispatch({ node: 'test-node', argv: ['rm', '-rf', '/'] })
   const done = await hub.waitForTask(task.id, { timeoutMs: 5000 })
   assert.equal(done.state, 'rejected')
   assert.equal(done.result.exitCode, 126)
-  assert.match(done.result.stderr, /not allowed/)
+  assert.match(done.result.stderr, /approval/)
 })
 
-test('an argument that would turn into a shell expression is refused', async t => {
+test('a program path and a bad argument are refused instead of taking a shortcut', async t => {
   const { hub } = await bench(t)
-  for (const argv of [['hostname', '$(id)'], ['./hostname'], ['/bin/hostname']]) {
-    const task = hub.dispatch({ node: 'test-node', argv })
+  for (const argv of [['./hostname'], ['/bin/hostname'], ['hostname', '$(id)']]) {
+    let task
+    try {
+      task = hub.dispatch({ node: 'test-node', argv })
+    } catch (error) {
+      assert.match(error.message, /bare name|control character/, `expected ${argv.join(' ')} to be refused`)
+      continue
+    }
     const done = await hub.waitForTask(task.id, { timeoutMs: 5000 })
     assert.equal(done.state, 'rejected', `expected ${argv.join(' ')} to be refused`)
   }
@@ -299,13 +308,17 @@ test('the Bot tools list a machine, run a command there and read the task', asyn
   assert.match(await tool(tools, 'device_task').execute({ task_id: 'tk_missing' }, {}), /No task/)
 })
 
-test('the Bot tools refuse an offline machine and a command outside the allowlist', async t => {
+test('the Bot tools refuse an offline machine and a command that needs approval', async t => {
   const { hub } = await bench(t)
   const tools = deviceTools({ hub })
   assert.match(await tool(tools, 'run_on_device').execute({ node: 'ghost', argv: ['echo', 'x'] }, {}), /No machine named ghost/)
   assert.match(
     await tool(tools, 'run_on_device').execute({ node: 'test-node', argv: ['rm', '-rf', '/'] }, {}),
-    /Not run: program is not allowed: rm/,
+    /no approval card here/,
+  )
+  assert.match(
+    await tool(tools, 'run_on_device').execute({ node: 'test-node', argv: ['/bin/hostname'] }, {}),
+    /Not run: program must be a bare name/,
   )
 
   const lonely = createHub({ dataDir: folder('hub-offline'), host: '127.0.0.1', port: 0, log: () => {} })
@@ -427,7 +440,7 @@ test('the Devices status lists the machines and the pairing command removes one'
   assert.equal(status.enabled, true)
   assert.equal(status.hub.state, 'listening')
   assert.match(status.hub.url, /^http:\/\/127\.0\.0\.1:\d+$/)
-  assert.deepEqual(status.policy, ['hostname', 'whoami', 'uname', 'echo (built in)'])
+  assert.deepEqual(status.policy, ['hostname', 'whoami', 'uname', 'echo (built in)', 'pwd', 'ls', 'dir'])
   assert.equal(status.nodes.length, 1)
   assert.equal(status.nodes[0].name, 'win-pc')
   assert.equal(status.nodes[0].hostname, 'WIN-PC')
@@ -450,4 +463,172 @@ test('a profile with multiDevice false keeps the switch unavailable', async t =>
   assert.equal(status.available, false)
   assert.equal(status.enabled, false)
   await assert.rejects(rt.multiDeviceSetEnabled(true), /multiDevice: false/)
+})
+
+// --- Task kinds beyond a read-only command (issue #966, part 1) ---
+
+test('a command outside the read-only list is classified as needing approval', () => {
+  assert.equal(classifyCommand(['pwd']).safe, true)
+  assert.equal(classifyCommand(['ls', '-la']).safe, true)
+  assert.equal(classifyCommand(['node', '--version']).safe, false)
+  assert.equal(classifyCommand(['/bin/rm', '-rf', '/']).ok, false)
+  assert.equal(classifyCommand(['hostname', '$(id)']).safe, false)
+})
+
+test('device_read_file returns text from the worker workspace', async t => {
+  const { hub, workerDir } = await bench(t)
+  const workspace = join(workerDir, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'notes.txt'), 'hello from the node\n')
+  const task = hub.dispatch({ node: 'test-node', kind: 'read_file', path: 'notes.txt' })
+  const done = await hub.waitForTask(task.id, { timeoutMs: 5000 })
+  assert.equal(done.state, 'done')
+  assert.equal(done.result.file.encoding, 'utf8')
+  assert.equal(done.result.file.mime, 'text/plain')
+  assert.equal(done.result.file.data, 'hello from the node\n')
+  assert.equal(done.result.file.size, 20)
+})
+
+test('device_read_file caps the bytes it reads and marks the file truncated', async t => {
+  const { hub, workerDir } = await bench(t)
+  const workspace = join(workerDir, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'big.txt'), 'x'.repeat(MAX_FILE_BYTES + 10))
+  const task = hub.dispatch({ node: 'test-node', kind: 'read_file', path: 'big.txt', maxBytes: 100 })
+  const done = await hub.waitForTask(task.id, { timeoutMs: 5000 })
+  assert.equal(done.result.file.data.length, 100)
+  assert.equal(done.result.file.size, MAX_FILE_BYTES + 10)
+  assert.equal(done.result.file.truncated, true)
+})
+
+test('a binary file comes back as base64 with its type', async t => {
+  const { hub, workerDir } = await bench(t)
+  const workspace = join(workerDir, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'pixel.png'), Buffer.from([0, 1, 2, 255]))
+  const task = hub.dispatch({ node: 'test-node', kind: 'read_file', path: 'pixel.png' })
+  const done = await hub.waitForTask(task.id, { timeoutMs: 5000 })
+  assert.equal(done.result.file.encoding, 'base64')
+  assert.equal(done.result.file.mime, 'image/png')
+  assert.equal(Buffer.from(done.result.file.data, 'base64').toString('hex'), '000102ff')
+})
+
+test('a relative path may not leave the worker workspace, while an absolute path is read', async t => {
+  const { hub, workerDir } = await bench(t)
+  const outside = join(folder('outside'), 'secret.txt')
+  writeFileSync(outside, 'absolute is the user\'s choice\n')
+  const escape = hub.dispatch({ node: 'test-node', kind: 'read_file', path: '../secret.txt' })
+  assert.equal((await hub.waitForTask(escape.id, { timeoutMs: 5000 })).state, 'rejected')
+  const absolute = hub.dispatch({ node: 'test-node', kind: 'read_file', path: outside })
+  const done = await hub.waitForTask(absolute.id, { timeoutMs: 5000 })
+  assert.equal(done.state, 'done')
+  assert.equal(done.result.file.data, 'absolute is the user\'s choice\n')
+  assert.equal(resolveNodePath('../x', join(workerDir, 'workspace')).ok, false)
+})
+
+test('a write is refused without approval and written with it', async t => {
+  const { hub, workerDir } = await bench(t)
+  const refused = hub.dispatch({ node: 'test-node', kind: 'write_file', path: 'made.txt', data: 'nope' })
+  const rejected = await hub.waitForTask(refused.id, { timeoutMs: 5000 })
+  assert.equal(rejected.state, 'rejected')
+  assert.match(rejected.result.stderr, /approval/)
+  const written = hub.dispatch({ node: 'test-node', kind: 'write_file', path: 'made.txt', data: 'yes', approved: true })
+  const done = await hub.waitForTask(written.id, { timeoutMs: 5000 })
+  assert.equal(done.state, 'done')
+  assert.equal(readFileSync(join(workerDir, 'workspace', 'made.txt'), 'utf8'), 'yes')
+})
+
+test('a file larger than the limit is refused before anything is written', async () => {
+  const hub = createHub({ dataDir: folder('hub-too-big'), host: '127.0.0.1', port: 0, log: () => {} })
+  await hub.start()
+  try {
+    await pairDevice(hub, { code: hub.issueCode().code, name: 'far-pc' })
+    assert.throws(
+      () => hub.dispatch({ node: 'far-pc', kind: 'write_file', path: 'big.txt', data: 'x'.repeat(MAX_FILE_BYTES + 1) }),
+      /larger than/,
+    )
+  } finally {
+    await hub.stop()
+  }
+})
+
+test('device_transfer gets a file out and puts one back', async t => {
+  const { hub, workerDir } = await bench(t)
+  const workspace = join(workerDir, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'blob.bin'), Buffer.from([9, 8, 7]))
+  const down = hub.dispatch({ node: 'test-node', kind: 'transfer', direction: 'get', path: 'blob.bin' })
+  const received = await hub.waitForTask(down.id, { timeoutMs: 5000 })
+  assert.equal(received.result.file.encoding, 'base64')
+  assert.equal(Buffer.from(received.result.file.data, 'base64').toString('hex'), '090807')
+  const up = hub.dispatch({ node: 'test-node', kind: 'transfer', direction: 'put', path: 'copy.bin', data: 'AQID', encoding: 'base64', approved: true })
+  const sent = await hub.waitForTask(up.id, { timeoutMs: 5000 })
+  assert.equal(sent.state, 'done')
+  assert.equal(readFileSync(join(workspace, 'copy.bin')).toString('hex'), '010203')
+})
+
+test('an unsafe tool command waits for approval, and a refused one is never dispatched', async t => {
+  const { hub } = await bench(t)
+  const rejected = fakeApproval('rejected')
+  const tools = deviceTools({ hub, approval: rejected })
+  const exec = { agent: { session: { id: 's1' } }, name: 'run_on_device' }
+  const refusal = await tool(tools, 'run_on_device').execute({ node: 'test-node', argv: ['node', '-e', 'process.stdout.write("ran")'] }, exec)
+  assert.match(refusal, /did not approve/)
+  assert.equal(rejected.requests.length, 1)
+
+  const allowed = fakeApproval('allowed-once')
+  const allowedTools = deviceTools({ hub, approval: allowed })
+  const ran = await tool(allowedTools, 'run_on_device').execute({ node: 'test-node', argv: ['node', '-e', 'process.stdout.write("ran")'] }, exec)
+  assert.match(ran, /ran/)
+  assert.equal(allowed.requests.length, 1)
+
+  // A read-only command never asks.
+  const quiet = fakeApproval('rejected')
+  const quietTools = deviceTools({ hub, approval: quiet })
+  const pwd = await tool(quietTools, 'run_on_device').execute({ node: 'test-node', argv: ['pwd'] }, exec)
+  assert.match(pwd, /done, exit 0/)
+  assert.equal(quiet.requests.length, 0)
+})
+
+test('writing and transferring to a machine need approval before dispatch', async t => {
+  const { hub } = await bench(t)
+  const approvals = fakeApproval('rejected')
+  const tools = deviceTools({ hub, approval: approvals })
+  const exec = { agent: { session: { id: 's1' } }, name: 'device_write_file' }
+  const write = await tool(tools, 'device_write_file').execute({ node: 'test-node', path: 'a.txt', content: 'x' }, exec)
+  assert.match(write, /did not approve/)
+  const put = await tool(tools, 'device_transfer').execute({ node: 'test-node', direction: 'put', path: 'b.txt', content: 'y' }, exec)
+  assert.match(put, /did not approve/)
+  assert.equal(approvals.requests.length, 2)
+
+  const allowed = fakeApproval('allowed-once')
+  const allowedTools = deviceTools({ hub, approval: allowed })
+  const did = await tool(allowedTools, 'device_write_file').execute({ node: 'test-node', path: 'a.txt', content: 'written' }, exec)
+  assert.match(did, /Wrote 7 bytes/)
+  const read = await tool(allowedTools, 'device_read_file').execute({ node: 'test-node', path: 'a.txt' }, exec)
+  assert.match(read, /written/)
+  assert.equal(allowed.requests.length, 1)
+})
+
+test('without an approval service a write is refused rather than run', async t => {
+  const { hub } = await bench(t)
+  const tools = deviceTools({ hub })
+  const out = await tool(tools, 'device_write_file').execute({ node: 'test-node', path: 'a.txt', content: 'x' }, {})
+  assert.match(out, /no approval card here/)
+})
+
+test('the selection helper prefers the operating system a path names', () => {
+  const nodes = [
+    { name: 'mac', online: true, os: 'darwin', hostname: 'Mac-mini' },
+    { name: 'win-pc', online: true, os: 'win32', hostname: 'DESKTOP-ABC' },
+    { name: 'old-pc', online: false, os: 'win32', hostname: 'DESKTOP-OLD' },
+  ]
+  assert.equal(hintOs('C:\\Users\\me\\report.docx'), 'win32')
+  assert.equal(hintOs('/Users/me/notes.md'), 'darwin')
+  assert.equal(bestDevice(nodes, 'open C:\\Users\\me\\report.docx').name, 'win-pc')
+  assert.equal(bestDevice(nodes, 'open /Users/me/notes.md').name, 'mac')
+  assert.equal(bestDevice(nodes, 'the DESKTOP-ABC machine').name, 'win-pc')
+  assert.equal(bestDevice(nodes, 'DESKTOP-OLD'), undefined)
+  assert.equal(bestDevice(nodes, 'something else'), undefined)
+  assert.equal(bestDevice([{ name: 'only', online: true, os: 'darwin' }], 'anything').name, 'only')
 })

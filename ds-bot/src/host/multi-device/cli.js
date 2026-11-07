@@ -150,7 +150,9 @@ async function commandRun(options, positional) {
   if (node === undefined) throw new Error('no node: pass --node <name or id>')
   const argv = commandOf(options, positional)
   const waitSeconds = Number(options.timeout ?? 60)
-  const started = await admin(url, dataDir, '/admin/tasks', { node, argv, timeoutMs: Math.round(waitSeconds * 1000) })
+  // This command runs on the hub machine with the admin token, so it is the user's own
+  // decision: the task is marked approved and the worker runs it without another card.
+  const started = await admin(url, dataDir, '/admin/tasks', { node, kind: 'shell', argv, approved: true, timeoutMs: Math.round(waitSeconds * 1000) })
   const id = started.task.id
   const deadline = Date.now() + waitSeconds * 1000 + 10_000
   let task = started.task

@@ -7,7 +7,9 @@ import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from '../tools.js'
 import { createHub } from './hub.js'
-import { checkCommand, describePolicy } from './policy.js'
+import { APPROVED_NOTE, classifyCommand, describePolicy } from './policy.js'
+import { MAX_FILE_BYTES, taskLabel } from './protocol.js'
+import { bestDevice } from './select.js'
 
 const DEFAULT_PORT = 8787
 const DEFAULT_WAIT_MS = 20_000
@@ -30,24 +32,37 @@ export function multiDeviceOptions(config = {}) {
     host: typeof options.host === 'string' && options.host !== '' ? options.host : '0.0.0.0',
     port: Number.isInteger(options.port) ? options.port : DEFAULT_PORT,
     name: typeof options.name === 'string' && options.name !== '' ? options.name : localHostname(),
+    requireApprovalForReads: options.requireApprovalForReads === true,
   }
 }
 
 // What the Bot writes about a finished task: the output first, so it can be read as is,
-// and one line of context after it.
-function formatResult(task) {
+// and one line of context after it. `payload` says whether a file body is shown: a read
+// shows text but points at device_transfer for binary, a transfer shows the body itself.
+function formatResult(task, { payload = 'auto' } = {}) {
   const result = task.result ?? {}
-  const lines = [`[${task.nodeName}] ${task.argv.join(' ')} — ${task.state}, exit ${result.exitCode ?? '?'}${Number.isFinite(result.durationMs) ? `, ${result.durationMs} ms` : ''}`]
-  if (result.rejected === true) lines.push('The machine refused this command: it is not on the worker allowlist.')
+  const lines = [`[${task.nodeName}] ${taskLabel(task)} — ${task.state}, exit ${result.exitCode ?? '?'}${Number.isFinite(result.durationMs) ? `, ${result.durationMs} ms` : ''}`]
+  if (result.rejected === true) lines.push('The machine refused this task; it was not run (see below).')
   if (result.stdout) lines.push(result.stdout.endsWith('\n') ? result.stdout.slice(0, -1) : result.stdout)
   if (result.stderr) lines.push(`stderr: ${result.stderr.endsWith('\n') ? result.stderr.slice(0, -1) : result.stderr}`)
-  if (result.stdout === '' && result.stderr === '') lines.push('(no output)')
+  if (result.file !== undefined) {
+    const file = result.file
+    lines.push(`${file.size ?? '?'} bytes, ${file.mime ?? 'unknown type'}${file.truncated ? ', truncated' : ''}`)
+    if (payload === 'none' || (payload === 'auto' && file.encoding !== 'utf8')) {
+      lines.push(file.encoding === 'utf8'
+        ? 'The file body is not shown here.'
+        : 'Binary content is not shown here; use device_transfer with direction "get" to bring it over.')
+    } else {
+      lines.push(file.encoding === 'utf8' ? (file.data.endsWith('\n') ? file.data.slice(0, -1) : file.data) : `base64:\n${file.data}`)
+    }
+  }
+  if (result.stdout === '' && result.stderr === '' && result.file === undefined) lines.push('(no output)')
   if (result.truncated === true) lines.push('The output was truncated.')
   return lines.join('\n')
 }
 
 function formatPending(task) {
-  return `[${task.nodeName}] ${task.argv.join(' ')} — ${task.state}. The task is still running; ask for device_task ${task.id} to read its result.`
+  return `[${task.nodeName}] ${taskLabel(task)} — ${task.state}. The task is still running; ask for device_task ${task.id} to read its result.`
 }
 
 const seenText = node => (node.lastSeen === undefined ? 'never seen' : `last seen ${node.lastSeen}`)
@@ -71,13 +86,14 @@ function sharedOriginOf(ctx) {
 }
 
 /**
- * The four Bot tools over one hub. `hub` is the hub, or a getter for it when the
- * plugin starts and stops the hub at run time. `ready` is the hub's start promise,
+ * The Bot tools over one hub. `hub` is the hub, or a getter for it when the plugin
+ * starts and stops the hub at run time. `ready` is the hub's start promise,
  * so a call made while the listener is still binding waits for it, and a failed
  * start reaches the Bot as a plain explanation instead of a task that would never
- * leave the queue.
+ * leave the queue. `approval` is the DSH approval service: a write, or any command
+ * outside the read-only list, waits on its card before anything is dispatched.
  */
-export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), sharedOrigin = () => undefined }) {
+export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), sharedOrigin = () => undefined, approval, requireApprovalForReads = false }) {
   const current = typeof hub === 'function' ? hub : () => hub
   const waitReady = typeof ready === 'function' ? ready : () => ready
   const unavailable = async () => {
@@ -92,12 +108,45 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
 
   const nodeNamed = (nodes, reference) => nodes.find(node => node.id === reference || node.name === reference)
 
+  const askApproval = async (exec, { tool, reason, zh }) => {
+    const service = typeof approval === 'function' ? approval() : approval
+    if (service?.request === undefined || exec?.agent?.session === undefined) {
+      return { ok: false, message: 'Not done: this needs the user\'s approval, and there is no approval card here, so nothing was sent to the machine. Ask the user to do it, or turn the action into a read-only one.' }
+    }
+    let outcome
+    try {
+      outcome = await service.request({
+        agent: exec.agent,
+        toolName: exec.name ?? tool,
+        ...(exec.callId === undefined ? {} : { callId: exec.callId }),
+        reason,
+        displayReason: { en: reason, zh },
+        ...(exec.signal === undefined ? {} : { signal: exec.signal }),
+      })
+    } catch {
+      return { ok: false, message: 'Not done: the approval service was unavailable, so nothing was sent to the machine.' }
+    }
+    if (outcome === 'allowed-once') return { ok: true }
+    if (outcome === 'rejected') return { ok: false, message: 'Not done: the user did not approve this, so nothing was sent to the machine. Do not try again unless the user asks.' }
+    if (outcome === 'cancelled') return { ok: false, message: 'Not done: the approval was cancelled, so nothing was sent to the machine.' }
+    return { ok: false, message: 'Not done: the approval could not be answered, so nothing was sent to the machine.' }
+  }
+
+  const waitFor = async (hubHere, task, waitMs, options) => {
+    const wanted = Number.isInteger(waitMs) ? Math.min(Math.max(waitMs, 0), MAX_WAIT_MS) : DEFAULT_WAIT_MS
+    if (wanted === 0) return formatPending(task)
+    const settled = await hubHere.waitForTask(task.id, { timeoutMs: wanted }).catch(() => undefined)
+    return settled === undefined ? formatPending(hubHere.task(task.id) ?? task) : formatResult(settled, options)
+  }
+
   tools.push(defineTool({
     name: 'list_devices',
-    description: 'List the user\'s other machines that are paired with this one over the local network, with their online state and operating system. Call it before run_on_device, and choose the machine whose OS, host or role fits the task: the user does not pick a machine for you. When nothing is paired, ask for a pairing code with device_pairing_code.',
-    parameters: {},
+    description: 'List the user\'s other machines that are paired with this one over the local network, with their online state, operating system and hostname. Call it before run_on_device, device_read_file, device_write_file or device_transfer, and choose the machine whose OS, host, path style or role fits the task: the user does not pick a machine for you. A Windows path (C:\\..., \\\\share, .exe) points at a Windows machine; /Users/..., /Applications or /Volumes points at a macOS machine. When nothing is paired, ask for a pairing code with device_pairing_code.',
+    parameters: {
+      hint: { type: 'string', description: 'Optional words from the user\'s request or a path, used to name the best matching online machine' },
+    },
     output,
-    async execute() {
+    async execute(args = {}) {
       const reason = await unavailable()
       if (reason !== undefined) return reason
       const nodes = current().nodes()
@@ -107,7 +156,10 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
         lines.push(`- ${node.name}${node.online ? ' (online)' : ' (offline)'} — ${machineText(node)}, ${seenText(node)}${node.id === undefined ? '' : `, id ${node.id}`}`)
       }
       if (nodes.length === 0) lines.push('No machine is paired yet. Ask the user to run the worker on the other machine with a pairing code; call device_pairing_code for one.')
-      lines.push(`Every machine runs only: ${describePolicy().join(', ')}. No shell and no other program.`)
+      lines.push(`Read-only commands run directly: ${describePolicy().join(', ')}. ${APPROVED_NOTE}`)
+      const hinted = typeof args.hint === 'string' ? args.hint : ''
+      const suggestion = hinted === '' ? undefined : bestDevice(nodes, hinted)
+      if (suggestion !== undefined) lines.push(`Best match for "${hinted.slice(0, 120)}": ${suggestion.name}${suggestion.online ? '' : ' (offline, so it cannot be used now)'}.`)
       const origin = sharedOrigin()
       lines.push(origin === undefined
         ? 'The same chat is served by this machine only; to open it on another machine, see docs/plans/966-lan-multi-device.md.'
@@ -118,7 +170,7 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
 
   tools.push(defineTool({
     name: 'run_on_device',
-    description: 'Run one allowlisted read-only command on a paired machine and return its stdout, stderr and exit code. Choose node yourself from list_devices; the user does not choose per call. Commands are an argument list, never a shell line: ["hostname"], ["whoami"], ["uname", "-a"], ["echo", "hello world"]. The worker refuses anything outside its allowlist.',
+    description: 'Run one command on a paired machine and return its stdout, stderr and exit code. Choose node yourself from list_devices by OS, hostname and the paths in the request; the user does not choose per call. Commands are an argument list, never a shell line: ["hostname"], ["uname", "-a"], ["ls", "-la", "."], ["python", "script.py"]. Read-only commands (hostname, whoami, uname, echo, pwd, ls, dir) run directly; any other program shows the user an approval card first, and is not dispatched if they refuse. For reading or writing a file, prefer device_read_file, device_write_file and device_transfer.',
     parameters: {
       node: { type: 'string', required: true, description: 'Exact machine name or id from list_devices' },
       argv: { type: 'array', required: true, items: { type: 'string' }, description: 'Program and arguments as separate strings, for example ["echo", "hello from the Mac"]' },
@@ -126,7 +178,7 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
       waitMs: { type: 'integer', description: 'How long this call waits for the result, up to 55000; default 20000. When it is still running, device_task reads it later' },
     },
     output,
-    async execute(args) {
+    async execute(args, exec) {
       const reason = await unavailable()
       if (reason !== undefined) return reason
       const hubHere = current()
@@ -141,24 +193,139 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
         return `${target.name} is offline (${seenText(target)}), so this command did not run. Online machines: ${online.length === 0 ? 'none' : online.join(', ')}. Ask the user to start the worker there.`
       }
       const argv = Array.isArray(args.argv) ? args.argv : []
-      const check = checkCommand(argv)
-      if (!check.ok) return `Not run: ${check.reason}. On a machine the allowed commands are ${describePolicy().join(', ')}.`
+      const check = classifyCommand(argv)
+      if (!check.ok) return `Not run: ${check.reason}.`
+      let approved = false
+      if (!check.safe) {
+        const ask = await askApproval(exec, {
+          tool: 'run_on_device',
+          reason: `Run "${argv.join(' ')}" on ${target.name}? This program is outside the read-only list, so it can change things there.`,
+          zh: `允许在 ${target.name} 上运行“${argv.join(' ')}”吗？它不在只读命令列表里，可能会改动那台机器。`,
+        })
+        if (!ask.ok) return ask.message
+        approved = true
+      }
       let task
       try {
-        task = hubHere.dispatch({ node: target.id, argv, timeoutMs: args.timeoutMs })
+        task = hubHere.dispatch({ node: target.id, kind: 'shell', argv, approved, timeoutMs: args.timeoutMs })
       } catch (error) {
         return `Not run: ${error.message}`
       }
-      const wanted = Number.isInteger(args.waitMs) ? Math.min(Math.max(args.waitMs, 0), MAX_WAIT_MS) : DEFAULT_WAIT_MS
-      if (wanted === 0) return formatPending(task)
-      const settled = await hubHere.waitForTask(task.id, { timeoutMs: wanted }).catch(() => undefined)
-      return settled === undefined ? formatPending(hubHere.task(task.id) ?? task) : formatResult(settled)
+      return waitFor(hubHere, task, args.waitMs)
+    },
+  }))
+
+  const runFileTask = async (exec, { node, spec, waitMs, label }) => {
+    const reason = await unavailable()
+    if (reason !== undefined) return reason
+    const hubHere = current()
+    const nodes = hubHere.nodes()
+    const target = nodeNamed(nodes, String(node ?? ''))
+    if (target === undefined) {
+      const known = nodes.map(entry => entry.name)
+      return `No machine named ${node}. Paired machines: ${known.length === 0 ? 'none' : known.join(', ')}.`
+    }
+    if (!target.online) {
+      const online = nodes.filter(entry => entry.online).map(entry => entry.name)
+      return `${target.name} is offline (${seenText(target)}), so nothing was sent. Online machines: ${online.length === 0 ? 'none' : online.join(', ')}.`
+    }
+    let task
+    try {
+      task = hubHere.dispatch({ node: target.id, ...spec })
+    } catch (error) {
+      return `Not run: ${error.message}`
+    }
+    return waitFor(hubHere, task, waitMs, label === undefined ? undefined : { payload: label })
+  }
+
+  tools.push(defineTool({
+    name: 'device_read_file',
+    description: `Read a file on a paired machine and return its text, or its type and size when it is binary (up to ${MAX_FILE_BYTES} bytes). This is read-only and runs without an approval card. A relative path is under that machine's worker workspace; an absolute path is the one the user gave. Choose node from list_devices by OS and path style.`,
+    parameters: {
+      node: { type: 'string', required: true, description: 'Exact machine name or id from list_devices' },
+      path: { type: 'string', required: true, description: 'Absolute path on that machine, or a path relative to its worker workspace' },
+      maxBytes: { type: 'integer', description: `How much of the file to read, up to ${MAX_FILE_BYTES}; default ${MAX_FILE_BYTES}` },
+      waitMs: { type: 'integer', description: 'How long to wait for the result, up to 55000; default 20000' },
+    },
+    output,
+    async execute(args, exec) {
+      if (requireApprovalForReads) {
+        const ask = await askApproval(exec, {
+          tool: 'device_read_file',
+          reason: `Read ${args.path} on ${args.node}?`,
+          zh: `允许读取 ${args.node} 上的 ${args.path} 吗？`,
+        })
+        if (!ask.ok) return ask.message
+      }
+      return runFileTask(exec, {
+        node: args.node,
+        spec: { kind: 'read_file', path: args.path, maxBytes: args.maxBytes },
+        waitMs: args.waitMs,
+      })
+    },
+  }))
+
+  tools.push(defineTool({
+    name: 'device_write_file',
+    description: `Write a file on a paired machine. This always shows the user an approval card first, and nothing is sent if they refuse. Content is text, or base64 when encoding is "base64"; at most ${MAX_FILE_BYTES} bytes. A relative path is under that machine's worker workspace.`,
+    parameters: {
+      node: { type: 'string', required: true, description: 'Exact machine name or id from list_devices' },
+      path: { type: 'string', required: true, description: 'Absolute path on that machine, or a path relative to its worker workspace' },
+      content: { type: 'string', required: true, description: 'The file content; text, or base64 with encoding "base64"' },
+      encoding: { type: 'string', description: 'utf8 (default) or base64' },
+      waitMs: { type: 'integer', description: 'How long to wait for the result, up to 55000; default 20000' },
+    },
+    output,
+    async execute(args, exec) {
+      const ask = await askApproval(exec, {
+        tool: 'device_write_file',
+        reason: `Write ${args.path} on ${args.node}? ${String(args.content ?? '').length} characters will be sent.`,
+        zh: `允许在 ${args.node} 上写入 ${args.path} 吗？将发送 ${String(args.content ?? '').length} 个字符。`,
+      })
+      if (!ask.ok) return ask.message
+      return runFileTask(exec, {
+        node: args.node,
+        spec: { kind: 'write_file', path: args.path, data: args.content, encoding: args.encoding, approved: true },
+        waitMs: args.waitMs,
+        label: 'none',
+      })
+    },
+  }))
+
+  tools.push(defineTool({
+    name: 'device_transfer',
+    description: `Move a file between this computer and a paired machine. direction "get" brings the file's bytes back (text, or base64 for binary) so you can save them here; direction "put" sends content to that machine and always shows an approval card first. At most ${MAX_FILE_BYTES} bytes each way. A relative path is under that machine's worker workspace.`,
+    parameters: {
+      node: { type: 'string', required: true, description: 'Exact machine name or id from list_devices' },
+      direction: { type: 'string', required: true, description: 'get: from the machine to this computer; put: from this computer to the machine' },
+      path: { type: 'string', required: true, description: 'Absolute path on that machine, or a path relative to its worker workspace' },
+      content: { type: 'string', description: 'For put: the file content; text, or base64 with encoding "base64"' },
+      encoding: { type: 'string', description: 'For put: utf8 (default) or base64' },
+      waitMs: { type: 'integer', description: 'How long to wait for the result, up to 55000; default 20000' },
+    },
+    output,
+    async execute(args, exec) {
+      const direction = args.direction === 'put' ? 'put' : 'get'
+      if (direction === 'put') {
+        const ask = await askApproval(exec, {
+          tool: 'device_transfer',
+          reason: `Send ${args.path} (${String(args.content ?? '').length} characters) to ${args.node}?`,
+          zh: `允许把 ${args.path}（${String(args.content ?? '').length} 个字符）发送到 ${args.node} 吗？`,
+        })
+        if (!ask.ok) return ask.message
+      }
+      return runFileTask(exec, {
+        node: args.node,
+        spec: { kind: 'transfer', direction, path: args.path, data: args.content, encoding: args.encoding, approved: direction === 'put' },
+        waitMs: args.waitMs,
+        label: direction === 'get' ? 'payload' : 'none',
+      })
     },
   }))
 
   tools.push(defineTool({
     name: 'device_task',
-    description: 'Read the state and result of a task that run_on_device started on another machine, for example one that was still running when run_on_device returned.',
+    description: 'Read the state and result of a task that run_on_device, device_read_file, device_write_file or device_transfer started on another machine, for example one that was still running when the call returned.',
     parameters: {
       task_id: { type: 'string', required: true, description: 'Task id from run_on_device, such as tk_1a2b3c4d5e6f' },
       waitMs: { type: 'integer', description: 'How long to wait for the result, up to 55000; default 0, read the state now' },
@@ -231,14 +398,20 @@ export function install(rt) {
   })
 
   const addTools = () => {
-    for (const def of deviceTools({ hub: () => hub, ready: () => ready, sharedOrigin: () => sharedOriginOf(ctx) })) {
+    for (const def of deviceTools({
+      hub: () => hub,
+      ready: () => ready,
+      sharedOrigin: () => sharedOriginOf(ctx),
+      approval: () => ctx.get?.('approval'),
+      requireApprovalForReads: options.requireApprovalForReads,
+    })) {
       if (rt.teamTools.some(tool => tool.name === def.name)) continue
       if (typeof rt.addTeamTool === 'function') rt.addTeamTool(def)
       else rt.teamTools.push(def)
     }
   }
   const removeTools = () => {
-    for (const name of ['list_devices', 'run_on_device', 'device_task', 'device_pairing_code']) {
+    for (const name of ['list_devices', 'run_on_device', 'device_read_file', 'device_write_file', 'device_transfer', 'device_task', 'device_pairing_code']) {
       if (typeof rt.removeTeamTool === 'function') rt.removeTeamTool(name)
       else {
         const at = rt.teamTools.findIndex(tool => tool.name === name)

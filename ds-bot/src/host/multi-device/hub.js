@@ -8,13 +8,15 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { createCodeStore, newToken } from './pairing.js'
+import { MAX_FILE_BYTES, normalizeTaskSpec, wireTask } from './protocol.js'
 import { createRegistry } from './registry.js'
 import { writeEvent, writePing } from './sse.js'
 
-export const PROTOCOL = 1
-export const VERSION = '0.1.0'
+export const PROTOCOL = 2
+export const VERSION = '0.2.0'
 
-const MAX_BODY = 256 * 1024
+// A file task carries up to 1 MiB, or about 1.4 MiB in base64, in one JSON body.
+const MAX_BODY = 2 * 1024 * 1024
 const MAX_OUTPUT = 128 * 1024
 const STREAM_PING_MS = 15_000
 const DEFAULT_TASK_TIMEOUT_MS = 30_000
@@ -136,7 +138,12 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
   }
 
   function publicTask(task) {
-    return { ...task, result: task.result === undefined ? undefined : { ...task.result } }
+    return {
+      ...task,
+      result: task.result === undefined
+        ? undefined
+        : { ...task.result, ...(task.result.file === undefined ? {} : { file: { ...task.result.file } }) },
+    }
   }
 
   function settle(task, patch) {
@@ -179,7 +186,7 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
       if (task.state !== 'queued') continue
       task.state = 'sent'
       task.sentAt = new Date(now()).toISOString()
-      writeEvent(stream.response, 'task', { id: task.id, argv: task.argv, timeoutMs: task.timeoutMs })
+      writeEvent(stream.response, 'task', wireTask(task))
       armTimeout(task)
       return
     }
@@ -270,12 +277,25 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
     if (task.nodeId !== node.id) return send(response, 403, { error: 'this task belongs to another node' })
     if (terminal(task.state)) return send(response, 200, { ok: true, duplicate: true })
     const exitCode = Number.isInteger(body.exitCode) ? body.exitCode : 1
+    const file = body.file !== null && typeof body.file === 'object'
+      ? {
+          path: String(body.file.path ?? ''),
+          size: Number.isFinite(body.file.size) ? Math.max(0, Math.round(body.file.size)) : undefined,
+          mime: typeof body.file.mime === 'string' ? body.file.mime.slice(0, 120) : undefined,
+          encoding: body.file.encoding === 'base64' ? 'base64' : 'utf8',
+          // A worker enforces the limit; the hub caps a bad one so one result cannot
+          // exhaust this process's memory.
+          data: typeof body.file.data === 'string' ? body.file.data.slice(0, Math.ceil(MAX_FILE_BYTES * 4 / 3) + 16) : '',
+          truncated: body.file.truncated === true,
+        }
+      : undefined
     settle(task, {
       state: body.rejected === true ? 'rejected' : exitCode === 0 ? 'done' : 'failed',
       result: {
         exitCode,
         stdout: capped(body.stdout, MAX_OUTPUT),
         stderr: capped(body.stderr, MAX_OUTPUT),
+        ...(file === undefined ? {} : { file }),
         durationMs: Number.isFinite(body.durationMs) ? Math.max(0, Math.round(body.durationMs)) : undefined,
         rejected: body.rejected === true,
       },
@@ -336,18 +356,18 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
     return send(response, 404, { error: 'not found' })
   }
 
-  function dispatch({ node, argv, timeoutMs }) {
+  function dispatch(input) {
+    const { node, timeoutMs, ...raw } = input ?? {}
     const target = registry.find(node)
     if (target === undefined) throw Object.assign(new Error(`no paired node named ${node ?? ''}`), { code: 'no-node', status: 400 })
-    if (!Array.isArray(argv) || argv.length === 0 || !argv.every(part => typeof part === 'string' && part !== '')) {
-      throw Object.assign(new Error('argv must be a non-empty list of strings'), { code: 'bad-argv', status: 400 })
-    }
+    const normalized = normalizeTaskSpec(raw)
+    if (!normalized.ok) throw Object.assign(new Error(normalized.reason), { code: 'bad-task', status: 400 })
     const wanted = Number.isInteger(timeoutMs) ? timeoutMs : DEFAULT_TASK_TIMEOUT_MS
     const task = {
       id: `tk_${randomBytes(6).toString('hex')}`,
       nodeId: target.id,
       nodeName: target.name,
-      argv: [...argv],
+      ...normalized.spec,
       timeoutMs: Math.min(Math.max(wanted, 1000), MAX_TASK_TIMEOUT_MS),
       state: 'queued',
       createdAt: new Date(now()).toISOString(),
