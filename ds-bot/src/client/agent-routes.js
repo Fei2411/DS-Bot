@@ -26,6 +26,17 @@ export const badgeOf = engine => AGENT_BADGES[engine] ?? (engine?.startsWith('ac
 // A model ref's provider part is a local-agent route when the CLIs serve it.
 export const isLocalRoute = ref => badgeOf(String(ref ?? '').split('/')[0]) !== undefined
 
+export const routeOf = ref => String(ref ?? '').split('/')[0]
+
+// The models a pick can go to from `ref`: a local agent lists only its own, and
+// everything else lists DS Bot's models. What a Bot runs on changes in its settings.
+export function modelsFor(models, ref) {
+  const list = models ?? []
+  return isLocalRoute(ref)
+    ? list.filter(model => routeOf(model.ref) === routeOf(ref))
+    : list.filter(model => !isLocalRoute(model.ref))
+}
+
 // A badge-style avatar image for a new abot: the monogram large on its ink.
 export function agentAvatar(engine) {
   const logo = logoOf(engine)
