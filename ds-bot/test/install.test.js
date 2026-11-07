@@ -7,10 +7,11 @@ import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 let rt
-function start(state, { config = {}, services } = {}) {
+function start(state, { config = {}, services, llm } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-install-'))
   if (state) writeFileSync(join(home, 'state.json'), JSON.stringify(state))
   const ctx = fakeContext({ services })
+  if (llm) Object.assign(ctx.llm, llm(ctx))
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => {
@@ -267,4 +268,53 @@ test('a custom agent keeps the local agents adapter live after install', async (
   const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('acp-a1'))
   assert.ok(entry, 'the custom route is registered')
   assert.equal(entry.adapter.disposed, false, 'the adapter survives install')
+})
+
+// DSH refuses a whole registration when one of its routes is already held, as
+// dsh-llm's prepareRoutes does.
+const strictLlm = held => (ctx) => {
+  const routesOf = () => [...held, ...(ctx.adapters ?? []).flatMap(entry => entry.routes)]
+  return {
+    listProviders: () => routesOf().map(id => ({ id, name: id })),
+    registerAdapter: (routes, adapter) => {
+      const clash = routes.find(route => held.includes(route))
+      if (clash) throw Object.assign(new Error(`an adapter for provider "${clash}" is already registered`), { code: 'DUPLICATE_ADAPTER' })
+      const entry = { routes, adapter }
+      ctx.adapters = [...(ctx.adapters ?? []), entry]
+      const handle = () => {}
+      handle.replace = (next) => {
+        const taken = next.find(route => held.includes(route))
+        if (taken) throw Object.assign(new Error(`an adapter for provider "${taken}" is already registered`), { code: 'DUPLICATE_ADAPTER' })
+        entry.routes = next
+      }
+      return handle
+    },
+  }
+}
+
+test('a local agent route another provider holds is skipped, not fatal (#1059)', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {})
+  const { ctx, stop, rt, call } = start({ version: 1, localAgents: { custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }, { id: 'a2', name: 'B', command: 'node', args: [] }], sessions: {} } }, { llm: strictLlm(['acp-a1']) })
+  t.after(stop)
+  await rt.load()
+  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('acp-a2'))
+  assert.ok(entry, 'the free route is registered')
+  assert.ok(!entry.routes.includes('acp-a1'), 'the held route stays with the other provider')
+  assert.equal(rt.isLocalAgentRef('acp-a1/model'), false, 'a Bot on the other provider is not a local agent Bot')
+  assert.equal(rt.isLocalAgentRef('acp-a2/model'), true)
+  assert.equal(rt.localAgentBadge('acp-a1/model'), undefined)
+  const view = (await call('local-agents')).value
+  assert.equal(view.custom.find(agent => agent.id === 'a1').taken, true)
+  assert.equal(view.custom.find(agent => agent.id === 'a2').taken, false)
+  assert.ok(warn.mock.calls.some(c => String(c.arguments[0]).includes('"acp-a1" is already registered')))
+})
+
+test('a route claimed between the check and the registration does not throw (#1059)', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  // listProviders does not report the clash, so only registerAdapter sees it.
+  const llm = ctx => ({ ...strictLlm(['acp-a1'])(ctx), listProviders: () => [] })
+  const { ctx, stop, rt } = start({ version: 1, localAgents: { custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }], sessions: {} } }, { llm })
+  t.after(stop)
+  await rt.load()
+  assert.equal((ctx.adapters ?? []).some(candidate => candidate.routes.includes('acp-a1')), false)
 })

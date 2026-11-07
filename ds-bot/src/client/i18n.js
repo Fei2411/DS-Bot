@@ -229,6 +229,8 @@ const ZH = {
   'Sign in': '登录',
   Found: '已找到',
   'Not found': '未找到',
+  'Name in use': '名字已被占用',
+  'Another plugin already uses the name {route}, so Bots cannot run on this agent.': '另一个插件已经用了 {route} 这个名字，所以 Bot 不能用这个 Agent。',
   Arguments: '参数',
   Agent: 'Agent',
   Sessions: '会话',

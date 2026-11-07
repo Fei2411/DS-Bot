@@ -101,16 +101,36 @@ export function install(rt) {
   })
 
   let registration
+  let owned = new Set()
+  // Routes another plugin's provider already holds (#1059). Registration is
+  // all-or-nothing and a duplicate fails the whole LLM service at boot, so
+  // those names stay with the other provider.
+  let taken = new Set()
   const supported = () => typeof ctx.llm?.registerAdapter === 'function'
+  const othersHold = () => new Set((ctx.llm.listProviders?.() ?? []).map(provider => provider.id).filter(id => !owned.has(id)))
   function applyRoutes() {
     if (!supported()) return
-    const routes = [...found.keys(), ...customRouteId()]
-    // The initial registration needs at least one provider; an empty replace
-    // is legal and keeps the adapter registered with zero routes.
-    if (registration === undefined) {
-      if (routes.length === 0) return
-      registration = ctx.llm.registerAdapter(routes, adapter)
-    } else registration.replace(routes)
+    const wanted = [...found.keys(), ...customRouteId()]
+    const held = othersHold()
+    for (const route of wanted) {
+      if (held.has(route) && !taken.has(route)) console.warn(`ds-bot: local agent route "${route}" is already registered by another provider; skipping it`)
+    }
+    taken = new Set(wanted.filter(route => held.has(route)))
+    const routes = wanted.filter(route => !held.has(route))
+    try {
+      // The initial registration needs at least one provider; an empty replace
+      // is legal and keeps the adapter registered with zero routes.
+      if (registration === undefined) {
+        if (routes.length === 0) return
+        registration = ctx.llm.registerAdapter(routes, adapter)
+      } else registration.replace(routes)
+      owned = new Set(routes)
+    } catch (error) {
+      // A provider registered between the check and here; keep what we hold
+      // rather than take DSH down, and try again on the next scan.
+      if (error?.code !== 'DUPLICATE_ADAPTER') throw error
+      console.warn(`ds-bot: local agent routes not registered: ${error.message}`)
+    }
   }
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
@@ -128,7 +148,9 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // Helpers the rest of the host asks.
 
-  const isLocalAgentRef = ref => isLocalAgentRoute(splitRef(ref)?.provider ?? '')
+  // A taken route's models belong to the other provider, not to a local CLI.
+  const isOurRoute = route => isLocalAgentRoute(route) && !taken.has(route)
+  const isLocalAgentRef = ref => isOurRoute(splitRef(ref)?.provider ?? '')
   const localAgentOf = (bot) => {
     const ref = bot?.appliedModel ?? bot?.model
     return ref !== undefined && isLocalAgentRef(ref) ? ref : undefined
@@ -174,8 +196,8 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The Settings page's endpoints.
 
-  const detected = () => [...found.values()].map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn }))
-  const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id) }))
+  const detected = () => [...found.values()].map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, taken: taken.has(entry.route) }))
+  const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id), taken: taken.has(customRoute(agent.id)) }))
 
   async function localAgentsEndpoint(endpoint, body) {
     switch (endpoint) {
@@ -225,11 +247,11 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    isLocalAgentRoute, isLocalAgentRef, localAgentOf, isLocalAgentSession,
+    isLocalAgentRoute: isOurRoute, isLocalAgentRef, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint,
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
-      return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined
+      return provider !== undefined && isOurRoute(provider) ? provider : undefined
     },
   })
 }

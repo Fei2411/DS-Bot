@@ -265,6 +265,8 @@ var ZH = {
   "Sign in": "登录",
   Found: "已找到",
   "Not found": "未找到",
+  "Name in use": "名字已被占用",
+  "Another plugin already uses the name {route}, so Bots cannot run on this agent.": "另一个插件已经用了 {route} 这个名字，所以 Bot 不能用这个 Agent。",
   Arguments: "参数",
   Agent: "Agent",
   Sessions: "会话",
@@ -22963,14 +22965,14 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
         {
           key: agent.route,
           label: agent.name,
-          hint: [agent.path, agent.version].filter(Boolean).join(" · ")
+          hint: agent.taken ? t("Another plugin already uses the name {route}, so Bots cannot run on this agent.", { route: agent.route }) : [agent.path, agent.version].filter(Boolean).join(" · ")
         },
         (0, import_react53.createElement)(
           "div",
           { className: "bt-set-actions" },
-          agent.signIn ? (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: () => navigator.clipboard?.writeText(agent.signIn).catch(() => {
+          agent.signIn && !agent.taken ? (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: () => navigator.clipboard?.writeText(agent.signIn).catch(() => {
           }) }, t("Sign in")) : null,
-          (0, import_react53.createElement)("span", { className: "bt-tag" }, agent.path ? t("Found") : t("Not found"))
+          (0, import_react53.createElement)("span", { className: "bt-tag" }, agent.taken ? t("Name in use") : agent.path ? t("Found") : t("Not found"))
         )
       )),
       (0, import_react53.createElement)(
