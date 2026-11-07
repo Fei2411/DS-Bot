@@ -47,6 +47,7 @@ class ClaudeSession {
     this.events = []
     this.waiters = []
     this.dead = false
+    this.idWaiters = []
   }
 
   emit(event) {
@@ -106,6 +107,16 @@ class ClaudeSession {
         if (line !== '') this.onLine(line)
       }
     })
+    // Writing to a CLI that has already exited fails asynchronously on stdin,
+    // not on the child: without this listener the host dies with an unhandled
+    // stream error. The failure goes into the session queue instead.
+    child.stdin.on('error', (error) => {
+      this.dead = true
+      const failure = fail(`${this.engine.engine.name} stopped reading input: ${error.message}`)
+      this.rejectStart?.(failure)
+      this.rejectStart = undefined
+      this.emit({ type: 'error', error: failure })
+    })
     child.on('error', (error) => {
       this.dead = true
       const failure = fail(`${this.engine.engine.name} could not start: ${error.message}`)
@@ -115,6 +126,7 @@ class ClaudeSession {
     })
     child.on('exit', (code, signal) => {
       this.dead = true
+      for (const resolve of this.idWaiters.splice(0)) resolve(undefined)
       this.emit({ type: 'error', error: fail(`${this.engine.engine.name} exited ${signal === null ? `with code ${code}` : `on ${signal}`}`) })
     })
     // The CLI sends `system/init` only once the first message arrives on stdin,
@@ -135,6 +147,7 @@ class ClaudeSession {
       case 'system':
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
+          for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         }
         break
       case 'assistant': {
@@ -169,6 +182,14 @@ class ClaudeSession {
         break
       default: break
     }
+  }
+
+  // The CLI reports its session id with `system/init`, which arrives after
+  // start() resolved: callers that must persist it wait here.
+  whenSessionId() {
+    if (this.cliSessionId !== undefined) return Promise.resolve(this.cliSessionId)
+    if (this.dead) return Promise.resolve(undefined)
+    return new Promise(resolve => { this.idWaiters.push(resolve) })
   }
 
   prompt(blocks) {

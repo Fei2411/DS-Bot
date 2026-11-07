@@ -289,6 +289,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       })()
       if (live.spec.kind !== 'acp' && instructions !== undefined) live.promptHash = promptHash
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
+      // Claude reports its session id with `system/init`, after start() resolved:
+      // the record above has no id yet, so persist it when it lands or the next
+      // host has nothing to resume and the conversation starts over.
+      const pendingId = live.cliSessionId === undefined ? session.whenSessionId?.() : undefined
+      if (pendingId !== undefined) {
+        void pendingId.then((id) => {
+          if (id === undefined || live.dead) return
+          live.cliSessionId = id
+          this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: id, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
+        })
+      }
     }
 
     let promptText = fresh ? renderReplay(messages, system)

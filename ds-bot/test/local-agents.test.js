@@ -23,8 +23,8 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write' } = {}) {
-  const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude: FIXTURES.claude }
+function makeAdapter({ records = {}, preset = 'workspace-write', claude = FIXTURES.claude } = {}) {
+  const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
     rt: { warn: () => {} },
@@ -238,6 +238,44 @@ test('claude: a CLI that sends init only after the first prompt still starts', a
   }
   assert.deepEqual(seen, ['text', 'done'])
   assert.match(session.cliSessionId, /^claude-/)
+})
+
+// The id arrives with init, after the adapter has already saved its record: the
+// saved record is what a restarted host resumes from.
+test('claude: the session id from init is saved and the next host resumes it', async (t) => {
+  const records = {}
+  const lazy = FIXTURE('fake-claude-lazy-init.mjs')
+  const first = makeAdapter({ records, claude: lazy })
+  t.after(() => first.dispose())
+  const out = await collect(first.stream(options('s1', [user('m1', 'hello')], { provider: 'claude-code' })))
+  assert.match(out.text, /hello/)
+  assert.match(records.s1.cliSessionId, /^claude-/)
+  // A new adapter is a host restart: the saved record is all it has.
+  const second = makeAdapter({ records, claude: lazy })
+  t.after(() => second.dispose())
+  const resumed = await collect(second.stream(options('s1', [user('m2', 'again')], { provider: 'claude-code' })))
+  assert.match(resumed.text, new RegExp(`resume=${records.s1.cliSessionId}`))
+})
+
+// A write to a CLI that dies while it starts fails asynchronously on stdin; an
+// unhandled stream error takes the whole host down instead of failing one turn.
+test('claude: a prompt written as the CLI dies becomes a typed error', async (t) => {
+  const engine = new ClaudeEngine('claude-code', { name: 'Claude Code', kind: 'claude', command: process.execPath, args: [FIXTURE('fake-claude-dead.mjs')] }, { findExecutable: path => path })
+  t.after(() => engine.close())
+  const session = await engine.open('s-dead', { cwd: mkdtempSync(join(tmpdir(), 'dsb-cwd-')), mode: 'acceptEdits' })
+  // Larger than the pipe buffer and written while the CLI is still starting, so
+  // the write is pending when the process goes away.
+  await session.prompt([{ type: 'text', text: 'x'.repeat(200_000) }])
+  const failure = await Promise.race([
+    (async () => {
+      for (;;) {
+        const event = await session.next()
+        if (event.type === 'error' && /stopped reading input/.test(event.error.message)) return event
+      }
+    })(),
+    new Promise((_, reject) => { setTimeout(() => reject(new Error('the stdin failure never reached the queue')), 10_000).unref() }),
+  ])
+  assert.equal(failure.error.code, 'LOCAL_AGENT_EXIT')
 })
 
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {

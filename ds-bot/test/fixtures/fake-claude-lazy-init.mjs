@@ -1,6 +1,9 @@
 // A fake Claude Code 2.1.302 for tests: it sends the init system line only once
-// the first user message arrives, which is when the real CLI sends it too.
-const sessionId = `claude-${Math.random().toString(36).slice(2)}`
+// the first user message arrives, which is when the real CLI sends it too, and
+// it echoes the `--resume` id it was given so a resumed session is visible.
+const resumeAt = process.argv.indexOf('--resume')
+const resumed = resumeAt === -1 ? 'none' : process.argv[resumeAt + 1]
+const sessionId = resumed === 'none' ? `claude-${Math.random().toString(36).slice(2)}` : resumed
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
 
 let inited = false
@@ -21,7 +24,7 @@ process.stdin.on('data', (chunk) => {
       send({ type: 'system', subtype: 'init', session_id: sessionId })
     }
     const text = (message.message?.content ?? []).map(block => block.text ?? '').join('\n')
-    send({ type: 'assistant', message: { content: [{ type: 'text', text: `ok: ${text.slice(0, 60)}` }] } })
-    send({ type: 'result', subtype: 'success', session_id: sessionId, result: `ok: ${text.slice(0, 60)}`, usage: { input_tokens: 3, output_tokens: 1 } })
+    send({ type: 'assistant', message: { content: [{ type: 'text', text: `ok: ${text.slice(0, 60)} resume=${resumed}` }] } })
+    send({ type: 'result', subtype: 'success', session_id: sessionId, result: 'ok', usage: { input_tokens: 3, output_tokens: 1 } })
   }
 })
