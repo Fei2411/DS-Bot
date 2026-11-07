@@ -1,8 +1,7 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { spawn } from 'node:child_process'
-import { cleanEnv } from './discover.js'
+import { cleanEnv, spawnAgent } from './discover.js'
 
 export class ClaudeEngine {
   constructor(route, engine, { findExecutable }) {
@@ -78,7 +77,7 @@ class ClaudeSession {
         mcpServers: { dsbot: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } },
       }))
     }
-    const child = this.child = spawn(bin, args, {
+    const child = this.child = spawnAgent(bin, args, {
       env: cleanEnv(this.engine.env ?? {}),
       cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
