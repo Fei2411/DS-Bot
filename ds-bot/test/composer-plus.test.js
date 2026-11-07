@@ -24,7 +24,7 @@ const react = {
 }
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
-  module, exports: module.exports,
+  module, exports: module.exports, document: { body: {} },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
 const { ComposerPlus } = module.exports
@@ -39,6 +39,39 @@ function render(roster) {
   })
   return { tree, hooks }
 }
+
+// A group whose own Session moved to a fresh part (`room.sessionId`), with the Main
+// Bot as its admin so the goal entry is offered.
+const movedRoom = { id: 'g', sessionId: 'g-part2', name: 'Ops', members: ['a'], admin: 'a' }
+const movedRoster = { byId: { a: { id: 'a', name: 'Chief' } }, roomsById: { g: movedRoom, 'g-part2': movedRoom } }
+const hooksFor = (roster, actions) => ComposerPlus({
+  sessionId: 'g-part2', useRoster: select => select(roster),
+  useInput: select => select({ phase: 'plain', draft: '', attachmentIds: [], queue: [] }),
+  actions,
+})
+
+test('the + Set a goal entry stores the room id when the Session moved', () => {
+  const calls = []
+  const original = react.useState
+  // Seed the menu open; the test's real useState never re-renders.
+  react.useState = initial => [initial === null ? { files: false } : initial, () => {}]
+  try {
+    const tree = hooksFor(movedRoster, { canReferenceChat: () => false, composeGoal: id => calls.push(id) })
+    const items = []
+    const walk = (node) => {
+      if (node === null || typeof node !== 'object') return
+      if (Array.isArray(node)) { node.forEach(walk); return }
+      if (typeof node.type === 'function') { walk(node.type(node.props)); return }
+      if (node.props?.role === 'menuitem') items.push(node)
+      for (const child of node.children ?? []) walk(child)
+    }
+    walk(tree)
+    const entry = items.find(item => JSON.stringify(item).includes('Set a goal'))
+    assert.ok(entry)
+    entry.props.onClick()
+    assert.deepEqual(calls, ['g'])
+  } finally { react.useState = original }
+})
 
 test('the "+" calls the same hooks whether or not its roster knows the Bot yet', () => {
   const roster = { ready: false }
