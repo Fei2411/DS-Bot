@@ -417,6 +417,29 @@ async function waitForText(api, botId, text, timeoutMs = 60_000) {
   throw new Error(`the other client never showed "${text}" (last read: ${JSON.stringify(last)?.slice(0, 300)})`)
 }
 
+async function waitForBotPost(api, botId, pattern, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs
+  let posts = []
+  while (Date.now() < deadline) {
+    const page = await api('chat', { botId })
+    posts = (page?.items ?? []).filter(item => item.kind === 'bot').map(item => item.text)
+    const hit = posts.find(text => pattern.test(text))
+    if (hit !== undefined) return { sessionId: page.sessionId, hit, posts: posts.slice(-4) }
+    await sleep(400)
+  }
+  throw new Error(`the Bot never posted what ${pattern} matches (last posts: ${JSON.stringify(posts.slice(-3))})`)
+}
+
+// The Bot's own turn through the real device tools: the mock reads list_devices, picks
+// the first online machine and calls run_on_device, all inside the plugin's Session.
+async function botDeviceTurn({ url, botId }) {
+  const a = await login(url, 'client-device')
+  const api = client(webOrigin(url), a.cookie)
+  await settle(api).catch(() => {})
+  await api('send', { sessionId: botId, text: '看设备' })
+  return waitForBotPost(api, botId, /\[[^\]\n]+\] hostname — done, exit 0/)
+}
+
 async function settle(api, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs
   let quietSince = Date.now()
@@ -653,6 +676,12 @@ async function commandProve(options) {
 
     devices = await deviceProof({ ip, hubPort, strict: false })
     check('list -> auto-pick -> hostname runs through the hub', devices.ok, `${devices.picked.name}: ${devices.task.stdout || devices.task.state}`)
+
+    const turn = await botDeviceTurn({ url, botId: sync.bot.id })
+    const listed = turn.posts.find(text => text.includes('在线的有') && text.includes(devices.picked.name))
+    check('the live Bot saw the machine in list_devices and ran hostname', listed !== undefined && turn.hit.includes(devices.task.stdout),
+      `${listed ?? 'no list_devices answer'} / ${turn.hit.split('\n')[0]}`)
+
     if (!devices.windowsHostname) {
       windowsRemaining = `the stand-in worker runs on this Mac (${localHostname()}), so hostname is not DESKTOP-BNUICR3. Attach the Windows worker, then run: node dev/lan-sync-accept.mjs devices`
     }
@@ -667,6 +696,7 @@ async function commandProve(options) {
       profile: { path: PROFILE, plugin: PLUGIN, bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'ds-bot'], multiDevice: { host: '0.0.0.0', port: hubPort, dataDir: DATA } },
       sync,
       devices: { ...devices, simulated: !devices.windowsHostname },
+      botDevice: turn,
       checks,
       windowsRemaining: windowsRemaining ?? null,
       ok: checks.every(entry => entry.ok),

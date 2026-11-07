@@ -23,6 +23,7 @@
 //   In a message from a Bot: 转告 名: 消息 (hands it on with message_bot) · 慢慢做 N (answers after N seconds)
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
 //   查记录 词 [词…] · 查锚点 part N #序号 · 查第 N 段 (read_own_chat)
+//   看设备 (list_devices, then run_on_device hostname on the first online machine)
 //   上下文里有 词 (searches the context except the last message) · 撑爆 (fake overflow, 400)
 //   报错 (fake rejected key, 401; also as the text of 转告, so the receiving Bot fails)
 //   卡片 K (K×1000 characters, then a question card) · 笔记模式 截断一次|缺节一次|总截断|总缺节|失败|正常
@@ -248,6 +249,13 @@ function decide(body) {
         return [text(picked ? `好，就从「${picked}」开始。` : '好的。'), text('我先把要点理一下，稍后给你一个方案。')]
       }
       case 'list_bots': return [text(`现在的班底：\n${resultText}`)]
+      // "看设备": the first online machine from list_devices is the one the Bot picks.
+      case 'list_devices': {
+        const node = /^- (\S+) \(online\)/m.exec(resultText)?.[1]
+        if (node === undefined) return [text(resultText)]
+        return [text(`在线的有 ${node}，我跑一下 hostname。`), tool('run_on_device', { node, argv: ['hostname'], waitMs: 30000 })]
+      }
+      case 'run_on_device': return [text(resultText)]
       case 'cua': return [text(`cua 结果：${resultText.slice(0, 400)}`)]
       case 'create_group':
       case 'update_group':
@@ -285,6 +293,9 @@ function decide(body) {
   }
 
   const userText = textOf(last?.content).trim()
+  // "看设备": the Bot lists its paired machines, then runs hostname on the first online
+  // one. The LAN acceptance script reads both answers back from the chat.
+  if (/^看设备$/.test(userText) && tools.has('list_devices')) return [tool('list_devices', {})]
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
   // A file in the message (a long Bot message, a file the user sent): DSH gives its saved

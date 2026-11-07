@@ -241,9 +241,9 @@ node dev/lan-sync-accept.mjs status | stop
 - 用 `--patch` 覆盖 `bot` 行，把 `multiDevice` 打开（`0.0.0.0` + 临时端口，`dataDir` 在同一个 home 里），所以 Hub 真的跑在 dsh 进程里，不是另起的 CLI。
 - 用 `dev/mock-llm.mjs` 当模型，选 `deepseek-official/*` 路由（不能选本机 local agent 的路由，否则回合会卡在登录上）。用户消息照常落进 Session，Bot 回复是 mock。
 - 客户端 A 登录后给 Chief 发一条带时间戳的独特消息；客户端 B 用**自己的**登录换 cookie，再读同一个 Bot 的会话，断言读到完全相同的文本；然后 B 发、A 读，反向再验一次。
-- 设备路径：临时 home 里的 Hub 发一个配对码，脚本在本机起一个 `cli.js worker`（名字 `windows-pc`）当替身，证明配对、上线、列表、自动选机、`hostname` 派单这条链是通的。替身跑在 Mac 上，所以 `hostname` 不是 `DESKTOP-BNUICR3`；脚本会在报告里把这一步标成 `simulated` 并留下待办，不伪造绿色。
+- 设备路径：临时 home 里的 Hub 发一个配对码，脚本在本机起一个 `cli.js worker`（名字 `windows-pc`）当替身，证明配对、上线、列表、自动选机、`hostname` 派单这条链是通的。随后让 Chief 自己跑一轮：发 `看设备`，mock 模型按 `list_devices` 的返回调用 `run_on_device`，报告里的 `botDevice` 就是这轮的两条回复。替身跑在 Mac 上，所以 `hostname` 不是 `DESKTOP-BNUICR3`；脚本会在报告里把这一步标成 `simulated` 并留下待办，不伪造绿色。
 
-证据写到 `/tmp/dsbot-966-sync-accept-report.json`（`--out` 可改）。里面有：`origin`（不带 token）、`sync.sessionId`、两个方向的消息文本与读回时间、双方 read-back 片段、cookie 的 SHA-256 前缀（不存 cookie 值）、`devices.nodes`（名字、在线、OS、主机名）、自动选中的节点、`hostname` 的 stdout/退出码、逐项 `checks` 和 `windowsRemaining`。启动地址带进程 token，只写进 `<home>/login-url.txt`（0600），不打印、不进报告。
+证据写到 `/tmp/dsbot-966-sync-accept-report.json`（`--out` 可改）。里面有：`origin`（不带 token）、`sync.sessionId`、两个方向的消息文本与读回时间、双方 read-back 片段、cookie 的 SHA-256 前缀（不存 cookie 值）、`devices.nodes`（名字、在线、OS、主机名）、自动选中的节点、`hostname` 的 stdout/退出码、Bot 自己那轮的两次回复（`botDevice.posts` / `botDevice.hit`）、逐项 `checks` 和 `windowsRemaining`。启动地址带进程 token，只写进 `<home>/login-url.txt`（0600），不打印、不进报告。
 
 ### 还需要 Windows 的部分
 
