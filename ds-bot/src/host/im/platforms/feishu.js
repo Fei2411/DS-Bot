@@ -122,7 +122,8 @@ export default {
   id: 'feishu',
 
   async check(fields, env) {
-    const token = await tenantToken(fields, env)
+    const got = await tenantToken(fields, env)
+    const token = got.token
     const me = await api(env, apiBase(env, fields), token, '/open-apis/bot/v3/info', { method: 'GET' })
     const bot = me?.bot ?? me
     return { account: { id: String(bot?.open_id ?? bot?.app_id ?? fields.appId), name: bot?.app_name ?? String(fields.appId) } }
@@ -198,14 +199,22 @@ export default {
       const gen = generation
       let url
       try {
-        const answer = await env.fetch(`${apiBase(env, fields)}/open-apis/bot/v2/endpoint`, {
+        if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
+          const got = await tenantToken({ appId, appSecret }, env)
+          token = got.token
+          tokenExpiresAt = got.expiresAt
+        }
+        const answer = await env.fetch(`${apiBase(env, fields)}/callback/ws/endpoint`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ appId, appSecret }),
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          body: JSON.stringify({ AppID: appId, AppSecret: appSecret }),
         })
         const body = await answer.json().catch(() => ({}))
         url = body.data?.URL
-        if (url === undefined) throw new Error(body.msg ?? 'Feishu refused the connection')
+        if (url === undefined) throw new Error(`${body.msg ?? 'Feishu refused the connection'} (code ${body.code ?? '?'})`)
+        // The server drives ping/pong on this socket (see the message listener),
+        // so ClientConfig is informational; log it in case keepalive needs tuning.
+        env.log?.debug?.('ds-bot im: feishu ws ClientConfig %j', body.data?.ClientConfig ?? {})
       } catch (error) {
         handlers.onStatus({ state: 'error', error: error.message })
         return
