@@ -91,7 +91,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       models = []
     }
     const value = [...fallback, ...(models ?? []).filter(model => model.id !== 'default')
-      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id }))]
+      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) }))]
     this.modelCache.set(route, value)
     return value
   }
@@ -110,6 +110,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       name: listed?.name ?? model,
       inputModalities: ['text', 'image'],
       context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
+      // The thinking levels the engine advertises for this model, if any.
+      ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
     }
   }
 
@@ -307,13 +309,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
     if (promptText !== '') {
-      this.sendInput(live, promptText, options.signal)
+      this.sendInput(live, promptText, options.signal, options.reasoningEffort)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
     }
     if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
-      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal)
+      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
 
@@ -333,7 +335,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // ends, inside the same stream). The prompt request itself stays open for
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
-  sendInput(live, text, signal) {
+  sendInput(live, text, signal, effort) {
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp') { live.queue.push(text); return }
       try {
@@ -346,7 +348,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     live.state = 'running'
     try {
-      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal }))
+      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
         .catch(error => live.push({ type: 'error', error }))
     } catch (error) {
       live.push({ type: 'error', error })
@@ -450,7 +452,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            this.sendInput(live, next, options.signal)
+            this.sendInput(live, next, options.signal, options.reasoningEffort)
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }
