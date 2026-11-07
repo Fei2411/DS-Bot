@@ -4,6 +4,14 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-07
+
+### Fixed
+
+- On Windows, Computer use turns on again; the provider failed to load with "os error 126". ([#1025](https://github.com/Fei2411/DS-Bot/issues/1025), [#1035](https://github.com/Fei2411/DS-Bot/pull/1035))
+- On Windows, Bots that run on an agent CLI installed with npm or pnpm (OpenCode, Claude Code, Codex and others) start again instead of stopping with `spawn EINVAL`, and Settings → Local agents shows their version. ([#1033](https://github.com/Fei2411/DS-Bot/issues/1033), [#1036](https://github.com/Fei2411/DS-Bot/pull/1036))
+- Browser plugin tools such as `browser_exec` start in the desktop app; they failed with "Cannot find package 'playwright'". ([#1034](https://github.com/Fei2411/DS-Bot/issues/1034), [#1037](https://github.com/Fei2411/DS-Bot/pull/1037))
+
 ## [0.3.1] - 2026-11-07
 
 ### Fixed
