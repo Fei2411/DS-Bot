@@ -19,7 +19,7 @@ CEO 的定调：Mac 是**中心**，也是会话的**唯一写者**；其他机�
 1. **Hub 会话端点。** 新增 `GET /session/bots`、`GET /session`（按 `epoch`+`revision` 拉快照、可长轮询）、`POST /session`（推一条用户消息，`messageId` 去重）。设备令牌鉴权，和任务流共用。
 2. **中心侧单一写者。** 快照由插件读当前 Bot 的 chat part 生成；节点消息经 `rt.sendUser` 写进 Session。版本号是 Hub 进程内的单调计数器，`epoch` 区分 Hub 运行。
 3. **节点侧同步循环。** Worker 在 SSE 连上后跟随主 Bot（`--sync main`，可换 Bot）：长轮询、原子写 `sync/<botId>.json` 只读副本、断线退避、重启按游标补拉；`lan:say` 从节点发一条消息。
-4. **配对即生效。** `lan:worker` 和守护安装命令默认带 `--sync main`；不同步可用 `--no-sync`。Devices 状态的 `sync` 字段给出当前版本、被订阅的 Bot 数和等待中的轮询数。
+4. **配对即生效。** `lan:worker` 和守护安装命令默认带 `--sync main`；不同步可用 `--no-sync`。Devices 状态的 `sync` 字段给出当前版本、已有快照的 Bot 数和等待中的轮询数。
 5. **验收。** `dev/lan-sync-accept.mjs sync` 用两个配对节点进程证明中心→节点、节点→中心、第二节点追上、断线重连补齐，证据不含令牌或配对码。
 
 ## v2 做了什么（六条）
