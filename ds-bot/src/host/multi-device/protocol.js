@@ -52,7 +52,11 @@ export function isText(buffer) {
   if (sample.includes(0)) return false
   const text = sample.toString('utf8')
   if (text.includes('\uFFFD')) return false
-  return !/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)
+  for (const char of text) {
+    const code = char.codePointAt(0)
+    if (code === 0x7f || (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d)) return false
+  }
+  return true
 }
 
 export function encodeContent(buffer, requested = 'auto') {
