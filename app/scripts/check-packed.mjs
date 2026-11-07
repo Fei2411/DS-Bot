@@ -337,13 +337,17 @@ function devtools(url, problems) {
   return { opened, call, close: () => { socket.close() } }
 }
 
-// mica.css styles DSH's own page, which can change with a DSH upgrade; every rule must still
-// find an element, on every platform, so the change shows here and not as a broken window.
-function micaRules() {
-  const css = readFileSync(join(root, 'src', 'mica.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+// material.css and macos.css style DSH's own page, which can change with a DSH upgrade; every
+// rule must still find an element, on every platform, so the change shows here and not as a
+// broken window. The page is not in fullscreen here, so a rule's html:not([data-fullscreen])
+// is dropped before the look. DSH draws its session tree only in the classic Agent view, which
+// the check does not open, so the rules for the tree are not looked for.
+const frameSheets = ['material.css', 'macos.css']
+function frameRules(file) {
+  const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
-    .map(selector => selector.trim().replace(/::(?:before|after)$/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body'))
+    .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
+    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody')))
     .filter(rule => rule.length > 0)
 }
 
@@ -363,8 +367,10 @@ async function chat(cdp) {
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
   await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
-  const stale = await evaluate(`${JSON.stringify(micaRules())}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
-  if (stale.length > 0) throw new Error(`src/mica.css no longer matches DSH's page: ${stale.join(' | ')}`)
+  for (const file of frameSheets) {
+    const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
+    if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)
+  }
   await dismissNotice()
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)

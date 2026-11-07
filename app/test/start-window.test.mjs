@@ -297,7 +297,7 @@ function startWindow(t) {
   const main = new fake.electron.BrowserWindow({ show: false })
   const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [], saveAs: [], saveTo: undefined }
   const start = new StartWindow({
-    electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', mica: false, devTools: false,
+    electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', devTools: false,
     lang: () => 'en', motion: 'normal', version: '0.0.0', program: [], log: { dir: 'logs', tail: () => ['a log line'] },
     mainWindow: () => main,
     onRetry: () => { calls.retry += 1 }, onReload: () => { calls.reload += 1 }, onClose: () => { calls.close += 1 },
