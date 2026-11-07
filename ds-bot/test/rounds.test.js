@@ -1031,6 +1031,7 @@ test('a group stops answering its own status posts once the idle steps reach the
   t.after(stop)
   const room = await team(call, sent)
   const chief = rt.state.mainBotIds[0]
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
   const state = () => rt.state.rooms[room.id]
   const posted = async (message, callId) => {
     sent.length = 0
@@ -1077,11 +1078,19 @@ test('a group stops answering its own status posts once the idle steps reach the
   // The user's message opens the round and lifts the pause.
   await emit(room.id, userMessage('@Chief 我们接着做'))
   const resumed = relay(room.id, 'relay-8')
-  const next = await turnFor(sent)
-  assert.equal(next.sessionId, state().sessions[chief], 'the user reaches the admin')
+  const answered = []
+  for (let n = 0; n < 3; n += 1) {
+    const turn = await turnFor(sent, ...answered)
+    if (turn === undefined) break
+    answered.push(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `好，先从第 ${n + 1} 段日志看起`, 9 + n)
+    await settle()
+  }
+  const sessions = answered.map(turn => turn.sessionId)
+  assert.ok(sessions.includes(state().sessions[chief]), 'the user reaches the admin')
+  assert.ok(sessions.includes(state().sessions[writer.id]), 'the held call runs after the user writes')
   assert.equal(state().idlePaused, undefined)
   assert.equal(state().idleRelays, undefined)
-  await answer(next.sessionId, next.message.source.exchangeId, '好，先从日志看起', 9)
   await resumed
 })
 
@@ -1162,6 +1171,72 @@ test('a paused group holds idle calls, lets new work through, and only the user 
   await resumed
 })
 
+// #853: an admin's "@all" is a call to every member. A paused room holds all of them,
+// not none: each waits in the park list and runs when the user writes.
+test('a paused group parks every member an @all called, in a new round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R3', message: '@all 待命' }, { agent: { id: rt.chatOf(chief) } })
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  const held = relay(room.id, 'relay-1')
+  await settle()
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'a paused room opens no round')
+  assert.deepEqual((state().paused ?? []).map(entry => [entry.name, entry.note, entry.idle]), [
+    ['Writer', 'Chief called everyone', true],
+    ['Tester', 'Chief called everyone', true],
+  ], 'every member @all called waits for the user')
+  await held
+
+  // The user's message brings them back.
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer 继续'))
+  const resumed = relay(room.id, 'relay-2')
+  const answered = []
+  for (let n = 0; n < 4; n += 1) {
+    const turn = await turnFor(sent, ...answered)
+    if (turn === undefined) break
+    answered.push(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `继续第 ${n + 1} 步`, n + 1)
+    await settle()
+  }
+  assert.equal(state().paused, undefined)
+  assert.ok(answered.length >= 1)
+  await resumed
+})
+
+// #853: the same for a running round: an "@all" that lands while a member works is held
+// whole, so no member of it is dropped.
+test('a paused group parks every member an @all called, in a running round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+
+  await emit(room.id, userMessage('@Writer 开始吧'))
+  const running = relay(room.id, 'relay-1')
+  const first = await turnFor(sent)
+  assert.ok(first, 'the member the user called starts')
+  // The room reaches its limit while this round runs: what lands now is held, not lost.
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R3', message: '@all 待命' }, { agent: { id: rt.chatOf(chief) } })
+  assert.match(posted, /^Posted in "R3"/)
+  const parked = (state().paused ?? []).map(entry => entry.name).sort()
+  assert.deepEqual(parked, ['Tester', 'Writer'], 'the running round parks every member @all called')
+  await answer(first.sessionId, first.message.source.exchangeId, '第一部分看完了', 1)
+  await running
+})
+
 // #853: a post that lands in a running round is answered in that round, whether or not
 // the room is paused: new work is never dropped on the floor.
 test('a post with new work that lands in a running round is answered in that round', async (t) => {
@@ -1192,12 +1267,17 @@ test('a post with new work that lands in a running round is answered in that rou
 // #853: the guard reads status posts, not ordinary talk about work.
 test('the idle guard reads status posts and not ordinary work', () => {
   const everyone = [{ id: 'a', name: 'Chief' }, { id: 'b', name: 'Writer' }]
-  const idle = ['待命', '暂无待办', '静候下一步', '收到，待命', '目前没有新进展', '收口无待办', '保持待命', '暂无待办，静候下一步']
+  const idle = [
+    '待命', '暂无待办', '静候下一步', '收到，待命', '收口无待办', '保持待命', '暂无待办，静候下一步',
+    '目前没有新进展', '今日无任务', '当前无任务',
+  ]
   for (const text of idle) assert.equal(isIdleRelayText(text, everyone, []), true, `should count: ${text}`)
+  // A time word on its own does not make a status post: "当前任务 / 目前任务 / 今天任务" are
+  // talk about the work in hand.
   const work = [
-    '任务：修两个 502', '任务', '变化', '安排', '进展', '动作', '待', '静', '待我确认', '静态资源缺失',
-    '安排在周三上线', '进展：接口改完', '动作序列有误', '正在核对 09:31 之后的日志', '已完成登录接口改造',
-    '@Chief 这段日志也看一下',
+    '当前任务：修 502', '目前任务已完成', '今天任务很多', '任务', '变化', '安排', '进展', '动作', '待', '静',
+    '待我确认', '静态资源缺失', '安排在周三上线', '进展：接口改完', '动作序列有误',
+    '正在核对 09:31 之后的日志', '已完成登录接口改造', '@Chief 这段日志也看一下',
   ]
   for (const text of work) assert.equal(isIdleRelayText(text, everyone, []), false, `should not count: ${text}`)
 })

@@ -42,7 +42,7 @@ const IDLE_ACK_WORDS = "收到|好的|好|明白|明白了|了解|了解了|没�
 // A noun needs its "nothing there" prefix: "任务", "变化" or "安排" alone is ordinary
 // talk about work, and matching it would stop a group that is working.
 const IDLE_STATUS_WORDS = [
-  '(?:收口)?(?:(?:暂无|没有|无|当前|目前|今日|今天)+)(?:待办|任务|新进展|新内容|进展|动作|变化|安排)',
+  '(?:收口)?(?:当前|目前|今日|今天)*(?:暂无|没有|无)+(?:待办|任务|新进展|新内容|进展|动作|变化|安排)',
   '待命', '保持待命', '继续待命', '原地待命', '静候', '静候下一步', '静候指令', '等候指令',
   '等待指令', '等待指示', '等待下一步', '等待安排', '等待新任务', '无事可做', '空转',
   'standby', 'standing\\s+by', 'idle', 'nothing\\s+(?:pending|to\\s+do|new)',
@@ -726,18 +726,19 @@ export function install(rt) {
     if (room.idlePaused !== undefined) delete room.idlePaused
   }
   // Whether an idle step must wait for the user: the room is paused, or this step reaches
-  // the limit. The steps this holds wait in `room.paused` and run after the user's
-  // message, so a step is held back, never dropped. Only a call that names a member is
-  // parked: an automatic call names nobody, and the post stays in the group for the
-  // members' next turns. The group hears about the pause once.
-  function holdIdleCalls(room, round, member, callees, named) {
+  // the limit. Every call it would have made waits in `room.paused` and runs after the
+  // user's message, so a call is held back, never dropped: the members it named, the
+  // members a "@all" called, and the members an automatic round would have called. The
+  // group hears about the pause once.
+  function holdIdleCalls(room, round, member, callees, { named = [], all = false } = {}) {
     if (room.idlePaused === undefined && (room.idleRelays ?? 0) < ROOM_IDLE_RELAY_LIMIT) return false
     if (room.idlePaused === undefined) room.idlePaused = { from: member.id, count: room.idleRelays ?? ROOM_IDLE_RELAY_LIMIT, noticed: false }
-    const held = callees.filter(peer => named.includes(peer))
-    if (held.length > 0) {
+    if (callees.length > 0) {
       const parked = room.paused ?? []
-      for (const peer of held) {
-        if (!parked.some(entry => entry.id === peer.id)) parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id, idle: true })
+      for (const peer of callees) {
+        if (parked.some(entry => entry.id === peer.id)) continue
+        const note = named.includes(peer) ? `${member.name} mentioned you` : all ? `${member.name} called everyone` : `${member.name} posted in the group`
+        parked.push({ id: peer.id, name: peer.name, note, by: member.id, idle: true })
       }
       room.paused = parked
     }
@@ -782,7 +783,7 @@ export function install(rt) {
       if (norm !== '') (round.botBodies ??= new Map()).set(member.id, [...(round.botBodies?.get(member.id) ?? []), norm])
     }
     for (const peer of callees) called.add(peer.id)
-    if (byBot && idleStep && holdIdleCalls(room, round, member, callees, named)) return
+    if (byBot && idleStep && holdIdleCalls(room, round, member, callees, { named, all })) return
     if (callees.length === 0) return
     callIn(round, callees, `${member.name} mentioned you`, member.id)
     // An @Name from the admin hands the member its goal task.
@@ -1069,7 +1070,7 @@ export function install(rt) {
       // A status post of its own is not an idle step: what its members answer is. A post
       // with work in it clears the streak, and a paused room holds the post back.
       if (!idlePost && poster !== undefined && !event(opener) && opener.quiet !== true) clearIdleStreak(room)
-      if (holdsPost) holdIdleCalls(room, round, poster, opened.speakers, named)
+      if (holdsPost) holdIdleCalls(room, round, poster, opened.speakers, { named, all: (mentionsOf(opener, everyone) ?? mentionsIn(opener.text ?? '', everyone)).all === true })
       // The group transcript hides the goal trigger, so the user sees their request as a reply.
       for (const post of posts.filter(item => item.goal === 'draft' && item.logged === undefined)) {
         round.replies.push({ kind: 'user', text: post.text, time: Date.now() })
@@ -1261,7 +1262,7 @@ export function install(rt) {
     const idlePost = !extra.done && extra.progress !== true && extra.late !== true && isIdleRelayText(text, everyone, [])
     if (!idlePost) clearIdleStreak(room)
     const opened = openingCall(room, post)
-    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, named)) return true
+    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, { named, all: (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).all === true })) return true
     const { speakers, ordered } = opened
     if (speakers.length === 0) return false
     const by = speakers.filter(peer => named.includes(peer))
