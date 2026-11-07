@@ -758,6 +758,8 @@ export function install(rt) {
           queueRoomMessage(rt.roomOf(id).id, {
             text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
+            // The files the member presented in its own group Session (#975).
+            ...(Array.isArray(source.presented) ? { presented: source.presented } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,

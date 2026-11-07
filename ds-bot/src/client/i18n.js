@@ -703,6 +703,7 @@ const ZH = {
   'Load earlier': '加载更早的消息',
   '1 image': '1 张图片',
   '{count} images': '{count} 张图片',
+  'Open {name}': '打开 {name}',
   'Replies from': '群聊回复：',
   'Reply from': '收到回复：',
   'Message from': '收到消息：',

@@ -18,13 +18,13 @@ import { t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
-import { parseReplies, stackReplies } from '../shared/group-replies.js'
+import { parseReplies, presentedFiles, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
 import { heldCardKey } from './sources.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
-import { ViaTag } from './user-message.js'
+import { PresentedFiles, ViaTag } from './user-message.js'
 import { layoutOf, thinkingShown } from './themes.js'
 
 export { clockLabel }
@@ -365,8 +365,9 @@ function scheduleGroupChains(flow) {
 
 // One Bot message inside a group chat: avatar, name (with its group role), when it ran
 // and how long it took, bubble. The flat layout moves the avatar from beside the last
-// bubble to the head of the name row, so the text below runs the whole width.
-function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi, whole, time, duration }) {
+// bubble to the head of the name row, so the text below runs the whole width. The files
+// the Bot presented sit under its bubbles as cards.
+function GroupMessage({ bot, text, texts = [text], files = [], openFile, room, roster, actions, msgKey, useUi, whole, time, duration }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -385,7 +386,8 @@ function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
       took ? h('span', { className: 'bt-group-took', title: t('Ran for {duration}', { duration: took }) }, took) : null),
-    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead: flat ? null : lead, whole }))
+    h(Bubbles, { texts: texts.filter(entry => entry !== ''), roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead: flat ? null : lead, whole }),
+    h(PresentedFiles, { files, openFile }))
 }
 
 // A centered event line that names a group chat and opens it.
@@ -613,7 +615,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       // A member's message in a group's earlier part, as the live row shows it.
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
       return h(GroupMessage, {
-        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, room: roster.roomsById[sessionId], roster, actions,
+        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.files, room: roster.roomsById[sessionId], roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
       })
@@ -635,7 +637,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
   }
 }
 
-export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, useUi, actions }) {
+export function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
   const roster = useRoster(value => value)
   const data = node.data
   const source = data.source !== null && typeof data.source === 'object' ? data.source : {}
@@ -697,7 +699,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         const text = stripHeader(contentText(data.content))
         // A trigger's data carries no turn; its event seq is the one durable name of this post.
         return h(GroupMessage, {
-          bot: poster, text: file ? stripLongNote(text) : text, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
+          bot: poster, text: file ? stripLongNote(text) : text, files: presentedFiles(source.presented), openFile, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })
       }
@@ -963,7 +965,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   return null
 }
 
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork, openFile }) {
   const [live, setLive] = useState({ replies: [], speaking: [] })
   useEffect(() => {
     if (done) return undefined
@@ -1002,7 +1004,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
-    stackReplies(replies).map(({ reply, index, texts, time, duration }) => {
+    stackReplies(replies).map(({ reply, index, texts, files, time, duration }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
         return h('div', { key: `user-${index}`, className: 'bt-urow' },
@@ -1016,7 +1018,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },
           h('span', { className: 'bt-event-ico', 'aria-hidden': true }, h(GoalIcon)), goalEventText(reply))
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, files, openFile, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration })
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id]
@@ -1062,7 +1064,7 @@ function useShownCards(actions, sessionId, callIds) {
   }, [sessionId, key])
 }
 
-function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks }) {
+function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks, openFile }) {
   const tool = toolName(call)
   const done = call.kind === 'tool-result'
   const { text: arg, value: argValue } = toolArgs(call)
@@ -1088,7 +1090,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       return done && target ? h(EventLine, { prefix: t('Updated'), bots: [target], onOpen: bot => actions.openSession(bot.id) }) : h(CellEmpty)
     }
     case 'group_relay':
-      return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useUi, useWork })
+      return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useUi, useWork, openFile })
     case 'create_group':
     case 'update_group':
     case 'delete_group':
@@ -1160,7 +1162,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
   }
 }
 
-export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+export function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRoster(value => value)
   const heldCards = useHeldCards?.(state => state[sessionId])
   const root = node.data.root
@@ -1176,6 +1178,6 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
   useShownCards(actions, sessionId, drawn.filter(call => (CARDS.has(toolName(call)) || isComputerCall(toolName(call))) && call.callId).map(call => call.callId))
   if (drawn.length === 0) return h(CellEmpty)
-  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
+  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, openFile, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
   return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }

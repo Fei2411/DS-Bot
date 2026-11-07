@@ -73,6 +73,24 @@ function Attachments({ attachments, renderMessageImages }) {
   }))
 }
 
+// The files a Bot presented in a group, as cards like the files the user sends. A card
+// opens its file in the side panel, as DSH's own delivery cards do (#975); where the
+// view has no opener (an earlier part), it only names the file.
+export function PresentedFiles({ files, openFile }) {
+  if (!files?.length) return null
+  return h('div', { className: 'bt-pfiles' }, files.map((file) => {
+    const name = file.path.split(/[\\/]/).filter(Boolean).at(-1) ?? file.path
+    const meta = file.description ?? ui.fileExtension?.(name)?.toUpperCase().slice(0, 8)
+    const body = [
+      ui.FileTypeIcon ? h(ui.FileTypeIcon, { key: 'icon', path: name, className: 'bt-ufile-icon' }) : null,
+      h('span', { key: 'text', className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, name), meta ? h('span', { className: 'bt-ufile-meta' }, meta) : null),
+    ]
+    if (typeof openFile !== 'function') return h('span', { key: file.path, className: 'bt-ufile', title: file.path }, body)
+    const open = () => { void Promise.resolve(openFile(file.path)).catch(() => {}) }
+    return h('button', { key: file.path, type: 'button', className: 'bt-ufile bt-pfile', title: file.path, 'aria-label': t('Open {name}', { name }), onClick: open }, body)
+  }))
+}
+
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
@@ -139,6 +157,11 @@ export const USER_MESSAGE_CSS = `
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-ufile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-pfiles{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
+.bt-pfile{font:inherit;color:inherit;text-align:start;cursor:pointer;transition:background-color .12s ease}
+.bt-pfile:hover{background:var(--bt-hover)}
+.bt-pfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-urefs{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}

@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
-import { parseReplies, stackReplies } from '../shared/group-replies.js'
+import { parseReplies, presentedFiles, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
@@ -1463,13 +1463,13 @@ export function install(rt) {
         const message = event.data?.message
         if (!relayCalls.has(message?.toolCallId)) continue
         const { replies } = parseReplies(textOf(message?.content))
-        for (const { reply, texts, time, duration } of stackReplies(replies)) {
+        for (const { reply, texts, files, time, duration } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(files.length > 0 ? { files } : {}), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -1492,12 +1492,14 @@ export function install(rt) {
         // messages. A post past what a message holds came as a file, with its start.
         const content = Array.isArray(event.data.content) ? event.data.content : []
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        const files = presentedFiles(source.presented)
         stamp(event, {
           kind: 'post',
           botId: source.senderSessionId ?? null,
           name: source.senderName ?? null,
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
+          ...(files.length > 0 ? { files } : {}),
           time: event.time,
         })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
