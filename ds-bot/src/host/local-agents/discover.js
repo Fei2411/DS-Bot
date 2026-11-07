@@ -20,6 +20,10 @@ export function cleanEnv(extra = {}) {
     if (DROP_EXACT.has(key) || DROP_PREFIX.some(prefix => key.startsWith(prefix))) continue
     env[key] = value
   }
+  // A CLI found outside our sparse PATH (a script with `#!/usr/bin/env node`)
+  // needs the same folders to find its interpreter. Windows spells it `Path`.
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH'
+  env[pathKey] = searchDirs().join(delimiter)
   return { ...env, ...extra }
 }
 
