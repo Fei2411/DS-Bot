@@ -69,29 +69,153 @@ export function install(rt) {
     return workspace.id
   }
 
-  // Under the PTC preset (DSH Desktop's default) a model may call only run_code, which
-  // turns down the group_relay call that a group chat's Session is given. A Session
-  // keeps the preset it is made with.
-  async function botPreset() {
+  // Agent presets: the roster the running DSH serves, as the Bot settings list it. A
+  // Bot's own pick is checked against it; a Bot without one keeps DS Bot's standard
+  // default, and no usable standard leaves the choice to DSH.
+  const cleanPreset = (value) => {
+    if (value === undefined) return undefined
+    if (value === null) return null
+    if (typeof value !== 'string') throw new Error('An agent preset must be named by its id')
+    const id = value.trim()
+    return id === '' ? null : id
+  }
+  async function agentPresetRows({ fit = false } = {}) {
     const presets = ctx.get?.('agentPresets')
-    if (presets === undefined) return {}
-    const standard = (await presets.list()).some(preset => preset.id === 'standard' && preset.broken === undefined)
-    return standard ? { agentPreset: 'standard' } : {}
+    if (presets === undefined) return []
+    const rows = (await presets.list())
+      .filter(row => typeof row?.id === 'string' && row.id !== '')
+      .map(row => ({
+        id: row.id,
+        ...(typeof row.name === 'string' && row.name !== '' ? { name: row.name } : {}),
+        ...(typeof row.description === 'string' && row.description !== '' ? { description: row.description } : {}),
+        ...(row.broken === undefined ? {} : { broken: String(row.broken) }),
+      }))
+    if (!fit) return rows
+    return Promise.all(rows.map(async (row) => {
+      if (row.broken !== undefined) return row
+      const checked = await presetFits(row.id)
+      return checked.fits ? row : { ...row, broken: checked.reason }
+    }))
+  }
+  // A preset DS Bot can run keeps the Bot's own prompt. A composition whose persona is
+  // complete replaces every global section — the Bot's identity, its instructions and
+  // the Main Bot rules included — so DS Bot does not offer it. The check goes through
+  // the public registry and prompt services and reads no declaration; a DSH without
+  // them cannot answer, and that baseline is left as it was.
+  const BOT_IDENTITY_SECTION = 'bot-identity'
+  async function presetFits(id) {
+    const presets = ctx.get?.('agentPresets')
+    const prompt = ctx.get?.('systemPrompt')
+    if (typeof presets?.acquireScope !== 'function' || typeof prompt?.assemble !== 'function') return { fits: true, unverified: true }
+    let lease
+    try {
+      lease = await presets.acquireScope(id)
+      const assembly = await prompt.assemble({ scope: lease.key })
+      return (assembly?.sections ?? []).some(section => section?.name === BOT_IDENTITY_SECTION)
+        ? { fits: true }
+        : { fits: false, reason: 'DS Bot needs the Bot\'s own prompt, which this preset replaces' }
+    } catch (error) {
+      // The probe exists but failed: the preset cannot be verified, so it is refused
+      // rather than offered and possibly replacing the Bot's own prompt.
+      rt.warn('ds-bot: the agent preset "%s" could not be checked for a Bot: %s', id, error?.message ?? error)
+      return { fits: false, reason: 'DS Bot could not verify that it keeps the Bot\'s own prompt' }
+    } finally {
+      try {
+        await lease?.[Symbol.asyncDispose]?.()
+      } catch (error) {
+        rt.warn('ds-bot: the agent preset scope of "%s" was not released: %s', id, error?.message ?? error)
+      }
+    }
+  }
+  // What a Bot's Sessions run, resolved once for every path: its own pick, the standard
+  // default when DSH serves it, or the profile's default when it does not. `undefined`
+  // when DSH decides (no roster, or a default that cannot be checked): the baseline.
+  // `usable: false` carries the user-facing reason a part must not be made on it.
+  async function effectivePreset(wanted) {
+    if (wanted !== undefined && wanted !== null) {
+      const row = (await agentPresetRows()).find(entry => entry.id === wanted)
+      if (row === undefined) return { id: wanted, usable: false, problem: `The agent preset "${wanted}" is not available in this DeepSeek Harness. Pick another preset in the Bot's settings.` }
+      if (row.broken !== undefined) return { id: wanted, usable: false, problem: `The agent preset "${wanted}" cannot run: ${row.broken}. Pick another preset in the Bot's settings.` }
+      const fit = await presetFits(wanted)
+      return fit.fits
+        ? { id: wanted, usable: true }
+        : { id: wanted, usable: false, problem: `The agent preset "${wanted}" cannot be used for a Bot: ${fit.reason}. Pick another preset in the Bot's settings.` }
+    }
+    const standard = (await agentPresetRows()).find(row => row.id === 'standard' && row.broken === undefined)
+    if (standard !== undefined) {
+      const fit = await presetFits('standard')
+      return fit.fits
+        ? { id: 'standard', usable: true }
+        : { id: 'standard', usable: false, problem: `The standard agent preset cannot be used for a Bot: ${fit.reason}. Choose a preset for the Bot in its settings.` }
+    }
+    // No usable standard: DSH composes its own default for a Session that names none.
+    // Name that one and check it like any other pick, so a default that replaces the
+    // Bot's prompt is refused instead of starting a Bot without its identity. A DSH
+    // without the probe keeps the baseline behavior.
+    const fallback = ctx.get?.('agentPresets')?.defaultId
+    if (typeof fallback !== 'string' || fallback === '') return undefined
+    const fit = await presetFits(fallback)
+    if (fit.unverified === true) return undefined
+    return fit.fits
+      ? { id: fallback, usable: true }
+      : { id: fallback, usable: false, problem: `The default agent preset "${fallback}" cannot be used for a Bot: ${fit.reason}. Choose a preset for the Bot in its settings.` }
+  }
+  // A pick must be in the roster, usable, and keep the Bot's own prompt: one that is
+  // gone, broken or incompatible is a visible error, never a silent fall back.
+  async function checkedPreset(id) {
+    const effective = await effectivePreset(id)
+    if (effective === undefined || !effective.usable) {
+      throw new Error(effective?.problem ?? `The agent preset "${id}" is not available in this DeepSeek Harness. Pick another preset in the Bot's settings.`)
+    }
+    return effective.id
+  }
+  // What a new Session of a Bot runs. Under the PTC preset (DSH Desktop's default) a
+  // model may call only run_code, which turns down the group_relay call that a group
+  // chat's Session is given; so the standard default is named explicitly when DSH
+  // serves it. A Session keeps the preset it is made with.
+  async function sessionPreset(wanted) {
+    const effective = await effectivePreset(wanted)
+    if (effective === undefined) return {}
+    if (!effective.usable) throw new Error(effective.problem)
+    return { agentPreset: effective.id }
+  }
+  // What a Bot's parts should run, resolved by the same rule as a new Session, so a
+  // cleared pick follows the same default creation does. `usable` is false when the
+  // preset is gone, broken, or incompatible, so a part is never made on it.
+  async function botPresetOf(bot) {
+    const effective = await effectivePreset(typeof bot?.agentPreset === 'string' && bot.agentPreset !== '' ? bot.agentPreset : undefined)
+    return effective === undefined ? undefined : { id: effective.id, usable: effective.usable }
+  }
+  // A pick that cannot make a part is reported once, in the log and through DSH's
+  // Session error channel, so the user learns why the Bot keeps its old preset.
+  const warnedPresets = new Set()
+  function presetProblem(bot, id) {
+    const key = `${bot.id}\0${id}`
+    if (warnedPresets.has(key)) return
+    warnedPresets.add(key)
+    const why = `The agent preset "${id}" of ${bot.name} cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with. Pick another preset in the Bot's settings.`
+    rt.warn('ds-bot: %s', why)
+    ctx.emit?.('api-session/error', rt.chatOf(bot.id), why)
   }
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are —
   // unless the folder is already registered as a workspace, which it then joins (#710).
-  async function createSession(title, { dir } = {}) {
+  // `bot` is the Bot the Session speaks for; its own preset applies. A group's own relay
+  // Session names no Bot and keeps the standard default.
+  async function createSession(title, { dir, bot, agentPreset } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) throw new Error(readOnly)
+    // Checked before anything is made, so a pick that is gone or broken leaves no
+    // workspace, folder, or Session behind.
+    const preset = await sessionPreset(agentPreset !== undefined ? agentPreset : bot?.agentPreset)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const known = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
     const place = known !== undefined ? { workspaceId: known.id } : usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
-    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
+    const { sessionId } = await ctx.sessionController.create({ ...place, ...preset })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId
@@ -145,8 +269,11 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, agentPreset, copyOf, pickModel = false }) {
     const cleanAvatarValue = cleanAvatar(avatar)
+    // A chosen preset is checked before the Session is made, so an unknown or broken
+    // one leaves no half-made Bot behind.
+    const presetId = cleanPreset(agentPreset) ?? undefined
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
     // A thinking level needs a model to resolve against; with none it would be dropped
@@ -160,7 +287,7 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
-    const id = await createSession(cleanName, { dir })
+    const id = await createSession(cleanName, { dir, agentPreset: presetId })
     try {
       state.bots[id] = {
         id,
@@ -169,6 +296,7 @@ export function install(rt) {
         // A color is only stored when the user picks one; otherwise the id picks it.
         ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
         ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
+        ...(presetId !== undefined ? { agentPreset: presetId } : {}),
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
@@ -308,6 +436,9 @@ export function install(rt) {
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
+      // A preset that is gone or broken since fails the copy with a visible error,
+      // rather than starting the copy on some other composition.
+      agentPreset: bot.agentPreset,
       workDir,
       copyOf: bot.id,
     })
@@ -322,6 +453,15 @@ export function install(rt) {
     if (patch.private !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can make ${bot.name} private or open`)
     }
+    // The preset belongs to the user alone: no Bot may choose it for itself or another
+    // one through update_bot.
+    if (patch.agentPreset !== undefined && actorId !== undefined) {
+      throw new Error(`Only the user can choose the agent preset of ${bot.name}`)
+    }
+    // Checked first, so a pick that is gone or broken leaves everything else unchanged.
+    const presetPick = cleanPreset(patch.agentPreset)
+    const presetId = presetPick === undefined || presetPick === null ? presetPick : await checkedPreset(presetPick)
+    const presetBefore = bot.agentPreset
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
@@ -390,6 +530,17 @@ export function install(rt) {
     }
     if (flag === true) bot.private = true
     else if (flag === false) delete bot.private
+    if (presetId !== undefined) {
+      if (presetId === null) {
+        delete bot.agentPreset
+        // The default is now the user's own choice, not an old team's silence: a switch
+        // that fails is retried on the next turn instead of leaving the old preset.
+        bot.agentPresetDefault = true
+      } else {
+        bot.agentPreset = presetId
+        delete bot.agentPresetDefault
+      }
+    }
     const moved = moving && workDir !== bot.workDir
     if (moving) {
       if (workDir === undefined) delete bot.workDir
@@ -429,6 +580,13 @@ export function install(rt) {
     // A new model lifted what blocked the Bot; a new thinking level alone fixes nothing.
     // releaseKickoff itself leaves when the Bot still lacks a model or holds no greeting.
     if (modelChanged && bot.blocked === undefined) await releaseKickoff(bot)
+    // A Session keeps the preset it was made with, so a new pick moves the Bot's own
+    // chat and each of its group Sessions on to a fresh part at their next idle moment;
+    // the earlier parts stay readable and input that arrives meanwhile moves along.
+    if (presetId !== undefined && presetId !== (presetBefore ?? null)) {
+      void rt.applyBotPreset?.(bot)
+        .catch(error => rt.warn('ds-bot: %s does not move on to a part on its new agent preset: %s', bot.name, error))
+    }
     return bot
   }
 
@@ -783,6 +941,7 @@ export function install(rt) {
 
   Object.assign(rt, {
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
+    agentPresetRows, agentPresetFits: presetFits, botPresetOf, presetProblem,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
   })

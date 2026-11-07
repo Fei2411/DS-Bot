@@ -716,7 +716,7 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder, manual }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder, manual, preset }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -726,8 +726,9 @@ export function install(rt) {
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
       : overflow ? 'the previous part overflowed the model\'s window'
         : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-          : manual ? 'a fresh conversation was started'
-            : 'the previous part grew long'
+          : preset ? 'your agent preset changed'
+            : manual ? 'a fresh conversation was started'
+              : 'the previous part grew long'
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -904,10 +905,11 @@ export function install(rt) {
 
   // `hard`: past the hard line or the window, the part moves on even without a note
   // from the model. `folder`: the part moves on because its working folder changed.
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, hard = overflow || folder || manual } = {}) {
+  // `preset`: the part moves on because the Bot's agent preset changed.
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, preset = false, hard = overflow || folder || manual || preset } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, hard, manual, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, manual, preset, hard, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
@@ -1026,7 +1028,10 @@ export function install(rt) {
     // for its handoff; the part moves on with the deterministic package.
     const local = bot !== undefined && rt.isLocalAgentRef?.(bot.appliedModel ?? bot.model) === true
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!local && !job.overflow && job.failed === undefined && !whole && bot !== undefined) {
+    // A preset change asks for no model call: the user may be leaving a preset that is
+    // broken, and the fresh part gets the deterministic handoff (the latest messages
+    // word for word) either way.
+    if (!local && !job.overflow && !job.preset && job.failed === undefined && !whole && bot !== undefined) {
       try {
         written = await writeNote(agent, AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)]), { folder: job.folder })
       } catch (error) {
@@ -1048,12 +1053,12 @@ export function install(rt) {
     const previous = parts.at(-2)
     const noted = written !== undefined ? { note: written.note }
       : local ? {}
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : 'failed', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) }
+      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.preset ? 'preset' : 'failed', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
+    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir, bot })
     const picked = await freshRoute(bot, session)
     if (picked !== undefined) await selectRoute({ name }, freshId, picked)
     if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
@@ -1115,7 +1120,7 @@ export function install(rt) {
         folderRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
-      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder, manual: job.manual })
+      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder, manual: job.manual, preset: job.preset })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1162,6 +1167,16 @@ export function install(rt) {
     const place = placeOf(agent.id)
     if (place === undefined) return next()
     adoptCompaction(agent)
+    // The preset this part runs is checked before its first step. The switch starts only
+    // once this step is on its way, so it never takes the step over: the turn that is
+    // starting runs as it was, and the fresh part runs the Bot's pick from the next one.
+    const movingToPreset = place.botId === undefined || readOnly() || switches.has(agent.id)
+      ? false
+      : await presetMismatch(agent, place.botId)
+    const proceed = () => {
+      if (movingToPreset) startSwitch(agent, { preset: true })
+      return next()
+    }
     const job = switches.get(agent.id)
     if (job !== undefined) {
       job.carry.push(...payload.messages)
@@ -1175,15 +1190,15 @@ export function install(rt) {
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
-    if (place.botId === undefined) return next()
+    if (place.botId === undefined) return proceed()
     // A local agent CLI owns its in-session compaction; the DSH Session keeps the
     // full history for read_own_chat and never condenses or switches on size.
-    if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.appliedModel ?? rt.botOf(place.botId)?.model) === true) return next()
+    if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.appliedModel ?? rt.botOf(place.botId)?.model) === true) return proceed()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
-    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
-    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
-    if (!await canMakeRoom(agent, payload.messages)) return next()
+    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return proceed()
+    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return proceed()
+    if (!await canMakeRoom(agent, payload.messages)) return proceed()
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
 
@@ -1574,6 +1589,58 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor)) }
   }
 
+  // The Sessions a Bot speaks from right now: its own chat and each group it is in.
+  const presetSessionsOf = bot => [...new Set([rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
+
+  // A part keeps the preset it was made with. A part that does not run the Bot's pick
+  // moves on to a fresh part at its next idle moment; its history stays readable and
+  // input that arrives meanwhile moves along.
+  async function applyBotPreset(bot) {
+    const wanted = await rt.botPresetOf?.(bot)
+    if (wanted === undefined) return false
+    if (!wanted.usable) {
+      rt.presetProblem?.(bot, wanted.id)
+      return false
+    }
+    const presets = ctx.get?.('agentPresets')
+    let started = false
+    for (const sessionId of presetSessionsOf(bot)) {
+      if (rt.botOf(bot.id) === undefined) break
+      // A part already moving reads the pick when it makes its fresh part.
+      if (switches.has(sessionId)) continue
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      if (agent === undefined) continue
+      // A part made after the pick was saved already runs it.
+      if (typeof presets?.presetForSession === 'function' && presets.presetForSession(agent.session) === wanted.id) continue
+      startSwitch(agent, { preset: true })
+      started = true
+    }
+    return started
+  }
+
+  // Whether the part about to run a turn still needs to move to the Bot's pick. Checked
+  // before the first step, so a pick that changed while no window was open (a schedule,
+  // a group turn, a message from another Bot) takes effect on the next part. A Bot with
+  // no pick at all keeps the preset its parts were made with (a team saved before presets
+  // existed); one whose user cleared the pick has stated the default as its intent, so a
+  // switch that failed is tried again here.
+  async function presetMismatch(agent, botId) {
+    const bot = rt.botOf(botId)
+    if (bot === undefined) return undefined
+    const explicit = typeof bot.agentPreset === 'string' && bot.agentPreset !== ''
+    if (!explicit && bot.agentPresetDefault !== true) return undefined
+    const wanted = await rt.botPresetOf?.(bot)
+    if (wanted === undefined) return undefined
+    if (!wanted.usable) {
+      rt.presetProblem?.(bot, wanted.id)
+      return undefined
+    }
+    const presets = ctx.get?.('agentPresets')
+    if (typeof presets?.presetForSession !== 'function') return undefined
+    if (presets.presetForSession(agent.session) === wanted.id) return undefined
+    return botId
+  }
+
   // "New session" in a Bot's chat: a manual move to a fresh part with the
   // deterministic handoff package, no model call.
   async function newPart(sessionId) {
@@ -1628,5 +1695,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, heldBack, newPart, switchPart, switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, heldBack, newPart, switchPart, applyBotPreset, switchJobs: () => switches.values() })
 }
