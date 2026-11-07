@@ -239,6 +239,16 @@ function checkOffice(app) {
   `, 180_000)
 }
 
+// The browser plugins drive the app's own browser through Playwright; without it in the package
+// every browser tool failed before it did anything.
+function checkPlaywright(app) {
+  runInHost(app, 'Playwright', `
+    const { chromium } = createRequire(appRequire.resolve('ds-bot/package.json'))('playwright-core')
+    assert.equal(typeof chromium.connectOverCDP, 'function')
+    console.log('check-packed: the browser plugins find Playwright')
+  `, 30_000)
+}
+
 function startMock() {
   const mock = spawn(process.execPath, [join(root, '..', 'ds-bot', 'dev', 'mock-llm.mjs')], {
     env: { ...process.env, MOCK_PORT: '0', MOCK_LOG: join(work, 'mock.log') }, stdio: ['ignore', 'pipe', 'inherit'],
@@ -443,6 +453,7 @@ try {
   checkAsarCopy(packedApp)
   checkSharp(packedApp)
   checkOffice(packedApp)
+  checkPlaywright(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
   const mainPort = await freePort()
