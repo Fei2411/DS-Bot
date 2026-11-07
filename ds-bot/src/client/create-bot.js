@@ -7,6 +7,8 @@ import { ChevronLeftIcon, CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { createPayload, freshBotName, startModel } from './bot-draft.js'
 import { ModelMenu } from './model-menu.js'
+import { AgentPresetMenu, useAgentPresets } from './agent-preset-menu.js'
+import { presetState } from './agent-preset.js'
 import { hostText, t } from './i18n.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -26,6 +28,8 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [name, setName] = useState(start?.name ?? '')
   const [model, setModel] = useState(() => startModel(roster))
   const [effort, setEffort] = useState(undefined)
+  const [agentPreset, setAgentPreset] = useState(null)
+  const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -42,7 +46,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model, effort, brief }))
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model, effort, brief, agentPreset }))
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -93,6 +97,14 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
         : (roster.models ?? []).length > 0
           ? t('Pick a model here, or the Bot asks for one in its chat.')
           : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))),
+    h('div', { className: 'bt-field' },
+      h('span', { className: 'bt-field-label' }, t('Agent preset')),
+      h(AgentPresetMenu, { value: agentPreset, presets, error: presetError, onPick: setAgentPreset, onRefresh: refreshPresets, wide: true }),
+      h('span', { className: presetError ? 'bt-note bt-danger' : 'bt-note' }, presetError
+        ? t('The preset list could not be loaded.')
+        : agentPreset
+          ? t('The Bot runs on the {name} agent preset.', { name: presetState(agentPreset, presets).name })
+          : t('The Bot runs on the default agent preset.'))),
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     h('div', { className: 'bt-create-foot' },
       h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),

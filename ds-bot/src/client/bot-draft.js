@@ -17,12 +17,15 @@ export function startModel(roster) {
 }
 
 // A chosen model is always sent: the host fixes it on the Bot at creation.
-export function createPayload({ name, look, image, model, effort, brief }) {
+// The Agent preset is sent only when the user picked one: the default leaves the
+// host's own standard rules in place.
+export function createPayload({ name, look, image, model, effort, brief, agentPreset }) {
   // An abot with no character of its own starts with its engine's badge.
   const badge = image === undefined && isLocalRoute(model) ? agentAvatar(String(model).split('/')[0]) : undefined
   const payload = { name, color: look.color, avatar: image ? { shape: look.shape, image } : badge !== undefined ? { shape: look.shape, image: badge.image } : { shape: look.shape } }
   if (model) payload.model = model
   if (effort !== undefined) payload.effort = effort
   if (brief) payload.brief = brief
+  if (agentPreset) payload.agentPreset = agentPreset
   return payload
 }
