@@ -243,13 +243,19 @@ export function ModelGroupList({ groups, current, currentId, defaultModel, onPic
   })
 }
 
-export function ModelRows({ roster, current, onPick, filtering = false }) {
+const NO_MANUAL = {}
+// The manual state belongs to one opening of the menu. The leaving menu lives through
+// its 120ms exit animation, so a reopen can land on the same mounted rows; asking with
+// the new opening number then reads the default again instead of the old choices.
+export const manualFor = (state, opening) => (state.opening === opening ? state.manual : NO_MANUAL)
+
+export function ModelRows({ roster, current, onPick, filtering = false, opening = 0 }) {
   const groups = groupModels(roster.models)
-  // The menu unmounts when it closes, so this state starts over on every opening.
-  const [manual, setManual] = useState({})
+  const [state, setState] = useState({ opening, manual: NO_MANUAL })
+  const manual = manualFor(state, opening)
   return h(ModelGroupList, {
     groups, current, currentId: currentGroupId(groups, current), defaultModel: roster.defaultModel, onPick, filtering, manual,
-    onToggle: (id, open) => setManual(previous => toggledGroup(previous, id, open)),
+    onToggle: (id, open) => setState(previous => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) })),
   })
 }
 
@@ -317,10 +323,14 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
   const effortLabel = currentEffort === undefined
     ? (reasoning?.efforts?.length > 0 ? t('Default') : undefined)
     : reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort
+  // Each opening is a new number, so the rows start from the current model again even
+  // when the previous menu is still playing its exit animation under a quick reopen.
+  const [opening, setOpening] = useState(0)
   const toggle = () => {
     if (isOpen) { close(); return }
     // DSH settings can change the list at any time, so opening asks again.
     void actions?.refreshModels?.()
+    setOpening(count => count + 1)
     open()
   }
   const pick = (ref) => {
@@ -349,7 +359,7 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
       h('div', { className: 'bt-model-scroll' },
-        models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
+        models.length > 0 ? h(ModelRows, { roster, current, onPick: pick, opening })
           : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.'))),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning, current: picked, onPick: pickEffort }) : null,

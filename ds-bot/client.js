@@ -9386,9 +9386,12 @@ function ModelGroupList({ groups, current, currentId, defaultModel, onPick, manu
     );
   });
 }
-function ModelRows({ roster, current, onPick, filtering = false }) {
+var NO_MANUAL = {};
+var manualFor = (state, opening) => state.opening === opening ? state.manual : NO_MANUAL;
+function ModelRows({ roster, current, onPick, filtering = false, opening = 0 }) {
   const groups = groupModels(roster.models);
-  const [manual, setManual] = (0, import_react19.useState)({});
+  const [state, setState] = (0, import_react19.useState)({ opening, manual: NO_MANUAL });
+  const manual = manualFor(state, opening);
   return (0, import_react19.createElement)(ModelGroupList, {
     groups,
     current,
@@ -9397,7 +9400,7 @@ function ModelRows({ roster, current, onPick, filtering = false }) {
     onPick,
     filtering,
     manual,
-    onToggle: (id, open) => setManual((previous) => toggledGroup(previous, id, open))
+    onToggle: (id, open) => setState((previous) => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) }))
   });
 }
 var Caret = () => (0, import_react19.createElement)("svg", { className: "bt-model-caret", width: 12, height: 12, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react19.createElement)("path", { d: "M5.5 8l4.5 4.5L14.5 8" }));
@@ -9458,12 +9461,14 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
+  const [opening, setOpening] = (0, import_react19.useState)(0);
   const toggle = () => {
     if (isOpen) {
       close();
       return;
     }
     void actions?.refreshModels?.();
+    setOpening((count) => count + 1);
     open();
   };
   const pick2 = (ref) => {
@@ -9508,7 +9513,7 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
       (0, import_react19.createElement)(
         "div",
         { className: "bt-model-scroll" },
-        models.length > 0 ? (0, import_react19.createElement)(ModelRows, { roster, current, onPick: pick2 }) : (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet."))
+        models.length > 0 ? (0, import_react19.createElement)(ModelRows, { roster, current, onPick: pick2, opening }) : (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet."))
       ),
       hasEfforts || manage ? (0, import_react19.createElement)(
         "div",

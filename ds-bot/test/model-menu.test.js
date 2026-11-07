@@ -32,7 +32,7 @@ const sandbox = {
   },
 }
 runInNewContext(bundle.outputFiles[0].text, sandbox)
-const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup } = module.exports
+const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
@@ -322,6 +322,16 @@ test('a search opens every matched group and the manual state returns when it cl
   assert.equal(headingOf(cleared, 'Ollama').props['aria-expanded'], false)
   assert.equal(headingOf(cleared, 'Relay').props['aria-expanded'], true)
   assert.deepEqual(modelNames(cleared), ['DeepSeek Flash', 'Relay K3'])
+})
+
+test('a reopened menu starts from the default, not the choices of the menu still leaving', () => {
+  // The leaving menu lives through its exit animation and the reopen can land on the same
+  // rows; the new opening number must read the default instead of the old choices.
+  const previous = { opening: 1, manual: toggledGroup({}, 'local', true) }
+  assert.equal(manualFor(previous, 1).local, false)
+  assert.deepEqual({ ...manualFor(previous, 2) }, {})
+  // A click in the reopened menu builds on that empty state, not on the old one.
+  assert.deepEqual({ ...toggledGroup(manualFor(previous, 2), 'relay', false) }, { relay: true })
 })
 
 test('the Default mark, the tick and the pick stay on the open group\'s rows', () => {
