@@ -213,6 +213,34 @@ test('the user has to confirm a change of run mode', async (t) => {
   assert.equal(env.state().bots.b.model, CLI)
 })
 
+test('a Bot without a model of its own still moves to a CLI only by the user, confirmed', async (t) => {
+  const env = await start(t, { saved: team({
+    c: { id: 'c', name: 'Unset', role: '', sessionId: 'c', createdAt: 3, appliedModel: DS },
+    d: { id: 'd', name: 'Fresh', role: '', sessionId: 'd', createdAt: 4 },
+  }) })
+  for (const name of ['Unset', 'Fresh']) {
+    assert.match(await env.tool('update_bot', { bot: name, model: CLI }, 'a'), new RegExp(`Only the user can change what ${name} runs on`))
+  }
+  for (const id of ['c', 'd']) {
+    const refused = await env.call('update-bot', { id, model: CLI })
+    assert.equal(refused.ok, false)
+    assert.match(refused.error.message, /needs a confirmation/)
+  }
+  assert.equal(env.state().bots.c.model, undefined)
+  assert.equal(env.state().bots.d.model, undefined)
+  // A model of DS Bot's own is an ordinary pick.
+  assert.equal((await env.call('update-bot', { id: 'd', model: 'ds/pro' })).ok, true)
+  assert.equal(env.state().bots.d.model, 'ds/pro')
+})
+
+test('a Bot on a CLI keeps a model of it', async (t) => {
+  const env = await start(t, { saved: team({ c: { id: 'c', name: 'Local', role: '', sessionId: 'c', createdAt: 3, model: CLI, appliedModel: CLI } }) })
+  const cleared = await env.call('update-bot', { id: 'c', model: null })
+  assert.equal(cleared.ok, false)
+  assert.match(cleared.error.message, /keeps a model of it/)
+  assert.equal(env.state().bots.c.model, CLI)
+})
+
 // -----------------------------------------------------------------------------
 // The switch.
 

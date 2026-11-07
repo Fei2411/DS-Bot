@@ -333,8 +333,10 @@ export function install(rt) {
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
     // What a Bot runs on changes only from its settings, after the user confirmed: every
-    // conversation of the Bot starts a new part for it.
-    const engineBefore = rt.engineOf?.(bot.model)
+    // conversation of the Bot starts a new part for it. A Bot without a model runs on the
+    // one it last ran on, and one that never ran runs on DS Bot's models.
+    const engineBefore = rt.engineOf === undefined ? undefined : rt.engineOfBot(bot) ?? 'model'
+    if (modelRef === null && engineBefore !== undefined && engineBefore !== 'model') throw new Error(`${bot.name} runs on a local agent and keeps a model of it`)
     const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
     if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
     if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
