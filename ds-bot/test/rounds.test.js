@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { ROOM_IDLE_RELAY_LIMIT } from '../src/host/constants.js'
 import { lineText } from '../src/host/groups.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
@@ -1019,4 +1020,149 @@ test('a plain message in a group where everyone answers still goes one member at
   await answer(third.sessionId, third.message.source.exchangeId, 'three', 3)
   const result = JSON.parse(await running)
   assert.deepEqual(result.replies.map(reply => reply.text), ['one', 'two', 'three'])
+})
+
+// #853: a status post that calls nobody ("暂无待办", "待命", "静候下一步") is an idle step
+// too. The count belongs to the room, not to one round, so a group that keeps answering
+// its own status posts stops instead of posting them forever. The real case: 59 turns of
+// status text with no tool call and no new user content in one group session.
+test('a group stops answering its own status posts until the user writes', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  const posted = async (message, callId) => {
+    sent.length = 0
+    await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message }, { agent: { id: rt.chatOf(chief) } })
+    const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+    await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+    return { round: relay(room.id, callId) }
+  }
+
+  // Two rounds of a status post and a status answer: still answered, still counting.
+  for (const step of [1, 2]) {
+    const { round: running } = await posted('暂无待办，静候下一步', `relay-${step}`)
+    const turn = await turnFor(sent)
+    assert.ok(turn, `round ${step} answers the post`)
+    await answer(turn.sessionId, turn.message.source.exchangeId, '待命', step)
+    await running
+    assert.equal(state().idlePaused, undefined, 'not paused before the limit')
+  }
+  assert.equal(state().idleRelays, 4, 'the post and the status answer both count')
+
+  // The sixth idle step pauses the room: the group is told why, once.
+  const { round: pausing } = await posted('待命', 'relay-3')
+  const turning = await turnFor(sent)
+  assert.ok(turning, 'the round the sixth step counts in still runs')
+  await answer(turning.sessionId, turning.message.source.exchangeId, '收到，静候下一步', 3)
+  await pausing
+  assert.equal(state().idleRelays, ROOM_IDLE_RELAY_LIMIT)
+  assert.ok(state().idlePaused, 'the room is paused')
+  const notices = state().log.filter(line => line.kind === 'notice' && line.reason === 'paused')
+  assert.equal(notices.length, 1, 'the group hears about it once')
+  assert.deepEqual(notices[0].names, [], 'the paused step called nobody')
+  assert.match(lineText(notices[0]), /status updates with no new work/)
+  assert.match(lineText(notices[0]), /the last from Writer/)
+  assert.match(lineText(notices[0]), /until the user writes here/)
+
+  // A paused room starts no round of its own, however it is posted to.
+  const { round: quiet } = await posted('暂无待办', 'relay-4')
+  await settle()
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'no turn starts on its own')
+  assert.deepEqual(JSON.parse(await quiet).replies, [])
+  assert.equal(state().log.filter(line => line.kind === 'notice').length, 1, 'no second notice')
+
+  // The user's own message is never held back: it opens the round and lifts the pause.
+  await emit(room.id, userMessage('@Writer 接着看一下日志'))
+  const resumed = relay(room.id, 'relay-5')
+  const next = await turnFor(sent)
+  assert.ok(next, "the user's message still reaches a member")
+  assert.match(next.message.content[0].text, /@Writer 接着看一下日志/)
+  await answer(next.sessionId, next.message.source.exchangeId, '正在核对 09:31 之后的日志', 9)
+  await resumed
+  assert.equal(state().idlePaused, undefined)
+  assert.equal(state().idleRelays, undefined)
+})
+
+// #853: the pause stops the automatic rounds only. A post that names a member still
+// reaches it, and a tool call or new content clears the pause at once.
+test('a paused group still answers an @ call, and tool work lifts the pause', async (t) => {
+  const { call, emit, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  const pause = () => {
+    state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+    state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+  }
+  const posted = async (message, callId) => {
+    sent.length = 0
+    await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message }, { agent: { id: rt.chatOf(chief) } })
+    const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+    await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+    return { round: relay(room.id, callId) }
+  }
+
+  pause()
+  const { round: calling } = await posted('@Writer 把这批报错贴出来', 'relay-1')
+  const turn = await turnFor(sent)
+  assert.ok(turn, 'an @ call is not held back by the pause')
+  await answer(turn.sessionId, turn.message.source.exchangeId, '贴在这里了：两个 502，一个超时', 1)
+  await calling
+  assert.equal(state().idlePaused, undefined, 'a substantive answer lifts the pause')
+  assert.equal(state().idleRelays, undefined)
+
+  pause()
+  const { round: asking } = await posted('@Writer 再核对一遍', 'relay-2')
+  const working = await turnFor(sent)
+  assert.ok(working, 'the call reaches the member while paused')
+  // A tool call is work, as turns.js reports it for a room turn: it clears the pause
+  // even when what the member says afterwards is only a status line.
+  rt.workRoomTurn(working.sessionId, 'bash')
+  await answer(working.sessionId, working.message.source.exchangeId, '待命', 2)
+  assert.equal(state().idlePaused, undefined, 'a tool call lifts the pause, even with a status reply')
+  assert.equal(state().idleRelays, undefined)
+  // The member that asked is woken with the result and answers it, so the round ends.
+  const back = await turnFor(sent, working)
+  assert.ok(back, 'the member that asked is woken with its result')
+  await answer(back.sessionId, back.message.source.exchangeId, '收到，这批报错我再跟一遍', 3)
+  await asking
+})
+
+// #853: the pause is kept with the group, so a restart does not start the status rounds
+// again before the user writes.
+test('the idle pause survives a restart and the user lifts it', async (t) => {
+  const first = start()
+  const room = await team(first.call, first.sent)
+  const chief = first.rt.state.mainBotIds[0]
+  first.rt.state.rooms[room.id].idleRelays = ROOM_IDLE_RELAY_LIMIT
+  first.rt.state.rooms[room.id].idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+  await first.rt.save()
+  const saved = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8')).rooms[room.id]
+  assert.deepEqual({ count: saved.idleRelays, paused: saved.idlePaused?.count }, { count: ROOM_IDLE_RELAY_LIMIT, paused: ROOM_IDLE_RELAY_LIMIT })
+  await first.stop({ keep: true })
+
+  const second = start({ home: first.home })
+  t.after(() => second.stop())
+  const { rt, sent, emit, relay, answer } = second
+  const state = () => rt.state.rooms[room.id]
+  assert.equal(state().idlePaused?.count, ROOM_IDLE_RELAY_LIMIT, 'the pause is still there after the restart')
+  sent.length = 0
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '暂无待办' }, { agent: { id: rt.chatOf(chief) } })
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  const quiet = relay(room.id, 'relay-1')
+  await settle()
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'no round starts on its own after a restart')
+
+  await emit(room.id, { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '@Writer 继续' }] } })
+  const resumed = relay(room.id, 'relay-2')
+  const turn = await turnFor(sent)
+  assert.ok(turn, "the user's message opens a round again")
+  await answer(turn.sessionId, turn.message.source.exchangeId, '继续核对', 1)
+  await resumed
+  await quiet
+  assert.equal(state().idlePaused, undefined)
 })
