@@ -233,6 +233,28 @@ test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
   mcp.close()
 })
 
+test('the adapter\'s MCP server lists the current turn\'s tools (#1061)', async () => {
+  const adapter = makeAdapter()
+  const live = { pending: new Map(), push: () => {} }
+  const list = async (mcp) => {
+    const response = await fetch(mcp.url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${mcp.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) })
+    assert.equal(response.status, 200)
+    return (await response.json()).result.tools.map(tool => tool.name)
+  }
+  const mcp = await adapter.ensureMcp(live, () => [{ name: 'message_bot', parameters: { type: 'object', properties: {} } }])
+  try {
+    assert.deepEqual(await list(mcp), ['message_bot'])
+    const again = await adapter.ensureMcp(live, () => [{ name: 'post_to_group', parameters: { type: 'object', properties: {} } }])
+    assert.equal(again, mcp, 'one server per live session')
+    assert.deepEqual(await list(mcp), ['post_to_group'])
+  } finally {
+    mcp.close()
+    // fetch keeps the socket alive; on Windows a forced exit with it still
+    // closing trips a libuv assertion.
+    mcp.server.closeAllConnections()
+  }
+})
+
 test('flattenSchema removes unions, refs and const', () => {
   const flat = flattenSchema({ type: 'object', $defs: { a: { type: 'string' } }, properties: { p: { $ref: '#/$defs/a' }, q: { const: 'x' }, r: { oneOf: [{ type: 'null' }, { type: 'number' }] } } })
   assert.equal(flat.$defs, undefined)
