@@ -4,6 +4,16 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-07
+
+### Fixed
+
+- Opening Settings → Local agents no longer stops Bot settings and other DS Bot dialogs from opening until the window reloads. ([#1016](https://github.com/Fei2411/DS-Bot/issues/1016), [#1017](https://github.com/Fei2411/DS-Bot/pull/1017))
+
+### Changed
+
+- The Docker image runs DeepSeek Harness 0.2.2-rc.1. ([#983](https://github.com/Fei2411/DS-Bot/pull/983))
+
 ## [0.3.0] - 2026-11-07
 
 ### Added
