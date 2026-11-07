@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from '../tools.js'
 import { createHub } from './hub.js'
+import { daemonCommand } from './daemon.js'
 import { APPROVED_NOTE, classifyCommand, describePolicy } from './policy.js'
 import { MAX_FILE_BYTES, taskLabel } from './protocol.js'
 import { bestDevice } from './select.js'
@@ -395,6 +396,15 @@ export function install(rt) {
     },
     nodes: hub === undefined ? [] : hub.nodes(),
     policy: describePolicy(),
+    // The exact command to make the worker start at login on another machine. It is
+    // safe to show: the pairing token already lives in that machine's device.json.
+    ...(hub === undefined || phase !== 'listening' ? {} : {
+      daemon: {
+        command: daemonCommand({ hubUrl: hub.url }),
+        uninstall: 'npm run lan:daemon -- uninstall',
+        status: 'npm run lan:daemon -- status',
+      },
+    }),
   })
 
   const addTools = () => {

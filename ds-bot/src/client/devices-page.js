@@ -130,7 +130,7 @@ export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
     h(Section, { key: 'switch', title: t('Multi-device') },
       h(Row, {
         label: t('Enable multi-device on this computer'),
-        hint: t('Other machines run allowlisted commands for the Bots here. This computer is the hub.'),
+        hint: t('Other machines run read-only commands directly; other commands and file writes ask you first. This computer is the hub.'),
       }, Switch === undefined ? null : h(Switch, { label: t('Enable multi-device on this computer'), on: enabled, disabled: !available || busy, onChange: toggle })),
       !available ? h(Row, { label: t('This computer is set up without multi-device (multiDevice: false).') }) : null),
 
@@ -163,11 +163,20 @@ export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
       confirming ? h('div', { className: 'bt-dev-hint' }, t('{name} must pair again before it can be used. Its running task is cancelled; stop the worker on that machine as well.', { name: nodes.find(node => node.id === confirming)?.name ?? t('The machine') })) : null,
       pairing === null ? null : h(PairingPanel, { pairing, onClose: () => setPairing(null) })) : null,
 
+    enabled ? h(Section, { key: 'daemon', title: t('Run it all the time') },
+      h(Row, {
+        label: t('Keep the worker running on another machine'),
+        hint: t('Pair that machine once, then run this in the ds-bot folder there. It starts at login and keeps reconnecting after a drop.'),
+      }, status.daemon?.command === undefined ? null : h('div', { className: 'bt-dev-command' },
+        h('code', null, status.daemon.command),
+        h(CopyButton, { text: status.daemon.command, label: 'Copy command' }))),
+      h(Row, { label: t('The command carries no pairing code: the device token stays in device.json on that machine.') })) : null,
+
     h(Section, { key: 'about', title: t('How it works') },
       h(Row, { label: t('One hub only. This computer is the hub: the Bots here decide which machine runs a command.') }),
       h(Row, { label: t('Other machines see the same conversation by opening this computer\'s DS Bot page in a browser, not by starting their own team.') }),
       h(Row, { label: t('To move the hub to another computer, turn multi-device on there and pair the machines again.') }),
-      policy.length === 0 ? null : h(Row, { label: t('Machines run only {commands}. No shell, no other program.', { commands: policy.join(', ') }) })),
+      policy.length === 0 ? null : h(Row, { label: t('Machines run read-only commands directly: {commands}. Anything else asks you first.', { commands: policy.join(', ') }) })),
   ]
 }
 

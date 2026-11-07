@@ -73,6 +73,7 @@ test('the Devices page shows the switch, the hub address and each machine', () =
       hub: { state: 'listening', url: 'http://192.168.1.5:8787', localUrl: 'http://127.0.0.1:8787' },
       nodes: [{ id: 'nd_1', name: 'win-pc', hostname: 'WIN-PC', os: 'win32', arch: 'x64', online: true }],
       policy: ['hostname', 'whoami', 'uname', 'echo (built in)'],
+      daemon: { command: 'npm run lan:daemon -- install --hub http://192.168.1.5:8787 --name other-pc' },
     },
   }
   const tree = render(DevicesPage, { roster, actions: {}, run: promise => promise, Section: Frame, Row: Frame, Switch })
@@ -81,7 +82,8 @@ test('the Devices page shows the switch, the hub address and each machine', () =
   assert.ok(found.includes('Listening'))
   assert.ok(found.includes('http://192.168.1.5:8787'))
   assert.ok(found.includes('Machines · 1'))
-  assert.ok(found.includes('Machines run only hostname, whoami, uname, echo (built in). No shell, no other program.'))
+  assert.ok(found.includes('Machines run read-only commands directly: hostname, whoami, uname, echo (built in). Anything else asks you first.'))
+  assert.ok(found.includes('npm run lan:daemon -- install --hub http://192.168.1.5:8787 --name other-pc'))
   assert.ok(buttons(tree).includes('Add machine'))
 
   const row = render(NodeRow, { node: roster.multiDevice.nodes[0], confirming: false, busy: false, onRemove: () => {} })

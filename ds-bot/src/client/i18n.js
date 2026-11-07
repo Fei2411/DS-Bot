@@ -1599,6 +1599,12 @@ const HOST_ZH = {
   "Other machines see the same conversation by opening this computer's DS Bot page in a browser, not by starting their own team.": '其他机器用浏览器打开这台电脑的 DS Bot 页面，看到同一段对话；不是各自再起一个团队。',
   'To move the hub to another computer, turn multi-device on there and pair the machines again.': '要把中心换到另一台电脑，就在那台电脑上打开多机，再重新配对。',
   'Machines run only {commands}. No shell, no other program.': '机器上只能运行 {commands}。没有 shell，也不能运行别的程序。',
+  'Run it all the time': '让它一直运行',
+  'Keep the worker running on another machine': '让另一台机器上的 worker 一直运行',
+  'Pair that machine once, then run this in the ds-bot folder there. It starts at login and keeps reconnecting after a drop.': '那台机器配对一次后，在它的 ds-bot 目录里运行这条命令。它会在登录时启动，断线后继续重连。',
+  'The command carries no pairing code: the device token stays in device.json on that machine.': '这条命令不含配对码：设备令牌留在那台机器的 device.json 里。',
+  'Other machines run read-only commands directly; other commands and file writes ask you first. This computer is the hub.': '其他机器直接执行只读命令；其他命令和文件写入会先问你。这台电脑是中心。',
+  'Machines run read-only commands directly: {commands}. Anything else asks you first.': '机器直接执行只读命令：{commands}。其他操作会先问你。',
 }
 Object.assign(ZH, HOST_ZH)
 

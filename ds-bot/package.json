@@ -51,7 +51,8 @@
     "lan:code": "node src/host/multi-device/cli.js code",
     "lan:nodes": "node src/host/multi-device/cli.js nodes",
     "lan:run": "node src/host/multi-device/cli.js run",
-    "lan:worker": "node src/host/multi-device/cli.js worker"
+    "lan:worker": "node src/host/multi-device/cli.js worker",
+    "lan:daemon": "node src/host/multi-device/cli.js daemon"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

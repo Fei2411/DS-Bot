@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import {
+  LABEL, WINDOWS_TASK, daemonCommand, daemonFile, daemonFileContent, daemonStatus,
+  installDaemon, uninstallDaemon,
+} from '../src/host/multi-device/daemon.js'
 import { createCodeStore, hashToken, newToken, tokenMatches } from '../src/host/multi-device/pairing.js'
 import { checkCommand, classifyCommand } from '../src/host/multi-device/policy.js'
 import { MAX_FILE_BYTES, resolveNodePath } from '../src/host/multi-device/protocol.js'
@@ -631,4 +635,64 @@ test('the selection helper prefers the operating system a path names', () => {
   assert.equal(bestDevice(nodes, 'DESKTOP-OLD'), undefined)
   assert.equal(bestDevice(nodes, 'something else'), undefined)
   assert.equal(bestDevice([{ name: 'only', online: true, os: 'darwin' }], 'anything').name, 'only')
+})
+
+// --- The always-on worker (issue #966, part 2) ---
+
+const existsFor = path => existsSync(path)
+const cliPath = '/repo/ds-bot/src/host/multi-device/cli.js'
+const daemonArgs = { nodePath: '/usr/local/bin/node', cliPath, hubUrl: 'http://192.168.1.5:8787', name: 'windows-pc', dataDir: '/data' }
+
+test('the launchd template starts the worker at login and never carries a pairing code', () => {
+  const text = daemonFileContent({ platform: 'darwin', ...daemonArgs })
+  assert.match(text, new RegExp(`<string>${LABEL}</string>`))
+  assert.match(text, /<key>RunAtLoad<\/key>\s*<true\/>/)
+  assert.match(text, /<key>KeepAlive<\/key>\s*<true\/>/)
+  assert.match(text, /<string>\/usr\/local\/bin\/node<\/string>/)
+  assert.match(text, /<string>http:\/\/192\.168\.1\.5:8787<\/string>/)
+  assert.match(text, /<string>windows-pc<\/string>/)
+  assert.equal(text.includes('--code'), false)
+  assert.equal(text.includes('<string>--data</string>'), true)
+})
+
+test('the systemd unit and the Windows script restart the worker', () => {
+  const unit = daemonFileContent({ platform: 'linux', ...daemonArgs })
+  assert.match(unit, /^\[Service\]/m)
+  assert.match(unit, /Restart=always/)
+  assert.match(unit, /ExecStart=.*--hub.*192\.168\.1\.5:8787/)
+  assert.equal(unit.includes('--code'), false)
+  const script = daemonFileContent({ platform: 'win32', ...daemonArgs })
+  assert.match(script, /@echo off/)
+  assert.match(script, /:loop/)
+  assert.match(script, /goto loop/)
+  assert.match(script, /"--hub" "http:\/\/192\.168\.1\.5:8787"/)
+  assert.equal(script.includes('--code'), false)
+})
+
+test('installing writes the platform file, status sees it, and uninstalling removes it', () => {
+  const home = folder('daemon-home')
+  const dataDir = folder('daemon-data')
+  const installed = installDaemon({ platform: 'darwin', home, dataDir, hubUrl: 'http://192.168.1.5:8787', name: 'windows-pc', nodePath: '/usr/local/bin/node', cliPath, runCommands: false })
+  const file = daemonFile({ platform: 'darwin', home, dataDir })
+  assert.equal(installed.file, file)
+  assert.match(readFileSync(file, 'utf8'), /192\.168\.1\.5:8787/)
+  assert.equal(daemonStatus({ platform: 'darwin', home, dataDir, runCommands: false }).installed, true)
+  const removed = uninstallDaemon({ platform: 'darwin', home, dataDir, runCommands: false })
+  assert.equal(removed.uninstalled, true)
+  assert.equal(existsFor(file), false)
+  assert.equal(daemonStatus({ platform: 'darwin', home, dataDir, runCommands: false }).installed, false)
+})
+
+test('a Windows install writes its logon script beside the device data', () => {
+  const home = folder('daemon-win-home')
+  const dataDir = folder('daemon-win-data')
+  const installed = installDaemon({ platform: 'win32', home, dataDir, hubUrl: 'http://192.168.1.5:8787', name: 'windows-pc', nodePath: 'C:\\node\\node.exe', cliPath: 'C:\\ds-bot\\cli.js', runCommands: false })
+  assert.equal(installed.file, join(dataDir, 'lan-worker.cmd'))
+  assert.match(readFileSync(installed.file, 'utf8'), /goto loop/)
+  assert.equal(uninstallDaemon({ platform: 'win32', home, dataDir, runCommands: false }).uninstalled, true)
+})
+
+test('the Devices status names the install and uninstall commands', () => {
+  assert.equal(daemonCommand({ hubUrl: 'http://192.168.1.5:8787' }), 'npm run lan:daemon -- install --hub http://192.168.1.5:8787 --name other-pc')
+  assert.equal(WINDOWS_TASK, 'DSBotLanWorker')
 })

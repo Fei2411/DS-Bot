@@ -1641,7 +1641,13 @@ var HOST_ZH = {
   "One hub only. This computer is the hub: the Bots here decide which machine runs a command.": "只有一个中心。这台电脑就是中心：由这里的 Bot 决定哪台机器执行命令。",
   "Other machines see the same conversation by opening this computer's DS Bot page in a browser, not by starting their own team.": "其他机器用浏览器打开这台电脑的 DS Bot 页面，看到同一段对话；不是各自再起一个团队。",
   "To move the hub to another computer, turn multi-device on there and pair the machines again.": "要把中心换到另一台电脑，就在那台电脑上打开多机，再重新配对。",
-  "Machines run only {commands}. No shell, no other program.": "机器上只能运行 {commands}。没有 shell，也不能运行别的程序。"
+  "Machines run only {commands}. No shell, no other program.": "机器上只能运行 {commands}。没有 shell，也不能运行别的程序。",
+  "Run it all the time": "让它一直运行",
+  "Keep the worker running on another machine": "让另一台机器上的 worker 一直运行",
+  "Pair that machine once, then run this in the ds-bot folder there. It starts at login and keeps reconnecting after a drop.": "那台机器配对一次后，在它的 ds-bot 目录里运行这条命令。它会在登录时启动，断线后继续重连。",
+  "The command carries no pairing code: the device token stays in device.json on that machine.": "这条命令不含配对码：设备令牌留在那台机器的 device.json 里。",
+  "Other machines run read-only commands directly; other commands and file writes ask you first. This computer is the hub.": "其他机器直接执行只读命令；其他命令和文件写入会先问你。这台电脑是中心。",
+  "Machines run read-only commands directly: {commands}. Anything else asks you first.": "机器直接执行只读命令：{commands}。其他操作会先问你。"
 };
 Object.assign(ZH, HOST_ZH);
 var fill = (text, params) => params ? text.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match) : text;
@@ -17051,7 +17057,7 @@ function DevicesPage({ roster, actions, run: run2, Section: Section2, Row: Row4,
       { key: "switch", title: t("Multi-device") },
       (0, import_react37.createElement)(Row4, {
         label: t("Enable multi-device on this computer"),
-        hint: t("Other machines run allowlisted commands for the Bots here. This computer is the hub.")
+        hint: t("Other machines run read-only commands directly; other commands and file writes ask you first. This computer is the hub.")
       }, Switch2 === void 0 ? null : (0, import_react37.createElement)(Switch2, { label: t("Enable multi-device on this computer"), on: enabled, disabled: !available || busy, onChange: toggle })),
       !available ? (0, import_react37.createElement)(Row4, { label: t("This computer is set up without multi-device (multiDevice: false).") }) : null
     ),
@@ -17095,13 +17101,27 @@ function DevicesPage({ roster, actions, run: run2, Section: Section2, Row: Row4,
       confirming ? (0, import_react37.createElement)("div", { className: "bt-dev-hint" }, t("{name} must pair again before it can be used. Its running task is cancelled; stop the worker on that machine as well.", { name: nodes.find((node) => node.id === confirming)?.name ?? t("The machine") })) : null,
       pairing === null ? null : (0, import_react37.createElement)(PairingPanel, { pairing, onClose: () => setPairing(null) })
     ) : null,
+    enabled ? (0, import_react37.createElement)(
+      Section2,
+      { key: "daemon", title: t("Run it all the time") },
+      (0, import_react37.createElement)(Row4, {
+        label: t("Keep the worker running on another machine"),
+        hint: t("Pair that machine once, then run this in the ds-bot folder there. It starts at login and keeps reconnecting after a drop.")
+      }, status.daemon?.command === void 0 ? null : (0, import_react37.createElement)(
+        "div",
+        { className: "bt-dev-command" },
+        (0, import_react37.createElement)("code", null, status.daemon.command),
+        (0, import_react37.createElement)(CopyButton2, { text: status.daemon.command, label: "Copy command" })
+      )),
+      (0, import_react37.createElement)(Row4, { label: t("The command carries no pairing code: the device token stays in device.json on that machine.") })
+    ) : null,
     (0, import_react37.createElement)(
       Section2,
       { key: "about", title: t("How it works") },
       (0, import_react37.createElement)(Row4, { label: t("One hub only. This computer is the hub: the Bots here decide which machine runs a command.") }),
       (0, import_react37.createElement)(Row4, { label: t("Other machines see the same conversation by opening this computer's DS Bot page in a browser, not by starting their own team.") }),
       (0, import_react37.createElement)(Row4, { label: t("To move the hub to another computer, turn multi-device on there and pair the machines again.") }),
-      policy.length === 0 ? null : (0, import_react37.createElement)(Row4, { label: t("Machines run only {commands}. No shell, no other program.", { commands: policy.join(", ") }) })
+      policy.length === 0 ? null : (0, import_react37.createElement)(Row4, { label: t("Machines run read-only commands directly: {commands}. Anything else asks you first.", { commands: policy.join(", ") }) })
     )
   ];
 }

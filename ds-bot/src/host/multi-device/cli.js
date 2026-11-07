@@ -2,20 +2,23 @@
 // worker on each machine the hub may command. Nothing here is part of the DSH plugin
 // load path; the plugin only imports these modules when it wires them up.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, hostname as localHostname } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHub } from './hub.js'
 import { createWorker } from './worker.js'
 import { describePolicy } from './policy.js'
+import { daemonStatus, installDaemon, uninstallDaemon } from './daemon.js'
 
-const USAGE = `DS Bot LAN multi-device (v0)
+const USAGE = `DS Bot LAN multi-device
 
   node cli.js hub    [--port 8787] [--host 0.0.0.0] [--name "Mac mini"] [--data DIR]
   node cli.js code   [--data DIR] [--hub URL]
   node cli.js nodes  [--data DIR] [--hub URL]
   node cli.js run    --node <name|id> [--timeout 60] -- <command and arguments>
   node cli.js worker --hub URL [--code 123456] [--name "windows-pc"] [--data DIR]
+  node cli.js daemon install [--hub URL] [--name "windows-pc"] [--data DIR]
+  node cli.js daemon status | uninstall
 
 The data folder holds nodes.json, admin.token and, on a worker, device.json.
 Default: ~/.ds-bot/multi-device (or DSBOT_LAN_DATA).`
@@ -200,6 +203,41 @@ async function commandWorker(options) {
   return new Promise(() => {})
 }
 
+async function commandDaemon(options, positional) {
+  const action = positional[0] ?? 'status'
+  const dataDir = dataDirOf(options)
+  const home = typeof options.home === 'string' ? options.home : homedir()
+  if (action === 'install') {
+    if (!existsSync(join(dataDir, 'device.json'))) {
+      throw new Error('this machine is not paired yet: run `npm run lan:worker -- --hub <hub URL> --code <code>` once, then install the daemon. The token stays in device.json.')
+    }
+    const result = installDaemon({
+      home,
+      dataDir,
+      hubUrl: hubUrlOf(options, dataDir),
+      name: typeof options.name === 'string' ? options.name : localHostname(),
+      cliPath: fileURLToPath(import.meta.url),
+    })
+    console.log(`Installed the worker daemon at ${result.file}`)
+    if (result.warning !== undefined) console.log(`Warning: ${result.warning}`)
+    console.log('It starts at login and after a reboot, and keeps running when the connection drops.')
+    return
+  }
+  if (action === 'uninstall') {
+    const result = uninstallDaemon({ home, dataDir })
+    console.log(result.uninstalled ? `Removed ${result.file}` : `Nothing was installed at ${result.file}`)
+    return
+  }
+  if (action === 'status') {
+    const status = daemonStatus({ home, dataDir })
+    console.log(`${status.installed ? 'installed' : 'not installed'}  ${status.file}`)
+    if (status.detail !== undefined) console.log(status.detail)
+    if (status.installed) console.log(`Start it with: npm run lan:daemon -- install --hub ${rememberedHub(dataDir) ?? '<hub URL>'}`)
+    return
+  }
+  throw new Error(`unknown daemon action: ${action} (use install, uninstall or status)`)
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const { options, positional } = parseArgs(argv)
   const command = positional.shift()
@@ -212,6 +250,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === 'nodes') return commandNodes(options)
   if (command === 'run') return commandRun(options, positional)
   if (command === 'worker') return commandWorker(options)
+  if (command === 'daemon') return commandDaemon(options, positional)
   throw new Error(`unknown command: ${command}\n\n${USAGE}`)
 }
 
