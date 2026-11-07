@@ -1,4 +1,5 @@
 import { createElement as h, useCallback, useEffect, useState } from 'react'
+import { DevicesIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
 
 // Settings → Devices: the LAN multi-device switch, the hub this computer runs, the
@@ -62,6 +63,54 @@ function PairingPanel({ pairing, onClose }) {
     h('div', { className: 'bt-dev-hint' }, t('Replace other-pc with that machine\'s name. The same command works in PowerShell and in the macOS Terminal.')),
     h('div', { className: 'bt-actions' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onClose }, t('Done'))))
+}
+
+// What a row in the sidebar can say about the paired machines without repeating the
+// Devices page: whether multi-device is on, and how many of the paired machines are
+// online. The roster already refreshes on the normal state poll, so this needs no
+// timer of its own.
+export function deviceSummary(multiDevice) {
+  const nodes = Array.isArray(multiDevice?.nodes) ? multiDevice.nodes : []
+  const online = nodes.filter(node => node.online === true).length
+  return {
+    available: multiDevice?.available !== false,
+    enabled: multiDevice?.enabled === true,
+    total: nodes.length,
+    online,
+    names: nodes.map(node => `${node.name}${node.online ? ' (online)' : ' (offline)'}`).join(', '),
+  }
+}
+
+// The always-visible entry to Settings → Devices: a strip above the account row when
+// the sidebar is wide, a round button with an online count on the rail.
+export function DevicesStrip({ multiDevice, actions, wide = true }) {
+  const summary = deviceSummary(multiDevice)
+  if (!summary.available || !summary.enabled) return null
+  const open = () => actions?.openSettings?.('devices')
+  const label = summary.total === 0
+    ? t('Devices · no machines paired')
+    : t('Devices · {online} of {total} online', { online: summary.online, total: summary.total })
+  if (!wide) {
+    return h('button', {
+      type: 'button',
+      className: 'bt-round bt-dev-strip-rail',
+      'aria-label': label,
+      title: summary.names === '' ? label : `${label}\n${summary.names}`,
+      onClick: open,
+    },
+    h(DevicesIcon),
+    summary.online > 0 ? h('span', { className: 'bt-dev-strip-count', 'aria-hidden': true }, String(summary.online)) : null)
+  }
+  return h('button', {
+    type: 'button',
+    className: 'bt-dev-strip',
+    'data-online': summary.online > 0 || undefined,
+    'aria-label': label,
+    title: summary.names === '' ? label : `${label}\n${summary.names}`,
+    onClick: open,
+  },
+  h('span', { className: 'bt-dev-dot', 'aria-hidden': true }),
+  h('span', { className: 'bt-dev-strip-text' }, label))
 }
 
 export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
@@ -200,4 +249,10 @@ export const DEVICES_CSS = `
 .bt-dev-hint{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
 .bt-dev-command{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:var(--bt-card);border:.5px solid var(--bt-line);min-width:0}
 .bt-dev-command code{flex:1}
+.bt-dev-strip{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:6px 10px;margin:0 0 4px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.bt-dev-strip:hover{background:var(--bt-hover)}
+.bt-dev-strip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-dev-strip[data-online] .bt-dev-dot{background:var(--bt-green)}
+.bt-dev-strip-rail{position:relative}
+.bt-dev-strip-count{position:absolute;top:2px;right:2px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--bt-green);color:#fff;font-size:9px;line-height:14px;text-align:center}
 `

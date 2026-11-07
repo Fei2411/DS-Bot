@@ -6,7 +6,7 @@ import { build } from 'esbuild'
 
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { DevicesPage, NodeRow } from './src/client/devices-page.js'",
+    contents: "export { DevicesPage, NodeRow, DevicesStrip, deviceSummary } from './src/client/devices-page.js'",
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -36,7 +36,7 @@ const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, require: name => (name === 'react' ? react : {}),
 }, { filename: 'bundle.cjs' })
-const { DevicesPage, NodeRow } = module.exports
+const { DevicesPage, NodeRow, DevicesStrip, deviceSummary } = module.exports
 
 function render(component, props) {
   current = { index: 0, slots: [], effects: [] }
@@ -99,4 +99,37 @@ test('the Devices page keeps the switch and the add button out when multi-device
   const found = texts(tree)
   assert.ok(found.includes('This computer is set up without multi-device (multiDevice: false).'))
   assert.equal(buttons(tree).includes('Add machine'), false)
+})
+
+test('the sidebar strip shows how many paired machines are online and opens Devices', () => {
+  const multiDevice = {
+    available: true,
+    enabled: true,
+    nodes: [
+      { id: 'nd_1', name: 'win-pc', online: true },
+      { id: 'nd_2', name: 'old-mac', online: false },
+    ],
+  }
+  assert.deepEqual(
+    { ...deviceSummary(multiDevice), names: undefined },
+    { available: true, enabled: true, total: 2, online: 1, names: undefined },
+  )
+  const opened = []
+  const wide = render(DevicesStrip, { multiDevice, actions: { openSettings: page => opened.push(page) }, wide: true })
+  assert.equal(wide.type, 'button')
+  assert.ok(texts(wide).includes('Devices · 1 of 2 online'))
+  assert.match(wide.props.title, /win-pc \(online\), old-mac \(offline\)/)
+  wide.props.onClick()
+  assert.deepEqual(opened, ['devices'])
+
+  const rail = render(DevicesStrip, { multiDevice, actions: { openSettings: () => {} }, wide: false })
+  assert.equal(texts(rail).includes('1'), true)
+  assert.match(rail.props['aria-label'], /1 of 2 online/)
+})
+
+test('the sidebar strip stays out when multi-device is off or unavailable', () => {
+  assert.equal(DevicesStrip({ multiDevice: { available: true, enabled: false, nodes: [] }, actions: {} }), null)
+  assert.equal(DevicesStrip({ multiDevice: { available: false, enabled: true, nodes: [] }, actions: {} }), null)
+  const none = render(DevicesStrip, { multiDevice: { available: true, enabled: true, nodes: [] }, actions: {}, wide: true })
+  assert.ok(texts(none).includes('Devices · no machines paired'))
 })

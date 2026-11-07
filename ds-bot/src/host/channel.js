@@ -113,6 +113,9 @@ export function install(rt) {
     capabilityStatuses: rt.capabilityStatusesView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
+    // Paired machines come and go without a new team revision, and the sidebar strip
+    // shows their online count, so they travel with every live answer.
+    multiDevice: rt.multiDeviceView?.() ?? { available: false, enabled: false, hub: { state: 'off' }, nodes: [] },
     // Computer use live state: per-Bot control, leases, pending app cards and holds.
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.

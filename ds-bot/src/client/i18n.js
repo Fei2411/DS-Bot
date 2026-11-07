@@ -1564,7 +1564,9 @@ const HOST_ZH = {
   '{name} · foreground': '{name} · 前台',
   '{name} waits for the computer': '{name} 等你停手',
   // LAN multi-device
-  Devices: '设备',
+  'Devices': '设备',
+  'Devices · no machines paired': '设备 · 还没有配对机器',
+  'Devices · {online} of {total} online': '设备 · {online}/{total} 在线',
   'Multi-device': '多机',
   'Enable multi-device on this computer': '在这台电脑上启用多机',
   'Other machines run allowlisted commands for the Bots here. This computer is the hub.': '其他机器为这里的 Bot 执行白名单命令。这台电脑是中心。',
