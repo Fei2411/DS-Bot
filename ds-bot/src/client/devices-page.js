@@ -235,6 +235,10 @@ export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
       }, hubUrl === undefined ? null : h('div', { className: 'bt-dev-url' },
         h('code', null, hubUrl),
         h(CopyButton, { text: hubUrl }))),
+      status.sync == null ? null : h(Row, {
+        label: t('Paired machines follow this conversation through the hub, not a browser.'),
+        hint: t('Revision {revision}. A message here reaches them in about a second.', { revision: status.sync.revision }),
+      }),
       hub.webUrl === undefined ? h(Row, {
         label: t('Shared chat'),
         hint: t('This DSH does not report a Web address. Start DSH Web on this computer, then reopen this page.'),
@@ -279,7 +283,7 @@ export function DevicesPage({ roster, actions, run, Section, Row, Switch }) {
 
     h(Section, { key: 'about', title: t('How it works') },
       h(Row, { label: t('One hub only. This computer is the hub: the Bots here decide which machine runs a command.') }),
-      h(Row, { label: t('Other machines see the same conversation by opening this computer\'s DS Bot page in a browser, not by starting their own team.') }),
+      h(Row, { label: t('Other machines follow the same conversation through the hub. A browser can still open this computer\'s DS Bot page for the full interface.') }),
       h(Row, { label: t('To move the hub to another computer, turn multi-device on there and pair the machines again.') }),
       policy.length === 0 ? null : h(Row, { label: t('Machines run read-only commands directly: {commands}. Anything else asks you first.', { commands: policy.join(', ') }) })),
   ]

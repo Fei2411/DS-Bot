@@ -1647,6 +1647,9 @@ var HOST_ZH = {
   "How it works": "怎么工作",
   "One hub only. This computer is the hub: the Bots here decide which machine runs a command.": "只有一个中心。这台电脑就是中心：由这里的 Bot 决定哪台机器执行命令。",
   "Other machines see the same conversation by opening this computer's DS Bot page in a browser, not by starting their own team.": "其他机器用浏览器打开这台电脑的 DS Bot 页面，看到同一段对话；不是各自再起一个团队。",
+  "Other machines follow the same conversation through the hub. A browser can still open this computer's DS Bot page for the full interface.": "其他机器通过中心跟随同一段对话；浏览器仍可打开这台电脑的 DS Bot 页面，使用完整界面。",
+  "Paired machines follow this conversation through the hub, not a browser.": "已配对的机器通过中心跟随这段对话，不依赖浏览器。",
+  "Revision {revision}. A message here reaches them in about a second.": "版本 {revision}。这里发出的消息大约一秒后到达它们。",
   "To move the hub to another computer, turn multi-device on there and pair the machines again.": "要把中心换到另一台电脑，就在那台电脑上打开多机，再重新配对。",
   "Machines run only {commands}. No shell, no other program.": "机器上只能运行 {commands}。没有 shell，也不能运行别的程序。",
   "Run it all the time": "让它一直运行",
@@ -14831,6 +14834,10 @@ function DevicesPage({ roster, actions, run: run2, Section: Section2, Row: Row4,
         (0, import_react33.createElement)("code", null, hubUrl),
         (0, import_react33.createElement)(CopyButton2, { text: hubUrl })
       )),
+      status.sync == null ? null : (0, import_react33.createElement)(Row4, {
+        label: t("Paired machines follow this conversation through the hub, not a browser."),
+        hint: t("Revision {revision}. A message here reaches them in about a second.", { revision: status.sync.revision })
+      }),
       hub.webUrl === void 0 ? (0, import_react33.createElement)(Row4, {
         label: t("Shared chat"),
         hint: t("This DSH does not report a Web address. Start DSH Web on this computer, then reopen this page.")
@@ -14893,7 +14900,7 @@ function DevicesPage({ roster, actions, run: run2, Section: Section2, Row: Row4,
       Section2,
       { key: "about", title: t("How it works") },
       (0, import_react33.createElement)(Row4, { label: t("One hub only. This computer is the hub: the Bots here decide which machine runs a command.") }),
-      (0, import_react33.createElement)(Row4, { label: t("Other machines see the same conversation by opening this computer's DS Bot page in a browser, not by starting their own team.") }),
+      (0, import_react33.createElement)(Row4, { label: t("Other machines follow the same conversation through the hub. A browser can still open this computer's DS Bot page for the full interface.") }),
       (0, import_react33.createElement)(Row4, { label: t("To move the hub to another computer, turn multi-device on there and pair the machines again.") }),
       policy.length === 0 ? null : (0, import_react33.createElement)(Row4, { label: t("Machines run read-only commands directly: {commands}. Anything else asks you first.", { commands: policy.join(", ") }) })
     )
