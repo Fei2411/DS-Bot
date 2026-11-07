@@ -181,7 +181,7 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
         `Pairing code: ${issued.code} (one machine, one use, valid until ${issued.expiresAt}).`,
         'On the other machine, in ds-bot/, run:',
         `npm run lan:worker -- --hub ${hub.url} --code ${issued.code} --name windows-pc`,
-        'After that the worker keeps its token; the code cannot be used again. It is for the user: do not send it anywhere else.',
+        'After that the worker keeps its token; the code cannot be used again. It is for the user: do not send it anywhere else, and do not save it to memory or a file.',
       ].join('\n')
     },
   }))
