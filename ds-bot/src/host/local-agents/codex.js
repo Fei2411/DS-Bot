@@ -1,9 +1,8 @@
 // The Codex app-server engine: `codex app-server --listen stdio://`, one
 // JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
 // threads; turns stream item notifications back.
-import { spawn } from 'node:child_process'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv } from './discover.js'
+import { cleanEnv, spawnAgent } from './discover.js'
 
 export class CodexEngine {
   constructor(route, engine, { findExecutable }) {
@@ -29,7 +28,7 @@ export class CodexEngine {
     if (this.peer !== undefined) return this.peer
     const bin = this.findExecutable(this.engine.command)
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
-    const child = spawn(bin, this.engine.args ?? [], {
+    const child = spawnAgent(bin, this.engine.args ?? [], {
       env: cleanEnv(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,

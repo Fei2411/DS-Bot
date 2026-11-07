@@ -3,3 +3,5 @@
 
 # Cookie fixtures test BOM and line-ending variants; normalizing them removes what they test.
 app/test/fixtures/** -text
+# Windows shims as npm and pnpm write them, with CRLF.
+ds-bot/test/fixtures/windows-shims/** -text
