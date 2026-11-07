@@ -1111,10 +1111,11 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'read_group_chat',
-    description: 'Read the latest messages of a group chat, including what you said there. You speak in groups from separate conversations, so your own chat does not show them. Main Bots may read any group; others the groups they are in.',
+    description: 'Read the latest messages of a group chat, including what you said there. For repeated checks, pass the returned after_seq cursor to read only new messages instead of adding the same history to your context again. You speak in groups from separate conversations, so your own chat does not show them. Main Bots may read any group; others the groups they are in.',
     parameters: {
       group: GROUP_REF,
       seq: { type: 'integer', description: 'Read one message whole: the seq that a cut message names' },
+      after_seq: { type: 'integer', description: 'Read up to 30 messages after this cursor, oldest first; 0 starts at the oldest retained message. Continue with the returned cursor. Only the latest 60 messages are kept; an older cursor reports the gap. Cannot be combined with seq. Omit for the latest 30 messages' },
     },
     output,
     async execute(args, exec) {
@@ -1123,8 +1124,12 @@ export function install(rt) {
       if (rt.botOf(self) === undefined) return 'Only Bots on the team can read group chats.'
       const { room, error } = rt.pickRoom(args.group, self)
       if (error) return error
+      const after = args.after_seq
+      if (after !== undefined && args.seq !== undefined) return 'Use either seq or after_seq, not both.'
+      if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) return 'after_seq must be a non-negative safe integer.'
       ensureRoomLog(room)
       await loadGroupLines(room)
+      if (after !== undefined && after > room.seq) return `after_seq ${after} is ahead of "${room.name}" (latest seq ${room.seq}); read again without after_seq to get its current cursor.`
       if (args.seq !== undefined) {
         const line = room.log.find(entry => entry.seq === Number(args.seq))
         return line === undefined ? `"${room.name}" no longer keeps message ${args.seq}; it keeps its latest ${ROOM_LOG_MAX}.` : lineText(line, memberText(room)(line))
@@ -1135,8 +1140,18 @@ export function install(rt) {
         const length = line.length ?? line.text.length
         return length <= TEXT_KEPT ? line.text : `${headOf(line.text, TEXT_KEPT)}… (cut; ${length} characters in all; read_group_chat with seq ${line.seq} reads it whole)`
       }
-      const lines = room.log.slice(-ROOM_READ_MAX)
-      return lines.length === 0 ? `"${room.name}" has no messages yet.` : `Latest in "${room.name}" (oldest first):\n${transcript(lines, short)}`
+      const pending = after === undefined ? room.log.slice(-ROOM_READ_MAX) : room.log.filter(line => line.seq > after)
+      const lines = pending.slice(0, ROOM_READ_MAX)
+      const cursor = lines.at(-1)?.seq ?? room.seq
+      const oldest = room.log[0]?.seq ?? room.seq + 1
+      return [
+        after !== undefined && after < oldest - 1
+          ? `Messages ${after + 1}-${oldest - 1} are no longer in this group's recent log; it keeps its latest ${ROOM_LOG_MAX}.` : '',
+        lines.length === 0
+          ? after === undefined ? `"${room.name}" has no messages yet.` : `No new messages in "${room.name}" after seq ${after}.`
+          : `${after === undefined ? `Latest in "${room.name}"` : `In "${room.name}" after seq ${after}`} (oldest first):\n${transcript(lines, short)}`,
+        `Next read: after_seq=${cursor}.${pending.length > lines.length ? ' More messages are available; continue with this cursor.' : ''}`,
+      ].filter(Boolean).join('\n\n')
     },
   }))
 
