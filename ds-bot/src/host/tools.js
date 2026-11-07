@@ -341,7 +341,7 @@ export function install(rt) {
         // takes its creator's: the DSH default may be a provider that has no key, and
         // then the new Bot fails on its first reply.
         const creator = callerBot(exec)
-        const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true).map(entry => entry.ref))
+        const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true && rt.isLocalAgentRef?.(entry.ref) !== true).map(entry => entry.ref))
         const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
         const model = args.model || fallback
         const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, createdBy: creator?.id })
@@ -362,7 +362,7 @@ export function install(rt) {
       instructions: { type: 'string', description: 'Replacement instructions' },
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
       avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the Bot's character again.` },
-      model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
+      model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id. It stays on what it runs on: only the user moves a Bot between DS Bot models and a local agent CLI, or between two CLIs, in its settings.' },
       effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_bot_models shows; an empty string returns to the model\'s default' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
     },
@@ -455,7 +455,8 @@ export function install(rt) {
       return models.map((entry) => {
         const levels = entry.reasoning?.efforts?.map(effort => effort.id) ?? []
         const thinking = levels.length > 0 ? `, thinking: ${levels.join(', ')}${entry.reasoning.defaultEffort === undefined ? '' : ` (default: ${entry.reasoning.defaultEffort})`}` : ''
-        return `- ${entry.ref}${entry.name !== entry.id ? ` (${entry.name})` : ''}${entry.input?.includes('image') ? ', reads images' : ''}${entry.ref === fallback ? ', default' : ''}${thinking}`
+        const local = rt.isLocalAgentRef?.(entry.ref) === true ? `, runs on the local agent ${entry.providerName}` : ''
+        return `- ${entry.ref}${entry.name !== entry.id ? ` (${entry.name})` : ''}${local}${entry.input?.includes('image') ? ', reads images' : ''}${entry.ref === fallback ? ', default' : ''}${thinking}`
       }).join('\n')
     },
   }))
@@ -801,7 +802,7 @@ export function install(rt) {
     // a Bot whose route is a local agent; they are not in rt.teamTools. A Bot
     // can move onto or off a local route after its Agent exists.
     const self = owns ? rt.botOf(rt.selfOf(id)) : undefined
-    const localBot = rt.isLocalAgentRef?.(self?.appliedModel ?? self?.model) === true
+    const localBot = rt.isLocalAgentRef?.(self?.model ?? self?.appliedModel) === true
     // A Session that left the team, a scope of the wrong kind, a fresh Agent
     // for one Session, or a Bot that changed between a local route and a model
     // all start over; a wanted scope is registered again below.

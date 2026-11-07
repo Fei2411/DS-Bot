@@ -74,6 +74,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: memory review',
     'effect ds-bot: Bot compaction',
     'on agent/created',
+    'effect ds-bot: wake parts that wait for their run mode',
     'on agent/pre-step (prepend)',
     'on system-prompt/assemble (prepend)',
     'on agent/request-error (prepend)',
