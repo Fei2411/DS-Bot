@@ -125,6 +125,14 @@ test('a member\'s messages in a row stack under its name, and an event line star
   assert.deepEqual([single.time, single.duration], [40, 4000])
 })
 
+test('a stacked block shows a path its member presented twice as one card, with the last description', () => {
+  const [block] = stackReplies([
+    { botId: 'writer', text: 'a', presented: [{ path: '/work/a.md', description: 'Draft' }, { path: '/work/b.md' }] },
+    { botId: 'writer', text: 'b', presented: [{ path: '/work/a.md', description: 'Final' }] },
+  ])
+  assert.deepEqual(JSON.parse(JSON.stringify(block.files)), [{ path: '/work/b.md' }, { path: '/work/a.md', description: 'Final' }])
+})
+
 // A time in the machine's own zone, some days back, so the test does not depend on the zone.
 const at = (daysAgo, hour, minute) => {
   const today = new Date()
@@ -218,8 +226,8 @@ test('a group post drawn from its trigger shows the time it came in', () => {
   effects = []
 })
 
-const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {} } = {}) => ({
-  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId,
+const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {}, openFile } = {}) => ({
+  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId, openFile,
   useRoster: select => select(roster), useUi: select => select({ reactions: {}, visits: {} }), actions,
   useHeldCards: select => select(held),
 })
@@ -229,6 +237,44 @@ const show = (root, options) => {
   return out
 }
 const shown = (root, options) => text(show(root, options))
+
+// #975: the files a member presented in its group turn show as cards under its
+// message, and a card opens its file the way the chat opens files.
+test('a group reply shows the files its member presented, and a card opens its file', () => {
+  const opened = []
+  const windowsPath = 'C:\\work\\notes.md'
+  const replies = [
+    { botId: 'writer', text: 'The report is ready.', presented: [{ path: '/work/report.docx', description: 'Final report' }] },
+    { botId: 'writer', text: '', presented: [{ path: windowsPath }, { path: '' }] },
+  ]
+  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room', openFile: path => { opened.push(path); return Promise.resolve() } })
+  const cards = findAll(out, node => node.type === 'button' && String(node.props?.className).includes('bt-pfile'))
+  assert.deepEqual(cards.map(text), ['report.docxFinal report', 'notes.md'])
+  assert.deepEqual(cards.map(node => node.props.title), ['/work/report.docx', windowsPath])
+  // One block under the member's name, with one bubble: the files-only message adds none.
+  assert.equal(findAll(out, node => node.props?.className === 'bt-group-msg').length, 1)
+  assert.equal(count(text(out), 'The report is ready.'), 1)
+  for (const card of cards) card.props.onClick()
+  assert.deepEqual(opened, ['/work/report.docx', windowsPath])
+})
+
+test('a group post that came after its round shows the files its member presented', () => {
+  const opened = []
+  const node = {
+    key: 'trigger', kind: 'turn-trigger', location: { turn: { turn: 1 } },
+    data: { seq: 8, time: at(0, 16, 42), content: text$('[Group post from Writer]\nHere is the plan.'), source: { kind: 'bot', role: 'post', senderSessionId: 'writer', senderName: 'Writer', late: true, presented: [{ path: '/work/plan.pdf' }] } },
+  }
+  const out = expand(TriggerCell({
+    node, sessionId: 'room', actions: {}, openFile: path => { opened.push(path) },
+    useRoster: select => select(team()), useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}), useUi: select => select({ visits: {}, reactions: {} }),
+  }))
+  effects = []
+  const cards = findAll(out, entry => entry.type === 'button' && String(entry.props?.className).includes('bt-pfile'))
+  assert.deepEqual(cards.map(text), ['plan.pdf'])
+  cards[0].props.onClick()
+  assert.deepEqual(opened, ['/work/plan.pdf'])
+})
 
 // One finished call of every kind ToolCell draws, and what it shows.
 const BRANCHES = [

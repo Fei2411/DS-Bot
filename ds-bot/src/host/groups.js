@@ -179,6 +179,7 @@ const ROOM_READ_MAX = 30
 // reports a corrupt log only in the message of a generic failure.
 const lostSession = error => error?.code === 'session/not-found' || /\bis corrupt\b|\bcorrupt session log\b/i.test(String(error?.message ?? ''))
 const fileLine = file => `[File "${file.name}" (${file.bytes} bytes) attached]`
+const presentedLine = file => `[Presented file ${file.path}${file.description ? `: ${file.description}` : ''}]`
 
 export function install(rt) {
   const { ctx } = rt
@@ -254,6 +255,32 @@ export function install(rt) {
       return () => roomLineListeners.delete(listener)
     },
   })
+
+  // DSH's present tool records the files a member delivers in the member's own group
+  // Session, which the group chat does not show (#975). They go with what the member
+  // next says in the group, keyed by member and group so a Session that moved on at its
+  // context limit keeps them. A path named again keeps its last description, as in
+  // DSH's own cards.
+  const presented = new Map()
+  const presentedKey = (roomId, botId) => `${roomId}/${botId}`
+  ctx.on('session/event', (session, event) => {
+    if (event?.type !== 'deliverables/presented') return
+    const owner = rt.groupOwners.get(session?.id)
+    if (owner === undefined) return
+    const key = presentedKey(owner.roomId, owner.botId)
+    const files = new Map((presented.get(key) ?? []).map(file => [file.path, file]))
+    for (const file of Array.isArray(event.data?.files) ? event.data.files : []) {
+      if (typeof file?.path !== 'string' || file.path.trim() === '') continue
+      files.delete(file.path)
+      files.set(file.path, { path: file.path, ...(typeof file.description === 'string' && file.description !== '' ? { description: file.description } : {}) })
+    }
+    if (files.size > 0) presented.set(key, [...files.values()])
+  })
+  const takePresented = (roomId, botId) => {
+    const files = presented.get(presentedKey(roomId, botId)) ?? []
+    presented.delete(presentedKey(roomId, botId))
+    return files
+  }
 
   // The folder a group was set to work in is gone: its members' Sessions move on in
   // the team workspace (parts.js), and the group is told once per folder, so a later
@@ -469,9 +496,10 @@ export function install(rt) {
 
   // A member's message in the round: in the log, for the members after it, and in the
   // round's replies, for the user.
-  const postInRound = (room, round, member, text, duration) => {
-    appendRoom(room, { who: member.name, botId: member.id, text })
-    round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now(), ...(duration === undefined ? {} : { duration }) })
+  const postInRound = (room, round, member, text, duration, files = []) => {
+    const withFiles = files.length > 0 ? { presented: files } : {}
+    appendRoom(room, { who: member.name, botId: member.id, text: [text, ...files.map(presentedLine)].filter(Boolean).join('\n'), ...withFiles })
+    round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now(), ...(duration === undefined ? {} : { duration }), ...withFiles })
     void rt.save().catch(() => {})
   }
 
@@ -823,6 +851,8 @@ export function install(rt) {
       onWork,
     )
     const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
+    // A turn that ended posts the files it presented, also when it said nothing more.
+    const files = typeof reply === 'string' ? takePresented(room.id, member.id) : []
     const subRunning = rt.hasSubagents?.(session.id) === true
     if (reply?.failure !== undefined) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
@@ -840,19 +870,15 @@ export function install(rt) {
       markBatchWorked(room.id, member.id)
       round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
     } else if (subRunning) {
-      if (final !== undefined) {
-        postInRound(room, round, member, final, Date.now() - startedAt)
-        callFrom(room, round, member, final, called, { worked: true, byBot: slot.by !== undefined })
-      }
+      if (final !== undefined || files.length > 0) postInRound(room, round, member, final ?? '', Date.now() - startedAt, files)
+      if (final !== undefined) callFrom(room, round, member, final, called, { worked: true, byBot: slot.by !== undefined })
       slot.status = 'working'
       markBatchWorked(room.id, member.id)
       round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
-    } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
+    } else if (final !== undefined || (typeof reply === 'string' && (said.length > 0 || files.length > 0))) {
       slot.status = 'posted'
-      if (final !== undefined) {
-        postInRound(room, round, member, final, Date.now() - startedAt)
-        callFrom(room, round, member, final, called, { worked, byBot: slot.by !== undefined })
-      }
+      if (final !== undefined || files.length > 0) postInRound(room, round, member, final ?? '', Date.now() - startedAt, files)
+      if (final !== undefined) callFrom(room, round, member, final, called, { worked, byBot: slot.by !== undefined })
     } else {
       slot.status = typeof reply === 'string' ? 'passed' : 'missed'
       round.passed.push(member.name)
@@ -930,12 +956,13 @@ export function install(rt) {
         // Image readings go into the log only; `@` names are picked from what the user typed.
         // Images and files stay with their line and reach each member the line is shown to.
         const readings = post.images === undefined ? [] : await rt.imagesForGroup(post.images, rt.sessionOfRoom(room))
-        const text = [post.text, ...readings, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
+        const text = [post.text, ...readings, ...(post.files ?? []).map(fileLine), ...(post.presented ?? []).map(presentedLine)].filter(Boolean).join('\n')
         appendRoom(room, {
           ...(post.botId ? { who: rt.botOf(post.botId)?.name ?? post.name ?? 'Bot', botId: post.botId } : { who: 'User' }),
           text,
           ...(post.images === undefined ? {} : { images: post.images }),
           ...(post.files === undefined ? {} : { files: post.files }),
+          ...(post.presented === undefined ? {} : { presented: post.presented }),
           ...(post.via === undefined ? {} : { via: post.via }),
         })
       }
@@ -1211,8 +1238,10 @@ export function install(rt) {
         running.replies.push({ kind, botId: sender.id, name: sender.name, color: sender.color, time: Date.now() })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        appendRoom(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}) })
-        running.replies.push({ botId: sender.id, name: sender.name, color: sender.color, text: line, time: Date.now() })
+        const delivered = extra.presented ?? []
+        const withFiles = delivered.length > 0 ? { presented: delivered } : {}
+        appendRoom(room, { who: sender.name, botId: sender.id, text: [line, ...delivered.map(presentedLine)].filter(Boolean).join('\n'), ...(files.length > 0 ? { files } : {}), ...withFiles })
+        running.replies.push({ botId: sender.id, name: sender.name, color: sender.color, text: line, time: Date.now(), ...withFiles })
       }
       callPost(room, running, sender, text, extra)
       await rt.save()
@@ -1238,12 +1267,19 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const text = stripOwnName(member.name, reply)
+    // The files the turn presented go with its text, or on their own when it passed.
+    const files = takePresented(room.id, member.id)
+    if (isPass(text) && files.length > 0) {
+      await postToRoom(room, member, '', { late: true, quiet: true, presented: files })
+        .catch(error => rt.warn('ds-bot: files from %s not posted: %s', member.name, error))
+    }
+    const delivered = isPass(text) || files.length === 0 ? {} : { presented: files }
     // While a DSH subagent of this member is still running, the member's work is not
     // finished yet: post any non-empty text as a progress line and keep its batch open.
     if (rt.hasSubagents?.(sessionId) === true) {
       if (!isPass(text)) {
         const calls = callsIn(room, member, text)
-        await postToRoom(room, member, text, { progress: true, ...(!calls ? { quiet: true } : {}) })
+        await postToRoom(room, member, text, { progress: true, ...(!calls ? { quiet: true } : {}), ...delivered })
           .catch(error => rt.warn('ds-bot: subagent progress from %s failed: %s', member.name, error))
       }
       return
@@ -1266,14 +1302,14 @@ export function install(rt) {
     }
     if (waitingPeers && named.length === 0) {
       if (!isPass(text)) {
-        await postToRoom(room, member, text, { late: true, quiet: true })
+        await postToRoom(room, member, text, { late: true, quiet: true, ...delivered })
           .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
       }
       return
     }
     const done = isPass(text) && (shown || batchDoneBefore) && askedBy !== undefined
     if (isPass(text) && !done) return
-    await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })
+    await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}), ...delivered })
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
   }
   rt.lateRoomReply = lateRoomReply
@@ -1437,7 +1473,8 @@ export function install(rt) {
   rt.greetRoom = greetRoom
 
   async function reportRound(room, post, round) {
-    const lines = round.replies.filter(reply => reply.kind === undefined).map(reply => `${reply.name}: ${reply.text}`)
+    const lines = round.replies.filter(reply => reply.kind === undefined)
+      .map(reply => `${reply.name}: ${[reply.text, ...(reply.presented ?? []).map(presentedLine)].filter(Boolean).join('\n')}`)
     const waiting = round.replies.filter(reply => reply.kind === 'approval').map(reply => reply.name)
     const working = round.replies.filter(reply => reply.kind === 'working').map(reply => reply.name)
     const text = [

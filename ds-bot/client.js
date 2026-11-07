@@ -757,6 +757,7 @@ var ZH = {
   "Load earlier": "加载更早的消息",
   "1 image": "1 张图片",
   "{count} images": "{count} 张图片",
+  "Open {name}": "打开 {name}",
   "Replies from": "群聊回复：",
   "Reply from": "收到回复：",
   "Message from": "收到消息：",
@@ -12510,14 +12511,18 @@ function stackReplies(replies) {
   const items = [];
   replies.forEach((reply, index) => {
     const last = items.at(-1);
+    const texts2 = reply.kind === void 0 && reply.text !== "" ? [reply.text] : [];
+    const files = reply.kind === void 0 ? presentedFiles(reply.presented) : [];
     if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
-      last.texts.push(reply.text);
+      last.texts.push(...texts2);
+      last.files = [...last.files.filter((file) => !files.some((again) => again.path === file.path)), ...files];
       last.time = reply.time;
       last.duration = reply.duration;
-    } else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [], time: reply.time, duration: reply.duration });
+    } else items.push({ reply, index, texts: texts2, files, time: reply.time, duration: reply.duration });
   });
   return items;
 }
+var presentedFiles = (value) => (Array.isArray(value) ? value : []).filter((file) => typeof file?.path === "string" && file.path !== "").map((file) => ({ path: file.path, ...typeof file.description === "string" && file.description !== "" ? { description: file.description } : {} }));
 
 // src/client/fold.js
 var import_react28 = require("react");
@@ -13079,6 +13084,23 @@ function Attachments({ attachments, renderMessageImages }) {
     );
   }));
 }
+function PresentedFiles({ files, openFile }) {
+  if (!files?.length) return null;
+  return (0, import_react30.createElement)("div", { className: "bt-pfiles" }, files.map((file) => {
+    const name = file.path.split(/[\\/]/).filter(Boolean).at(-1) ?? file.path;
+    const meta = file.description ?? ui.fileExtension?.(name)?.toUpperCase().slice(0, 8);
+    const body = [
+      ui.FileTypeIcon ? (0, import_react30.createElement)(ui.FileTypeIcon, { key: "icon", path: name, className: "bt-ufile-icon" }) : null,
+      (0, import_react30.createElement)("span", { key: "text", className: "bt-ufile-text" }, (0, import_react30.createElement)("span", { className: "bt-ufile-name" }, name), meta ? (0, import_react30.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
+    ];
+    if (typeof openFile !== "function") return (0, import_react30.createElement)("span", { key: file.path, className: "bt-ufile", title: file.path }, body);
+    const open = () => {
+      void Promise.resolve(openFile(file.path)).catch(() => {
+      });
+    };
+    return (0, import_react30.createElement)("button", { key: file.path, type: "button", className: "bt-ufile bt-pfile", title: file.path, "aria-label": t("Open {name}", { name }), onClick: open }, body);
+  }));
+}
 function CopyButton({ text }) {
   const [copied, setCopied] = (0, import_react30.useState)(false);
   const copy2 = () => {
@@ -13155,6 +13177,11 @@ var USER_MESSAGE_CSS = `
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-ufile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-pfiles{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
+.bt-pfile{font:inherit;color:inherit;text-align:start;cursor:pointer;transition:background-color .12s ease}
+.bt-pfile:hover{background:var(--bt-hover)}
+.bt-pfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-urefs{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
@@ -13536,7 +13563,7 @@ function scheduleGroupChains(flow) {
     if (flow.isConnected !== false) syncGroupChains(flow);
   });
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole, time, duration }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile, room: room2, roster, actions, msgKey, useUi, whole, time, duration }) {
   const ref = (0, import_react31.useRef)(null);
   (0, import_react31.useLayoutEffect)(() => {
     const el = ref.current;
@@ -13565,7 +13592,8 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       Number.isFinite(time) ? (0, import_react31.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react31.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react31.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react31.createElement)(Bubbles, { texts: texts2.filter((entry) => entry !== ""), roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole }),
+    (0, import_react31.createElement)(PresentedFiles, { files, openFile })
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -13783,6 +13811,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
         texts: row.texts,
+        files: row.files,
         room: roster.roomsById[sessionId],
         roster,
         actions,
@@ -13809,7 +13838,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return null;
   }
 }
-function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, useUi, actions }) {
+function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
   const roster = useRoster((value) => value);
   const data = node.data;
   const source = data.source !== null && typeof data.source === "object" ? data.source : {};
@@ -13853,6 +13882,8 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
         return (0, import_react31.createElement)(GroupMessage, {
           bot: poster,
           text: file ? stripLongNote(text) : text,
+          files: presentedFiles(source.presented),
+          openFile,
           room: room2,
           roster,
           actions,
@@ -14113,7 +14144,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   }
   return null;
 }
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork, openFile }) {
   const [live, setLive] = (0, import_react31.useState)({ replies: [], speaking: [] });
   (0, import_react31.useEffect)(() => {
     if (done) return void 0;
@@ -14156,7 +14187,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   return (0, import_react31.createElement)(
     "div",
     { className: "bt-group-replies" },
-    stackReplies(replies).map(({ reply, index, texts: texts2, time, duration }) => {
+    stackReplies(replies).map(({ reply, index, texts: texts2, files, time, duration }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
         return (0, import_react31.createElement)(
@@ -14177,7 +14208,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           goalEventText(reply)
         );
       }
-      return (0, import_react31.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
+      return (0, import_react31.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, files, openFile, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id];
@@ -14217,7 +14248,7 @@ function useShownCards(actions, sessionId, callIds) {
     return () => actions.noteCards(sessionId, ids, -1);
   }, [sessionId, key]);
 }
-function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks }) {
+function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks, openFile }) {
   const tool = toolName(call2);
   const done = call2.kind === "tool-result";
   const { text: arg, value: argValue } = toolArgs(call2);
@@ -14243,7 +14274,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       return done && target ? (0, import_react31.createElement)(EventLine, { prefix: t("Updated"), bots: [target], onOpen: (bot) => actions.openSession(bot.id) }) : (0, import_react31.createElement)(CellEmpty);
     }
     case "group_relay":
-      return (0, import_react31.createElement)(GroupReplies, { sessionId, callId: call2.callId, done, content: call2.content, roster, actions, useUi, useWork });
+      return (0, import_react31.createElement)(GroupReplies, { sessionId, callId: call2.callId, done, content: call2.content, roster, actions, useUi, useWork, openFile });
     case "create_group":
     case "update_group":
     case "delete_group":
@@ -14318,7 +14349,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       return (0, import_react31.createElement)(CellEmpty);
   }
 }
-function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRoster((value) => value);
   const heldCards = useHeldCards?.((state) => state[sessionId]);
   const root = node.data.root;
@@ -14332,7 +14363,7 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
   useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
   if (drawn.length === 0) return (0, import_react31.createElement)(CellEmpty);
-  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
+  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, openFile, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
   return (0, import_react31.createElement)(import_react31.Fragment, null, drawn.map((call2, index) => (0, import_react31.createElement)(import_react31.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
 }
 

@@ -1020,3 +1020,72 @@ test('a plain message in a group where everyone answers still goes one member at
   const result = JSON.parse(await running)
   assert.deepEqual(result.replies.map(reply => reply.text), ['one', 'two', 'three'])
 })
+
+// #975: DSH's present tool records a member's files in its own group Session, which the
+// group chat does not show. They go with the member's message in the round, and a
+// member that only presents files still shows them.
+test('files a member presents in its group turn go with its message to the group', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const present = (sessionId, turn, files) => emit(sessionId, { type: 'deliverables/presented', data: { turn, callId: `present-${turn}`, files } })
+  const turnWith = async (sessionId, exchangeId, text, turn, files) => {
+    await emit(sessionId, { type: 'turn/start', data: { turn } })
+    await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    await emit(sessionId, { type: 'tool/call', data: { callId: `present-${turn}`, name: 'present', arguments: '{}' } })
+    await present(sessionId, turn, files)
+    await emit(sessionId, { type: 'tool/result', data: { callId: `present-${turn}` } })
+    await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
+    await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
+  }
+  await emit(room.id, userMessage('Write the report'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await turnWith(first.sessionId, first.message.source.exchangeId, 'The report is ready.', 1, [
+    { path: '/work/report.docx', description: 'First draft' },
+    { path: '/work/report.docx', description: 'Final report' },
+    { path: '' },
+  ])
+  const second = await turnFor(sent, first)
+  // The next member reads which file the first one presented.
+  assert.match(second.message.content[0].text, /The report is ready\.\n\[Presented file \/work\/report\.docx: Final report\]/)
+  await turnWith(second.sessionId, second.message.source.exchangeId, '[PASS]', 2, [{ path: '/work/notes.md' }])
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => [reply.text, reply.presented]), [
+    ['The report is ready.', [{ path: '/work/report.docx', description: 'Final report' }]],
+    ['', [{ path: '/work/notes.md' }]],
+  ])
+  const lines = rt.roomOf(room.id).log.filter(line => line.botId !== undefined)
+  assert.deepEqual(lines.map(line => line.presented), [[{ path: '/work/report.docx', description: 'Final report' }], [{ path: '/work/notes.md' }]])
+  assert.equal(lines[1].text, '[Presented file /work/notes.md]')
+
+  // Taken once: the member's next message carries none.
+  sent.length = 0
+  await emit(room.id, userMessage('Thanks'))
+  const again = relay(room.id, 'relay-2')
+  const next = await turnFor(sent)
+  await turnWith(next.sessionId, next.message.source.exchangeId, 'You are welcome.', 3, [])
+  const last = await turnFor(sent, next)
+  await turnWith(last.sessionId, last.message.source.exchangeId, 'Sure.', 4, [])
+  const later = JSON.parse(await again)
+  assert.deepEqual(later.replies.map(reply => reply.presented), [undefined, undefined])
+})
+
+// A member the round moved on from posts its files with the result it ends with.
+test('files a member presents after the round moved on go with its late post', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Me too.', 2)
+  await running
+  sent.length = 0
+  await emit(first.sessionId, { type: 'deliverables/presented', data: { turn: 3, callId: 'c1', files: [{ path: '/work/plan.pdf' }] } })
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id }, 'Here is the plan.')
+  const post = await waitFor(() => sent.find(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'))
+  assert.deepEqual(post.message.source.presented, [{ path: '/work/plan.pdf' }])
+})

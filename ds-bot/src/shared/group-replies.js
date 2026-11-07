@@ -54,16 +54,26 @@ function scanReplies(text, start, replies) {
 }
 
 // A member's messages in a row, as one block under its name: what it says while it
-// works comes one message at a time. A block carries the last message's time and run.
+// works comes one message at a time. A block carries the last message's time and run,
+// and the files its messages presented; a message of files only adds no bubble.
 export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
     const last = items.at(-1)
+    const texts = reply.kind === undefined && reply.text !== '' ? [reply.text] : []
+    const files = reply.kind === undefined ? presentedFiles(reply.presented) : []
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId) {
-      last.texts.push(reply.text)
+      last.texts.push(...texts)
+      // A path presented again keeps one card, with its last description.
+      last.files = [...last.files.filter(file => !files.some(again => again.path === file.path)), ...files]
       last.time = reply.time
       last.duration = reply.duration
-    } else items.push({ reply, index, texts: reply.kind === undefined ? [reply.text] : [], time: reply.time, duration: reply.duration })
+    } else items.push({ reply, index, texts, files, time: reply.time, duration: reply.duration })
   })
   return items
 }
+
+// The files of a reply or post, as far as they name a path.
+export const presentedFiles = value => (Array.isArray(value) ? value : [])
+  .filter(file => typeof file?.path === 'string' && file.path !== '')
+  .map(file => ({ path: file.path, ...(typeof file.description === 'string' && file.description !== '' ? { description: file.description } : {}) }))
