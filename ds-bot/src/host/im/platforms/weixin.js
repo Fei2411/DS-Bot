@@ -14,10 +14,20 @@ const QR_BASE = 'https://ilinkai.weixin.qq.com/'
 const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
+const ILINK_APP_ID = 'bot'
+// The iLink client version, packed the same way the official client sends it.
+const ILINK_CLIENT_VERSION = (2 << 16) | (4 << 8) | 6
 
-const qrBase = env => String(env.config?.qr ?? env.config?.api ?? QR_BASE).replace(/\/+$/, '/')
-const base = (env, fields) => String(fields.baseUrl || env.config?.api || QR_BASE).replace(/\/+$/, '/')
+const qrBase = env => String(env.config?.qr ?? env.config?.api ?? QR_BASE).replace(/\/*$/, '/')
+const base = (env, fields) => String(fields.baseUrl || env.config?.api || QR_BASE).replace(/\/*$/, '/')
 const baseInfo = () => ({ channel_version: 'ds-bot' })
+// iLink identifies the client by these headers; the ported adapter sent only
+// content-type + Authorization, so the server saw an unidentified client.
+const commonHeaders = () => ({
+  'iLink-App-Id': ILINK_APP_ID,
+  'iLink-App-ClientVersion': String(ILINK_CLIENT_VERSION),
+  'X-WECHAT-UIN': Buffer.from(String(randomBytes(4).readUInt32BE(0)), 'utf8').toString('base64'),
+})
 
 const logins = new Map() // loginId → { qrcode, baseUrl, expiresAt, result }
 
@@ -131,10 +141,12 @@ export default {
             await sleep(3000)
             continue
           }
-          if (Number(answer.ret) !== 0) {
-            env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
-            if (Number(answer.ret) === 401 || Number(answer.ret) === 403) {
-              handlers.onStatus({ state: 'error', error: `WeChat answered ${answer.ret}` })
+          const code = answer.ret ?? answer.errcode
+          if (code !== undefined && Number(code) !== 0) {
+            env.log?.warn?.('ds-bot im: weixin getupdates answered %s', code)
+            if (Number(code) === 401 || Number(code) === 403 || Number(code) === -14) {
+              const reason = Number(code) === -14 ? 'WeChat session expired; please rescan the QR code' : `WeChat answered ${code}`
+              handlers.onStatus({ state: 'error', error: reason })
               return
             }
             await sleep(3000)
@@ -154,7 +166,25 @@ export default {
     }
 
     handlers.onStatus({ state: 'connecting' })
-    void poll()
+    void (async () => {
+      try {
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await notifyStart(env, base(env, fields), fields.token)
+            break
+          } catch (error) {
+            if (error?.permanent || stopped || attempt >= 2) throw error
+            await sleep(1000 * (attempt + 1))
+          }
+        }
+      } catch (error) {
+        if (stopped) return
+        env.log?.warn?.('ds-bot im: weixin notifystart failed: %s', error?.message ?? error)
+        handlers.onStatus({ state: 'error', error: error?.message ?? String(error) })
+        return
+      }
+      if (!stopped) void poll()
+    })()
 
     return {
       send: async (chat, { text }) => {
@@ -213,6 +243,17 @@ const chunk = (text, limit) => {
   return chunks
 }
 
+// iLink must have the bot's session started (msg/notifystart) before getupdates
+// will carry anything; without it the server keeps answering
+// {"errcode":-14,"errmsg":"session timeout"} and every poll looks like a failure.
+async function notifyStart(env, baseUrl, token) {
+  const answer = await request(env, baseUrl, token, 'msg/notifystart', {}, 10_000)
+  const code = answer?.errcode ?? answer?.ret
+  if (code !== undefined && Number(code) !== 0) {
+    throw fail(`WeChat notifystart rejected (${code})`, { permanent: String(code) === '-14' })
+  }
+}
+
 async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIMEOUT_MS) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs)
@@ -222,6 +263,7 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
     response = await env.fetch(`${baseUrl}ilink/bot/${endpoint}`, {
       method: 'POST',
       headers: {
+        ...commonHeaders(),
         'content-type': 'application/json',
         ...(token ? { authorization: `Bearer ${token}`, AuthorizationType: 'ilink_bot_token' } : {}),
       },
