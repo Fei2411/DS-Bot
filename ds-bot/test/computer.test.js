@@ -310,6 +310,20 @@ test('provider status: occupied, missing, unsupported, error and retry', async (
   services.loader = { import: async () => { throw Object.assign(new Error('Cannot find package'), { code: 'ERR_MODULE_NOT_FOUND' }) } }
   await rt.computerEndpoint('provider-retry', {})
   assert.equal(rt.computerStatus().state, 'missing')
+  // the status says what to install, at the running DSH's version (#1050)
+  const { install } = rt.computerStatus()
+  assert.equal(install.packages.length, 1)
+  assert.match(install.packages[0], /^@deepseek-ai\/dsh-experimental-[\w-]+@\d/)
+  assert.equal(install.command, `pnpm add ${install.packages[0]}`)
+  // without the registry both packages are missing, and the profile folder is named
+  services.profileContext = { dir: '/profiles/desktop' }
+  services.computerUse = undefined
+  await rt.computerEndpoint('provider-retry', {})
+  const both = rt.computerStatus().install
+  assert.match(both.packages[0], /^@deepseek-ai\/dsh-computer-use@/)
+  assert.equal(both.packages.length, 2)
+  assert.equal(both.command, `pnpm --dir "/profiles/desktop" add ${both.packages.join(' ')}`)
+  services.computerUse = { providerName: undefined }
   // error: any other import failure
   services.loader = { import: async () => { throw new Error('boom') } }
   await rt.computerEndpoint('provider-retry', {})
