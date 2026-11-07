@@ -90,6 +90,8 @@ class ClaudeSession {
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
+    // A write that meets the process on its way out fails with EPIPE; its exit reports it.
+    child.stdin.on('error', () => { this.dead = true })
     let rest = ''
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
