@@ -125,11 +125,18 @@ export class LocalAgentAdapter extends LlmAdapter {
       // sign-in, for one): the cached bridge is dead, so the next call starts a
       // new process instead of writing into the one that is gone.
       if (live.engineSession?.dead === true) {
+        // A CLI that died before `system/init` never read the prompt it was
+        // handed: roll the marker back so the new process replays that input.
+        const unread = live.engineSession.cliSessionId === undefined
         live.engineSession = undefined
         live.pumpToken = {}
         // The queue belongs to the process that is gone: the retry starts clean
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
+        if (unread) {
+          live.handed = live.handedBefore
+          this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
+        }
       }
       return live
     }
@@ -344,8 +351,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
 
     // The last DSH message is handed now; a later call sends only what follows.
+    // The marker before it is kept: a start that fails before the CLI reads
+    // anything must not count that message as delivered.
     const last = messages.at(-1)
     if (last !== undefined) {
+      live.handedBefore = live.handed
       live.handed = last.id
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
     }

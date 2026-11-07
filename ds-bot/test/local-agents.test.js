@@ -314,6 +314,41 @@ test('claude: a retry after a pre-init exit starts a new CLI', async (t) => {
   assert.equal(readFileSync(runs, 'utf8'), '2')
 })
 
+// The failed prompt was handed but never read: the retry must send it again,
+// not only what came after it.
+test('claude: the retry replays the input the dead CLI never read', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '1'] })
+  t.after(() => adapter.dispose())
+  const history = [user('m1', 'fix the login')]
+  await assert.rejects(collect(adapter.stream(options('s1', history, { provider: 'claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  // The same full history comes back, as DS Bot resends the conversation.
+  const out = await collect(adapter.stream(options('s1', history, { provider: 'claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
+})
+
+// The repair card's Retry adds a `continue` message; the new CLI must still see
+// the user message that never got an answer.
+test('claude: the retry flow replays the unanswered message', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '1'] })
+  t.after(() => adapter.dispose())
+  const asked = user('m1', 'fix the login')
+  await assert.rejects(collect(adapter.stream(options('s1', [asked], { provider: 'claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  const retry = {
+    id: 'm2',
+    role: 'user',
+    content: [{ type: 'text', text: "[Retry after a failed turn]\nYour last turn failed (LOCAL_AGENT_EXIT) and the user has fixed it. Answer the user's last unanswered message." }],
+    source: { kind: 'bot', form: 'relay', role: 'continue' },
+  }
+  const out = await collect(adapter.stream(options('s1', [asked, retry], { provider: 'claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  const prompts = readFileSync(`${runs}.prompts`, 'utf8')
+  assert.match(prompts, /fix the login/)
+  assert.match(prompts, /last unanswered message/)
+})
+
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
   const mcp = new LoopbackMcp(() => [{ name: 'message_bot', description: 'd', parameters: { type: 'object', properties: { x: { anyOf: [{ type: 'string' }, { type: 'number' }] } }, required: ['x'] } }], async () => ({ text: 'done' }))
   await mcp.listen()
