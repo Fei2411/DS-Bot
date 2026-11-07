@@ -57,7 +57,9 @@ export class AcpEngine {
 
   sessionFor(dshSessionId) {
     let session = this.sessions.get(dshSessionId)
-    if (session === undefined) {
+    // A session whose process exited keeps its queue and, with it, the pump
+    // still waiting there: a reopened session needs a fresh one.
+    if (session === undefined || session.dead) {
       const queue = new EventQueue()
       session = { dshSessionId, acpSessionId: undefined, dead: false, modes: [], toolCalls: new Map(), push: event => queue.push(event), next: () => queue.next() }
       this.sessions.set(dshSessionId, session)
