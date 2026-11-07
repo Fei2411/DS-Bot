@@ -221,6 +221,41 @@ Bot 会 `list_devices` → 选 `windows-pc` → `run_on_device`，结果直接�
 
 现有的 `dsh-api-remote-access` / `dsh-api-gateway` 是「远程调用 Host 能力」的底座，但把「一个 Peer 附着到某个 Session 并跟随事件」暴露给插件，需要 DSH 提供文档 API；`liveshare` 是唯一现成实现，但它需要独立服务器和 OAuth，不适合局域网自建。等这两点有了，再把「同一会话」从浏览器方案升级成原生薄客户端。
 
+## 验收自动化
+
+`ds-bot/dev/lan-sync-accept.mjs` 把「一台主机、两块屏幕」和「Bot 用设备工具」两条路径都跑成可重复的自测。它不启动第二个 DSH：只起一个 `dsh --profile web --host <局域网 IP> --no-open`，然后开两个独立的登录会话（各自换取 cookie）当作两台机器的浏览器。
+
+```sh
+cd ds-bot
+npm run harness                                  # 第一次：装 dev/harness 里的 DSH 包
+node dev/lan-sync-accept.mjs prove               # 全新团队 → 双向同步 → 设备路径 → 退出
+KEEP=1 node dev/lan-sync-accept.mjs prove        # 跑完不退出，留给 Windows 接着验
+node dev/lan-sync-accept.mjs pair                # 打印配对码和 Windows 要跑的命令（只在终端）
+node dev/lan-sync-accept.mjs devices             # 真实 Windows 节点：list → 自动选 → hostname
+node dev/lan-sync-accept.mjs status | stop
+```
+
+它做的事：
+
+- 在系统临时目录建一个 `dsbot-966-sync-home`，web profile 和 `dev/bench.sh` 一样链接本仓库的 `ds-bot`（`link:<checkout>/ds-bot`，bundles 含 `ds-bot`）。少了这一层，页面能开但 `/api/bot` 不存在，团队消息没处发，这是上一次验收失败的原因。
+- 用 `--patch` 覆盖 `bot` 行，把 `multiDevice` 打开（`0.0.0.0` + 临时端口，`dataDir` 在同一个 home 里），所以 Hub 真的跑在 dsh 进程里，不是另起的 CLI。
+- 用 `dev/mock-llm.mjs` 当模型，选 `deepseek-official/*` 路由（不能选本机 local agent 的路由，否则回合会卡在登录上）。用户消息照常落进 Session，Bot 回复是 mock。
+- 客户端 A 登录后给 Chief 发一条带时间戳的独特消息；客户端 B 用**自己的**登录换 cookie，再读同一个 Bot 的会话，断言读到完全相同的文本；然后 B 发、A 读，反向再验一次。
+- 设备路径：临时 home 里的 Hub 发一个配对码，脚本在本机起一个 `cli.js worker`（名字 `windows-pc`）当替身，证明配对、上线、列表、自动选机、`hostname` 派单这条链是通的。替身跑在 Mac 上，所以 `hostname` 不是 `DESKTOP-BNUICR3`；脚本会在报告里把这一步标成 `simulated` 并留下待办，不伪造绿色。
+
+证据写到 `/tmp/dsbot-966-sync-accept-report.json`（`--out` 可改）。里面有：`origin`（不带 token）、`sync.sessionId`、两个方向的消息文本与读回时间、双方 read-back 片段、cookie 的 SHA-256 前缀（不存 cookie 值）、`devices.nodes`（名字、在线、OS、主机名）、自动选中的节点、`hostname` 的 stdout/退出码、逐项 `checks` 和 `windowsRemaining`。启动地址带进程 token，只写进 `<home>/login-url.txt`（0600），不打印、不进报告。
+
+### 还需要 Windows 的部分
+
+`prove` 能自动跑完的到此为止。真机那一段要两台机器配合：
+
+1. 中心 Mac：`node dev/lan-sync-accept.mjs start`，记下它打印的 `origin`，再用 `pair` 拿配对码。
+2. Windows：在 `ds-bot/` 里跑 `npm run lan:worker -- --hub http://<Mac IP>:<hub 端口> --code <配对码> --name windows-pc`，看到 `connected`。
+3. Windows 浏览器：打开 Mac 上 `<home>/login-url.txt` 里那一条地址（不是 `origin`），确认看到 Chief 的同一段会话；在 Windows 发一句话，Mac 上能看到它和回复。
+4. 中心 Mac：`node dev/lan-sync-accept.mjs devices`。它要求在线节点里有 Windows 机器，按「在线 → win32 → `DESKTOP-*` 主机名」选一台，跑 `hostname`，断言输出是 `DESKTOP-BNUICR3`（可用 `EXPECT_HOSTNAME` 改）。证据写到 `/tmp/dsbot-966-sync-devices.json`。
+
+`devices` 是这条验收的硬门：只有真实 Windows worker 在线且 `hostname` 对得上才返回 0。
+
 ## 双机验收清单
 
 在中心 Mac 上：
@@ -247,3 +282,4 @@ Bot 会 `list_devices` → 选 `windows-pc` → `run_on_device`，结果直接�
 
 - 2026-11-08：v0 初版（配对、心跳、队列、白名单执行、结果回传、CLI 与单测）。
 - 2026-11-08：v1（Hub 进插件进程、四个 Bot 工具、AI 选机器、同一会话的一主机多浏览器路径、DSH blocker 与双机清单）。
+- 2026-11-08：验收自动化 `dev/lan-sync-accept.mjs`（两个客户端读同一 Session 的双向证据、插件 Hub 上的配对/选机/`hostname`、证据 JSON 与 Windows 剩余清单）。
