@@ -109,6 +109,19 @@ dsh --profile web --host <中心机器的局域网 IP> --no-open
 - 插件不打印配对码；只有 `device_pairing_code` 被调用时才生成，并只回到聊天里。
 - Hub 监听 `0.0.0.0` 意味着同网段可访问；只想本机调试时把 `host` 设成 `127.0.0.1`。
 
+### Settings → Devices（客户端开关）
+
+`config.multiDevice` 只决定第一次启动。用户在 **Settings → Devices** 拨过开关之后，选择保存在团队文件 `state.json` 的 `multiDevice.enabled` 里，下次启动以它为准：关了就是关，不会因为 profile 里还写着 `multiDevice: true` 又起来。`multiDevice: false` 是硬关闭，页面上开关不可用。
+
+页面直接走 `/api/bot` 的 `multi-device-*` 端点，不要求用户改 YAML 或手编 `nodes.json`：
+
+- `multi-device-status`（只读）：开关是否可用、是否打开、Hub 状态（`off`/`starting`/`listening`/`failed`）与错误、端口、局域网 URL、本机 URL、DSH Web 的共享地址、已配对节点（名字、在线、OS/架构、hostname、最后联系时间）、命令白名单。
+- `multi-device-enable`：写 `state.json` 并真正启动/停止 Hub；已加载的 Bot 会话同步拿到或失去四个设备工具。
+- `multi-device-pair-code`：等价 `device_pairing_code`，返回一次性配对码、过期时间和带当前 Hub URL 的 `npm run lan:worker` 命令；配对码只回到页面，不写团队文件，Hub 的日志也不再携带它。
+- `multi-device-remove`：真正移除节点（同时管理 API 有 `DELETE /admin/nodes/<name|id>`）：断开该节点的流、取消它未完成的任务、删掉令牌散列。那台机器必须重新配对。没有「假按钮」——远程杀不掉对方的 worker 进程，页面明确说需要重新配对。
+
+页面写清只有一个中心：换主设备 = 在另一台打开多机并重新配对；其他机器看同一段对话仍然是浏览器打开本机的 DSH Web。
+
 ## 配对与令牌
 
 （v0 不变）
@@ -150,21 +163,15 @@ dsh --profile web --host <中心机器的局域网 IP> --no-open
 
 **中心机器（Mac）**
 
-```yaml
-# profile 的 cordis.patch.yml
-- id: bot
-  name: ds-bot
-  config:
-    multiDevice: true
-```
-
-重启 DSH 后，在聊天里让 Bot 加一台机器；它调用 `device_pairing_code` 给出配对码和命令。也可以继续用 CLI 看状态：
+打开 **Settings → Devices**，拨开 “Enable multi-device on this computer”，确认 Hub 一行显示 Listening，并复制它的局域网地址。点 **Add machine** 会给出一次性配对码和另一台机器要跑的命令；也可以继续用 CLI 看状态：
 
 ```sh
 cd ds-bot
 npm run lan:nodes
 npm run lan:run -- --node windows-pc -- hostname
 ```
+
+也可以让 Bot 在聊天里加一台机器；它调用 `device_pairing_code`，给出同样的配对码和命令。profile 里的 `multiDevice: true` 只是让这台机器第一次就打开多机；用户在页面上关掉后，以 `state.json` 里的选择为准。
 
 **另一台机器（Windows）**
 
@@ -283,3 +290,4 @@ node dev/lan-sync-accept.mjs status | stop
 - 2026-11-08：v0 初版（配对、心跳、队列、白名单执行、结果回传、CLI 与单测）。
 - 2026-11-08：v1（Hub 进插件进程、四个 Bot 工具、AI 选机器、同一会话的一主机多浏览器路径、DSH blocker 与双机清单）。
 - 2026-11-08：验收自动化 `dev/lan-sync-accept.mjs`（两个客户端读同一 Session 的双向证据、插件 Hub 上的配对/选机/`hostname`、证据 JSON 与 Windows 剩余清单）。
+- 2026-11-08：客户端 Settings → Devices（开关落 `state.json`、Hub 状态与地址、节点列表、配对码与命令、真正移除节点），profile 改为只提供首次默认值。

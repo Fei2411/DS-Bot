@@ -136,6 +136,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call('computer-hold-answer', { botId, ...(callId !== undefined ? { callId } : {}), outcome })),
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
+    // LAN multi-device: the switch, the paired machines, a pairing code, and removing one.
+    multiDeviceStatus: () => call('multi-device-status', {}),
+    multiDeviceSetEnabled: enabled => after(call('multi-device-enable', { enabled })),
+    multiDevicePairCode: () => call('multi-device-pair-code', {}),
+    multiDeviceRemove: node => after(call('multi-device-remove', { node })),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
