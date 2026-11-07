@@ -4,10 +4,11 @@
 # (the web profile with ds-bot installed) that the entrypoint copies into /data
 # on first start. Build context is the repository root:
 #   docker build -f docker/Dockerfile -t ds-bot:local .
-FROM node:24-bookworm-slim AS build
+ARG NODE_IMAGE=node:24-bookworm-slim
+FROM ${NODE_IMAGE} AS build
 
 ARG NPM_REGISTRY=https://registry.npmjs.org/
-ARG DSH_VERSION=0.2.0-rc.2
+ARG DSH_VERSION=0.2.2-rc.1
 
 RUN corepack enable \
     && npm config set registry "$NPM_REGISTRY" --global \
@@ -25,7 +26,7 @@ RUN cd /src/ds-bot \
     && mv /opt/ds-bot/ds-bot-*.tgz /opt/ds-bot/ds-bot.tgz \
     && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz
 
-FROM node:24-bookworm-slim
+FROM ${NODE_IMAGE}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

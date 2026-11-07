@@ -16,7 +16,7 @@ const { outputFiles } = await build({
 })
 const frames = []
 const react = {
-  createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
+  Component: class {}, createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
   useEffect: (effect) => { effect() }, useLayoutEffect() {}, useState: initial => [initial, () => {}],
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'id',
   // The bundled Deep View widgets make a React context when their module loads.
