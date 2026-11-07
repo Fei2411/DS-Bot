@@ -290,11 +290,19 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
 
     if (request.method === 'POST' && path === '/admin/pair-code') {
       const issued = codes.issue()
-      log('ds-bot lan: pairing code %s issued', issued.code)
+      // The code goes back to the caller only: a log line would leave it in diagnostics.
+      log('ds-bot lan: a pairing code was issued')
       return send(response, 200, issued)
     }
     if (request.method === 'GET' && path === '/admin/nodes') {
       return send(response, 200, { nodes: registry.list().map(publicNode), count: streams.size })
+    }
+    // A removed node loses its token now; it has to pair again before it can be used.
+    const removeMatch = /^\/admin\/nodes\/([^/]+)$/.exec(path)
+    if (request.method === 'DELETE' && removeMatch !== null) {
+      const reference = decodeURIComponent(removeMatch[1])
+      if (!removeNode(reference)) return send(response, 404, { error: 'no such node' })
+      return send(response, 200, { ok: true, nodes: registry.list().map(publicNode) })
     }
     if (request.method === 'POST' && path === '/admin/tasks') {
       const body = await readJson(request)
@@ -356,6 +364,22 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
     return task
   }
 
+  // Removing a node ends its stream and cancels what it still owes: the task would
+  // otherwise wait in the queue for a machine that can never come back.
+  function removeNode(reference) {
+    const node = registry.find(reference)
+    if (node === undefined) return false
+    dropStream(node.id)
+    for (const task of tasks.values()) {
+      if (task.nodeId !== node.id || terminal(task.state)) continue
+      settle(task, {
+        state: 'cancelled',
+        result: { stdout: '', stderr: 'the machine was removed from this hub', exitCode: 1 },
+      })
+    }
+    return registry.remove(node.id)
+  }
+
   function waitForTask(id, { timeoutMs = 60_000 } = {}) {
     const task = tasks.get(id)
     if (task === undefined) return Promise.reject(new Error(`no such task: ${id}`))
@@ -398,6 +422,7 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
     isOnline: nodeId => streams.has(nodeId),
     issueCode: () => codes.issue(),
     dispatch,
+    removeNode,
     task: id => (tasks.has(id) ? publicTask(tasks.get(id)) : undefined),
     waitForTask,
     dropStream: nodeId => dropStream(nodeId),

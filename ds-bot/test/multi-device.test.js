@@ -142,6 +142,42 @@ test('the admin endpoints need the admin token', async t => {
   assert.deepEqual((await ok.json()).nodes, [])
 })
 
+test('removing a node drops its token and cancels what it still owes', async t => {
+  const hub = createHub({ dataDir: folder('hub-remove'), host: '127.0.0.1', port: 0, log: () => {} })
+  await hub.start()
+  t.after(() => hub.stop())
+  const paired = await pairDevice(hub, { code: hub.issueCode().code, name: 'gone-pc' })
+  const task = hub.dispatch({ node: paired.body.nodeId, argv: ['echo', 'x'] })
+  assert.equal(hub.removeNode(paired.body.nodeId), true)
+  assert.deepEqual(hub.nodes(), [])
+  assert.equal(hub.removeNode('gone-pc'), false)
+  assert.equal(hub.task(task.id).state, 'cancelled')
+  const heartbeat = await fetch(`${hub.url}/heartbeat`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${paired.body.token}` },
+  })
+  assert.equal(heartbeat.status, 401)
+})
+
+test('the admin API removes a node by name', async t => {
+  const hub = createHub({ dataDir: folder('hub-admin-remove'), host: '127.0.0.1', port: 0, log: () => {} })
+  await hub.start()
+  t.after(() => hub.stop())
+  await pairDevice(hub, { code: hub.issueCode().code, name: 'old-pc' })
+  const removed = await fetch(`${hub.url}/admin/nodes/old-pc`, {
+    method: 'DELETE',
+    headers: { 'x-admin-token': hub.adminToken },
+  })
+  assert.equal(removed.status, 200)
+  assert.deepEqual((await removed.json()).nodes, [])
+  assert.equal(hub.nodes().length, 0)
+  const again = await fetch(`${hub.url}/admin/nodes/old-pc`, {
+    method: 'DELETE',
+    headers: { 'x-admin-token': hub.adminToken },
+  })
+  assert.equal(again.status, 404)
+})
+
 test('a task runs on the paired node and its output comes back', async t => {
   const { hub } = await bench(t)
   const task = hub.dispatch({ node: 'test-node', argv: ['echo', 'hello', 'lan'] })
@@ -305,7 +341,7 @@ test('the plugin starts the hub and serves the device tools to the team', async 
     multiDevice: { host: '127.0.0.1', port: 0, dataDir: folder('plugin-data'), name: 'office-mac' },
   })
   t.after(async () => {
-    await rt.multiDeviceHub.stop()
+    await rt.multiDeviceHub?.stop()
     await ctx.dispose()
   })
   const started = await rt.multiDeviceReady
@@ -337,6 +373,81 @@ test('the plugin starts the hub and serves the device tools to the team', async 
   const plainCtx = fakeContext()
   const plain = createRuntime(plainCtx, { home: folder('plain-home') })
   t.after(() => plainCtx.dispose())
+  await plain.multiDeviceReady
   assert.equal(plain.multiDeviceEnabled, false)
   assert.equal(plain.teamTools.some(entry => entry.name === 'list_devices'), false)
+  assert.equal(plain.multiDeviceStatus().available, true)
+})
+
+test('the Devices switch starts the hub and its off state survives a restart', async t => {
+  const home = folder('switch-home')
+  const config = { home, multiDevice: { host: '127.0.0.1', port: 0, dataDir: folder('switch-data'), name: 'switch-mac' } }
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, config)
+  t.after(() => ctx.dispose())
+  await rt.multiDeviceReady
+  assert.equal(rt.multiDeviceEnabled, true)
+  assert.ok(tool(rt.teamTools, 'list_devices'))
+
+  const off = await rt.multiDeviceSetEnabled(false)
+  assert.equal(off.enabled, false)
+  assert.equal(off.hub.state, 'off')
+  assert.equal(rt.multiDeviceEnabled, false)
+  assert.equal(rt.state.multiDevice.enabled, false)
+  assert.equal(tool(rt.teamTools, 'list_devices'), undefined)
+  await ctx.dispose()
+
+  // A restart reads the saved off state, not the profile default, so the hub stays down.
+  const againCtx = fakeContext()
+  const again = createRuntime(againCtx, config)
+  t.after(() => againCtx.dispose())
+  await again.multiDeviceReady
+  assert.equal(again.multiDeviceEnabled, false)
+  assert.equal(again.teamTools.some(entry => entry.name === 'list_devices'), false)
+
+  const on = await again.multiDeviceSetEnabled(true)
+  assert.equal(on.enabled, true)
+  assert.equal(on.hub.state, 'listening')
+  assert.match(on.hub.url, /^http:\/\/127\.0\.0\.1:\d+$/)
+  assert.ok(tool(again.teamTools, 'list_devices'))
+})
+
+test('the Devices status lists the machines and the pairing command removes one', async t => {
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, {
+    home: folder('devices-home'),
+    multiDevice: { host: '127.0.0.1', port: 0, dataDir: folder('devices-data'), name: 'devices-mac' },
+  })
+  t.after(() => ctx.dispose())
+  await rt.multiDeviceReady
+  await pairDevice(rt.multiDeviceHub, { code: rt.multiDeviceHub.issueCode().code, name: 'win-pc', hostname: 'WIN-PC' })
+
+  const status = rt.multiDeviceStatus()
+  assert.equal(status.available, true)
+  assert.equal(status.enabled, true)
+  assert.equal(status.hub.state, 'listening')
+  assert.match(status.hub.url, /^http:\/\/127\.0\.0\.1:\d+$/)
+  assert.deepEqual(status.policy, ['hostname', 'whoami', 'uname', 'echo (built in)'])
+  assert.equal(status.nodes.length, 1)
+  assert.equal(status.nodes[0].name, 'win-pc')
+  assert.equal(status.nodes[0].hostname, 'WIN-PC')
+  assert.equal(status.nodes[0].online, false)
+
+  const pairing = rt.multiDevicePairingCode()
+  assert.match(pairing.code, /^\d{6}$/)
+  assert.match(pairing.command, /^npm run lan:worker -- --hub http:\/\/127\.0\.0\.1:\d+ --code \d{6} --name other-pc$/)
+
+  const removed = await rt.multiDeviceRemoveNode('win-pc')
+  assert.deepEqual(removed.nodes, [])
+})
+
+test('a profile with multiDevice false keeps the switch unavailable', async t => {
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home: folder('off-home'), multiDevice: false })
+  t.after(() => ctx.dispose())
+  await rt.multiDeviceReady
+  const status = rt.multiDeviceStatus()
+  assert.equal(status.available, false)
+  assert.equal(status.enabled, false)
+  await assert.rejects(rt.multiDeviceSetEnabled(true), /multiDevice: false/)
 })

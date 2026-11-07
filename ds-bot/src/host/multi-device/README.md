@@ -4,11 +4,17 @@ A hub on the machine the user sits at, and a worker on another machine in the sa
 network. The worker dials the hub and holds one server-sent-events connection; the hub
 sends one allowlisted command at a time and takes back stdout, stderr and the exit code.
 
-The hub runs **inside the DS Bot plugin process** when `config.multiDevice` is on. Bots
-use it through four tools (`list_devices`, `run_on_device`, `device_task`,
-`device_pairing_code`), so a Bot picks the machine that fits the task instead of the user
-choosing per command. A worker stays a separate process on the other machine and needs
-Node only — no DSH, no DS Bot. The CLI remains for debugging.
+The hub runs **inside the DS Bot plugin process**. Settings → Devices turns it on and
+off, shows whether it is listening, lists the paired machines, makes a pairing code
+with the worker command, and removes a machine. Bots use it through four tools
+(`list_devices`, `run_on_device`, `device_task`, `device_pairing_code`), so a Bot picks
+the machine that fits the task instead of the user choosing per command. A worker stays
+a separate process on the other machine and needs Node only — no DSH, no DS Bot. The
+CLI remains for debugging.
+
+`config.multiDevice` sets the starting value only. Once the user moves the switch, the
+choice in `<DSH_HOME>/bot/state.json` (`multiDevice.enabled`) wins, so an off hub stays
+off after a restart. `multiDevice: false` keeps the switch out of reach.
 
 The same chat on both machines is **one DSH host with browsers on the other machines**,
 not two DS Bot installations: see the plan for the thin-client path and why a second DSH

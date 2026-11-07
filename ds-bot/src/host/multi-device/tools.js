@@ -16,11 +16,12 @@ const TERMINAL = new Set(['done', 'failed', 'rejected', 'timeout', 'cancelled'])
 
 const isTerminal = state => TERMINAL.has(state)
 
+// The hub's settings. They are always available: the Devices page can turn the hub
+// on later, and a profile that only names `multiDevice: true` gets the defaults. A
+// profile that says `multiDevice: false` keeps the switch out of reach.
 export function multiDeviceOptions(config = {}) {
   const raw = config.multiDevice
-  if (raw === undefined || raw === false) return undefined
-  const options = raw === true ? {} : raw
-  if (options === null || typeof options !== 'object' || Array.isArray(options)) return undefined
+  const options = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
   const dataDir = typeof options.dataDir === 'string' && options.dataDir !== ''
     ? options.dataDir
     : String(process.env.DSBOT_LAN_DATA ?? join(homedir(), '.ds-bot', 'multi-device'))
@@ -70,16 +71,22 @@ function sharedOriginOf(ctx) {
 }
 
 /**
- * The four Bot tools over one hub. `ready` is the hub's start promise, so a call made
- * while the listener is still binding waits for it, and a failed start reaches the Bot
- * as a plain explanation instead of a task that would never leave the queue.
+ * The four Bot tools over one hub. `hub` is the hub, or a getter for it when the
+ * plugin starts and stops the hub at run time. `ready` is the hub's start promise,
+ * so a call made while the listener is still binding waits for it, and a failed
+ * start reaches the Bot as a plain explanation instead of a task that would never
+ * leave the queue.
  */
 export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), sharedOrigin = () => undefined }) {
+  const current = typeof hub === 'function' ? hub : () => hub
+  const waitReady = typeof ready === 'function' ? ready : () => ready
   const unavailable = async () => {
-    const state = await ready
-    return state.ok === true
-      ? undefined
-      : `The LAN hub is not running on this machine: ${state.error}. No paired machine can be reached until it starts; tell the user, and do not retry this call in this turn.`
+    const state = await waitReady()
+    if (state.ok === true) return undefined
+    if (current() === undefined) {
+      return `The LAN hub is not running on this machine: ${state.error}. The user can turn multi-device on in Settings → Devices, then try again.`
+    }
+    return `The LAN hub is not running on this machine: ${state.error}. No paired machine can be reached until it starts; tell the user, and do not retry this call in this turn.`
   }
   const tools = []
 
@@ -93,7 +100,7 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
     async execute() {
       const reason = await unavailable()
       if (reason !== undefined) return reason
-      const nodes = hub.nodes()
+      const nodes = current().nodes()
       const online = nodes.filter(node => node.online).length
       const lines = [`LAN multi-device: ${nodes.length} paired machine${nodes.length === 1 ? '' : 's'}, ${online} online.`]
       for (const node of nodes) {
@@ -122,7 +129,8 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
     async execute(args) {
       const reason = await unavailable()
       if (reason !== undefined) return reason
-      const nodes = hub.nodes()
+      const hubHere = current()
+      const nodes = hubHere.nodes()
       const target = nodeNamed(nodes, String(args.node ?? ''))
       if (target === undefined) {
         const known = nodes.map(node => node.name)
@@ -137,14 +145,14 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
       if (!check.ok) return `Not run: ${check.reason}. On a machine the allowed commands are ${describePolicy().join(', ')}.`
       let task
       try {
-        task = hub.dispatch({ node: target.id, argv, timeoutMs: args.timeoutMs })
+        task = hubHere.dispatch({ node: target.id, argv, timeoutMs: args.timeoutMs })
       } catch (error) {
         return `Not run: ${error.message}`
       }
       const wanted = Number.isInteger(args.waitMs) ? Math.min(Math.max(args.waitMs, 0), MAX_WAIT_MS) : DEFAULT_WAIT_MS
       if (wanted === 0) return formatPending(task)
-      const settled = await hub.waitForTask(task.id, { timeoutMs: wanted }).catch(() => undefined)
-      return settled === undefined ? formatPending(hub.task(task.id) ?? task) : formatResult(settled)
+      const settled = await hubHere.waitForTask(task.id, { timeoutMs: wanted }).catch(() => undefined)
+      return settled === undefined ? formatPending(hubHere.task(task.id) ?? task) : formatResult(settled)
     },
   }))
 
@@ -159,12 +167,13 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
     async execute(args) {
       const reason = await unavailable()
       if (reason !== undefined) return reason
-      const task = hub.task(String(args.task_id ?? ''))
+      const hubHere = current()
+      const task = hubHere.task(String(args.task_id ?? ''))
       if (task === undefined) return `No task ${args.task_id} is known on this hub.`
       const wanted = Number.isInteger(args.waitMs) ? Math.min(Math.max(args.waitMs, 0), MAX_WAIT_MS) : 0
       if (isTerminal(task.state) || wanted === 0) return isTerminal(task.state) ? formatResult(task) : formatPending(task)
-      const settled = await hub.waitForTask(task.id, { timeoutMs: wanted }).catch(() => undefined)
-      return settled === undefined ? formatPending(hub.task(task.id) ?? task) : formatResult(settled)
+      const settled = await hubHere.waitForTask(task.id, { timeoutMs: wanted }).catch(() => undefined)
+      return settled === undefined ? formatPending(hubHere.task(task.id) ?? task) : formatResult(settled)
     },
   }))
 
@@ -176,11 +185,12 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
     async execute() {
       const reason = await unavailable()
       if (reason !== undefined) return reason
-      const issued = hub.issueCode()
+      const hubHere = current()
+      const issued = hubHere.issueCode()
       return [
         `Pairing code: ${issued.code} (one machine, one use, valid until ${issued.expiresAt}).`,
         'On the other machine, in ds-bot/, run:',
-        `npm run lan:worker -- --hub ${hub.url} --code ${issued.code} --name windows-pc`,
+        `npm run lan:worker -- --hub ${hubHere.url} --code ${issued.code} --name windows-pc`,
         'After that the worker keeps its token; the code cannot be used again. It is for the user: do not send it anywhere else, and do not save it to memory or a file.',
       ].join('\n')
     },
@@ -190,30 +200,180 @@ export function deviceTools({ hub, ready = Promise.resolve({ ok: true }), shared
 }
 
 export function install(rt) {
-  const options = multiDeviceOptions(rt.config)
-  if (options === undefined) {
-    Object.assign(rt, { multiDeviceEnabled: false })
-    return
-  }
   const { ctx } = rt
+  const options = multiDeviceOptions(rt.config)
+  // `multiDevice: false` is a hard off: the profile keeps the switch out of reach.
+  // Otherwise the profile only decides the first start; after that the value the user
+  // saved in Settings → Devices wins, so a switch turned off stays off after a restart.
+  const profileOff = rt.config.multiDevice === false
+  const profileOn = rt.config.multiDevice === true
+    || (rt.config.multiDevice !== null && typeof rt.config.multiDevice === 'object' && !Array.isArray(rt.config.multiDevice))
+  let enabled = false
+  let phase = 'off'
+  let failure
   let hub
-  try {
-    // The plugin runs the hub, so the shortest path is one process. The CLI can also read
-    // the same data folder (nodes.json, admin.token) while this hub runs.
-    hub = createHub({ ...options, log: () => {} })
-  } catch (error) {
-    rt.warn('ds-bot: the LAN multi-device hub could not be created: %s', error.message)
-    Object.assign(rt, { multiDeviceEnabled: false, multiDeviceError: error.message })
-    return
+  let ready = Promise.resolve({ ok: false, error: 'multi-device is off on this computer' })
+  let starting
+
+  const status = () => ({
+    available: profileOff !== true,
+    configured: profileOn,
+    enabled,
+    hub: {
+      state: phase,
+      ...(failure === undefined ? {} : { error: failure }),
+      ...(phase !== 'listening' || hub === undefined ? {} : { port: hub.port, url: hub.url, localUrl: `http://127.0.0.1:${hub.port}` }),
+      ...(sharedOriginOf(ctx) === undefined ? {} : { webUrl: sharedOriginOf(ctx) }),
+      name: options.name,
+    },
+    nodes: hub === undefined ? [] : hub.nodes(),
+    policy: describePolicy(),
+  })
+
+  const addTools = () => {
+    for (const def of deviceTools({ hub: () => hub, ready: () => ready, sharedOrigin: () => sharedOriginOf(ctx) })) {
+      if (rt.teamTools.some(tool => tool.name === def.name)) continue
+      if (typeof rt.addTeamTool === 'function') rt.addTeamTool(def)
+      else rt.teamTools.push(def)
+    }
   }
-  const ready = hub.start()
-    .then(() => ({ ok: true }))
-    .catch((error) => {
-      // The pairing code is made later, on request; only the bind failure is logged.
-      rt.warn('ds-bot: the LAN multi-device hub did not start: %s', error.message)
-      return { ok: false, error: error.message }
-    })
-  ctx.effect(() => () => { void hub.stop() }, 'ds-bot: LAN multi-device hub')
-  Object.assign(rt, { multiDeviceEnabled: true, multiDeviceHub: hub, multiDeviceReady: ready })
-  for (const def of deviceTools({ hub, ready, sharedOrigin: () => sharedOriginOf(ctx) })) rt.teamTools.push(def)
+  const removeTools = () => {
+    for (const name of ['list_devices', 'run_on_device', 'device_task', 'device_pairing_code']) {
+      if (typeof rt.removeTeamTool === 'function') rt.removeTeamTool(name)
+      else {
+        const at = rt.teamTools.findIndex(tool => tool.name === name)
+        if (at !== -1) rt.teamTools.splice(at, 1)
+      }
+    }
+  }
+
+  const startHub = () => {
+    if (starting !== undefined) return starting
+    if (hub !== undefined && phase === 'listening') return ready
+    starting = (async () => {
+      // A hub whose bind failed is thrown away and made again, so a switch turned off
+      // and on retries the port instead of returning the old failure. Its stop is
+      // awaited: it saves the node registry, which must not land on the new hub's file.
+      const old = hub
+      hub = undefined
+      rt.multiDeviceHub = undefined
+      if (old !== undefined) await old.stop().catch(() => {})
+      phase = 'starting'
+      failure = undefined
+      try {
+        // The plugin runs the hub, so the shortest path is one process. The CLI can also
+        // read the same data folder (nodes.json, admin.token) while this hub runs.
+        hub = createHub({ ...options, log: () => {} })
+      } catch (error) {
+        hub = undefined
+        phase = 'failed'
+        failure = error.message
+        ready = Promise.resolve({ ok: false, error: error.message })
+        rt.warn('ds-bot: the LAN multi-device hub could not be created: %s', error.message)
+        return { ok: false, error: error.message }
+      }
+      rt.multiDeviceHub = hub
+      ready = hub.start()
+        .then(() => {
+          phase = 'listening'
+          failure = undefined
+          return { ok: true }
+        })
+        .catch((error) => {
+          // The pairing code is made later, on request; only the bind failure is logged.
+          phase = 'failed'
+          failure = error.message
+          rt.warn('ds-bot: the LAN multi-device hub did not start: %s', error.message)
+          return { ok: false, error: error.message }
+        })
+      return ready
+    })().finally(() => { starting = undefined })
+    return starting
+  }
+
+  const stopHub = async () => {
+    const current = hub
+    hub = undefined
+    rt.multiDeviceHub = undefined
+    // A start still binding settles first; its `.then` would otherwise set the phase
+    // back to listening after this stop began.
+    if (starting !== undefined) await starting.catch(() => {})
+    if (current !== undefined) await current.stop()
+    phase = 'off'
+    failure = undefined
+    ready = Promise.resolve({ ok: false, error: 'multi-device is off on this computer' })
+  }
+
+  const setEnabled = async (value) => {
+    const next = value === true
+    if (next && profileOff) throw new Error('Multi-device is turned off in this computer\'s profile configuration (multiDevice: false).')
+    const readOnly = rt.readOnly()
+    if (readOnly !== undefined) throw new Error(readOnly)
+    await rt.load()
+    if (enabled !== next) {
+      rt.state.multiDevice ??= {}
+      rt.state.multiDevice.enabled = next
+      await rt.save()
+      enabled = next
+      if (next) addTools()
+      else removeTools()
+    }
+    if (next) await startHub()
+    else await stopHub()
+    return status()
+  }
+
+  const pairingCode = () => {
+    if (!enabled) throw new Error('Multi-device is off on this computer. Turn it on in Settings → Devices first.')
+    if (hub === undefined || phase !== 'listening') {
+      throw new Error(`The hub is not listening on this computer${failure === undefined ? '' : `: ${failure}`}.`)
+    }
+    const issued = hub.issueCode()
+    return {
+      code: issued.code,
+      expiresAt: issued.expiresAt,
+      ttlMs: issued.ttlMs,
+      hubUrl: hub.url,
+      command: `npm run lan:worker -- --hub ${hub.url} --code ${issued.code} --name other-pc`,
+      policy: describePolicy(),
+    }
+  }
+
+  const removeNode = async (reference) => {
+    const readOnly = rt.readOnly()
+    if (readOnly !== undefined) throw new Error(readOnly)
+    await rt.load()
+    if (hub === undefined) throw new Error('The hub is not running on this computer.')
+    if (hub.removeNode(String(reference ?? '')) !== true) throw new Error(`No paired machine named ${reference}.`)
+    return status()
+  }
+
+  Object.defineProperty(rt, 'multiDeviceEnabled', { get: () => enabled, configurable: true })
+  Object.defineProperty(rt, 'multiDeviceError', { get: () => failure, configurable: true })
+  Object.assign(rt, {
+    multiDeviceStatus: status,
+    multiDeviceSetEnabled: setEnabled,
+    multiDevicePairingCode: pairingCode,
+    multiDeviceRemoveNode: removeNode,
+    multiDeviceView: status,
+  })
+
+  // The saved choice is read once the team file is loaded; the profile only supplies
+  // the default while the user has never used the switch.
+  const boot = (async () => {
+    try {
+      await rt.load()
+    } catch (error) {
+      rt.warn('ds-bot: the LAN multi-device switch could not be read: %s', error.message)
+    }
+    if (profileOff) return
+    const stored = rt.state?.multiDevice?.enabled
+    enabled = typeof stored === 'boolean' ? stored : profileOn
+    if (!enabled) return
+    addTools()
+    await startHub()
+  })()
+  rt.multiDeviceReady = boot.then(() => ready)
+
+  ctx.effect(() => () => { void stopHub() }, 'ds-bot: LAN multi-device hub')
 }

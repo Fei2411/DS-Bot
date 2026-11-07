@@ -118,6 +118,8 @@ export function install(rt) {
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     // `computer` is the computer-use switch; absent or corrupt means off.
     if (state.computer === null || typeof state.computer !== 'object' || Array.isArray(state.computer)) state.computer = {}
+    // `multiDevice` is the Devices page switch; absent or corrupt means "use the profile".
+    if (state.multiDevice === null || typeof state.multiDevice !== 'object' || Array.isArray(state.multiDevice)) state.multiDevice = {}
     let migrated = !hadCapabilities
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }
