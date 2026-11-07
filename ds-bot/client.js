@@ -9336,26 +9336,69 @@ function EffortBar({ reasoning, current, onPick }) {
     )
   );
 }
-function ModelRows({ roster, current, onPick }) {
-  return groupModels(roster.models).map(([provider, list]) => (0, import_react19.createElement)(
-    import_react19.Fragment,
-    { key: list[0].provider ?? provider },
-    (0, import_react19.createElement)("div", { className: "bt-model-group", role: "presentation" }, provider),
-    list.map((model) => (0, import_react19.createElement)(
-      "button",
-      {
-        key: model.ref,
-        type: "button",
-        role: "menuitemradio",
-        "aria-checked": model.ref === current,
-        title: model.ref,
-        onClick: () => onPick(model.ref)
-      },
-      (0, import_react19.createElement)("span", { className: "bt-menu-label" }, model.name),
-      model.ref === roster.defaultModel ? (0, import_react19.createElement)("span", { className: "bt-menu-hint" }, t("Default")) : null,
-      (0, import_react19.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, model.ref === current ? (0, import_react19.createElement)(CheckIcon) : null)
-    ))
-  ));
+var groupIdOf = (list) => list[0]?.provider ?? (typeof list[0]?.ref === "string" ? list[0].ref.split("/")[0] : "");
+function currentGroupId(groups, current) {
+  if (current === void 0 || current === null) return void 0;
+  const found = groups.find(([, list]) => list.some((model) => model.ref === current));
+  return found === void 0 ? void 0 : groupIdOf(found[1]);
+}
+function groupOpen({ id, index, currentId, filtering, manual }) {
+  if (filtering) return true;
+  const chosen = manual[id];
+  if (chosen !== void 0) return chosen;
+  return currentId === void 0 ? index === 0 : id === currentId;
+}
+var toggledGroup = (manual, id, open) => ({ ...manual, [id]: !open });
+function ModelGroupList({ groups, current, currentId, defaultModel, onPick, manual, onToggle, filtering = false }) {
+  return groups.map(([provider, list], index) => {
+    const id = groupIdOf(list);
+    const open = groupOpen({ id, index, currentId, filtering, manual });
+    return (0, import_react19.createElement)(
+      import_react19.Fragment,
+      { key: `group:${id || provider}` },
+      filtering ? (0, import_react19.createElement)("div", { className: "bt-model-group", role: "presentation" }, provider) : (0, import_react19.createElement)(
+        "button",
+        {
+          type: "button",
+          role: "menuitem",
+          className: "bt-model-group bt-model-group-toggle",
+          "aria-expanded": open,
+          "data-open": open ? "" : void 0,
+          onClick: () => onToggle(id, open)
+        },
+        (0, import_react19.createElement)(Caret),
+        (0, import_react19.createElement)("span", { className: "bt-menu-label" }, provider)
+      ),
+      open ? list.map((model) => (0, import_react19.createElement)(
+        "button",
+        {
+          key: model.ref,
+          type: "button",
+          role: "menuitemradio",
+          "aria-checked": model.ref === current,
+          title: model.ref,
+          onClick: () => onPick(model.ref)
+        },
+        (0, import_react19.createElement)("span", { className: "bt-menu-label" }, model.name),
+        model.ref === defaultModel ? (0, import_react19.createElement)("span", { className: "bt-menu-hint" }, t("Default")) : null,
+        (0, import_react19.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, model.ref === current ? (0, import_react19.createElement)(CheckIcon) : null)
+      )) : null
+    );
+  });
+}
+function ModelRows({ roster, current, onPick, filtering = false }) {
+  const groups = groupModels(roster.models);
+  const [manual, setManual] = (0, import_react19.useState)({});
+  return (0, import_react19.createElement)(ModelGroupList, {
+    groups,
+    current,
+    currentId: currentGroupId(groups, current),
+    defaultModel: roster.defaultModel,
+    onPick,
+    filtering,
+    manual,
+    onToggle: (id, open) => setManual((previous) => toggledGroup(previous, id, open))
+  });
 }
 var Caret = () => (0, import_react19.createElement)("svg", { className: "bt-model-caret", width: 12, height: 12, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react19.createElement)("path", { d: "M5.5 8l4.5 4.5L14.5 8" }));
 function useAnchoredMenu() {
@@ -9653,6 +9696,13 @@ var MODEL_CSS = `
 .bt-effort-track:hover .bt-effort-knob,.bt-effort-track[data-dragging] .bt-effort-knob{scale:1.08}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
+/* A heading that opens and closes its group: the same type as the plain headings other
+menus use, with the menu item's hover, focus ring and a caret that points at the state. */
+.bt-model-group-toggle{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;margin:0;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);font:inherit;font-size:11px;line-height:14px;font-weight:500;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-model-group-toggle:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-model-group-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-model-group-toggle .bt-model-caret{color:inherit}
+.bt-model-group-toggle[aria-expanded=false] .bt-model-caret{transform:rotate(-90deg)}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}

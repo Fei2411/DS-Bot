@@ -191,16 +191,66 @@ export function EffortBar({ reasoning, current, onPick }) {
     h('span', { className: 'bt-effort-knob', 'aria-hidden': true })))
 }
 
-function ModelRows({ roster, current, onPick }) {
-  return groupModels(roster.models).map(([provider, list]) => h(Fragment, { key: list[0].provider ?? provider },
-    h('div', { className: 'bt-model-group', role: 'presentation' }, provider),
-    list.map(model => h('button', {
-      key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
-      onClick: () => onPick(model.ref),
-    },
-    h('span', { className: 'bt-menu-label' }, model.name),
-    model.ref === roster.defaultModel ? h('span', { className: 'bt-menu-hint' }, t('Default')) : null,
-    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null)))))
+// The stable id of a provider group: the models' provider, never the display name,
+// which repeats when two providers carry the same name.
+const groupIdOf = list => list[0]?.provider ?? (typeof list[0]?.ref === 'string' ? list[0].ref.split('/')[0] : '')
+
+// The group that holds the Bot's model, by that id; undefined when the model is no
+// longer served, or the Bot has none.
+function currentGroupId(groups, current) {
+  if (current === undefined || current === null) return undefined
+  const found = groups.find(([, list]) => list.some(model => model.ref === current))
+  return found === undefined ? undefined : groupIdOf(found[1])
+}
+
+// A group is open when the user opened or closed it during this opening of the menu.
+// Otherwise the current model's provider is open, or the first provider when the model
+// is not in the catalog. A search opens every group it matched, so a result is never
+// hidden behind a heading, and the manual state applies again once the search clears.
+export function groupOpen({ id, index, currentId, filtering, manual }) {
+  if (filtering) return true
+  const chosen = manual[id]
+  if (chosen !== undefined) return chosen
+  return currentId === undefined ? index === 0 : id === currentId
+}
+
+// The manual state after a heading is clicked, `open` being what the heading showed.
+export const toggledGroup = (manual, id, open) => ({ ...manual, [id]: !open })
+
+// The provider headings and the models under the open ones. A search shows the plain
+// headings of every matched group, with nothing to collapse: every result is visible.
+// Kept apart from the state so a test can open and close a group the way its heading does.
+export function ModelGroupList({ groups, current, currentId, defaultModel, onPick, manual, onToggle, filtering = false }) {
+  return groups.map(([provider, list], index) => {
+    const id = groupIdOf(list)
+    const open = groupOpen({ id, index, currentId, filtering, manual })
+    return h(Fragment, { key: `group:${id || provider}` },
+      filtering
+        ? h('div', { className: 'bt-model-group', role: 'presentation' }, provider)
+        : h('button', {
+            type: 'button', role: 'menuitem', className: 'bt-model-group bt-model-group-toggle',
+            'aria-expanded': open, 'data-open': open ? '' : undefined,
+            onClick: () => onToggle(id, open),
+          },
+          h(Caret), h('span', { className: 'bt-menu-label' }, provider)),
+      open ? list.map(model => h('button', {
+        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
+        onClick: () => onPick(model.ref),
+      },
+      h('span', { className: 'bt-menu-label' }, model.name),
+      model.ref === defaultModel ? h('span', { className: 'bt-menu-hint' }, t('Default')) : null,
+      h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null))) : null)
+  })
+}
+
+export function ModelRows({ roster, current, onPick, filtering = false }) {
+  const groups = groupModels(roster.models)
+  // The menu unmounts when it closes, so this state starts over on every opening.
+  const [manual, setManual] = useState({})
+  return h(ModelGroupList, {
+    groups, current, currentId: currentGroupId(groups, current), defaultModel: roster.defaultModel, onPick, filtering, manual,
+    onToggle: (id, open) => setManual(previous => toggledGroup(previous, id, open)),
+  })
 }
 
 export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, height: 12, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M5.5 8l4.5 4.5L14.5 8' }))
@@ -475,6 +525,13 @@ export const MODEL_CSS = `
 .bt-effort-track:hover .bt-effort-knob,.bt-effort-track[data-dragging] .bt-effort-knob{scale:1.08}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
+/* A heading that opens and closes its group: the same type as the plain headings other
+menus use, with the menu item's hover, focus ring and a caret that points at the state. */
+.bt-model-group-toggle{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;margin:0;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);font:inherit;font-size:11px;line-height:14px;font-weight:500;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-model-group-toggle:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-model-group-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-model-group-toggle .bt-model-caret{color:inherit}
+.bt-model-group-toggle[aria-expanded=false] .bt-model-caret{transform:rotate(-90deg)}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
