@@ -69,6 +69,8 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     home: /path/to/bot-data         # where the team is saved; default $DSH_HOME/bot
     checkRatio: 0.8                 # share of the model's usable window where the steward decides
     browser: true                   # force the Bot browser on or off; default on in Desktop and the desktop app only
+    multiDevice: true               # start the LAN hub and give Bots the device tools; default off
+    # multiDevice: { host: 0.0.0.0, port: 8787, name: office-mac, dataDir: /path/to/data }
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
@@ -156,6 +158,17 @@ In dsh Desktop and the desktop app, each Bot has its own browser panel in the ri
 - **Cookie import (desktop app only)**: the import button in the browser bar previews the cookies of a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`) or of an installed Chromium/Firefox profile, then writes them into the Bot's partition. A source browser closes for a moment so its cookie store can be copied, and it reopens with its tabs. Sign-in that lives outside cookies (localStorage, passkeys) does not come along.
 
 dsh Web has no browser panel and no `read_browser` tool.
+
+## LAN multi-device
+
+With `multiDevice` on, this machine becomes the hub of a small trusted network: the other machines run a worker, connect out to this one, and run the allowlisted read-only commands a Bot sends. The hub starts inside the plugin, so there is no second daemon on this machine.
+
+- **Tools**: `list_devices` lists paired machines with online state and operating system; `run_on_device` runs one command from the allowlist (`hostname`, `whoami`, `uname`, `echo`) and returns stdout, stderr and the exit code; `device_task` reads a command that was still running; `device_pairing_code` makes a one-use, five-minute code for one more machine. The Bot chooses the machine that fits the task, so you do not pick one per command.
+- **Worker**: on the other machine, in this package's source, run `npm run lan:worker -- --hub http://<this-ip>:8787 --code <code> --name windows-pc`. It needs Node only: no DSH and no DS Bot. The worker dials out, so that machine needs no firewall rule.
+- **Not a sandbox**: commands never go through a shell, and the child gets a minimal environment, but the allowlist limits which programs run, not what they can read. The link is plain HTTP for a trusted LAN, and the hub's admin token is local administrator: keep the data folder private.
+- **The same chat on both machines** is one DSH host with a browser on the other machine, not two installations: run the host with `dsh --profile web --host <lan-ip>` and open its tokenized URL, or forward the desktop app's loopback port. Two DSH hosts cannot share a live Session.
+
+The protocol, the security boundary and the dual-machine checklist are in [docs/plans/966-lan-multi-device.md](../docs/plans/966-lan-multi-device.md).
 
 ## Secrets
 

@@ -17,6 +17,7 @@ Trust boundaries:
 4. Browser renderer -> host: `POST /api/bot` channel (`ds-bot/src/host/channel.js`, `ROUTE` in `constants.js`) and Electron IPC (`app/src/main.mjs`, `preload.cjs`).
 5. Bot-produced HTML widgets -> app page (`ds-bot/src/client/widget-html.js`, `sandbox="allow-scripts"` iframe without same-origin).
 6. Bot browser pages -> app (`app/src/bot-browser.mjs`, `bot-views.mjs`: sandboxed, contextIsolation, own partition).
+7. LAN hub -> paired workers (`ds-bot/src/host/multi-device/`): plaintext HTTP on a trusted network, device tokens per worker and an admin token equal to local administrator. The hub runs in the plugin process only when `multiDevice` is on.
 
 ## Components
 
@@ -33,6 +34,7 @@ Trust boundaries:
 - Chat input from the user (trusted).
 - Content the Bot reads: web pages (Bot browser, `read_browser`, web search), files in the work folder, connector/MCP tool results, messages from other Bots and group chats, scheduled-task prompts. **Attacker-controlled.**
 - `/api/bot` HTTP endpoints and DSH Web UI: the local user; in Docker, anyone who can reach port 13080 (DSH trusted-host list + launch token).
+- LAN hub endpoints (`multiDevice`): paired workers and any peer that has the admin token from the hub data folder; plain HTTP by design.
 - Electron IPC from the app window.
 
 ## Assets (maintainer-ranked)
@@ -57,6 +59,7 @@ Trust boundaries:
 - HTML widgets in `sandbox="allow-scripts"` iframes; Electron webviews sandboxed with contextIsolation and own partitions; IPC handlers call `assertWindow(event)`.
 - Cookie values stay in the Electron main process (`cookie-import.mjs`).
 - Launch token redacted from host logs (`host-process.mjs`).
+- LAN multi-device: device tokens are stored only as SHA-256 hashes (`multi-device/registry.js`), the admin token file is 0600, pairing codes are single-use and rate-limited, and workers run an allowlist with `shell: false` and a minimal environment. The allowlist is not a sandbox, and the hub does not listen unless the profile turns `multiDevice` on.
 
 ## Out of scope / accepted risk (maintainer)
 
