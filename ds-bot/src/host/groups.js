@@ -39,14 +39,15 @@ const IDLE_ACK_WORDS = "收到|好的|好|明白|明白了|了解|了解了|没�
 // A status post: a member saying it has nothing to do right now. It carries no new
 // content and calls nobody, and a group that keeps answering itself with these spins
 // until the user writes (#853). The words are the ones members actually post.
+// A noun needs its "nothing there" prefix: "任务", "变化" or "安排" alone is ordinary
+// talk about work, and matching it would stop a group that is working.
 const IDLE_STATUS_WORDS = [
-  '(?:收口)?(?:暂无|没有|无|当前|目前|今日|今天)?(?:待办|任务|新进展|新内容|进展|动作|变化|安排)',
+  '(?:收口)?(?:(?:暂无|没有|无|当前|目前|今日|今天)+)(?:待办|任务|新进展|新内容|进展|动作|变化|安排)',
   '待命', '保持待命', '继续待命', '原地待命', '静候', '静候下一步', '静候指令', '等候指令',
   '等待指令', '等待指示', '等待下一步', '等待安排', '等待新任务', '无事可做', '空转',
   'standby', 'standing\\s+by', 'idle', 'nothing\\s+(?:pending|to\\s+do|new)',
   'no\\s+pending\\s+(?:tasks?|work)', 'no\\s+new\\s+(?:work|tasks?|progress|updates?)',
   'no\\s+changes?', 'no\\s+updates?', 'waiting\\s+for\\s+(?:instructions?|the\\s+next\\s+steps?)',
-  '待', '静',
 ].join('|')
 // A line may mix them: "收到，待命" is a status post too.
 const IDLE_BODY = new RegExp(`^(?:(?:${IDLE_ACK_WORDS}|${IDLE_STATUS_WORDS})(?:[\\s，,、。.!！~～：:；;]+|$))+$`, 'i')
@@ -59,7 +60,7 @@ const normalizeRelayBody = (text, everyone) => {
   }
   return out.replace(/@(?:all|everyone|所有人|全体)/gi, '').replace(/[\s，,、。.!！?？;；:：'"“”‘’()（）[\]【】~～-]+/g, ' ').trim().toLowerCase()
 }
-const isIdleRelayText = (text, everyone, priorBodies) => {
+export const isIdleRelayText = (text, everyone, priorBodies) => {
   const norm = normalizeRelayBody(text, everyone)
   if (norm === '' || (norm.length <= IDLE_TEXT_MAX && IDLE_BODY.test(norm))) return true
   return priorBodies.some(prev => prev !== '' && (prev === norm || (prev.length >= 8 && norm.length >= 8 && (prev.includes(norm) || norm.includes(prev)))))
@@ -688,7 +689,7 @@ export function install(rt) {
     if (round.kickoff) return
     const lines = waitingLines(agent).filter(line => agent.inbox.remove(line.id))
     if (lines.length === 0) return
-    resetRoomIdle(room)
+    unpauseRoomIdle(room)
     round.userMessage = true
     rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
@@ -704,20 +705,43 @@ export function install(rt) {
     void rt.save().catch(() => {})
   }
 
-  // The idle steps a room has taken since the user last wrote here or a member worked
-  // (#853). The count lives on the room, not on a round: a group that ends one round
-  // per status post never reaches a per-round limit, so the round's count would start
-  // again every time. A pause lasts until the user writes; real work lifts it at once.
-  const resetRoomIdle = (room) => {
+  // Consecutive idle steps in this room since the user last wrote here or a member worked
+  // (#853). A step is one Bot turn that used no tool: the post that opens a round is not
+  // a step of its own, so a round and the answer it gets count once. The count lives on
+  // the room, because a group that ends one round per status post would start again from
+  // zero every time and never reach the limit.
+  const countIdleStep = (room) => {
+    if (room.idlePaused !== undefined) return
+    room.idleRelays = (room.idleRelays ?? 0) + 1
+  }
+  // Work or new content clears the streak, so a group that is working is never paused.
+  // It does not lift a pause already in place: that is the user's to lift (#853).
+  const clearIdleStreak = (room) => {
+    if (room.idlePaused !== undefined) return
+    if (room.idleRelays !== undefined) delete room.idleRelays
+  }
+  // The user's own message lifts a pause.
+  const unpauseRoomIdle = (room) => {
     if (room.idleRelays !== undefined) delete room.idleRelays
     if (room.idlePaused !== undefined) delete room.idlePaused
   }
-  // The room stops answering itself: from here no round starts on its own and the calls
-  // a step would make wait for the user. `noticed` keeps the group from being told about
-  // the same pause twice.
-  const markRoomIdlePaused = (room, member) => {
-    if (room.idlePaused !== undefined || member === undefined) return false
-    room.idlePaused = { from: member.id, count: room.idleRelays ?? ROOM_IDLE_RELAY_LIMIT, noticed: false }
+  // Whether an idle step must wait for the user: the room is paused, or this step reaches
+  // the limit. The steps this holds wait in `room.paused` and run after the user's
+  // message, so a step is held back, never dropped. Only a call that names a member is
+  // parked: an automatic call names nobody, and the post stays in the group for the
+  // members' next turns. The group hears about the pause once.
+  function holdIdleCalls(room, round, member, callees, named) {
+    if (room.idlePaused === undefined && (room.idleRelays ?? 0) < ROOM_IDLE_RELAY_LIMIT) return false
+    if (room.idlePaused === undefined) room.idlePaused = { from: member.id, count: room.idleRelays ?? ROOM_IDLE_RELAY_LIMIT, noticed: false }
+    const held = callees.filter(peer => named.includes(peer))
+    if (held.length > 0) {
+      const parked = room.paused ?? []
+      for (const peer of held) {
+        if (!parked.some(entry => entry.id === peer.id)) parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id, idle: true })
+      }
+      room.paused = parked
+    }
+    announceRoomIdlePaused(room, round, member, callees)
     return true
   }
   function announceRoomIdlePaused(room, round, member, callees) {
@@ -726,23 +750,15 @@ export function install(rt) {
     const names = callees.map(peer => peer.name)
     appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', idle: true, from: member.name, limit: ROOM_IDLE_RELAY_LIMIT, names })
     round.replies.push({ kind: 'paused', idle: true, botId: member.id, name: member.name, color: member.color, count: room.idlePaused.count ?? ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names, time: Date.now() })
-    if (callees.length > 0) {
-      const parked = room.paused ?? []
-      for (const peer of callees) {
-        if (!parked.some(entry => entry.id === peer.id)) parked.push({ id: peer.id, name: peer.name, note: `${member.name} mentioned you`, by: member.id, idle: true })
-      }
-      room.paused = parked
-    }
     void rt.save().catch(() => {})
   }
 
   // The members a member's message calls: those it names with @, or everyone when the
   // admin writes "@all" (only the admin, so a member cannot set off a storm). A turn
   // calls each member once, however many of its lines name it.
-  // Every 0-tool status step a Bot takes counts, also one that names nobody: that step
-  // is what a group answering itself runs on. After ROOM_IDLE_RELAY_LIMIT of them the
-  // room waits for the user: the calls this step would make are parked in `room.paused`
-  // with a notice, and no round starts on its own.
+  // Every 0-tool status step counts toward the room's idle rounds, also one that names
+  // nobody: that step is what a group answering itself runs on. Once the room is paused
+  // (or this step reaches the limit) the calls it would make wait for the user.
   function callFrom(room, round, member, text, called, { worked = false, byBot = false } = {}) {
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const others = everyone.filter(other => other.id !== member.id)
@@ -751,21 +767,22 @@ export function install(rt) {
     const callees = (rt.isAdminOf(room, member.id) && all ? [...found, ...others.filter(other => !found.includes(other))] : found)
       .filter(peer => !called.has(peer.id))
     // Counted before the callers below, because a status post calls nobody at all.
+    let idleStep = false
     if (worked) {
-      resetRoomIdle(room)
+      clearIdleStreak(room)
     } else if (byBot) {
       const history = round.botBodies?.get(member.id) ?? []
       const norm = normalizeRelayBody(text, everyone)
       if (norm !== '') (round.botBodies ??= new Map()).set(member.id, [...history, norm])
-      if (isIdleRelayText(text, everyone, history)) room.idleRelays = (room.idleRelays ?? 0) + 1
-      else resetRoomIdle(room)
+      idleStep = isIdleRelayText(text, everyone, history)
+      if (idleStep) countIdleStep(room)
+      else clearIdleStreak(room)
     } else {
       const norm = normalizeRelayBody(text, everyone)
       if (norm !== '') (round.botBodies ??= new Map()).set(member.id, [...(round.botBodies?.get(member.id) ?? []), norm])
     }
     for (const peer of callees) called.add(peer.id)
-    if (byBot && (room.idleRelays ?? 0) >= ROOM_IDLE_RELAY_LIMIT && markRoomIdlePaused(room, member)) announceRoomIdlePaused(room, round, member, callees)
-    if (byBot && room.idlePaused !== undefined) return
+    if (byBot && idleStep && holdIdleCalls(room, round, member, callees, named)) return
     if (callees.length === 0) return
     callIn(round, callees, `${member.name} mentioned you`, member.id)
     // An @Name from the admin hands the member its goal task.
@@ -855,7 +872,7 @@ export function install(rt) {
     const onWork = () => {
       worked = true
       slot.worked = true
-      resetRoomIdle(room)
+      clearIdleStreak(room)
       markBatchWorked(room.id, member.id)
     }
     const reply = await roomTurn(
@@ -992,20 +1009,20 @@ export function install(rt) {
       // A member a Bot's post calls by name works for that Bot. The saved list is the
       // whole message; the text may be only its opening.
       const everyone = room.members.map(rt.botOf).filter(Boolean)
-      // A Bot's own status post is one more idle step: in a group where everyone answers,
-      // that post is what starts the next round of status turns (#853). New work in the
-      // post, a tool call or the user's message clears the count.
+      // A Bot's status post is a round of its own: in a group where everyone answers, that
+      // post is what starts the next round of status turns (#853). It counts once as an
+      // idle round; a post with new work in it, or the user's own message, clears the
+      // streak. Only the user's message lifts a pause already in place.
       const poster = opener.botId === undefined ? undefined : rt.botOf(opener.botId)
       const idlePost = poster !== undefined && !event(opener) && opener.quiet !== true && isIdleRelayText(opener.text ?? '', everyone, [])
-      if (posts.some(userPost)) resetRoomIdle(room)
-      else if (poster !== undefined && !event(opener) && opener.quiet !== true) {
-        if (idlePost) room.idleRelays = (room.idleRelays ?? 0) + 1
-        else resetRoomIdle(room)
-      }
-      // At the limit this post is not answered either: the room waits for the user.
-      const pausesNow = idlePost && (room.idleRelays ?? 0) >= ROOM_IDLE_RELAY_LIMIT && markRoomIdlePaused(room, poster)
+      if (posts.some(userPost)) unpauseRoomIdle(room)
+      // The pause holds a status post back: it is not answered, and the members it named
+      // wait for the user. A post with work in it goes ahead.
+      const holdsPost = idlePost && room.idlePaused !== undefined
       const named = opener.botId === undefined ? [] : (mentionsOf(opener, everyone) ?? mentionsIn(opener.text ?? '', everyone)).found
-      const { speakers, ordered } = openingCall(room, opener)
+      const opened = openingCall(room, opener)
+      const speakers = holdsPost ? [] : opened.speakers
+      const ordered = holdsPost ? false : opened.ordered
       const calledByOpener = speakers.filter(member => named.includes(member))
       const openingBatchKey = opener.botId !== undefined && calledByOpener.length > 0 ? registerBatch(room.id, opener.botId, calledByOpener) : undefined
       // The admin's own post that opens a round hands goal tasks the same way a call does.
@@ -1049,8 +1066,10 @@ export function install(rt) {
         failed: [],
         started: [],
       }
-      // The group hears why it stopped taking its own posts, once.
-      if (pausesNow) announceRoomIdlePaused(room, round, poster, [])
+      // A status post of its own is not an idle step: what its members answer is. A post
+      // with work in it clears the streak, and a paused room holds the post back.
+      if (!idlePost && poster !== undefined && !event(opener) && opener.quiet !== true) clearIdleStreak(room)
+      if (holdsPost) holdIdleCalls(room, round, poster, opened.speakers, named)
       // The group transcript hides the goal trigger, so the user sees their request as a reply.
       for (const post of posts.filter(item => item.goal === 'draft' && item.logged === undefined)) {
         round.replies.push({ kind: 'user', text: post.text, time: Date.now() })
@@ -1220,9 +1239,6 @@ export function install(rt) {
     if (opener.late) return at(found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy))
     if (opener.member) return at(found)
     if (found.length > 0 && !all) return at(found)
-    // A room that kept answering itself with status posts takes no automatic call until
-    // the user writes; a post that names members still reaches them (#853).
-    if (opener.botId !== undefined && !all && room.idlePaused !== undefined) return at([])
     if (!all && room.mode === 'admin' && admin) return at([admin])
     const speakers = admin ? [admin, ...members.filter(bot => bot !== admin)] : members
     return { speakers, ordered: !all && speakers.length > 1 }
@@ -1237,10 +1253,17 @@ export function install(rt) {
     if (extra.failed !== undefined && !extra.askedBy) return false
     if (extra.resumed || extra.stopped) return false
     const post = { ...extra, botId: sender.id, name: sender.name, text }
-    const { speakers, ordered } = openingCall(room, post)
-    if (speakers.length === 0) return false
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const named = (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).found
+    // A post that lands in a running round counts the same way: new work in it clears the
+    // streak, a status post is one idle round, and what the pause holds back is parked so
+    // it runs after the user writes instead of being dropped (#853).
+    const idlePost = !extra.done && extra.progress !== true && extra.late !== true && isIdleRelayText(text, everyone, [])
+    if (!idlePost) clearIdleStreak(room)
+    const opened = openingCall(room, post)
+    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, named)) return true
+    const { speakers, ordered } = opened
+    if (speakers.length === 0) return false
     const by = speakers.filter(peer => named.includes(peer))
     const rest = speakers.filter(peer => !named.includes(peer))
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
