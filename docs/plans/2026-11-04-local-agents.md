@@ -85,6 +85,12 @@ handling, so they do not mix in one model list.
 - After creation, only the user changes the run mode, only in the Bot's
   settings, and only after a confirmation. No tool changes it; `update_bot`
   refuses.
+- The confirmation says what the change does to this Bot: which of its
+  conversations start a new part, and that earlier messages, memory, and
+  instructions stay. Moving onto a local agent it also says, when they apply,
+  that the Bot's shared MCP servers and skills do not reach the CLI, that a
+  CLI that is not signed in fails its turns, and that a private Bot's privacy
+  rules do not cover the CLI's own tools.
 - On confirmation the Bot's own chat and every group it is in start a fresh
   part together, with the deterministic handoff, and the next turn runs on the
   new mode. A chat in the middle of a turn moves before its next step. A part
