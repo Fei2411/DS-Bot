@@ -239,6 +239,40 @@ function checkOffice(app) {
   `, 180_000)
 }
 
+// The browser plugins drive the app's own browser through Playwright; without it in the package
+// every browser tool failed before it did anything.
+function checkPlaywright(app) {
+  runInHost(app, 'Playwright', `
+    const { chromium } = createRequire(appRequire.resolve('ds-bot/package.json'))('playwright-core')
+    assert.equal(typeof chromium.connectOverCDP, 'function')
+    console.log('check-packed: the browser plugins find Playwright')
+  `, 30_000)
+}
+
+// Computer use on Windows loads the Cua Driver SDK's DLL by a path that the SDK derives from its
+// own module; a module inside the asar gives a path that Windows' loader cannot open (#1025).
+// The SDK is found the way the provider's import finds it, then asked for its tools.
+function checkComputerUse(app) {
+  runInHost(app, 'computer use driver', `
+    const { existsSync } = require('node:fs')
+    const { join } = require('node:path')
+    const { pathToFileURL } = require('node:url')
+    ;(async () => {
+      const provider = appRequire.resolve('@deepseek-ai/dsh-experimental-computer-use-cua-driver-native')
+      const sdk = createRequire(provider).resolve.paths('@trycua/cua-driver')
+        .map(dir => join(dir, '@trycua', 'cua-driver')).find(dir => existsSync(join(dir, 'package.json')))
+      assert.ok(sdk !== undefined, 'the provider finds no @trycua/cua-driver')
+      assert.ok(!/[\\\\/]app\\.asar[\\\\/]/u.test(sdk), 'the Cua Driver SDK is inside the asar: ' + sdk)
+      const { CuaDriver } = await import(pathToFileURL(join(sdk, 'dist', 'index.js')).href)
+      const driver = CuaDriver.create(undefined)
+      const { tools } = JSON.parse(await driver.listToolsJson())
+      assert.ok(tools.length > 0, 'the Cua Driver lists no tools')
+      await driver.shutdown?.()
+      console.log('check-packed: the Cua Driver loads from ' + sdk + ' and lists ' + tools.length + ' tools')
+    })().then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
+  `, 60_000)
+}
+
 function startMock() {
   const mock = spawn(process.execPath, [join(root, '..', 'ds-bot', 'dev', 'mock-llm.mjs')], {
     env: { ...process.env, MOCK_PORT: '0', MOCK_LOG: join(work, 'mock.log') }, stdio: ['ignore', 'pipe', 'inherit'],
@@ -443,6 +477,8 @@ try {
   checkAsarCopy(packedApp)
   checkSharp(packedApp)
   checkOffice(packedApp)
+  checkPlaywright(packedApp)
+  if (process.platform === 'win32') checkComputerUse(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
   const mainPort = await freePort()

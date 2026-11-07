@@ -54,6 +54,24 @@ test('the LibreOffice engine ships as plain files beside the asar, the kit insid
   assert.equal(extra(join(root, beside.from, 'libreoffice-kit/lib/index.js'), stat), false)
 })
 
+// The Cua Driver SDK passes its DLL's path, derived from its own module, to Windows' loader,
+// which cannot open a file inside the asar (#1025).
+test('on Windows the Cua Driver SDK and its runtime ship as plain files beside the asar', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  const root = resolve('app-fixture')
+  const stat = { isDirectory: () => false }
+  const modules = getNodeModuleFileMatcher(root, root, value => value, config.win, { config, debugLogger: { isEnabled: false } }).createFilter()
+  const packed = file => modules(join(root, 'node_modules', file), { ...stat, moduleFullFilePath: join('node_modules', file) })
+  for (const file of ['@trycua/cua-driver/dist/native/node-runtime.js', '@trycua/cua-driver-win32-x64-msvc/cua_driver_sdk.dll', '@ubjs/node/index.js', '@ubjs/core/package.json']) {
+    assert.equal(packed(file), false, file)
+  }
+  assert.equal(packed('@deepseek-ai/dsh-experimental-computer-use-cua-driver-native/lib/index.js'), true)
+  for (const scope of ['@trycua', '@ubjs']) {
+    const beside = config.win.extraResources.find(set => set.to === `node_modules/${scope}`)
+    assert.equal(beside?.from, `node_modules/${scope}`, scope)
+  }
+})
+
 test('Linux leaves the Host and its dependencies readable by plain Node', () => {
   const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
   assert.equal(config.linux.asar, false)
