@@ -135,3 +135,91 @@ test('a refused send is permanent, and the auth header carries the token', async
     error => error.permanent === true && /window/.test(error.message))
   assert.equal(fake.calls[0].auth, 'Bearer wx-tok')
 })
+
+// iLink answers with the bare host and the request URL appends its path, so the
+// connection base and the QR base must end in exactly one slash for every form the
+// user, the scan or a copied URL can produce.
+test('the QR base and the connection base end in exactly one slash', async (t) => {
+  const fake = await fakeIlink()
+  t.after(() => fake.close())
+  const origin = fake.base.replace(/\/$/, '')
+  for (const suffix of ['', '/', '///']) {
+    const qrEnv = { ...env(fake), config: { qr: `${origin}${suffix}` } }
+    await weixin.loginStart(qrEnv)
+    const start = fake.calls.at(-1)
+    assert.equal(start.path, '/ilink/bot/get_bot_qrcode?bot_type=3', `QR base ${JSON.stringify(suffix)}`)
+    for (const api of [origin, `${origin}/`, `${origin}///`]) {
+      const fields = { token: 'wx-tok', baseUrl: '' }
+      const answer = await weixin.check({ ...fields, baseUrl: api }, { ...env(fake), config: { api } })
+      assert.deepEqual(answer.account, { id: '', name: 'WeChat' })
+      assert.equal(fake.calls.at(-1).path, '/ilink/bot/getupdates', `baseUrl ${JSON.stringify(api)}`)
+    }
+  }
+})
+
+test('check passes when the answer carries no ret, and a non-zero ret is still an error', async () => {
+  const fake = await fakeIlink()
+  try {
+    fake.replies.updates = { msgs: [], sync_buf: 's1', get_updates_buf: 'c1' }
+    const answer = await weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake))
+    assert.equal(answer.account.name, 'WeChat')
+    fake.replies.updates = { ret: -2, errmsg: 'bad token' }
+    await assert.rejects(
+      () => weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake)),
+      error => error.permanent === true && /answered -2/.test(error.message))
+  } finally {
+    await fake.close()
+  }
+})
+
+test('an idle getupdates without ret is a success: ready, cursor and message', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = {}
+  const messages = []
+  const statuses = []
+  let polls = 0
+  // The real idle answer has no ret at all; only errors carry one.
+  fake.replies.updates = () => {
+    polls += 1
+    if (polls === 1) {
+      return {
+        msgs: [{ from_user_id: 'u1', client_id: 'm1', context_token: 'tok-u1', item_list: [{ type: 1, text_item: { text: 'hello without ret' } }] }],
+        get_updates_buf: 'c2',
+      }
+    }
+    return { msgs: [], get_updates_buf: 'c2' }
+  }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: status => { statuses.push(status) } })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, 'hello without ret')
+  assert.equal(runtime.cursor, 'c2')
+  assert.equal(runtime.contextTokens.u1, 'tok-u1')
+  assert.ok(statuses.some(status => status.state === 'ready'), JSON.stringify(statuses))
+})
+
+test('a non-zero ret during the poll is still an error and 401 stops it', async (t) => {
+  const fake = await fakeIlink()
+  const statuses = []
+  fake.replies.updates = { ret: 401 }
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: () => {}, onAction: () => {}, onStatus: status => { statuses.push(status) } })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => statuses.some(status => status.state === 'error'))
+  assert.match(statuses.find(status => status.state === 'error').error, /401/)
+})
+
+test('a network failure keeps its cause for diagnosis', async () => {
+  const fake = await fakeIlink()
+  try {
+    const network = Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' }) })
+    const failing = { ...env(fake), fetch: async () => { throw network } }
+    await assert.rejects(() => weixin.check({ token: 'wx-tok', baseUrl: '' }, failing), (error) => {
+      assert.match(error.message, /ENOTFOUND/)
+      assert.equal(error.cause, network)
+      assert.equal(error.timeout, false)
+      return true
+    })
+  } finally {
+    await fake.close()
+  }
+})

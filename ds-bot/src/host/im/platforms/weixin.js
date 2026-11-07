@@ -15,8 +15,11 @@ const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
 
-const qrBase = env => String(env.config?.qr ?? env.config?.api ?? QR_BASE).replace(/\/+$/, '/')
-const base = (env, fields) => String(fields.baseUrl || env.config?.api || QR_BASE).replace(/\/+$/, '/')
+// iLink answers with the bare host (no trailing slash), and the request URL is
+// built by appending a path: normalize to exactly one slash either way.
+const withSlash = value => `${String(value).replace(/\/+$/, '')}/`
+const qrBase = env => withSlash(env.config?.qr ?? env.config?.api ?? QR_BASE)
+const base = (env, fields) => withSlash(fields.baseUrl || env.config?.api || QR_BASE)
 const baseInfo = () => ({ channel_version: 'ds-bot' })
 
 const logins = new Map() // loginId → { qrcode, baseUrl, expiresAt, result }
@@ -66,10 +69,11 @@ export default {
     }
   },
 
-  // The token is proven by a short getupdates poll: ret 0 is a valid bot.
+  // The token is proven by a short getupdates poll: ret 0 is a valid bot. iLink
+  // omits ret altogether on success and sends it only on errors.
   async check(fields, env) {
     const answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: '', timeout_ms: 0 }, 8_000)
-    if (Number(answer.ret) !== 0) throw fail(`WeChat answered ${answer.ret}`, { permanent: true })
+    if (answer.ret !== undefined && Number(answer.ret) !== 0) throw fail(`WeChat answered ${answer.ret}`, { permanent: true })
     return { account: { id: String(fields.ilinkBotId ?? ''), name: 'WeChat' } }
   },
 
@@ -131,7 +135,7 @@ export default {
             await sleep(3000)
             continue
           }
-          if (Number(answer.ret) !== 0) {
+          if (answer.ret !== undefined && Number(answer.ret) !== 0) {
             env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
             if (Number(answer.ret) === 401 || Number(answer.ret) === 403) {
               handlers.onStatus({ state: 'error', error: `WeChat answered ${answer.ret}` })
@@ -230,7 +234,10 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
     })
   } catch (error) {
     const timedOut = error?.name === 'AbortError' || /timeout|aborted/i.test(String(error?.message))
-    throw Object.assign(new Error(timedOut ? 'timeout' : String(error?.message ?? error)), { timeout: timedOut })
+    // fetch reports "fetch failed" and hides ENOTFOUND, ECONNRESET and the like in
+    // cause; surface it in the message and keep the chain for diagnosis.
+    const cause = error?.cause?.code ?? error?.cause?.message
+    throw Object.assign(new Error(timedOut ? 'timeout' : String(cause ?? error?.message ?? error), { cause: error }), { timeout: timedOut })
   } finally {
     clearTimeout(timer)
   }
