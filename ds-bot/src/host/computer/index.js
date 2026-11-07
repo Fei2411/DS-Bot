@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
 import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
@@ -130,8 +131,17 @@ export function install(rt) {
     const exports = await loader.import(name)
     return loader.unwrapExports?.(exports) ?? exports?.default ?? exports
   }
-  const missing = (error, name) => /cannot find|not found|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND/i.test(String(error?.code ?? error?.message ?? error))
-    ? Object.assign(new Error(`${name} is not installed in this DSH.`), { code: 'bot/missing' }) : error
+  // What to install when a package is missing (#1050): the packages at the
+  // running DSH's version, added to the profile with the pnpm it is managed by.
+  const installOf = (names) => {
+    const version = dshVersion()
+    const packages = names.map(name => (version ? `${name}@${version}` : name))
+    const dir = ctx.get?.('profileContext')?.dir
+    const where = typeof dir === 'string' ? ` --dir "${dir}"` : ''
+    return { packages, command: `pnpm${where} add ${packages.join(' ')}` }
+  }
+  const missing = (error, names) => /cannot find|not found|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND/i.test(String(error?.code ?? error?.message ?? error))
+    ? Object.assign(new Error(`${names[0]} is not installed in this DSH.`), { code: 'bot/missing', install: installOf(names) }) : error
   async function ensureProvider() {
     ensuring ??= (async () => {
       await rt.load()
@@ -148,7 +158,8 @@ export function install(rt) {
       setProviderStatus({ state: 'loading' })
       try {
         if (service('computerUse') === undefined) {
-          const registry = await importPackage(REGISTRY_PACKAGE).catch(error => { throw missing(error, REGISTRY_PACKAGE) })
+          // Without the registry the provider is missing too; install both at once.
+          const registry = await importPackage(REGISTRY_PACKAGE).catch(error => { throw missing(error, [REGISTRY_PACKAGE, name]) })
           registryFiber = ctx.plugin(registry)
           await registryFiber.await?.()
         }
@@ -158,7 +169,7 @@ export function install(rt) {
           setProviderStatus({ state: 'occupied', name: String(existing) })
           return
         }
-        const provider = await importPackage(name).catch(error => { throw missing(error, name) })
+        const provider = await importPackage(name).catch(error => { throw missing(error, [name]) })
         if (stopped || !enabled()) return
         const config = process.platform === 'darwin' ? { agentPreset: false } : {}
         providerFiber = ctx.plugin(provider, config)
@@ -170,7 +181,7 @@ export function install(rt) {
       } catch (error) {
         await unmountProvider().catch(() => {})
         setProviderStatus(error?.code === 'bot/missing'
-          ? { state: 'missing', message: error.message }
+          ? { state: 'missing', message: error.message, install: error.install }
           : { state: 'error', message: rt.redactSecrets?.(String(error?.message ?? error)) ?? String(error) })
       }
     })().finally(() => { ensuring = undefined })
