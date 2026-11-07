@@ -3,6 +3,10 @@
 // caller: per-Bot levels, per-Bot app consent, one-Bot-per-app leases, the
 // indicator, and take-over/hand-back.
 import { randomUUID } from 'node:crypto'
+import { access, readFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
@@ -46,6 +50,21 @@ const PROTECTED_IDS = new Set([
 ])
 const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
 const PROTECTED_EXES = new Set(['dsbot', 'dsh', 'dsh-desktop', 'dsh-cua-native', 'dsh computer use', 'systemsettings', 'keychain access', 'passwords', 'credentialmanager', 'credwiz', 'control', ...LEGACY_EXECUTABLES])
+
+// Inside a packaged Electron app the macOS provider resolves its helper to a
+// path in app.asar: Electron's patched fs answers access(), but the OS cannot
+// exec a file inside the archive, so every native call fails with NATIVE_IO
+// (#1066). Hand the provider the real executable in app.asar.unpacked instead.
+export const helperPathFrom = async (resolvedEntry, arch = process.arch) => {
+  const root = dirname(dirname(fileURLToPath(resolvedEntry)))
+  const unpacked = root.replace(/([\\/][^\\/]+)\.asar([\\/]|$)/, '$1.asar.unpacked$2')
+  if (unpacked === root) return undefined
+  const dir = join(unpacked, 'native', 'bin', `darwin-${arch}`)
+  const { bundle } = JSON.parse(await readFile(join(dir, 'current.json'), 'utf8'))
+  const exe = join(dir, bundle, 'DSH Computer Use.app', 'Contents', 'MacOS', 'dsh-cua-native')
+  await access(exe, constants.X_OK)
+  return exe
+}
 
 export function isProtectedApp(app) {
   if (app === undefined || app === null) return false
@@ -161,6 +180,12 @@ export function install(rt) {
         const provider = await importPackage(name).catch(error => { throw missing(error, name) })
         if (stopped || !enabled()) return
         const config = process.platform === 'darwin' ? { agentPreset: false } : {}
+        if (process.platform === 'darwin') {
+          const helperPath = await Promise.resolve()
+            .then(() => helperPathFrom(import.meta.resolve(PROVIDER_PACKAGES.darwin), process.arch))
+            .catch(() => undefined)
+          if (helperPath !== undefined) config.helperPath = helperPath
+        }
         providerFiber = ctx.plugin(provider, config)
         await providerFiber.await?.()
         if (stopped || !enabled()) return
