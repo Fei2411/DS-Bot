@@ -125,19 +125,12 @@ export class LocalAgentAdapter extends LlmAdapter {
       // sign-in, for one): the cached bridge is dead, so the next call starts a
       // new process instead of writing into the one that is gone.
       if (live.engineSession?.dead === true) {
-        // A Claude CLI that died before `system/init` never read the prompt it
-        // was handed: roll the marker back so the new process replays that input.
-        // ACP and Codex create their session before the prompt, so theirs was read.
-        const unread = live.spec.kind === 'claude' && live.engineSession.cliSessionId === undefined
+        this.rollbackUnread(live, sessionId)
         live.engineSession = undefined
         live.pumpToken = {}
         // The queue belongs to the process that is gone: the retry starts clean
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
-        if (unread) {
-          live.handed = live.handedBefore
-          this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
-        }
       }
       return live
     }
@@ -195,6 +188,17 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
     const stillUsed = [...this.live.values()].some(other => other.engine === live.engine && !other.dead)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
+  }
+
+  // A Claude CLI that died before `system/init` never read the prompt it was
+  // handed: roll the marker back in the live state and in the saved record, so a
+  // host that restarts before the next call still replays the input. ACP and
+  // Codex create their session before the prompt, so theirs was read.
+  rollbackUnread(live, sessionId) {
+    if (live.spec.kind !== 'claude') return
+    if (live.engineSession?.dead !== true || live.engineSession.cliSessionId !== undefined) return
+    live.handed = live.handedBefore
+    this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -361,7 +365,14 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
     }
 
-    yield* this.drain(live, options)
+    try {
+      yield* this.drain(live, options)
+    } catch (error) {
+      // The caller sees the failure now: a start that died before reading its
+      // prompt must not count as delivered, in case the host restarts next.
+      this.rollbackUnread(live, sessionId)
+      throw error
+    }
   }
 
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or

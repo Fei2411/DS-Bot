@@ -358,6 +358,25 @@ test('claude: the retry flow replays the unanswered message', async (t) => {
   assert.match(prompts, /last unanswered message/)
 })
 
+// The rollback is saved, not only kept in memory: a host that restarts after a
+// failed start rebuilds its live state from the record.
+test('claude: a host restart after a failed start still replays the unread input', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const records = {}
+  const claude = FIXTURE('fake-claude-flaky.mjs')
+  const host = () => {
+    const adapter = makeAdapter({ records, claude, claudeArgs: [runs, '1'] })
+    t.after(() => adapter.dispose())
+    return adapter
+  }
+  const history = [user('m1', 'fix the login')]
+  await assert.rejects(collect(host().stream(options('s1', history, { provider: 'claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  // The first host is gone: the saved record is all the new one has.
+  const out = await collect(host().stream(options('s1', history, { provider: 'claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
+})
+
 // ACP and Codex create their session before the prompt, so a process that exits
 // after a turn did read it: reopening sends only the new input, not a replay.
 test('acp: a reopen after the process exits sends only the new input', async (t) => {
