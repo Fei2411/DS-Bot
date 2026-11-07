@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { createRuntime } from '../index.js'
 import { createCodeStore, hashToken, newToken, tokenMatches } from '../src/host/multi-device/pairing.js'
 import { checkCommand } from '../src/host/multi-device/policy.js'
 import { createRegistry, nodeName } from '../src/host/multi-device/registry.js'
 import { createHub } from '../src/host/multi-device/hub.js'
 import { createWorker } from '../src/host/multi-device/worker.js'
+import { deviceTools } from '../src/host/multi-device/tools.js'
+import { fakeContext } from './fake-ctx.js'
 
 const folder = name => mkdtempSync(join(tmpdir(), `dsb-lan-${name}-`))
 
@@ -234,4 +238,105 @@ test('the policy list the CLI prints names every allowed program', () => {
   assert.equal(checkCommand(['echo', 'a'.repeat(201)]).ok, false)
   assert.equal(checkCommand(['uname', '-a']).ok, true)
   assert.equal(checkCommand(['whoami', '-x']).ok, false)
+})
+
+const tool = (tools, name) => tools.find(entry => entry.name === name)
+
+test('the Bot tools list a machine, run a command there and read the task', async t => {
+  const { hub } = await bench(t)
+  const tools = deviceTools({ hub, sharedOrigin: () => 'http://127.0.0.1:3080' })
+
+  const listed = await tool(tools, 'list_devices').execute({}, {})
+  assert.match(listed, /1 paired machine, 1 online/)
+  assert.match(listed, /test-node \(online\)/)
+  assert.match(listed, /hostname, whoami, uname, echo/)
+  assert.match(listed, /http:\/\/127\.0\.0\.1:3080/)
+
+  const run = await tool(tools, 'run_on_device').execute({ node: 'test-node', argv: ['echo', 'from the tool'] }, {})
+  assert.match(run, /^\[test-node\] echo from the tool — done, exit 0/)
+  assert.match(run, /from the tool/)
+
+  const task = hub.dispatch({ node: 'test-node', argv: ['echo', 'later'] })
+  await hub.waitForTask(task.id, { timeoutMs: 5000 })
+  const read = await tool(tools, 'device_task').execute({ task_id: task.id }, {})
+  assert.match(read, /later/)
+  assert.match(await tool(tools, 'device_task').execute({ task_id: 'tk_missing' }, {}), /No task/)
+})
+
+test('the Bot tools refuse an offline machine and a command outside the allowlist', async t => {
+  const { hub } = await bench(t)
+  const tools = deviceTools({ hub })
+  assert.match(await tool(tools, 'run_on_device').execute({ node: 'ghost', argv: ['echo', 'x'] }, {}), /No machine named ghost/)
+  assert.match(
+    await tool(tools, 'run_on_device').execute({ node: 'test-node', argv: ['rm', '-rf', '/'] }, {}),
+    /Not run: program is not allowed: rm/,
+  )
+
+  const lonely = createHub({ dataDir: folder('hub-offline'), host: '127.0.0.1', port: 0, log: () => {} })
+  await lonely.start()
+  t.after(() => lonely.stop())
+  const { code } = lonely.issueCode()
+  await pairDevice(lonely, { code, name: 'far-pc' })
+  const offline = deviceTools({ hub: lonely })
+  const listed = await tool(offline, 'list_devices').execute({}, {})
+  assert.match(listed, /far-pc \(offline\)/)
+  assert.match(
+    await tool(offline, 'run_on_device').execute({ node: 'far-pc', argv: ['echo', 'x'] }, {}),
+    /far-pc is offline .* did not run/,
+  )
+})
+
+test('the Bot tools say so when the hub did not start', async t => {
+  const blocker = createServer(() => {})
+  await new Promise(resolve => blocker.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => blocker.close(resolve)))
+  const port = blocker.address().port
+  const hub = createHub({ dataDir: folder('hub-busy'), host: '127.0.0.1', port, log: () => {} })
+  t.after(() => hub.stop())
+  const ready = hub.start().then(() => ({ ok: true }), error => ({ ok: false, error: error.message }))
+  const tools = deviceTools({ hub, ready })
+  assert.match(await tool(tools, 'list_devices').execute({}, {}), /The LAN hub is not running on this machine/)
+})
+
+test('the plugin starts the hub and serves the device tools to the team', async t => {
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, {
+    home: folder('plugin-home'),
+    multiDevice: { host: '127.0.0.1', port: 0, dataDir: folder('plugin-data'), name: 'office-mac' },
+  })
+  t.after(async () => {
+    await rt.multiDeviceHub.stop()
+    await ctx.dispose()
+  })
+  const started = await rt.multiDeviceReady
+  assert.equal(started.ok, true)
+  const names = rt.teamTools.map(entry => entry.name)
+  for (const name of ['list_devices', 'run_on_device', 'device_task', 'device_pairing_code']) assert.ok(names.includes(name), name)
+  assert.match(rt.multiDeviceHub.url, /^http:\/\/127\.0\.0\.1:\d+$/)
+
+  const worker = createWorker({
+    hubUrl: rt.multiDeviceHub.url,
+    dataDir: folder('plugin-worker'),
+    name: 'win-pc',
+    code: rt.multiDeviceHub.issueCode().code,
+    log: () => {},
+    reconnectMs: 50,
+    maxReconnectMs: 200,
+  })
+  t.after(() => worker.stop())
+  await worker.start()
+  await worker.connected({ timeoutMs: 5000 })
+  await until(() => rt.multiDeviceHub.isOnline(worker.nodeId), { what: 'the plugin hub to see the node' })
+
+  const run = await tool(rt.teamTools, 'run_on_device').execute({ node: 'win-pc', argv: ['echo', 'hello from the tool'] }, {})
+  assert.match(run, /hello from the tool/)
+  const pairing = await tool(rt.teamTools, 'device_pairing_code').execute({}, {})
+  assert.match(pairing, /npm run lan:worker -- --hub http:\/\/127\.0\.0\.1:\d+ --code \d{6}/)
+
+  // The default profile keeps the hub off: no listener, no tools.
+  const plainCtx = fakeContext()
+  const plain = createRuntime(plainCtx, { home: folder('plain-home') })
+  t.after(() => plainCtx.dispose())
+  assert.equal(plain.multiDeviceEnabled, false)
+  assert.equal(plain.teamTools.some(entry => entry.name === 'list_devices'), false)
 })
