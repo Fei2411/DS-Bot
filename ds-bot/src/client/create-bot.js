@@ -39,7 +39,6 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [reading, readModels] = useAgentModels(actions)
   const local = mode === 'local'
   const chosen = local ? agentModel : model
-  const blocked = busy || clash || Boolean(problem) || (local && chosen === '')
   useEscape(onBack)
   // Inside Settings the form opens below other sections, so it scrolls itself into view.
   useEffect(() => { if (inline) frame.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [])
@@ -47,6 +46,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const finalName = name.trim() || fallbackName
   const clash = roster.bots.some(bot => bot.name.toLowerCase() === finalName.toLowerCase())
   const problem = nameProblem(finalName)
+  const blocked = busy || clash || Boolean(problem) || (local && chosen === '')
   const create = async () => {
     if (blocked) return
     setError('')
