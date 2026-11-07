@@ -30,6 +30,13 @@ export class ClaudeEngine {
     session.cancel()
   }
 
+  // The adapter stopped reading this session. A process takes its model and tool
+  // server when it starts, so it leaves too; a later open resumes the CLI session.
+  forget(dshSessionId) {
+    this.sessions.get(dshSessionId)?.kill()
+    this.sessions.delete(dshSessionId)
+  }
+
   async listModels() {
     return ['default', 'opus', 'sonnet', 'haiku'].map(id => ({ id, name: id === 'default' ? 'CLI default' : id }))
   }

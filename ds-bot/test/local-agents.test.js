@@ -220,6 +220,24 @@ test('claude stream-json: thinking, activity line, usage', async (t) => {
   assert.ok(out.usage.inputTokens === 10)
 })
 
+test('claude: another model restarts only that conversation\'s process, with its new tool server', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const claude = (id, messages, extra = {}) => adapter.stream(options(id, messages, { provider: 'claude-code', ...extra }))
+  await collect(claude('s1', [user('m1', 'one')]))
+  await collect(claude('s2', [user('m1', 'two')]))
+  const engine = adapter.engines.get('claude-code')
+  const [first, other] = [engine.sessions.get('s1').child, engine.sessions.get('s2').child]
+  const out = await collect(claude('s1', [user('m1', 'one'), user('m2', 'again')], { model: 'sonnet' }))
+  assert.match(out.text, /again/)
+  const args = engine.sessions.get('s1').child.spawnargs
+  assert.notEqual(engine.sessions.get('s1').child, first)
+  assert.equal(args[args.indexOf('--model') + 1], 'sonnet')
+  assert.match(args[args.indexOf('--mcp-config') + 1], new RegExp(adapter.live.get('s1').mcp.url))
+  assert.equal(engine.sessions.get('s2').child, other)
+  assert.equal(other.killed, false)
+})
+
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
   const mcp = new LoopbackMcp(() => [{ name: 'message_bot', description: 'd', parameters: { type: 'object', properties: { x: { anyOf: [{ type: 'string' }, { type: 'number' }] } }, required: ['x'] } }], async () => ({ text: 'done' }))
   await mcp.listen()
