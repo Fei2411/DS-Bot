@@ -1,8 +1,17 @@
-# LAN multi-device (v2)
+# LAN multi-device (v3)
 
 A hub on the machine the user sits at, and a worker on another machine in the same
 network. The worker dials the hub and holds one server-sent-events connection; the hub
 sends one task at a time and takes back stdout, stderr, an exit code, or a file body.
+
+Pairing also keeps the conversation aligned. The hub is the only writer of the team's
+Session: a paired worker pulls a revisioned snapshot of one Bot's current chat from
+`GET /session`, keeps a read replica in `sync/<botId>.json`, and sends a user message
+back through `POST /session`; the hub applies it through the same `rt.sendUser` path the
+browser composer uses. A waiting pull is answered when the revision changes, so another
+screen trails the center by about a second. A node never runs a second DSH, never opens
+the Session and never writes the team's `state.json`; after a drop it resumes from the
+saved `{epoch, revision}` cursor.
 
 The hub runs **inside the DS Bot plugin process**. Settings → Devices turns it on and
 off, shows whether it is listening, lists the paired machines, makes a pairing code
@@ -21,7 +30,9 @@ flowchart LR
   T --> H[hub in the plugin process]
   H -- SSE task --> W[worker on the other machine]
   W -- result --> H
-  V[browser on another machine] -- same DSH Web page --> D[DSH host on the Mac]
+  H -- session snapshot, by revision --> W
+  W -- user message, via hub --> H
+  V[browser on another machine] -- full DSH Web page --> D[DSH host on the Mac]
 ```
 
 `config.multiDevice` sets the starting value only. Once the user moves the switch, the
@@ -44,8 +55,10 @@ under the worker's `workspace/` (relative paths) or at the absolute path the use
 on macOS, a systemd user unit on Linux, a logon task plus a restart loop on Windows.
 The pairing token stays in `device.json`; the install command carries no pairing code.
 
-The same chat on both machines is **one DSH host with browsers on the other machines**,
-not two DS Bot installations: see the plan for the thin-client path and why a second DSH
+The same chat on both machines has two paths. Paired nodes sync through the hub (above),
+with no browser. A browser on another machine can still open the center's DSH page for
+the full DSH interface: that is **one DSH host with browsers on the other machines**,
+not two DS Bot installations. See the plan for the thin-client path and why a second DSH
 cannot attach to the same Session. The Devices page copies the shared address; when the
 DSH Web server binds `127.0.0.1` it shows the `ssh -L` port-forward command instead. The
 address only opens the page: the login link DSH printed at startup is the credential.
@@ -68,7 +81,13 @@ npm run lan:run -- --node windows-pc -- hostname
 # on the worker machine
 npm run lan:worker -- --hub http://192.168.1.23:8787 --code 123456 --name windows-pc
 npm run lan:daemon -- install --hub http://192.168.1.23:8787 --name windows-pc
+npm run lan:say -- --text "hello from this machine" --hub http://192.168.1.23:8787
 ```
+
+`lan:worker` follows the Main Bot by default (`--sync main`; `--sync <id|name>` for
+another Bot, `--no-sync` to run tasks only) and stores the replica under
+`<dataDir>/sync/<botId>.json` with mode 0600. The daemon install command carries the
+same `--sync main`.
 
 Data lives in `~/.ds-bot/multi-device` unless `--data` or `DSBOT_LAN_DATA` says otherwise.
 
@@ -79,12 +98,14 @@ Data lives in `~/.ds-bot/multi-device` unless `--data` or `DSBOT_LAN_DATA` says 
 | `policy.js` | The read-only list and the argument rules |
 | `protocol.js` | Task kinds, path rules, size limits and the wire shape |
 | `select.js` | Choosing a machine from a hostname, machine name or path hint |
-| `hub.js` | HTTP endpoints, SSE streams, task queue, timeouts |
+| `hub.js` | HTTP endpoints, SSE streams, task queue, timeouts, session endpoints |
 | `worker.js` | Pairing, reconnect loop, execution, file reads and writes, result delivery |
+| `session-sync.js` | The center's revisioned snapshot and the one write path for a node message |
+| `session-client.js` | The node's pull loop, read replica and send that a worker follows |
 | `daemon.js` | launchd, systemd and Windows logon files, install and status |
 | `tools.js` | The seven Bot tools and the hub's lifecycle in the plugin |
 | `sse.js` | The event framing both sides share |
-| `cli.js` | `hub`, `code`, `nodes`, `run`, `worker` and `daemon` |
+| `cli.js` | `hub`, `code`, `nodes`, `run`, `worker`, `say` and `daemon` |
 
 Plain HTTP on a trusted LAN, the admin token equals local administrator, and approval
 is a gate on the tool, not a sandbox on the node. The hub listens on all interfaces by

@@ -1,4 +1,4 @@
-# 局域网多机：Hub、通用任务、常驻 worker 与同一会话（v2）
+# 局域网多机：Hub、通用任务、常驻 worker 与会话同步（v3）
 
 - 日期：2026-11-08
 - 相关：Issue #966
@@ -11,6 +11,16 @@
 2. **人看到同一段对话**：在 Mac 和 Windows 上打开的是同一个 Bot 会话，不是两台机器各聊各的。
 
 v0 只打通了第 1 条的命令链路，而且 Hub 和 Worker 都是独立进程，插件完全没接入。v1 把 Hub 接进插件进程、把能力做成 Bot 工具，并把第 2 条落成一条可执行的路径（一台主机 + 远程浏览器），同时写清 DSH 目前缺什么。
+
+## v3 做了什么
+
+CEO 的定调：Mac 是**中心**，也是会话的**唯一写者**；其他机器是出站 worker，配对后自己拉取对话、可以推消息回去，不需要浏览器，也不需要第二份 DSH。
+
+1. **Hub 会话端点。** 新增 `GET /session/bots`、`GET /session`（按 `epoch`+`revision` 拉快照、可长轮询）、`POST /session`（推一条用户消息，`messageId` 去重）。设备令牌鉴权，和任务流共用。
+2. **中心侧单一写者。** 快照由插件读当前 Bot 的 chat part 生成；节点消息经 `rt.sendUser` 写进 Session。版本号是 Hub 进程内的单调计数器，`epoch` 区分 Hub 运行。
+3. **节点侧同步循环。** Worker 在 SSE 连上后跟随主 Bot（`--sync main`，可换 Bot）：长轮询、原子写 `sync/<botId>.json` 只读副本、断线退避、重启按游标补拉；`lan:say` 从节点发一条消息。
+4. **配对即生效。** `lan:worker` 和守护安装命令默认带 `--sync main`；不同步可用 `--no-sync`。Devices 状态的 `sync` 字段给出当前版本、被订阅的 Bot 数和等待中的轮询数。
+5. **验收。** `dev/lan-sync-accept.mjs sync` 用两个配对节点进程证明中心→节点、节点→中心、第二节点追上、断线重连补齐，证据不含令牌或配对码。
 
 ## v2 做了什么（六条）
 
@@ -35,17 +45,56 @@ CEO 的定调不变：Mac 是**云中心**，其他机器仍是**出站 worker**
 
 | 角色 | 跑在哪 | 做什么 |
 |---|---|---|
-| 中心（host） | 用户的 Mac，DSH 插件进程内 | 跑 Bot 团队和 Web 界面；内嵌 Hub，监听局域网端口；向 Bot 提供设备工具 |
-| 节点（worker） | Windows 等被指挥的机器 | 主动连 Hub，收一条白名单命令，执行后回传结果；不监听端口 |
-| 客户端（viewer） | 任意机器的浏览器 | 打开中心机器的 DSH Web 页面，看到同一段会话，和中心看到的是同一个 Session |
+| 中心（host） | 用户的 Mac，DSH 插件进程内 | 跑 Bot 团队和 Web 界面；内嵌 Hub，监听局域网端口；向 Bot 提供设备工具；是会话的唯一写者 |
+| 节点（worker） | Windows 等被指挥的机器 | 主动连 Hub，收一条白名单命令，执行后回传结果；同时按版本拉取会话副本、可推送用户消息；不监听端口，不跑 DSH |
+| 客户端（viewer） | 任意机器的浏览器 | 打开中心机器的 DSH Web 页面，看到同一段会话，和中心看到的是同一个 Session；用于完整 DSH 界面 |
 
 Hub 与插件是**同一个进程**：插件加载时 `createHub()` 并 `start()`，卸载时 `stop()`。这样中心机器不需要额外守护进程，Bot 工具直接调用内存里的 Hub 对象（`dispatch`/`waitForTask`），配对码也直接由工具生成。CLI 的 `lan:nodes`、`lan:code` 仍可对同一个数据目录工作（同一个 `admin.token`、`nodes.json`），方便排查；但同一个端口只能有一个 Hub，端口被 CLI 占用时插件会在诊断日志里报 bind 失败，工具会直接说明 Hub 没起来。
 
-## 会话：一台主机，多个屏幕
+## 会话：一个中心，两种屏幕
 
 ### 结论
 
-**一个会话只能有一个 DSH 主机。** 其他机器不跑第二份 DSH，而是用浏览器打开这台主机的 DSH Web 页面。Mac 和 Windows 看到的是同一个 Session、同一个 Bot 团队和同一份消息；Windows 只是屏幕和输入，不执行 Agent。
+中心机器（Mac 上的 DSH 插件进程）是这段会话的**唯一写者**。其他机器有两种方式看到它：
+
+1. **浏览器**打开中心的 DSH Web 页面：完整 DSH 界面，仍然是同一个 Session。适合临时看、点、改设置。
+2. **配对的节点进程**通过 Hub 的会话同步协议拉取快照、推送消息：不需要浏览器，也不需要第二份 DSH。配对之后自动生效，断线重连按游标补拉。
+
+v3 之前只有第 1 条，CEO 已明确这不够：只开同一个 URL 不算配对节点之间的同步。第 2 条是本轮新增的中心权威间歇同步。
+
+### v3：配对即同步（中心权威）
+
+**一个写者。** 消息只由中心写进 Session：浏览器走 `/api/bot` 的 `send`，节点走 Hub 的 `POST /session`，两条路最后都落到插件里的 `rt.sendUser`（`channel.js`）。节点不跑第二份 DSH、不打开 Session、不写团队文件 `state.json`，只在本地保留一份**只读副本**给本机界面或测试看。
+
+**两个端点。** 都认设备令牌（`Authorization: Bearer <device token>`，和 worker 的任务流同一个凭据，Hub 只存散列）：
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| `GET` | `/session/bots` | 列出这个中心上的 Bot：`id`、`name`、`role`、是否 Main。节点默认跟 Main Bot。 |
+| `GET` | `/session?bot=<id>&since=<rev>&epoch=<run>&wait=<ms>` | 拉快照。`since` 等于当前版本时**长轮询**等待变化；`wait` 上限 25 秒。 |
+| `POST` | `/session` | 推送一条用户消息：`{botId, text, messageId}`。`messageId` 相同的重试只写一次。 |
+
+**版本号。** `revision` 是 Hub 进程内的单调计数器，只在快照内容真的变化时加一；`epoch` 标识这次 Hub 运行。节点把 `{epoch, revision}` 一起存；Hub 重启后 `epoch` 变了，节点收到 `reset: true` 并整份替换，而不是等一个永远不会到的版本号。
+
+**快照内容。** 当前 chat part 的尾部（最多 200 条、约 1.5 MiB），和 `chat` 端点给浏览器的是同一份 `items`：user、bot、tool 卡片、群消息都在。更早的内容仍用浏览器或 `earlier` 读；同步协议只保证“最新的一段对话一致”，不复制全部历史。
+
+**节点的循环。** `worker` 的同步客户端（`session-client.js`）在 SSE 连上后启动：
+
+1. 读本地 `sync/<botId>.json` 里的 `{epoch, revision}`；
+2. `GET /session` 带上它，`wait` 20 秒；
+3. 内容变了就原子写回副本；没变就是一次空长轮询，立刻再发；
+4. 网络断了按退避重试；进程重启后从磁盘上的游标继续，所以**断线期间的消息会补上**；
+5. 本机发消息走 `POST /session`，Hub 写进 Session 后长轮询立即醒来，其他节点在约 1 秒内看到。
+
+**间隔与延迟。** Hub 对被订阅的 Bot 每秒刷新一次，长轮询在版本变化时立即返回。局域网内正常延迟约 1–2 秒；验收脚本测到的值写进证据 JSON。这个间隔是常量（`refreshMs = 1000`），不是用户可调项。
+
+**为什么不用任务的 SSE。** 任务流是 Hub 单向推给节点的一条通道，断线时任务会退回队列；会话需要按节点自己的游标补拉，而且推送是反方向的。把两者塞进一条流会让任务重发和版本续传互相纠缠，所以会话用独立的 HTTP 长轮询：它和 SSE 共用设备令牌和同一个 Hub，但状态互不影响。
+
+**边界。** 快照只读；节点没有删除消息、切换 part、审批写入的能力。推送消息和用户在中心自己打字是同一条路径，因此 Bot、群聊、搜索索引看到的是同一条普通用户消息。配对令牌等于能读这段对话、能以用户身份说话；这一点和“能在那台机器上跑命令”是同一级别的信任，都只在可信局域网里成立。
+
+### 旧路径仍然有效
+
+浏览器路径没有删：它仍然是完整 DSH 界面（设置、Bot 详情、审批卡、搜索），适合临时打开。它**不再是**配对节点之间保持一致的协议，只是同一中心的另一块屏幕。设备页上的“Shared chat”地址仍然指向它。
 
 ### 可执行路径
 
@@ -65,18 +114,20 @@ dsh --profile web --host <中心机器的局域网 IP> --no-open
 
 桌面应用的引擎只绑 `127.0.0.1`。在 Windows 上用 SSH 本地端口转发（或同类端口转发客户端）把中心的回环端口映射到本机，再打开中心启动时打印的带 token 地址。DSH Web 文档明确支持「通过呈现受信任主机名的端口转发客户端」访问；浏览器看到的 authority 是 localhost，因此能通过 Host/Origin 检查。仍然只有一个 DSH 进程，所以是同一个会话。
 
-### 为什么不做「两台 DSH 同步聊天记录」
+### 为什么不让节点跑第二份 DSH
 
 - **Session 是单所有者的。** DSH 在第二个实例打开同一会话时直接拒绝：`This session is already in use, possibly by another running DSH instance (such as dsh web or the desktop app).`（`dsh-client-ui-model-selection` 的用户提示）。没有「第二个进程附着到活会话」的插件 API。
 - **DS Bot 的团队状态是一把写锁。** `src/host/home-lock.js` 的规则是「一个 home 只有一个写者」，第二个 host 只读。即使两台机器指向同一个 `DSH_HOME`，第二台也改不了团队、发不出消息，不是同步。
 - **可用的远程能力都不适合局域网自建。** `dsh-experimental-liveshare` 是「共享会话」的现成实现，但它要求独立的 Liveshare 服务器和 OAuth 身份，默认 profile 不启用；手机 App 的远程 Host 还是骨架。
 - **自己造一套聊天存储**会把 Bot、群聊、记忆、审批、卡片、搜索索引全部复制一遍，超出本轮，也和「数据留在用户自己的电脑上、只有一份真相」相冲突。
 
+因此节点仍然只是一个 Node 进程：它连 Hub、执行任务，并保存一份会话**只读副本**。副本用于显示和测试，不是第二个团队，也不与中心合并。
+
 ### 本轮做到哪
 
 - Bot 工具和 Hub 已接入插件；中心 Bot 可以跨机器行动。
-- 同一会话用「一台主机 + 浏览器」实现，写进本文档和 README；插件侧只做了一件事：`list_devices` 会读出本机 Web 服务的 origin，告诉 Bot 这段会话由哪台机器提供，方便它回答用户「另一台怎么打开」。
-- 不做会话复制、离线合并、双写。等 DSH 提供文档化的「第二台设备附着到活会话」API 再补；那之前的 blocker 就是上面两条（单所有者 Session、单写者 home）。
+- 同一会话有两条路：浏览器打开中心的 DSH Web（完整界面），以及配对节点通过 Hub 的 `/session` 拉快照/推消息（v3，配对即生效、断线按游标补拉）。
+- 会话只有一个写者：节点的消息经 Hub 交给 `rt.sendUser`，节点自己不写 Session、不写 `state.json`，也不做双写或离线合并。
 
 ## Bot 工具
 
@@ -183,8 +234,8 @@ npm run lan:daemon -- uninstall
 
 | 位置 | 内容 |
 |---|---|
-| Hub（插件进程） | `~/.ds-bot/multi-device/nodes.json`、`admin.token`、`hub.json`（CLI 记住的地址） |
-| Worker | `device.json`（设备令牌，0600） |
+| Hub（插件进程） | `~/.ds-bot/multi-device/nodes.json`、`admin.token`、`hub.json`（CLI 记住的地址）；会话版本只在内存里 |
+| Worker | `device.json`（设备令牌，0600）、`sync/<botId>.json`（会话只读副本，0600，不含令牌） |
 
 ## 怎么用
 
@@ -207,10 +258,18 @@ cd ds-bot
 npm run lan:worker -- --hub http://192.168.1.23:8787 --code 123456 --name windows-pc
 ```
 
-第一次配对后令牌写在 `%USERPROFILE%\.ds-bot\multi-device\device.json`，以后不再需要 `--code`。之后让它常驻：
+`lan:worker` 默认用 `--sync main` 跟随中心的主 Bot：连上后开始把最新一段对话拉进 `%USERPROFILE%\.ds-bot\multi-device\sync\`。只跑任务、不同步会话时加 `--no-sync`；要跟别的 Bot 用 `--sync <botId|名字>`。
+
+第一次配对后令牌写在 `%USERPROFILE%\.ds-bot\multi-device\device.json`，以后不再需要 `--code`。之后让它常驻（安装命令默认带 `--sync main`）：
 
 ```powershell
 npm run lan:daemon -- install --hub http://192.168.1.23:8787 --name windows-pc
+```
+
+在那台机器上直接说一句话（同样经 Hub 写进中心的 Session）：
+
+```powershell
+npm run lan:say -- --text "从 Windows 发一句" --hub http://192.168.1.23:8787
 ```
 
 **让 Bot 用它**
@@ -223,9 +282,14 @@ Bot 会 `list_devices` → 选 `windows-pc` → `run_on_device`，结果直接�
 
 Bot 会 `device_transfer`：先 `put`（审批卡），需要时再 `get` 回来。读取、写入和 shell 的选择写在工具描述里，用户不用记命令。
 
-**在 Windows 上打开同一段会话**
+**在 Windows 上看到同一段会话**
 
-按上面「会话」的路径 A 或 B 打开中心的 DSH Web 页面。不要在那台机器上再起一个 DS Bot 去连同一份团队数据。Devices 页和侧栏的 Devices 条都有复制地址的按钮；如果中心的 DSH Web 只绑 `127.0.0.1`，页面给的是端口转发命令，不会给一个打不开的链接。
+有两条路，互相独立：
+
+1. **配对即同步（v3，默认）**：那台机器的 `lan:worker --sync main` 一直在跑，本地 `sync/<botId>.json` 就是最新一段对话。中心发的消息、Bot 的回复、其他节点发的消息都会在约 1–2 秒内到；断线重连自动补拉。它不需要浏览器，也不需要开 DSH Web。
+2. **完整界面**：按上面「会话」的路径 A 或 B 打开中心的 DSH Web 页面，能用到设置、审批卡、搜索等完整功能。Devices 页和侧栏的 Devices 条都有复制地址的按钮；如果中心的 DSH Web 只绑 `127.0.0.1`，页面给的是端口转发命令，不会给一个打不开的链接。
+
+不要在 Windows 上再起一个 DS Bot 去连同一份团队数据：那会变成第二个 owner，而且 DSH 会拒绝打开同一个 Session。
 
 ## 安全边界
 
@@ -233,6 +297,7 @@ Bot 会 `device_transfer`：先 `put`（审批卡），需要时再 `get` 回来
 - **管理令牌 = 本机管理员权限。** 拿到它就能给任意节点派任意任务（包括审批过的写入）；插件工具不暴露它，但数据目录里的 `admin.token` 要按 0600 保护。
 - **审批是工具侧的门，不是节点的沙箱。** 用户允许一次写入后，worker 会照做；只读命令也能读到机器上的文件（`ls`、`read_file`）。给不可信节点配对前先想清楚。
 - **所有 Bot 都能用这些工具**，目前没有按 Bot 的节点权限。团队里的 Bot 共享同一个 Hub。
+- **设备令牌同时能读会话、能以用户身份发言。** `/session` 的快照里有这段对话，`POST /session` 写进的是用户消息；配对一台机器就等于把这段对话的读写交给它。只在可信局域网里配对。
 - **配对码是一次性短秘密。** 它只应在用户明确要求加机器时生成，并只出现在聊天里；不要写进文件、日志或公开 issue。
 - **节点不需要入站端口。** Worker 主动外连，Windows 防火墙不用放行；中心需要放行 8787/TCP。
 
@@ -241,7 +306,8 @@ Bot 会 `device_transfer`：先 `put`（审批卡），需要时再 `get` 回来
 - 不做远程桌面、屏幕和鼠标控制；那是电脑操控（`docs/plans/2026-11-04-computer-use.md`）的范围。
 - 不做多 Hub、跨网段穿透、TLS 与账号体系。
 - 不做交互式命令、实时任务日志、断点续传或超过 1 MiB 的单文件；也不做按 Bot 细分的设备权限。
-- 不做两台 DSH 之间的会话同步、离线合并或双写。
+- 不让节点跑第二份 DSH，也不做双写或离线合并：会话始终由中心写，节点只有只读副本。
+- 不同步全部历史：`/session` 只给当前 part 的尾部；更早的分页仍走浏览器或 `earlier`。
 - 不把 Worker 塞进 DSH 插件：Windows 只需要 Node，不需要 DSH 和 DS Bot。
 
 ## 已知限制
@@ -254,26 +320,29 @@ Bot 会 `device_transfer`：先 `put`（审批卡），需要时再 `get` 回来
 - 任务只在 Hub 内存里：Hub 重启（包括 DSH 重启）后未完成的任务丢失（节点登记不丢）。
 - 一台 Worker 串行执行；大文件传输会占住该节点，其他任务排队。
 - 工具默认最多等 20 秒；长命令和大文件要靠 `device_task` 续读。
-- 共享会话依赖中心的 DSH Web 或端口转发；Devices 页只能复制 Web origin，带 token 的登录链接仍要看 DSH 启动时的输出。
+- 会话同步只覆盖一个 Bot 的当前 part；节点跟着 `sync/<botId>.json` 里的那个 Bot，不切换 part，也不接收审批卡交互。
+- 去重用的 `messageId` 只在 Hub 进程内存里：Hub 重启后，同一条重试可能写两次。正常网络下客户端不会重发已成功的那条。
+- 共享会话的完整界面仍依赖中心的 DSH Web 或端口转发；Devices 页只能复制 Web origin，带 token 的登录链接仍要看 DSH 启动时的输出。
 
-## 没做成的事：DSH 的 blocker
+## 为什么还需要 DSH 的能力（v3 不依赖）
 
-要在插件里做到「两台机器各跑 DSH，还能实时看到同一个 Session」，缺少两样文档化能力：
+v3 的同步不要求 DSH 提供「第二个进程附着到活 Session」：节点只拿中心渲染好的快照，消息也回到中心这一个写者。下面两件事如果 DSH 以后提供，可以让节点从只读副本升级成原生薄客户端（更细的增量、实时事件、在节点上执行 Agent）：
 
 1. **第二个进程/设备附着到活 Session。** 目前 Session 是单所有者的，第二个实例直接报 `session is already in use`；插件 API 里没有 attach/observer/同步流。
 2. **多写者的团队状态。** DS Bot 的 home lock 只允许一个写者，第二个 host 只读。即使 DSH 允许两个进程读同一份日志，DS Bot 的 `state.json` 也不会合并。
 
-现有的 `dsh-api-remote-access` / `dsh-api-gateway` 是「远程调用 Host 能力」的底座，但把「一个 Peer 附着到某个 Session 并跟随事件」暴露给插件，需要 DSH 提供文档 API；`liveshare` 是唯一现成实现，但它需要独立服务器和 OAuth，不适合局域网自建。等这两点有了，再把「同一会话」从浏览器方案升级成原生薄客户端。
+现有的 `dsh-api-remote-access` / `dsh-api-gateway` 是「远程调用 Host 能力」的底座，但把「一个 Peer 附着到某个 Session 并跟随事件」暴露给插件，需要 DSH 提供文档 API；`liveshare` 是唯一现成实现，但它需要独立服务器和 OAuth，不适合局域网自建。没有这两点，v3 的中心权威快照就是可执行、可验证的路径。
 
 ## 验收自动化
 
-`ds-bot/dev/lan-sync-accept.mjs` 把「一台主机、两块屏幕」和「Bot 用设备工具」两条路径都跑成可重复的自测。它不启动第二个 DSH：只起一个 `dsh --profile web --host <局域网 IP> --no-open`，然后开两个独立的登录会话（各自换取 cookie）当作两台机器的浏览器。
+`ds-bot/dev/lan-sync-accept.mjs` 把三条路径跑成可重复的自测：同一 Session 的两个浏览器、Bot 用设备工具、以及 v3 的 Hub 会话同步。它不启动第二个 DSH：只起一个 `dsh --profile web --host <局域网 IP> --no-open`，浏览器用独立登录换 cookie，节点用配对后的 worker 进程。
 
 ```sh
 cd ds-bot
 npm run harness                                  # 第一次：装 dev/harness 里的 DSH 包
-node dev/lan-sync-accept.mjs prove               # 全新团队 → 双向同步 → 设备路径 → 退出
-KEEP=1 node dev/lan-sync-accept.mjs prove        # 跑完不退出，留给 Windows 接着验
+node dev/lan-sync-accept.mjs prove               # 全新团队 → 双向浏览器路径 → 设备路径 → 退出
+node dev/lan-sync-accept.mjs sync                # Hub 会话同步：中心 ↔ 两个配对节点进程
+KEEP=1 node dev/lan-sync-accept.mjs sync         # 跑完不退出，留着节点继续观察
 node dev/lan-sync-accept.mjs pair                # 打印配对码和 Windows 要跑的命令（只在终端）
 node dev/lan-sync-accept.mjs devices             # 真实 Windows 节点：list → 自动选 → hostname
 node dev/lan-sync-accept.mjs status | stop
@@ -287,7 +356,17 @@ node dev/lan-sync-accept.mjs status | stop
 - 客户端 A 登录后给 Chief 发一条带时间戳的独特消息；客户端 B 用**自己的**登录换 cookie，再读同一个 Bot 的会话，断言读到完全相同的文本；然后 B 发、A 读，反向再验一次。
 - 设备路径：临时 home 里的 Hub 发一个配对码，脚本在本机起一个 `cli.js worker`（名字 `windows-pc`）当替身，证明配对、上线、列表、自动选机、`hostname` 派单这条链是通的。随后让 Chief 自己跑一轮：发 `看设备`，mock 模型按 `list_devices` 的返回调用 `run_on_device`，报告里的 `botDevice` 就是这轮的两条回复。替身跑在 Mac 上，所以 `hostname` 不是 `DESKTOP-BNUICR3`；脚本会在报告里把这一步标成 `simulated` 并留下待办，不伪造绿色。
 
-证据写到 `/tmp/dsbot-966-sync-accept-report.json`（`--out` 可改）。里面有：`origin`（不带 token）、`sync.sessionId`、两个方向的消息文本与读回时间、双方 read-back 片段、cookie 的 SHA-256 前缀（不存 cookie 值）、`devices.nodes`（名字、在线、OS、主机名）、自动选中的节点、`hostname` 的 stdout/退出码、Bot 自己那轮的两次回复（`botDevice.posts` / `botDevice.hit`）、逐项 `checks` 和 `windowsRemaining`。启动地址带进程 token，只写进 `<home>/login-url.txt`（0600），不打印、不进报告。
+**`sync` 这条是 v3 的硬证据，不需要浏览器：**
+
+1. 中心起两个配对节点进程 A、B（各自 `--data`，同一台 Mac 上跑，证明的是协议不是硬件），都用 `--sync <botId>` 跟随 Chief。
+2. 等两边各自写完第一份 `sync/<botId>.json`。
+3. 中心通过 `/api/bot` 发一条独特消息；断言 A、B 的副本都出现它，并记录延迟。
+4. 在 A 的数据目录上跑 `cli.js say`（真正的节点侧推送）；断言中心的 `/api/bot` 读到它，B 的副本也追上。
+5. 停掉 B，中心再发一条，然后重启 B；断言 B 从磁盘上的游标补齐这条消息，`revision` 变大。
+
+证据写到 `/tmp/dsbot-966-sync-hub.json`（`--out` 可改）。里面有：`bot`、两个节点的 `revision`/条数/数据目录、`centerToNode` 与 `centerToSecondNode` 的延迟、`nodeToCenter` 的读回会话与片段、`secondNodeFollowsPush`、`reconnect.fromRevision → toRevision`、`intervalMs`（1000）和逐项 `checks`。不含设备令牌、cookie、配对码；`noSecrets` 由脚本自己核对。
+
+`prove` 的证据写到 `/tmp/dsbot-966-sync-accept-report.json`（`--out` 可改）。里面有：`origin`（不带 token）、`sync.sessionId`、两个方向的消息文本与读回时间、双方 read-back 片段、cookie 的 SHA-256 前缀（不存 cookie 值）、`devices.nodes`（名字、在线、OS、主机名）、自动选中的节点、`hostname` 的 stdout/退出码、Bot 自己那轮的两次回复（`botDevice.posts` / `botDevice.hit`）、逐项 `checks` 和 `windowsRemaining`。启动地址带进程 token，只写进 `<home>/login-url.txt`（0600），不打印、不进报告。
 
 ### 还需要 Windows 的部分
 
@@ -319,8 +398,11 @@ node dev/lan-sync-accept.mjs status | stop
 
 会话：
 
-10. 按路径 A 或 B 从 Windows 浏览器打开中心的 DSH 页面，确认看到 Mac 上同一个 Bot、同一段消息；在 Windows 发一句话，Mac 上能看到它和 Bot 的回复。
-11. 关掉 Windows 页面后，Mac 的会话和 Bot 工作不受影响。
+10. 在 Windows 上跑 `npm run lan:worker -- ... --sync main`，确认中心发消息后 `%USERPROFILE%\.ds-bot\multi-device\sync\<botId>.json` 在约 1–2 秒内出现新内容。
+11. 在 Windows 上跑 `npm run lan:say -- --text "hello" --hub http://<Mac IP>:8787`，确认中心聊天里出现这句话，并且 Windows 的副本里也有。
+12. 停掉 Windows 的 worker，中心再发一条，重新启动 worker，确认副本补上这条；`revision` 比停之前大。
+13. 按路径 A 或 B 从 Windows 浏览器打开中心的 DSH 页面，确认看到 Mac 上同一个 Bot、同一段消息；在 Windows 发一句话，Mac 上能看到它和 Bot 的回复。
+14. 关掉 Windows 页面后，Mac 的会话、Bot 工作和节点同步都不受影响。
 
 ## 变更
 
@@ -329,3 +411,4 @@ node dev/lan-sync-accept.mjs status | stop
 - 2026-11-08：验收自动化 `dev/lan-sync-accept.mjs`（两个客户端读同一 Session 的双向证据、插件 Hub 上的配对/选机/`hostname`、证据 JSON 与 Windows 剩余清单）。
 - 2026-11-08：客户端 Settings → Devices（开关落 `state.json`、Hub 状态与地址、节点列表、配对码与命令、真正移除节点），profile 改为只提供首次默认值。
 - 2026-11-08：v2 六条（任务 `kind` 与读写文件/传输、平台守护安装、侧栏设备条、审批门槛、路径与 OS 选机、共享地址复制与回环降级）。单测覆盖协议、路径逃逸、大小上限、审批前不派单、守护文件内容与选机纯函数。
+- 2026-11-08：v3 中心权威间歇同步（Hub 的 `/session` 拉取与推送、`epoch`+`revision` 游标、节点只读副本、断线补拉、`lan:say`、`--sync` 与守护命令默认同步、`dev/lan-sync-accept.mjs sync` 验收）。旧的“浏览器打开同一 Web 页”保留为完整界面，不再当作配对节点之间的同步协议。

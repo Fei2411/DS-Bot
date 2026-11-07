@@ -17,7 +17,7 @@ Trust boundaries:
 4. Browser renderer -> host: `POST /api/bot` channel (`ds-bot/src/host/channel.js`, `ROUTE` in `constants.js`) and Electron IPC (`app/src/main.mjs`, `preload.cjs`).
 5. Bot-produced HTML widgets -> app page (`ds-bot/src/client/widget-html.js`, `sandbox="allow-scripts"` iframe without same-origin).
 6. Bot browser pages -> app (`app/src/bot-browser.mjs`, `bot-views.mjs`: sandboxed, contextIsolation, own partition).
-7. LAN hub -> paired workers (`ds-bot/src/host/multi-device/`): plaintext HTTP on a trusted network, device tokens per worker and an admin token equal to local administrator. The hub runs in the plugin process only when `multiDevice` is on.
+7. LAN hub -> paired workers (`ds-bot/src/host/multi-device/`): plaintext HTTP on a trusted network, device tokens per worker and an admin token equal to local administrator. The hub runs in the plugin process only when `multiDevice` is on. A device token also reads the current Bot chat snapshot (`GET /session`) and writes a user message through the hub (`POST /session`); pairing a machine therefore grants read and speak access to that conversation.
 
 ## Components
 
@@ -59,7 +59,7 @@ Trust boundaries:
 - HTML widgets in `sandbox="allow-scripts"` iframes; Electron webviews sandboxed with contextIsolation and own partitions; IPC handlers call `assertWindow(event)`.
 - Cookie values stay in the Electron main process (`cookie-import.mjs`).
 - Launch token redacted from host logs (`host-process.mjs`).
-- LAN multi-device: device tokens are stored only as SHA-256 hashes (`multi-device/registry.js`), the admin token file is 0600, pairing codes are single-use and rate-limited, and workers run an allowlist with `shell: false` and a minimal environment. The allowlist is not a sandbox, and the hub does not listen unless the profile turns `multiDevice` on.
+- LAN multi-device: device tokens are stored only as SHA-256 hashes (`multi-device/registry.js`), the admin token file is 0600, pairing codes are single-use and rate-limited, and workers run an allowlist with `shell: false` and a minimal environment. The allowlist is not a sandbox, and the hub does not listen unless the profile turns `multiDevice` on. A node's chat replica (`<dataDir>/sync/<botId>.json`) is 0600 and holds no device token; the node never writes the team file, which stays with the one hub.
 
 ## Out of scope / accepted risk (maintainer)
 
