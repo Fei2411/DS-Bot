@@ -79,8 +79,8 @@ handling, so they do not mix in one model list.
 - The run mode is derived from the Bot's model ref: a ref whose provider is a
   local-agent route runs on that CLI; any other ref runs on DS Bot models. No
   new field is stored, and routing stays on the existing LLM adapter.
-- Creating a Bot starts with a choice: "DS Bot model" or "Local agent". Local
-  agent lists the CLIs found on this machine as cards with logo, name, and
+- The Create Bot form starts with a choice at its top: "DS Bot model" or
+  "Local agent". Local agent lists the CLIs found on this machine as cards with logo, name, and
   sign-in state (signed in, not signed in, unknown).
 - After creation, only the user changes the run mode, only in the Bot's
   settings, and only after a confirmation. No tool changes it; `update_bot`
@@ -100,6 +100,10 @@ handling, so they do not mix in one model list.
 - Model menus list only the Bot's own kind: a Bot on DS Bot models never sees a
   local agent, and a local agent Bot sees only its CLI's models. The team
   default model and the first-model card list DS Bot models only.
+- Listing the team state, the models, or the local agents starts no CLI. A
+  local agent Bot's own model menu, or picking a CLI's card when creating a
+  Bot, asks that one CLI for its models once; later looks read that answer
+  until the user refreshes the local agents.
 - A fallback never crosses modes. A model no longer served falls back within
   its mode. A local agent Bot whose CLI is gone stays on that CLI and says so.
 
@@ -134,3 +138,6 @@ handling, so they do not mix in one model list.
   its text, approvals, and sessions still work.
 - A custom agent whose ACP dialect differs from what these drivers understand
   needs its own driver before its tools work.
+- The sign-in state comes from each CLI's own status command or credential
+  file. A CLI that has neither, or whose check does not answer in time, shows
+  unknown; unknown does not stop the user from picking it.
