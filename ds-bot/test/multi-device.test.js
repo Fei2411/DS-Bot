@@ -696,3 +696,79 @@ test('the Devices status names the install and uninstall commands', () => {
   assert.equal(daemonCommand({ hubUrl: 'http://192.168.1.5:8787' }), 'npm run lan:daemon -- install --hub http://192.168.1.5:8787 --name other-pc')
   assert.equal(WINDOWS_TASK, 'DSBotLanWorker')
 })
+
+// --- Approval before dispatch (issue #966, part 4) ---
+
+function countingHub(nodes) {
+  const dispatched = []
+  return {
+    dispatched,
+    nodes: () => nodes,
+    dispatch: input => {
+      dispatched.push(input)
+      return { id: 'tk_test', nodeName: 'test-node', ...input, state: 'queued', result: undefined }
+    },
+    task: () => undefined,
+    waitForTask: async () => ({ id: 'tk_test', nodeName: 'test-node', kind: 'shell', argv: ['x'], state: 'done', result: { exitCode: 0, stdout: '' } }),
+  }
+}
+
+const onlineNode = { id: 'nd_1', name: 'test-node', online: true, os: 'darwin' }
+
+test('an unapproved or refused action never reaches the hub', async () => {
+  const hub = countingHub([onlineNode])
+  const refused = fakeApproval('rejected')
+  const tools = deviceTools({ hub, approval: refused })
+  const exec = { agent: { session: { id: 's1' } }, name: 'run_on_device' }
+  const out = await tool(tools, 'run_on_device').execute({ node: 'test-node', argv: ['node', '--version'] }, exec)
+  assert.match(out, /did not approve/)
+  assert.equal(hub.dispatched.length, 0)
+
+  const write = await tool(tools, 'device_write_file').execute({ node: 'test-node', path: 'x.txt', content: 'x' }, exec)
+  assert.match(write, /did not approve/)
+  assert.equal(hub.dispatched.length, 0)
+
+  // A read that the profile made approval-gated follows the same rule.
+  const gated = deviceTools({ hub, approval: fakeApproval('cancelled'), requireApprovalForReads: true })
+  const read = await tool(gated, 'device_read_file').execute({ node: 'test-node', path: 'x.txt' }, exec)
+  assert.match(read, /cancelled/)
+  assert.equal(hub.dispatched.length, 0)
+})
+
+test('an approved action is dispatched with the approval mark', async () => {
+  const hub = countingHub([onlineNode])
+  const tools = deviceTools({ hub, approval: fakeApproval('allowed-once') })
+  const exec = { agent: { session: { id: 's1' } }, name: 'device_write_file' }
+  await tool(tools, 'device_write_file').execute({ node: 'test-node', path: 'x.txt', content: 'x' }, exec)
+  assert.equal(hub.dispatched.length, 1)
+  assert.equal(hub.dispatched[0].kind, 'write_file')
+  assert.equal(hub.dispatched[0].approved, true)
+})
+
+test('the plugin hands the device tools its approval service', async t => {
+  const approval = fakeApproval('allowed-once')
+  const ctx = fakeContext({ services: { approval } })
+  const rt = createRuntime(ctx, {
+    home: folder('approval-home'),
+    multiDevice: { host: '127.0.0.1', port: 0, dataDir: folder('approval-data'), name: 'approval-mac' },
+  })
+  t.after(async () => { await rt.multiDeviceHub?.stop(); await ctx.dispose() })
+  await rt.multiDeviceReady
+  const worker = createWorker({
+    hubUrl: rt.multiDeviceHub.url,
+    dataDir: folder('approval-worker'),
+    name: 'win-pc',
+    code: rt.multiDeviceHub.issueCode().code,
+    log: () => {},
+    reconnectMs: 50,
+    maxReconnectMs: 200,
+  })
+  t.after(() => worker.stop())
+  await worker.start()
+  await worker.connected({ timeoutMs: 5000 })
+  await until(() => rt.multiDeviceHub.isOnline(worker.nodeId), { what: 'the node to come online' })
+  const out = await tool(rt.teamTools, 'device_write_file').execute({ node: 'win-pc', path: 'hello.txt', content: 'hi' }, { agent: { session: { id: 'chat' } }, name: 'device_write_file' })
+  assert.match(out, /Wrote 2 bytes/)
+  assert.equal(approval.requests.length, 1)
+  assert.match(approval.requests[0].reason, /hello\.txt/)
+})

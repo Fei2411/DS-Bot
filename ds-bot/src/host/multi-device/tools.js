@@ -396,6 +396,7 @@ export function install(rt) {
     },
     nodes: hub === undefined ? [] : hub.nodes(),
     policy: describePolicy(),
+    readsNeedApproval: options.requireApprovalForReads === true,
     // The exact command to make the worker start at login on another machine. It is
     // safe to show: the pairing token already lives in that machine's device.json.
     ...(hub === undefined || phase !== 'listening' ? {} : {
