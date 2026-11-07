@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { classifyCommand } from './policy.js'
 import { MAX_FILE_BYTES, encodeContent, mimeOf, normalizeTaskSpec, resolveNodePath, taskNeedsApproval } from './protocol.js'
+import { createSessionClient } from './session-client.js'
 import { parseEvents } from './sse.js'
 
 export const VERSION = '0.2.0'
@@ -147,7 +148,7 @@ function runCommand(argv, timeoutMs, cwd) {
   })
 }
 
-export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reconnectMs = 1000, maxReconnectMs = 30_000, heartbeatMs = 20_000, now = Date.now } = {}) {
+export function createWorker({ hubUrl, dataDir, name, code, sync, log = () => {}, reconnectMs = 1000, maxReconnectMs = 30_000, heartbeatMs = 20_000, now = Date.now } = {}) {
   if (typeof hubUrl !== 'string' || hubUrl === '') throw new Error('createWorker needs the hub URL')
   if (typeof dataDir !== 'string' || dataDir === '') throw new Error('createWorker needs a dataDir')
   const base = hubUrl.replace(/\/+$/, '')
@@ -161,6 +162,16 @@ export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reco
   let chain = Promise.resolve()
   let connectResolvers = []
   let reconnectDelay = reconnectMs
+  let session
+  // `sync` is off by default in the library so a task-only worker stays one job; the
+  // CLI turns it on, and `true` or a Bot id selects what to follow.
+  const follow = sync === undefined || sync === null || sync === false
+    ? undefined
+    : sync === true
+      ? { bot: 'main' }
+      : typeof sync === 'string'
+        ? { bot: sync }
+        : sync
 
   const info = () => ({
     status,
@@ -168,7 +179,26 @@ export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reco
     nodeName: device?.nodeName,
     hubUrl: base,
     lastError,
+    ...(session === undefined ? {} : { sync: session.info() }),
   })
+
+  // The sync client is made once the device is paired, because it needs the token that
+  // pairing wrote. A hub without the Bot team answers 503 and the client turns itself
+  // off rather than retrying a route that will never exist.
+  function startSession() {
+    if (follow === undefined || session !== undefined || device === undefined) return
+    session = createSessionClient({
+      hubUrl: base,
+      dataDir,
+      token: device.token,
+      bot: follow.bot,
+      ...(Number.isInteger(follow.pollMs) ? { pollMs: follow.pollMs } : {}),
+      ...(Number.isInteger(follow.waitMs) ? { waitMs: follow.waitMs } : {}),
+      log,
+      now,
+    })
+    void session.start()
+  }
 
   function setStatus(next, error) {
     status = next
@@ -333,6 +363,7 @@ export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reco
           setStatus('online')
           log('ds-bot lan: connected to %s as %s', base, device.nodeName)
           startHeartbeat()
+          startSession()
         } else if (event === 'task') {
           enqueue(data)
         }
@@ -373,6 +404,8 @@ export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reco
     get status() {
       return status
     },
+    // The conversation replica this node follows, when `sync` named one.
+    session: () => session,
     paired: () => device !== undefined,
     pair,
     async start() {
@@ -400,6 +433,7 @@ export function createWorker({ hubUrl, dataDir, name, code, log = () => {}, reco
       running = false
       clearInterval(heartbeat)
       abort?.abort()
+      await session?.stop()
       await chain.catch(() => {})
       setStatus('stopped')
     },

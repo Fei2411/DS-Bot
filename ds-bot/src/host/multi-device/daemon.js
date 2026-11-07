@@ -25,12 +25,14 @@ const xml = value => String(value)
 
 const quote = value => `"${String(value).replace(/"/g, '\\"')}"`
 
-function workerArgs({ nodePath, cliPath, hubUrl, name, dataDir }) {
-  return [nodePath, cliPath, 'worker', '--hub', hubUrl, '--name', name, '--data', dataDir]
+function workerArgs({ nodePath, cliPath, hubUrl, name, dataDir, sync }) {
+  const args = [nodePath, cliPath, 'worker', '--hub', hubUrl, '--name', name, '--data', dataDir]
+  if (typeof sync === 'string' && sync !== '') args.push('--sync', sync)
+  return args
 }
 
-export function launchAgentPlist({ nodePath, cliPath, hubUrl, name, dataDir, logDir = dataDir }) {
-  const args = workerArgs({ nodePath, cliPath, hubUrl, name, dataDir })
+export function launchAgentPlist({ nodePath, cliPath, hubUrl, name, dataDir, sync, logDir = dataDir }) {
+  const args = workerArgs({ nodePath, cliPath, hubUrl, name, dataDir, sync })
   const log = join(logDir, 'worker.log')
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,8 +59,8 @@ ${args.map(arg => `    <string>${xml(arg)}</string>`).join('\n')}
 `
 }
 
-export function systemdUnit({ nodePath, cliPath, hubUrl, name, dataDir }) {
-  const args = workerArgs({ nodePath, cliPath, hubUrl, name, dataDir }).map(quote).join(' ')
+export function systemdUnit({ nodePath, cliPath, hubUrl, name, dataDir, sync }) {
+  const args = workerArgs({ nodePath, cliPath, hubUrl, name, dataDir, sync }).map(quote).join(' ')
   return `[Unit]
 Description=DS Bot LAN worker
 After=network-online.target
@@ -75,8 +77,8 @@ WantedBy=default.target
 `
 }
 
-export function windowsScript({ nodePath, cliPath, hubUrl, name, dataDir }) {
-  const args = workerArgs({ nodePath, cliPath, hubUrl, name, dataDir }).map(quote).join(' ')
+export function windowsScript({ nodePath, cliPath, hubUrl, name, dataDir, sync }) {
+  const args = workerArgs({ nodePath, cliPath, hubUrl, name, dataDir, sync }).map(quote).join(' ')
   return `@echo off
 rem DS Bot LAN worker. The logon task starts this file; the loop restarts it if it exits.
 :loop
@@ -86,10 +88,10 @@ goto loop
 `
 }
 
-export function daemonFileContent({ platform = process.platform, nodePath, cliPath, hubUrl, name, dataDir }) {
-  if (platform === 'darwin') return launchAgentPlist({ nodePath, cliPath, hubUrl, name, dataDir })
-  if (platform === 'win32') return windowsScript({ nodePath, cliPath, hubUrl, name, dataDir })
-  return systemdUnit({ nodePath, cliPath, hubUrl, name, dataDir })
+export function daemonFileContent({ platform = process.platform, nodePath, cliPath, hubUrl, name, dataDir, sync = 'main' }) {
+  if (platform === 'darwin') return launchAgentPlist({ nodePath, cliPath, hubUrl, name, dataDir, sync })
+  if (platform === 'win32') return windowsScript({ nodePath, cliPath, hubUrl, name, dataDir, sync })
+  return systemdUnit({ nodePath, cliPath, hubUrl, name, dataDir, sync })
 }
 
 function run(command, args) {
@@ -110,6 +112,7 @@ export function installDaemon({
   name = 'lan-worker',
   nodePath = process.execPath,
   cliPath,
+  sync = 'main',
   runCommands = true,
 } = {}) {
   if (typeof dataDir !== 'string' || dataDir === '') throw new Error('installDaemon needs a dataDir')
@@ -118,7 +121,7 @@ export function installDaemon({
   const file = daemonFile({ platform, home, dataDir })
   mkdirSync(dirname(file), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
-  writeFileSync(file, daemonFileContent({ platform, nodePath, cliPath, hubUrl, name, dataDir }), { mode: 0o600 })
+  writeFileSync(file, daemonFileContent({ platform, nodePath, cliPath, hubUrl, name, dataDir, sync }), { mode: 0o600 })
   const commands = []
   if (runCommands) {
     if (platform === 'darwin') {
@@ -182,5 +185,5 @@ export function daemonStatus({ platform = process.platform, home = homedir(), da
 
 // The exact command the Devices page shows for the other machine.
 export function daemonCommand({ hubUrl, name = 'other-pc' } = {}) {
-  return `npm run lan:daemon -- install --hub ${hubUrl} --name ${name}`
+  return `npm run lan:daemon -- install --hub ${hubUrl} --name ${name} --sync main`
 }

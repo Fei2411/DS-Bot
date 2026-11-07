@@ -114,7 +114,7 @@ function adminToken(dataDir) {
   return { token, file, created: true }
 }
 
-export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS Bot hub', log = () => {}, now = Date.now } = {}) {
+export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS Bot hub', sessionSync, log = () => {}, now = Date.now } = {}) {
   if (typeof dataDir !== 'string' || dataDir === '') throw new Error('createHub needs a dataDir')
   mkdirSync(dataDir, { recursive: true })
   const registry = createRegistry({ dataDir, now, log })
@@ -304,6 +304,43 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
     send(response, 200, { ok: true })
   }
 
+  // The conversation a paired machine pulls and pushes. The node token authorizes it:
+  // this is the same trust the stream has, and the center still owns the Session.
+  async function handleSession(request, response, path, query) {
+    const node = registry.findByToken(bearer(request))
+    if (node === undefined) return send(response, 401, { error: 'the device token is not known to this hub' })
+    if (sessionSync === undefined) {
+      return send(response, 503, { error: 'this hub does not serve a conversation; it runs without the Bot team' })
+    }
+    registry.touch(node.id)
+    if (request.method === 'GET' && path === '/session/bots') {
+      return send(response, 200, await sessionSync.bots())
+    }
+    if (request.method === 'GET' && path === '/session') {
+      const since = Number(query.get('since'))
+      const wait = Number(query.get('wait'))
+      const snapshot = await sessionSync.snapshot(String(query.get('bot') ?? ''), {
+        since: Number.isFinite(since) ? since : undefined,
+        epoch: query.get('epoch') ?? undefined,
+        waitMs: Number.isFinite(wait) ? wait : undefined,
+      })
+      // A waiting poll may outlive its socket when the node reconnects; a write to a
+      // closed response would only produce an error event no one reads.
+      if (response.writableEnded || response.destroyed) return undefined
+      return send(response, 200, snapshot)
+    }
+    if (request.method === 'POST' && path === '/session') {
+      const body = await readJson(request)
+      const result = await sessionSync.send({
+        botId: body.botId,
+        text: body.text,
+        messageId: body.messageId,
+      })
+      return send(response, 200, { ...result, node: node.name })
+    }
+    return send(response, 404, { error: 'not found' })
+  }
+
   async function handleAdmin(request, response, path) {
     const given = String(request.headers['x-admin-token'] ?? '')
     if (!sameSecret(given, secret.token)) return send(response, 401, { error: 'the admin token is required' })
@@ -339,9 +376,10 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
   }
 
   async function handle(request, response) {
-    const path = new URL(request.url ?? '/', 'http://hub').pathname
+    const target = new URL(request.url ?? '/', 'http://hub')
+    const path = target.pathname
     if (request.method === 'GET' && path === '/health') {
-      return send(response, 200, { ok: true, hub: name, version: VERSION, protocol: PROTOCOL, nodes: registry.list().length })
+      return send(response, 200, { ok: true, hub: name, version: VERSION, protocol: PROTOCOL, nodes: registry.list().length, session: sessionSync !== undefined })
     }
     if (request.method === 'POST' && path === '/pair') return handlePair(request, response)
     if (request.method === 'GET' && path === '/stream') return handleStream(request, response)
@@ -352,6 +390,7 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
       return send(response, 200, { ok: true, time: new Date(now()).toISOString() })
     }
     if (request.method === 'POST' && path === '/result') return handleResult(request, response)
+    if (path === '/session' || path === '/session/bots') return handleSession(request, response, path, target.searchParams)
     if (path.startsWith('/admin/')) return handleAdmin(request, response, path)
     return send(response, 404, { error: 'not found' })
   }

@@ -661,6 +661,8 @@ test('the launchd template starts the worker at login and never carries a pairin
   assert.match(text, /<string>\/usr\/local\/bin\/node<\/string>/)
   assert.match(text, /<string>http:\/\/192\.168\.1\.5:8787<\/string>/)
   assert.match(text, /<string>windows-pc<\/string>/)
+  assert.match(text, /<string>--sync<\/string>/)
+  assert.match(text, /<string>main<\/string>/)
   assert.equal(text.includes('--code'), false)
   assert.equal(text.includes('<string>--data</string>'), true)
 })
@@ -703,7 +705,7 @@ test('a Windows install writes its logon script beside the device data', () => {
 })
 
 test('the Devices status names the install and uninstall commands', () => {
-  assert.equal(daemonCommand({ hubUrl: 'http://192.168.1.5:8787' }), 'npm run lan:daemon -- install --hub http://192.168.1.5:8787 --name other-pc')
+  assert.equal(daemonCommand({ hubUrl: 'http://192.168.1.5:8787' }), 'npm run lan:daemon -- install --hub http://192.168.1.5:8787 --name other-pc --sync main')
   assert.equal(WINDOWS_TASK, 'DSBotLanWorker')
 })
 

@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHub } from './hub.js'
 import { createWorker } from './worker.js'
+import { createSessionClient } from './session-client.js'
 import { describePolicy } from './policy.js'
 import { daemonStatus, installDaemon, uninstallDaemon } from './daemon.js'
 
@@ -16,8 +17,9 @@ const USAGE = `DS Bot LAN multi-device
   node cli.js code   [--data DIR] [--hub URL]
   node cli.js nodes  [--data DIR] [--hub URL]
   node cli.js run    --node <name|id> [--timeout 60] -- <command and arguments>
-  node cli.js worker --hub URL [--code 123456] [--name "windows-pc"] [--data DIR]
-  node cli.js daemon install [--hub URL] [--name "windows-pc"] [--data DIR]
+  node cli.js worker --hub URL [--code 123456] [--name "windows-pc"] [--sync <bot>] [--no-sync] [--data DIR]
+  node cli.js say    --text "hello" [--bot <id|name|main>] [--data DIR] [--hub URL]
+  node cli.js daemon install [--hub URL] [--name "windows-pc"] [--no-sync] [--data DIR]
   node cli.js daemon status | uninstall
 
 The data folder holds nodes.json, admin.token and, on a worker, device.json.
@@ -85,6 +87,16 @@ async function admin(url, dataDir, path, body) {
   const parsed = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(`${path}: ${parsed.error ?? `HTTP ${response.status}`}`)
   return parsed
+}
+
+function readDevice(dataDir) {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dataDir, 'device.json'), 'utf8'))
+    if (typeof parsed?.token === 'string' && parsed.token !== '') return parsed
+  } catch {
+    // No saved pairing on this machine yet.
+  }
+  return undefined
 }
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -174,11 +186,15 @@ async function commandRun(options, positional) {
 async function commandWorker(options) {
   const dataDir = dataDirOf(options)
   const hubUrl = hubUrlOf(options, dataDir)
+  // A worker follows the center's conversation by default, so pairing is enough to keep
+  // a screen aligned; --no-sync leaves a task-only worker.
+  const sync = options['no-sync'] === true ? undefined : typeof options.sync === 'string' ? options.sync : 'main'
   const worker = createWorker({
     hubUrl,
     dataDir,
     name: typeof options.name === 'string' ? options.name : undefined,
     code: typeof options.code === 'string' ? options.code : undefined,
+    sync,
     log: (message, ...args) => console.log(message, ...args),
   })
   if (!worker.paired() && typeof options.code !== 'string') {
@@ -192,6 +208,7 @@ async function commandWorker(options) {
   if (connected !== undefined) {
     console.log(`Worker ${connected.nodeName} (${connected.nodeId}) connected to ${hubUrl}`)
   }
+  if (sync !== undefined) console.log(`Session sync: following ${sync === 'main' ? 'the Main Bot' : sync} into ${join(dataDir, 'sync')}`)
   console.log(`Allowed commands: ${describePolicy().join(', ')}`)
   const stop = async () => {
     console.log('Stopping the worker…')
@@ -203,6 +220,25 @@ async function commandWorker(options) {
   return new Promise(() => {})
 }
 
+// One message from this paired machine into the center's conversation. It is the same
+// path the worker's sync loop uses; the process exits after the hub accepts it.
+async function commandSay(options, positional) {
+  const dataDir = dataDirOf(options)
+  const device = readDevice(dataDir)
+  if (device === undefined) throw new Error(`this machine is not paired yet: no device token in ${dataDir}`)
+  const text = typeof options.text === 'string' ? options.text : positional.join(' ')
+  if (text.trim() === '') throw new Error('no message: pass --text "hello"')
+  const client = createSessionClient({
+    hubUrl: hubUrlOf(options, dataDir),
+    dataDir,
+    token: device.token,
+    bot: typeof options.bot === 'string' ? options.bot : 'main',
+    waitMs: 0,
+  })
+  const result = await client.send(text)
+  console.log(`Sent to ${result.botId ?? 'the Main Bot'}: revision ${result.revision}${result.duplicate === true ? ' (already accepted)' : ''}`)
+}
+
 async function commandDaemon(options, positional) {
   const action = positional[0] ?? 'status'
   const dataDir = dataDirOf(options)
@@ -211,11 +247,13 @@ async function commandDaemon(options, positional) {
     if (!existsSync(join(dataDir, 'device.json'))) {
       throw new Error('this machine is not paired yet: run `npm run lan:worker -- --hub <hub URL> --code <code>` once, then install the daemon. The token stays in device.json.')
     }
+    const sync = options['no-sync'] === true ? undefined : typeof options.sync === 'string' ? options.sync : 'main'
     const result = installDaemon({
       home,
       dataDir,
       hubUrl: hubUrlOf(options, dataDir),
       name: typeof options.name === 'string' ? options.name : localHostname(),
+      sync,
       cliPath: fileURLToPath(import.meta.url),
     })
     console.log(`Installed the worker daemon at ${result.file}`)
@@ -250,6 +288,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === 'nodes') return commandNodes(options)
   if (command === 'run') return commandRun(options, positional)
   if (command === 'worker') return commandWorker(options)
+  if (command === 'say') return commandSay(options, positional)
   if (command === 'daemon') return commandDaemon(options, positional)
   throw new Error(`unknown command: ${command}\n\n${USAGE}`)
 }

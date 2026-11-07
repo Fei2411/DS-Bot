@@ -11,6 +11,7 @@ import { daemonCommand } from './daemon.js'
 import { APPROVED_NOTE, classifyCommand, describePolicy } from './policy.js'
 import { MAX_FILE_BYTES, taskLabel } from './protocol.js'
 import { bestDevice, hintedDevice } from './select.js'
+import { createSessionSync } from './session-sync.js'
 
 const DEFAULT_PORT = 8787
 const DEFAULT_WAIT_MS = 20_000
@@ -391,6 +392,14 @@ export function install(rt) {
   let hub
   let ready = Promise.resolve({ ok: false, error: 'multi-device is off on this computer' })
   let starting
+  // The conversation sync is created once, with the plugin runtime: the hub is the one
+  // writer of the Session, and a node only ever reads snapshots of it.
+  let sessionSync
+  try {
+    sessionSync = createSessionSync({ rt })
+  } catch (error) {
+    rt.warn('ds-bot: LAN session sync is off: %s', error.message)
+  }
 
   const status = () => ({
     available: profileOff !== true,
@@ -404,6 +413,9 @@ export function install(rt) {
       name: options.name,
     },
     nodes: hub === undefined ? [] : hub.nodes(),
+    // How far the paired screens have been let into the one conversation: a revision a
+    // node can compare, and how many polls are waiting for the next change.
+    sync: sessionSync === undefined ? null : { ...sessionSync.status(), active: enabled && phase === 'listening' },
     policy: describePolicy(),
     readsNeedApproval: options.requireApprovalForReads === true,
     // The exact command to make the worker start at login on another machine. It is
@@ -456,7 +468,7 @@ export function install(rt) {
       try {
         // The plugin runs the hub, so the shortest path is one process. The CLI can also
         // read the same data folder (nodes.json, admin.token) while this hub runs.
-        hub = createHub({ ...options, log: () => {} })
+        hub = createHub({ ...options, sessionSync, log: () => {} })
       } catch (error) {
         hub = undefined
         phase = 'failed'
