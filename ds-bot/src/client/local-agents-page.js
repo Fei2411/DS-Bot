@@ -1,6 +1,6 @@
 // The Local agents page: the agent CLIs found on this machine and the custom
-// ACP agents the user added. A Bot runs on one of these by picking its route
-// in the model picker, like any provider.
+// ACP agents the user added. A Bot runs on one of these when the user chooses it:
+// on the Create Bot form, or later under Runs on in the Bot's settings.
 import { createElement as h, useEffect, useState } from 'react'
 import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { call } from './api.js'
@@ -45,7 +45,7 @@ export function LocalAgentsPage({ run, Section, Row }) {
       },
         h('div', { className: 'bt-set-actions' },
           agent.signIn ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', title: t('Copies the sign-in command'), onClick: () => navigator.clipboard?.writeText(agent.signIn).catch(() => {}) }, t('Sign in')) : null,
-          h('span', { className: 'bt-tag' }, agent.path ? t('Found') : t('Not found'))))),
+          h('span', { className: 'bt-tag' }, agent.signedIn === true ? t('Signed in') : agent.signedIn === false ? t('Not signed in') : agent.path ? t('Found') : t('Not found'))))),
       h(Row, { key: 'refresh', label: t('Refresh'), hint: t('Scan again for agent CLIs.') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: refresh }, h(CheckIcon)))),
     h(Section, { key: 'custom', title: t('Custom agents') },

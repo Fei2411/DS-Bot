@@ -16,6 +16,11 @@ async function fakeIlink() {
     req.on('end', () => {
       const params = JSON.parse(body || '{}')
       calls.push({ method: req.method, path: req.url, params, auth: req.headers.authorization, headers: req.headers })
+      // A raw body, for a proxy error page or any other non-JSON 200.
+      if (replies.raw?.[req.url] !== undefined) {
+        res.writeHead(200, { 'content-type': 'text/html' }); res.end(replies.raw[req.url])
+        return
+      }
       if (req.url.startsWith('/ilink/bot/get_bot_qrcode')) {
         const answer = replies.qrcode ?? { qrcode: 'qr-tok-1', qrcode_img_content: 'weixin://qr/abc' }
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
@@ -262,4 +267,131 @@ test('an answer without ret or errcode is not taken as a session error', async (
   await until(() => fake.calls.filter(call => call.path === '/ilink/bot/getupdates').length >= 2, 200)
   assert.equal(statuses.some(status => status.state === 'error'), false)
   assert.equal(warns.some(line => /session expired/.test(line)), false)
+})
+
+// iLink answers with the bare host and the request URL appends its path, so the
+// connection base and the QR base must end in exactly one slash for every form the
+// user, the scan or a copied URL can produce.
+test('the QR base and the connection base end in exactly one slash', async (t) => {
+  const fake = await fakeIlink()
+  t.after(() => fake.close())
+  const origin = fake.base.replace(/\/$/, '')
+  for (const suffix of ['', '/', '///']) {
+    const qrEnv = { ...env(fake), config: { qr: `${origin}${suffix}` } }
+    await weixin.loginStart(qrEnv)
+    const start = fake.calls.at(-1)
+    assert.equal(start.path, '/ilink/bot/get_bot_qrcode?bot_type=3', `QR base ${JSON.stringify(suffix)}`)
+    for (const api of [origin, `${origin}/`, `${origin}///`]) {
+      const fields = { token: 'wx-tok', baseUrl: '' }
+      const answer = await weixin.check({ ...fields, baseUrl: api }, { ...env(fake), config: { api } })
+      assert.deepEqual(answer.account, { id: '', name: 'WeChat' })
+      assert.equal(fake.calls.at(-1).path, '/ilink/bot/getupdates', `baseUrl ${JSON.stringify(api)}`)
+    }
+  }
+})
+
+test('check passes when the answer carries no ret, and a non-zero ret is still an error', async () => {
+  const fake = await fakeIlink()
+  try {
+    fake.replies.updates = { msgs: [], sync_buf: 's1', get_updates_buf: 'c1' }
+    const answer = await weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake))
+    assert.equal(answer.account.name, 'WeChat')
+    fake.replies.updates = { ret: -2, errmsg: 'bad token' }
+    await assert.rejects(
+      () => weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake)),
+      error => error.permanent === true && /answered -2/.test(error.message))
+  } finally {
+    await fake.close()
+  }
+})
+
+test('an idle getupdates without ret is a success: ready, cursor and message', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = {}
+  const messages = []
+  const statuses = []
+  let polls = 0
+  // The real idle answer has no ret at all; only errors carry one.
+  fake.replies.updates = () => {
+    polls += 1
+    if (polls === 1) {
+      return {
+        msgs: [{ from_user_id: 'u1', client_id: 'm1', context_token: 'tok-u1', item_list: [{ type: 1, text_item: { text: 'hello without ret' } }] }],
+        get_updates_buf: 'c2',
+      }
+    }
+    return { msgs: [], get_updates_buf: 'c2' }
+  }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: status => { statuses.push(status) } })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, 'hello without ret')
+  assert.equal(runtime.cursor, 'c2')
+  assert.equal(runtime.contextTokens.u1, 'tok-u1')
+  assert.ok(statuses.some(status => status.state === 'ready'), JSON.stringify(statuses))
+})
+
+test('a non-zero ret during the poll is still an error and 401 stops it', async (t) => {
+  const fake = await fakeIlink()
+  const statuses = []
+  fake.replies.updates = { ret: 401 }
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: () => {}, onAction: () => {}, onStatus: status => { statuses.push(status) } })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => statuses.some(status => status.state === 'error'))
+  assert.match(statuses.find(status => status.state === 'error').error, /401/)
+})
+
+test('a network failure keeps its cause for diagnosis', async () => {
+  const fake = await fakeIlink()
+  try {
+    const network = Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' }) })
+    const failing = { ...env(fake), fetch: async () => { throw network } }
+    await assert.rejects(() => weixin.check({ token: 'wx-tok', baseUrl: '' }, failing), (error) => {
+      assert.match(error.message, /ENOTFOUND/)
+      assert.equal(error.cause, network)
+      assert.equal(error.timeout, false)
+      return true
+    })
+  } finally {
+    await fake.close()
+  }
+})
+
+// A missing ret only means success when the body is a real getupdates answer: a
+// proxy error page (non-JSON) or an empty object must not read as an idle poll.
+test('check refuses a non-JSON answer and an empty object without ret', async () => {
+  const fake = await fakeIlink()
+  try {
+    fake.replies.raw = { '/ilink/bot/getupdates': '<html>bad gateway</html>' }
+    await assert.rejects(
+      () => weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake)),
+      error => error.permanent !== true && /unreadable/.test(error.message))
+    delete fake.replies.raw
+    fake.replies.updates = {}
+    await assert.rejects(
+      () => weixin.check({ token: 'wx-tok', baseUrl: '' }, env(fake)),
+      error => error.permanent !== true && /unreadable/.test(error.message))
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the poll never reports ready for a non-JSON or empty answer without ret', async () => {
+  for (const answer of ['not json at all', {}]) {
+    const fake = await fakeIlink()
+    const statuses = []
+    if (typeof answer === 'string') fake.replies.raw = { '/ilink/bot/getupdates': answer }
+    else fake.replies.updates = answer
+    const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: () => {}, onAction: () => {}, onStatus: status => { statuses.push(status) } })
+    try {
+      await until(() => statuses.filter(status => status.state === 'connecting').length >= 2)
+      await new Promise(done => setTimeout(done, 150))
+      assert.ok(statuses.length >= 2, JSON.stringify(statuses))
+      assert.ok(!statuses.some(status => status.state === 'ready'), `ready after ${JSON.stringify(answer)}: ${JSON.stringify(statuses)}`)
+      assert.ok(statuses.some(status => status.state === 'connecting'), JSON.stringify(statuses))
+    } finally {
+      handle.stop()
+      await fake.close()
+    }
+  }
 })
