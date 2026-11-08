@@ -38,7 +38,7 @@ Still stuck? [Report an install problem](https://github.com/Fei2411/DS-Bot/issue
 
 **DS Bot**: the desktop app, the project and the plugin / 桌面应用、项目和插件 · **DeepSeek Harness (DSH)**: what they are built on / 它们的底层
 
-DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 dsh）的 bot 插件，插件将 dsh 改造为 bot 形式。你可以与自己创建的 bot 交流、工作。
+DS Bot 基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 dsh）构建，有独立的桌面应用，也可以作为 dsh 插件使用。它把 dsh 改造成一支长期工作的 bot 团队，你可以和自己创建的 bot 交流、协作。
 
 ![和 Chief 说一句话，它就把 bot 和群聊建好](docs/images/team.zh.png)
 
@@ -52,7 +52,7 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 - macOS：Apple 芯片下载 `DS-Bot-<版本>-mac-arm64.zip`，Intel 下载 `DS-Bot-<版本>-mac-x64.zip`。Safari 会自动解压；把 **DS Bot** 拖进 **应用程序**，再打开。如果提示无法检查这个 App，打开 **系统设置** → **隐私与安全性**，点 **仍要打开**。
 - Linux（x64）：`DS-Bot-<版本>-linux-x86_64.AppImage` 通用于 glibc 2.28 及以上的所有发行版——加上可执行权限后打开即可。它通过 FUSE 2 挂载，可能需要先安装（Ubuntu 24.04+ 用 `sudo apt install libfuse2t64`，Fedora 用 `sudo dnf install fuse-libs`，Arch 用 `sudo pacman -S fuse2`）。Ubuntu 24.04 及以后版本会限制 AppImage 需要的沙箱，AppImage 可能因此拒绝启动；Debian/Ubuntu 上的 `DS-Bot-<版本>-linux-amd64.deb` 没有这个问题，还会加菜单项。CentOS 7 这类旧 glibc 系统上应用和 dsh Web 会因 `GLIBC_2.27 not found` 失败，改用 Docker 镜像（见下文和[已知问题](docs/known-issues.zh.md)）。
 
-第一次打开时，App 把数据和 Bot 的文件放在你的用户文件夹里，启动窗口上写着放在哪，点一下就能换；并可以从你的 dsh 复制 Bot 团队（只读取你的 dsh，不改它）。在 App 的设置里配好模型就能用。Windows 版和 Linux 的 AppImage 会自动更新；macOS 版和 Linux 的 deb 有新版本时会提示你下载。
+第一次打开时，App 把数据和 Bot 的文件放在你的用户文件夹里，启动窗口上写着放在哪，点一下就能换；并可以从你的 dsh 复制 Bot 团队（只读取你的 dsh，不改它）。在设置里配好模型就能用。Windows 版和 Linux 的 AppImage 会自动更新；macOS 版和 Linux 的 deb 有新版本时会提示你下载。
 
 下载不了、装不上或打不开时，[报告安装问题](https://github.com/Fei2411/DS-Bot/issues/new?template=install.yml)，不需要诊断信息。
 
@@ -62,7 +62,7 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 **作为 dsh 插件**
 
-先装好 dsh，并在 dsh 里配好至少一个模型。ds bot 直接使用 dsh 里的模型。
+先装好 dsh，并在 dsh 里配好至少一个模型。DS Bot 直接使用 dsh 里的模型。
 
 **dsh Desktop（Windows、macOS）**
 
@@ -99,63 +99,82 @@ DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `we
 
 ### Bot
 
-你可以在一个窗口中和一个 bot 完成所有对话和工作，你无需担心背后的上下文问题。你可以在 bot 详情页查看 bot 信息，也可以为 bot 选择你想使用的模型。你可以随时切换模型，但我仍然建议你为一个 bot 长期保持一个模型，仅在真正必要的时刻切换。
+你可以在一个窗口中和一个 bot 完成所有对话和工作，无需担心背后的上下文问题——对话长了会自动压缩或换段，以前聊过的内容也能直接搜到。你可以在 bot 详情页查看信息、切换模型和思考强度。你可以随时切换模型，但我仍然建议你为一个 bot 长期保持一个模型，仅在真正必要的时刻切换。
 
-另外，bot 拥有记忆，它会记住你的喜好并在下次的工作中应用。你可以在 bot 的详情页管理记忆，也可以直接和 bot 对话来进行管理。
+bot 拥有长期记忆，会记住你的喜好并在下次工作中应用。你可以在详情页查看、撤销改动或直接和它对话来管理记忆。长时间工作后，它还会把值得留下的经验提议写成技能或项目的 `AGENTS.md`，你批准后才生效。
+
+每个 bot 还可以单独设置工作文件夹和权限（只读、工作区、完全访问），换文件夹只要和它说一声就行。它干活时你可以随时发消息插话，或输入 `/side` 开侧边对话顺手问一句而不打断它；它可以自己在回复里画图表、表格、计算器和表单，也能跑定时任务。侧边栏支持把 bot 和群聊按工作收进分组。
 
 ![bot 详情页：模型、记忆、用量](docs/images/details.zh.png)
 
 ### Main bot
 
-这个 bot 作为你的 chief，它拥有非常高的权限，可以管理其他 bot 和群聊。第一次进入 ds bot 时，默认会有一个 main bot 叫 Chief。你可以直接和它对话，让它引导你完成配置。
+这个 bot 作为你的 chief，拥有最高权限，可以管理其他 bot 和群聊（也可以设多个 main bot）。第一次进入 DS Bot 时，默认会有一个 main bot 叫 Chief。你可以直接和它对话，让它引导你完成配置。
 
 总之，有问题，找 main bot。
 
 ### 群聊
 
-ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它会带来非常明显的费用问题。ds bot 为此特意做了优化：在一个群聊中，你需要设置一个管理员。你的消息默认由管理员回复，它会帮你调用其他 bot。你也可以直接 @ 你需要沟通的 bot，它会直接回应你：输入 @，从列表里选 bot 就行。想让 bot 参考另一段对话，点输入框的 + → 引用对话。
+群聊是非常好的多 bot 协作方式，但它会带来非常明显的费用问题。DS Bot 为此特意做了优化：每个群聊设一个管理员，你的消息默认由管理员回复，它会帮你调用其他 bot。你也可以输入 `@` 直接点名某个 bot，或者点输入框的 `+` → **引用对话** 把别的聊天带进来当上下文。
 
-任何 bot 都可以用 @ 把活派给另一个 bot。接活的 bot 自己去做，群聊照常进行。它干活时会在群里同步进度，群聊、侧边栏和它自己的聊天里也能看到它在做什么。做完后，它把结果发到群里，由派活的 bot 接着回应。要停下它的工作，打开群聊详情。
-
-群聊有自己的记忆。你在群里交代的事留在群里：群成员在这个群里会用到，你的其他对话和群外的 bot 都看不到。你可以在群聊详情里管理它。
-
-做大任务时，群聊可以设定目标（Goal）：管理员先和你对齐完成标准，再把工作拆成阶段分给成员，每个阶段对照证据验收通过后才进入下一阶段。
+任何 bot 都可以用 `@` 把活派给其他 bot（一条消息点多个就会同时开工），接活的 bot 自己去做，做完把结果发回群里。群聊有自己独立的记忆、工作文件夹和统一权限，群外看不到。做大任务时可以设定目标（Goal），由管理员先和你对齐完成标准，再拆成阶段分给成员，每个阶段对照证据验收通过才往下走。
 
 ![群聊：管理员 Chief 把活派给写手和程序员](docs/images/group.zh.png)
 
-### 能力
+### 隐私 Bot
 
-设置 → **能力** 是团队共享的 MCP 服务、技能和能力包列表。在 Bot 设置中启用能力后，从该 Bot 下一条消息开始生效，也适用于它参与的群聊。Bot 添加的本地 MCP 命令需要你先批准才能运行。有其他 Bot 在用的能力，只有你或主 Bot 能修改、删除。
+有些事（比如个人账目或私密笔记）你只想和一个 bot 聊，不想让团队里其他 bot 看到。在 bot 设置里打开 **隐私** 并给它设一个独立文件夹：其他 bot 读不到它的文件夹、记忆和对话，它向外发消息或写外部文件都必须先经你批准。就算删掉它，原文件夹和记录也会继续受保护，直到你在设置里手动解除。
 
-### 连接器
-
-设置 → **连接器**里可以连接 GitHub、Gmail 和其他邮箱、远程 MCP 服务。用 OAuth 或密钥登录一次即可；凭据存在 DS Bot 的密钥里，不会交给 Bot。已连接的服务所有 Bot 都能用，也可以在 Bot 详情里逐个关掉。Bot 需要一个还没连接的服务时会发卡片问你；Bot 写的邮件默认要你确认后才发。
+**限制**：隐私 bot 不能是 main bot，也不能进群聊。这道边界只防团队里的其他 bot，不是操作系统沙箱——如果给了它终端命令或联网权限，命令本身仍能读写系统文件或联网，模型服务商也会收到对话内容；如果它跑在本地 Agent CLI 上，隔离规则管不到 CLI 自己的内置工具。
 
 ### 本地 Agent
 
-你已经在用的编程 Agent CLI（Devin CLI、Claude Code、Codex CLI、OpenCode 和其他 ACP Agent）可以直接当 Bot 用。Bot 跑在 DS Bot 模型上还是某个本地 Agent CLI 上，是 Bot 自己的属性：新建时二选一，之后只能在 Bot 的设置里改，并需要确认。两类不混用：模型、工具、上下文和记忆机制各走各的。设置 → **本地 Agent** 列出 DS Bot 找到的 CLI，可以在这里登录或添加自定义 Agent。用本地 Agent CLI 的 Bot 用的是 CLI 自己的登录和套餐，其他照常：私聊、群聊、交接、审批、记忆都一样。
+你电脑上已经在用的编程 Agent CLI（Claude Code、Codex CLI、Cursor CLI、Devin CLI、OpenCode、Gemini CLI 等）可以直接接入当 bot 用。新建 bot 时选 **本地 Agent**（或在 bot 设置里切换），它就会直接用 CLI 自己的登录、套餐和模型，同时照常参与私聊、群聊、派活、审批和记忆。
+
+**限制**：
+- **两套运行方式不混用**：本地 Agent 走 CLI 自己的工具和上下文压缩，DS Bot 里的共享能力（MCP、技能）和连接器不会传给它；切换运行方式会新开一段对话。
+- **Cursor CLI 选模型会改全局默认**：Cursor CLI 会把最后一次切换的模型写回它自己的全局配置（`~/.cursor`）。如果你给某个 Cursor bot 选了具体模型，其他选“CLI 默认”的 Cursor bot 和你终端里的 Cursor 都会跟着变。不想改全局默认的话，保持 **CLI 默认** 即可（需先登录 Cursor 才能看到完整模型列表）。
+- **协议差异**：不支持 HTTP MCP 的自定义 CLI 拿不到建 bot、派活等团队工具，只能普通对话。
+
+### 浏览器
+
+每个 bot 有自己独立的浏览器，登录状态互不干扰，也可以从文件或本机 Chrome、Edge、Firefox 导入 Cookie。在设置 → **浏览器** 开启操作插件后，bot 可以自己打开和操作网页；发帖、上传、下载、删除要先经你批准，遇到登录、验证码或付款会发卡片交给你处理，你随时可以接管再交还。
+
+**限制**：仅桌面应用和 dsh Desktop 可用（dsh Web 没有）；只有桌面应用在退出后会保留登录状态并支持导入 Cookie。导入只含 Cookie（不含 localStorage 和通行密钥）；Windows 上 Chrome/Edge 开启了 App-Bound 加密（v20）的新 Cookie 无法直接读取，需先用浏览器扩展导出文件再导入。
 
 ### 电脑操控
 
-Bot 可以在你允许的范围内使用电脑上的应用。在设置 → **电脑操控**里打开，再给每个 Bot 设档位和能用的应用。Bot 操作时你看得见，随时可以接管再交还；有些应用永远不交给 Bot。
+bot 可以在你允许的范围内操作电脑上的原生应用。在设置 → **电脑操控** 打开总开关，再给每个 bot 设档位（关、只看、后台操作、可以动前台）和能用的应用。bot 操作时屏幕顶部有指示条，你随时可以暂停或接管；系统设置、密码管理、DS Bot 自己这类应用永远不会交给 bot。
 
-### 用量
-
-在 设置 → 用量 里，可以按时间、按 bot、按模型查看 Token 用量。
-
-![用量页](docs/images/usage.zh.png)
+**限制**：所有 bot 和你共用同一个系统桌面，同一个应用或前台鼠标同一时间只能有一个 bot 操作。Windows 上 Chrome、Electron 等应用在后台常收不到输入，需设为“可以动前台”，且无法操作以管理员身份运行的应用；macOS 需 14 及以上并开启辅助功能与屏幕录制权限；Linux 支持 X11，Wayland 受限。在 dsh Web 里使用时，不要把当前浏览器授权给 bot。
 
 ### IM
 
-你可以在聊天应用里直接和 Bot 对话。设置 → IM 可以把 Bot 连接到 Telegram、微信、飞书、钉钉、企业微信、QQ、Discord 或 Slack——配对、群聊、审批卡片和回复都能用，电脑不需要公网地址或开放端口。
+出门在外时，可以在聊天软件里直接找你的 bot 或群聊。设置 → **IM** 支持连接微信、飞书、钉钉、企业微信、QQ、Telegram、Discord 和 Slack——配对账号后即可收发消息、在群里 `@` 机器人、回复提问卡和审批卡，电脑不需要公网地址或开放端口。
+
+**限制**：只有电脑开着、DS Bot 在运行时才能收发消息。微信只支持和扫码账号私聊，不支持群聊；微信和 QQ 受平台限制，只有在你发消息后的一段时间内能回复，超时后你在聊天软件里再发一句即可恢复。微信、QQ、钉钉没有卡片按钮，直接回复数字编号来选择；出于安全，密钥卡不能在聊天软件里填。
+
+### 连接器、能力与密钥
+
+- **连接器**：设置 → **连接器** 可以一键登录 GitHub、Gmail、QQ 邮箱、163 等邮箱和远程 MCP 服务，也能从 Claude Desktop、Cursor、VS Code 导入配置。凭据留在密钥里，不交给 bot；bot 写的邮件默认要你确认后才发。
+- **能力**：设置 → **能力** 是团队共享的 MCP 服务、技能和能力包，按 bot 启用；bot 添加的本地命令要先经你批准才能运行。
+- **密钥**：bot 需要 API Key 或密码时会发密钥卡，值只以环境变量注入，发给模型和写日志前都会脱敏。
 
 ### Office 文件
 
-Bot 可以处理 Office 文档：创建和编辑 .docx、.pptx、.xlsx；按稳定 id 读文档结构；检查会让 Office 拒开的包缺陷；定点编辑（批注、修订、域、表格单元格）；幻灯片重排与复制；列出工作簿错误；渲染成图片并按拼图检查。桌面应用已全部带上；在 DSH Desktop 里用 DSH 自己的 Office 运行时加 DS Bot 的命令；在 DSH Web 里检查、校验、编辑类命令可用，从头建文件和渲染页面需要桌面应用或 DSH Desktop。
+bot 可以直接创建、检查和修改 Word（`.docx`）、PowerPoint（`.pptx`）和 Excel（`.xlsx`），还能渲染成图片检查版式。
+
+**限制**：桌面应用自带完整环境（Python 和 LibreOffice），开箱即用；dsh Web 没有打包这套环境，只能检查和定点修改已有文档，从零建文件和渲染页面需要桌面应用或 dsh Desktop。
+
+### 用量
+
+在 设置 → **用量** 里，可以按时间、按 bot、按模型查看 Token 用量。
+
+![用量页](docs/images/usage.zh.png)
 
 ## 数据
 
-所有数据都在你自己的电脑上，在 dsh 主目录（默认 `~/.dsh`）的 `bot/` 和 `sessions/` 里。卸载插件不会删除这些数据。
+所有数据都在你自己的电脑上：桌面应用存在首次启动选定的位置（默认 `~/.ds-bot`），插件版存在 dsh 主目录（默认 `~/.dsh`）的 `bot/` 和 `sessions/` 里。卸载应用或插件不会删除这些数据。
 
 ## 开发
 

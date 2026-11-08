@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -142,6 +142,23 @@ test('sections can be created, renamed, colored, collapsed, reordered, and ungro
   assert.equal(del.value.bots.find(b => b.id === 'editor').sectionId, undefined)
 })
 
+test('a rejected section update leaves its name, color, and collapsed state unchanged', async (t) => {
+  const { call, stop, home } = start(baseTeam())
+  t.after(stop)
+
+  const { value: section } = await call('section-save', { name: 'Video', color: 'orange' })
+  const rejected = await call('section-save', {
+    id: section.id, name: 'Publishing', collapsed: true, color: 'invalid',
+  })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.message, 'Unknown section color')
+  assert.deepEqual((await call('state', {})).value.sections, [section])
+
+  assert.equal((await call('set-flags', { id: 'writer', pinned: true })).ok, true)
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.deepEqual(saved.sections, [section])
+})
+
 test('first Main Bot never joins a section, and duplicating a Bot keeps its sectionId', async (t) => {
   const { call, stop } = start(baseTeam())
   t.after(stop)
@@ -275,6 +292,7 @@ test('section-add menu offers both creating a new Bot/group in the section and a
   assert.deepEqual(JSON.parse(JSON.stringify(flagged)), [['writer', { sectionId: null }], ['editor', { sectionId: 'sec-1' }]])
 
   // Collapsed section in TeamSidebar keeps the active conversation peeking out
+  // once, and marks the folded body inert + aria-hidden.
   const sidebarTree = TeamSidebar({
     wide: true,
     actions: { ...actions, openSession: id => id, openAgent: id => id, openAgentSession: id => id, newAgentSession: id => id },
@@ -289,6 +307,8 @@ test('section-add menu offers both creating a new Bot/group in the section and a
     useUpdate: () => ({}),
   })
   let peekFound = false
+  let bodyInert = false
+  let writerRows = 0
   const walkSidebar = (node) => {
     if (Array.isArray(node)) { node.forEach(walkSidebar); return }
     if (!node || typeof node !== 'object') return
@@ -297,8 +317,12 @@ test('section-add menu offers both creating a new Bot/group in the section and a
       return
     }
     if (node.props?.className === 'bt-sec-peek') peekFound = true
+    if (node.props?.className === 'bt-sec-body' && node.props?.inert === true && node.props?.['aria-hidden'] === true) bodyInert = true
+    if (node.props?.['data-bot-id'] === 'writer') writerRows += 1
     walkSidebar(node.props?.children)
   }
   walkSidebar(sidebarTree)
   assert.equal(peekFound, true)
+  assert.equal(bodyInert, true)
+  assert.equal(writerRows, 1)
 })
