@@ -175,6 +175,9 @@ export function install(rt) {
   const LIST_LINE_MAX = 400
   const HANDOFF_READ_MS = 60_000
   const NOTE_MAX_TOKENS = 8_192
+  // Thinking counts against the same output budget as the note, so a note cut off at
+  // the limit is asked for again with this much room and the least thinking.
+  const NOTE_RETRY_MAX_TOKENS = 32_768
   const NOTE_TIMEOUT_MS = 600_000
   const NOTE_ATTEMPTS = 2
   // After a note fails below the hard line the part stays as it is, and tries again
@@ -465,9 +468,86 @@ export function install(rt) {
   const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
     .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
 
+  // The retry's request on a route: the least thinking the model offers ('off' when it
+  // has it, else its lowest level, none when it declares none) and more room, within the
+  // route's own budget or else the model's declared one. Also the model's window.
+  async function roomyRequest(route) {
+    const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
+    const efforts = info?.reasoning?.efforts ?? []
+    const reasoningEffort = efforts.some(effort => effort.id === 'off') ? 'off' : efforts.at(0)?.id
+    // Never less room than the first attempt had.
+    const limit = route.maxTokens ?? Math.max(info?.defaultMaxTokens ?? NOTE_RETRY_MAX_TOKENS, NOTE_MAX_TOKENS)
+    return { request: { provider: route.provider, model: route.model, reasoningEffort, maxTokens: Math.min(NOTE_RETRY_MAX_TOKENS, limit) }, window: info?.context?.contextWindow }
+  }
+
+  // The note's request on the profile default model, when that is a route other than
+  // the Session's own. A local agent CLI writes no note, so it is no fallback.
+  async function noteFallback(own, tokens) {
+    let ref
+    try { ref = await rt.defaultModel() } catch { return undefined }
+    const fallback = splitRef(ref)
+    if (fallback === undefined || rt.isLocalAgentRef?.(ref) === true) return undefined
+    if (fallback.provider === own.provider && fallback.model === own.model) return undefined
+    const { request, window } = await roomyRequest(fallback)
+    // It reads the whole part without the cache, so a window that cannot hold the part
+    // and the note's room would only cost a request that is turned down.
+    return window !== undefined && tokens !== undefined && tokens + request.maxTokens > window ? undefined : request
+  }
+
+  // One note request: the note, or why it was not used and what the next attempt adds
+  // to the prompt. A request that fails is such an outcome too; only a cancelled one
+  // throws, since that is the caller's own decision.
+  async function noteAttempt({ session, header, messages, prompt, signal }, request) {
+    const assembler = new BlockAssembler()
+    try {
+      for await (const chunk of ctx.llm.stream({
+        provider: request.provider,
+        model: request.model,
+        ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
+        messages: [...messages, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+        toolHistory: session.toolHistory(),
+        ...(header.tools ? { tools: [...header.tools] } : {}),
+        maxTokens: request.maxTokens,
+        sessionId: session.id,
+        purpose: 'compaction',
+        signal,
+      })) assembler.push(chunk)
+    } catch (error) {
+      if (signal?.aborted) throw error
+      return { finish: 'error', problem: `the request failed: ${error?.message ?? error}`, error }
+    }
+    const finish = assembler.finish
+    const output = assembler.usage?.outputTokens
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      const error = new Error(finish.failure?.message ?? finish.kind)
+      if (signal?.aborted) throw error
+      return { finish: finish.kind, output, problem: `the request failed: ${error.message}`, error }
+    }
+    const text = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+    const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
+    const missing = missingSections(note)
+    if (finish.kind === 'max-tokens') return { finish: finish.kind, output, problem: 'it was cut off at the output limit', retry: NOTE_RETRY_SHORTER }
+    if (note === '') return { finish: finish.kind, output, problem: 'it was empty' }
+    if (missing.length > 0) return { finish: finish.kind, output, problem: `it lacked ${missing.join(', ')}`, retry: noteRetryMissing(missing) }
+    return { note }
+  }
+
+  // What an unused attempt asked for and how it ended, so a cut-off can be told from a
+  // route or window problem.
+  const attemptEnd = (request, result) => [
+    `${request.provider}/${request.model}`,
+    `finish ${result.finish}`,
+    ...(result.output === undefined ? [] : [`${result.output} output tokens`]),
+    `budget ${request.maxTokens}`,
+  ].join(', ')
+
   // The same system prompt, tools, and messages as the conversation's own requests,
-  // plus the note prompt; nothing is written into the Session. A cut-off note, or one
-  // without every section, is asked for again once; then the note fails.
+  // plus the note prompt; nothing is written into the Session. The first attempt is the
+  // Bot's own request, effort and budget included, so the provider serves its prefix
+  // from cache. A cut-off note is asked for again shorter, with the least thinking the
+  // model offers and more room; a note without every section is asked for again as it
+  // was. When the Session's route gives no usable note, the profile default model tries
+  // once more; then the note fails.
   async function writeNote(agent, signal, { folder = false } = {}) {
     const session = agent.session
     const header = session.requestHeader()
@@ -475,43 +555,33 @@ export function install(rt) {
     if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
     const messages = session.deriveMessages()
     const base = folder ? FOLDER_PROMPT : HANDOFF_PROMPT
-    let retry
-    let problem
+    const ask = (request, retry) => noteAttempt({ session, header, messages, prompt: retry === undefined ? base : `${base}\n\n${retry}`, signal }, request)
+    const own = { provider: route.provider, model: route.model }
+    let attempts = 0
+    let roomy = false
+    let last
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
-      const prompt = retry === undefined ? base : `${base}\n\n${retry}`
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
-        provider: route.provider,
-        model: route.model,
-        ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
-        messages: [...messages, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-        toolHistory: session.toolHistory(),
-        ...(header.tools ? { tools: [...header.tools] } : {}),
-        maxTokens: Math.min(NOTE_MAX_TOKENS, route.maxTokens ?? NOTE_MAX_TOKENS),
-        sessionId: session.id,
-        purpose: 'compaction',
-        signal,
-      })) assembler.push(chunk)
-      const finish = assembler.finish
-      if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
-      const text = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
-      const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
-      const missing = missingSections(note)
-      if (finish.kind === 'max-tokens') {
-        problem = 'it was cut off at the output limit'
-        retry = NOTE_RETRY_SHORTER
-      } else if (note === '') {
-        problem = 'it was empty'
-        retry = undefined
-      } else if (missing.length > 0) {
-        problem = `it lacked ${missing.join(', ')}`
-        retry = noteRetryMissing(missing)
-      } else {
-        return { note, attempts: attempt }
-      }
-      rt.warn('ds-bot: handoff note attempt %d of %d for %s not used: %s', attempt, NOTE_ATTEMPTS, session.id, problem)
+      const request = roomy
+        ? (await roomyRequest(route)).request
+        : { ...own, reasoningEffort: route.reasoningEffort, maxTokens: Math.min(NOTE_MAX_TOKENS, route.maxTokens ?? NOTE_MAX_TOKENS) }
+      last = await ask(request, last?.retry)
+      attempts += 1
+      if (last.note !== undefined) return { note: last.note, attempts }
+      rt.warn('ds-bot: handoff note attempt %d of %d for %s not used: %s (%s)', attempt, NOTE_ATTEMPTS, session.id, last.problem, attemptEnd(request, last))
+      // A route that turned the request down would turn it down again.
+      if (last.error !== undefined) break
+      roomy ||= last.finish === 'max-tokens'
     }
-    throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts; the last one: ${problem}`)
+    const request = await noteFallback(own, tokensOf(session))
+    if (request === undefined) {
+      if (last.error !== undefined) throw last.error
+      throw new Error(`no usable note in ${attempts} attempts; the last one: ${last.problem}`)
+    }
+    const result = await ask(request, last.retry)
+    attempts += 1
+    if (result.note !== undefined) return { note: result.note, attempts }
+    rt.warn('ds-bot: handoff note attempt %d for %s, on the default model, not used: %s (%s)', attempts, session.id, result.problem, attemptEnd(request, result))
+    throw new Error(`no usable note in ${attempts} attempts; the last one, on ${request.provider}/${request.model}: ${result.problem}`)
   }
 
   // The messages to the Bot in this part, newest kept first within the budget, as a
