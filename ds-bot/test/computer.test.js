@@ -1057,3 +1057,101 @@ test('computer-shot serves a real screenshot attachment by its mediaType', async
   // an id this module never recorded is not readable
   assert.equal(await rt.computerEndpoint('shot', { attachmentId: 'sha256:other' }), null)
 })
+
+// A tool result as the DSH MCP bridge hands it to the tool runtime: the driver's own
+// JSON stays under structuredContent, with the text rendering beside it.
+const mcpResult = (structuredContent, text = 'ok') => ({
+  isError: false,
+  content: [{ type: 'text', text }],
+  value: { content: [{ type: 'text', text }], structuredContent },
+})
+
+test('cua-driver registers apps and windows from the canonical MCP result', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (name, args = {}) => gate({ name: `cua_driver_native__${name}`, arguments: args, agent: { id: 'w1' }, callId: `c-${name}-${JSON.stringify(args)}` }, allow)
+
+  // list_apps: one running app with a window, one installed but not running.
+  await track({ name: 'cua_driver_native__list_apps', arguments: {}, agent: { id: 'w1' }, callId: 'apps-1' },
+    async () => mcpResult({
+      apps: [
+        { pid: 42, name: 'Notes', bundle_id: 'com.apple.Notes', launch_path: '/Applications/Notes.app', running: true, active: false, windows: [{ window_id: 7, pid: 42, app_name: 'Notes', title: 'Notes' }] },
+        { pid: 0, name: 'Mail', bundle_id: 'com.apple.Mail', launch_path: '/Applications/Mail.app', running: false, active: false, windows: [] },
+      ],
+    }))
+  // A running app is known by pid and its window; the app identity keeps the bundle id
+  // and path, so the grant is recorded against the same identity a later list returns.
+  const pending = call('click', { pid: 42 })
+  await new Promise(resolve => setImmediate(resolve))
+  const [, ask] = Object.entries(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id: ask.id, answer: 'always' })
+  assert.equal(await pending, 'allowed')
+  const grant = Object.values(rt.botOf('w1').computer.apps).find(entry => entry.id === 'com.apple.Notes')
+  assert.equal(grant?.name, 'Notes')
+  assert.equal(await call('click', { window_id: 7 }), 'allowed')
+  // The not-running app's pid 0 was not registered as a usable app.
+  assert.equal((await call('click', { pid: 0 })).kind, 'deny')
+
+  // list_windows: app_name names the app, and a protected app is refused before consent.
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'wins-1' },
+    async () => mcpResult({ windows: [
+      { window_id: 8, pid: 43, app_name: 'Mail', title: '', z_index: 1, is_on_screen: true },
+      { window_id: 9, pid: 5, app_name: 'System Settings', title: 'Settings', z_index: 2, is_on_screen: true },
+    ] }))
+  const mail = call('click', { pid: 43 })
+  await new Promise(resolve => setImmediate(resolve))
+  const ask2 = Object.values(rt.computerLive().asks)[0]
+  assert.equal(ask2.appName, 'Mail')
+  await rt.computerEndpoint('app-answer', { id: ask2.id, answer: 'once' })
+  assert.equal(await mail, 'allowed')
+  const protectedCall = await call('click', { window_id: 9 })
+  assert.equal(protectedCall.kind, 'deny')
+  assert.match(protectedCall.reason, /protected/)
+
+  // get_window_state: a window and its real element_token resolve to that window's app.
+  await track({ name: 'cua_driver_native__get_window_state', arguments: { pid: 44, window_id: 11 }, agent: { id: 'w1' }, callId: 'state-1' },
+    async () => mcpResult({ pid: 44, window_id: 11, app_name: 'Reminders', elements: [{ element_index: 0, role: 'button', element_token: 'el-9' }] }))
+  const token = call('click', { element_token: 'el-9' })
+  await new Promise(resolve => setImmediate(resolve))
+  const ask3 = Object.values(rt.computerLive().asks)[0]
+  assert.equal(ask3.appName, 'Reminders')
+  await rt.computerEndpoint('app-answer', { id: ask3.id, answer: 'once' })
+  assert.equal(await token, 'allowed')
+})
+
+test('cua-driver registers launch_app from structuredContent and leaves text-only results alone', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (name, args = {}) => gate({ name: `cua_driver_native__${name}`, arguments: args, agent: { id: 'w1' }, callId: `c-${name}-${JSON.stringify(args)}` }, allow)
+
+  // launch_app answers with the app and its windows under structuredContent.
+  await track({ name: 'cua_driver_native__launch_app', arguments: { bundle_id: 'com.apple.Mail' }, agent: { id: 'w1' }, callId: 'launch-1' },
+    async () => mcpResult({ pid: 43, bundle_id: 'com.apple.Mail', name: 'Mail', launch_state: 'window_ready', windows: [{ window_id: 9, pid: 43, app_name: 'Mail', title: 'Inbox' }] }, 'Launched Mail (pid 43)'))
+  const launched = call('click', { pid: 43 })
+  await new Promise(resolve => setImmediate(resolve))
+  const ask = Object.values(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Mail')
+  await rt.computerEndpoint('app-answer', { id: ask.id, answer: 'once' })
+  assert.equal(await launched, 'allowed')
+  assert.equal(await call('click', { window_id: 9 }), 'allowed')
+
+  // A provider that returns text only records nothing: no app is learned from prose.
+  const textOnly = { isError: false, content: [{ type: 'text', text: 'windows: 55 Notes' }], value: { content: [{ type: 'text', text: 'windows: 55 Notes' }] } }
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'text-1' }, async () => textOnly)
+  const blind = await call('click', { pid: 55 })
+  assert.equal(blind.kind, 'deny')
+  assert.match(blind.reason, /list/i)
+})
