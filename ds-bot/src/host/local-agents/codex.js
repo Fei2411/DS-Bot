@@ -4,6 +4,9 @@
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { cleanEnv, spawnAgent } from './discover.js'
 
+// The name the loopback MCP server is registered under in each thread's config.
+const MCP_SERVER = 'dsbot'
+
 export class CodexEngine {
   constructor(route, engine, { findExecutable }) {
     this.route = route
@@ -96,6 +99,13 @@ export class CodexEngine {
         })
       })
     }
+    // Codex asks before every MCP tool call under `on-request`. A refusal reads as
+    // "user rejected MCP tool call", so DS Bot's own loopback server is approved
+    // here: toolsFor() already narrowed what the Bot may call. Other servers and
+    // real form elicitations keep the refusal; they are not DS Bot's to approve.
+    if (method === 'mcpServer/elicitation/request' && params?.serverName === MCP_SERVER && params?._meta?.codex_approval_kind === 'mcp_tool_call') {
+      return Promise.resolve({ action: 'accept', content: null, _meta: null })
+    }
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
@@ -108,7 +118,7 @@ export class CodexEngine {
       ...(instructions ? { developer_instructions: instructions } : {}),
       ...(mode ? { sandbox_mode: mode, approval_policy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mcp !== undefined ? { mcp_servers: { dsbot: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } : {}),
+      ...(mcp !== undefined ? { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } : {}),
     }
     if (thread.threadId !== undefined) {
       try {
