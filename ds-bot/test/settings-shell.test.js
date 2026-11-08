@@ -217,3 +217,38 @@ test('General settings keeps the Classic Agent mode switch', () => {
   button.props.onClick()
   assert.deepEqual(calls, ['agent'])
 })
+
+// Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
+const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
+
+test('the Agent-mode sheet keeps DS Bot\'s own rules and drops the shell overrides', () => {
+  const css = `body{--bt-ink:#111;-webkit-tap-highlight-color:transparent}
+[class*="_footArea"]{display:grid}
+.bt-row,[class*="_trigger"] span{color:red}
+@media (max-width:600px){.bt-a{gap:2px}[class*="_x"]{gap:0}}
+@keyframes bt-spin{to{rotate:1turn}}
+body[data-bt-motion=lively] .bt-mark{animation:none}`
+  const own = styles.botOwnCss(css)
+  assert.match(own, /^body\{--bt-ink:#111\}$/m)
+  assert.doesNotMatch(own, /class\*=|tap-highlight/)
+  assert.match(own, /^\.bt-row\{color:red\}$/m)
+  assert.match(own, /@media \(max-width:600px\)\{\.bt-a\{gap:2px\}\n\}/)
+  assert.match(own, /@keyframes bt-spin/)
+  assert.match(own, /body\[data-bt-motion=lively\] \.bt-mark\{animation:none\}/)
+  const shellOwn = styles.botOwnCss(styles.SHELL_CSS)
+  assert.doesNotMatch(shellOwn, /class\*=/)
+  assert.match(shellOwn, /\.bt-settings-nav\{/)
+  assert.match(shellOwn, /body\[data-ds-dark-theme\]\{--bt-im-telegram:/)
+})
+
+test('in Agent mode, General offers the way back to Bot mode', () => {
+  const calls = []
+  const tree = SettingsDialog({
+    page: 'general', id: null, roster, useUpdate: pick => pick({}),
+    actions: { closeSettings() {}, openSettings() {}, surfaceMode: () => 'agent', setSurface: mode => calls.push(mode) },
+  })
+  const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
+  const [row] = walk(general.type(general.props), node => node.props?.label === 'Bot mode')
+  walk(row, node => node.type === 'button' && textOf(node) === 'Switch')[0].props.onClick()
+  assert.deepEqual(calls, ['bot'])
+})

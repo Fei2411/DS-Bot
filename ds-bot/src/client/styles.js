@@ -540,7 +540,15 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-dsh-section{min-width:0}
+/* A DSH page opens on its own title, which the dialog head already shows. */
+.bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
+/* DSH's General rows draw their own row inside DS Bot's card: the card's inset and
+   rules apply, an empty row takes no line, and Appearance is already the section title. */
+.bt-dsh-item>[data-slot]>*{padding-left:12px;padding-right:12px;border-bottom-width:0}
+.bt-dsh-item>[data-slot]>.bt-set-row{padding:10px 12px}
+.bt-dsh-item:has(>[data-slot]:empty){display:none}
+.bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
 .bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
@@ -1293,6 +1301,59 @@ div:has(> nav [class*="_marks"]){display:none!important}
 // it is materializing and deletes a module's styles when it unloads. Ours carry our
 // module id from the start, so another plugin's claim or teardown never takes them.
 const PLUGIN_ID = 'ds-bot'
+
+// The part of a style sheet that only reaches DS Bot's own elements: selectors on a
+// `.bt-` class, the `--bt-*` variables on the page root, and the keyframes they run.
+// Rules that re-skin the shell's own elements (the `[class*=…]` overrides) drop out, so
+// Settings can show in Agent mode without dressing DSH's page in Bot mode.
+const ROOT_SELECTOR = /^(?:html\s+)?(?:body|:root)(?:\[[^\]]*\])*$/
+const ownSelector = selector => selector.includes('.bt-') && !/\[class[*^$]?=/.test(selector)
+function splitTopLevel(text, separator) {
+  const parts = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '(' || char === '[') depth += 1
+    else if (char === ')' || char === ']') depth -= 1
+    else if (char === separator && depth === 0) { parts.push(text.slice(start, index)); start = index + 1 }
+  }
+  parts.push(text.slice(start))
+  return parts
+}
+export function botOwnCss(css) {
+  let out = ''
+  let index = 0
+  while (index < css.length) {
+    const open = css.indexOf('{', index)
+    if (open === -1) break
+    let depth = 1
+    let close = open + 1
+    while (close < css.length && depth > 0) {
+      if (css[close] === '{') depth += 1
+      else if (css[close] === '}') depth -= 1
+      close += 1
+    }
+    const head = css.slice(index, open).replace(/\/\*[\s\S]*?\*\//g, '').trim()
+    const body = css.slice(open + 1, close - 1)
+    index = close
+    if (head.startsWith('@keyframes') || head.startsWith('@font-face')) { out += `${head}{${body}}\n`; continue }
+    if (head.startsWith('@')) {
+      const inner = botOwnCss(body)
+      if (inner.trim() !== '') out += `${head}{${inner}}\n`
+      continue
+    }
+    const selectors = splitTopLevel(head, ',').map(part => part.trim())
+    if (selectors.every(selector => ROOT_SELECTOR.test(selector))) {
+      const custom = splitTopLevel(body, ';').map(part => part.trim()).filter(part => part.startsWith('--'))
+      if (custom.length > 0) out += `${head}{${custom.join(';')}}\n`
+      continue
+    }
+    const own = selectors.filter(ownSelector)
+    if (own.length > 0) out += `${own.join(',')}{${body}}\n`
+  }
+  return out
+}
 
 export function installStyles(text, tag) {
   const style = document.createElement('style')

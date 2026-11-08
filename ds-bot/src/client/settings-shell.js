@@ -253,6 +253,8 @@ export function SettingsShell(props) {
   const indicator = useConnectionView(connection)
   const installing = update.presentation?.phase === 'installing'
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS)
+  const showing = Boolean(kept)
+  useEffect(() => (showing ? actions.holdSettingsLook?.() : undefined), [showing])
   const open = settings !== null && settings !== undefined
   const openSettings = () => actions.openSettings('general')
   return h(Fragment, null,

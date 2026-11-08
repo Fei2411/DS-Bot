@@ -44,7 +44,7 @@ const LOOK_ITEMS = ['appearance', 'font-size']
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
-const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item' }, dsh.renderSlot('settings.general.item', {}, { only: id }))
+const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
 const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 function SetSection({ title, className = '', children }) {
@@ -138,9 +138,11 @@ function GeneralPage({ roster, actions, run, dsh }) {
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
+    // Settings opens in Agent mode too; there the way goes back to Bot mode.
     actions.setSurface ? h(SetSection, { key: 'mode', title: t('Mode') },
-      h(SetRow, { label: t('Classic Agent mode') },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
+      actions.surfaceMode?.() === 'agent'
+        ? h(SetRow, { label: t('Bot mode') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('bot') }, t('Switch')))
+        : h(SetRow, { label: t('Classic Agent mode') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
     h(LocationsSection, { key: 'places', actions, run }),
     more.length > 0 ? h(SetSection, { key: 'more', title: t('More'), className: 'bt-dsh-items' }, more.map(id => dshItem(dsh, id))) : null,
   ]
@@ -315,7 +317,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }, h(PAGE_ICONS[key]), t(text))
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onMouseDown: close }),
-    h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings') },
+    h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
       h('nav', { ref: nav.box, className: 'bt-settings-nav', 'aria-label': t('Settings pages') },
         h('span', { ref: nav.thumb, className: 'bt-thumb', 'aria-hidden': true }),
         pages.filter(([key]) => !LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text)),

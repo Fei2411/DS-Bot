@@ -805,7 +805,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
-      [t('Bot settings'), GearIcon, () => actions.openSettings('general')],
+      [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
   ]
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])

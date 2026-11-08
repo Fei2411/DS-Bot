@@ -89,7 +89,6 @@ var ZH = {
   "Edit Bot": "编辑 Bot",
   "Make Main Bot": "设为主 Bot",
   "Remove Main Bot role": "取消主 Bot",
-  "Bot settings": "Bot 设置",
   "Create group chat": "新建群聊",
   "Delete group": "删除群聊",
   "Open {name}'s chat": "打开 {name} 的对话",
@@ -230,6 +229,7 @@ var ZH = {
   "This DSH cannot load connectors": "这个 DSH 不能加载连接器",
   "No such connector": "没有这个连接器",
   "Classic Agent mode": "经典 Agent 模式",
+  "Bot mode": "Bot 模式",
   "Switch": "切换",
   "{model} is not available anymore. Pick another model for me.": "{model} 已经不可用了。给我换一个模型吧。",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "你好，我是 {name}。我还没有可用的模型。你想怎么配置？",
@@ -3583,7 +3583,15 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-dsh-section{min-width:0}
+/* A DSH page opens on its own title, which the dialog head already shows. */
+.bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
+/* DSH's General rows draw their own row inside DS Bot's card: the card's inset and
+   rules apply, an empty row takes no line, and Appearance is already the section title. */
+.bt-dsh-item>[data-slot]>*{padding-left:12px;padding-right:12px;border-bottom-width:0}
+.bt-dsh-item>[data-slot]>.bt-set-row{padding:10px 12px}
+.bt-dsh-item:has(>[data-slot]:empty){display:none}
+.bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
 .bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
@@ -4329,6 +4337,64 @@ div:has(> nav [class*="_marks"]){display:none!important}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
 `;
 var PLUGIN_ID = "ds-bot";
+var ROOT_SELECTOR = /^(?:html\s+)?(?:body|:root)(?:\[[^\]]*\])*$/;
+var ownSelector = (selector) => selector.includes(".bt-") && !/\[class[*^$]?=/.test(selector);
+function splitTopLevel(text, separator) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "(" || char === "[") depth += 1;
+    else if (char === ")" || char === "]") depth -= 1;
+    else if (char === separator && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+function botOwnCss(css) {
+  let out = "";
+  let index = 0;
+  while (index < css.length) {
+    const open = css.indexOf("{", index);
+    if (open === -1) break;
+    let depth = 1;
+    let close = open + 1;
+    while (close < css.length && depth > 0) {
+      if (css[close] === "{") depth += 1;
+      else if (css[close] === "}") depth -= 1;
+      close += 1;
+    }
+    const head = css.slice(index, open).replace(/\/\*[\s\S]*?\*\//g, "").trim();
+    const body = css.slice(open + 1, close - 1);
+    index = close;
+    if (head.startsWith("@keyframes") || head.startsWith("@font-face")) {
+      out += `${head}{${body}}
+`;
+      continue;
+    }
+    if (head.startsWith("@")) {
+      const inner = botOwnCss(body);
+      if (inner.trim() !== "") out += `${head}{${inner}}
+`;
+      continue;
+    }
+    const selectors = splitTopLevel(head, ",").map((part) => part.trim());
+    if (selectors.every((selector) => ROOT_SELECTOR.test(selector))) {
+      const custom = splitTopLevel(body, ";").map((part) => part.trim()).filter((part) => part.startsWith("--"));
+      if (custom.length > 0) out += `${head}{${custom.join(";")}}
+`;
+      continue;
+    }
+    const own = selectors.filter(ownSelector);
+    if (own.length > 0) out += `${own.join(",")}{${body}}
+`;
+  }
+  return out;
+}
 function installStyles(text, tag) {
   const style = document.createElement("style");
   style.dataset.dshBot = tag;
@@ -15828,7 +15894,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
       [t("Automation tasks"), ClockIcon, () => actions.selectPanel("schedules")],
-      [t("Bot settings"), GearIcon, () => actions.openSettings("general")]
+      [t("Settings"), GearIcon, () => actions.openSettings("general")]
     ].filter(Boolean)
   ];
   if (signedIn) groups.push([[accountT("signOut"), SignOutIcon, askSignOut, void 0, true]]);
@@ -21000,7 +21066,7 @@ var LOOK_ITEMS = ["appearance", "font-size"];
 var DSH_ICONS = { account: import_dsh_client_ui_primitives2.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives2.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives2.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives2.IconArchiveOutlineMedium };
 var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !MERGED_SECTIONS.has(row.id));
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
-var dshItem = (dsh, id) => (0, import_react47.createElement)("div", { key: id, className: "bt-dsh-item" }, dsh.renderSlot("settings.general.item", {}, { only: id }));
+var dshItem = (dsh, id) => (0, import_react47.createElement)("div", { key: id, className: "bt-dsh-item", "data-item": id }, dsh.renderSlot("settings.general.item", {}, { only: id }));
 var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 function SetSection({ title, className = "", children }) {
   return (0, import_react47.createElement)("section", { className: `bt-set-section ${className}`.trim() }, (0, import_react47.createElement)("h3", null, title), (0, import_react47.createElement)("div", { className: "bt-set-card" }, children));
@@ -21142,14 +21208,11 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         (0, import_react47.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       )
     ),
+    // Settings opens in Agent mode too; there the way goes back to Bot mode.
     actions.setSurface ? (0, import_react47.createElement)(
       SetSection,
       { key: "mode", title: t("Mode") },
-      (0, import_react47.createElement)(
-        SetRow,
-        { label: t("Classic Agent mode") },
-        (0, import_react47.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("agent") }, t("Switch"))
-      )
+      actions.surfaceMode?.() === "agent" ? (0, import_react47.createElement)(SetRow, { label: t("Bot mode") }, (0, import_react47.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("bot") }, t("Switch"))) : (0, import_react47.createElement)(SetRow, { label: t("Classic Agent mode") }, (0, import_react47.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("agent") }, t("Switch")))
     ) : null,
     (0, import_react47.createElement)(LocationsSection, { key: "places", actions, run: run2 }),
     more.length > 0 ? (0, import_react47.createElement)(SetSection, { key: "more", title: t("More"), className: "bt-dsh-items" }, more.map((id) => dshItem(dsh, id))) : null
@@ -21377,7 +21440,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     (0, import_react47.createElement)("div", { className: "bt-scrim", onMouseDown: close }),
     (0, import_react47.createElement)(
       "div",
-      { className: "bt-settings", role: "dialog", "aria-modal": true, "aria-label": t("Settings") },
+      { className: "bt-settings", role: "dialog", "aria-modal": true, "aria-label": t("Settings"), "data-shortcut-modal": "settings" },
       (0, import_react47.createElement)(
         "nav",
         { ref: nav.box, className: "bt-settings-nav", "aria-label": t("Settings pages") },
@@ -21706,6 +21769,8 @@ function SettingsShell(props) {
   const indicator = useConnectionView(connection);
   const installing = update.presentation?.phase === "installing";
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS);
+  const showing = Boolean(kept);
+  (0, import_react48.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
   const open = settings !== null && settings !== void 0;
   const openSettings = () => actions.openSettings("general");
   return (0, import_react48.createElement)(
@@ -23585,7 +23650,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     { key: "cmd:new", icon: (0, import_react53.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
     { key: "cmd:bot", icon: (0, import_react53.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
     { key: "cmd:group", icon: (0, import_react53.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
-    { key: "cmd:settings", icon: (0, import_react53.createElement)(GearIcon), title: t("Bot settings"), run: () => actions.openSettings("general") }
+    { key: "cmd:settings", icon: (0, import_react53.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("general") }
   ].filter((command) => matchesName(command.title));
   if (commands.length) sections.push([t("Commands"), commands]);
   const rows2 = sections.flatMap(([, items]) => items);
@@ -28418,6 +28483,7 @@ function apply(ctx) {
     setPanelYield: (on) => ui2.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
+    surfaceMode: () => surface.getSnapshot().mode,
     setSurface: (mode) => {
       if (mode !== "bot" && mode !== "agent") return;
       if (surface.getSnapshot().mode === mode) {
@@ -28833,25 +28899,49 @@ function apply(ctx) {
       for (const off of offs) off();
     };
   };
+  const SHELL_SHEETS = [
+    [SHELL_CSS, "shell"],
+    [SIDEBAR_CSS, "sidebar"],
+    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, "secrets"],
+    [LEARNING_CSS, "learning"],
+    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
+    [USAGE_CSS, "usage"],
+    [SCHEDULE_CSS, "schedules"],
+    [FEEDBACK_CSS, "feedback"],
+    [ABOUT_CSS, "about"],
+    [MEMBER_CSS, "members"],
+    [IM_CSS, "im"],
+    [GOAL_CSS, "goal"],
+    [USER_MESSAGE_CSS, "user-messages"],
+    [WIDGET_CSS2, "widgets"],
+    [HANDOFF_CSS, "handoff"],
+    [SIDE_CSS, "side"],
+    [BROWSER_CSS, "browser"]
+  ];
+  let shellSheets = 0;
+  actions.holdSettingsLook = () => {
+    if (shellSheets > 0) return () => {
+    };
+    const snapshot = roster.getSnapshot();
+    const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs;
+    const themes = allThemes();
+    const theme = themes[prefs.theme] ?? themes.deepseek;
+    const offs = [
+      ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
+      installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : void 0)), "settings-theme")
+    ];
+    return () => {
+      for (const off of offs) off();
+    };
+  };
   const installShell = () => [
-    () => installCompiledStyles(SHELL_CSS, "shell"),
-    () => installCompiledStyles(SIDEBAR_CSS, "sidebar"),
-    () => installCompiledStyles(SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, "secrets"),
-    () => installCompiledStyles(LEARNING_CSS, "learning"),
-    () => installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"),
-    () => installCompiledStyles(USAGE_CSS, "usage"),
-    () => installCompiledStyles(SCHEDULE_CSS, "schedules"),
-    () => installCompiledStyles(FEEDBACK_CSS, "feedback"),
-    () => installCompiledStyles(ABOUT_CSS, "about"),
-    () => installCompiledStyles(MEMBER_CSS, "members"),
-    () => installCompiledStyles(IM_CSS, "im"),
-    () => installCompiledStyles(GOAL_CSS, "goal"),
-    () => installCompiledStyles(USER_MESSAGE_CSS, "user-messages"),
-    () => installCompiledStyles(WIDGET_CSS2, "widgets"),
-    () => installCompiledStyles(HANDOFF_CSS, "handoff"),
-    () => installCompiledStyles(SIDE_CSS, "side"),
-    // Strip and panel styles also serve the side-chat tabs, which need no bridge.
-    () => installCompiledStyles(BROWSER_CSS, "browser"),
+    () => {
+      shellSheets += 1;
+      return () => {
+        shellSheets -= 1;
+      };
+    },
+    ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
