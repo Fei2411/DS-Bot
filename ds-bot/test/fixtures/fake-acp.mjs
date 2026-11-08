@@ -116,6 +116,9 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/set_config_option':
+        if (params.configId === 'model' && !['fake-large', 'fake-small'].includes(params.value)) fail(id, `unknown model ${params.value}`)
+        else reply(id, {})
+        break
       case 'session/set_mode':
         reply(id, {})
         break
