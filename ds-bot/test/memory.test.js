@@ -9,6 +9,7 @@ import {
   MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey,
   looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
 } from '../src/host/memory.js'
+import { record as pendingRecord, serialize as serializePending } from '../src/host/memory-pending.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -1082,6 +1083,82 @@ test('a Main Bot changing another Bot\'s memory renews only that Bot\'s Sessions
   assert.match(section('b2'), /- Likes tea \[/)
   assert.equal(section('b3'), coder)
   assert.equal(section('m1'), main)
+})
+
+// A team with earlier parts: each Bot's current private chat is <id>-next, and the group
+// keeps one earlier Session for each member beside its current one.
+function teamWithEarlierParts() {
+  const team = structuredClone(TEAM)
+  team.bots.b2.sessionId = 'b2-next'
+  team.bots.b2.segments = [{ sessionId: 'b2' }]
+  team.bots.b3.sessionId = 'b3-next'
+  team.bots.b3.segments = [{ sessionId: 'b3' }]
+  team.rooms.r1.sessions = { b2: 'g2-next', b3: 'g3-next' }
+  team.rooms.r1.segments = { b2: [{ sessionId: 'g2' }], b3: [{ sessionId: 'g3' }] }
+  return team
+}
+
+test('a write renews the earlier private and group parts it reaches, and no others', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(teamWithEarlierParts()))
+  const { tool, section, stop } = start({ home })
+  t.after(() => stop())
+  await tool('recall', {}, 'b2-next')
+  const snapshot = sessionId => join(home, 'memory', 'snapshots', `${sessionId}.md`)
+
+  // Four earlier parts frozen: Coder's own and its group part, Writer's own and its group part.
+  const coderChat = section('b3')
+  const coderGroup = section('g3')
+  section('b2')
+  section('g2')
+  for (const id of ['b2', 'g2', 'b3', 'g3']) assert.equal(existsSync(snapshot(id)), true, id)
+
+  // Writer writes its own memory from its current private part: its earlier private and
+  // group parts renew; Coder's parts, which read another memory, stay frozen.
+  await tool('remember', { text: 'Likes tea' }, 'b2-next')
+  for (const id of ['b2', 'g2']) assert.equal(existsSync(snapshot(id)), false, id)
+  for (const id of ['b3', 'g3']) assert.equal(existsSync(snapshot(id)), true, id)
+  for (const id of ['b2', 'g2', 'b2-next', 'g2-next']) assert.match(section(id), /- Likes tea \[/, id)
+  assert.equal(section('b3'), coderChat)
+  assert.equal(section('g3'), coderGroup)
+  assert.doesNotMatch(section('b3'), /- Likes tea \[/)
+  assert.doesNotMatch(section('g3'), /- Likes tea \[/)
+
+  // The team memory reaches every Bot's earlier parts too.
+  await tool('remember', { text: 'Ships on Fridays', scope: 'team' }, 'm1')
+  for (const id of ['b2', 'g2', 'b3', 'g3']) assert.match(section(id), /- Ships on Fridays \[/, id)
+})
+
+test('a recovered change renews the Sessions its record names, and no others', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const { tool, section, journal, stop } = start({ home })
+  t.after(() => stop())
+  await tool('recall', {}, 'b2')
+  // Freeze two Sessions first: the one the record names, and an unrelated one.
+  section('b2')
+  const unrelated = section('b3')
+  const snapshot = sessionId => join(home, 'memory', 'snapshots', `${sessionId}.md`)
+  const unrelatedAt = statSync(snapshot('b3')).mtimeMs
+
+  // A change recorded but not finished, as an interrupted write leaves it.
+  const line = '- Recovered fact [source: part 9 #1; added: 2026-11-08]'
+  const time = new Date().toISOString()
+  writeFileSync(join(home, 'memory', 'pending.json'), serializePending(pendingRecord({
+    id: 'pending-b2-add', time, op: 'add', scope: 'bot:b2',
+    steps: [{ action: 'write', path: 'bots/b2/MEMORY.md', text: `# Memory\n\n${line}\n\n## Index\n` }],
+    row: { op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: line },
+  })))
+
+  // A memory read finishes the change first, then reads what it wrote.
+  assert.match(await tool('recall', {}, 'b2'), /Recovered fact/)
+  assert.equal(existsSync(join(home, 'memory', 'pending.json')), false)
+  assert.match(readFileSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), 'utf8'), /Recovered fact/)
+  assert.equal(journal().at(-1).id, 'pending-b2-add')
+  // The next render of the named Session is frozen anew, with the recovered entry.
+  assert.match(section('b2'), /- Recovered fact \[/)
+  // The Session the record does not name keeps the bytes and the snapshot it had.
+  assert.equal(section('b3'), unrelated)
+  assert.equal(statSync(snapshot('b3')).mtimeMs, unrelatedAt)
 })
 
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
