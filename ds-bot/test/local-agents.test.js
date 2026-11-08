@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +8,7 @@ import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
-import { JsonRpcPeer } from '../src/host/local-agents/jsonrpc.js'
+import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
@@ -192,10 +193,10 @@ test('routes and modes', () => {
   assert.equal(cliMode('claude', 'workspace-write'), 'acceptEdits')
 })
 
-test('listModels reports the probe session\'s model options plus CLI default', async (t) => {
+test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.listModels('acp-fake')
+  const models = await adapter.probeModels('acp-fake')
   assert.deepEqual(models.map(model => model.id), ['default', 'fake-large', 'fake-small'])
   assert.equal(models[0].name, 'CLI default')
 })
@@ -203,7 +204,7 @@ test('listModels reports the probe session\'s model options plus CLI default', a
 test('codex app-server: thread per session, models from model/list', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.listModels('codex-cli')
+  const models = await adapter.probeModels('codex-cli')
   assert.deepEqual(models.map(model => model.id), ['default', 'gpt-5.1-codex'])
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli' })))
   assert.match(out.text, /fix it/)
@@ -218,6 +219,49 @@ test('claude stream-json: thinking, activity line, usage', async (t) => {
   assert.match(out.thinking, /thought about/)
   assert.match(out.thinking, /▸ Read/)
   assert.ok(out.usage.inputTokens === 10)
+})
+
+test('a write to a CLI that has exited does not throw out of DS Bot', async () => {
+  const unheard = []
+  const hear = error => unheard.push(error)
+  process.on('uncaughtException', hear)
+  try {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: ['pipe', 'pipe', 'inherit'] })
+    const peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
+    wireProcess(child, peer)
+    // A cancel that goes out as the process is let go of, as closing a Session does.
+    child.kill('SIGTERM')
+    for (let i = 0; i < 20; i += 1) peer.notify('session/cancel', { sessionId: 'x'.repeat(65536) })
+    await new Promise(resolve => child.on('exit', resolve))
+    const claude = new ClaudeEngine('claude-code', { name: 'Claude Code', command: process.execPath, args: [FIXTURES.claude] }, { findExecutable: path => path })
+    const session = await claude.open('s1', { cwd: tmpdir() })
+    const cli = session.child
+    cli.kill('SIGTERM')
+    for (let i = 0; i < 20; i += 1) session.write({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'x'.repeat(65536) }] } })
+    await new Promise(resolve => cli.on('exit', resolve))
+    await new Promise(resolve => setTimeout(resolve, 200))
+  } finally {
+    process.off('uncaughtException', hear)
+  }
+  assert.deepEqual(unheard.map(error => error.code), [])
+})
+
+test('claude: another model restarts only that conversation\'s process, with its new tool server', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const claude = (id, messages, extra = {}) => adapter.stream(options(id, messages, { provider: 'claude-code', ...extra }))
+  await collect(claude('s1', [user('m1', 'one')]))
+  await collect(claude('s2', [user('m1', 'two')]))
+  const engine = adapter.engines.get('claude-code')
+  const [first, other] = [engine.sessions.get('s1').child, engine.sessions.get('s2').child]
+  const out = await collect(claude('s1', [user('m1', 'one'), user('m2', 'again')], { model: 'sonnet' }))
+  assert.match(out.text, /again/)
+  const args = engine.sessions.get('s1').child.spawnargs
+  assert.notEqual(engine.sessions.get('s1').child, first)
+  assert.equal(args[args.indexOf('--model') + 1], 'sonnet')
+  assert.match(args[args.indexOf('--mcp-config') + 1], new RegExp(adapter.live.get('s1').mcp.url))
+  assert.equal(engine.sessions.get('s2').child, other)
+  assert.equal(other.killed, false)
 })
 
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {

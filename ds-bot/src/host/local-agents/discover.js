@@ -143,3 +143,20 @@ export function probeVersion(executable, args, env) {
     } catch { resolve({ ok: false, version: undefined }) }
   })
 }
+
+// Whether a CLI is signed in: true, false, or null when it cannot tell. A missing
+// credential file proves nothing (macOS keeps some in the Keychain), so only a
+// command can say false. The output and the file stay here; only the answer leaves.
+export function probeSignIn(executable, check, { home = homedir() } = {}) {
+  if (check === undefined) return Promise.resolve(null)
+  if (check.file !== undefined) return Promise.resolve(existsSync(join(home, ...check.file)) ? true : null)
+  return new Promise((resolve) => {
+    try {
+      const launch = launchOf(executable, check.args)
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 3_000, env: cleanEnv(), windowsHide: true, ...launch.options }, (_error, stdout, stderr) => {
+        const text = `${stdout ?? ''}${stderr ?? ''}`
+        resolve(/not (?:logged|signed) in/iu.test(text) ? false : /(?:logged|signed) in/iu.test(text) ? true : null)
+      })
+    } catch { resolve(null) }
+  })
+}
