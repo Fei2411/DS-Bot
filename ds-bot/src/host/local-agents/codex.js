@@ -19,7 +19,9 @@ export class CodexEngine {
 
   threadFor(dshSessionId) {
     let thread = this.threads.get(dshSessionId)
-    if (thread === undefined) {
+    // A thread whose process exited keeps its queue and, with it, the pump
+    // still waiting there: a resumed thread needs a fresh one.
+    if (thread === undefined || thread.dead) {
       const queue = new EventQueue()
       thread = { dshSessionId, threadId: undefined, dead: false, push: event => queue.push(event), next: () => queue.next() }
       this.threads.set(dshSessionId, thread)
