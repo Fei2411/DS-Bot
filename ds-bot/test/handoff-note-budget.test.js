@@ -34,6 +34,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote })
   const say = (template, ...args) => format(template, ...args)
   const followed = []
   const selected = []
+  let defaultCalls = 0
   const queue = [...replies]
   const abort = new AbortController()
   const ctx = fakeContext()
@@ -141,7 +142,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote })
     isFolder: async () => true,
     uiLanguage: () => 'en',
     roomProgress: new Map(),
-    defaultModel: async () => fallback,
+    defaultModel: async () => { defaultCalls += 1; return fallback },
   }
   partsInstall(rt)
   await rt.newPart('s1')
@@ -149,7 +150,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote })
     await new Promise(done => setTimeout(done, 10))
   }
   const packageText = followed.map(message => message?.content?.map?.(block => block.text).join('') ?? '').join('\n')
-  return { bot, requests, warnings, infos, packageText, selected }
+  return { bot, requests, warnings, infos, packageText, selected, defaultCalls: () => defaultCalls }
 }
 
 test('the note asks for the lowest reasoning the model offers', async () => {
@@ -210,49 +211,25 @@ test('a note with missing sections or an empty reply still retries, and the retr
   assert.match(empty.packageText, /after-empty/)
 })
 
-test('after two attempts another served route writes the note, and the fresh part gets that one', async () => {
+test('another route from defaultModel is never called, even when it is different and available', async () => {
+  // The conversation must not leave the provider the user chose: a note failing on its
+  // own route never sends the same messages to another provider.
   const run = await switchPart({
     replies: [
       { text: '## Goals\n- cut off', kind: 'max-tokens' },
       { text: '## Goals\n- cut off again', kind: 'max-tokens' },
-      { text: note('from-fallback') },
     ],
     fallback: 'ollama/kimi',
     oldNote: 'OLD NOTE FROM PART 1',
   })
-  assert.deepEqual(run.requests.map(request => `${request.provider}/${request.model}`), ['deepseek/v4', 'deepseek/v4', 'ollama/kimi'])
-  assert.deepEqual(run.requests.map(request => request.maxTokens), [8_192, 16_384, 8_192])
-  assert.match(run.packageText, /from-fallback/)
-  assert.doesNotMatch(run.packageText, /OLD NOTE FROM PART 1/)
-  assert.ok(run.infos.some(line => /note written in 3 attempt\(s\)/.test(line)), run.infos.join(' | '))
-})
-
-test('when every route fails the part still moves on with a clear diagnosis, never the cut-off text', async () => {
-  const run = await switchPart({
-    replies: [
-      { text: '## Goals\n- cut off', kind: 'max-tokens' },
-      { text: '## Goals\n- cut off again', kind: 'max-tokens' },
-      { text: '## Goals\n- fallback cut off', kind: 'max-tokens' },
-      { text: '## Goals\n- fallback cut off again', kind: 'max-tokens' },
-    ],
-    fallback: 'ollama/kimi',
-  })
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.equal(run.requests.length, 4)
+  assert.equal(run.requests.length, 2)
+  assert.deepEqual(run.requests.map(request => `${request.provider}/${request.model}`), ['deepseek/v4', 'deepseek/v4'])
+  assert.equal(run.defaultCalls(), 0)
   assert.match(run.packageText, /put this note together without the model/)
   assert.doesNotMatch(run.packageText, /cut off/)
-  assert.ok(run.warnings.some(line => /deepseek\/v4 failed 2 attempt\(s\).*ollama\/kimi failed 2 attempt\(s\)/.test(line)), run.warnings.join(' | '))
-})
-
-test('with no different route the note fails without asking the same one again', async () => {
-  const run = await switchPart({
-    replies: [
-      { text: '## Goals\n- cut off', kind: 'max-tokens' },
-      { text: '## Goals\n- cut off again', kind: 'max-tokens' },
-    ],
-    fallback: 'deepseek/v4',
-  })
-  assert.equal(run.requests.length, 2)
+  // Past the hard line the existing honest fallback still carries the earlier note.
+  assert.match(run.packageText, /carried over unchanged/)
   assert.ok(run.warnings.some(line => /no usable note in 2 attempts on deepseek\/v4/.test(line)), run.warnings.join(' | '))
 })
 
@@ -263,6 +240,6 @@ test('an aborted request is not retried and does not fall back', async () => {
   })
   assert.equal(run.bot.sessionId, 's1')
   assert.equal(run.requests.length, 1)
-  assert.ok(!run.requests.some(request => request.provider === 'ollama'), run.requests.map(request => `${request.provider}/${request.model}`).join(', '))
+  assert.equal(run.defaultCalls(), 0)
   assert.ok(run.warnings.some(line => /did not move on/.test(line)), run.warnings.join(' | '))
 })

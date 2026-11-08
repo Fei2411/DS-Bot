@@ -527,10 +527,9 @@ export function install(rt) {
     return { problem }
   }
 
-  // A note is written on the Session's own route. When two attempts there get nothing
-  // usable, one served route that is not the same may still write it, as the checkpoint
-  // tries the Bot's own model; an abort never falls back. Anything unusable is dropped,
-  // never used as a note.
+  // A note is written on the Session's own route — the provider the user chose for this
+  // conversation. No other route is tried, so the conversation never leaves that
+  // provider. Anything unusable is dropped, never used as a note.
   async function writeNote(agent, signal, { folder = false } = {}) {
     const session = agent.session
     const header = session.requestHeader()
@@ -541,16 +540,7 @@ export function install(rt) {
     const own = { provider: route.provider, model: route.model, ...(route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }) }
     const written = await noteThrough(session, header, messages, own, base, signal)
     if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
-    if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-    const fallbackRef = await Promise.resolve(rt.defaultModel?.()).catch(() => undefined)
-    const fallback = splitRef(fallbackRef)
-    const different = fallback !== undefined && rt.isLocalAgentRef?.(fallbackRef) !== true
-      && (fallback.provider !== route.provider || fallback.model !== route.model)
-    const where = `${route.provider}/${route.model}`
-    if (!different) throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts on ${where}; the last one: ${written.problem}`)
-    const again = await noteThrough(session, header, messages, fallback, base, signal)
-    if (again.note !== undefined) return { note: again.note, attempts: NOTE_ATTEMPTS + again.attempts }
-    throw new Error(`no usable note: ${where} failed ${NOTE_ATTEMPTS} attempt(s) (${written.problem}); ${fallback.provider}/${fallback.model} failed ${NOTE_ATTEMPTS} attempt(s) (${again.problem})`)
+    throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts on ${route.provider}/${route.model}; the last one: ${written.problem}`)
   }
 
   // The messages to the Bot in this part, newest kept first within the budget, as a
