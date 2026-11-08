@@ -175,6 +175,9 @@ export function install(rt) {
   const LIST_LINE_MAX = 400
   const HANDOFF_READ_MS = 60_000
   const NOTE_MAX_TOKENS = 8_192
+  // A note cut off at the output limit is asked again with more room, up to what
+  // the route allows.
+  const NOTE_RETRY_MAX_TOKENS = 16_384
   const NOTE_TIMEOUT_MS = 600_000
   const NOTE_ATTEMPTS = 2
   // After a note fails below the hard line the part stays as it is, and tries again
@@ -465,29 +468,39 @@ export function install(rt) {
   const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
     .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
 
-  // The same system prompt, tools, and messages as the conversation's own requests,
-  // plus the note prompt; nothing is written into the Session. A cut-off note, or one
-  // without every section, is asked for again once; then the note fails.
-  async function writeNote(agent, signal, { folder = false } = {}) {
-    const session = agent.session
-    const header = session.requestHeader()
-    const route = header?.config
-    if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
-    const messages = session.deriveMessages()
-    const base = folder ? FOLDER_PROMPT : HANDOFF_PROMPT
+  // What a note may spend on reasoning and on output. Thinking counts against the same
+  // output budget, so ask for the least the model offers — 'off' when it has one, else
+  // its lowest level; a model without reasoning levels gets none. The output room is the
+  // route's own cap, else the model's declared default, else the retry budget.
+  async function notePlan(route) {
+    const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
+    const efforts = info?.reasoning?.efforts ?? []
+    const effort = efforts.length === 0 ? undefined
+      : efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
+    const limit = route.maxTokens ?? info?.defaultMaxTokens ?? NOTE_RETRY_MAX_TOKENS
+    return { effort, limit }
+  }
+
+  // One route's attempts at the note: the same system prompt, tools, and messages as
+  // the conversation's own requests, plus the note prompt; nothing is written into the
+  // Session. A cut-off note, or one without every section, is asked for again once with
+  // more output room; a request error or an abort ends the attempts there.
+  async function noteThrough(session, header, messages, route, base, signal) {
+    const { effort, limit } = await notePlan(route)
     let retry
     let problem
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
       const prompt = retry === undefined ? base : `${base}\n\n${retry}`
+      const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
       const assembler = new BlockAssembler()
       for await (const chunk of ctx.llm.stream({
         provider: route.provider,
         model: route.model,
-        ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}),
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
         messages: [...messages, { role: 'user', content: [{ type: 'text', text: prompt }] }],
         toolHistory: session.toolHistory(),
         ...(header.tools ? { tools: [...header.tools] } : {}),
-        maxTokens: Math.min(NOTE_MAX_TOKENS, route.maxTokens ?? NOTE_MAX_TOKENS),
+        maxTokens,
         sessionId: session.id,
         purpose: 'compaction',
         signal,
@@ -507,11 +520,37 @@ export function install(rt) {
         problem = `it lacked ${missing.join(', ')}`
         retry = noteRetryMissing(missing)
       } else {
-        return { note, attempts: attempt }
+        return { note, attempts: attempt, finish: finish.kind, usage: assembler.usage }
       }
-      rt.warn('ds-bot: handoff note attempt %d of %d for %s not used: %s', attempt, NOTE_ATTEMPTS, session.id, problem)
+      rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s not used: %s (finish %s, output %s tokens)', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, problem, finish.kind, assembler.usage?.outputTokens ?? 'unknown')
     }
-    throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts; the last one: ${problem}`)
+    return { problem }
+  }
+
+  // A note is written on the Session's own route. When two attempts there get nothing
+  // usable, one served route that is not the same may still write it, as the checkpoint
+  // tries the Bot's own model; an abort never falls back. Anything unusable is dropped,
+  // never used as a note.
+  async function writeNote(agent, signal, { folder = false } = {}) {
+    const session = agent.session
+    const header = session.requestHeader()
+    const route = header?.config
+    if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
+    const messages = session.deriveMessages()
+    const base = folder ? FOLDER_PROMPT : HANDOFF_PROMPT
+    const own = { provider: route.provider, model: route.model, ...(route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }) }
+    const written = await noteThrough(session, header, messages, own, base, signal)
+    if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
+    if (signal?.aborted) throw signal.reason ?? new Error('aborted')
+    const fallbackRef = await Promise.resolve(rt.defaultModel?.()).catch(() => undefined)
+    const fallback = splitRef(fallbackRef)
+    const different = fallback !== undefined && rt.isLocalAgentRef?.(fallbackRef) !== true
+      && (fallback.provider !== route.provider || fallback.model !== route.model)
+    const where = `${route.provider}/${route.model}`
+    if (!different) throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts on ${where}; the last one: ${written.problem}`)
+    const again = await noteThrough(session, header, messages, fallback, base, signal)
+    if (again.note !== undefined) return { note: again.note, attempts: NOTE_ATTEMPTS + again.attempts }
+    throw new Error(`no usable note: ${where} failed ${NOTE_ATTEMPTS} attempt(s) (${written.problem}); ${fallback.provider}/${fallback.model} failed ${NOTE_ATTEMPTS} attempt(s) (${again.problem})`)
   }
 
   // The messages to the Bot in this part, newest kept first within the budget, as a
