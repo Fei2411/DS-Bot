@@ -300,3 +300,28 @@ test('show_view measures the bytes the model sent, before unwrapping the provide
   assert.equal(over.text, `The view is ${viewBytes('Meter', wrapped)} bytes; the limit is ${VIEW_BYTE_LIMIT}.`)
   assert.equal(over.concluded, false)
 })
+
+test('a question with no call row is not recorded as a dock view', async (t) => {
+  const { emit, call, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  const ask = () => rt.teamTools.find(d => d.name === 'ask_user').execute(
+    { question: 'Keep me', options: [{ label: 'Yes' }] },
+    { agent: { id: 'writer-now' }, concludeTurn() {} },
+  )
+  // A hidden-turn question has no callId; closing it with a message drops it as before.
+  await ask()
+  assert.equal((await team()).questions['writer-now'].callId, undefined)
+  emit('writer-now', 'user/message', { content: text('never mind'), source: { kind: 'user' } })
+  let open = await team()
+  assert.equal(open.questions['writer-now'], undefined)
+  assert.deepEqual(open.closedViews, {})
+  assert.deepEqual(open.closedCards, {})
+  // The same holds for the dismiss endpoint.
+  await ask()
+  assert.equal((await call('dismiss-question', { sessionId: 'writer-now' })).ok, true)
+  open = await team()
+  assert.equal(open.questions['writer-now'], undefined)
+  assert.deepEqual(open.closedViews, {})
+  assert.deepEqual(open.closedCards, {})
+})

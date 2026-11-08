@@ -554,9 +554,10 @@ export function install(rt) {
       state.closedCards[sessionId] = { ...own(state.closedCards, sessionId), [card.callId]: outcome }
       return
     }
-    // A card with no call row (a hidden Bot-to-Bot turn) has no place in the
-    // transcript: keep it above the composer instead of losing it.
-    if (typeof card.id === 'string') state.closedViews[sessionId] = { id: card.id, title: typeof card.title === 'string' ? card.title : '', closed: outcome }
+    // A view card with no call row (a hidden Bot-to-Bot turn) has no place in the
+    // transcript: keep it above the composer instead of losing it. A question
+    // card without a call row has no dock form, and keeps its old behaviour.
+    if (card.view !== undefined && typeof card.id === 'string') state.closedViews[sessionId] = { id: card.id, title: typeof card.title === 'string' ? card.title : '', closed: outcome }
   }
 
   Object.assign(rt, {

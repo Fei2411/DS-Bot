@@ -930,6 +930,8 @@ test('a dock card answered by a message stays above the composer, read-only, unt
   // An open card takes the dock back.
   const pending = dock({ views: { [chief.id]: { id: 'view-2', callId: 'v-call', title: 'Next', view: { type: 'options', id: 'lane', options: [{ label: 'A' }] } } }, closedViews })
   assert.doesNotMatch(text(pending), /Pick a lane/)
+  // A question closed without a call row leaves no dock card at all.
+  assert.equal(dock({ views: {}, closedViews: {} }), null)
 })
 
 test('an answered question card keeps only the chosen rows, each under its card letter, and the own answer after them', () => {
