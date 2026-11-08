@@ -212,3 +212,29 @@ test('a refused token stops at once instead of retrying (#1119)', async (t) => {
   await new Promise(done => setTimeout(done, 400))
   assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'a refused token is not retried')
 })
+
+test('a drop after getMe succeeds is retried, not reported as an error (#1119)', async (t) => {
+  const api = await fakeApi()
+  const statuses = []
+  const base = env(api.api)
+  let down = true
+  let polls = 0
+  const fetch = async (url, ...rest) => {
+    if (String(url).includes('/getUpdates')) {
+      polls += 1
+      if (down) throw new TypeError('fetch failed')
+    }
+    return base.fetch(url, ...rest)
+  }
+  const handle = telegram.connect({ token: 'TOKEN' }, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); api.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  assert.ok(statuses.indexOf(failed) > statuses.findIndex(status => status.state === 'ready'), 'getMe already made the connection ready')
+  down = false
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
+  assert.ok(ready !== undefined, 'polling became ready again after the retry')
+  assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'the identity is not fetched again')
+  assert.ok(polls >= 2, 'a new long poll went out after the failure')
+  assert.equal(statuses.filter(status => status.state === 'error').length, 0, 'a network drop is not shown as an error while it retries')
+})

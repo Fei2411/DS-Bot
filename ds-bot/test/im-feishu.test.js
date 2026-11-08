@@ -253,3 +253,50 @@ test('a network failure at start is retried until the platform answers (#1119)',
   assert.ok(fake.calls.some(call => call.path === '/open-apis/auth/v3/tenant_access_token/internal'))
   assert.equal(fake.sockets.length, 1)
 })
+
+test('a ws endpoint failure after the token is accepted is retried (#1119)', async (t) => {
+  const fake = await fakeFeishu()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  let handshakes = 0
+  const fetch = async (url, ...rest) => {
+    if (String(url).endsWith('/callback/ws/endpoint')) {
+      handshakes += 1
+      if (down) throw new TypeError('fetch failed')
+    }
+    return base.fetch(url, ...rest)
+  }
+  const handle = feishu.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  // The token and bot identity were accepted first, so this covers the websocket
+  // handshake and not a second token failure.
+  assert.equal(fake.calls.filter(call => call.path === '/open-apis/auth/v3/tenant_access_token/internal').length, 1)
+  assert.ok(fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  assert.equal(fake.sockets.length, 0)
+  down = false
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
+  assert.ok(ready !== undefined, 'the connection became ready after the retry')
+  assert.equal(handshakes, 2)
+  assert.equal(fake.sockets.length, 1, 'the retry opened one socket, not one per attempt')
+})
+
+test('a socket that cannot be built at the handshake is retried (#1119)', async (t) => {
+  const fake = await fakeFeishu()
+  const statuses = []
+  const base = env(fake)
+  let failures = 1
+  const WebSocket = function (...args) {
+    if (failures > 0) { failures -= 1; throw new TypeError('socket unavailable') }
+    return new base.WebSocket(...args)
+  }
+  const handle = feishu.connect(FIELDS, { ...base, WebSocket }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /could not open a socket/)
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
+  assert.ok(ready !== undefined, 'the connection became ready after a new socket')
+  assert.equal(fake.sockets.length, 1)
+})

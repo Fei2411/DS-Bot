@@ -174,7 +174,15 @@ export default {
           token = got.token
           expiresAt = got.expiresAt
           const gateway = await api(env, token, '/gateway', { method: 'GET' })
-          gatewayUrl = gateway?.url
+          if (!gateway?.url) {
+            // A 200 that names no gateway is the platform refusing this app, the
+            // same as DingTalk's missing endpoint and Feishu's missing URL;
+            // retrying would send the same refusal again.
+            const refused = new Error(String(gateway?.message ?? gateway?.error ?? 'QQ refused the gateway'))
+            refused.permanent = true
+            throw refused
+          }
+          gatewayUrl = gateway.url
           break
         } catch (error) {
           if (stopped) return
