@@ -30,6 +30,13 @@ export class ClaudeEngine {
     session.cancel()
   }
 
+  // The adapter stopped reading this session. A process takes its model and tool
+  // server when it starts, so it leaves too; a later open resumes the CLI session.
+  forget(dshSessionId) {
+    this.sessions.get(dshSessionId)?.kill()
+    this.sessions.delete(dshSessionId)
+  }
+
   async listModels() {
     return ['default', 'opus', 'sonnet', 'haiku'].map(id => ({ id, name: id === 'default' ? 'CLI default' : id }))
   }
@@ -83,6 +90,8 @@ class ClaudeSession {
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
+    // A write that meets the process on its way out fails with EPIPE; its exit reports it.
+    child.stdin.on('error', () => { this.dead = true })
     let rest = ''
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {

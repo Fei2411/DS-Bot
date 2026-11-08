@@ -96,6 +96,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     refreshModels: () => after(call('models')).catch(() => {}),
+    // One local agent's models: the first look starts its CLI, later ones read what it said.
+    agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),
     // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
     providers: () => call('providers'),

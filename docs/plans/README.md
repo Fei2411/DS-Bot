@@ -47,7 +47,7 @@
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
 | [记忆撤销与更改记录](2026-11-01-memory-restore.md) | 记忆窗口「更改记录」列出 `journal.jsonl` 的改动；按记录 id 对单条添加、修改或删除做逆操作撤销 |
 | [Bot 运行配置](2026-10-10-bot-runtime.md) | Agent 预设、每个 Bot 的模型和思考强度、新 Bot 默认模型、工作文件夹、能力（MCP、技能、能力包） |
-| [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 本地 agent CLI 作为模型路由（英文文档）：会话映射、工具桥、审批、记忆、会话管理与徽标 |
+| [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 本地 agent CLI 作为 Bot 的运行方式（英文文档）：运行方式的选择和切换、会话映射、工具桥、审批、记忆、会话管理与徽标 |
 | [头像库](2026-10-23-avatar-library.md) | 可复用的自定义头像库（`bot/avatars/`，按内容去重）与单张容错的批量导入 |
 | [AGENTS.md 维护](2026-10-27-agents-md-upkeep.md) | 从项目工作中审阅持久规则；用户批准后才原子写入 |
 | [长消息](2026-10-16-long-messages.md) | state.json 只存开头；超过 2 万字的 Bot 消息转成 DSH 文件；成员和界面怎么读全文 |

@@ -133,7 +133,7 @@ Settings → **Connectors** connects services such as GitHub, Gmail and other ma
 
 ### Local agents
 
-Coding-agent CLIs you already use — Devin CLI, Claude Code, Codex CLI, OpenCode and other ACP agents — can run a Bot. In Settings → **Local agents** DS Bot lists the CLIs it finds; pick one as a Bot's model. The Bot uses the CLI's own sign-in and plan, and still works like any Bot: private and group chats, handoffs, approvals and memory.
+Coding-agent CLIs you already use — Devin CLI, Claude Code, Codex CLI, OpenCode and other ACP agents — can run a Bot. How a Bot runs is part of the Bot: when you create it you choose DS Bot models or one of the CLIs found on this machine, and after that only the Bot's settings can change it, with a confirmation. The two do not mix: their models, tools, context and memory handling stay on their own side. Settings → **Local agents** shows the CLIs DS Bot finds and lets you sign in or add a custom agent. A Bot on a local agent CLI uses the CLI's own sign-in and plan, and still works like any Bot: private and group chats, handoffs, approvals and memory.
 
 ### Computer use
 
