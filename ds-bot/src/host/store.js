@@ -4,7 +4,7 @@
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
+import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, SECTION_COLORS, SECTION_NAME_MAX, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
 import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
@@ -19,8 +19,8 @@ export const own = (table, key) => (table != null && Object.hasOwn(table, key) ?
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -157,6 +157,24 @@ export function install(rt) {
     }
     state.mainBotIds = state.mainBotIds.filter(id => state.bots[id])
     if (!Array.isArray(state.privateArchives)) state.privateArchives = []
+    if (!Array.isArray(state.sections)) state.sections = []
+    else {
+      const seen = new Set()
+      state.sections = state.sections
+        .filter(sec => sec && typeof sec === 'object' && typeof sec.id === 'string' && sec.id !== '' && typeof sec.name === 'string' && sec.name.trim() !== '' && !seen.has(sec.id) && seen.add(sec.id))
+        .map(sec => ({
+          id: sec.id,
+          name: sec.name.trim().slice(0, SECTION_NAME_MAX),
+          ...(sec.collapsed === true ? { collapsed: true } : {}),
+          ...(SECTION_COLORS.includes(sec.color) ? { color: sec.color } : {}),
+        }))
+    }
+    const sectionIds = new Set(state.sections.map(sec => sec.id))
+    for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms), ...Object.values(state.agents)]) {
+      if (entry.sectionId !== undefined && (typeof entry.sectionId !== 'string' || !sectionIds.has(entry.sectionId) || entry.id === state.mainBotIds[0])) {
+        delete entry.sectionId
+      }
+    }
     // Teams from before the whale was stored at setup: their first Bot, while still a
     // Main Bot, gets it once wherever it has no look of its own. After that the whale is
     // an ordinary look the user can change, and it never passes to another Bot.

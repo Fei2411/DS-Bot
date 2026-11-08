@@ -2,7 +2,7 @@
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
 import { createElement as h, useEffect, useState } from 'react'
-import { CheckIcon, TrashIcon } from './icons.js'
+import { CheckIcon, ChevronRightIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
@@ -15,7 +15,7 @@ const SHOWN_MODELS = 8
 // A failure in the interface language; the dialog's error line shows it.
 const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
 
-export function ProvidersPage({ actions, run, Section }) {
+export function ProvidersPage({ actions, run, Section, advanced = null }) {
   const [view, setView] = useState(null)
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -32,6 +32,10 @@ export function ProvidersPage({ actions, run, Section }) {
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
     adding ? null : h('div', { key: 'add', className: 'bt-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setAdding(true) }, t('Add a provider'))),
+    // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
+    advanced ? h('div', { key: 'advanced', className: 'bt-set-card' },
+      h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-advanced', onClick: advanced },
+        h('span', { className: 'bt-set-copy' }, h('span', null, t('Advanced settings'))), h(ChevronRightIcon))) : null,
   ]
 }
 

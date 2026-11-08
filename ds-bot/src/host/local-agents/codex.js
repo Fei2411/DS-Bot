@@ -124,8 +124,8 @@ export class CodexEngine {
     // instructions it was started with, and instruct() updates them later.
     const params = {
       cwd,
-      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(model && model !== 'default' ? { model } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {

@@ -477,8 +477,8 @@ export function ModelKeyCard({ model, actions, onSaved }) {
       h('button', { type: 'button', className: 'bt-q-submit', disabled: !ready, onClick: save }, busy ? t('Saving…') : t('Save'))))
 }
 
-// Where the providers are set up: DS Bot's Models page, else DSH's own.
-export const manageModels = actions => actions.openModels ?? actions.openHarnessModels ?? actions.openHarnessSettings
+// Where the providers are set up: the Models page of Settings.
+export const manageModels = actions => actions.openModels ?? (actions.openSettings ? () => actions.openSettings('models') : undefined)
 
 // Ways to get a first model. The DeepSeek sign-in exists only where the shell carries
 // its account plugin; the API key uses the shell's own editor.

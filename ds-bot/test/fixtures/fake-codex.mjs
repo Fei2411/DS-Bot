@@ -17,12 +17,22 @@ const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
   if (recordPath !== undefined) appendFileSync(recordPath, `${JSON.stringify({ method, params })}\n`)
 }
+// The fields Codex 0.166's app-server takes on thread/start and thread/resume
+// (from `codex app-server generate-json-schema`). The real server drops any
+// other field without a word, so the fake refuses it instead.
+const THREAD_START = ['approvalPolicy', 'approvalsReviewer', 'baseInstructions', 'config', 'cwd', 'developerInstructions', 'ephemeral', 'model', 'modelProvider', 'personality', 'sandbox', 'serviceName', 'serviceTier', 'sessionStartSource', 'threadSource']
+const THREAD_RESUME = ['approvalPolicy', 'approvalsReviewer', 'baseInstructions', 'config', 'cwd', 'developerInstructions', 'excludeTurns', 'model', 'modelProvider', 'personality', 'sandbox', 'serviceTier', 'threadId']
+const unknownField = (params, known) => {
+  const extra = Object.keys(params ?? {}).filter(key => !known.includes(key))
+  return extra.length === 0 ? undefined : `unknown field ${extra.join(', ')}`
+}
 const threads = new Map()
 let nextId = 0
 const requests = new Map()
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const reply = (id, result) => send({ jsonrpc: '2.0', id, result })
+const replyError = (id, message) => send({ jsonrpc: '2.0', id, error: { code: -32602, message } })
 const fail = (id, message) => send({ jsonrpc: '2.0', id, error: { code: -32601, message } })
 const notice = (method, params) => send({ jsonrpc: '2.0', method, params })
 const ask = (method, params) => new Promise((resolve) => {
@@ -47,6 +57,12 @@ async function elicitTurn(thread, turnId, text) {
 
 function runTurn(thread, turnId, text, effort) {
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
+  // What the thread was opened with, for a test that checks the fields.
+  if (text.includes('show-thread')) {
+    notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: JSON.stringify(thread.params ?? {}) } })
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
   if (!textOnly) {
     notice('item/started', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
     notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
@@ -92,15 +108,23 @@ process.stdin.on('data', (chunk) => {
         break
       case 'thread/start': {
         record('thread/start', params)
-        const thread = { id: `thr-${++nextId}` }
+        const extra = unknownField(params, THREAD_START)
+        if (extra !== undefined) { replyError(id, extra); break }
+        const thread = { id: `thr-${++nextId}`, params }
         threads.set(thread.id, thread)
         reply(id, { thread: { id: thread.id } })
         break
       }
-      case 'thread/resume':
+      case 'thread/resume': {
         record('thread/resume', params)
+        const extra = unknownField(params, THREAD_RESUME)
+        if (extra !== undefined) { replyError(id, extra); break }
+        const thread = threads.get(params.threadId) ?? { id: params.threadId }
+        thread.params = params
+        threads.set(thread.id, thread)
         reply(id, { thread: { id: params.threadId } })
         break
+      }
       case 'thread/inject_items': reply(id, {}); break
       case 'turn/start': {
         const thread = threads.get(params.threadId)
