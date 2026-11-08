@@ -48,6 +48,9 @@ function digestChunks(messages) {
   ]
 }
 
+// Marks the one retry of a turn whose saved Claude conversation was gone.
+const RESUME_RETRIED = Symbol('resume retried')
+
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
   //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
@@ -138,6 +141,17 @@ export class LocalAgentAdapter extends LlmAdapter {
     const record = this.deps.record(sessionId)
     const route = options.provider
     if (live !== undefined && !live.dead && live.route === route) {
+      // An agent CLI can exit between the spawn and its first message (a failed
+      // sign-in, for one): the cached bridge is dead, so the next call starts a
+      // new process instead of writing into the one that is gone.
+      if (live.engineSession?.dead === true) {
+        this.rollbackUnread(live, sessionId)
+        live.engineSession = undefined
+        live.pumpToken = {}
+        // The queue belongs to the process that is gone: the retry starts clean
+        // instead of reading its exit as the new turn's failure.
+        live.events.length = 0
+      }
       // A CLI takes its model when its session opens. Another model reopens the same
       // CLI session as soon as no turn runs in it.
       if (live.model === options.model || live.state !== 'idle') return live
@@ -216,6 +230,26 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (live === undefined) return
     this.stopTurn(live, reason)
     await this.closeLive(live, { idle: true })
+  }
+
+  // A Claude CLI that died before `system/init` never read the prompt it was
+  // handed: roll the marker back in the live state and in the saved record, so a
+  // host that restarts before the next call still replays the input. ACP and
+  // Codex create their session before the prompt, so theirs was read.
+  // A resume that found its conversation gone also drops the id: the next start
+  // opens a new conversation and replays the history, instead of failing every
+  // turn on the same id.
+  rollbackUnread(live, sessionId) {
+    if (live.spec.kind !== 'claude') return
+    const session = live.engineSession
+    if (session?.dead !== true || session.cliSessionId !== undefined || session.rolledBack === true) return
+    session.rolledBack = true
+    if (session.resumeMissing === true) {
+      live.cliSessionId = undefined
+      live.handed = undefined
+      live.resumeLost = true
+    } else live.handed = live.handedBefore
+    this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -319,7 +353,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
-      live.cliSessionId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      // A resumed CLI reports its id only with `system/init`: keep the saved one
+      // in the meantime, or a resume that fails would erase it.
+      const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      if (reportedId !== undefined) live.cliSessionId = reportedId
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -333,6 +370,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       })()
       if (live.spec.kind !== 'acp' && instructions !== undefined) live.promptHash = promptHash
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
+      // Claude reports its session id with `system/init`, after start() resolved:
+      // the record above has no id yet, so persist it when it lands or the next
+      // host has nothing to resume and the conversation starts over.
+      const pendingId = session.whenSessionId?.()
+      if (pendingId !== undefined) {
+        void pendingId.then((id) => {
+          if (id === undefined || live.dead) return
+          live.cliSessionId = id
+          this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: id, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
+        })
+      }
     }
 
     let promptText = fresh ? renderReplay(messages, system)
@@ -362,13 +410,30 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
 
     // The last DSH message is handed now; a later call sends only what follows.
+    // The marker before it is kept: a start that fails before the CLI reads
+    // anything must not count that message as delivered.
     const last = messages.at(-1)
     if (last !== undefined) {
+      live.handedBefore = live.handed
       live.handed = last.id
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
     }
 
-    yield* this.drain(live, options)
+    try {
+      yield* this.drain(live, options)
+    } catch (error) {
+      // The caller sees the failure now: a start that died before reading its
+      // prompt must not count as delivered, in case the host restarts next.
+      this.rollbackUnread(live, sessionId)
+      // The saved conversation is gone: start over in a new one with the
+      // history, once, so the user sees the answer instead of this failure.
+      if (live.resumeLost === true && options[RESUME_RETRIED] !== true) {
+        live.resumeLost = false
+        yield* this.stream({ ...options, [RESUME_RETRIED]: true })
+        return
+      }
+      throw error
+    }
   }
 
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
