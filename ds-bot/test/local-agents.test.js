@@ -14,6 +14,7 @@ import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
 import { validateCustom, isLocalAgentRoute, cliMode } from '../src/host/local-agents/engines.js'
 import { install as partsInstall } from '../src/host/parts.js'
+import { install as modelsInstall } from '../src/host/models.js'
 import { fakeContext } from './fake-ctx.js'
 
 const FIXTURE = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
@@ -209,6 +210,49 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
+})
+
+// The level goes on the request that starts the turn, so a Bot's choice travels
+// with every turn and a Bot without one keeps the CLI's own default.
+test('codex: the chosen thinking level reaches the turn', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const chosen = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli', reasoningEffort: 'high' })))
+  assert.match(chosen.text, /effort=high/)
+  const none = await collect(adapter.stream(options('s2', [user('m1', 'fix it')], { provider: 'codex-cli' })))
+  assert.match(none.text, /effort=none/)
+})
+
+// What the model catalog shows for a codex ref is what model/list advertises.
+test('the catalog carries the thinking levels a codex model serves', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  // The menu lists a CLI's models once it has been asked for them.
+  await adapter.probeModels('codex-cli')
+  const rt = {
+    ctx: {
+      llm: {
+        listProviders: () => [{ id: 'codex-cli' }],
+        listModels: async () => adapter.listModels('codex-cli'),
+        resolveModelInfo: (provider, model) => adapter.resolveModel(provider, model),
+      },
+    },
+    state: { bots: { b1: { model: 'codex-cli/gpt-5.1-codex' } } },
+  }
+  modelsInstall(rt)
+  const entry = (await rt.catalog()).find(candidate => candidate.ref === 'codex-cli/gpt-5.1-codex')
+  assert.deepEqual(entry.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  // The CLI's own default is not advertised: a Bot without a level keeps the
+  // one the user set in their Codex config.
+  assert.equal(entry.reasoning.defaultEffort, undefined)
+})
+
+// An engine that advertises no level keeps today's behaviour: none, no error.
+test('an engine without levels reports none', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  assert.equal((await adapter.resolveModel('claude-code', 'default')).reasoning, undefined)
+  assert.equal((await adapter.resolveModel('acp-fake', 'default')).reasoning, undefined)
 })
 
 test('claude stream-json: thinking, activity line, usage', async (t) => {
