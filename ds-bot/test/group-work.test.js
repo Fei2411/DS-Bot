@@ -104,6 +104,7 @@ async function start(t, room, services, extraRooms, bots, llm) {
     t.after(() => stop.abort())
     void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then((value) => { result = JSON.parse(value) })
     const read = () => result
+    read.cancel = () => stop.abort()
     return read
   }
   const say = text => ({ content: [{ type: 'text', text }], source: { kind: 'user' } })
@@ -1714,4 +1715,21 @@ test('approval keeps a member inside its parallel batch until all results arrive
   host.finish('ga', '文档和测试已全部检查。')
   await settle(() => third() !== undefined)
   assert.equal(host.agentOf('ga').calls.length, 2, 'one continuation for the complete batch')
+})
+
+
+test('stopping a group before its callee starts clears the pending batch', async t => {
+  const host = await start(t)
+  host.emit('r1', 'turn/start', { turn: 1 })
+  const first = host.round('c1', host.say('检查文档'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 检查文档')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal(rt.roomBatchPending('r1'), true)
+  host.agentOf('r1').cancel = () => first.cancel()
+  const stopped = await host.call('stop-room-work', { roomId: 'r1' })
+  assert.equal(stopped.value, true)
+  await settle(() => first() !== undefined)
+  assert.equal(rt.roomBatchPending('r1'), false)
 })

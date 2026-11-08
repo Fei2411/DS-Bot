@@ -913,7 +913,7 @@ export function install(rt) {
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
-      slot.status = typeof reply === 'string' ? 'passed' : 'missed'
+      slot.status = reply === null ? 'cancelled' : typeof reply === 'string' ? 'passed' : 'missed'
       round.passed.push(member.name)
       if (reply?.missed) {
         round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
@@ -927,7 +927,7 @@ export function install(rt) {
     if (slot.status === 'posted' && slot.by === room.admin && final !== undefined) rt.goalTaskReported?.(room.id, member.id)
     if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
     // Yielding to work, approval or an unanswered turn keeps the task pending.
-    if (['posted', 'passed', 'failed', 'left'].includes(slot.status)) {
+    if (['posted', 'passed', 'failed', 'left', 'cancelled'].includes(slot.status)) {
       const batch = (slot.batchKey ? roomBatches.get(slot.batchKey) : undefined) ?? memberBatch.get(batchKeyOf(room.id, member.id))
       if (batch !== undefined) {
         if (slot.status === 'posted') {
