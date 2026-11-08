@@ -315,8 +315,11 @@ export function install(rt) {
       lines.push(on.length > 0 ? `waiting for ${on.join(' and ')} to hand back work${forName}` : `about to go on with work${forName}, whose results came back`)
     }
     if (lines.length === 0) lines.push('idle')
-    if (state.questions?.[chat] !== undefined) lines.push('a question card in its own chat waits for the user\'s answer')
-    if (state.views?.[chat] !== undefined) lines.push('a view card in its own chat waits for the user\'s answer')
+    // How long a card has waited is what tells a question from this morning apart
+    // from one the user never answered (#1141); the approval line above says it too.
+    const cardLine = (label, held) => `${label}${held?.askedAt === undefined ? '' : ` (${minutes(held.askedAt)})`}`
+    if (state.questions?.[chat] !== undefined) lines.push(cardLine('a question card in its own chat waits for the user\'s answer', state.questions[chat]))
+    if (state.views?.[chat] !== undefined) lines.push(cardLine('a view card in its own chat waits for the user\'s answer', state.views[chat]))
     const unread = new Map()
     for (const args of rt.unreadOf?.(chat) ?? []) {
       const name = nameOf(args.fromId)
