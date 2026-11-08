@@ -49,3 +49,24 @@ test('openModels opens DS Bot settings on the Models page and closes the menus',
   actions.openSettings()
   assert.deepEqual(ui.getSnapshot().settings, { page: 'general', id: null })
 })
+
+// #966: once the host has forgotten an approval, only this window can still say
+// why the answer did nothing. Its card keeps that answer, and the reason, until
+// the user dismisses it.
+test('an answer the host no longer knows keeps its card, by the conversation that asked', () => {
+  const ui = createSource({ toast: null })
+  const approvals = createSource({ closed: {} })
+  const actions = teamActions({ call: async () => ({}), after: promise => promise, partFor: id => id, roster: createSource({}), ui, approvals })
+  const own = { id: 'gone', botId: 'a', sessionId: 'a', tool: 'pwsh' }
+  const room = { id: 'gone-too', botId: 'b', sessionId: 'gb', roomId: 'r1', tool: 'pwsh' }
+  actions.reportApprovalFailure(own, Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' }))
+  actions.reportApprovalFailure(room, new Error('This approval is no longer open'))
+  assert.deepEqual(Object.keys(approvals.getSnapshot().closed).sort(), ['a', 'r1'])
+  assert.deepEqual(approvals.getSnapshot().closed.a.gone.approval, own)
+  assert.equal(approvals.getSnapshot().closed.a.gone.message, 'This approval is no longer open')
+  assert.equal(ui.getSnapshot().toast.text, 'This approval is no longer open')
+  actions.dismissApproval(own)
+  assert.deepEqual(approvals.getSnapshot().closed.a, {})
+  // The other conversation keeps its card.
+  assert.deepEqual(Object.keys(approvals.getSnapshot().closed.r1), ['gone-too'])
+})

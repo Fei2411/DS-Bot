@@ -56,6 +56,10 @@ export function isAgentSession(roster, cache, sessionId) {
 // A request can reuse a call id; question and secret ids belong to separate kinds.
 export const heldCardKey = (kind, requestId) => JSON.stringify([kind, requestId])
 
+// The conversation an approval belongs to: the group chat it was asked in, or the
+// Bot's own chat, which the approval's Session names.
+export const approvalChat = approval => approval.roomId ?? approval.sessionId
+
 // Per Session, how many mounted cells draw or hold each card; 0 drops the entry.
 export function countCards(state, sessionId, callIds, delta) {
   const own = { ...state[sessionId] }

@@ -49,6 +49,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { APPROVAL_CSS, ApprovalCell, ApprovalDock, approvalCellWanted, approvalCellKey } from './approval-queue.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
@@ -131,6 +132,8 @@ export function apply(ctx) {
   // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
   const work = createSource({ bots: {}, approvals: [] })
   let workKey = ''
+  // Per conversation, the answers that failed and their reason, until dismissed.
+  const approvals = createSource({ closed: {} })
   // The version of the live fields this window last got; while it still names the
   // host's answer, the poll leaves those fields out.
   let liveKey
@@ -469,7 +472,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, approvals }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -820,7 +823,7 @@ export function apply(ctx) {
       else if (kind === 'letgo') void actions.computerAllowForeground(botId)
     })
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, approvals, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
   // The queue dock's per-session verbs, supplied the way the shell's own dock
   // injects them (the session facade and the conversation service).
   const queueFace = (sessionId) => ({
@@ -1016,6 +1019,31 @@ export function apply(ctx) {
     return () => { for (const off of offs) off() }
   }
 
+  // DSH draws one approval card in the composer's place, so a second request has no
+  // card and an answer that failed leaves with the card that asked. DS Bot draws the
+  // conversation's queue there instead; the host's race with DSH's card is unchanged.
+  // The shell's chain picks its entry on render, so the entry is registered again
+  // whenever an approval opens, closes, or leaves a failed answer behind.
+  const installApprovalCell = () => {
+    let dispose
+    let registered
+    const sync = () => {
+      const key = approvalCellKey(work.getSnapshot(), approvals.getSnapshot())
+      if (key === registered) return
+      registered = key
+      dispose?.()
+      dispose = ctx.slots.inject('conversation.composer', () => ctx.slots.register({
+        name: 'conversation.composer',
+        priority: BOT_PRIORITY,
+        select: ({ sessionId }) => (approvalCellWanted(roster.getSnapshot(), work.getSnapshot(), approvals.getSnapshot(), sessionId) ? { sessionId } : null),
+        inject: face,
+      }, ApprovalCell))
+    }
+    const offs = [work.subscribe(sync), approvals.subscribe(sync)]
+    sync()
+    return () => { for (const off of offs) off(); dispose?.() }
+  }
+
   // The shell group paints the team surface around the session; the conversation
   // group re-skins the session itself. Each step returns a disposer from slots.inject,
   // so a surface change withdraws the whole group and the outlets re-render.
@@ -1030,6 +1058,7 @@ export function apply(ctx) {
     () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
     () => installCompiledStyles(ABOUT_CSS, 'about'),
     () => installCompiledStyles(MEMBER_CSS, 'members'),
+    () => installCompiledStyles(APPROVAL_CSS, 'approvals'),
     () => installCompiledStyles(IM_CSS, 'im'),
     () => installCompiledStyles(GOAL_CSS, 'goal'),
     () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
@@ -1097,9 +1126,11 @@ export function apply(ctx) {
       priority: BOT_PRIORITY,
       select: owner => (owner.pendingInteraction?.kind === 'question' ? owner.pendingInteraction : null),
     }, QuestionCard),
+    () => installApprovalCell(),
     () => shadow('conversation.input.dock', { id: 'bot-members', order: -120, inject: face }, MemberDock),
     () => shadow('conversation.input.dock', { id: 'bot-model', order: -110, inject: face }, ModelChoiceDock),
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
+    () => shadow('conversation.input.dock', { id: 'bot-approvals', order: -99, inject: face }, ApprovalDock),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
     () => shadow('conversation.input.dock', { id: 'bot-connector', order: -89, inject: face }, ConnectorDock),

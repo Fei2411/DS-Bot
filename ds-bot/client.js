@@ -864,6 +864,7 @@ var ZH = {
   "Goal stopped": "目标已终止",
   Reject: "拒绝",
   "Allow once": "允许一次",
+  Rejected: "已拒绝",
   "Couldn't message {name}": "没能给 {name} 发消息",
   Messaged: "已发消息给",
   "Couldn't stop {name}": "没能叫停 {name}",
@@ -1917,8 +1918,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h60, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h60 / 2}" width="${w}" height="${h60}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h60, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h60 * 0.14}Q0 ${-h60 * 0.42} ${w * 0.62} ${h60 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h61, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h61 / 2}" width="${w}" height="${h61}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h61, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h61 * 0.14}Q0 ${-h61 * 0.42} ${w * 0.62} ${h61 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -1998,6 +1999,7 @@ function isAgentSession(roster, cache, sessionId) {
   return cache.has(sessionId);
 }
 var heldCardKey = (kind, requestId) => JSON.stringify([kind, requestId]);
+var approvalChat = (approval) => approval.roomId ?? approval.sessionId;
 function countCards(state, sessionId, callIds, delta) {
   const own = { ...state[sessionId] };
   for (const callId of callIds) {
@@ -2009,7 +2011,7 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded, approvals }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
@@ -2150,6 +2152,26 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     dismissView: (sessionId) => after(call2("dismiss-view", { sessionId: partFor(sessionId) })),
     deleteBtw: (sessionId, cardId) => after(call2("btw-delete", { sessionId, cardId })),
     answerApproval: (id, choice) => after(call2("approval-answer", { id, choice })),
+    // An answer that lost the race (the request was decided here or on another
+    // machine already) keeps its card with the reason: the host's list no longer
+    // holds the approval, so this window is the only place that still knows.
+    reportApprovalFailure: (approval, error) => {
+      const message = error?.message ?? String(error);
+      const chat = approvalChat(approval);
+      noteClientError("approval", error);
+      approvals.set((state) => ({ ...state, closed: { ...state.closed, [chat]: { ...state.closed?.[chat], [approval.id]: { approval, message, at: Date.now() } } } }));
+      ui2.set((state) => ({ ...state, toast: { text: message, token: Date.now() } }));
+    },
+    dismissApproval: (approval) => {
+      const chat = approvalChat(approval);
+      approvals.set((state) => {
+        const cards2 = state.closed?.[chat];
+        if (cards2?.[approval.id] === void 0) return state;
+        const next = { ...cards2 };
+        delete next[approval.id];
+        return { ...state, closed: { ...state.closed, [chat]: next } };
+      });
+    },
     computerSetEnabled: (enabled) => after(call2("computer-set-enabled", { enabled })),
     computerSetLevel: (botId, level) => after(call2("computer-set-level", { botId, level })),
     computerRevokeApp: (botId, appKey) => after(call2("computer-revoke-app", { botId, appKey })),
@@ -2733,12 +2755,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h60 = dt / steps;
+    const h61 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h60;
-        value.x += value.v * h60;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h61;
+        value.x += value.v * h61;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -24103,7 +24125,7 @@ function ApprovalCard({ approval, bot, actions }) {
   const [busy, setBusy] = (0, import_react57.useState)(false);
   const answer = (choice) => {
     setBusy(true);
-    void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportError(error, "approval")).finally(() => setBusy(false));
+    void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportApprovalFailure(approval, error)).finally(() => setBusy(false));
   };
   return (0, import_react57.createElement)(
     "div",
@@ -27076,8 +27098,116 @@ function createSwitchWindow(settle) {
   };
 }
 
-// src/client/queue-dock.js
+// src/client/approval-queue.js
 var import_react62 = require("react");
+var NO_WORK2 = { approvals: [] };
+function approvalsOf(work, chat) {
+  return (work?.approvals ?? NO_WORK2.approvals).filter((entry) => approvalChat(entry) === chat).sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+}
+function closedApprovals(state, chat, pending = []) {
+  return Object.values(state?.closed?.[chat] ?? {}).filter((entry) => !pending.some((open) => open.id === entry.approval.id)).sort((a, b) => a.at - b.at);
+}
+function waitingIn(work, state, chat) {
+  const pending = approvalsOf(work, chat);
+  return pending.length > 0 || closedApprovals(state, chat, pending).length > 0;
+}
+function approvalCellWanted(roster, work, state, sessionId) {
+  if (sessionId === void 0) return false;
+  if (roster?.roomsById?.[sessionId] !== void 0) return false;
+  if (roster?.questions?.[sessionId] !== void 0) return false;
+  return waitingIn(work, state, sessionId);
+}
+var approvalCellKey = (work, state) => JSON.stringify([
+  (work?.approvals ?? []).map((entry) => entry.id),
+  Object.entries(state?.closed ?? {}).map(([chat, cards]) => [chat, Object.keys(cards)]).sort()
+]);
+function ApprovalCard2({ approval, bot, actions, error }) {
+  const [busy, setBusy] = (0, import_react62.useState)(false);
+  const [answered, setAnswered] = (0, import_react62.useState)(null);
+  const answer = (choice) => {
+    if (busy) return;
+    setBusy(true);
+    void Promise.resolve(actions.answerApproval(approval.id, choice)).then(() => setAnswered(choice)).catch((failure) => actions.reportApprovalFailure(approval, failure)).finally(() => setBusy(false));
+  };
+  const waiting = t("{name} is waiting for your approval", { name: bot?.name ?? t("A Bot") });
+  return (0, import_react62.createElement)(
+    "div",
+    { className: "bt-aq-card", role: "group", "aria-label": error ?? waiting },
+    (0, import_react62.createElement)(
+      "div",
+      { className: "bt-aq-head" },
+      bot ? (0, import_react62.createElement)(BotMark, { bot, size: 18, state: error ? "idle" : "alert" }) : null,
+      (0, import_react62.createElement)("span", { className: "bt-aq-name" }, bot?.name ?? t("A Bot")),
+      approval.tool ? (0, import_react62.createElement)("span", { className: "bt-aq-tool" }, approval.tool) : null
+    ),
+    approval.detail?.text ? (0, import_react62.createElement)("div", { className: "bt-aq-text" }, approval.detail.text) : null,
+    approval.reason ? (0, import_react62.createElement)("div", { className: "bt-aq-reason" }, approval.reason) : null,
+    approval.detail?.code ? (0, import_react62.createElement)("code", { className: "bt-aq-code", title: approval.detail.code }, approval.detail.code) : null,
+    error ? (0, import_react62.createElement)(
+      "div",
+      { className: "bt-aq-closed" },
+      (0, import_react62.createElement)("span", { className: "bt-aq-error", role: "alert" }, error),
+      (0, import_react62.createElement)("button", { type: "button", className: "bt-aq-btn", onClick: () => actions.dismissApproval(approval) }, t("Dismiss"))
+    ) : answered ? (0, import_react62.createElement)("div", { className: "bt-aq-done", role: "status" }, t(answered === "allow" ? "Allowed" : "Rejected")) : (0, import_react62.createElement)(
+      "div",
+      { className: "bt-aq-actions" },
+      (0, import_react62.createElement)("button", { type: "button", className: "bt-aq-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
+      (0, import_react62.createElement)("button", { type: "button", className: "bt-aq-go", disabled: busy, onClick: () => answer("allow") }, t("Allow once"))
+    )
+  );
+}
+function ApprovalQueue({ sessionId, cell, useWork, useApprovals, useRoster, actions }) {
+  const roster = useRoster((value) => value);
+  const work = useWork((value) => value ?? NO_WORK2);
+  const state = useApprovals((value) => value);
+  const room2 = roster.roomsById?.[sessionId];
+  const chat = room2 ? room2.id : sessionId;
+  const pending = approvalsOf(work, chat);
+  const closed = closedApprovals(state, chat, pending);
+  if (pending.length === 0 && closed.length === 0) return null;
+  const count = pending.length;
+  const many = count > 1 ? t("{count} waiting for approval", { count }) : null;
+  const label = count === 1 ? t("{name} is waiting for your approval", { name: roster.byId[pending[0].botId]?.name ?? t("A Bot") }) : many;
+  return (0, import_react62.createElement)(
+    "div",
+    { className: "bt-aq", "data-cell": cell || void 0, "data-count": count, role: "group", "aria-label": label },
+    many ? (0, import_react62.createElement)("div", { className: "bt-aq-count" }, many) : null,
+    pending.map((approval) => (0, import_react62.createElement)(ApprovalCard2, { key: approval.id, approval, bot: roster.byId[approval.botId], actions })),
+    closed.map((entry) => (0, import_react62.createElement)(ApprovalCard2, { key: entry.approval.id, approval: entry.approval, bot: roster.byId[entry.approval.botId], actions, error: entry.message }))
+  );
+}
+function ApprovalCell(props) {
+  return (0, import_react62.createElement)(ApprovalQueue, { ...props, cell: true });
+}
+function ApprovalDock(props) {
+  const roster = props.useRoster((value) => value);
+  if (roster.roomsById?.[props.sessionId] === void 0) return null;
+  return (0, import_react62.createElement)(ApprovalQueue, props);
+}
+var APPROVAL_CSS = `
+.bt-aq{display:flex;flex-direction:column;gap:6px;box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto 8px;padding:0 var(--dsh-composer-dock-inset,0px);flex:none}
+.bt-aq[data-cell]{width:auto;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;padding:8px calc(var(--dsh-composer-side-clearance,0px) + 16px) 12px}
+.bt-aq-count{padding:0 2px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-aq-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
+.bt-aq-head{display:flex;align-items:center;gap:6px;min-width:0;font-weight:600;color:var(--bt-ink)}
+.bt-aq-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-aq-tool{flex:none;font-weight:400;color:var(--bt-ink-3);font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.bt-aq-text{color:var(--bt-ink);overflow-wrap:anywhere}
+.bt-aq-reason{overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bt-aq-code{display:block;padding:4px 8px;border-radius:6px;background:var(--bt-main);font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-aq-actions,.bt-aq-closed{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:4px}
+.bt-aq-error{flex:1;min-width:0;color:var(--bt-danger);overflow-wrap:anywhere}
+.bt-aq-done{margin-top:4px;text-align:right;color:var(--bt-ink-3)}
+.bt-aq-btn,.bt-aq-go{height:28px;padding:0 12px;border:0;border-radius:999px;font:inherit;font-size:12px;cursor:pointer}
+.bt-aq-btn{background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2)}
+.bt-aq-btn:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-aq-go{background:var(--bt-ink);color:var(--bt-main)}
+.bt-aq-btn:disabled,.bt-aq-go:disabled{opacity:.5;cursor:default}
+@media (prefers-reduced-motion:reduce){.bt-aq-card{animation:none}}
+`;
+
+// src/client/queue-dock.js
+var import_react63 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
 var EMPTY_QUEUE = [];
 var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
@@ -27094,17 +27224,17 @@ function queueAttachments(content) {
 var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 function QueueFile({ attachment, label }) {
   const size = fileSizeText2(attachment.bytes);
-  return (0, import_react62.createElement)(
+  return (0, import_react63.createElement)(
     "span",
     { className: "bt-queue-file", "aria-label": label, title: attachment.name },
-    (0, import_react62.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react62.createElement)(PaperclipIcon)),
-    (0, import_react62.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
-    size !== "" ? (0, import_react62.createElement)("span", { className: "bt-queue-filesize" }, size) : null
+    (0, import_react63.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react63.createElement)(PaperclipIcon)),
+    (0, import_react63.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
+    size !== "" ? (0, import_react63.createElement)("span", { className: "bt-queue-filesize" }, size) : null
   );
 }
 function QueueThumb({ attachment, loadImage, label }) {
-  const [url, setUrl] = (0, import_react62.useState)(null);
-  (0, import_react62.useEffect)(() => {
+  const [url, setUrl] = (0, import_react63.useState)(null);
+  (0, import_react63.useEffect)(() => {
     let alive = true;
     loadImage(attachment).then((resolved) => {
       if (alive) setUrl(resolved);
@@ -27114,22 +27244,22 @@ function QueueThumb({ attachment, loadImage, label }) {
       alive = false;
     };
   }, [attachment, loadImage]);
-  return url === null ? (0, import_react62.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react62.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
+  return url === null ? (0, import_react63.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react63.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react62.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+  return (0, import_react63.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
 }
 function EditField({ text, onChange, onSave, onCancel }) {
-  const field = (0, import_react62.useRef)(null);
-  (0, import_react62.useEffect)(() => {
+  const field = (0, import_react63.useRef)(null);
+  (0, import_react63.useEffect)(() => {
     const node = field.current;
     if (node === null) return;
     node.focus();
     node.style.height = "auto";
     node.style.height = `${node.scrollHeight}px`;
   }, [text]);
-  return (0, import_react62.createElement)("textarea", {
+  return (0, import_react63.createElement)("textarea", {
     ref: field,
     className: "bt-queue-edit",
     value: text,
@@ -27148,28 +27278,28 @@ function EditField({ text, onChange, onSave, onCancel }) {
   });
 }
 function RowButton({ label, title, disabled, onClick, children }) {
-  return (0, import_react62.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
+  return (0, import_react63.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
 }
 function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
   const inbox = useProjection?.("inbox");
   const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue = (0, import_react62.useMemo)(() => {
+  const queue = (0, import_react63.useMemo)(() => {
     const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
     const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
     return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
   }, [inbox, pendingSubmissions]);
-  const pendingQueue = (0, import_react62.useMemo)(() => {
+  const pendingQueue = (0, import_react63.useMemo)(() => {
     const admitted = new Set(queue.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
     return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
   }, [pendingSubmissions, queue]);
   const rowCount = queue.length + pendingQueue.length;
   const running = useSession?.((s) => s.running) === true;
   const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
-  const [editing, setEditing] = (0, import_react62.useState)(null);
-  const [busy, setBusy] = (0, import_react62.useState)(null);
-  const [collapsed, setCollapsed] = (0, import_react62.useState)(true);
-  const listId = (0, import_react62.useId)();
-  (0, import_react62.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react63.useState)(null);
+  const [busy, setBusy] = (0, import_react63.useState)(null);
+  const [collapsed, setCollapsed] = (0, import_react63.useState)(true);
+  const listId = (0, import_react63.useId)();
+  (0, import_react63.useEffect)(() => {
     if (rowCount === 0 && !collapsed) setCollapsed(true);
     if (editing !== null && (!queueMutable || !queue.some((row) => row.id === editing.id))) setEditing(null);
   }, [collapsed, editing, queue, queueMutable, rowCount]);
@@ -27197,77 +27327,77 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
     if (editing === null || editing.text.trim() === "") return;
     if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
   };
-  return (0, import_react62.createElement)(
+  return (0, import_react63.createElement)(
     "div",
     { className: "bt-queue-dock", "data-queue-dock": "" },
-    (0, import_react62.createElement)(
+    (0, import_react63.createElement)(
       "div",
       { className: "bt-queue-panel" },
-      rowCount > 1 && (0, import_react62.createElement)(
+      rowCount > 1 && (0, import_react63.createElement)(
         "button",
         { type: "button", className: "bt-queue-head", "aria-controls": listId, "aria-expanded": expanded, disabled: interactionActive, onClick: () => setCollapsed((value) => !value) },
-        (0, import_react62.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react62.createElement)(QueueIcon)),
-        (0, import_react62.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
-        !listVisible && pendingQueue.length > 0 && (0, import_react62.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-        (0, import_react62.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react62.createElement)(ChevronDownIcon) : (0, import_react62.createElement)(ChevronUpIcon))
+        (0, import_react63.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react63.createElement)(QueueIcon)),
+        (0, import_react63.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
+        !listVisible && pendingQueue.length > 0 && (0, import_react63.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+        (0, import_react63.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react63.createElement)(ChevronDownIcon) : (0, import_react63.createElement)(ChevronUpIcon))
       ),
-      (0, import_react62.createElement)(
+      (0, import_react63.createElement)(
         "ul",
         { id: listId, className: "bt-queue-list", hidden: !listVisible },
         listVisible && queue.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
-          return (0, import_react62.createElement)(
+          return (0, import_react63.createElement)(
             "li",
             { key: row.id, className: "bt-queue-row" },
-            rowCount === 1 && (0, import_react62.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react62.createElement)(QueueIcon)),
-            editing?.id === row.id ? (0, import_react62.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react62.createElement)(
-              import_react62.Fragment,
+            rowCount === 1 && (0, import_react63.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react63.createElement)(QueueIcon)),
+            editing?.id === row.id ? (0, import_react63.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react63.createElement)(
+              import_react63.Fragment,
               null,
-              attachments.length > 0 && (0, import_react62.createElement)(
+              attachments.length > 0 && (0, import_react63.createElement)(
                 "span",
                 { className: "bt-queue-attachments" },
-                attachments.map((item, index) => item.type === "image" ? (0, import_react62.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react62.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+                attachments.map((item, index) => item.type === "image" ? (0, import_react63.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react63.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
               ),
-              (0, import_react62.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+              (0, import_react63.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
             ),
-            queueMutable && (0, import_react62.createElement)(
+            queueMutable && (0, import_react63.createElement)(
               "div",
               { className: "bt-queue-actions" },
-              editing?.id === row.id ? (0, import_react62.createElement)(
-                import_react62.Fragment,
+              editing?.id === row.id ? (0, import_react63.createElement)(
+                import_react63.Fragment,
                 null,
-                (0, import_react62.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react62.createElement)(CheckIcon)),
-                (0, import_react62.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react62.createElement)(CloseIcon))
-              ) : (0, import_react62.createElement)(
-                import_react62.Fragment,
+                (0, import_react63.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react63.createElement)(CheckIcon)),
+                (0, import_react63.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react63.createElement)(CloseIcon))
+              ) : (0, import_react63.createElement)(
+                import_react63.Fragment,
                 null,
-                (0, import_react62.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
+                (0, import_react63.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
                   if (text !== null) setEditing({ id: row.id, text });
-                } }, (0, import_react62.createElement)(PencilIcon)),
-                (0, import_react62.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react62.createElement)(TrashIcon)),
-                (0, import_react62.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react62.createElement)(ArrowUpIcon))
+                } }, (0, import_react63.createElement)(PencilIcon)),
+                (0, import_react63.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react63.createElement)(TrashIcon)),
+                (0, import_react63.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react63.createElement)(ArrowUpIcon))
               )
             )
           );
         }),
-        listVisible && pendingQueue.map((submission) => (0, import_react62.createElement)(
+        listVisible && pendingQueue.map((submission) => (0, import_react63.createElement)(
           "li",
           { key: submission.requestId, className: "bt-queue-row bt-queue-pending" },
-          rowCount === 1 && (0, import_react62.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react62.createElement)(QueueIcon)),
-          submission.attachments.length > 0 && (0, import_react62.createElement)(
+          rowCount === 1 && (0, import_react63.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react63.createElement)(QueueIcon)),
+          submission.attachments.length > 0 && (0, import_react63.createElement)(
             "span",
             { className: "bt-queue-attachments" },
-            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react62.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react62.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react63.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react63.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
           ),
-          (0, import_react62.createElement)(Preview, { text: submission.text, renderFactorySlot }),
-          (0, import_react62.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-          queueMutable && (0, import_react62.createElement)(
+          (0, import_react63.createElement)(Preview, { text: submission.text, renderFactorySlot }),
+          (0, import_react63.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+          queueMutable && (0, import_react63.createElement)(
             "div",
             { className: "bt-queue-actions" },
-            (0, import_react62.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react62.createElement)(PencilIcon)),
-            (0, import_react62.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react62.createElement)(TrashIcon)),
-            (0, import_react62.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react62.createElement)(ArrowUpIcon))
+            (0, import_react63.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react63.createElement)(PencilIcon)),
+            (0, import_react63.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react63.createElement)(TrashIcon)),
+            (0, import_react63.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react63.createElement)(ArrowUpIcon))
           )
         ))
       )
@@ -27430,6 +27560,7 @@ function apply(ctx) {
   const activity = createSource({});
   const work = createSource({ bots: {}, approvals: [] });
   let workKey = "";
+  const approvals = createSource({ closed: {} });
   let liveKey;
   const live = createSource({});
   const computer = createSource({});
@@ -27780,7 +27911,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded, approvals }),
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -28121,7 +28252,7 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } });
+  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, approvals, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } });
   const queueFace = (sessionId) => ({
     ...face(),
     updateQueue: async (itemId, action) => await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action) ?? { ok: false },
@@ -28296,6 +28427,28 @@ function apply(ctx) {
       for (const off of offs) off();
     };
   };
+  const installApprovalCell = () => {
+    let dispose;
+    let registered;
+    const sync = () => {
+      const key = approvalCellKey(work.getSnapshot(), approvals.getSnapshot());
+      if (key === registered) return;
+      registered = key;
+      dispose?.();
+      dispose = ctx.slots.inject("conversation.composer", () => ctx.slots.register({
+        name: "conversation.composer",
+        priority: BOT_PRIORITY,
+        select: ({ sessionId }) => approvalCellWanted(roster.getSnapshot(), work.getSnapshot(), approvals.getSnapshot(), sessionId) ? { sessionId } : null,
+        inject: face
+      }, ApprovalCell));
+    };
+    const offs = [work.subscribe(sync), approvals.subscribe(sync)];
+    sync();
+    return () => {
+      for (const off of offs) off();
+      dispose?.();
+    };
+  };
   const installShell = () => [
     () => installCompiledStyles(SHELL_CSS, "shell"),
     () => installCompiledStyles(SIDEBAR_CSS, "sidebar"),
@@ -28307,6 +28460,7 @@ function apply(ctx) {
     () => installCompiledStyles(FEEDBACK_CSS, "feedback"),
     () => installCompiledStyles(ABOUT_CSS, "about"),
     () => installCompiledStyles(MEMBER_CSS, "members"),
+    () => installCompiledStyles(APPROVAL_CSS, "approvals"),
     () => installCompiledStyles(IM_CSS, "im"),
     () => installCompiledStyles(GOAL_CSS, "goal"),
     () => installCompiledStyles(USER_MESSAGE_CSS, "user-messages"),
@@ -28374,9 +28528,11 @@ function apply(ctx) {
       priority: BOT_PRIORITY,
       select: (owner) => owner.pendingInteraction?.kind === "question" ? owner.pendingInteraction : null
     }, QuestionCard),
+    () => installApprovalCell(),
     () => shadow("conversation.input.dock", { id: "bot-members", order: -120, inject: face }, MemberDock),
     () => shadow("conversation.input.dock", { id: "bot-model", order: -110, inject: face }, ModelChoiceDock),
     () => shadow("conversation.input.dock", { id: "bot-question", order: -100, inject: face }, QuestionDock),
+    () => shadow("conversation.input.dock", { id: "bot-approvals", order: -99, inject: face }, ApprovalDock),
     () => shadow("conversation.input.dock", { id: "bot-view", order: -95, inject: face }, WidgetDock),
     () => shadow("conversation.input.dock", { id: "bot-secret", order: -90, inject: face }, SecretDock),
     () => shadow("conversation.input.dock", { id: "bot-connector", order: -89, inject: face }, ConnectorDock),

@@ -134,7 +134,7 @@ function ApprovalCard({ approval, bot, actions }) {
   const answer = (choice) => {
     setBusy(true)
     void Promise.resolve(actions.answerApproval(approval.id, choice))
-      .catch(error => actions.reportError(error, 'approval'))
+      .catch(error => actions.reportApprovalFailure(approval, error))
       .finally(() => setBusy(false))
   }
   return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': t('{name} is waiting for your approval', { name: bot.name }) },

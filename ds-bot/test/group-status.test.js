@@ -151,6 +151,33 @@ test('an own chat\'s approval races DSH\'s card and is listed while it waits', a
   assert.equal(await host.askApproval('elsewhere'), 'from-dsh')
 })
 
+// #966: the UI could not show a second request while the first waited, so the
+// queue of approvals and the death of an answered id are proven here instead.
+test('two approvals wait side by side, and the id answered first is stale while the other waits', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  await openTurn(t, host)
+  const first = host.askApproval('gb')
+  const second = host.askApproval('gb')
+  const listed = (await host.call('state', {})).value.work.approvals
+  assert.equal(listed.length, 2, 'both requests stay in the queue')
+  assert.deepEqual(listed.map(entry => entry.answerable), [true, true])
+  const [answered, waiting] = listed
+
+  assert.equal((await host.call('approval-answer', { id: answered.id, choice: 'allow' })).ok, true)
+  assert.equal(await first, 'allowed-once')
+  // Answering one leaves the other exactly as it was.
+  const after = (await host.call('state', {})).value.work.approvals
+  assert.deepEqual(after.map(entry => [entry.id, entry.answerable]), [[waiting.id, true]])
+
+  // The id that was already decided cannot decide the request still waiting.
+  assert.equal((await host.call('approval-answer', { id: answered.id, choice: 'allow' })).error.code, 'bot/stale')
+  assert.deepEqual((await host.call('state', {})).value.work.approvals.map(entry => entry.id), [waiting.id])
+  assert.equal((await host.call('approval-answer', { id: waiting.id, choice: 'reject' })).ok, true)
+  assert.equal(await second, 'rejected')
+  assert.deepEqual((await host.call('state', {})).value.work.approvals, [])
+})
+
 test('an own chat\'s approval propagates a DSH answerer failure and settles', async (t) => {
   const host = await start()
   t.after(host.stop)

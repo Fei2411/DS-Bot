@@ -810,6 +810,7 @@ const ZH = {
   'Goal stopped': '目标已终止',
   Reject: '拒绝',
   'Allow once': '允许一次',
+  Rejected: '已拒绝',
   "Couldn't message {name}": '没能给 {name} 发消息',
   Messaged: '已发消息给',
   "Couldn't stop {name}": '没能叫停 {name}',

@@ -1,11 +1,11 @@
-import { countCards, heldCardKey } from './sources.js'
+import { approvalChat, countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, approvals }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   // An action that shows the panel lands the yield with it: when a folded
@@ -122,6 +122,26 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     dismissView: sessionId => after(call('dismiss-view', { sessionId: partFor(sessionId) })),
     deleteBtw: (sessionId, cardId) => after(call('btw-delete', { sessionId, cardId })),
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
+    // An answer that lost the race (the request was decided here or on another
+    // machine already) keeps its card with the reason: the host's list no longer
+    // holds the approval, so this window is the only place that still knows.
+    reportApprovalFailure: (approval, error) => {
+      const message = error?.message ?? String(error)
+      const chat = approvalChat(approval)
+      noteClientError('approval', error)
+      approvals.set(state => ({ ...state, closed: { ...state.closed, [chat]: { ...state.closed?.[chat], [approval.id]: { approval, message, at: Date.now() } } } }))
+      ui.set(state => ({ ...state, toast: { text: message, token: Date.now() } }))
+    },
+    dismissApproval: (approval) => {
+      const chat = approvalChat(approval)
+      approvals.set((state) => {
+        const cards = state.closed?.[chat]
+        if (cards?.[approval.id] === undefined) return state
+        const next = { ...cards }
+        delete next[approval.id]
+        return { ...state, closed: { ...state.closed, [chat]: next } }
+      })
+    },
     computerSetEnabled: enabled => after(call('computer-set-enabled', { enabled })),
     computerSetLevel: (botId, level) => after(call('computer-set-level', { botId, level })),
     computerRevokeApp: (botId, appKey) => after(call('computer-revoke-app', { botId, appKey })),
