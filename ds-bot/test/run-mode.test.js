@@ -301,7 +301,8 @@ test('a running turn moves on at its next step and keeps its input', async (t) =
   const input = createUserMessage({ content: [{ type: 'text', text: 'still needed' }], source: { kind: 'user' } })
   const step = await env.preStep('b', [input], 2)
   assert.deepEqual(step, { kind: 'reject' })
-  await until(() => env.created.length === 1, 'the fresh part')
+  // A fresh part is made before the state names it.
+  await until(() => env.archived.some(([id]) => id === 'b'), 'the fresh part')
   const fresh = env.state().bots.b.sessionId
   await until(() => env.agentOf(fresh).calls.some(([, message]) => textOf(message) === 'still needed'), 'the carried input')
   assert.match(env.handoffOf(fresh) ?? '', /./)
@@ -311,11 +312,13 @@ test('coming back to the same run mode moves on again, in both directions', asyn
   const env = await start(t)
   env.lastRoute.set('b', { provider: 'ds', model: 'flash' })
   await env.call('update-bot', { id: 'b', model: CLI, changeEngine: true })
-  await until(() => env.state().bots.b.sessionId !== 'b', 'the move to the CLI')
+  // The state names the fresh part before its handoff goes out; the earlier part is
+  // archived only once the move has finished.
+  await until(() => env.archived.some(([id]) => id === 'b'), 'the move to the CLI')
   const onCli = env.state().bots.b.sessionId
   env.lastRoute.set(onCli, { provider: 'acp-fake', model: 'default' })
   await env.call('update-bot', { id: 'b', model: DS, changeEngine: true })
-  await until(() => env.state().bots.b.sessionId !== onCli, 'the move back')
+  await until(() => env.archived.some(([id]) => id === onCli), 'the move back')
   const back = env.state().bots.b.sessionId
   assert.match(env.handoffOf(back), /to the model ds\/flash/)
   assert.equal(env.state().bots.b.segments.length, 2)
