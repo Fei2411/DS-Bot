@@ -3,7 +3,11 @@
 import { childrenOf, elementsOf, firstOf, textOf } from './xml.js'
 
 const DATE_FORMATS = new Set([14, 15, 16, 17, 22, 45, 46, 47])
-const dateLike = (code) => /(^|[^\\])[ymdhs]/i.test(code ?? '')
+// Literal text, fill/padding characters, colors and conditions are not date tokens.
+const dateLike = (code) => /[ymdhs]/i.test((code ?? '')
+  .replace(/"[^"]*"|\\.|_.|\*./g, '')
+  .split(';')[0]
+  .replace(/\[(?![hms]+\])[^\]]*\]/gi, ''))
 
 function numFmts(pkg) {
   const map = new Map()
