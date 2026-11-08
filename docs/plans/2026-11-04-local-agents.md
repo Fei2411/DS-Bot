@@ -14,10 +14,18 @@ and model changes all work the same way.
 ## Decided behavior
 
 - An abot is a normal Bot whose model route is a local-agent route served by a
-  DSH LLM adapter that DS Bot registers. Routes: `devin-cli`, `claude-code`,
-  `codex-cli`, `opencode`, `cursor-cli`, `gemini-cli`, `grok-cli`, `cline`,
-  `qwen-code`, `goose`, and `acp-<id>` for custom agents the user adds. A route
+  DSH LLM adapter that DS Bot registers. Routes: `local-devin-cli`,
+  `local-claude-code`, `local-codex-cli`, `local-opencode`, `local-cursor-cli`,
+  `local-gemini-cli`, `local-grok-cli`, `local-cline`, `local-qwen-code`,
+  `local-goose`, and `local-acp-<id>` for custom agents the user adds. A route
   appears only while its CLI is found; a refresh re-scans.
+- The `local-` prefix keeps these routes apart from providers that DSH or other
+  plugins register. Without it, a CLI named like such a provider (`opencode` is
+  also DSH's OpenCode provider) made both register the same name, and the LLM
+  service failed to load. Refs saved under the unprefixed names move to the
+  prefixed ones when the team loads. An old `opencode/...` ref moves only for a
+  Bot that ran on the local CLI or on its "CLI default"; otherwise it stays on
+  DSH's OpenCode provider.
 - A route's models are what its CLI reports, plus a "CLI default" entry.
 - Every DS Bot Session maps to one CLI session. A Bot's own chat and each of
   its group sessions are separate CLI sessions, so no content crosses between

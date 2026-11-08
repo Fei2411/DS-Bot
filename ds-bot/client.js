@@ -4702,6 +4702,9 @@ var AGENT_LOGOS = {
 };
 
 // src/client/agent-routes.js
+var PREFIX = "local-";
+var CUSTOM_PREFIX = `${PREFIX}acp-`;
+var cliOf = (route) => typeof route === "string" && route.startsWith(PREFIX) ? route.slice(PREFIX.length) : void 0;
 var AGENT_BADGES = {
   "devin-cli": ["DV", "violet"],
   "claude-code": ["CC", "tangerine"],
@@ -4715,8 +4718,12 @@ var AGENT_BADGES = {
   "goose": ["GS", "brown"]
 };
 var CUSTOM = ["AC", "rose"];
-var logoOf = (engine) => AGENT_LOGOS[engine];
-var badgeOf = (engine) => AGENT_BADGES[engine] ?? (engine?.startsWith("acp-") ? CUSTOM : void 0);
+var logoOf = (engine) => cliOf(engine) === void 0 ? void 0 : AGENT_LOGOS[cliOf(engine)];
+var badgeOf = (engine) => {
+  if (typeof engine !== "string") return void 0;
+  if (engine.startsWith(CUSTOM_PREFIX)) return CUSTOM;
+  return cliOf(engine) === void 0 ? void 0 : AGENT_BADGES[cliOf(engine)];
+};
 var isLocalRoute = (ref) => badgeOf(String(ref ?? "").split("/")[0]) !== void 0;
 var routeOf = (ref) => String(ref ?? "").split("/")[0];
 function modelsFor(models, ref) {
