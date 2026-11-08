@@ -21,7 +21,8 @@ const ILINK_CLIENT_VERSION = (2 << 16) | (4 << 8) | 6
 // The server answers this on getupdates when the bot session is not open; the
 // account has to scan a new QR code.
 const SESSION_EXPIRED = -14
-// Waits between attempts to open the session, from the reference client.
+// Waits between attempts to open the session, from the reference client; the
+// last one repeats while the network stays down, like the poll's own retry.
 const START_RETRY_DELAYS_MS = [250, 1_000, 3_000]
 
 // iLink answers with the bare host (no trailing slash), and the request URL is
@@ -201,9 +202,12 @@ export default {
     }
 
     // The session has to be opened before getupdates carries anything. A
-    // transient failure is retried; a refused or expired session is shown once
-    // and polling never starts, instead of looping on the same error.
+    // refused or expired session is shown once and polling never starts. A
+    // network failure keeps retrying, as the poll does: an app started before
+    // the network is up must still connect once it is. After the quick retries
+    // the failure is on screen until a start succeeds.
     const startSession = async () => {
+      let shown = false
       for (let attempt = 0; ; attempt += 1) {
         if (stopped) return
         try {
@@ -211,14 +215,21 @@ export default {
           break
         } catch (error) {
           if (stopped) return
-          const wait = START_RETRY_DELAYS_MS[attempt]
-          if (error?.permanent === true || wait === undefined) {
-            env.log?.warn?.('ds-bot im: weixin could not start the session: %s', error?.message ?? error)
-            handlers.onStatus({ state: 'error', error: String(error?.message ?? error) })
+          const reason = String(error?.message ?? error)
+          if (error?.permanent === true) {
+            env.log?.warn?.('ds-bot im: weixin could not start the session: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
             return
           }
-          env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', error?.message ?? error)
-          await sleep(wait)
+          const wait = START_RETRY_DELAYS_MS[attempt]
+          if (wait === undefined && !shown) {
+            shown = true
+            env.log?.warn?.('ds-bot im: weixin could not start the session, still retrying: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+          } else if (wait !== undefined) {
+            env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', reason)
+          }
+          await sleep(wait ?? START_RETRY_DELAYS_MS.at(-1))
         }
       }
       if (!stopped) void poll()

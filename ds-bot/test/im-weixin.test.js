@@ -215,17 +215,21 @@ test('a transient session start failure is retried before polling', async (t) =>
   assert.ok(fake.calls.some(call => call.path === '/ilink/bot/getupdates'), 'polling starts after the retries')
 })
 
-test('a session start that keeps failing is shown once and polling never starts', async (t) => {
+test('a session start that keeps failing is shown once and still retried until it works', async (t) => {
   const fake = await fakeIlink()
-  fake.replies.notifystartQueue = [{ http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }]
+  fake.replies.notifystartQueue = [{ http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }, { ret: 0 }]
   const { env: watched, statuses, warns } = tracked(fake)
   const handle = weixin.connect(FIELDS, watched, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
   t.after(() => { handle.stop(); fake.close() })
   await until(() => statuses.some(status => status.state === 'error'), 200)
   const failed = statuses.find(status => status.state === 'error')
   assert.ok(failed, 'the connection reports the failure')
-  assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length, 4)
-  assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/getupdates').length, 0)
+  assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/getupdates').length, 0, 'no poll before the session starts')
+  await until(() => statuses.some(status => status.state === 'ready'), 400)
+  assert.ok(statuses.some(status => status.state === 'ready'), 'the session started once the network came back')
+  assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length, 6)
+  assert.ok(fake.calls.some(call => call.path === '/ilink/bot/getupdates'), 'polling starts after the session')
+  assert.equal(statuses.filter(status => status.state === 'error').length, 1, 'the failure is shown once')
   assert.equal(warns.filter(line => /could not start the session/.test(line)).length, 1)
 })
 
