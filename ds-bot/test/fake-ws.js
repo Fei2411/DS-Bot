@@ -19,8 +19,9 @@ const encode = (data, opcode = 0x81) => {
 }
 
 // onSocket(socket) runs per connection; socket.send(text) / socket.close() and
-// socket.on('message'|'close'). Returns { server, url, sockets } once listening.
-export function fakeWsServer({ onSocket, onRequest } = {}) {
+// socket.on('message'|'close'). checkUpgrade(req) may refuse a handshake by
+// returning an HTTP status. Returns { server, url, sockets } once listening.
+export function fakeWsServer({ onSocket, onRequest, checkUpgrade } = {}) {
   const sockets = []
   const pending = onRequest ?? (() => undefined)
   const server = createServer((req, res) => {
@@ -30,6 +31,11 @@ export function fakeWsServer({ onSocket, onRequest } = {}) {
     res.end(JSON.stringify(answer))
   })
   server.on('upgrade', (req, socket) => {
+    const refusal = checkUpgrade?.(req)
+    if (typeof refusal === 'number') {
+      socket.end(`HTTP/1.1 ${refusal} Upgrade Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+      return
+    }
     const key = req.headers['sec-websocket-key'] ?? randomBytes(16).toString('base64')
     const accept = createHash('sha1').update(key + GUID).digest('base64')
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
