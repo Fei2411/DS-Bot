@@ -193,9 +193,9 @@ test('a Bot moved onto a local agent route gets the approval bridge, and loses i
   await host.call('state', {})
   await host.agentCreated('b')
   assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), false)
-  rt.isLocalAgentRef = ref => typeof ref === 'string' && ref.startsWith('acp-')
+  rt.isLocalAgentRef = ref => typeof ref === 'string' && ref.startsWith('local-acp-')
   const bot = rt.botOf('b')
-  bot.model = 'acp-fake/default'
+  bot.model = 'local-acp-fake/default'
   rt.hideBotUnusedTools(host.agentOf('b'))
   assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), true)
   assert.equal(scopedNames(host, 'b').filter(name => name === 'message_bot').length, 1)
