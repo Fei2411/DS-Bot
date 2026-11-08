@@ -285,6 +285,8 @@ export function install(rt) {
       const entry = liveOf(sessionId)
       if (entry.turn !== undefined) continue
       entry.turn = RECOVERED_TURN
+      // Its input was consumed before the reload; a later request joins this turn.
+      entry.opened = true
       entry.since ??= Date.now()
       setActivity(sessionId, 'thinking')
     }

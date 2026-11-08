@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -275,4 +279,94 @@ test('a running group turn that ends after the reload still posts its reply to t
   const post = dsh.agentOf('r1').calls.find(([kind, message]) => kind === 'followup' && text(message).includes('[Group post from Writer]'))
   assert.match(text(post[1]), /The answer is ready\./)
   assert.equal((second.rt.roomWorkView().r1 ?? []).some(item => item.botId === 'b'), false)
+})
+
+
+test('a new request joins a recovered turn and is answered in its own turn', async (t) => {
+  const home = freshHome()
+  const dsh = dshSide()
+  dsh.agentOf('b')
+  const { ctx, rt } = await loadPlugin(dsh, home)
+  cleanup(t, home, ctx)
+  await settle(() => rt.live.get('b')?.turn !== undefined)
+  const delivered = []
+  rt.deliver = async request => { delivered.push(request) }
+  const request = { kind: 'bot', role: 'request', exchangeId: 'new-request', senderSessionId: 'a' }
+  const message = { source: request, content: [{ type: 'text', text: 'A separate new request' }] }
+  emit(ctx, 'b', 'user/message', message)
+  emit(ctx, 'b', 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'The old task result' }] } })
+  emit(ctx, 'b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => delivered.length > 0)
+  assert.equal(delivered.some(item => item.replyTo === request.exchangeId), false, 'old work must not answer a new request')
+  assert.equal(delivered[0].deferred, true)
+  assert.equal(delivered[0].exchangeId, request.exchangeId)
+  assert.equal(delivered[0].text, 'A separate new request')
+  // A fresh turn still lets its first input claim it, rather than deferring forever.
+  emit(ctx, 'b', 'turn/start', { turn: 2 })
+  emit(ctx, 'b', 'user/message', message)
+  emit(ctx, 'b', 'assistant/message', { turn: 2, message: { content: [{ type: 'text', text: 'The new request result' }] } })
+  emit(ctx, 'b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => delivered.some(item => item.replyTo === request.exchangeId))
+  assert.equal(delivered.find(item => item.replyTo === request.exchangeId).text, 'The new request result')
+})
+
+
+test('a real DSH loop keeps post-reload input separate from the running task', async (t) => {
+  const root = new Context()
+  await mountAgentLoopTestDependencies(root)
+  const release = Promise.withResolvers()
+  let calls = 0
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream() {
+      const first = ++calls === 1
+      if (first) await release.promise
+      const text = first ? 'The old task result' : 'The new request result'
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  root.llm.registerAdapter(['reload-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  const agent = await root.agentLoop.create(SessionId('b'), { provider: 'reload-test', model: 'test' })
+  const home = freshHome()
+  const dsh = dshSide()
+  dsh.agentMap.set('b', agent)
+  dsh.services.agents = root.agents
+  let active
+  root.on('session/event', (session, event) => {
+    for (const listener of active?.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener(session, event)
+    }
+  })
+  const first = await loadPlugin(dsh, home)
+  active = first.ctx
+  t.after(async () => {
+    release.resolve()
+    await root.fiber.dispose()
+    await active?.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'The original task' }] }))
+  await settle(() => calls === 1, 5000)
+  await first.ctx.dispose()
+  const second = await loadPlugin(dsh, home)
+  active = second.ctx
+  const delivered = []
+  second.rt.deliver = async request => { delivered.push(request) }
+  await settle(() => second.rt.live.get('b')?.turn !== undefined)
+  const request = { kind: 'bot', role: 'request', exchangeId: 'new-request', senderSessionId: 'a' }
+  const message = () => createUserMessage({ source: request, content: [{ type: 'text', text: 'A separate new request' }] })
+  agent.inject(message())
+  release.resolve()
+  await agent.whenIdle()
+  await settle(() => delivered.length > 0)
+  assert.equal(delivered.some(item => item.replyTo === request.exchangeId), false)
+  assert.equal(delivered[0].deferred, true)
+  agent.followup(message())
+  await agent.whenIdle()
+  await settle(() => delivered.some(item => item.replyTo === request.exchangeId))
+  assert.equal(delivered.find(item => item.replyTo === request.exchangeId).text, 'The new request result')
 })
