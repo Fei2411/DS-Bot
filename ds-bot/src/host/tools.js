@@ -819,15 +819,23 @@ export function install(rt) {
       for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
         if (relayOnly && def.name !== 'group_relay') continue
         if (held.added?.has(def.name) === true) continue
-        ;(held.added ??= new Set()).add(def.name)
         try {
           const dispose = agent.ctx.tools.register(def)
           if (typeof dispose === 'function') {
             ;(held.toolLifts ??= new Map()).set(def.name, dispose)
             held.disposers.push(dispose)
           }
+          // Recorded only once the Agent took it: one that failed is tried again at
+          // the next assemble, so a reload cannot leave that tool out for good.
+          ;(held.added ??= new Set()).add(def.name)
           held.unlisted.add(def.name)
         } catch (error) {
+          // A name the replaced plugin's scope still holds reads as already
+          // registered. It is left out of `added`, so the next assemble tries again
+          // once that scope is released, and it is not reported as a new failure.
+          if (/already registered/i.test(String(error?.message ?? error))) continue
+          if (held.missed?.has(def.name) === true) continue
+          ;(held.missed ??= new Set()).add(def.name)
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }

@@ -105,6 +105,7 @@ const cleanup = (t, home, ctx) => t.after(async () => {
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 
+const text = message => (message?.content ?? []).map(block => block.text ?? '').join('\n')
 let seq = 0
 const emit = (ctx, id, type, data) => {
   for (const listener of ctx.listeners.get('session/event') ?? []) {
@@ -206,4 +207,72 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
   // The delegation tools a Bot Session must not use stay masked.
   assert.equal(denied.includes('subagent'), true)
   assert.equal(denied.includes('workflow'), true)
+})
+
+test('a tool whose registration failed is tried again, and another Agent is not disturbed', async (t) => {
+  const home = freshHome()
+  const dsh = dshSide()
+  dsh.agentOf('gb', { status: 'idle' })
+  dsh.agentOf('b', { status: 'idle' })
+  const registered = { gb: [], b: [] }
+  const attempts = { gb: [], b: [] }
+  let rememberFailures = 0
+  for (const id of ['gb', 'b']) {
+    dsh.agentOf(id).ctx = {
+      tools: {
+        register: (def) => {
+          attempts[id].push(def.name)
+          // The first attempt happens while the Agent cannot take it yet.
+          if (id === 'gb' && def.name === 'remember' && rememberFailures < 1) {
+            rememberFailures += 1
+            throw new Error('the Agent is not ready for scoped tools yet')
+          }
+          registered[id].push(def.name)
+          return () => {}
+        },
+        restrict: () => () => {},
+      },
+      on: () => () => {},
+    }
+  }
+  const { ctx, rt } = await loadPlugin(dsh, home)
+  cleanup(t, home, ctx)
+  // The scope was built once and 'remember' was refused; it must not count as added.
+  await settle(() => attempts.gb.includes('remember'))
+  assert.equal(registered.gb.includes('remember'), false)
+  // The next sync tries it again, and this time it lands.
+  rt.syncScopedTools()
+  assert.equal(registered.gb.includes('remember'), true)
+  const settled = attempts.gb.filter(name => name === 'remember').length
+  assert.equal(settled, 2)
+  rt.syncScopedTools()
+  assert.equal(attempts.gb.filter(name => name === 'remember').length, settled)
+  // The other Agent got the tool once, and was not touched by the retry.
+  assert.equal(registered.b.includes('remember'), true)
+  assert.equal(attempts.b.filter(name => name === 'remember').length, 1)
+})
+
+test('a running group turn that ends after the reload still posts its reply to the group', async (t) => {
+  const home = freshHome()
+  const dsh = dshSide()
+  // Writer is mid-turn in the group, with the group's own Session live beside it.
+  dsh.agentOf('gb')
+  dsh.agentOf('r1', { status: 'idle' })
+  const first = await loadPlugin(dsh, home)
+  await settle(() => first.rt.live.get('gb')?.turn !== undefined)
+  await first.ctx.dispose()
+
+  const second = await loadPlugin(dsh, home)
+  cleanup(t, home, second.ctx)
+  await settle(() => second.rt.live.get('gb')?.turn !== undefined)
+  assert.equal((second.rt.roomWorkView().r1 ?? []).some(item => item.botId === 'b'), true)
+
+  emit(second.ctx, 'gb', 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'The answer is ready.' }] } })
+  emit(second.ctx, 'gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // The round's waiter went with the old plugin; the reply reaches the group's own
+  // Session as a late group post.
+  await settle(() => dsh.agentOf('r1').calls.some(([kind, message]) => kind === 'followup' && text(message).includes('[Group post from Writer]')))
+  const post = dsh.agentOf('r1').calls.find(([kind, message]) => kind === 'followup' && text(message).includes('[Group post from Writer]'))
+  assert.match(text(post[1]), /The answer is ready\./)
+  assert.equal((second.rt.roomWorkView().r1 ?? []).some(item => item.botId === 'b'), false)
 })
