@@ -141,11 +141,13 @@ export class CodexEngine {
     await this.peer?.request('thread/inject_items', { threadId: thread.threadId, items: [{ type: 'developerMessage', text }] }, { timeout: 15_000 }).catch(() => {})
   }
 
-  async prompt(thread, blocks, { signal }) {
+  async prompt(thread, blocks, { signal, effort }) {
     const peer = await this.ensure()
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
       input: blocks.map(block => block.type === 'image' ? { type: 'image', url: block.url ?? block.data } : { type: 'text', text: block.text ?? '' }),
+      // The app-server takes the level per turn and keeps it for the next ones.
+      ...(effort === undefined ? {} : { effort }),
     }, { signal, timeout: 0 })
     thread.turnId = reply?.turn?.id ?? reply?.id
     return thread.turnId
@@ -168,7 +170,23 @@ export class CodexEngine {
   async listModels() {
     const peer = await this.ensure()
     const reply = await peer.request('model/list', {}, { timeout: 30_000 })
-    return (reply?.data ?? reply?.models ?? []).map(entry => ({ id: String(entry.id ?? entry.model), name: String(entry.displayName ?? entry.name ?? entry.id ?? entry.model) }))
+    return (reply?.data ?? reply?.models ?? []).map((entry) => {
+      const model = {
+        id: String(entry.id ?? entry.model),
+        name: String(entry.displayName ?? entry.name ?? entry.id ?? entry.model),
+      }
+      // The app-server advertises the levels each model takes. Its default is
+      // left out on purpose: DSH would send it on every turn, and the level the
+      // user set in their Codex config (model_reasoning_effort) would stop
+      // applying. A Bot without a level of its own keeps the CLI's.
+      const efforts = (entry.supportedReasoningEfforts ?? []).map(option => ({
+        id: String(option.reasoningEffort ?? option),
+        name: String(option.reasoningEffort ?? option),
+        ...(option.description ? { description: String(option.description) } : {}),
+      }))
+      if (efforts.length === 0) return model
+      return { ...model, reasoning: { efforts } }
+    })
   }
 
   async close() {
