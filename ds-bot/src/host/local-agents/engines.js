@@ -74,7 +74,8 @@ export function validateCustom({ name, command, args }) {
 }
 
 // The permission preset DS Bot gives the Bot, mapped to each driver's mode.
-// ACP mode ids the agent advertises win over these guesses (see acp.js).
+// An ACP agent that lists its modes gets one of them or none: an agent with no
+// matching mode keeps its own (see acp.js).
 export const MODES = {
   'read-only': { acp: ['ask', 'plan'], claude: 'plan', codex: 'read-only' },
   'workspace-write': { acp: ['accept-edits', 'accept_edits', 'acceptEdits'], claude: 'acceptEdits', codex: 'workspace-write' },
@@ -82,7 +83,7 @@ export const MODES = {
 }
 export const acpMode = (preset, advertised) => {
   const wanted = MODES[preset]?.acp ?? []
-  const ids = (advertised ?? []).map(option => option.id ?? option)
-  return wanted.find(id => ids.includes(id)) ?? wanted[0]
+  const ids = (advertised ?? []).map(option => option.id ?? option.value ?? option)
+  return ids.length === 0 ? wanted[0] : wanted.find(id => ids.includes(id))
 }
 export const cliMode = (kind, preset, advertised) => (kind === 'acp' ? acpMode(preset, advertised) : MODES[preset]?.[kind])

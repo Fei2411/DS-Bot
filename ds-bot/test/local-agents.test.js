@@ -149,6 +149,17 @@ test('a permission prompt bridges to approve_agent_action and fails closed', asy
   const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
   assert.match(allowed.text, /allowed via allow-once/)
 })
+test('a call to the dsbot server is allowed once without asking; other servers still ask', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const team = await collect(adapter.stream(options('s1', [user('m1', 'team-permission')])))
+  // The MCP call itself reaches DS Bot's tools; no approval card in between.
+  assert.equal(team.calls[0]?.name, 'message_bot', JSON.stringify(team))
+  const done = await collect(adapter.stream(options('s1', [user('m1', 'team-permission'), toolResult('m2', team.calls[0].id, 'River: pong')])))
+  assert.match(done.text, /allowed via allow-once; tool said: River: pong/)
+  const other = await collect(adapter.stream(options('s2', [user('m1', 'other-permission')])))
+  assert.equal(other.calls[0]?.name, 'approve_agent_action')
+})
 test('a permission answer that is not the structured allow fails closed', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
@@ -218,7 +229,21 @@ test('routes and modes', () => {
   assert.equal(isLocalAgentRoute('deepseek'), false)
   assert.equal(cliMode('acp', 'read-only', [{ id: 'ask' }, { id: 'bypass' }]), 'ask')
   assert.equal(cliMode('acp', 'danger-full-access', [{ id: 'ask' }, { id: 'bypass' }]), 'bypass')
+  // Config options name a mode by `value`; an agent without a match keeps its own.
+  assert.equal(cliMode('acp', 'read-only', [{ value: 'agent' }, { value: 'plan' }, { value: 'ask' }]), 'ask')
+  assert.equal(cliMode('acp', 'workspace-write', [{ value: 'agent' }, { value: 'plan' }, { value: 'ask' }]), undefined)
   assert.equal(cliMode('claude', 'workspace-write'), 'acceptEdits')
+})
+
+test('acp: the preset picks among the modes the session lists', async (t) => {
+  const plain = makeAdapter({ preset: 'workspace-write' })
+  const readOnly = makeAdapter({ preset: 'read-only', acpArgs: ['--cursor-modes'] })
+  const write = makeAdapter({ preset: 'workspace-write', acpArgs: ['--cursor-modes'] })
+  t.after(() => Promise.all([plain, readOnly, write].map(adapter => adapter.dispose())))
+  assert.match((await collect(plain.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: accept-edits/)
+  assert.match((await collect(readOnly.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: ask/)
+  // Cursor has no accept-edits: it stays in its own agent mode and asks before acting.
+  assert.match((await collect(write.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: agent/)
 })
 
 test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {

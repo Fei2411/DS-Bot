@@ -3,8 +3,11 @@
 // session, created or resumed with our loopback MCP server attached.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { cleanEnv, spawnAgent } from './discover.js'
+import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
+// DS Bot's loopback MCP server, which carries the Bot's team tools.
+const MCP_SERVER = 'dsbot'
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
@@ -107,6 +110,11 @@ export class AcpEngine {
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
       const call = callOf(session, params?.toolCall)
+      // Cursor asks before every MCP tool call. A call to DS Bot's own server is
+      // approved once here: toolsFor() already narrowed what the Bot may call.
+      // Other tools, and an agent that offers no one-time allow, still ask.
+      const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
+      if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
@@ -126,10 +134,10 @@ export class AcpEngine {
   }
 
   // A new or resumed ACP session for one DS Bot Session.
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, model }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, preset, model }) {
     const peer = await this.ensure()
     const session = this.sessionFor(dshSessionId)
-    const mcpServers = mcp === undefined ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }]
+    const mcpServers = serversFor(mcp)
     if (mcp !== undefined && this.caps.mcpHttp === false) throw Object.assign(new Error(`${this.engine.name} cannot use HTTP MCP servers; the team tools cannot reach it`), { code: 'NOT_SUPPORTED' })
     const params = { cwd, mcpServers }
     let reply
@@ -145,6 +153,8 @@ export class AcpEngine {
     session.acpSessionId = reply?.sessionId ?? resumeId
     session.configOptions = reply?.configOptions ?? []
     session.modes = reply?.modes?.availableModes ?? configOptionsOf(session.configOptions, 'mode')?.options ?? []
+    // The preset maps to a mode only once the agent has listed its own.
+    const mode = acpMode(preset, session.modes)
     if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
     // A model the agent does not take fails the turn: going on would answer with a
     // model the user did not pick.
@@ -201,12 +211,16 @@ export class AcpEngine {
   // Models the agent advertises on a probe session (configOptions 'model').
   async listModels({ cwd, mcp }) {
     const peer = await this.ensure()
-    const probe = await peer.request('session/new', { cwd, mcpServers: mcp === undefined ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }] }, { timeout: 60_000 })
+    const probe = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp) }, { timeout: 60_000 })
     const option = configOptionsOf(probe?.configOptions ?? [], 'model')
     return (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
   }
 }
 
+const serversFor = mcp => (mcp === undefined ? [] : [{ type: 'http', name: MCP_SERVER, url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }])
+// Cursor names the MCP server in the call's input; the permission request itself
+// carries only a title.
+const ownToolCall = call => call?.rawInput?.providerIdentifier === MCP_SERVER
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')

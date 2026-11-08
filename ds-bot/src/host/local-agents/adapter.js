@@ -346,6 +346,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         mcp,
         resumeId: live.cliSessionId,
         mode,
+        preset,
         model: options.model,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
