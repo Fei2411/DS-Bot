@@ -926,8 +926,8 @@ export function install(rt) {
     // A result the admin asked for reports its goal task; a failed model call puts it back.
     if (slot.status === 'posted' && slot.by === room.admin && final !== undefined) rt.goalTaskReported?.(room.id, member.id)
     if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
-    // Settle the member's place in its call batch when its work did not continue in the background.
-    if (slot.status !== 'working') {
+    // Yielding to work, approval or an unanswered turn keeps the task pending.
+    if (['posted', 'passed', 'failed', 'left'].includes(slot.status)) {
       const batch = (slot.batchKey ? roomBatches.get(slot.batchKey) : undefined) ?? memberBatch.get(batchKeyOf(room.id, member.id))
       if (batch !== undefined) {
         if (slot.status === 'posted') {
