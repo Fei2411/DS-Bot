@@ -137,6 +137,18 @@ export default {
     let reconnectTimer
     let token
     let tokenExpiresAt = 0
+    // A first attempt that fails leaves nothing to reconnect from: the socket was
+    // never opened, so its close handler — the only place that schedules the next
+    // try — never runs, and the host starts a connection again only when its
+    // runner is gone. The channel stayed in error until someone pressed retry
+    // (#1119), so every dead end below schedules the next attempt itself.
+    const RETRY_MAX_MS = 30_000
+    let retryDelay = 0
+    const retry = (again) => {
+      retryDelay = Math.min(Math.max(1_000, retryDelay * 2 || 1_000), RETRY_MAX_MS)
+      reconnectTimer = setTimeout(() => { if (!stopped) void again() }, retryDelay)
+      reconnectTimer.unref?.()
+    }
     let botOpenId = ''
     // Split data frames reassemble by (sum, seq) until all parts arrive.
     const parts = new Map()
@@ -216,6 +228,7 @@ export default {
         }
       } catch (error) {
         handlers.onStatus({ state: 'error', error: error.message })
+        retry(open)
         return
       }
       try {
@@ -223,6 +236,7 @@ export default {
         socket.binaryType = 'arraybuffer'
       } catch (error) {
         handlers.onStatus({ state: 'error', error: `Feishu could not open a socket: ${error?.message ?? error}` })
+        retry(open)
         return
       }
       socket.addEventListener('message', (event) => {
@@ -247,7 +261,7 @@ export default {
         }
         void dispatch(type, frame.payload).catch(error => env.log?.warn?.('ds-bot im: feishu event failed: %s', error?.message ?? error))
       })
-      socket.addEventListener('open', () => handlers.onStatus({ state: 'ready' }))
+      socket.addEventListener('open', () => { retryDelay = 0; handlers.onStatus({ state: 'ready' }) })
       socket.addEventListener('close', () => {
         if (stopped || generation !== gen) return
         handlers.onStatus({ state: 'connecting' })
@@ -258,7 +272,7 @@ export default {
     }
 
     handlers.onStatus({ state: 'connecting' })
-    void (async () => {
+    const boot = async () => {
       try {
         const got = await tenantToken({ appId, appSecret }, env)
         token = got.token
@@ -266,11 +280,14 @@ export default {
         const me = await api(env, apiBase(env, fields), token, '/open-apis/bot/v3/info', { method: 'GET' }).catch(() => ({}))
         botOpenId = String(me?.bot?.open_id ?? me?.open_id ?? '')
       } catch (error) {
+        if (stopped) return
         handlers.onStatus({ state: 'error', error: error.message })
+        retry(boot)
         return
       }
       if (!stopped) await open()
-    })()
+    }
+    void boot()
 
     const card = (text, buttons) => JSON.stringify({
       schema: '2.0',

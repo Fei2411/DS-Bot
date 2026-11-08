@@ -47,6 +47,18 @@ export default {
     let generation = 0
     let sequence
     let sessionId
+    // A first attempt that fails leaves nothing to reconnect from: the socket was
+    // never opened, so its close handler — the only place that schedules the next
+    // try — never runs, and the host starts a connection again only when its
+    // runner is gone. The channel stayed in error until someone pressed retry
+    // (#1119), so every dead end below schedules the next attempt itself.
+    const RETRY_MAX_MS = 30_000
+    let retryDelay = 0
+    const retry = (again) => {
+      retryDelay = Math.min(Math.max(1_000, retryDelay * 2 || 1_000), RETRY_MAX_MS)
+      reconnectTimer = setTimeout(() => { if (!stopped) void again() }, retryDelay)
+      reconnectTimer.unref?.()
+    }
     // Passive replies reuse the inbound msg_id with a msg_seq that climbs
     // per id — outside the window the platform refuses (permanent).
     const msgSeq = new Map()
@@ -87,10 +99,11 @@ export default {
     const onDispatch = async (packet) => {
       if (packet.t === 'READY') {
         sessionId = packet.d?.session_id
+        retryDelay = 0
         handlers.onStatus({ state: 'ready', account: { id: String(fields.appId).trim(), name: packet.d?.user?.username ? `@${packet.d.user.username}` : String(fields.appId).trim() } })
         return
       }
-      if (packet.t === 'RESUMED') { handlers.onStatus({ state: 'ready' }); return }
+      if (packet.t === 'RESUMED') { retryDelay = 0; handlers.onStatus({ state: 'ready' }); return }
       const c2c = packet.t === 'C2C_MESSAGE_CREATE'
       const group = packet.t === 'GROUP_AT_MESSAGE_CREATE'
       if (!c2c && !group) return
@@ -113,6 +126,7 @@ export default {
         socket = new env.WebSocket(gatewayUrl)
       } catch (error) {
         handlers.onStatus({ state: 'error', error: `QQ could not open a socket: ${error?.message ?? error}` })
+        retry(() => open(resume))
         return
       }
       socket.addEventListener('message', (event) => {
@@ -149,21 +163,25 @@ export default {
 
     let gatewayUrl
     handlers.onStatus({ state: 'connecting' })
-    void (async () => {
+    const boot = async () => {
       try {
         const got = await getToken(fields, env)
         token = got.token
         expiresAt = got.expiresAt
         const gateway = await api(env, token, '/gateway', { method: 'GET' })
         gatewayUrl = gateway?.url
+        if (gatewayUrl === undefined) throw new Error('QQ did not answer with a gateway URL')
       } catch (error) {
+        if (stopped) return
         handlers.onStatus({ state: 'error', error: error.message })
+        retry(boot)
         return
       }
       if (stopped) return
       refresh()
       open(false)
-    })()
+    }
+    void boot()
 
     return {
       send: async (chat, { text }) => {

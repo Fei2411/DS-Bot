@@ -234,3 +234,24 @@ test('a refused handshake reports the code and the message', async (t) => {
   assert.match(error.error, /invalid param/)
   assert.match(error.error, /10003/)
 })
+
+test('opening the socket endpoint that fails on a network error is tried again', async () => {
+  const fake = await fakeFeishu()
+  const base = env(fake)
+  let attempts = 0
+  const flaky = {
+    ...base,
+    fetch: (url, options) => {
+      if (String(url).endsWith('/callback/ws/endpoint') && attempts++ === 0) return Promise.reject(new Error('getaddrinfo ENOTFOUND open.feishu.cn'))
+      return base.fetch(url, options)
+    },
+  }
+  try {
+    const statuses = []
+    const handle = feishu.connect(FIELDS, flaky, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+    await until(() => statuses.some(next => next.state === 'error'))
+    await until(() => statuses.some(next => next.state === 'ready'), 200)
+    assert.ok(attempts >= 2, 'the adapter asked for a socket again')
+    handle.stop()
+  } finally { fake.close() }
+})

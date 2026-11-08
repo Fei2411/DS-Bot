@@ -179,3 +179,39 @@ test('stop ends a long poll promptly, and a send in flight does not kill it', as
   assert.equal(api.calls.length, before, 'stop aborts the poll instead of retrying')
   await api.close()
 })
+
+test('a getMe that fails on a network error is asked again instead of staying dead', async () => {
+  const api = await fakeApi()
+  try {
+    let attempts = 0
+    api.replies.getMe = () => {
+      attempts += 1
+      // The first answer is what a DNS or TLS failure looks like from fetch:
+      // the request never reaches Telegram.
+      if (attempts === 1) return { error: 502, description: 'Bad Gateway' }
+      return { result: { id: 7, username: 'fakebot', is_bot: true } }
+    }
+    const statuses = []
+    const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+    await until(() => statuses.some(next => next.state === 'error'), 100)
+    assert.equal(attempts, 1, 'the first getMe is the one that failed')
+    assert.equal(api.calls.filter(call => call.method === 'getUpdates').length, 0, 'no poll started')
+    await until(() => statuses.some(next => next.state === 'ready'), 400)
+    assert.ok(attempts >= 2, 'the adapter asked again on its own')
+    handle.stop()
+  } finally { api.close() }
+})
+
+test('a rejected token is reported once and not retried', async () => {
+  const api = await fakeApi()
+  try {
+    let attempts = 0
+    api.replies.getMe = () => { attempts += 1; return { error: 401, description: 'Unauthorized' } }
+    const statuses = []
+    const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+    await until(() => statuses.some(next => next.state === 'error'), 100)
+    await new Promise(done => setTimeout(done, 1_400))
+    assert.equal(attempts, 1, 'a bad token stays a dead end')
+    handle.stop()
+  } finally { api.close() }
+})
