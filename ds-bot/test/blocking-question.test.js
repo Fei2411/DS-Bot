@@ -287,13 +287,13 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   t.after(stop)
   for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
   const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
-  // Bot Sessions get the hidden-tools filter and the computer-use filter; the room's
-  // own Session and a plain Agent get only the computer-use one.
-  assert.deepEqual(filters.map(record => record.sessionId), ['room', 'chief', 'chief', 'room-writer', 'room-writer', 'plain'])
+  // Bot Sessions get the hidden-tools filter and the computer-use filter. The room's own
+  // Session and a plain Agent get neither while DS Bot has mounted no provider.
+  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'chief', 'room-writer', 'room-writer'])
   // Resolving the same Agent again adds no listener.
   await rt.resolveAgent('chief')
-  assert.equal(scopedListeners.length, 6)
-  const filtered = await filters[1].listener({}, {}, async () => ({
+  assert.equal(scopedListeners.length, 4)
+  const filtered = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
     contexts: [{ name: 'x' }],
     tools: [{ name: 'read' }, { name: 'subagent' }, { name: 'workflow' }, { name: 'send_message' }, { name: 'message_bot' }, { name: 'ask_user_question' }],
@@ -305,21 +305,21 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.variables, { a: 1 })
   // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
   // assembly it passes has none; the guidance is still filtered and no tools appear.
-  const current = await filters[1].listener({}, {}, async () => ({
+  const current = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
     contexts: [],
     variables: {},
   }))
   assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   // Fei2411/DS-Bot#973: Agent Teams' Team Lead guidance goes too.
-  const team = await filters[1].listener({}, {}, async () => ({
+  const team = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'team:policy' }, { name: 'tool:spawn_teammate' }],
     contexts: [],
     variables: {},
   }))
   assert.deepEqual(team.sections.map(section => section.name), ['bot-identity'])
   // The computer-use filter keeps everything but the provider's own sections.
-  const computer = await filters[0].listener({}, {}, async () => ({
+  const computer = await filters[1].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'computer-use:dsh-cua' }],
     contexts: [],
     variables: {},
