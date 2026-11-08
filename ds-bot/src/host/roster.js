@@ -497,6 +497,9 @@ export function install(rt) {
   }
 
   async function saveSection({ id, name, collapsed, color, items, add, remove } = {}) {
+    if (color !== undefined && color !== null && color !== '' && !SECTION_COLORS.includes(color)) {
+      throw new Error('Unknown section color')
+    }
     const list = (state.sections ??= [])
     let sec
     if (id !== undefined && id !== null && id !== '') {
@@ -509,13 +512,9 @@ export function install(rt) {
       }
       if (color !== undefined) {
         if (color === null || color === '') delete sec.color
-        else if (SECTION_COLORS.includes(color)) sec.color = color
-        else throw new Error('Unknown section color')
+        else sec.color = color
       }
     } else {
-      if (color !== undefined && color !== null && color !== '' && !SECTION_COLORS.includes(color)) {
-        throw new Error('Unknown section color')
-      }
       const clean = name !== undefined && String(name).trim() !== '' ? cleanSectionName(name) : freshSectionName()
       sec = {
         id: `sec-${randomUUID().slice(0, 8)}`,
