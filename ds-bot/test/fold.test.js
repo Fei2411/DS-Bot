@@ -133,11 +133,15 @@ test('a message kept only in part is read whole on request, and says when it is 
 
   fresh()
   const short = 'a short start'
-  const partly = { length: 300_000, load: async () => ({ text: 'y'.repeat(200_000), whole: false }) }
+  let partialReads = 0
+  const partly = { length: 300_000, load: async () => { partialReads++; return { text: 'y'.repeat(200_000), whole: false } } }
   assert.equal(render(short, { whole: partly }).folded, true, 'a cut message folds even when its start is short')
   assert.equal(render(short, { whole: partly }).shown, short)
   await buttons(render(short, { whole: partly }).control)[0].props.onClick()
   assert.match(words(render(short, { whole: partly }).control), /^Showing the first 200,000 characters/)
+  buttons(render(short, { whole: partly }).control)[0].props.onClick()
+  await buttons(render(short, { whole: partly }).control)[0].props.onClick()
+  assert.equal(partialReads, 1)
 
   fresh()
   const lost = { length: 300_000, load: async () => undefined }

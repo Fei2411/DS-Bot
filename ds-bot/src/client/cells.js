@@ -70,8 +70,14 @@ function FoldCodeCopy({ code, actions }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
-      const text = typeof code === 'function' ? await code() : code
-      if (!await writeClipboard(text)) throw new Error('Could not copy the code block')
+      if (typeof code === 'function' && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        // Safari needs the clipboard write inside the click, before the attachment loads.
+        const text = Promise.resolve().then(code).then(value => new Blob([value], { type: 'text/plain' }))
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': text })])
+      } else {
+        const text = typeof code === 'function' ? await code() : code
+        if (!await writeClipboard(text)) throw new Error('Could not copy the code block')
+      }
       setCopied(true); setTimeout(() => setCopied(false), 1000)
     } catch (error) { actions?.reportError?.(error, 'copy') }
   }

@@ -126,7 +126,7 @@ export function useFold(text, { limit = FOLD_AT, whole, live = false, markdown =
   if (view === null) return { shown: text, control: null }
   // Expansion and copying share the same full text, including attachment posts.
   const readWhole = async () => {
-    if (read?.whole === true) return read
+    if (typeof read?.text === 'string') return read
     setRead('loading')
     const value = await Promise.resolve().then(() => whole.load?.()).catch(() => undefined) ?? { whole: false }
     setRead(value)
