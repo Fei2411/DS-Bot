@@ -423,21 +423,37 @@ export function install(rt) {
     for (const { chatKey } of targets) await markCard(conn.id, cardKey, chatKey, undefined, body)
   }
 
+  // Where a card asked in a Session belongs: the Bot's own chat, or the group the
+  // Session speaks for. A group's own Session and a member's group Session both
+  // report to the group's IM chat — that is the conversation the question or the
+  // view waits on, and the only one the user can answer from (#1118).
+  const cardHome = (sessionId) => {
+    const direct = rt.chatOwners.get(sessionId)
+    if (direct !== undefined) return { filter: { botId: direct }, botId: direct }
+    const past = rt.pastOwners.get(sessionId)
+    const group = rt.groupOwners.get(sessionId)
+    const roomId = rt.roomOwners.get(sessionId) ?? group?.roomId ?? past?.roomId
+    if (roomId !== undefined) return { filter: { roomId }, botId: group?.botId ?? past?.botId, roomId }
+    // An earlier part of a Bot's own chat.
+    return past?.botId === undefined ? undefined : { filter: { botId: past.botId }, botId: past.botId }
+  }
+
   const diffCards = async () => {
     if (rt.readOnly() !== undefined) return
     for (const conn of Object.values(connections())) {
       const runner = runners.get(conn.id)
       if (runner === undefined) continue
       const data = await cardsOf(conn.id)
-      // Questions: one card per open question id, sent to the Bot's chats.
+      // Questions: one card per open question id, sent to the chat that asks it.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`
         if (data.cards[cardKey] !== undefined) continue
-        const botId = rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
-        const bot = rt.botOf(botId)
-        if (bot === undefined) continue
+        const home = cardHome(sessionId)
+        if (home === undefined) continue
+        const name = rt.botOf(home.botId)?.name ?? rt.roomOf(home.roomId)?.name
+        if (name === undefined) continue
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
-        await sendCard(conn, cardKey, listeners(conn, { botId }), cardText.question(bot.name, question), buttons)
+        await sendCard(conn, cardKey, listeners(conn, home.filter), cardText.question(name, question), buttons)
       }
       // Secret requests: text only — the key is typed on the computer or phone.
       for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
@@ -453,11 +469,12 @@ export function install(rt) {
       for (const [sessionId, view] of Object.entries(state.views ?? {})) {
         const cardKey = `v:${view.id}`
         if (data.cards[cardKey] !== undefined) continue
-        const botId = rt.chatOwners.get(sessionId)
-        const bot = rt.botOf(botId)
-        if (bot === undefined) continue
+        const home = cardHome(sessionId)
+        if (home === undefined) continue
+        const name = rt.botOf(home.botId)?.name ?? rt.roomOf(home.roomId)?.name
+        if (name === undefined) continue
         const form = viewCardText({ title: view.title, view: view.view })
-        await sendCard(conn, cardKey, listeners(conn, { botId }), `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
+        await sendCard(conn, cardKey, listeners(conn, home.filter), `${text('viewShow', { bot: name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
       }
     }
   }

@@ -627,3 +627,64 @@ test('a platform status error is redacted of the stored secret', async (t) => {
   assert.equal(status.state, 'error')
   assert.ok(!status.error.includes('tok-1234'), 'the token is redacted')
 })
+
+test('a question and a view opened in a group reach the group IM chat', async (t) => {
+  const seed = TEAM()
+  // The group's own Session moved on to a new part, and member b speaks from a
+  // Session of its own in the group — neither is a Bot's own chat.
+  seed.rooms.r1.sessionId = 'r1-part2'
+  seed.rooms.r1.sessions = { b: 'rb-part1' }
+  const s = await start({ seed })
+  t.after(s.stop)
+  const conn = await add(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  await s.rt.save()
+  await gm(s, 'u1', '@fakebot hello group')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  await s.flush()
+  s.fake.sent.length = 0
+  // The group's own Session asks a question.
+  s.rt.state.questions['r1-part2'] = { id: 'gq1', question: 'Ship it?', options: [{ label: 'yes' }, { label: 'no' }] }
+  await s.rt.save()
+  await s.flush()
+  const asked = s.fake.sent.filter(entry => entry.buttons !== undefined)
+  assert.equal(asked.length, 1, 'the group question is sent')
+  assert.equal(asked[0].chat.key, 'g1')
+  assert.match(asked[0].text, /Ship it\?/)
+  // A member's group Session asks, and the group's own Session shows a view.
+  s.rt.state.questions['rb-part1'] = { id: 'gq2', question: 'More?', options: [{ label: 'ok' }] }
+  s.rt.state.views['r1-part2'] = { id: 'gv1', title: 'The plan', view: { blocks: [] } }
+  await s.rt.save()
+  await s.flush()
+  const cards = s.fake.sent.filter(entry => entry.buttons !== undefined)
+  assert.deepEqual(cards.map(entry => entry.chat.key), ['g1', 'g1'], 'both questions landed in the group chat')
+  assert.match(cards[1].text, /More\?/)
+  const view = s.fake.sent.find(entry => entry.text.includes('The plan'))
+  assert.ok(view !== undefined, 'the view reaches the group chat')
+  assert.equal(view.chat.key, 'g1')
+  // The answer from IM closes the group's question and reaches its Session.
+  await s.fake.handlers.onAction({ chat: { key: 'g1', kind: 'group', title: 'Group One' }, sender: { id: 'u1', name: 'User u1' }, data: 'q:gq1:0', messageId: asked[0].messageId ?? 1 })
+  assert.equal(s.rt.state.questions['r1-part2'], undefined, 'the answer settles the question')
+  assert.ok(s.rt.state.questions['rb-part1'] !== undefined, 'the other question stays open')
+})
+
+test('a question in a Bot own chat still goes to that chat, not to a group', async (t) => {
+  const seed = TEAM()
+  seed.rooms.r1.sessionId = 'r1-part2'
+  const s = await start({ seed })
+  t.after(s.stop)
+  const conn = await add(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  await gm(s, 'u1', '@fakebot hello group')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  await s.flush()
+  s.fake.sent.length = 0
+  s.rt.state.questions.a = { id: 'dq1', question: 'Private?', options: [{ label: 'yes' }] }
+  await s.rt.save()
+  await s.flush()
+  const asked = s.fake.sent.filter(entry => entry.buttons !== undefined)
+  assert.equal(asked.length, 1)
+  assert.equal(asked[0].chat.key, 'dm-u1', 'a Bot chat question stays in the Bot chat')
+})
