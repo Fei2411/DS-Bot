@@ -64,8 +64,8 @@ function rememberedHub(dataDir) {
   }
 }
 
-function hubUrlOf(options, dataDir) {
-  const saved = readDevice(dataDir)?.hubUrl
+function hubUrlOf(options, dataDir, { paired = false } = {}) {
+  const saved = paired ? readDevice(dataDir)?.hubUrl : undefined
   const url = typeof options.hub === 'string'
     ? options.hub
     : typeof saved === 'string' && saved !== '' ? saved : rememberedHub(dataDir)
@@ -232,7 +232,7 @@ async function commandSay(options, positional) {
   const text = typeof options.text === 'string' ? options.text : positional.join(' ')
   if (text.trim() === '') throw new Error('no message: pass --text "hello"')
   const client = createSessionClient({
-    hubUrl: hubUrlOf(options, dataDir),
+    hubUrl: hubUrlOf(options, dataDir, { paired: true }),
     dataDir,
     token: device.token,
     bot: typeof options.bot === 'string' ? options.bot : 'main',
