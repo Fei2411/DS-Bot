@@ -1599,6 +1599,10 @@ var HOST_ZH = {
   "Loading the provider…": "正在加载提供方…",
   "Could not load the provider": "提供方加载失败",
   "The provider package is not installed": "提供方包未安装",
+  "Install it in this DSH": "在这个 DSH 里安装",
+  "Run {command}, then restart DSH.": "运行 {command}，然后重启 DSH。",
+  "Copy command": "复制命令",
+  "Bots get no computer tools until the provider is ready.": "提供方就绪之前，Bot 拿不到电脑工具。",
   "Another computer-use provider is running": "另一个电脑操控提供方正在运行",
   "Computer use is not available on this platform": "此平台不支持电脑操控",
   "Accessibility": "辅助功能",
@@ -5724,6 +5728,22 @@ var PROVIDER_TEXT = {
   occupied: ["Another computer-use provider is running", "error"],
   unsupported: ["Computer use is not available on this platform", "error"]
 };
+function InstallRow({ install, Row: Row4 }) {
+  const [copied, setCopied] = (0, import_react11.useState)(false);
+  const copy2 = () => {
+    void navigator.clipboard?.writeText(install.command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }, () => {
+    });
+  };
+  return (0, import_react11.createElement)(
+    Row4,
+    { label: t("Install it in this DSH"), hint: t("Run {command}, then restart DSH.", { command: install.command }) },
+    (0, import_react11.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: copy2 }, copied ? t("Copied") : t("Copy command"))
+  );
+}
+var providerWorks = (provider) => provider.state === "ready" || provider.state === "loading";
 function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 }) {
   const computer = roster.computer ?? { enabled: false };
   const [system, setSystem] = (0, import_react11.useState)(null);
@@ -5765,11 +5785,13 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4
         { label: t(PROVIDER_TEXT[provider.state]?.[0] ?? PROVIDER_TEXT.error[0]), hint: provider.message },
         ["error", "missing", "occupied"].includes(provider.state) && actions.computerProviderRetry ? (0, import_react11.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.computerProviderRetry()) }, t("Retry")) : null
       ),
+      provider.state === "missing" && provider.install?.command ? (0, import_react11.createElement)(InstallRow, { install: provider.install, Row: Row4 }) : null,
       computer.macos === true ? [permRow("accessibility", "Accessibility"), permRow("screenRecording", "Screen Recording")] : null
     ) : null,
     (0, import_react11.createElement)(
       Section2,
       { key: "bots", title: t("Bots") },
+      computer.enabled && !providerWorks(provider) ? (0, import_react11.createElement)("p", { className: "bt-set-hint" }, t("Bots get no computer tools until the provider is ready.")) : null,
       roster.bots.map((bot) => (0, import_react11.createElement)(
         Row4,
         { key: bot.id, label: bot.name },
@@ -5785,7 +5807,7 @@ function BotComputerCard({ bot, roster, actions, run: run2, Card: Card3, Row: Ro
     Card3,
     { title: t("Control") },
     !computer.enabled ? (0, import_react11.createElement)(Row4, { label: t("Computer use") }, (0, import_react11.createElement)("span", { className: "bt-muted" }, t("Off in Settings → Computer use"))) : [
-      (0, import_react11.createElement)(Row4, { key: "level", label: t("Computer use") }, (0, import_react11.createElement)(LevelPicker, { bot, actions, run: run2 })),
+      (0, import_react11.createElement)(Row4, { key: "level", label: t("Computer use"), hint: providerWorks(computer.provider ?? { state: "loading" }) ? void 0 : t("Bots get no computer tools until the provider is ready.") }, (0, import_react11.createElement)(LevelPicker, { bot, actions, run: run2 })),
       apps.map(([key, app]) => (0, import_react11.createElement)(
         Row4,
         { key, label: app.name },
