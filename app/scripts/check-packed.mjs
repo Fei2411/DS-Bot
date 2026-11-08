@@ -263,6 +263,57 @@ function checkComputerUse(app) {
   `, 60_000)
 }
 
+// The macOS helper must run from outside the app: inside the asar the system cannot start it, and
+// inside the signed bundle Screen Recording goes to the outer app (#1066). The Host's own code
+// places the copy, then the helper is started and asked for its permission status.
+function checkComputerHelper(app) {
+  const resources = resolve(app, '..', '..', 'Resources')
+  runInHost(app, 'computer use helper', `
+    const { spawn } = require('node:child_process')
+    const { createHash } = require('node:crypto')
+    const { mkdtempSync, readFileSync, rmSync } = require('node:fs')
+    const { connect } = require('node:net')
+    const { join } = require('node:path')
+    const { pathToFileURL } = require('node:url')
+    const runtime = mkdtempSync('/tmp/dsbh-')
+    ;(async () => {
+      const { prepareComputerHelper } = await import(pathToFileURL(${JSON.stringify(join(resources, 'app.asar', 'src', 'computer-helper.mjs'))}).href)
+      const helper = await prepareComputerHelper({ runtimeDir: ${JSON.stringify(resources)}, home: ${JSON.stringify(join(work, 'computer-use'))} })
+      assert.ok(helper !== undefined, 'the packaged app carries no computer-use helper')
+      assert.equal(helper.error, undefined, String(helper.error))
+      assert.ok(!helper.path.startsWith(${JSON.stringify(dirname(resources))}), 'the helper still runs from inside the app: ' + helper.path)
+      const runtimeKey = createHash('sha256').update(readFileSync(helper.path)).digest('hex')
+      const launcher = spawn(helper.path, ['--ensure-shared', '--runtime-key', runtimeKey, '--runtime-directory', runtime, '--startup-timeout-ms', '30000'], { stdio: 'inherit' })
+      const code = await new Promise((done, fail) => { launcher.on('error', fail); launcher.on('close', done) })
+      assert.equal(code, 0, 'the helper did not start')
+      const status = await new Promise((done, fail) => {
+        const socket = connect(join(runtime, runtimeKey + '.sock'))
+        let buffer = ''
+        let ready = false
+        socket.on('error', fail)
+        socket.on('connect', () => socket.write(JSON.stringify({ type: 'hello', protocol: 1, runtimeKey, config: { maxRequestBytes: 1048576, maxResponseBytes: 33554432, axTimeoutMs: 5000, textEventIntervalMs: 8, maxClickHoldMs: 5000, screenshotTimeoutMs: 10000, timeoutMs: 30000, graceMs: 2000 } }) + '\\n'))
+        socket.on('data', (chunk) => {
+          buffer += chunk
+          for (let at = buffer.indexOf('\\n'); at >= 0; at = buffer.indexOf('\\n')) {
+            const message = JSON.parse(buffer.slice(0, at))
+            buffer = buffer.slice(at + 1)
+            if (!ready) {
+              ready = true
+              assert.equal(message.type, 'ready', JSON.stringify(message))
+              socket.write(JSON.stringify({ id: 'status', method: 'permissionStatus', params: {} }) + '\\n')
+            } else {
+              socket.end()
+              done(message.result)
+            }
+          }
+        })
+      })
+      assert.equal(typeof status?.accessibility, 'boolean', 'the helper gave no permission status')
+      console.log('check-packed: the computer-use helper runs from ' + helper.path + ' and answers')
+    })().finally(() => rmSync(runtime, { recursive: true, force: true })).then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
+  `, 90_000)
+}
+
 function startMock() {
   const mock = spawn(process.execPath, [join(root, '..', 'ds-bot', 'dev', 'mock-llm.mjs')], {
     env: { ...process.env, MOCK_PORT: '0', MOCK_LOG: join(work, 'mock.log') }, stdio: ['ignore', 'pipe', 'inherit'],
@@ -468,6 +519,7 @@ try {
   checkSharp(packedApp)
   checkOffice(packedApp)
   if (process.platform === 'win32') checkComputerUse(packedApp)
+  if (process.platform === 'darwin') checkComputerHelper(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
   const mainPort = await freePort()

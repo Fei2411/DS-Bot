@@ -171,7 +171,9 @@ export function install(rt) {
         }
         const provider = await importPackage(name).catch(error => { throw missing(error, [name]) })
         if (stopped || !enabled()) return
-        const config = process.platform === 'darwin' ? { agentPreset: false } : {}
+        // The desktop app runs the macOS helper from a copy outside its own bundle.
+        const helperPath = process.env.DS_BOT_COMPUTER_HELPER
+        const config = process.platform === 'darwin' ? { agentPreset: false, ...(helperPath ? { helperPath } : {}) } : {}
         providerFiber = ctx.plugin(provider, config)
         await providerFiber.await?.()
         if (stopped || !enabled()) return

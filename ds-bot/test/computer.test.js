@@ -288,6 +288,27 @@ test('the provider mounts when the switch comes on and reports its status', asyn
   assert.equal(fibers.length, 0)
 })
 
+test('the macOS provider gets the helper the desktop app placed outside its bundle', { skip: process.platform !== 'darwin' }, async (t) => {
+  const { ctx, home, rt } = setup()
+  const previous = process.env.DS_BOT_COMPUTER_HELPER
+  process.env.DS_BOT_COMPUTER_HELPER = '/support/computer-use/hash/DSH Computer Use.app/Contents/MacOS/dsh-cua-native'
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DS_BOT_COMPUTER_HELPER
+    else process.env.DS_BOT_COMPUTER_HELPER = previous
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  const services = {}
+  ctx.get = name => services[name]
+  services.loader = { import: async name => ({ name }) }
+  services.agents = { list: () => [] }
+  const fibers = withProvider(ctx, services)
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('provider-retry', {})
+  assert.deepEqual(fibers[1].config, { agentPreset: false, helperPath: process.env.DS_BOT_COMPUTER_HELPER })
+})
+
 test('provider status: occupied, missing, unsupported, error and retry', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
