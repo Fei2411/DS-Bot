@@ -62,6 +62,7 @@ export function install(rt) {
     questions: state.questions,
     views: state.views ?? {},
     closedCards: state.closedCards ?? {},
+    closedViews: state.closedViews ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},

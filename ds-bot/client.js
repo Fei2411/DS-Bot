@@ -8674,9 +8674,11 @@ function ClosedView({ title, closed }) {
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
+  const closed = useRoster((value) => value.closedViews?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
-  if (view === void 0 || view.callId && drawn && !held) return null;
+  if (view === void 0) return closed === void 0 ? null : (0, import_react16.createElement)("div", { className: "bt-q-dock" }, (0, import_react16.createElement)(SettledQuestion, { question: { question: closed.title || t("View") }, closed: closed.closed }));
+  if (view.callId && drawn && !held) return null;
   return (0, import_react16.createElement)(PendingView, { sessionId, view, actions, inline: false });
 }
 function AnsweredView2({ node }) {

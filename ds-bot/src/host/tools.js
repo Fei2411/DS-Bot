@@ -742,6 +742,8 @@ export function install(rt) {
         view,
         askedAt: Date.now(),
       }
+      // A new card supersedes the closed one the dock may still show.
+      if (state.closedViews !== undefined) delete state.closedViews[id]
       await rt.save()
       exec.concludeTurn?.()
       return 'The view is on screen; the user\'s answer arrives as their next message.'

@@ -14,7 +14,7 @@ const { outputFiles } = await build({
       "export { QuestionDock, SettledQuestion } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
-      "export { ViewMenuList, WidgetView } from './src/client/widget-cell.js'",
+      "export { ViewMenuList, WidgetView, WidgetDock } from './src/client/widget-cell.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -65,7 +65,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView, WidgetDock } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -910,6 +910,26 @@ test('a question or view card closed without an answer on it stays at its call, 
   assert.equal(text(view), 'Pick a laneDismissed')
   assert.equal(find(view, node => node.type === 'button'), undefined)
   assert.ok(find(show(call('show_view', 'v-answered', { args: pick }), { roster }), node => node.props?.className === 'bt-q-gone') !== undefined)
+})
+
+test('a dock card answered by a message stays above the composer, read-only, until a new card replaces it', () => {
+  const closedViews = { [chief.id]: { id: 'view-1', title: 'Pick a lane', closed: 'replied' } }
+  const dock = over => expand(WidgetDock({
+    sessionId: chief.id, useRoster: select => select(team(over)),
+    useCards: select => select({}), useHeldCards: select => select({}), actions: {},
+  }))
+  const node = dock({ views: {}, closedViews })
+  assert.match(node.props.className, /bt-q-dock/)
+  assert.match(text(node), /Pick a lane/)
+  // "Answered by message", with nothing to submit and no close control.
+  assert.match(text(node), /Answered by message/)
+  assert.equal(find(node, each => each.type === 'button'), undefined)
+  // Dismissed keeps its own label.
+  const dismissed = dock({ views: {}, closedViews: { [chief.id]: { id: 'view-1', title: 'Pick a lane', closed: 'dismissed' } } })
+  assert.match(text(dismissed), /Dismissed/)
+  // An open card takes the dock back.
+  const pending = dock({ views: { [chief.id]: { id: 'view-2', callId: 'v-call', title: 'Next', view: { type: 'options', id: 'lane', options: [{ label: 'A' }] } } }, closedViews })
+  assert.doesNotMatch(text(pending), /Pick a lane/)
 })
 
 test('an answered question card keeps only the chosen rows, each under its card letter, and the own answer after them', () => {

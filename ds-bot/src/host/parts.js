@@ -1186,6 +1186,11 @@ export function install(rt) {
         state.views[freshId] = pending
         delete state.views[agent.id]
       }
+      // A closed dock card belongs to the chat, not to the part it closed in.
+      if (state.closedViews?.[agent.id] !== undefined) {
+        state.closedViews[freshId] = state.closedViews[agent.id]
+        delete state.closedViews[agent.id]
+      }
     }
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
