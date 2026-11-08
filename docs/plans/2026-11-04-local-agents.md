@@ -91,6 +91,8 @@ handling, so they do not mix in one model list.
   that the Bot's shared MCP servers and skills do not reach the CLI, that a
   CLI that is not signed in fails its turns, and that a private Bot's privacy
   rules do not cover the CLI's own tools.
+- A private Bot may move onto a local agent: the confirmation warns, it does
+  not block (decided 2026-11-07).
 - On confirmation the Bot's own chat and every group it is in start a fresh
   part together, with the deterministic handoff, and the next turn runs on the
   new mode. A chat in the middle of a turn moves before its next step. A part
@@ -107,7 +109,7 @@ handling, so they do not mix in one model list.
 - A fallback never crosses modes. A model no longer served falls back within
   its mode. A local agent Bot whose CLI is gone stays on that CLI and says so.
 
-## Existing local agent Bots (proposed, waiting for the maintainer's decision)
+## Existing local agent Bots (decided 2026-11-07)
 
 - No migration step and no new choice. The mode is derived from the ref, so an
   existing local agent Bot follows these rules as soon as it upgrades. The user
@@ -122,8 +124,8 @@ handling, so they do not mix in one model list.
 - Earlier parts stay readable and searchable.
 - A team default model that is a local-agent route counts as unset, so new Bots
   do not silently become local agent Bots.
-- Alternatives not recommended: asking every such Bot to choose again repeats a
-  choice already made; a fresh part for all of them loses CLI context.
+- Not chosen: asking every such Bot to choose again repeats a choice already
+  made; a fresh part for all of them loses CLI context.
 
 ## Out of scope
 
