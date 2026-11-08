@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { main as cliMain } from '../src/host/multi-device/cli.js'
 import { createHub } from '../src/host/multi-device/hub.js'
 import { createSessionSync } from '../src/host/multi-device/session-sync.js'
 import { createSessionClient, replicaFile } from '../src/host/multi-device/session-client.js'
@@ -267,6 +268,26 @@ test('a stopped node catches up from its saved cursor after reconnect', async t 
   const caught = await until(() => second.view()?.items.find(item => item.text === 'said while the node was away'), { what: 'the missed message to arrive' })
   assert.equal(caught.kind, 'user')
   assert.ok(second.info().revision > revision)
+})
+
+test('lan:say uses the hub saved at pairing and refuses an unpaired machine', async t => {
+  const { hub, team, pair } = await bench(t)
+  const node = await pair('node-a')
+  const dataDir = folder('say')
+  writeFileSync(join(dataDir, 'device.json'), `${JSON.stringify({
+    nodeId: node.nodeId,
+    nodeName: node.nodeName,
+    token: node.token,
+    hubUrl: hub.url,
+  })}\n`)
+
+  await cliMain(['say', '--text', 'from the paired node', '--data', dataDir])
+  await until(() => team.sent.some(entry => entry.text === 'from the paired node'), { what: 'the node message' })
+  assert.equal(team.sent.at(-1).sessionId, 'b1')
+
+  const unpaired = folder('say-unpaired')
+  await assert.rejects(cliMain(['say', '--text', 'nobody hears this', '--data', unpaired]), /not paired yet/)
+  assert.equal(team.sent.some(entry => entry.text === 'nobody hears this'), false)
 })
 
 test('a worker with sync follows the Main Bot and stops cleanly', async t => {

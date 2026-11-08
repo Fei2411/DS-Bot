@@ -65,7 +65,10 @@ function rememberedHub(dataDir) {
 }
 
 function hubUrlOf(options, dataDir) {
-  const url = typeof options.hub === 'string' ? options.hub : rememberedHub(dataDir)
+  const saved = readDevice(dataDir)?.hubUrl
+  const url = typeof options.hub === 'string'
+    ? options.hub
+    : typeof saved === 'string' && saved !== '' ? saved : rememberedHub(dataDir)
   if (url === undefined) throw new Error('no hub URL: start the hub on this machine, or pass --hub http://<mac-ip>:8787')
   return url.replace(/\/+$/, '')
 }
