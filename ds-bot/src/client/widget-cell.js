@@ -2,9 +2,10 @@ import { createElement as h, useRef, useState } from 'react'
 import { MarkdownText } from './dsh-primitives.js'
 import { CellEmpty } from './cell-empty.js'
 import { t } from './i18n.js'
-import { AnsweredCell } from './questions.js'
+import { AnsweredCell, SettledQuestion } from './questions.js'
 import { useDockHold } from './card-hold.js'
 import { SettledHandoff } from './handoff-card.js'
+import { SettledComputerHandoff } from './computer.js'
 import { heldCardKey } from './sources.js'
 import { WidgetCard, ViewUi, DEEP_VIEW_CSS, WidgetView as CoreWidgetView, ViewMenuList as CoreViewMenuList } from 'deep-view/react'
 import { checkShownView } from 'deep-view/core'
@@ -14,6 +15,8 @@ import { checkShownView } from 'deep-view/core'
 const viewT = (key, params) => (key === 'Send' ? t('Send to Bot') : t(key, params))
 const VIEW_UI = { t: viewT, Markdown: MarkdownText }
 const Card = props => h(ViewUi.Provider, { value: VIEW_UI }, h(WidgetCard, props))
+// The show_view card, for the other request cards (connector, mail) to draw on.
+export const ViewCard = Card
 const withUi = Component => props => h(ViewUi.Provider, { value: VIEW_UI }, h(Component, props))
 
 // Direct renders (tests, history) still see ds-bot's labels.
@@ -58,13 +61,22 @@ export function WidgetCell({ sessionId, callId, args, done, isError, roster, act
   // The args accessor reads strings through `text`; `value` drops them.
   const shown = checkShownView(args?.text?.('title'), args?.value?.('view'))
   // A call the host refused — a blueprint it would not show, or a reply it cannot
-  // wait for — leaves no card; the model's retry then stays the only one. So does
-  // a settled interactive call: answered, dismissed or replaced, it leaves no gap
-  // where it was (same as ask_user).
-  if (shown.error !== undefined || shown.interactive || args?.value?.('await_reply') === true) {
-    return h(CellEmpty, { className: 'bt-q-gone' })
+  // wait for — leaves no card; the model's retry then stays the only one. An
+  // answered interactive call leaves no gap either: its reply message carries the
+  // card. Dismissed or answered by a message, the card stays here, read-only.
+  if (shown.error !== undefined) return h(CellEmpty, { className: 'bt-q-gone' })
+  if (shown.interactive || args?.value?.('await_reply') === true) {
+    const closed = callId === undefined ? undefined : roster.closedCards?.[sessionId]?.[callId]
+    if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
+    return h(ClosedView, { title: shown.title, closed })
   }
   return h('div', { className: 'bt-q-inline' }, h(Card, { title: shown.title, view: shown.view }))
+}
+
+// A view closed without an answer on it: compact like a closed question card, its
+// title (or "View") and a badge for how it closed.
+export function ClosedView({ title, closed }) {
+  return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question: { question: title || t('View') }, closed }))
 }
 
 // Views asked by a call the transcript does not draw wait above the composer,
@@ -105,7 +117,8 @@ export function AnsweredReply({ node }) {
     try { parsed = typeof data.text === 'string' ? JSON.parse(data.text) : null } catch { parsed = null }
     if (parsed?.kind === 'answer_to_pending_view') return h(AnsweredView, { node })
     if (parsed?.kind === 'answer_to_pending_handoff' && typeof parsed.reason === 'string') {
-      return h(SettledHandoff, { handoff: { reason: parsed.reason, note: parsed.note ?? '', outcome: parsed.outcome } })
+      const reply = { reason: parsed.reason, note: parsed.note ?? '', outcome: parsed.outcome }
+      return parsed.tool === 'computer_handoff' ? h(SettledComputerHandoff, { handoff: reply }) : h(SettledHandoff, { handoff: reply })
     }
   }
   return h(AnsweredCell, { node })
@@ -130,6 +143,16 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+/* An answered options view keeps only the chosen rows, each under its card letter
+   (a counter, since the core draws no letters on a settled card), like ds-bot's
+   own answered question card. Unchosen rows stay in the flow, invisible and
+   zero-height, so they still count their letters. */
+.dv-q-settled .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
+.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */

@@ -483,11 +483,11 @@ async function mountUrlCapability(t, { value, url, bots = ['chief'], awaitMount 
   const env = await setup({ secret: exaSecret(value) })
   t.after(() => env.dispose())
   const { ctx, rt, mounts, skills } = env
-  await rt.capabilitySave({ name: 'exa', kind: 'mcp', description: '', transport: 'streamable-http', url, headers: {} }, { botId: 'chief' })
-  for (const bot of bots) await rt.changeCapabilityAttachment('attach', { name: 'exa', bot: rt.state.bots[bot].name }, 'chief')
+  await rt.capabilitySave({ name: 'exa-cap', kind: 'mcp', description: '', transport: 'streamable-http', url, headers: {} }, { botId: 'chief' })
+  for (const bot of bots) await rt.changeCapabilityAttachment('attach', { name: 'exa-cap', bot: rt.state.bots[bot].name }, 'chief')
   for (const bot of bots) ctx.emit('agent/created', { agent: testAgent(bot, mounts, skills, { awaitMount }) })
   await rt.scheduleCapabilitiesReconcile()
-  const mountFor = bot => mounts.find(mount => mount.sessionId === bot && mount.config?.serverName === 'exa')
+  const mountFor = bot => mounts.find(mount => mount.sessionId === bot && mount.config?.serverName === 'exa-cap')
   return { ...env, mountFor }
 }
 
@@ -495,11 +495,11 @@ test('secret references in an HTTP MCP URL are resolved, and an unavailable one 
   const env = await mountUrlCapability(t, { value: 'fake-exa-key', url: 'https://mcp.exa.test/mcp?apiKey=$DSH_SECRET_EXA_API_KEY', bots: ['chief', 'worker'] })
   const { rt, mountFor } = env
   assert.equal(mountFor('chief').config.url, 'https://mcp.exa.test/mcp?apiKey=fake-exa-key')
-  assert.equal(rt.capabilityStatusesView().chief.exa.state, 'ready')
+  assert.equal(rt.capabilityStatusesView().chief['exa-cap'].state, 'ready')
   assert.equal(JSON.stringify(rt.state.capabilities).includes('fake-exa-key'), false)
   assert.equal(mountFor('worker'), undefined)
-  assert.equal(rt.capabilityStatusesView().worker.exa.state, 'error')
-  assert.match(rt.capabilityStatusesView().worker.exa.error, /EXA_API_KEY/)
+  assert.equal(rt.capabilityStatusesView().worker['exa-cap'].state, 'error')
+  assert.match(rt.capabilityStatusesView().worker['exa-cap'].error, /EXA_API_KEY/)
 })
 
 test('a secret in an HTTP MCP URL query is encoded as one parameter value', async t => {
@@ -521,7 +521,7 @@ test('a failed HTTP MCP mount does not show the encoded secret from its URL', as
     url: 'https://mcp.exa.test/mcp?apiKey=$DSH_SECRET_EXA_API_KEY',
     awaitMount: async mount => { throw new Error('Connection failed', { cause: new Error(`fetch ${mount.config.url}`) }) },
   })
-  const status = env.rt.capabilityStatusesView().chief.exa
+  const status = env.rt.capabilityStatusesView().chief['exa-cap']
   assert.equal(status.state, 'error')
   assert.equal(status.error, 'Connection failed: fetch https://mcp.exa.test/mcp?apiKey=[secret:EXA_API_KEY]')
 })

@@ -6,9 +6,14 @@
 // download starts into a staging folder of its own, and moves to the chosen file once both the
 // answer and the download are in. A cancelled picker cancels the download.
 import { randomUUID } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
+import * as nodeFs from 'node:fs'
 import { homedir as osHomedir } from 'node:os'
-import { basename, extname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
+
+// In Electron's main process node:fs takes every path that ends in .asar for an archive: a real
+// file of that name with other content reads as missing, and a staged one cannot be copied.
+// original-fs sees plain files; it exists only in Electron.
+const { constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } = process.getBuiltinModule('original-fs') ?? nodeFs
 
 /**
  * @param {{
@@ -49,15 +54,36 @@ export function downloadSaver({ window, ask, staging, getPath, homedir = osHomed
         target = null
       }
       if (target === null) item.cancel()
-      else if (target === undefined) target = folder === undefined ? undefined : freePath(folder, name)
       const state = await finished
-      try {
-        if (state === 'completed' && typeof target === 'string') move(staged, target)
-      } catch (error) {
-        log.warn(`DS Bot: a download could not be moved to ${target}: ${message(error)}`)
-      } finally {
+      if (state !== 'completed' || target === null) {
         rmSync(holding, { recursive: true, force: true })
+        return
       }
+      // A picker that cannot run means the start folder under a free name. The name is
+      // picked only now, in the same breath as the move, so two downloads of one name
+      // cannot take the same path.
+      if (target === undefined && folder !== undefined) target = freePath(folder, name)
+      if (typeof target !== 'string') {
+        log.warn(`DS Bot: a finished download has nowhere to go; it stays at ${staged}`)
+        return
+      }
+      try {
+        move(staged, target)
+      } catch (error) {
+        if (folder === undefined) {
+          log.warn(`DS Bot: a download could not be moved to ${target}; it stays at ${staged}: ${message(error)}`)
+          return
+        }
+        try {
+          const fallback = freePath(folder, name)
+          move(staged, fallback)
+          log.warn(`DS Bot: a download could not be moved to ${target}; it went to ${fallback} instead: ${message(error)}`)
+        } catch (secondError) {
+          log.warn(`DS Bot: a download could not be moved to ${target}; it stays at ${staged}: ${message(secondError)}`)
+          return
+        }
+      }
+      rmSync(holding, { recursive: true, force: true })
     })()
   }
 }
@@ -70,13 +96,22 @@ function safeName(name) {
   return plain === '' || plain === '.' || plain === '..' ? 'download' : plain
 }
 
-// The picker asked before it replaced a file; a rename does not cross drives.
-function move(from, to) {
+// The picker asked before it replaced a file; a rename does not cross drives. The copy
+// lands next to the target first and then takes its name, so a failed copy leaves the
+// old file whole.
+export function move(from, to, fs = { renameSync, copyFileSync, rmSync }) {
   try {
-    renameSync(from, to)
+    fs.renameSync(from, to)
   } catch (error) {
     if (error?.code !== 'EXDEV' && error?.code !== 'EPERM' && error?.code !== 'EEXIST') throw error
-    copyFileSync(from, to)
+    const part = join(dirname(to), `.${basename(to)}.${randomUUID()}.part`)
+    try {
+      fs.copyFileSync(from, part, constants.COPYFILE_EXCL)
+      fs.renameSync(part, to)
+    } catch (copyError) {
+      fs.rmSync(part, { force: true })
+      throw copyError
+    }
   }
 }
 

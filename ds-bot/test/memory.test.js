@@ -1647,7 +1647,7 @@ test('the members of a group read its memory in their Sessions there, and no Bot
 test('in a group, remember and forget write the group memory unless told otherwise, for any member', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   twoMembers(home)
-  const { tool, call, read, journal, stop } = start({ home })
+  const { ctx, tool, call, read, journal, stop } = start({ home })
   t.after(() => stop())
   assert.match(await tool('remember', { text: 'Builds go in the out folder' }, 'g2'), /^Saved to the group memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. Every member sees it in its next conversation in this group; recall finds it now\.$/)
   assert.match(read('groups', 'r1', 'MEMORY.md'), /- Builds go in the out folder \[source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Writer; added: /)
@@ -1668,6 +1668,9 @@ test('in a group, remember and forget write the group memory unless told otherwi
   assert.equal((await call('update-room', { id: 'r1', remove: ['b2'] })).ok, true)
   await assert.rejects(tool('remember', { text: 'Still here' }, 'g2'), /Only Bots on the team keep a memory\./)
   await assert.rejects(tool('forget', { entry: 'Friday' }, 'g2'), /Only Bots on the team keep a memory\./)
+  // Nor does it read it: its Session there gets no snapshot of the group's memory.
+  assert.equal(await groupMemoryOf(ctx, 'g2'), undefined)
+  assert.ok(await groupMemoryOf(ctx, 'g3'))
   assert.deepEqual(parseMemory(read('groups', 'r1', 'MEMORY.md')).entries.map(entry => entry.text), ['Ship on Friday'])
 })
 

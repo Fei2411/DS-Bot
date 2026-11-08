@@ -187,6 +187,24 @@ test('a Bot Session gets every team tool in its own scope', async (t) => {
   assert.deepEqual(scopedNames(host, 'a').sort(), [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort())
 })
 
+test('a Bot moved onto a local agent route gets the approval bridge, and loses it moving off', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('b')
+  assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), false)
+  rt.isLocalAgentRef = ref => typeof ref === 'string' && ref.startsWith('local-acp-')
+  const bot = rt.botOf('b')
+  bot.model = 'local-acp-fake/default'
+  rt.hideBotUnusedTools(host.agentOf('b'))
+  assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), true)
+  assert.equal(scopedNames(host, 'b').filter(name => name === 'message_bot').length, 1)
+  bot.model = 'deepseek-official/deepseek-flash'
+  rt.hideBotUnusedTools(host.agentOf('b'))
+  assert.equal(scopedNames(host, 'b').includes('approve_agent_action'), false)
+  assert.equal(scopedNames(host, 'b').includes('message_bot'), true)
+})
+
 test('a Session ds-bot does not own sees none of the team tools', async (t) => {
   const host = start()
   t.after(host.stop)

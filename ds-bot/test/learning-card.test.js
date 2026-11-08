@@ -22,6 +22,15 @@ test('a proposal uses the dock when there are no closed turns', () => {
   assert.deepEqual(proposalPlacement({ at: 150 }, new Map([[3, { turn: 3, status: 'open' }]])), { kind: 'dock' })
 })
 
+test('an answered proposal stays where it was answered and never goes to the dock', () => {
+  assert.deepEqual(proposalPlacement({ at: 150, outcome: 'approved', settledAt: 900 }, turns), { kind: 'turn', turn: 1 })
+  // Shown after the latest turn while waiting; answered then, it stays there as later turns end.
+  const later = new Map([...turns, [4, { turn: 4, end: { time: 1000 }, status: 'closed' }]])
+  assert.deepEqual(proposalPlacement({ at: 50, outcome: 'declined', settledAt: 300 }, later), { kind: 'turn', turn: 2 })
+  assert.deepEqual(proposalPlacement({ at: 50 }, later), { kind: 'turn', turn: 4 })
+  assert.deepEqual(proposalPlacement({ at: 150, outcome: 'approved', settledAt: 160 }, new Map()), { kind: 'none' })
+})
+
 test('a new skill diff marks every line as added', () => {
   assert.deepEqual(lineDiff('', 'a\nb\n'), [
     { kind: 'added', line: 'a', number: 1 },

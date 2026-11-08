@@ -103,7 +103,7 @@ export function install(rt) {
     const avatar = {}
     if (typeof input.shape === 'string' && /^[a-z][\w-]{0,31}$/.test(input.shape)) avatar.shape = input.shape
     if (typeof input.image === 'string') {
-      if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, or GIF')
+      if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, GIF, or SVG')
       if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
       avatar.image = input.image
     }
@@ -380,6 +380,14 @@ export function install(rt) {
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
+    // What a Bot runs on changes only from its settings, after the user confirmed: every
+    // conversation of the Bot starts a new part for it. A Bot without a model runs on the
+    // one it last ran on, and one that never ran runs on DS Bot's models.
+    const engineBefore = rt.engineOf === undefined ? undefined : rt.engineOfBot(bot) ?? 'model'
+    if (modelRef === null && engineBefore !== undefined && engineBefore !== 'model') throw new Error(`${bot.name} runs on a local agent and keeps a model of it`)
+    const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
+    if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
+    if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
@@ -466,6 +474,7 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
+    if (engineChanged) void rt.followEngine(bot.id)
     if (moved) void rt.followFolder({ botId: bot.id })
     // A new model lifted what blocked the Bot; a new thinking level alone fixes nothing.
     // releaseKickoff itself leaves when the Bot still lacks a model or holds no greeting.
@@ -874,6 +883,7 @@ export function install(rt) {
     for (const part of parts) {
       delete state.questions[part]
       if (state.views !== undefined) delete state.views[part]
+      if (state.closedCards !== undefined) delete state.closedCards[part]
       delete state.exchangeTurns[part]
       delete state.switching[part]
     }

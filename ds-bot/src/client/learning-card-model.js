@@ -1,16 +1,22 @@
+// A waiting card goes after the last turn that ended before it was proposed, else
+// after the latest turn, else to the dock. An answered card stays where it was
+// answered: when no turn ended before it was proposed, after the last one that
+// ended before the answer; it never goes to the dock.
 export function proposalPlacement(proposal, turns) {
-  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== 'function') return { kind: 'dock' }
-  let latest
-  let before
-  for (const location of turns.values()) {
-    const end = location?.end?.time
-    if (location?.status !== 'closed' || !Number.isFinite(end)) continue
-    const later = target => target === undefined || end > target.end.time || (end === target.end.time && location.turn > target.turn)
-    if (later(latest)) latest = location
-    if (end <= proposal.at && later(before)) before = location
+  const settled = proposal?.outcome !== undefined
+  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== 'function') return { kind: settled ? 'none' : 'dock' }
+  const lastBy = (time) => {
+    let found
+    for (const location of turns.values()) {
+      const end = location?.end?.time
+      if (location?.status !== 'closed' || !Number.isFinite(end) || end > time) continue
+      if (found === undefined || end > found.end.time || (end === found.end.time && location.turn > found.turn)) found = location
+    }
+    return found
   }
-  const turn = (before ?? latest)?.turn
-  return turn === undefined ? { kind: 'dock' } : { kind: 'turn', turn }
+  const turn = (lastBy(proposal.at) ?? lastBy(settled ? proposal.settledAt ?? proposal.at : Infinity))?.turn
+  if (turn === undefined) return { kind: settled ? 'none' : 'dock' }
+  return { kind: 'turn', turn }
 }
 
 export function fileLines(text) {

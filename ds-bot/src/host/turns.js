@@ -8,11 +8,12 @@ import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIN
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
+import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 
 // Failures only the user can fix: a key, a sign-in, a balance. They block the Bot
 // until it is fixed (`bot.blocked`, for the repair card).
-export const BLOCKING_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID'])
+export const BLOCKING_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT'])
 // The ones a key set outside a turn can fix, and the ones a sign-in can (unblockBots).
 // A balance only a turn that completes shows fixed, as Retry runs one.
 const KEY_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'])
@@ -109,6 +110,14 @@ const subEndText = (data) => {
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and do the work now. If your last reply already was your whole answer, reply [PASS]; it stays posted.'
+// A turn cut off at the model's output limit is not a finish. Whoever reads its answer
+// is told, so half an answer is not taken as the whole one and silence is not taken as
+// a deliberate one.
+const CUT_OFF_NOTE = '[cut off at the model\'s output limit; the answer is not complete]'
+const CUT_OFF_EMPTY_NOTE = '[cut off at the model\'s output limit before it wrote anything]'
+// The answer a cut-off turn leaves: what it said, marked as unfinished, or the line
+// that stands in for a turn that wrote nothing at all.
+export const cutOffText = said => (said === '' ? CUT_OFF_EMPTY_NOTE : `${said}\n\n${CUT_OFF_NOTE}`)
 
 // A reply that only promises to start investigating/checking/running tools now without
 // actually calling a tool or handing off with @Name (#469). A verb followed by 过了,
@@ -222,7 +231,9 @@ export function install(rt) {
     const map = subagentsByParent.get(sessionId)
     const childIds = [...(map?.keys() ?? [])]
     for (const agent of ctx.get?.('agents')?.list?.() ?? []) {
-      if (agent?.session?.header?.parentSession === sessionId && typeof agent.id === 'string' && !childIds.includes(agent.id)) {
+      const header = agent?.session?.header
+      // A fork names its parent too, but it is the user's own Session, not work to stop.
+      if (header?.parentSession === sessionId && header.origin === 'subagent' && typeof agent.id === 'string' && !childIds.includes(agent.id)) {
         childIds.push(agent.id)
       }
     }
@@ -231,7 +242,8 @@ export function install(rt) {
     stoppedSubagentParents.add(sessionId)
     for (const childId of childIds) {
       rememberStopped(stoppedSubagents, childId)
-      await Promise.resolve(ctx.subagents?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId })).catch(() => {})
+      // Not in the plugin's inject list, where ctx.subagents throws; interrupt can throw too.
+      try { await ctx.get?.('subagents')?.interrupt?.(childId, { kind: 'user', parentSessionId: sessionId }) } catch {}
       const childAgent = ctx.get?.('agents')?.get?.(childId)
       if (childAgent !== undefined) {
         try { childAgent.cancel?.({ kind: 'user' }) } catch {}
@@ -262,6 +274,23 @@ export function install(rt) {
     for (const message of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
       if (message.source?.exchangeId === exchangeId && agent.inbox.remove(message.id)) stoppedRoomTurns.delete(exchangeId)
     }
+  }
+
+  // The phone's Stop for a Bot's own-chat turn: the same cancel the group's
+  // member stop uses — end the running turn and any subagents it spawned.
+  async function stopChat(botId) {
+    await rt.load()
+    const sessionId = rt.chatOf(botId)
+    if (sessionId === undefined) return false
+    const turnRunning = live.get(sessionId)?.turn !== undefined
+    const subRunning = hasSubagents?.(sessionId) === true
+    if (!turnRunning && !subRunning) return false
+    await stopSubagents(sessionId)
+    if (turnRunning) {
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      agent?.cancel?.({ kind: 'user' })
+    }
+    return true
   }
 
   const liveOf = id => {
@@ -526,6 +555,27 @@ export function install(rt) {
       code: failure.code,
       status: failure.status,
       requestId: failure.requestId,
+      bot: rt.botOf(rt.selfOf(id))?.name ?? (rt.roomOf(id) ? undefined : 'unknown Bot'),
+      where: placeOf(id),
+      sessionId: id,
+    })
+  }
+
+  // A turn cut off at the output limit is not a finish, but no failure either. The
+  // record names the route and the size of the input, so a route whose declared
+  // window is larger than the service really serves can be found from it.
+  const noteCutOffTurn = (id, { session, wroteNothing }) => {
+    const route = session.requestHeader?.()?.config
+    const ref = route?.provider && route?.model ? `${route.provider}/${route.model}` : undefined
+    const tokens = rt.sessionTokens?.(session)
+    const facts = [ref, Number.isFinite(tokens) && tokens > 0 ? `${tokens} tokens in` : undefined].filter(Boolean)
+    rt.noteFailure({
+      level: 'warn',
+      source: 'turn',
+      code: 'MAX_TOKENS',
+      text: `${wroteNothing
+        ? 'the turn was cut off at the output limit before it wrote anything'
+        : 'the turn was cut off at the output limit, so its answer is not complete'}${facts.length > 0 ? ` (${facts.join(', ')})` : ''}`,
       bot: rt.botOf(rt.selfOf(id))?.name ?? (rt.roomOf(id) ? undefined : 'unknown Bot'),
       where: placeOf(id),
       sessionId: id,
@@ -821,17 +871,19 @@ export function install(rt) {
             const content = Array.isArray(event.data.content) ? event.data.content : []
             const images = content.filter(block => block?.type === 'image' && !block.offloaded).map(block => block.attachment)
             const files = content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
-            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
+            queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content), ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}), ...(viaOf(source) ? { via: viaOf(source) } : {}) })
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.userWrote(own)
           // Any user message answers or supersedes the open question card and view card.
           let dropped = false
           if (state.questions[id] !== undefined) {
+            rt.closeCard(id, state.questions[id], 'replied')
             delete state.questions[id]
             dropped = true
           }
           if (state.views?.[id] !== undefined) {
+            rt.closeCard(id, state.views[id], 'replied')
             delete state.views[id]
             dropped = true
           }
@@ -885,12 +937,17 @@ export function install(rt) {
         const joined = entry.joined ?? []
         // What the group already saw of the turn is not posted again.
         const texts = entry.texts.slice(entry.shown)
+        // Whether the turn wrote any text, also text the group already saw.
+        const wroteText = entry.texts.length > 0
         const shown = entry.shown > 0 || (info?.retried === true && promisedOpenings.delete(info.exchangeId))
         const { lastText, lastCalled } = entry
         const toolCount = entry.toolCount ?? 0
         const suppressedSubagent = entry.suppressedSubagent === true
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
+        // A turn the plugin watched start. A turn/end replayed after a restart, whose
+        // turn is settled from the Session's log, is not one (resume.js does that).
+        const watched = entry.turn !== undefined
         entry.turn = undefined
         entry.info = undefined
         entry.texts = []
@@ -935,6 +992,14 @@ export function install(rt) {
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) break
         const owner = rt.chatOwners.get(id)
+        // A turn cut off at the output limit is not a finish: whoever reads its answer
+        // is told, and the diagnostics record it. Nothing written at all, twice in a
+        // row, is what a route over the window it really has leaves behind, and the
+        // context check then moves the part on instead of sending the same size again.
+        const cutOff = watched && failure === undefined && reason?.kind === 'max-tokens'
+        const wroteNothing = cutOff && !wroteText
+        rt.noteCutOffTurn?.(id, { withoutText: wroteNothing })
+        if (cutOff) noteCutOffTurn(id, { session, wroteNothing })
         if (failure !== undefined) {
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
@@ -966,7 +1031,9 @@ export function install(rt) {
         }
         const replyText = () => {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
-          return wroteCall && reply === '' ? 'Tried to run a tool but wrote the call as text, so it did not run.' : reply
+          if (wroteCall && reply === '') return 'Tried to run a tool but wrote the call as text, so it did not run.'
+          if (cutOff) return reply === '' && wroteText ? CUT_OFF_NOTE : cutOffText(reply)
+          return reply
         }
         const groupReply = () => rt.withRoomSteps?.(held, replyText()) ?? replyText()
         // Whoever the turn answers gets the same three-way rule: a failure notice,
@@ -1122,5 +1189,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
 }

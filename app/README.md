@@ -1,6 +1,6 @@
 # DS Bot desktop app
 
-The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.1-rc.5) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window shows DSH's Web front end with the plugin, as DSH Desktop does. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md).
+The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.2-rc.1) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window shows DSH's Web front end with the plugin, as DSH Desktop does. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md).
 
 ## Run
 
@@ -82,7 +82,7 @@ Never point `DS_BOT_HOME` at `~/.dsh` or at the data of an app that you use.
 ```sh
 npm run pack           # the app without an installer: dist-pack/win-unpacked/ (Windows), dist-pack/mac*/ (macOS), dist-pack/linux-unpacked/ (Linux)
 npm run dist           # the installer: dist-pack/DS-Bot-<version>-win-x64.exe (Windows), a .zip (macOS), an .AppImage and a .deb (Linux)
-npm run check-packed   # converts an image and a Word document with the packaged sharp and LibreOffice engine, starts the packaged app on throwaway folders with the mock model, chats once, closes it
+npm run check-packed   # copies files that end in .asar, converts an image and a Word document with the packaged sharp and LibreOffice engine, starts the packaged app on throwaway folders with the mock model, chats once, closes it
 ```
 
 macOS produces one zip per architecture. Build arm64 on an Apple chip Mac and x64 on an Intel Mac, or under Rosetta with an x64 Node that also ran `npm ci`. Do not cross-build: it packages native modules from `node_modules`; a combined build put 12 arm64-only native modules in its x64 app. `scripts/before-pack.mjs` stops a build whose architecture is not the one of the Node that runs it. The app is ad-hoc signed so downloaded copies are sealed. It ships as a zip, not a dmg: macOS 26 calls a downloaded unsigned dmg damaged and does not open it, and an ad-hoc signature on the dmg does not help (#351). Safari unzips the download; move DS Bot to Applications. On first open, use System Settings → Privacy & Security → Open Anyway. Do not disable Gatekeeper.

@@ -116,6 +116,20 @@ test('the report says where the Main Bot\'s whale is drawn', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [[{ x: 98, y: 70, width: 60, height: 60, viewportWidth: 1280, viewportHeight: 800 }]])
 })
 
+test('the place is where the team column comes to rest, not where its slide-in has it', async () => {
+  // Measured as the column first draws: its slide has it 270 px off to the left (and, to catch
+  // either axis, 10 px up).
+  const column = { offsetLeft: 0, offsetTop: 0, getBoundingClientRect: () => ({ left: -270, top: -10 }) }
+  const mark = { checkVisibility: () => true, closest: selector => (selector === '.bt-leftcol' ? column : null), getBoundingClientRect: () => ({ left: -172, top: 60, width: 60, height: 60 }) }
+  const { calls, app } = readyCalls()
+  mount(page(app, {
+    querySelector: selector => (selector === '.bt-side [data-bot-id="main"] .bt-mark' ? mark : null),
+    documentElement: { clientWidth: 1280, clientHeight: 800, setAttribute() {}, removeAttribute() {} },
+  }).TeamSidebar)(sidebarProps(whaleTeam))
+  await setImmediate()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [[{ x: 98, y: 70, width: 60, height: 60, viewportWidth: 1280, viewportHeight: 800 }]])
+})
+
 test('a Main Bot in another look or a photo reports no place', async () => {
   for (const avatar of [{ shape: 'star' }, { shape: 'whale', image: 'data:image/png;base64,AA' }]) {
     const { calls, app } = readyCalls()
@@ -171,7 +185,9 @@ test('a whale handed over glides from where it was handed onto the Main Bot\'s a
     made.push(el)
     return el
   }
-  const mark = { ...element(), checkVisibility: () => true, getBoundingClientRect: () => ({ left: 98, top: 70, width: 60, height: 60 }), cloneNode: () => element() }
+  // The hand-off can come while the column still slides in: the copy goes where it comes to rest.
+  const column = { offsetLeft: 0, offsetTop: 0, getBoundingClientRect: () => ({ left: -40, top: 0 }) }
+  const mark = { ...element(), checkVisibility: () => true, closest: selector => (selector === '.bt-leftcol' ? column : null), getBoundingClientRect: () => ({ left: 58, top: 70, width: 60, height: 60 }), cloneNode: () => element() }
   const body = element()
   let handoff
   const calls = []

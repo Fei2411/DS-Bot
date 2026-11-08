@@ -1052,7 +1052,8 @@ export function install(rt) {
     if (decision.kind === 'reject' || signal?.aborted || !Array.isArray(decision.messages)) return decision
     await rt.load()
     const roomId = roomIdOf(agent.id)
-    if (roomId === undefined || rt.botOf(rt.selfOf(agent.id)) === undefined) return decision
+    const bot = rt.botOf(rt.selfOf(agent.id))
+    if (roomId === undefined || bot === undefined || !rt.roomOf(roomId)?.members.includes(bot.id)) return decision
     if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return decision
     try {
       if (agent.session?.deriveMessages?.().some(isGroupMemory)) return decision
@@ -1292,7 +1293,12 @@ export function install(rt) {
   }))
 
   async function modelFor(bot) {
-    const route = splitRef(await rt.desiredModel(bot) ?? await rt.defaultModel())
+    const desired = await rt.desiredModel(bot)
+    // A local agent CLI answers through its own subscription, not a model API:
+    // its memory reads the team's default model when one is set.
+    const team = rt.isLocalAgentRef?.(state.prefs.defaultBotModel) === true ? undefined : state.prefs.defaultBotModel
+    const ref = rt.isLocalAgentRef?.(desired) === true ? (team ?? null) : desired ?? await rt.defaultModel()
+    const route = ref === null ? undefined : splitRef(ref)
     if (route === undefined) throw new Error('No model is available. Add one in Settings > Models.')
     return route
   }

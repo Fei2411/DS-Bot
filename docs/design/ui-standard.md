@@ -216,7 +216,7 @@ Bot 名字、提及用同一个颜色写字；纯黑读起来像标题，所以�
 | 999px | 胶囊形：标准按钮、标签页、顶部胶囊、开关 |
 | 50% | 圆形：头像、圆形按钮、徽标、色块 |
 
-**真圆**：DSH 给所有元素设了 `corner-shape: superellipse(1.5)`，`border-radius: 50%` 会画成圆角方块。要真圆的地方（徽标、状态点）必须加 `corner-shape: round`。
+**真圆**：DSH 给所有元素设了 `corner-shape: superellipse(1.5)`，`border-radius: 50%` 会画成圆角方块。要真圆的地方（徽标、状态点）必须加 `corner-shape: round`。桌面应用自己的页面不在 DSH 里：启动窗口（`start.css`）和页内卡片、选择器（`page-card.css`，卡片的 `all:unset` 也会清掉它）自己设同样的 `superellipse(1.5)`，所以 999px 的按钮和插件里一样，是顶部胶囊那样的圆角矩形。
 
 **现状偏差**（`2f9300d`）：不在档位里的圆角约 20 处，集中在 `browser-pane.js`（9、7、5、3、2px，共 8 处）和 `usage-page.js`（9、5、3、14px、30%，共 7 处）；另有 `sidebar.js` 14px、`secret-card.js` 5px、`member-status.js` 13px、`styles.js` 1px 和 `9999px` ×2。9 → 8 或 10；9999px → 999px；其余就近归入上表。用量页的图表元素（条、格）可以例外，写进注释。
 

@@ -1,8 +1,8 @@
-import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
+import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ConnectorIcon, InfoIcon, PlugIcon, PlusIcon, SlidersIcon, SETTINGS_ICONS } from './icons.js'
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
@@ -12,15 +12,19 @@ import { CreateBot } from './create-bot.js'
 import { KeptPrivateSection } from './kept-private.js'
 import { KeyIcon, SecretsPage } from './secret-card.js'
 import { UsagePage } from './usage-page.js'
-import { ConnectorsPage } from './connectors.js'
+import { ConnectorsPage } from './connectors-page.js'
+import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
 import { BrowserPage } from './browser-settings.js'
+import { ComputerPage } from './computer.js'
 import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
 import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
+import { LocalAgentsPage } from './local-agents-page.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
+import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -28,8 +32,8 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // Settings dialog: a 198px page list beside the page. Bots and group chats each list
 // their members, and one opens on its own settings form. Usage widens the dialog.
 // Models is there wherever the host serves the model providers, beside DSH's own settings.
-const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, connectors: ConnectorIcon, capabilities: PlugIcon, browser: ConnectorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 function SetSection({ title, className = '', children }) {
   return h('section', { className: `bt-set-section ${className}`.trim() }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
@@ -110,7 +114,7 @@ function GeneralPage({ roster, actions, run }) {
     h(SetSection, { key: 'new', title: t('New Bots') },
       h(SetRow, { label: t('Default model'), className: 'bt-set-model' },
         h(ModelMenu, {
-          bot: { id: 'new-bots', name: t('New Bots'), model: prefs.defaultBotModel },
+          bot: { id: 'new-bots', name: t('New Bots'), model: isLocalRoute(prefs.defaultBotModel) ? undefined : prefs.defaultBotModel },
           roster, actions, run, wide: true, withEfforts: false,
           onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })),
         }),
@@ -240,6 +244,18 @@ function GroupsPage({ roster, actions, run }) {
   ]
 }
 
+// A page that throws while it renders shows a line in its place. Uncaught, the
+// error takes down the plugin's whole overlay, and no dialog opens again until
+// the window reloads. The page's key resets it; Usage stays mounted, so its
+// boundary resets when the shown page changes.
+class PageBoundary extends Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidUpdate(previous) { if (this.state.failed && previous.reset !== this.props.reset) this.setState({ failed: false }) }
+  componentDidCatch(error) { console.error('ds-bot: a settings page failed', error) }
+  render() { return this.state.failed ? h('div', { className: 'bt-error', role: 'alert' }, t('This page could not be shown.')) : this.props.children }
+}
+
 // While `leaving`, the dialog plays its exit and takes no input.
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false }) {
   const [error, setError] = useState('')
@@ -290,21 +306,25 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           h('h2', { key: bot?.id ?? room?.id ?? shown }, bot?.name ?? room?.name ?? label)),
         shown === 'usage' ? null : h('div', { key: pageKey, className: 'bt-settings-scroll bt-settings-page', 'data-move': last.current.move },
           errorLine,
+          h(PageBoundary, null,
+          shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run }) : null,
           shown === 'models' ? h(ProvidersPage, { actions, run, Section: SetSection }) : null,
+          shown === 'local-agents' ? h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow }) : null,
           bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
           shown === 'bots' && !bot ? h(BotsPage, { roster, actions, run }) : null,
           room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
           shown === 'groups' && !room ? h(GroupsPage, { roster, actions, run }) : null,
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
+          shown === 'im' ? h(ImPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
           shown === 'browser' ? h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow }) : null,
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
           shown === 'secrets' ? h(SecretsPage, { roster, actions, run, Section: SetSection }) : null,
           shown === 'feedback' ? h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow }) : null,
-          shown === 'about' ? h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow }) : null),
+          shown === 'about' ? h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow }) : null)),
         usageOpened ? h('div', { key: 'usage', className: 'bt-settings-scroll bt-settings-usage', 'data-off': shown === 'usage' ? undefined : '', 'aria-hidden': shown === 'usage' ? undefined : true },
           shown === 'usage' ? errorLine : null,
-          h(UsagePage, { roster, actions, focusId: usageFocus })) : null),
+          h(PageBoundary, { reset: shown }, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
       h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon))))
 }

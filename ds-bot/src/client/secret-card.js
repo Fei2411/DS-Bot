@@ -36,10 +36,11 @@ const scopeLabel = (scope, roster) => {
 }
 const when = time => (Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
 
-export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false }) {
+export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false }) {
   return h('input', {
     className: 'bt-secret-input',
     type: MASK_BY_CSS ? 'text' : 'password',
+    disabled,
     'data-masked': MASK_BY_CSS ? '' : undefined,
     value,
     autoFocus,
@@ -52,7 +53,7 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     'data-bwignore': '',
     'data-form-type': 'other',
     'aria-label': label,
-    placeholder: t('Paste or type the key'),
+    placeholder: label ?? t('Paste or type the key'),
     onChange: event => onChange(event.target.value),
     onKeyDown: (event) => {
       if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
@@ -302,7 +303,7 @@ export const SECRET_CSS = `
 .bt-secret-who{position:relative;flex:none;display:inline-flex}
 .bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
 .bt-secret-lock svg{width:11px;height:11px}
-.bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:5px;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-secret-body{display:flex;flex-direction:column;gap:8px}
 .bt-secret-field{align-items:center;min-height:36px}
 .bt-secret-input{flex:1;width:100%;min-width:0;margin:0;padding:0;border:0;outline:none;background:transparent;color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:20px;letter-spacing:.04em}
@@ -323,7 +324,7 @@ export const SECRET_CSS = `
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:#b25e09;background:color-mix(in srgb,#f59e0b 12%,transparent)}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}

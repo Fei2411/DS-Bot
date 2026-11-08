@@ -209,7 +209,7 @@ test('view-reply claims the card, refuses a stale or invalid answer, and restore
   assert.equal(again.error.message, 'This view is no longer open')
 })
 
-test('dismiss-view drops the open view and leaves a question card alone', async (t) => {
+test('dismiss-view drops the open view, keeps it as a closed card, and leaves a question card alone', async (t) => {
   const { show, call, team, stop } = await start()
   t.after(stop)
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
@@ -222,7 +222,20 @@ test('dismiss-view drops the open view and leaves a question card alone', async 
   const open = await team()
   assert.equal(open.views['writer-now'], undefined)
   assert.equal(open.questions['writer-now'].question, 'Keep me')
+  assert.deepEqual(open.closedCards, { 'writer-now': { 'call-1': 'dismissed' } })
   assert.equal((await call('dismiss-view', { sessionId: 'writer-now' })).ok, true)
+  assert.equal((await call('dismiss-question', { sessionId: 'writer-now' })).ok, true)
+  assert.deepEqual((await team()).closedCards, { 'writer-now': { 'call-1': 'dismissed', 'q-call': 'dismissed' } })
+})
+
+test('an answered view is not kept as a closed card: its reply message carries it', async (t) => {
+  const { show, call, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  await show('writer-now', { title: 'Pick', view: CHOICES })
+  const pending = (await team()).views['writer-now']
+  assert.equal((await call('view-reply', { sessionId: 'writer-now', viewId: pending.id, action: 'pick', values: { selected: ['A'] } })).ok, true)
+  assert.deepEqual((await team()).closedCards, {})
 })
 
 test('a user message drops the open question and the open view together', async (t) => {
@@ -240,6 +253,8 @@ test('a user message drops the open question and the open view together', async 
   const open = await team()
   assert.equal(open.questions['writer-now'], undefined)
   assert.equal(open.views['writer-now'], undefined)
+  // Both cards stay in the chat as answered by that message.
+  assert.deepEqual(open.closedCards, { 'writer-now': { 'q-call': 'replied', 'call-1': 'replied' } })
 })
 
 test('show_view measures the bytes the model sent, before unwrapping the provider encoding', async (t) => {

@@ -9,17 +9,27 @@
  *   tooltip: string,
  *   open: { label: string, run: () => void },
  *   quit: { label: string, run: () => void },
+ *   computer?: { onAction: (kind: string, botId: string | null) => void },
  *   log?: Pick<Console, 'warn'>,
  * }} options the mark, the tooltip and the two entries of the menu
- * @returns {{ tray: object, relabel: () => void, dispose: () => void }}
+ * @returns {{ tray: object, relabel: () => void, setComputer: (entries: object[]) => void, dispose: () => void }}
  */
-export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, log = console }) {
+export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, computer, log = console }) {
   const tray = new Tray(image)
   let disposed = false
+  let entries = []
   const relabel = () => {
     tray.setToolTip(tooltip)
+    const rows = entries.map(entry => ({
+      label: entry.label,
+      click: () => { computer?.onAction('stop', entry.botId ?? null) },
+    }))
+    if (entries.length > 1) rows.push({
+      label: computer?.stopAll?.() ?? 'Stop all', click: () => { computer?.onAction('stopall', null) },
+    })
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: open.label, click: () => { open.run() } },
+      ...(rows.length > 0 ? [{ type: 'separator' }, ...rows] : []),
       { type: 'separator' },
       { label: quit.label, click: () => { quit.run() } },
     ]))
@@ -31,6 +41,11 @@ export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, l
   return {
     tray,
     relabel,
+    /** The same entries the floating indicator shows, while any Bot is on the computer. */
+    setComputer(next) {
+      entries = Array.isArray(next) ? next.filter(entry => entry && typeof entry.label === 'string') : []
+      if (!disposed) relabel()
+    },
     /** Take the icon away; the app leaves no dead icon behind. */
     dispose() {
       if (disposed) return
