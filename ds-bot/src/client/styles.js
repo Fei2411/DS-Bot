@@ -534,7 +534,16 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-item[aria-current=page]{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-nav>.bt-thumb{left:8px;right:8px;border-radius:8px;background:var(--bt-active)}
 .bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent}
-.bt-settings-shell{margin-top:auto}
+.bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
+.bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
+.bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center}
+.bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
+.bt-settings-actions:empty{display:none}
+.bt-dsh-section{min-width:0}
+.bt-dsh-item{min-width:0}
+.bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
+.bt-advanced:hover{background:var(--bt-hover)}
+.bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
 .bt-settings-item>svg{flex:none}
 /* Usage while another page is open: out of the flow, so it keeps its layout, and not
    rendered. */
@@ -969,7 +978,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
      right border keeps the last tab clear of the close button. */
   .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(--bt-line);scrollbar-width:thin;box-sizing:border-box}
   .bt-settings-item{flex:none}
-  .bt-settings-shell{margin-top:0;margin-left:auto;flex:none}
+  .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip}

@@ -15,7 +15,7 @@ import { useLinger } from './motion.js'
 const DIALOG_EXIT_MS = 160
 const MENU_EXIT_MS = 120
 
-export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, actions }) {
+export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
@@ -47,7 +47,9 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     return () => clearTimeout(timer)
   }, [ui.details, ui.view, ui.renaming, ui.tab, shown === null])
   const pane = shown ?? kept
-  const [settings, settingsLeaving] = useLinger(ui.settings, DIALOG_EXIT_MS)
+  // The settings shell draws the dialog while DS Bot holds the seat.
+  const shellHeld = useSettingsShellHeld ? useSettingsShellHeld(value => value) : false
+  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui.settings, DIALOG_EXIT_MS)
   // The memory dialog shows a Bot's memory or a group chat's.
   const memoryOwner = (id) => {
     const bot = roster.byId[id]

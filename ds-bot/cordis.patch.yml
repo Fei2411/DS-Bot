@@ -17,3 +17,9 @@
   config:
     searchProvider: auto
     fetchProvider: http
+
+# DS Bot's settings shell holds the sidebar's settings seat (src/client/settings-shell.js)
+# and draws DSH's settings pages in DS Bot's Settings dialog. Only the entry that declares
+# the seat's child slots may render them, so DSH's own shell stays off.
+- id: ui-settings-general
+  disabled: true
