@@ -362,8 +362,9 @@ export function createHub({ dataDir, host = '0.0.0.0', port = 8787, name = 'DS B
       return send(response, 200, { ok: true, nodes: registry.list().map(publicNode) })
     }
     if (request.method === 'POST' && path === '/admin/tasks') {
-      const body = await readJson(request)
-      const task = dispatch({ node: body.node, argv: body.argv, timeoutMs: body.timeoutMs })
+      // The body is the task spec: a file task carries `kind`, `path` and `data`, and
+      // picking only `argv` here would dispatch an empty shell task instead.
+      const task = dispatch(await readJson(request))
       return send(response, 200, { task: publicTask(task) })
     }
     const match = /^\/admin\/tasks\/([A-Za-z0-9_]+)$/.exec(path)

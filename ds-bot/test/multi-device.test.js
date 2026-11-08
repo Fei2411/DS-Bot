@@ -185,6 +185,55 @@ test('the admin API removes a node by name', async t => {
   assert.equal(again.status, 404)
 })
 
+test('the admin task endpoint carries file fields and still requires the admin token', async t => {
+  const { hub, worker, workerDir } = await bench(t)
+  const workspace = join(workerDir, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'notes.txt'), 'read through the admin endpoint\n')
+  const post = (body, headers = { 'x-admin-token': hub.adminToken }) => fetch(`${hub.url}/admin/tasks`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  })
+
+  assert.equal((await post({ node: 'test-node', kind: 'read_file', path: 'notes.txt' }, {})).status, 401)
+  assert.equal((await post({ node: 'test-node', kind: 'read_file', path: 'notes.txt' }, { authorization: `Bearer ${worker.token}` })).status, 401)
+
+  const read = await post({ node: 'test-node', kind: 'read_file', path: 'notes.txt' })
+  assert.equal(read.status, 200)
+  const readTask = (await read.json()).task
+  assert.equal(readTask.kind, 'read_file')
+  assert.equal(readTask.path, 'notes.txt')
+  const readDone = await hub.waitForTask(readTask.id, { timeoutMs: 5000 })
+  assert.equal(readDone.state, 'done')
+  assert.equal(readDone.result.file.data, 'read through the admin endpoint\n')
+  assert.equal(readDone.result.file.mime, 'text/plain')
+
+  const write = await post({ node: 'test-node', kind: 'write_file', path: 'admin.txt', data: 'written by an admin task', approved: true })
+  assert.equal(write.status, 200)
+  const writeTask = (await write.json()).task
+  assert.equal(writeTask.kind, 'write_file')
+  assert.equal(writeTask.approved, true)
+  assert.equal((await hub.waitForTask(writeTask.id, { timeoutMs: 5000 })).state, 'done')
+  assert.equal(readFileSync(join(workspace, 'admin.txt'), 'utf8'), 'written by an admin task')
+
+  // A write sent through the admin endpoint is still refused by the worker unless the
+  // request carried the approval mark.
+  const unapproved = await post({ node: 'test-node', kind: 'write_file', path: 'refused.txt', data: 'no' })
+  const refused = await hub.waitForTask((await unapproved.json()).task.id, { timeoutMs: 5000 })
+  assert.equal(refused.state, 'rejected')
+  assert.equal(existsSync(join(workspace, 'refused.txt')), false)
+
+  // An ordinary shell task keeps its argv and needs no new field.
+  const shell = await post({ node: 'test-node', argv: ['echo', 'still a shell task'] })
+  const shellTask = (await shell.json()).task
+  assert.equal(shellTask.kind, 'shell')
+  assert.deepEqual(shellTask.argv, ['echo', 'still a shell task'])
+  const shellDone = await hub.waitForTask(shellTask.id, { timeoutMs: 5000 })
+  assert.equal(shellDone.state, 'done')
+  assert.equal(shellDone.result.stdout, 'still a shell task\n')
+})
+
 test('a task runs on the paired node and its output comes back', async t => {
   const { hub } = await bench(t)
   const task = hub.dispatch({ node: 'test-node', argv: ['echo', 'hello', 'lan'] })
