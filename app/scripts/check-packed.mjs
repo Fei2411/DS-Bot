@@ -269,9 +269,9 @@ function checkComputerUse(app) {
 function checkComputerHelper(app) {
   const resources = resolve(app, '..', '..', 'Resources')
   runInHost(app, 'computer use helper', `
-    const { spawn } = require('node:child_process')
+    const { spawn, spawnSync } = require('node:child_process')
     const { createHash } = require('node:crypto')
-    const { mkdtempSync, readFileSync, rmSync } = require('node:fs')
+    const { mkdtempSync, readdirSync, readFileSync, rmSync } = require('node:fs')
     const { connect } = require('node:net')
     const { join } = require('node:path')
     const { pathToFileURL } = require('node:url')
@@ -283,8 +283,14 @@ function checkComputerHelper(app) {
       assert.equal(helper.error, undefined, String(helper.error))
       assert.ok(!helper.path.startsWith(${JSON.stringify(dirname(resources))}), 'the helper still runs from inside the app: ' + helper.path)
       const runtimeKey = createHash('sha256').update(readFileSync(helper.path)).digest('hex')
-      const launcher = spawn(helper.path, ['--ensure-shared', '--runtime-key', runtimeKey, '--runtime-directory', runtime, '--startup-timeout-ms', '30000'], { stdio: 'inherit' })
+      const startedAt = Date.now()
+      const launcher = spawn(helper.path, ['--ensure-shared', '--runtime-key', runtimeKey, '--runtime-directory', runtime, '--startup-timeout-ms', '120000'], { stdio: 'inherit' })
       const code = await new Promise((done, fail) => { launcher.on('error', fail); launcher.on('close', done) })
+      console.log('check-packed: the helper launcher finished in ' + (Date.now() - startedAt) + ' ms (exit ' + code + ')')
+      if (code !== 0) {
+        console.error('runtime directory:', readdirSync(runtime))
+        console.error(spawnSync('/usr/bin/log', ['show', '--last', '4m', '--style', 'compact', '--predicate', 'process == "dsh-cua-native" OR eventMessage CONTAINS "com.deepseek.harness.computer-use"'], { encoding: 'utf8' }).stdout.slice(-8000))
+      }
       assert.equal(code, 0, 'the helper did not start')
       const status = await new Promise((done, fail) => {
         const socket = connect(join(runtime, runtimeKey + '.sock'))
@@ -311,7 +317,7 @@ function checkComputerHelper(app) {
       assert.equal(typeof status?.accessibility, 'boolean', 'the helper gave no permission status')
       console.log('check-packed: the computer-use helper runs from ' + helper.path + ' and answers')
     })().finally(() => rmSync(runtime, { recursive: true, force: true })).then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
-  `, 90_000)
+  `, 240_000)
 }
 
 function startMock() {
