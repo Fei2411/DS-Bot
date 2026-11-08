@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -174,7 +174,25 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.equal(env.PATH, process.env.PATH)
+  assert.ok(env.PATH.startsWith(process.env.PATH))
+})
+
+// A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
+// Homebrew must also find its `#!/usr/bin/env node` there.
+test('agent env PATH includes the folders CLIs are found in', { skip: process.platform === 'win32' }, () => {
+  const saved = { HOME: process.env.HOME, PATH: process.env.PATH }
+  const home = mkdtempSync(join(tmpdir(), 'dsbot-home-'))
+  mkdirSync(join(home, '.local', 'bin'), { recursive: true })
+  process.env.HOME = home
+  process.env.PATH = '/usr/bin:/bin'
+  try {
+    const dirs = cleanEnv().PATH.split(':')
+    assert.deepEqual(dirs.slice(0, 2), ['/usr/bin', '/bin'])
+    assert.ok(dirs.includes(join(home, '.local', 'bin')))
+    assert.equal(cleanEnv({ PATH: '/only' }).PATH, '/only')
+  } finally {
+    Object.assign(process.env, saved)
+  }
 })
 
 test('custom agent validation', () => {
