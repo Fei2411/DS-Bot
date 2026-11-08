@@ -132,3 +132,23 @@ test('a dropped socket reconnects', async (t) => {
   await until(() => fake.sockets.length === 2)
   assert.ok(fake.calls.filter(call => call.path === '/v1.0/gateway/connections/open').length >= 2)
 })
+
+test('a network failure at start is retried until the platform answers (#1119)', async (t) => {
+  const fake = await fakeDingtalk()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  const fetch = async (...args) => {
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = dingtalk.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 160)
+  assert.ok(fake.calls.some(call => call.path.startsWith('/gettoken')))
+  assert.ok(fake.calls.some(call => call.path === '/v1.0/gateway/connections/open'))
+  assert.equal(fake.sockets.length, 1)
+})

@@ -134,3 +134,22 @@ test('a dropped socket reconnects and resumes', async (t) => {
   await until(() => fake.sockets.length === 2)
   await until(() => fake.packets.some(packet => packet.op === 6))
 })
+
+test('a network failure at start is retried until the platform answers (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  const fetch = async (...args) => {
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 120)
+  assert.ok(fake.calls.some(call => call.path === '/app/getAppAccessToken'))
+  assert.equal(fake.sockets.length, 1)
+})

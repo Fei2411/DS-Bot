@@ -179,3 +179,36 @@ test('stop ends a long poll promptly, and a send in flight does not kill it', as
   assert.equal(api.calls.length, before, 'stop aborts the poll instead of retrying')
   await api.close()
 })
+
+test('a network failure before the first reply is retried until the Bot API answers (#1119)', async (t) => {
+  const api = await fakeApi()
+  const statuses = []
+  const base = env(api.api)
+  let down = true
+  let requests = 0
+  const fetch = async (...args) => {
+    requests += 1
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = telegram.connect({ token: 'TOKEN' }, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); api.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  const tried = requests
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 120)
+  assert.ok(requests > tried, 'a new request went out after the failure')
+  assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1)
+})
+
+test('a refused token stops at once instead of retrying (#1119)', async (t) => {
+  const api = await fakeApi()
+  api.replies.getMe = () => ({ error: 401, description: 'Unauthorized' })
+  const statuses = []
+  const handle = telegram.connect({ token: 'bad' }, env(api.api), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); api.close() })
+  await until(() => statuses.some(status => status.state === 'error'))
+  await new Promise(done => setTimeout(done, 400))
+  assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'a refused token is not retried')
+})
