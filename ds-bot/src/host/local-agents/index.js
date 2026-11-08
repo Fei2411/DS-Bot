@@ -57,7 +57,7 @@ export function install(rt) {
       const spec = ENGINES[route]
       const path = findExecutable(spec.command)
       if (path === undefined) found.delete(route)
-      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: SIGN_IN[route] })
+      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: SIGN_IN[spec.id] })
     }
     applyRoutes()
     return [...found.values()]
