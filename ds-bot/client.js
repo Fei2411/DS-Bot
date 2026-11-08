@@ -15574,7 +15574,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
       "div",
       {
         className: "bt-sec-body",
-        inert: section.collapsed ? "" : void 0,
+        inert: section.collapsed ? true : void 0,
         "aria-hidden": section.collapsed ? true : void 0
       },
       (0, import_react34.createElement)(

@@ -317,7 +317,7 @@ test('section-add menu offers both creating a new Bot/group in the section and a
       return
     }
     if (node.props?.className === 'bt-sec-peek') peekFound = true
-    if (node.props?.className === 'bt-sec-body' && node.props?.inert === '' && node.props?.['aria-hidden'] === true) bodyInert = true
+    if (node.props?.className === 'bt-sec-body' && node.props?.inert === true && node.props?.['aria-hidden'] === true) bodyInert = true
     if (node.props?.['data-bot-id'] === 'writer') writerRows += 1
     walkSidebar(node.props?.children)
   }

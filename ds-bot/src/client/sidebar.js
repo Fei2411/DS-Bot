@@ -416,7 +416,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
           }, h(DotsIcon)))),
   h('div', {
     className: 'bt-sec-body',
-    inert: section.collapsed ? '' : undefined,
+    inert: section.collapsed ? true : undefined,
     'aria-hidden': section.collapsed ? true : undefined,
   },
     h('div', { className: 'bt-sec-body-in' },
