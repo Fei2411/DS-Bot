@@ -12,7 +12,7 @@ import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
-import { validateCustom, isLocalAgentRoute, cliMode } from '../src/host/local-agents/engines.js'
+import { validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
 import { install as partsInstall } from '../src/host/parts.js'
 import { install as modelsInstall } from '../src/host/models.js'
 import { fakeContext } from './fake-ctx.js'
@@ -149,6 +149,17 @@ test('a permission prompt bridges to approve_agent_action and fails closed', asy
   const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
   assert.match(allowed.text, /allowed via allow-once/)
 })
+test('a call to the dsbot server is allowed once without asking; other servers still ask', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const team = await collect(adapter.stream(options('s1', [user('m1', 'team-permission')])))
+  // The MCP call itself reaches DS Bot's tools; no approval card in between.
+  assert.equal(team.calls[0]?.name, 'message_bot', JSON.stringify(team))
+  const done = await collect(adapter.stream(options('s1', [user('m1', 'team-permission'), toolResult('m2', team.calls[0].id, 'River: pong')])))
+  assert.match(done.text, /allowed via allow-once; tool said: River: pong/)
+  const other = await collect(adapter.stream(options('s2', [user('m1', 'other-permission')])))
+  assert.equal(other.calls[0]?.name, 'approve_agent_action')
+})
 test('a permission answer that is not the structured allow fails closed', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
@@ -216,9 +227,55 @@ test('routes and modes', () => {
   assert.equal(isLocalAgentRoute('local-devin-cli'), true)
   assert.equal(isLocalAgentRoute('local-acp-custom'), true)
   assert.equal(isLocalAgentRoute('deepseek'), false)
-  assert.equal(cliMode('acp', 'read-only', [{ id: 'ask' }, { id: 'bypass' }]), 'ask')
-  assert.equal(cliMode('acp', 'danger-full-access', [{ id: 'ask' }, { id: 'bypass' }]), 'bypass')
+  assert.equal(acpMode('read-only', [{ id: 'ask' }, { id: 'bypass' }]), 'ask')
+  assert.equal(acpMode('danger-full-access', [{ id: 'ask' }, { id: 'bypass' }]), 'bypass')
+  // Config options name a mode by `value`; an agent without a match keeps its own.
+  assert.equal(acpMode('read-only', [{ value: 'agent' }, { value: 'plan' }, { value: 'ask' }]), 'ask')
+  assert.equal(acpMode('workspace-write', [{ value: 'agent' }, { value: 'plan' }, { value: 'ask' }]), undefined)
   assert.equal(cliMode('claude', 'workspace-write'), 'acceptEdits')
+  assert.equal(cliMode('acp', 'workspace-write'), undefined)
+})
+
+test('acp: a resumed session that lists no modes keeps the ones its CLI listed', async (t) => {
+  const records = { s2: { route: 'local-acp-fake', cliSessionId: 'acp-old', model: 'default' } }
+  const adapter = makeAdapter({ records, preset: 'workspace-write', acpArgs: ['--cursor-modes'] })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [user('m1', 'show-mode')])))
+  // session/load lists nothing; without what session/new listed, the guess
+  // accept-edits would be sent and refused twice.
+  const resumed = await collect(adapter.stream(options('s2', [user('m1', 'show-mode')])))
+  assert.match(resumed.text, /mode: agent; refused: 0/)
+})
+
+test('acp: full access allows and read-only refuses a change without a card', async (t) => {
+  const full = makeAdapter({ preset: 'danger-full-access', acpArgs: ['--cursor-modes'] })
+  const readOnly = makeAdapter({ preset: 'read-only', acpArgs: ['--cursor-modes'] })
+  t.after(() => Promise.all([full, readOnly].map(adapter => adapter.dispose())))
+  // Cursor has no bypass mode: the preset is kept by DS Bot's own answer.
+  const allowed = await collect(full.stream(options('s1', [user('m1', 'ask-permission')])))
+  assert.equal(allowed.calls.length, 0)
+  assert.match(allowed.text, /allowed via allow-once/)
+  const refused = await collect(readOnly.stream(options('s1', [user('m1', 'ask-permission')])))
+  assert.equal(refused.calls.length, 0)
+  assert.match(refused.text, /denied/)
+})
+
+test('acp: a dsbot call with no one-time allow still asks', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const asked = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
+  assert.equal(asked.calls[0]?.name, 'approve_agent_action')
+})
+
+test('acp: the preset picks among the modes the session lists', async (t) => {
+  const plain = makeAdapter({ preset: 'workspace-write' })
+  const readOnly = makeAdapter({ preset: 'read-only', acpArgs: ['--cursor-modes'] })
+  const write = makeAdapter({ preset: 'workspace-write', acpArgs: ['--cursor-modes'] })
+  t.after(() => Promise.all([plain, readOnly, write].map(adapter => adapter.dispose())))
+  assert.match((await collect(plain.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: accept-edits; refused: 0/)
+  assert.match((await collect(readOnly.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: ask; refused: 0/)
+  // Cursor has no accept-edits: it stays in its own agent mode and asks before acting.
+  assert.match((await collect(write.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: agent; refused: 0/)
 })
 
 test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
