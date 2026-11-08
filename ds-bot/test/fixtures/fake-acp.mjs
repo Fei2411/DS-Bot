@@ -9,6 +9,7 @@
 //   otherwise               -> a thought chunk, an activity line, "ok"
 // `--exit-after-turn` makes it exit once a prompt is answered, so a test can
 // watch the client reopen the agent.
+//   contains "devin-team" / "devin-other" -> the same, in the shape Devin CLI 3000.12.28 sends
 //   contains "show-mode"    -> answers with the mode the session is in
 // `--cursor-modes` lists the modes cursor-agent 2026.11.05 does (agent, plan, ask)
 // and refuses any other, as it does.
@@ -63,6 +64,31 @@ async function runPrompt(session, prompt, requestId) {
     })
     const outcome = answer?.result?.outcome
     finish(outcome?.outcome === 'selected' && !outcome.optionId.startsWith('reject') ? `allowed via ${outcome.optionId}` : 'denied')
+    return
+  }
+  if (text.includes('devin-team') || text.includes('devin-other')) {
+    // Recorded from devin acp: the server is named only in `_meta`, by the
+    // permission rule on the request.
+    const provider = text.includes('devin-team') ? 'dsbot' : 'github'
+    const name = `mcp__${provider}__message_bot`
+    const toolCallId = 'mcp_call_tool:0#1'
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId, title: `Calling message_bot from ${provider}`, rawInput: { to: 'River', message: 'ping' }, _meta: { 'cognition.ai/toolName': name, 'cognition.ai/eventType': 'mcp_tool_call' } })
+    const answer = await ask('session/request_permission', {
+      sessionId,
+      toolCall: { toolCallId, _meta: { 'cognition.ai/permissionRule': name } },
+      options: [
+        { optionId: 'allow_once', name: 'Allow', kind: 'allow_once' },
+        { optionId: 'allow_session', name: `Yes, allow calling message_bot on the ${provider} MCP server (this session)`, kind: 'allow_always' },
+        { optionId: 'allow_always', name: `Yes, always allow calling message_bot on the ${provider} MCP server`, kind: 'allow_always' },
+        { optionId: 'switch_bypass', name: 'Yes, switch to bypass mode', kind: 'allow_always' },
+        { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    const outcome = answer?.result?.outcome
+    if (outcome?.outcome !== 'selected' || outcome.optionId.startsWith('reject')) { finish('denied'); return }
+    if (provider !== 'dsbot') { finish(`allowed via ${outcome.optionId}`); return }
+    const result = await mcpCall(session.mcp, 'message_bot', { to: 'River', message: 'ping' })
+    finish(`allowed via ${outcome.optionId}; tool said: ${(result.content ?? []).map(block => block.text).join('')}`)
     return
   }
   if (text.includes('team-permission') || text.includes('other-permission')) {

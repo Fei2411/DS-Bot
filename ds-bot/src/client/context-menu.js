@@ -87,6 +87,12 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
 
 function SectionMenu({ menu, roster, actions, leaving }) {
   const ref = useRef(null)
+  const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
+  useEffect(() => {
+    const onKey = (event) => { stepMenuFocus(ref.current, event, trigger.current) }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   const tick = useViewport()
   useLayoutEffect(() => {

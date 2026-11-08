@@ -146,6 +146,9 @@ handling, so they do not mix in one model list.
 
 - An agent CLI that does not advertise MCP-over-HTTP cannot get the team tools;
   its text, approvals, and sessions still work.
+- Cursor CLI saves the last model selected over ACP as its own global default
+  (`~/.cursor`), so picking a specific model for one Cursor Bot also changes
+  what other Cursor Bots on "CLI default" and Cursor in the terminal use.
 - A custom agent whose ACP dialect differs from what these drivers understand
   needs its own driver before its tools work.
 - The sign-in state comes from each CLI's own status command or credential

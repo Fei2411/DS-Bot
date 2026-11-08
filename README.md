@@ -38,7 +38,7 @@ Still stuck? [Report an install problem](https://github.com/Fei2411/DS-Bot/issue
 
 **DS Bot**: the desktop app, the project and the plugin / 桌面应用、项目和插件 · **DeepSeek Harness (DSH)**: what they are built on / 它们的底层
 
-DS Bot is a bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns DSH into bots. You create your own bots, then talk and work with them.
+DS Bot is built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into a team of long-lived bots that you create, talk to and work with.
 
 ![Say one sentence to Chief, and it sets up the bots and the group chat](docs/images/team.png)
 
@@ -52,7 +52,7 @@ The desktop app brings its own DSH, so you don't need to install DSH first. Down
 - macOS: `DS-Bot-<version>-mac-arm64.zip` for an Apple chip, `DS-Bot-<version>-mac-x64.zip` for Intel. Safari unzips it by itself; drag **DS Bot** into **Applications** and open it. When macOS says it cannot check the app, open **System Settings** → **Privacy & Security** and select **Open Anyway**.
 - Linux (x64): `DS-Bot-<version>-linux-x86_64.AppImage` runs on every distribution with glibc 2.28 or newer — make it executable and open it. It mounts through FUSE 2, which you may need to install first (`sudo apt install libfuse2t64` on Ubuntu 24.04+, `sudo dnf install fuse-libs` on Fedora, `sudo pacman -S fuse2` on Arch). On Ubuntu 24.04 and later an AppImage can refuse to start (Ubuntu restricts the sandbox it needs); the `DS-Bot-<version>-linux-amd64.deb` on Debian/Ubuntu does not have this problem and adds a menu entry. On older-glibc systems such as CentOS 7 the app and DSH Web fail with `GLIBC_2.27 not found`; run the Docker image instead (see below and [known issues](docs/known-issues.md)).
 
-At the first start the app keeps its data and the Bots' files in your home folder; the start window says where and lets you change it in one click. It offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in its settings. The Windows app and the Linux AppImage update themselves; the macOS app and the Linux deb tell you when a new version is ready to download.
+At the first start the app keeps its data and the Bots' files in your home folder; the start window says where and lets you change it in one click. It offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in Settings. The Windows app and the Linux AppImage update themselves; the macOS app and the Linux deb tell you when a new version is ready to download.
 
 If the app does not download, install or start, [report an install problem](https://github.com/Fei2411/DS-Bot/issues/new?template=install.yml); it needs no diagnostics.
 
@@ -99,63 +99,82 @@ DS Bot selects its `auto` search provider for the whole profile. If you disable 
 
 ### Bot
 
-You can do all your talking and work with one bot, in one window. You don't need to worry about the context behind it. The bot's details page shows its info, and there you can pick the model you want it to use. You can switch models at any time, but I still recommend that you keep one model for a bot for a long time, and switch only when you really need to.
+You can do all your talking and work with one bot in one window, without worrying about the context behind it — long chats condense or move to a fresh part on their own, and earlier parts stay searchable. On the bot's details page you can view its info and pick its model and thinking level. You can switch models at any time, but I still recommend keeping one model for a bot for a long time and switching only when you really need to.
 
-Bots also have memory. A bot remembers what you like and uses it in later work. You can manage its memory on the bot's details page, or just tell the bot.
+Bots also have long-term memory: they remember your preferences and apply them in later work. You can view, undo or manage memory on the details page, or just tell the bot in chat. After long work, a bot can also propose durable rules as skills or `AGENTS.md` updates, applied only when you approve.
+
+Each bot can have its own working folder and permission preset (Read only, Workspace or Full access) — just tell the bot when you want to switch folders. While a bot is working, you can send a message to steer it right away, or type `/side` to ask a side question without interrupting its task. Bots can draw charts, tables, interactive calculators and forms in their replies, and run scheduled tasks. The sidebar lets you group bots and group chats into collapsible sections by project.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 
 ### Main bot
 
-The main bot is your chief. It has very high rights: it manages the other bots and the group chats. The first time you open DS Bot, there is already a main bot called Chief. Talk to it, and it walks you through the setup.
+The main bot is your chief. It has the highest rights and manages your other bots and group chats (you can have more than one main bot). The first time you open DS Bot, there is already a main bot called Chief. Talk to it, and it walks you through the setup.
 
 In short: have a question? Ask the main bot.
 
 ### Group chats
 
-DS Bot has group chats. A group chat is a great way to get several bots to work together, but it clearly costs more. So DS Bot does this: every group chat has an admin. The admin answers your messages by default and calls in the other bots for you. You can also @ a bot directly, and it answers you directly: type @ and pick the bot from the list. To give the bots another chat as context, use + → Reference a chat in the message box.
+A group chat is a great way to get several bots to work together, but it clearly costs more. DS Bot optimizes for this: every group chat has an admin. Your messages go to the admin by default, and it calls in the other bots for you. You can also type `@` to call a bot directly, or use `+` → **Reference a chat** to attach another chat as context.
 
-Any bot can hand work to another bot with @. That bot does the work on its own, and the group goes on. While it works, it keeps the group posted, and the group, the sidebar and its own chat show what it is doing. When it is done, it posts the result in the group, and the bot that asked for the work answers. To stop the work, open the group's details.
-
-A group chat has its own memory. What you tell the group stays in the group: its members use it there, and your other chats and the bots outside the group do not see it. You can manage it in the group's details.
-
-For larger work, a group chat can run a goal: the admin aligns with you on what "done" means, splits the work into stages across members, and checks each stage against evidence before moving on.
+Any bot can hand work to other bots with `@` (naming several starts them in parallel). Those bots do the work on their own and post their results back to the group. Each group chat has its own memory, working folder and permission setting, invisible outside the group. For larger work, a group can run a **Goal**: the admin aligns with you on what "done" means, splits the work into stages across members, and checks each stage against evidence before moving on.
 
 ![Group chat: the admin, Chief, hands the work to Writer and Coder](docs/images/group.png)
 
-### Capabilities
+### Private bot
 
-Settings → **Capabilities** is a shared library of MCP servers, skills and packs. Add a capability to a Bot in its settings; it is available from that Bot's next message in its own chat and group chats. A local MCP command that a Bot adds needs your approval before it can run. While other Bots use a capability, only you or a Main Bot can change or delete it.
+Some work (such as personal finances or private notes) is meant for you and one bot only. Turn on **Private** in a bot's settings and give it a separate working folder: other bots cannot read its folder, memory or chat, and sharing anything outward or writing outside its folder needs your approval. Even if you delete a private bot, its folder and records stay protected from other bots until you release them in Settings.
 
-### Connectors
-
-Settings → **Connectors** connects services such as GitHub, Gmail and other mailboxes, and remote MCP servers. Sign in once with OAuth or a key; the credentials stay in DS Bot's Secrets and never reach a Bot. Every Bot can use a connected service unless you turn it off in the Bot's details. A Bot that needs a service it does not have asks you with a card, and by default every email it writes waits for you to send it.
+**Limits**: A private bot cannot be a main bot or join group chats. This boundary is between bots in your team, not an OS sandbox — if you give the bot shell or network access, commands can still read system files or reach the network, and its model provider still receives the prompt. If it runs on a local agent CLI, the privacy rules do not cover the CLI's own built-in tools.
 
 ### Local agents
 
-Coding-agent CLIs you already use — Devin CLI, Claude Code, Codex CLI, OpenCode and other ACP agents — can run a Bot. How a Bot runs is part of the Bot: when you create it you choose DS Bot models or one of the CLIs found on this machine, and after that only the Bot's settings can change it, with a confirmation. The two do not mix: their models, tools, context and memory handling stay on their own side. Settings → **Local agents** shows the CLIs DS Bot finds and lets you sign in or add a custom agent. A Bot on a local agent CLI uses the CLI's own sign-in and plan, and still works like any Bot: private and group chats, handoffs, approvals and memory.
+Coding-agent CLIs you already use on your computer (Claude Code, Codex CLI, Cursor CLI, Devin CLI, OpenCode, Gemini CLI and other ACP agents) can run a bot directly. Pick **Local agent** when creating a bot (or switch in the bot's settings): the bot uses the CLI's own sign-in, plan and models, while working like any other bot in private chats, group chats, handoffs, approvals and memory.
+
+**Limits**:
+- **Separate from DS Bot models**: A local-agent bot uses the CLI's own tools and compaction; shared Capabilities (MCP servers, skills) and Connectors in DS Bot are not passed to it, and switching how a bot runs starts a fresh conversation part.
+- **Selecting a model in Cursor CLI changes Cursor's global default**: Cursor CLI saves the last selected model to its own global config (`~/.cursor`). If you pick a specific model for one Cursor bot, other Cursor bots set to "CLI default" and Cursor in your terminal will switch to that model too. Keep **CLI default** if you do not want to change your global Cursor default (and sign in to Cursor first so the full model list loads).
+- **Protocol differences**: Custom CLIs that do not support MCP over HTTP cannot use team tools (creating bots, handoffs, group actions) and only support plain chat.
+
+### Browser
+
+Each bot has its own isolated browser with separate sign-ins, and can import cookies from a file or from Chrome, Edge or Firefox on your computer. Turn on a browser plugin in Settings → **Browser** to let bots open and operate pages on their own; posting, uploading, downloading and deleting ask for your approval, and sign-in, captchas or payments hand back to you with a card. You can take over and hand back at any time.
+
+**Limits**: Available in the desktop app and DSH Desktop only (not in DSH Web); only the desktop app keeps browser sign-ins after you quit and supports cookie import. Cookie import copies cookies only (not localStorage or passkeys), and on Windows, Chrome/Edge cookies encrypted with App-Bound Encryption (v20) cannot be read directly — export them with a browser extension first.
 
 ### Computer use
 
-Bots can use the apps on your computer, as far as you allow. Turn it on in Settings → **Computer use**, then give each Bot a level and the apps it may use. You see when a Bot is working, can take over at any time and hand back, and some apps are never given to a Bot.
+Bots can use native apps on your computer as far as you allow. Turn it on in Settings → **Computer use**, then give each bot a level (Off, View only, Background, or Foreground) and the apps it may use. A top bar shows when a bot is working so you can stop or take over at any time; system settings, password managers and DS Bot itself are never given to a bot.
 
-### Usage
-
-In **Settings** → **Usage**, you can see token usage by time, by bot and by model.
-
-![Usage page](docs/images/usage.png)
+**Limits**: All bots share your desktop — only one bot can use a given app or the foreground mouse at a time. On Windows, Chrome and Electron apps often ignore background input and need "Foreground", and apps running as administrator cannot be controlled; macOS requires macOS 14+ with Accessibility and Screen Recording permissions; Linux supports X11 with limited Wayland support. In DSH Web, do not grant a bot access to the browser running DS Bot.
 
 ### IM
 
-Bots talk to you in your chat apps. In Settings → IM you can link a bot to Telegram, WeChat, Feishu, DingTalk, WeCom, QQ, Discord or Slack — pairing, group chats, approval cards and replies all work there without any public address or open port on your computer.
+Talk to your bots or group chats from your chat apps while away from your desk. Settings → **IM** links bots to WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord and Slack — pairing, group `@` mentions, question cards, approvals and replies all work without a public IP or open port on your computer.
+
+**Limits**: Messages only flow while your computer is awake and DS Bot is running. WeChat supports private chat with the QR-paired account only (no group chats); WeChat and QQ only allow replies within a platform-imposed window after you send a message (send another message in the app to resume). WeChat, QQ and DingTalk do not have interactive card buttons, so reply with the option number instead; for security, secret cards cannot be filled in from chat apps.
+
+### Connectors, capabilities and secrets
+
+- **Connectors**: Settings → **Connectors** connects GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers with one sign-in, or imports MCP configs from Claude Desktop, Cursor and VS Code. Credentials stay in Secrets and never reach a bot; emails a bot writes wait for your confirmation by default.
+- **Capabilities**: Settings → **Capabilities** is a shared library of MCP servers, skills and packs that you enable per bot; local MCP commands added by a bot need your approval before they run.
+- **Secrets**: When a bot needs an API key or password, it asks with a secret card; the value is injected only as an environment variable and masked before model calls and logs.
 
 ### Office files
 
-Bots work with Office documents. They can create and edit .docx, .pptx and .xlsx, read a document's structure with stable ids, check a package for the defects Office would refuse, make targeted edits (comments, tracked changes, fields, table cells), reorder or duplicate slides, list workbook errors, and review rendered pages on a contact sheet. The desktop app includes everything needed; in DSH Desktop Bots use DSH's Office runtime plus DS Bot's commands; in DSH Web the inspect, check and edit commands work, while creating files from scratch and rendering pages need the desktop app or DSH Desktop.
+Bots can create, inspect and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel (`.xlsx`) files directly, and render pages to images to check layout.
+
+**Limits**: The desktop app includes the full runtime (Python and LibreOffice) out of the box; DSH Web does not bundle this runtime, so it can inspect and edit existing files, while creating files from scratch and rendering pages require the desktop app or DSH Desktop.
+
+### Usage
+
+In Settings → **Usage**, you can see token usage by time, by bot and by model.
+
+![Usage page](docs/images/usage.png)
 
 ## Data
 
-All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.
+All data stays on your own computer: in the folder you chose on first start in the desktop app (`~/.ds-bot` by default), or in `bot/` and `sessions/` inside the DSH home folder (`~/.dsh` by default) for the plugin. Uninstalling the app or the plugin does not delete this data.
 
 ## Development
 

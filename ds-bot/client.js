@@ -13063,15 +13063,25 @@ function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true }
   const cut = whole !== void 0 && whole.length > text.length;
   const view = (0, import_react29.useMemo)(() => live ? null : foldView(text, cut ? ALWAYS : limit, markdown), [text, live, limit, markdown, cut]);
   if (view === null) return { shown: text, control: null };
-  const code = cut ? void 0 : view.code;
+  const readWhole = async () => {
+    if (typeof read?.text === "string") return read;
+    setRead("loading");
+    const value = await Promise.resolve().then(() => whole.load?.()).catch(() => void 0) ?? { whole: false };
+    setRead(value);
+    return value;
+  };
+  const code = view.code === void 0 ? void 0 : !cut ? view.code : async () => {
+    const loaded2 = await readWhole();
+    const full2 = loaded2.whole === true ? foldView(loaded2.text, ALWAYS, markdown)?.code : void 0;
+    if (full2 === void 0) throw new Error("Could not read the whole code block");
+    return full2;
+  };
   const shown = code === void 0 ? view.head : view.prose;
   const count = (cut ? whole.length : text.length).toLocaleString();
   if (!open) {
     const show2 = async () => {
       setOpen(true);
-      if (!cut || read !== void 0 || whole.load === void 0) return;
-      setRead("loading");
-      setRead(await whole.load() ?? { whole: false });
+      if (cut) await readWhole();
     };
     return { shown, folded: true, code, codeHead: view.codeHead, control: (0, import_react29.createElement)("span", { className: "bt-fold" }, (0, import_react29.createElement)("button", { type: "button", className: "bt-more", onClick: show2 }, t("Show all · {count} characters", { count }))) };
   }
@@ -13658,15 +13668,20 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
 }
 function FoldCodeCopy({ code, actions }) {
   const [copied, setCopied] = (0, import_react32.useState)(false);
-  const copy2 = () => {
-    void (0, import_dsh_client_ui_primitives.writeClipboard)(code).then((ok) => {
-      if (!ok) {
-        actions?.reportError?.(new Error("Could not copy the code block"), "copy");
-        return;
+  const copy2 = async () => {
+    try {
+      if (typeof code === "function" && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        const text = Promise.resolve().then(code).then((value) => new Blob([value], { type: "text/plain" }));
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text })]);
+      } else {
+        const text = typeof code === "function" ? await code() : code;
+        if (!await (0, import_dsh_client_ui_primitives.writeClipboard)(text)) throw new Error("Could not copy the code block");
       }
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
-    }, () => actions?.reportError?.(new Error("Could not copy the code block"), "copy"));
+    } catch (error) {
+      actions?.reportError?.(error, "copy");
+    }
   };
   return (0, import_react32.createElement)("button", { type: "button", className: "bt-tool bt-fold-copy", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react32.createElement)(CheckIcon) : (0, import_react32.createElement)(CopyIcon));
 }
@@ -15481,6 +15496,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     if (!keep || value.trim() === "" || value.trim() === section.name) return;
     void Promise.resolve(actions.saveSection({ id: section.id, name: value.trim() })).catch((error) => actions.reportError(error, "section-rename"));
   };
+  const bodyEntries = section.collapsed && activeEntry ? entries2.filter((entry) => entry !== activeEntry) : entries2;
   return (0, import_react34.createElement)(
     "div",
     {
@@ -15571,11 +15587,15 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     ),
     (0, import_react34.createElement)(
       "div",
-      { className: "bt-sec-body" },
+      {
+        className: "bt-sec-body",
+        inert: section.collapsed ? true : void 0,
+        "aria-hidden": section.collapsed ? true : void 0
+      },
       (0, import_react34.createElement)(
         "div",
         { className: "bt-sec-body-in" },
-        entries2.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
+        bodyEntries.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
       )
     ),
     section.collapsed && activeEntry ? (0, import_react34.createElement)("div", { className: "bt-sec-peek" }, renderSidebarEntry(activeEntry, rowProps, markedUnread, onDragStart)) : null
@@ -15589,6 +15609,7 @@ function useListGlide(listRef, layout, key) {
     const next = /* @__PURE__ */ new Map();
     const still = reducedMotion() || tops.current.layout !== layout;
     for (const row of list.querySelectorAll("[data-bot-id],[data-room-id],[data-agent-id],[data-sec-id]")) {
+      if (row.closest?.('[aria-hidden="true"]')) continue;
       const id = row.dataset.secId ? `sec:${row.dataset.secId}` : row.dataset.botId ?? row.dataset.roomId ?? row.dataset.agentId;
       const top = row.offsetTop;
       next.set(id, top);
@@ -15950,6 +15971,7 @@ function TeamSidebar(props) {
       wideContent ? main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
       sections.length > 0 && wideContent ? (0, import_react34.createElement)("div", {
         className: "bt-sec-ungrouped",
+        "data-dragging": dragId ? "true" : void 0,
         "data-drop": dropTarget === "__none__" ? "true" : void 0,
         onDragOver: (event) => onDragOverSec(event, "__none__"),
         onDrop: (event) => onDropSec(event, null)
@@ -16469,7 +16491,8 @@ var SIDEBAR_CSS = `
 
 /* Sidebar sections: collapsible header with a 3D character pile and live status when
    folded, active conversation peek, drag-and-drop highlight, and 88px rail cluster. */
-.bt-sec-ungrouped{display:flex;flex-direction:column;gap:3px;border-radius:10px;transition:background-color .14s ease,box-shadow .14s ease}
+.bt-sec-ungrouped{display:flex;flex-direction:column;gap:3px;border-radius:10px;transition:min-height .14s ease,background-color .14s ease,box-shadow .14s ease}
+.bt-sec-ungrouped[data-dragging=true]:empty{min-height:28px;margin-bottom:2px;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
 .bt-sec-ungrouped[data-drop=true]{background:color-mix(in srgb,var(--bt-accent) 9%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 65%,transparent)}
 .bt-sec{display:flex;flex-direction:column;margin-top:6px;border-radius:12px;transition:background-color .14s ease,box-shadow .14s ease}
 .bt-sec[data-drop=true]{background:color-mix(in srgb,var(--bt-accent) 9%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 65%,transparent)}
@@ -24928,6 +24951,14 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
 }
 function SectionMenu({ menu, roster, actions, leaving }) {
   const ref = (0, import_react57.useRef)(null);
+  const trigger = (0, import_react57.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  (0, import_react57.useEffect)(() => {
+    const onKey = (event) => {
+      stepMenuFocus(ref.current, event, trigger.current);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   const [place, setPlace] = (0, import_react57.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
   (0, import_react57.useLayoutEffect)(() => {

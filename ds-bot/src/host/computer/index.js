@@ -221,6 +221,7 @@ export function install(rt) {
     const bot = rt.botOf(rt.selfOf(id))
     return bot !== undefined && rt.isBotSession(id) && levelOf(bot) !== 'off'
   }
+  const isBotAt = id => rt.botOf(rt.selfOf(id)) !== undefined && rt.isBotSession(id)
   const handoffDef = () => handoffTool
   // Every agent gets one application record: 'allow' means the tools and the
   // provider guidance stay, 'deny' means both are masked and the section is
@@ -228,7 +229,9 @@ export function install(rt) {
   function applyComputer(agent) {
     const id = agent?.session?.id ?? agent?.id
     if (typeof id !== 'string' || agent?.ctx === undefined) return
-    const want = maskable(agent) ? 'allow' : 'deny'
+    // DS Bot governs Bots, and any Session on the provider it mounted itself. A plain DSH
+    // Session on DSH's own Computer Use plugin is not DS Bot's to touch (#1101).
+    const want = maskable(agent) ? 'allow' : isBotAt(id) || mountedByUs ? 'deny' : 'leave'
     let held = applied.get(id)
     if (held !== undefined && held.agent === agent && held.mode === want) return
     if (held?.agent === agent) {
@@ -241,6 +244,7 @@ export function install(rt) {
       applied.set(id, held)
     }
     held.mode = want
+    if (want === 'leave') return
     if (want === 'allow') {
       const def = handoffDef()
       if (def !== undefined && typeof agent.ctx.tools?.register === 'function') {
@@ -702,12 +706,14 @@ export function install(rt) {
     const call = classify(exec.name, exec.arguments)
     if (call === undefined) return next()
     await rt.load()
-    if (!enabled()) return { kind: 'deny', reason: 'Computer use is off. The user can turn it on in Settings → Computer use.' }
     const sessionId = exec.agent?.id
+    if (!isBotAt(sessionId) && !mountedByUs) return next()
+    if (!enabled()) return { kind: 'deny', reason: 'Computer use is off. The user can turn it on in Settings → Computer use.' }
     const bot = rt.botOf(rt.selfOf(sessionId))
-    if (bot === undefined || !rt.isBotSession(sessionId)) {
+    if (!isBotAt(sessionId)) {
       return { kind: 'deny', reason: 'Only Bots on the team can use the computer.' }
     }
+    if (providerStatus.state === 'occupied') return { kind: 'deny', reason: 'Another Computer Use plugin is in use, so Bots cannot use the computer. The user can see this in Settings → Computer use.' }
     const level = levelOf(bot)
     if (!levelAllows(level, call.kind)) {
       return { kind: 'deny', reason: `${bot.name} is set to "${LEVEL_LABEL[level]}" for computer use, so it cannot run ${call.method} (${call.kind}). The user can change this in the Bot's Control card or in Settings → Computer use.` }

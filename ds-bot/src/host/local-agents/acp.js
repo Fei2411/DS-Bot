@@ -112,8 +112,8 @@ export class AcpEngine {
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
       const call = callOf(session, params?.toolCall)
-      // Cursor asks before every MCP tool call. A call to DS Bot's own server is
-      // approved once here: toolsFor() already narrowed what the Bot may call.
+      // Cursor and Devin ask before every MCP tool call. A call to DS Bot's own server
+      // is approved once here: toolsFor() already narrowed what the Bot may call.
       // Other tools, and an agent that offers no one-time allow, still ask.
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
@@ -232,9 +232,10 @@ export class AcpEngine {
 }
 
 const serversFor = mcp => (mcp === undefined ? [] : [{ type: 'http', name: MCP_SERVER, url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }])
-// Cursor names the MCP server in the call's input; the permission request itself
-// carries only a title.
+// ACP has no field for the MCP server of a call, so each agent says it its own way:
+// Cursor in the call's input, Devin in the permission rule the request names.
 const ownToolCall = call => call?.rawInput?.providerIdentifier === MCP_SERVER
+  || String(call?._meta?.['cognition.ai/permissionRule'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')

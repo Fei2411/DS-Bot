@@ -260,6 +260,17 @@ test('acp: full access allows and read-only refuses a change without a card', as
   assert.match(refused.text, /denied/)
 })
 
+test('devin: a call to the dsbot server is allowed once without asking; other servers still ask', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const team = await collect(adapter.stream(options('s1', [user('m1', 'devin-team')])))
+  assert.equal(team.calls[0]?.name, 'message_bot', JSON.stringify(team))
+  const done = await collect(adapter.stream(options('s1', [user('m1', 'devin-team'), toolResult('m2', team.calls[0].id, 'River: pong')])))
+  assert.match(done.text, /allowed via allow_once; tool said: River: pong/)
+  const other = await collect(adapter.stream(options('s2', [user('m1', 'devin-other')])))
+  assert.equal(other.calls[0]?.name, 'approve_agent_action')
+})
+
 test('acp: a dsbot call with no one-time allow still asks', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
