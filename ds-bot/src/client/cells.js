@@ -68,11 +68,12 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
 // theirs is intercepted or cloned.
 function FoldCodeCopy({ code, actions }) {
   const [copied, setCopied] = useState(false)
-  const copy = () => {
-    void writeClipboard(code).then((ok) => {
-      if (!ok) { actions?.reportError?.(new Error('Could not copy the code block'), 'copy'); return }
+  const copy = async () => {
+    try {
+      const text = typeof code === 'function' ? await code() : code
+      if (!await writeClipboard(text)) throw new Error('Could not copy the code block')
       setCopied(true); setTimeout(() => setCopied(false), 1000)
-    }, () => actions?.reportError?.(new Error('Could not copy the code block'), 'copy'))
+    } catch (error) { actions?.reportError?.(error, 'copy') }
   }
   return h('button', { type: 'button', className: 'bt-tool bt-fold-copy', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
 }

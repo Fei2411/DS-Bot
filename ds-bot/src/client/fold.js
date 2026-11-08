@@ -124,20 +124,26 @@ export function useFold(text, { limit = FOLD_AT, whole, live = false, markdown =
   // A message kept only in part folds whatever the length of its start.
   const view = useMemo(() => (live ? null : foldView(text, cut ? ALWAYS : limit, markdown)), [text, live, limit, markdown, cut])
   if (view === null) return { shown: text, control: null }
-  // `code` is the whole block the preview's last code fence opens, for a copy
-  // that must not stop at the fold; only the full text can supply it, so a
-  // message kept only in part has none. When there is one, `shown` holds just
-  // the markdown before the block and `codeHead` the part of it the preview
-  // keeps, so the cell draws the half block itself.
-  const code = cut ? undefined : view.code
+  // Expansion and copying share the same full text, including attachment posts.
+  const readWhole = async () => {
+    if (read?.whole === true) return read
+    setRead('loading')
+    const value = await Promise.resolve().then(() => whole.load?.()).catch(() => undefined) ?? { whole: false }
+    setRead(value)
+    return value
+  }
+  const code = view.code === undefined ? undefined : !cut ? view.code : async () => {
+    const loaded = await readWhole()
+    const full = loaded.whole === true ? foldView(loaded.text, ALWAYS, markdown)?.code : undefined
+    if (full === undefined) throw new Error('Could not read the whole code block')
+    return full
+  }
   const shown = code === undefined ? view.head : view.prose
   const count = (cut ? whole.length : text.length).toLocaleString()
   if (!open) {
     const show = async () => {
       setOpen(true)
-      if (!cut || read !== undefined || whole.load === undefined) return
-      setRead('loading')
-      setRead(await whole.load() ?? { whole: false })
+      if (cut) await readWhole()
     }
     return { shown, folded: true, code, codeHead: view.codeHead, control: h('span', { className: 'bt-fold' }, h('button', { type: 'button', className: 'bt-more', onClick: show }, t('Show all · {count} characters', { count }))) }
   }

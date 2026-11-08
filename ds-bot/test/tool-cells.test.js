@@ -1077,3 +1077,29 @@ test('a folded code block leaves no copy of only its shown part', async () => {
   assert.equal(copyOf(short).length, 0)
   effects = []
 })
+
+
+test('an attachment preview copies its full code and never writes a partial read', async () => {
+  const inner = Array.from({ length: 4000 }, (_, i) => `line ${i + 1}`).join('\n')
+  const full = '```js\n' + inner + '\n```'
+  let whole = true
+  const errors = []
+  const bubble = () => expand(Bubbles({
+    texts: [full.slice(0, 1000)], roster: team(), selfId: chief.id, sessionId: chief.id,
+    actions: { reportError: error => errors.push(error.message) },
+    whole: { length: full.length, load: async () => ({ text: full, whole }) },
+    useUi: select => select({ reactions: {} }),
+  }))
+  const copyOf = out => find(out, node => node.type === 'button' && node.props?.className?.includes('bt-fold-copy'))
+  markdownTexts.length = 0
+  copiedTexts.length = 0
+  await copyOf(bubble()).props.onClick()
+  assert.deepEqual(copiedTexts, [inner])
+  assert.ok(markdownTexts.every(text => !text.includes('```')))
+  copiedTexts.length = 0
+  whole = false
+  await copyOf(bubble()).props.onClick()
+  assert.deepEqual(copiedTexts, [])
+  assert.deepEqual(errors, ['Could not read the whole code block'])
+  effects = []
+})

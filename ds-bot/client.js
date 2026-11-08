@@ -13063,15 +13063,25 @@ function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true }
   const cut = whole !== void 0 && whole.length > text.length;
   const view = (0, import_react29.useMemo)(() => live ? null : foldView(text, cut ? ALWAYS : limit, markdown), [text, live, limit, markdown, cut]);
   if (view === null) return { shown: text, control: null };
-  const code = cut ? void 0 : view.code;
+  const readWhole = async () => {
+    if (read?.whole === true) return read;
+    setRead("loading");
+    const value = await Promise.resolve().then(() => whole.load?.()).catch(() => void 0) ?? { whole: false };
+    setRead(value);
+    return value;
+  };
+  const code = view.code === void 0 ? void 0 : !cut ? view.code : async () => {
+    const loaded2 = await readWhole();
+    const full2 = loaded2.whole === true ? foldView(loaded2.text, ALWAYS, markdown)?.code : void 0;
+    if (full2 === void 0) throw new Error("Could not read the whole code block");
+    return full2;
+  };
   const shown = code === void 0 ? view.head : view.prose;
   const count = (cut ? whole.length : text.length).toLocaleString();
   if (!open) {
     const show2 = async () => {
       setOpen(true);
-      if (!cut || read !== void 0 || whole.load === void 0) return;
-      setRead("loading");
-      setRead(await whole.load() ?? { whole: false });
+      if (cut) await readWhole();
     };
     return { shown, folded: true, code, codeHead: view.codeHead, control: (0, import_react29.createElement)("span", { className: "bt-fold" }, (0, import_react29.createElement)("button", { type: "button", className: "bt-more", onClick: show2 }, t("Show all · {count} characters", { count }))) };
   }
@@ -13658,15 +13668,15 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
 }
 function FoldCodeCopy({ code, actions }) {
   const [copied, setCopied] = (0, import_react32.useState)(false);
-  const copy2 = () => {
-    void (0, import_dsh_client_ui_primitives.writeClipboard)(code).then((ok) => {
-      if (!ok) {
-        actions?.reportError?.(new Error("Could not copy the code block"), "copy");
-        return;
-      }
+  const copy2 = async () => {
+    try {
+      const text = typeof code === "function" ? await code() : code;
+      if (!await (0, import_dsh_client_ui_primitives.writeClipboard)(text)) throw new Error("Could not copy the code block");
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
-    }, () => actions?.reportError?.(new Error("Could not copy the code block"), "copy"));
+    } catch (error) {
+      actions?.reportError?.(error, "copy");
+    }
   };
   return (0, import_react32.createElement)("button", { type: "button", className: "bt-tool bt-fold-copy", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react32.createElement)(CheckIcon) : (0, import_react32.createElement)(CopyIcon));
 }
