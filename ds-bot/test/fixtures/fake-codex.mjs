@@ -7,9 +7,16 @@
 //   otherwise  -> an activity item, an agentMessage, turn/completed
 // `--exit-after-turn` exits once a turn completes, and `--text-only` sends no
 // activity items first: a test can then tell whether the one text event reached
-// the client.
+// the client. `--record <file>` appends the params of thread/start and thread/resume,
+// so a test can check the shape the client sent without a model call.
+import { appendFileSync } from 'node:fs'
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
+const recordAt = process.argv.indexOf('--record')
+const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
+const record = (method, params) => {
+  if (recordPath !== undefined) appendFileSync(recordPath, `${JSON.stringify({ method, params })}\n`)
+}
 const threads = new Map()
 let nextId = 0
 const requests = new Map()
@@ -84,12 +91,16 @@ process.stdin.on('data', (chunk) => {
         })
         break
       case 'thread/start': {
+        record('thread/start', params)
         const thread = { id: `thr-${++nextId}` }
         threads.set(thread.id, thread)
         reply(id, { thread: { id: thread.id } })
         break
       }
-      case 'thread/resume': reply(id, { thread: { id: params.threadId } }); break
+      case 'thread/resume':
+        record('thread/resume', params)
+        reply(id, { thread: { id: params.threadId } })
+        break
       case 'thread/inject_items': reply(id, {}); break
       case 'turn/start': {
         const thread = threads.get(params.threadId)

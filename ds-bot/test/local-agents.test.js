@@ -239,6 +239,53 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   assert.match(out.thinking, /▸/)
 })
 
+// #1144: Codex 0.166 reads ThreadStartParams at the top level and the MCP servers from
+// `config`; keys it does not know are dropped silently. With the old snake_case shape
+// the team tools never registered and the permission preset never applied.
+test('codex app-server: thread start and resume send the fields Codex reads', async () => {
+  for (const [preset, sandbox, approvalPolicy] of [
+    ['read-only', 'read-only', 'on-request'],
+    ['workspace-write', 'workspace-write', 'on-request'],
+    ['danger-full-access', 'danger-full-access', 'never'],
+  ]) {
+    const record = join(mkdtempSync(join(tmpdir(), 'dsb-codex-params-')), 'params.jsonl')
+    const records = {}
+    const messages = [system('sys', 'You are Kai, a coder.'), user('m1', 'hello')]
+    const first = makeAdapter({ preset, records, codexArgs: ['--record', record] })
+    try {
+      await collect(first.stream(options('s1', messages, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+    } finally {
+      await first.dispose()
+    }
+    // A new host resumes the thread the first one saved.
+    const second = makeAdapter({ preset, records, codexArgs: ['--record', record] })
+    try {
+      await collect(second.stream(options('s1', [...messages, user('m2', 'again')], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+    } finally {
+      await second.dispose()
+    }
+    const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+    const start = calls.find(call => call.method === 'thread/start')?.params
+    const resume = calls.find(call => call.method === 'thread/resume')?.params
+    assert.ok(start !== undefined, `${preset}: a thread starts`)
+    assert.ok(resume !== undefined, `${preset}: the saved thread resumes`)
+    // The team instructions travel on the new thread; a resumed one keeps its own.
+    assert.equal(start.developerInstructions, 'You are Kai, a coder.')
+    for (const [phase, params] of [['start', start], ['resume', resume]]) {
+      assert.equal(params.sandbox, sandbox, `${preset} ${phase}: sandbox`)
+      assert.equal(params.approvalPolicy, approvalPolicy, `${preset} ${phase}: approvalPolicy`)
+      assert.equal(params.cwd, records.s1.cwd, `${preset} ${phase}: cwd`)
+      assert.equal(params.model, 'gpt-5.1-codex', `${preset} ${phase}: model`)
+      const server = params.config?.mcp_servers?.dsbot
+      assert.match(server?.url ?? '', /^http:\/\/127\.0\.0\.1:\d+\//, `${preset} ${phase}: MCP url`)
+      assert.match(server?.http_headers?.Authorization ?? '', /^Bearer \S+$/, `${preset} ${phase}: MCP auth`)
+      for (const wrong of ['sandbox_mode', 'approval_policy', 'developer_instructions', 'mcp_servers']) {
+        assert.equal(wrong in params, false, `${preset} ${phase}: ${wrong} must not be sent`)
+      }
+    }
+  }
+})
+
 // The level goes on the request that starts the turn, so a Bot's choice travels
 // with every turn and a Bot without one keeps the CLI's own default.
 test('codex: the chosen thinking level reaches the turn', async (t) => {

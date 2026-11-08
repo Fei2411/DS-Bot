@@ -117,22 +117,26 @@ export class CodexEngine {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
-    const config = {
+    // Codex 0.166 reads `ThreadStartParams` from the top level and takes the MCP
+    // servers from `config`; it drops unknown keys without a word. So the fields keep
+    // their documented names: `sandbox`, `approvalPolicy`, `developerInstructions`,
+    // and `config.mcp_servers`. thread/resume takes the same ones, plus the thread id.
+    const params = {
       cwd,
-      ...(instructions ? { developer_instructions: instructions } : {}),
-      ...(mode ? { sandbox_mode: mode, approval_policy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
+      ...(instructions ? { developerInstructions: instructions } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mcp !== undefined ? { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } : {}),
+      ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
       try {
-        await peer.request('thread/resume', { threadId: thread.threadId, config }, { timeout: 30_000 })
+        await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
         return thread
       } catch {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', config, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', params, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }
