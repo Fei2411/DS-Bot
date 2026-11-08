@@ -216,7 +216,7 @@ async function until(check) {
 test('remember saves one entry with its source, and forget removes it, both in the journal', async (t) => {
   const { tool, read, journal, stop } = start()
   t.after(() => stop())
-  assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. It shows in your memory from your next conversation; recall finds it now\.$/)
+  assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. It shows in your next prompt; recall finds it now\.$/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /^# Memory\n\n- User prefers short replies \[source: part 1 #10; added: \d{4}-\d{2}-\d{2}\]\n\n## Index\n$/)
   assert.match(await tool('remember', { text: 'user prefers  SHORT replies' }, 'b2'), /^Already in your memory \(MEMORY\.md\): "User prefers short replies"\. Nothing changed\.$/)
 
@@ -909,7 +909,7 @@ test('a write that changed nothing fails the call with a code, and a saved one k
   const { tool, stop } = start()
   t.after(() => stop())
   // What a saved write answers is what the model reads, word for word.
-  assert.match(await tool('remember', { text: 'Likes tea' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. It shows in your memory from your next conversation; recall finds it now\.$/)
+  assert.match(await tool('remember', { text: 'Likes tea' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. It shows in your next prompt; recall finds it now\.$/)
   // A refusal is a failure, with the kind of failure in its code.
   await assert.rejects(tool('remember', { text: 'Ship on Friday', scope: 'team' }, 'b2'), (error) => {
     assert.equal(error.code, 'memory/refused')
@@ -978,6 +978,8 @@ test('a saved entry shows in the prompt on the next render of the same part', as
   assert.match(opened, /\(nothing saved yet\)/)
   await tool('remember', { text: 'Likes tea' }, 'b2')
   assert.match(section('b2'), /- Likes tea \[/)
+  assert.doesNotMatch(section('b2'), /saved when this conversation began|Entries saved after this conversation began/)
+  assert.match(section('b2'), /refreshed in the next prompt after a change/)
   // The other Bot's Section reads its own memory, never this one's.
   assert.match(section('m1'), /\(nothing saved yet\)/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes tea \[/)
