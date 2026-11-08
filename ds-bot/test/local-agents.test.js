@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,17 +25,17 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write' } = {}) {
-  const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude: FIXTURES.claude }
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+  const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
     rt: { warn: () => {} },
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp] }, { findExecutable: path => path })
-        : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex] }, { findExecutable: path => path })
-          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+        : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
+          : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
       return engine
     },
@@ -48,6 +48,15 @@ function makeAdapter({ records = {}, preset = 'workspace-write' } = {}) {
   })
   adapter._spawned = spawned
   return adapter
+}
+
+// Wait for the agent process behind a live session to exit.
+async function waitForDead(adapter, sessionId = 's1') {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (adapter.live.get(sessionId)?.engineSession?.dead === true) return
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  throw new Error('the agent process did not exit')
 }
 
 // Collect a stream into {text, thinking, calls, finish} for assertions.
@@ -63,7 +72,7 @@ async function collect(stream) {
   return out
 }
 
-const options = (sessionId, messages, extra = {}) => ({ provider: 'acp-fake', model: 'default', sessionId, messages, tools: [{ name: 'message_bot' }], signal: AbortSignal.timeout(60_000), ...extra })
+const options = (sessionId, messages, extra = {}) => ({ provider: 'local-acp-fake', model: 'default', sessionId, messages, tools: [{ name: 'message_bot' }], signal: AbortSignal.timeout(60_000), ...extra })
 
 test('session-title and compaction stay deterministic, no CLI is started', async () => {
   const adapter = makeAdapter()
@@ -204,8 +213,8 @@ test('custom agent validation', () => {
 })
 
 test('routes and modes', () => {
-  assert.equal(isLocalAgentRoute('devin-cli'), true)
-  assert.equal(isLocalAgentRoute('acp-custom'), true)
+  assert.equal(isLocalAgentRoute('local-devin-cli'), true)
+  assert.equal(isLocalAgentRoute('local-acp-custom'), true)
   assert.equal(isLocalAgentRoute('deepseek'), false)
   assert.equal(cliMode('acp', 'read-only', [{ id: 'ask' }, { id: 'bypass' }]), 'ask')
   assert.equal(cliMode('acp', 'danger-full-access', [{ id: 'ask' }, { id: 'bypass' }]), 'bypass')
@@ -215,7 +224,7 @@ test('routes and modes', () => {
 test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.probeModels('acp-fake')
+  const models = await adapter.probeModels('local-acp-fake')
   assert.deepEqual(models.map(model => model.id), ['default', 'fake-large', 'fake-small'])
   assert.equal(models[0].name, 'CLI default')
 })
@@ -223,9 +232,9 @@ test('probeModels reports the probe session\'s model options plus CLI default', 
 test('codex app-server: thread per session, models from model/list', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const models = await adapter.probeModels('codex-cli')
+  const models = await adapter.probeModels('local-codex-cli')
   assert.deepEqual(models.map(model => model.id), ['default', 'gpt-5.1-codex'])
-  const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli' })))
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
 })
@@ -235,9 +244,9 @@ test('codex app-server: thread per session, models from model/list', async (t) =
 test('codex: the chosen thinking level reaches the turn', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const chosen = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli', reasoningEffort: 'high' })))
+  const chosen = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-codex-cli', reasoningEffort: 'high' })))
   assert.match(chosen.text, /effort=high/)
-  const none = await collect(adapter.stream(options('s2', [user('m1', 'fix it')], { provider: 'codex-cli' })))
+  const none = await collect(adapter.stream(options('s2', [user('m1', 'fix it')], { provider: 'local-codex-cli' })))
   assert.match(none.text, /effort=none/)
 })
 
@@ -246,19 +255,19 @@ test('the catalog carries the thinking levels a codex model serves', async (t) =
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
   // The menu lists a CLI's models once it has been asked for them.
-  await adapter.probeModels('codex-cli')
+  await adapter.probeModels('local-codex-cli')
   const rt = {
     ctx: {
       llm: {
-        listProviders: () => [{ id: 'codex-cli' }],
-        listModels: async () => adapter.listModels('codex-cli'),
+        listProviders: () => [{ id: 'local-codex-cli' }],
+        listModels: async () => adapter.listModels('local-codex-cli'),
         resolveModelInfo: (provider, model) => adapter.resolveModel(provider, model),
       },
     },
-    state: { bots: { b1: { model: 'codex-cli/gpt-5.1-codex' } } },
+    state: { bots: { b1: { model: 'local-codex-cli/gpt-5.1-codex' } } },
   }
   modelsInstall(rt)
-  const entry = (await rt.catalog()).find(candidate => candidate.ref === 'codex-cli/gpt-5.1-codex')
+  const entry = (await rt.catalog()).find(candidate => candidate.ref === 'local-codex-cli/gpt-5.1-codex')
   assert.deepEqual(entry.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
   // The CLI's own default is not advertised: a Bot without a level keeps the
   // one the user set in their Codex config.
@@ -269,15 +278,15 @@ test('the catalog carries the thinking levels a codex model serves', async (t) =
 test('an engine without levels reports none', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  assert.equal((await adapter.resolveModel('claude-code', 'default')).reasoning, undefined)
-  assert.equal((await adapter.resolveModel('acp-fake', 'default')).reasoning, undefined)
+  assert.equal((await adapter.resolveModel('local-claude-code', 'default')).reasoning, undefined)
+  assert.equal((await adapter.resolveModel('local-acp-fake', 'default')).reasoning, undefined)
 })
 
 // Codex 0.153+ asks before every MCP tool call under on-request (#1089).
 test('codex app-server: approves tool calls on DS Bot\'s own MCP server, refuses others', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const answer = async (sessionId, text) => JSON.parse((await collect(adapter.stream(options(sessionId, [user('m1', text)], { provider: 'codex-cli' })))).text)
+  const answer = async (sessionId, text) => JSON.parse((await collect(adapter.stream(options(sessionId, [user('m1', text)], { provider: 'local-codex-cli' })))).text)
   assert.deepEqual(await answer('s1', 'elicit dsbot mcp_tool_call'), { action: 'accept', content: null, _meta: null })
   assert.deepEqual(await answer('s2', 'elicit github mcp_tool_call'), { error: -32601 })
   assert.deepEqual(await answer('s3', 'elicit dsbot form'), { error: -32601 })
@@ -286,7 +295,7 @@ test('codex app-server: approves tool calls on DS Bot\'s own MCP server, refuses
 test('claude stream-json: thinking, activity line, usage', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'claude-code' })))
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-claude-code' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /thought about/)
   assert.match(out.thinking, /▸ Read/)
@@ -305,7 +314,7 @@ test('a write to a CLI that has exited does not throw out of DS Bot', async () =
     child.kill('SIGTERM')
     for (let i = 0; i < 20; i += 1) peer.notify('session/cancel', { sessionId: 'x'.repeat(65536) })
     await new Promise(resolve => child.on('exit', resolve))
-    const claude = new ClaudeEngine('claude-code', { name: 'Claude Code', command: process.execPath, args: [FIXTURES.claude] }, { findExecutable: path => path })
+    const claude = new ClaudeEngine('local-claude-code', { name: 'Claude Code', command: process.execPath, args: [FIXTURES.claude] }, { findExecutable: path => path })
     const session = await claude.open('s1', { cwd: tmpdir() })
     const cli = session.child
     cli.kill('SIGTERM')
@@ -321,10 +330,10 @@ test('a write to a CLI that has exited does not throw out of DS Bot', async () =
 test('claude: another model restarts only that conversation\'s process, with its new tool server', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const claude = (id, messages, extra = {}) => adapter.stream(options(id, messages, { provider: 'claude-code', ...extra }))
+  const claude = (id, messages, extra = {}) => adapter.stream(options(id, messages, { provider: 'local-claude-code', ...extra }))
   await collect(claude('s1', [user('m1', 'one')]))
   await collect(claude('s2', [user('m1', 'two')]))
-  const engine = adapter.engines.get('claude-code')
+  const engine = adapter.engines.get('local-claude-code')
   const [first, other] = [engine.sessions.get('s1').child, engine.sessions.get('s2').child]
   const out = await collect(claude('s1', [user('m1', 'one'), user('m2', 'again')], { model: 'sonnet' }))
   assert.match(out.text, /again/)
@@ -334,6 +343,211 @@ test('claude: another model restarts only that conversation\'s process, with its
   assert.match(args[args.indexOf('--mcp-config') + 1], new RegExp(adapter.live.get('s1').mcp.url))
   assert.equal(engine.sessions.get('s2').child, other)
   assert.equal(other.killed, false)
+})
+
+// Claude Code 2.1.302 sends `system/init` only once the first message arrives,
+// so waiting for it before the first prompt would deadlock every turn.
+test('claude: a CLI that sends init only after the first prompt still starts', async (t) => {
+  const engine = new ClaudeEngine('local-claude-code', { name: 'Claude Code', kind: 'claude', command: process.execPath, args: [FIXTURE('fake-claude-lazy-init.mjs')] }, { findExecutable: path => path })
+  t.after(() => engine.close())
+  const session = await Promise.race([
+    engine.open('s-lazy', { cwd: mkdtempSync(join(tmpdir(), 'dsb-cwd-')), mode: 'acceptEdits' }),
+    new Promise((_, reject) => { setTimeout(() => reject(new Error('start() waited for system/init')), 10_000).unref() }),
+  ])
+  await session.prompt([{ type: 'text', text: 'hello' }])
+  const seen = []
+  for (;;) {
+    const event = await session.next()
+    seen.push(event.type)
+    if (event.type === 'done') break
+  }
+  assert.deepEqual(seen, ['text', 'done'])
+  assert.match(session.cliSessionId, /^claude-/)
+})
+
+// The id arrives with init, after the adapter has already saved its record: the
+// saved record is what a restarted host resumes from.
+test('claude: the session id from init is saved and the next host resumes it', async (t) => {
+  const records = {}
+  const lazy = FIXTURE('fake-claude-lazy-init.mjs')
+  const first = makeAdapter({ records, claude: lazy })
+  t.after(() => first.dispose())
+  const out = await collect(first.stream(options('s1', [user('m1', 'hello')], { provider: 'local-claude-code' })))
+  assert.match(out.text, /hello/)
+  assert.match(records.s1.cliSessionId, /^claude-/)
+  // A new adapter is a host restart: the saved record is all it has.
+  const second = makeAdapter({ records, claude: lazy })
+  t.after(() => second.dispose())
+  const resumed = await collect(second.stream(options('s1', [user('m2', 'again')], { provider: 'local-claude-code' })))
+  assert.match(resumed.text, new RegExp(`resume=${records.s1.cliSessionId}`))
+})
+
+// A write to a CLI that dies while it starts fails asynchronously on stdin; an
+// unhandled stream error takes the whole host down instead of failing one turn.
+test('claude: a prompt written as the CLI dies becomes a typed error', async (t) => {
+  const engine = new ClaudeEngine('local-claude-code', { name: 'Claude Code', kind: 'claude', command: process.execPath, args: [FIXTURE('fake-claude-dead.mjs')] }, { findExecutable: path => path })
+  t.after(() => engine.close())
+  const session = await engine.open('s-dead', { cwd: mkdtempSync(join(tmpdir(), 'dsb-cwd-')), mode: 'acceptEdits' })
+  // Larger than the pipe buffer and written while the CLI is still starting, so
+  // the write is pending when the process goes away.
+  await session.prompt([{ type: 'text', text: 'x'.repeat(200_000) }])
+  const failure = await Promise.race([
+    (async () => {
+      for (;;) {
+        const event = await session.next()
+        if (event.type === 'error' && /stopped reading input/.test(event.error.message)) return event
+      }
+    })(),
+    new Promise((_, reject) => { setTimeout(() => reject(new Error('the stdin failure never reached the queue')), 10_000).unref() }),
+  ])
+  assert.equal(failure.error.code, 'LOCAL_AGENT_EXIT')
+})
+
+// A resume that dies before init must not erase the id the record already has:
+// the next host would have nothing to resume and would send only the delta.
+test('claude: a failed resume keeps the saved session id', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const records = {}
+  const claude = FIXTURE('fake-claude-flaky.mjs')
+  const host = () => {
+    const adapter = makeAdapter({ records, claude, claudeArgs: [runs, '2'] })
+    t.after(() => adapter.dispose())
+    return adapter
+  }
+  const first = await collect(host().stream(options('s1', [user('m1', 'hello')], { provider: 'local-claude-code' })))
+  assert.match(first.text, /hello/)
+  const saved = records.s1.cliSessionId
+  assert.match(saved, /^claude-/)
+  // The second host resumes, and this CLI run dies before `system/init`.
+  await assert.rejects(collect(host().stream(options('s1', [user('m2', 'again')], { provider: 'local-claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  assert.equal(records.s1.cliSessionId, saved)
+  // The third host still resumes the conversation the first one started.
+  const third = await collect(host().stream(options('s1', [user('m3', 'third')], { provider: 'local-claude-code' })))
+  assert.match(third.text, new RegExp(`resume=${saved}`))
+})
+
+// Claude Code deletes old conversations. Resuming one that is gone fails at
+// once; the turn must start a new conversation with the history, not fail on
+// the same id every time.
+test('claude: a saved conversation the CLI no longer has starts over with the history', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const records = { s1: { route: 'local-claude-code', cliSessionId: 'claude-gone', cwd: tmpdir(), handedId: 'm1' } }
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '', 'claude-gone'] })
+  t.after(() => adapter.dispose())
+  const history = [user('m1', 'fix the login'), user('m2', 'and the logout')]
+  const out = await collect(adapter.stream(options('s1', history, { provider: 'local-claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(out.text, /resume=none/)
+  assert.equal(readFileSync(runs, 'utf8'), '2')
+  const prompts = readFileSync(`${runs}.prompts`, 'utf8')
+  assert.match(prompts, /fix the login/, 'the new conversation gets the history')
+  assert.match(prompts, /and the logout/)
+  for (let i = 0; i < 40 && records.s1.cliSessionId === 'claude-gone'; i += 1) await new Promise(resolve => setTimeout(resolve, 25))
+  assert.match(records.s1.cliSessionId, /^claude-(?!gone)/)
+})
+
+// A CLI that exits before init for another reason keeps its id (above); only a
+// conversation the CLI reports missing is dropped.
+test('claude: print mode asks DS Bot for permission and lets team tools through', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [user('m1', 'hello')], { provider: 'local-claude-code' })))
+  const args = adapter.engines.get('local-claude-code').sessions.get('s1').child.spawnargs
+  assert.equal(args[args.indexOf('--permission-prompt-tool') + 1], 'stdio')
+  assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__dsbot')
+})
+
+// A CLI that exits before init leaves a dead bridge: the retry must start a
+// new process instead of writing into the one that is gone.
+test('claude: a retry after a pre-init exit starts a new CLI', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '1'] })
+  t.after(() => adapter.dispose())
+  await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')], { provider: 'local-claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  const out = await collect(adapter.stream(options('s1', [user('m2', 'again')], { provider: 'local-claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(out.text, /again/)
+  assert.equal(readFileSync(runs, 'utf8'), '2')
+})
+
+// The failed prompt was handed but never read: the retry must send it again,
+// not only what came after it.
+test('claude: the retry replays the input the dead CLI never read', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '1'] })
+  t.after(() => adapter.dispose())
+  const history = [user('m1', 'fix the login')]
+  await assert.rejects(collect(adapter.stream(options('s1', history, { provider: 'local-claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  // The same full history comes back, as DS Bot resends the conversation.
+  const out = await collect(adapter.stream(options('s1', history, { provider: 'local-claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
+})
+
+// The repair card's Retry adds a `continue` message; the new CLI must still see
+// the user message that never got an answer.
+test('claude: the retry flow replays the unanswered message', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '1'] })
+  t.after(() => adapter.dispose())
+  const asked = user('m1', 'fix the login')
+  await assert.rejects(collect(adapter.stream(options('s1', [asked], { provider: 'local-claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  const retry = {
+    id: 'm2',
+    role: 'user',
+    content: [{ type: 'text', text: "[Retry after a failed turn]\nYour last turn failed (LOCAL_AGENT_EXIT) and the user has fixed it. Answer the user's last unanswered message." }],
+    source: { kind: 'bot', form: 'relay', role: 'continue' },
+  }
+  const out = await collect(adapter.stream(options('s1', [asked, retry], { provider: 'local-claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  const prompts = readFileSync(`${runs}.prompts`, 'utf8')
+  assert.match(prompts, /fix the login/)
+  assert.match(prompts, /last unanswered message/)
+})
+
+// The rollback is saved, not only kept in memory: a host that restarts after a
+// failed start rebuilds its live state from the record.
+test('claude: a host restart after a failed start still replays the unread input', async (t) => {
+  const runs = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'runs')
+  const records = {}
+  const claude = FIXTURE('fake-claude-flaky.mjs')
+  const host = () => {
+    const adapter = makeAdapter({ records, claude, claudeArgs: [runs, '1'] })
+    t.after(() => adapter.dispose())
+    return adapter
+  }
+  const history = [user('m1', 'fix the login')]
+  await assert.rejects(collect(host().stream(options('s1', history, { provider: 'local-claude-code' }))), error => error.code === 'LOCAL_AGENT_EXIT')
+  // The first host is gone: the saved record is all the new one has.
+  const out = await collect(host().stream(options('s1', history, { provider: 'local-claude-code', signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
+})
+
+// ACP and Codex create their session before the prompt, so a process that exits
+// after a turn did read it: reopening sends only the new input, not a replay.
+test('acp: a reopen after the process exits sends only the new input', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--exit-after-turn'] })
+  t.after(() => adapter.dispose())
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one')])))
+  assert.match(first.text, /alpha-one/)
+  await waitForDead(adapter)
+  const second = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one'), user('m2', 'beta-two')])))
+  assert.match(second.text, /beta-two/)
+  assert.doesNotMatch(second.text, /alpha-one/)
+})
+
+// A reopened Codex thread needs its own queue: a pump still waiting on the dead
+// one takes the first event of the new turn, and the reply arrives empty.
+test('codex: a resume after the process exits still delivers the reply text', async (t) => {
+  const adapter = makeAdapter({ codexArgs: ['--exit-after-turn', '--text-only'] })
+  t.after(() => adapter.dispose())
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one')], { provider: 'local-codex-cli' })))
+  assert.match(first.text, /alpha-one/)
+  await waitForDead(adapter)
+  const second = await collect(adapter.stream(options('s1', [user('m1', 'alpha-one'), user('m2', 'beta-two')], { provider: 'local-codex-cli' })))
+  assert.match(second.text, /beta-two/)
+  assert.doesNotMatch(second.text, /alpha-one/)
 })
 
 test('MCP: bad token gets 401, tools/list flattens schemas', async () => {
@@ -383,7 +597,7 @@ test('flattenSchema removes unions, refs and const', () => {
 // early for a local-agent Bot, and checkContext leaves too.
 test('the steward leaves a local-agent Session alone', async () => {
   const ctx = fakeContext()
-  const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'acp-fake/default' }
+  const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-acp-fake/default' }
   const rt = {
     ctx,
     config: {},
@@ -398,7 +612,7 @@ test('the steward leaves a local-agent Session alone', async () => {
     selfOf: () => 'b1',
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
-    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('acp-'),
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -423,7 +637,7 @@ test('a fresh part carries the deterministic handoff', async () => {
   ctx.workspaceRegistry = { archiveSession: async () => {}, unarchiveSession: async () => {} }
   ctx.sessions = { flush: async () => {} }
   const messages = Array.from({ length: 14 }, (_, i) => ({ seq: i + 1, who: i % 2 ? 'you' : 'user', text: `line ${i + 1}` }))
-  const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'acp-fake/default', segments: [] }
+  const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-acp-fake/default', segments: [] }
   const followed = []
   const delivered = []
   const rt = {
@@ -442,7 +656,7 @@ test('a fresh part carries the deterministic handoff', async () => {
     chatOf: () => 's1',
     sessionOfRoom: () => undefined,
     isBotSession: id => ['s1', 's2'].includes(id),
-    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('acp-'),
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),

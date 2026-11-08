@@ -82,7 +82,7 @@ const render = (roster) => {
 
 const MODELS = [
   { ref: 'ds/flash', provider: 'ds', id: 'flash', name: 'Flash', providerName: 'DS' },
-  { ref: 'codex-cli/default', provider: 'codex-cli', id: 'default', name: 'CLI default', providerName: 'Codex CLI' },
+  { ref: 'local-codex-cli/default', provider: 'local-codex-cli', id: 'default', name: 'CLI default', providerName: 'Codex CLI' },
 ]
 
 test('the form opens on DS Bot models and can create at once', () => {

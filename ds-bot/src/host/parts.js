@@ -737,16 +737,17 @@ export function install(rt) {
       return segment.note === undefined ? `${head})` : `${head} Below is the note written at the end of part ${segment.noteFrom}, carried over unchanged.)\n\n${segment.note}`
     }
     const why = segment.fallback === 'overflow' ? 'the part overflowed the model\'s window'
-      : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
-        : segment.fallback === 'engine' ? 'what you run on changed'
-          : 'the model did not write a usable note'
+      : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
+        : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
+          : segment.fallback === 'engine' ? 'what you run on changed'
+            : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
     return segment.note === undefined
       ? `${head} There was no earlier note to carry over. Go by the messages below, and look up anything else.)`
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, failed, bare, folder, manual, engine }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, manual, engine }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -756,9 +757,10 @@ export function install(rt) {
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
       : overflow ? 'the previous part overflowed the model\'s window'
         : engine !== undefined ? `the user changed what you run on, to ${engine}`
-          : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-            : manual ? 'a fresh conversation was started'
-              : 'the previous part grew long'
+          : cutoff ? 'the previous part kept being cut off at the output limit'
+            : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
+              : manual ? 'a fresh conversation was started'
+                : 'the previous part grew long'
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -805,7 +807,7 @@ export function install(rt) {
     ...(resume && job.joined?.length ? { joined: job.joined } : {}),
   })
 
-  /** @type {Map<string, {botId:string, roomId?:string, carry:any[], info?:any, joined?:any[], resume:boolean, overflow:boolean, failed?:string, bare?:boolean, folder?:boolean, engine?:boolean, hard:boolean, started?:boolean, moved?:boolean, noteFailed?:boolean}>} */
+  /** @type {Map<string, {botId:string, roomId?:string, carry:any[], info?:any, joined?:any[], resume:boolean, overflow:boolean, cutoff?:boolean, failed?:string, bare?:boolean, folder?:boolean, engine?:boolean, hard:boolean, started?:boolean, moved?:boolean, noteFailed?:boolean}>} */
   const switches = new Map()
   // Parts whose move to their working folder failed, and the time before which it is
   // not tried again.
@@ -825,6 +827,13 @@ export function install(rt) {
   const noteFailures = new Map()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
+  // Turns cut off at the output limit with nothing written, in a row, per part.
+  const cutOffs = new Map()
+  // The turn tracker reports every turn it sees end, so that only turns in a row count.
+  rt.noteCutOffTurn = (sessionId, { withoutText }) => {
+    if (withoutText) cutOffs.set(sessionId, (cutOffs.get(sessionId) ?? 0) + 1)
+    else cutOffs.delete(sessionId)
+  }
   // Parts that could not follow the Bot's run mode, and the time before which they do
   // not try again: without it every step would move on again. Until then their input
   // waits, and engineWakes wakes them for the next try.
@@ -941,11 +950,13 @@ export function install(rt) {
 
   // `hard`: past the hard line or the window, the part moves on even without a note
   // from the model. `folder`: the part moves on because its working folder changed.
+  // `cutoff`: the part kept being cut off at the output limit, so it moves on without
+  // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, engine = false, hard = overflow || folder || manual || engine } = {}) {
+  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, engine, hard, manual, since: Date.now() }
+    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
@@ -1108,7 +1119,7 @@ export function install(rt) {
     // for its handoff; the part moves on with the deterministic package.
     const local = bot !== undefined && rt.isLocalAgentRef?.(bot.model ?? bot.appliedModel) === true
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!local && !job.engine && !job.overflow && job.failed === undefined && !whole && bot !== undefined) {
+    if (!local && !job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         written = await writeNote(agent, AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)]), { folder: job.folder })
       } catch (error) {
@@ -1132,7 +1143,7 @@ export function install(rt) {
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
       : local ? {}
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : 'failed', ...earlierNote }
+      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
@@ -1200,7 +1211,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1417,6 +1428,16 @@ export function install(rt) {
     // A local agent CLI owns its in-session compaction.
     if (rt.isLocalAgentRef?.(rt.botOf(placeOf(agent.id)?.botId)?.model ?? rt.botOf(placeOf(agent.id)?.botId)?.appliedModel) === true) return
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
+    // Twice in a row cut off at the output limit with nothing written: the request is
+    // over the window the route really has, so the same size is not sent again. The
+    // part moves on the way an overflow moves it, without a note at that size.
+    if ((cutOffs.get(agent.id) ?? 0) >= 2) {
+      if (await canMakeRoom(agent)) {
+        cutOffs.delete(agent.id)
+        startSwitch(agent, { cutoff: true })
+      }
+      return
+    }
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
@@ -1730,5 +1751,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, followEngine, heldBack, newPart, switchPart, switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
