@@ -655,6 +655,9 @@ export function install(rt) {
       rt.warn('ds-bot: memory change %s is pending: %s', id, error)
       throw error
     }
+    // The change is in: the Sessions that read this memory freeze it again on their
+    // next render. A change that failed above never reaches this line.
+    renewChangedScope(scope)
   }
 
   // Finishes the changes that were interrupted: the files they touch, then the rows
@@ -667,6 +670,7 @@ export function install(rt) {
     await applySteps(record.steps)
     await journalRow(record.row)
     await unlink(pendingPath(root)).catch(error => { if (error?.code !== 'ENOENT') throw error })
+    renewChangedScope(record.row?.scope)
   }
 
   // The recovery runs in the writer's line, so it never runs beside a change that is
@@ -1033,6 +1037,23 @@ export function install(rt) {
     if (sessionId === undefined) return
     frozen.delete(sessionId)
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
+  }
+  // The Sessions whose frozen Section shows a memory a change touched. A Bot's Section
+  // reads that Bot's own memory and the team memory, so a Bot write reaches that Bot's
+  // Sessions and a team write every Bot's. A group write changes the group memory, which
+  // comes as a snapshot message of its own and never enters this Section, so no Section
+  // is renewed for it. A Session the state no longer names renders no new turn, so it
+  // keeps its snapshot.
+  const sessionsOfBot = (botId) => {
+    const bot = rt.botOf(botId)
+    if (bot === undefined) return []
+    const pastGroup = Object.values(state.rooms ?? {}).flatMap(room => (room.segments?.[botId] ?? []).map(segment => segment.sessionId))
+    return [botId, rt.chatOf(botId), ...(bot.segments ?? []).map(segment => segment.sessionId), ...rt.groupSessionsOf(botId), ...pastGroup].filter(Boolean)
+  }
+  function renewChangedScope(scope) {
+    if (typeof scope !== 'string') return
+    const bots = scope === 'team' ? Object.keys(state.bots ?? {}) : scope.startsWith('bot:') ? [scope.slice(4)] : []
+    for (const botId of bots) for (const sessionId of new Set(sessionsOfBot(botId))) renewMemory(sessionId)
   }
 
   ctx.effect(() => ctx.systemPrompt.section({

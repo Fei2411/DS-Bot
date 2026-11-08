@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -929,32 +929,146 @@ test('a write that changed nothing fails the call with a code, and a saved one k
   })
 })
 
-test('a Session keeps the memory it began with, across restarts, until its snapshot goes', async (t) => {
+test('a Session holds its frozen memory until a write reaches it, and a restart keeps it', async (t) => {
   const first = start()
   t.after(() => first.stop())
-  await first.tool('remember', { text: 'Likes tea' }, 'b2')
+  await first.tool('recall', {}, 'b2')
   const opened = first.section('b2')
   assert.match(opened, /^# Your memory\n/)
-  assert.match(opened, /## Your memory \(MEMORY\.md\)\n- Likes tea \[source: part 1 #10; added: [\d-]+\]\n\n## Team memory, shared by every Bot \(team\/MEMORY\.md\)\n\(nothing saved yet\)$/)
+  assert.match(opened, /## Your memory \(MEMORY\.md\)\n\(nothing saved yet\)\n\n## Team memory, shared by every Bot \(team\/MEMORY\.md\)\n\(nothing saved yet\)$/)
   assert.match(opened, /when the whole team should know something, tell a Main Bot with message_bot/)
   assert.match(first.section('m1'), /As a Main Bot you write it with remember scope "team"/)
   assert.match(first.section('g3'), /As a group admin you write it/)
   assert.equal(first.section('nobody'), '')
 
-  await first.tool('remember', { text: 'Lives in Hangzhou', topic: 'home' }, 'b2')
+  // A render with nothing written since reads the frozen bytes, not the files again.
+  const snapshot = join(first.home, 'memory', 'snapshots', 'b2.md')
+  assert.equal(readFileSync(snapshot, 'utf8'), opened)
+  const frozenAt = statSync(snapshot).mtimeMs
+  await new Promise(done => setTimeout(done, 20))
   assert.equal(first.section('b2'), opened)
+  assert.equal(statSync(snapshot).mtimeMs, frozenAt)
+
+  // A write that reaches this Session renews it, and the next render is the new snapshot.
+  await first.tool('remember', { text: 'Likes tea' }, 'b2')
+  const written = first.section('b2')
+  assert.match(written, /- Likes tea \[source: part 1 #10; added: /)
+  assert.notEqual(written, opened)
+  assert.equal(readFileSync(snapshot, 'utf8'), written)
+
   // Another dsh run finds the snapshot and keeps the same bytes.
   await first.stop({ keep: true })
   const second = start({ home: first.home })
   await second.tool('recall', {}, 'b2')
-  assert.equal(second.section('b2'), opened)
-  // Without its snapshot (renewMemory removes it), the Session freezes the memory anew.
+  assert.equal(second.section('b2'), written)
+  // Without its snapshot, the Session freezes the memory anew from the files.
   await second.ctx.dispose()
   const renewed = start({ home: first.home })
   t.after(() => renewed.stop())
-  rmSync(join(first.home, 'memory', 'snapshots', 'b2.md'))
+  rmSync(snapshot)
   await renewed.tool('recall', {}, 'b2')
-  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopics: \[\[home\]\]\n/)
+  assert.match(renewed.section('b2'), /- Likes tea \[/)
+})
+
+test('a saved entry shows in the prompt on the next render of the same part', async (t) => {
+  const { tool, section, read, stop } = start()
+  t.after(() => stop())
+  const opened = section('b2')
+  assert.match(opened, /\(nothing saved yet\)/)
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  assert.match(section('b2'), /- Likes tea \[/)
+  // The other Bot's Section reads its own memory, never this one's.
+  assert.match(section('m1'), /\(nothing saved yet\)/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes tea \[/)
+})
+
+test('an own write renews the Bot\'s private and group Sessions, and no other Bot\'s', async (t) => {
+  const { tool, section, stop } = start()
+  t.after(() => stop())
+  await tool('recall', {}, 'b2')
+  const writer = section('b2')
+  section('b3')
+  section('g3')
+  const main = section('m1')
+
+  // Coder writes its own memory from its private chat; its group Session reads the same memory.
+  await tool('remember', { text: 'Likes tea' }, 'b3')
+  assert.match(section('b3'), /- Likes tea \[/)
+  assert.match(section('g3'), /- Likes tea \[/)
+  assert.equal(section('b2'), writer)
+  assert.equal(section('m1'), main)
+
+  // Named from the group Session, the write reaches both of Coder's Sessions again.
+  await tool('remember', { text: 'Prefers Vim', scope: 'own' }, 'g3')
+  assert.match(section('b3'), /- Prefers Vim \[/)
+  assert.match(section('g3'), /- Prefers Vim \[/)
+  assert.equal(section('b2'), writer)
+  assert.equal(section('m1'), main)
+})
+
+test('a team write renews every Bot\'s Section, private chat and group alike', async (t) => {
+  const { tool, section, stop } = start()
+  t.after(() => stop())
+  await tool('recall', {}, 'b2')
+  for (const id of ['b2', 'b3', 'g3', 'm1']) section(id)
+  // Main Bot writes the team memory; every Bot reads it, so every Section renews.
+  await tool('remember', { text: 'Ships on Fridays', scope: 'team' }, 'm1')
+  for (const id of ['b2', 'b3', 'g3', 'm1']) assert.match(section(id), /- Ships on Fridays \[/)
+})
+
+test('a group write changes only the group memory and leaves every Section alone', async (t) => {
+  const { tool, section, read, stop } = start()
+  t.after(() => stop())
+  await tool('recall', {}, 'b2')
+  const writer = section('b2')
+  const coder = section('b3')
+  const group = section('g3')
+  const main = section('m1')
+  // Coder is the group's admin, and a group Session writes the group memory by default.
+  await tool('remember', { text: 'Ship on Friday' }, 'g3')
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- Ship on Friday \[/)
+  assert.equal(section('b2'), writer)
+  assert.equal(section('b3'), coder)
+  assert.equal(section('g3'), group)
+  assert.equal(section('m1'), main)
+})
+
+test('a write that changed nothing or failed leaves the frozen Section in place', async (t) => {
+  const { home, tool, section, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  const opened = section('b2')
+  const snapshot = join(home, 'memory', 'snapshots', 'b2.md')
+  const frozenAt = statSync(snapshot).mtimeMs
+  await new Promise(done => setTimeout(done, 20))
+  // The same entry again changes nothing, so nothing is renewed.
+  assert.match(await tool('remember', { text: 'Likes tea' }, 'b2'), /Nothing changed/)
+  await new Promise(done => setTimeout(done, 20))
+  assert.equal(statSync(snapshot).mtimeMs, frozenAt)
+  assert.equal(section('b2'), opened)
+  // A write that failed is not published either.
+  await assert.rejects(tool('forget', { entry: 'nothing like it' }, 'b2'))
+  await new Promise(done => setTimeout(done, 20))
+  assert.equal(statSync(snapshot).mtimeMs, frozenAt)
+  assert.equal(section('b2'), opened)
+})
+
+test('a private Bot\'s own write renews only its Sessions', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const team = structuredClone(TEAM)
+  team.bots.p1 = { id: 'p1', sessionId: 'p1', name: 'Private', role: 'Private', model: 'deepseek/v4', instructions: '', createdAt: 5, private: true }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const { tool, section, stop } = start({ home })
+  t.after(() => stop())
+  await tool('recall', {}, 'p1')
+  const writer = section('b2')
+  section('p1')
+  await tool('remember', { text: 'Keeps a diary' }, 'p1')
+  assert.match(section('p1'), /- Keeps a diary \[/)
+  assert.equal(section('b2'), writer)
+  // The team memory still reaches a private Bot's Section.
+  await tool('remember', { text: 'Ships on Fridays', scope: 'team' }, 'm1')
+  assert.match(section('p1'), /- Ships on Fridays \[/)
 })
 
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
@@ -980,7 +1094,7 @@ test('a change of role freezes the section again, so its team rule matches the t
   const before = section('b2')
   assert.match(before, /tell a Main Bot with message_bot/)
   await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
-  assert.equal(section('b2'), before)
+  assert.match(section('b2'), /- Lives in Hangzhou \[/)
 
   assert.equal((await call('set-main', { id: 'b2', main: true })).ok, true)
   const promoted = section('b2')
