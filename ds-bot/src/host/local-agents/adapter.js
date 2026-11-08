@@ -50,13 +50,15 @@ function digestChunks(messages) {
 
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
-  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route)}
+  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
+  //        usedModels(route)}
   constructor(deps) {
     super()
     this.deps = deps
     this.engines = new Map()   // route -> engine driver
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
+    this.probes = new Map()    // route -> the probe under way
     this.disposed = false
   }
 
@@ -78,22 +80,37 @@ export class LocalAgentAdapter extends LlmAdapter {
     return driver
   }
 
+  // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
+  // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    const cached = this.modelCache.get(route)
-    if (cached !== undefined) return cached
-    const spec = engineOf(route, this.deps.customAgents())
-    if (spec === undefined) return []
-    const fallback = [{ provider: route, id: 'default', name: 'CLI default' }]
-    let models
-    try {
-      models = await this.engine(route).listModels({ cwd: this.deps.probeCwd(), mcp: undefined })
-    } catch {
-      models = []
+    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    const listed = [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
+    const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
+    return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
+  }
+
+  // Asks one CLI what it serves, once. A failure is not kept, so the next look tries
+  // again. The process it took leaves unless a Session runs on it.
+  async probeModels(route) {
+    if (this.modelCache.has(route)) return this.listModels(route)
+    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    let probe = this.probes.get(route)
+    if (probe === undefined) {
+      probe = this.askModels(route).finally(() => this.probes.delete(route))
+      this.probes.set(route, probe)
     }
-    const value = [...fallback, ...(models ?? []).filter(model => model.id !== 'default')
-      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id }))]
-    this.modelCache.set(route, value)
-    return value
+    await probe
+    return this.listModels(route)
+  }
+
+  async askModels(route) {
+    const engine = this.engine(route)
+    try {
+      const models = await engine.listModels({ cwd: this.deps.probeCwd(), mcp: undefined })
+      this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
+        .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id })))
+    } catch { /* the menu still has the CLI's default */ }
+    if (![...this.live.values()].some(other => other.engine === engine && !other.dead)) await engine.close?.().catch(() => {})
   }
 
   dropModelCache(route) {
@@ -120,10 +137,14 @@ export class LocalAgentAdapter extends LlmAdapter {
     let live = this.live.get(sessionId)
     const record = this.deps.record(sessionId)
     const route = options.provider
-    if (live !== undefined && !live.dead && live.route === route) return live
-    if (live !== undefined) await this.closeLive(live)
+    if (live !== undefined && !live.dead && live.route === route) {
+      // A CLI takes its model when its session opens. Another model reopens the same
+      // CLI session as soon as no turn runs in it.
+      if (live.model === options.model || live.state !== 'idle') return live
+      await this.closeLive(live, { idle: true })
+    } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
-    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
+    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     const engine = this.engine(route)
     live = {
       sessionId, route, spec, engine, dead: false,
@@ -165,6 +186,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.dead = true
     clearTimeout(live.idle)
     this.live.delete(live.sessionId)
+    live.engine.forget?.(live.sessionId)
     live.mcp?.close()
     if (idle) {
       // The CLI session survives on the agent side; the process leaves and the
@@ -175,6 +197,25 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
     const stillUsed = [...this.live.values()].some(other => other.engine === live.engine && !other.dead)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
+  }
+
+  // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
+  stopTurn(live, reason) {
+    live.state = 'idle'
+    live.queue.length = 0
+    if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
+    live.mcp?.failAll(new Error(reason))
+    for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
+    live.pending.clear()
+  }
+
+  // The Session left this CLI: its part moved on. Its process leaves; the CLI session
+  // and its record stay, so opening that part again resumes it.
+  async closeSession(sessionId, reason = 'the conversation moved on') {
+    const live = this.live.get(String(sessionId))
+    if (live === undefined) return
+    this.stopTurn(live, reason)
+    await this.closeLive(live, { idle: true })
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -389,12 +430,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (;;) {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
-        live.state = 'idle'
-        live.queue.length = 0
-        live.engine.cancel?.(live.engineSession)
-        live.mcp?.failAll(new Error('the turn was stopped'))
-        for (const pending of live.pending.values()) pending.resolve({ text: 'the turn was stopped', isError: true })
-        live.pending.clear()
+        this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
       }
@@ -489,16 +525,21 @@ function pickAllowOption(options, result) {
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text, newest first, always with the latest input.
+// recent messages rendered as text, newest first, always with the latest input
+// and the handoff a new part opens with, both word for word.
 function renderReplay(messages, system) {
   const picked = []
   let used = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
+  let full = false
   for (const message of [...body].reverse()) {
-    const line = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}: ${textOf(message.content).slice(0, 2_000)}`
-    if (message === latest) { picked.unshift(line); used += line.length; continue }
-    if (picked.length >= REPLAY_MESSAGES || used + line.length > REPLAY_BYTES) break
+    const whole = message === latest || message.source?.handoff === true
+    const text = textOf(message.content)
+    const line = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}: ${whole ? text : text.slice(0, 2_000)}`
+    if (whole) { picked.unshift(line); used += line.length; continue }
+    full ||= picked.length >= REPLAY_MESSAGES || used + line.length > REPLAY_BYTES
+    if (full) continue
     picked.unshift(line)
     used += line.length
   }

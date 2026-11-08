@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { modelsFor } from '../src/client/agent-routes.js'
 
 const [name, port, ...rest] = process.argv.slice(2)
 if (!name || !port) {
@@ -167,7 +168,8 @@ let models = []
 await step('bootstrap: Chief waits for a model', () => api('state'), (value, calls) => {
   const current = state()
   const bots = Object.values(current.bots)
-  models = value.models ?? []
+  // The model card offers DS Bot models only; a CLI found on this machine is no pick there.
+  models = modelsFor(value.models)
   return expect(bots.length === 1 && bots[0].name === 'Chief' && current.mainBotIds[0] === bots[0].id, 'expected one Main Bot named Chief')
     ?? expect(bots[0].model === undefined && bots[0].kickoff !== undefined, 'Chief should hold its greeting until a model is picked')
     ?? expect(value.bots[0].waiting === true, 'the view should show Chief as waiting')
