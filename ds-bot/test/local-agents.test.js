@@ -211,6 +211,16 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   assert.match(out.thinking, /▸/)
 })
 
+// Codex 0.153+ asks before every MCP tool call under on-request (#1089).
+test('codex app-server: approves tool calls on DS Bot\'s own MCP server, refuses others', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const answer = async (sessionId, text) => JSON.parse((await collect(adapter.stream(options(sessionId, [user('m1', text)], { provider: 'codex-cli' })))).text)
+  assert.deepEqual(await answer('s1', 'elicit dsbot mcp_tool_call'), { action: 'accept', content: null, _meta: null })
+  assert.deepEqual(await answer('s2', 'elicit github mcp_tool_call'), { error: -32601 })
+  assert.deepEqual(await answer('s3', 'elicit dsbot form'), { error: -32601 })
+})
+
 test('claude stream-json: thinking, activity line, usage', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
