@@ -119,24 +119,26 @@ export class CodexEngine {
     if (resumeId !== undefined) thread.threadId = resumeId
     // Codex 0.166 reads `ThreadStartParams` from the top level and takes the MCP
     // servers from `config`; it drops unknown keys without a word. So the fields keep
-    // their documented names: `sandbox`, `approvalPolicy`, `developerInstructions`,
-    // and `config.mcp_servers`. thread/resume takes the same ones, plus the thread id.
+    // their documented names: `sandbox`, `approvalPolicy`, and `config.mcp_servers`.
+    // The team instructions belong to a new thread: a resumed one keeps the
+    // instructions it was started with, and instruct() updates them later.
     const params = {
       cwd,
-      ...(instructions ? { developerInstructions: instructions } : {}),
       ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(model && model !== 'default' ? { model } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
       try {
+        // thread/resume takes the same params, plus the thread id. The instructions it
+        // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
         return thread
       } catch {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', params, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }

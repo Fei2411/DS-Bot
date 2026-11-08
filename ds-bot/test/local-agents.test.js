@@ -271,6 +271,9 @@ test('codex app-server: thread start and resume send the fields Codex reads', as
     assert.ok(resume !== undefined, `${preset}: the saved thread resumes`)
     // The team instructions travel on the new thread; a resumed one keeps its own.
     assert.equal(start.developerInstructions, 'You are Kai, a coder.')
+    assert.equal(resume.developerInstructions, undefined, `${preset} resume: keeps the instructions it started with`)
+    assert.equal(resume.threadId, records.s1.cliSessionId, `${preset} resume: resumes the saved thread`)
+    assert.equal('threadId' in start, false, `${preset} start: no thread id`)
     for (const [phase, params] of [['start', start], ['resume', resume]]) {
       assert.equal(params.sandbox, sandbox, `${preset} ${phase}: sandbox`)
       assert.equal(params.approvalPolicy, approvalPolicy, `${preset} ${phase}: approvalPolicy`)
