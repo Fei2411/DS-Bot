@@ -59,6 +59,7 @@ const FAILURES = {
   ACCOUNT_TOKEN_INVALID: 'The DeepSeek account sign-in has expired',
   RATE_LIMIT: 'Too many requests to the model',
   CONTEXT_WINDOW_EXCEEDED: 'The conversation is too long for the model',
+  OUTPUT_LIMIT: 'The model stopped at its output limit before it answered',
   INVALID_REQUEST: 'The model service refused the request',
   SERVER: 'The model service failed',
   TIMEOUT: 'The model took too long to answer',

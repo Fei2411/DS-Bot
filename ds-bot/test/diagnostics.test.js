@@ -263,6 +263,85 @@ test('a failed group turn fails its waiter; a stopped one counts as no answer', 
   assert.equal(value, null)
 })
 
+test('a turn cut off at the output limit before it wrote anything is noted with its route and size, and blocks nothing', () => {
+  const { rt, emit, delivered, noted } = turnsHost()
+  // A route whose window is set far larger than its gateway's.
+  const session = {
+    id: 'b',
+    requestHeader: () => ({ config: { provider: 'gateway', model: 'big-model' } }),
+    requestContext: () => ({ provider: 'gateway', model: 'big-model', contextWindow: 1048576 }),
+  }
+  emit('b', 'turn/start', { turn: 1 }, session)
+  emit('b', 'user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: SOURCE_KIND, role: 'request', senderSessionId: 'a', exchangeId: 'x1' } }, session)
+  // Most of a long Session's prompt is a cache hit; the size counts all of it.
+  emit('b', 'assistant/message', { message: { content: [{ type: 'reasoning', text: 'thinking' }] }, usage: { inputTokens: 2000, cacheReadTokens: 126000, cacheWriteTokens: 1000, outputTokens: 1 } }, session)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, session)
+  assert.equal(delivered.length, 1)
+  assert.match(delivered[0].text, /^Writer could not answer your message: its model call failed \(OUTPUT_LIMIT: the model stopped at its output limit before it wrote an answer\)/)
+  assert.deepEqual(noted.map(entry => [entry.source, entry.code, entry.bot, entry.route, entry.inputTokens, entry.contextWindow]), [['turn', 'OUTPUT_LIMIT', 'Writer', 'gateway/big-model', 129000, 1048576]])
+  assert.equal(noted[0].text, 'the model stopped at its output limit before it wrote an answer (route gateway/big-model, 129000 input tokens, context window 1048576)')
+  assert.equal(BLOCKING_CODES.has('OUTPUT_LIMIT'), false)
+  assert.equal(rt.bots.b.blocked, undefined)
+
+  // One that wrote first is not a failure.
+  emit('b', 'turn/start', { turn: 2 }, session)
+  emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'part of it' }] } }, session)
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'max-tokens' } }, session)
+  assert.equal(noted.length, 1)
+})
+
+test('a turn whose later step is cut off at the output limit gives what it wrote, and the cut step is noted', () => {
+  const { emit, delivered, noted } = turnsHost()
+  const session = {
+    id: 'b',
+    requestHeader: () => ({ config: { provider: 'gateway', model: 'big-model' } }),
+    requestContext: () => ({ provider: 'gateway', model: 'big-model', contextWindow: 1048576 }),
+  }
+  emit('b', 'turn/start', { turn: 1 }, session)
+  emit('b', 'user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: SOURCE_KIND, role: 'request', senderSessionId: 'a', exchangeId: 'x1' } }, session)
+  emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Let me read the log first.' }, { type: 'tool-call', id: 'c1', name: 'read', arguments: {} }] } }, session)
+  emit('b', 'assistant/message', { message: { content: [{ type: 'reasoning', text: 'thinking' }] }, usage: { inputTokens: 150000, outputTokens: 1 } }, session)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, session)
+  assert.equal(delivered.length, 1)
+  assert.match(delivered[0].text, /^Let me read the log first\.\n\n\[Cut off: /)
+  assert.deepEqual(noted.map(entry => [entry.code, entry.route, entry.inputTokens]), [['OUTPUT_LIMIT', 'gateway/big-model', 150000]])
+})
+
+test('a group turn cut off at the output limit before it wrote anything fails its waiter instead of passing', () => {
+  const { rt, emit } = turnsHost()
+  rt.roomWaiters.set('r1', { resolve: () => assert.fail('resolved'), fail: failure => rt.roomWaiters.failed = failure })
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: [], source: { kind: SOURCE_KIND, role: 'room', exchangeId: 'r1' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  assert.deepEqual(rt.roomWaiters.failed, { code: 'OUTPUT_LIMIT', message: 'the model stopped at its output limit before it wrote an answer' })
+
+  // A cut-off reply goes to the group marked; a pass stays a pass.
+  const replies = []
+  for (const [turn, said] of [[2, 'Half the plan'], [3, '[PASS]']]) {
+    rt.roomWaiters.set(`r${turn}`, { resolve: reply => replies.push(reply), fail: () => assert.fail('failed') })
+    emit('b', 'turn/start', { turn })
+    emit('b', 'user/message', { content: [], source: { kind: SOURCE_KIND, role: 'room', exchangeId: `r${turn}` } })
+    emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: said }] } })
+    emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+  }
+  assert.deepEqual(replies, ['Half the plan\n\n[Cut off: Writer\'s model stopped at its output limit, so this answer may be incomplete.]', '[PASS]'])
+})
+
+test('a group turn cut off after the group read all it wrote as steps posts nothing more', () => {
+  const { rt, emit } = turnsHost()
+  rt.groupOwners.set('b', { roomId: 'g1', botId: 'b' })
+  const steps = []
+  rt.roomStepText = async (id, info, text) => { steps.push(text) }
+  let value
+  rt.roomWaiters.set('r1', { resolve: reply => { value = reply }, fail: () => assert.fail('failed') })
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: [], source: { kind: SOURCE_KIND, role: 'room', exchangeId: 'r1' } })
+  emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Reading the plan' }, { type: 'tool-call', id: 'c1', name: 'read_file', arguments: '{}' }] } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  // The empty reply settles the member on its steps, as a turn that completed does.
+  assert.deepEqual([steps, value], [['Reading the plan'], ''])
+})
+
 // The failures the repair card is for, as the client reads them from `bot.blocked`.
 test('the failures that block a Bot are the ones only the user can fix', () => {
   assert.deepEqual([...BLOCKING_CODES], ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT'])

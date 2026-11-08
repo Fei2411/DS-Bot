@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
-import { answerSender, failureLine, turnFailure } from './turns.js'
+import { answerSender, failureLine, outputLimitFailure, turnFailure, withCutOff, wroteAnswer } from './turns.js'
 import { textOf } from './text.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
@@ -345,7 +345,11 @@ export function install(rt) {
     // The request was never taken up: it is still waiting, and the delivery that is
     // waiting for it keeps what it had.
     if (turn === undefined) return
-    const said = turn.texts.join('\n\n')
+    const reason = turn.reason
+    // A turn cut off at the output limit is marked as cut off, as when DS Bot watches it end.
+    const cutOff = reason?.kind === 'max-tokens'
+    const wrote = wroteAnswer(turn.texts)
+    const said = cutOff && wrote ? withCutOff(turn.texts.join('\n\n'), name) : turn.texts.join('\n\n')
     // The answer went up in another run: the work closes with what it said, and
     // nothing is sent twice.
     const back = rt.roomOf(asker.senderRoomId)?.sessions?.[sender]
@@ -354,7 +358,6 @@ export function install(rt) {
       rt.closeWork?.(workId, name, rt.answerText(workId, said, name))
       return
     }
-    const reason = turn.reason
     // A turn that went on to a fresh part goes on there; it is not settled here.
     if (reason?.kind === 'blocked') return
     // The turn was cut off before it finished: the work is picked up again, as after
@@ -363,8 +366,8 @@ export function install(rt) {
       await resumeTurn(sessionId, record)
       return
     }
-    if (reason.kind === 'error') {
-      const failure = turnFailure(reason.error)
+    if (reason.kind === 'error' || (cutOff && !wrote)) {
+      const failure = reason.kind === 'error' ? turnFailure(reason.error) : outputLimitFailure()
       answerSender(rt, sessionId, asker, `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`)
       return
     }

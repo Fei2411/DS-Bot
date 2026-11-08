@@ -266,6 +266,19 @@ test('a member that fails after the round moved on shows the failure in the grou
   assert.equal(host.agentOf('gb').calls.length, 1)
 })
 
+test('a member whose turn stops at the output limit before it writes anything failed, and did not pass', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  const result = await openTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'reasoning', text: 'thinking' }] }, usage: { inputTokens: 129000, outputTokens: 1 } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name, reply.code]), [['failed', 'Writer', 'OUTPUT_LIMIT']])
+  assert.deepEqual([result().failed, result().passed], [['Writer'], []])
+  const notice = host.rt.roomOf('r1').log.find(line => line.kind === 'notice' && line.reason === 'failed')
+  assert.deepEqual([notice?.names, notice?.detail], [['Writer'], 'OUTPUT_LIMIT: the model stopped at its output limit before it wrote an answer'])
+})
+
 // Under PTC the model calls run_code, and the program dispatches the real tools.
 const program = (emit, sessionId, callId, code = 'await main()') => emit(sessionId, 'tool/call', { callId, name: 'run_code', arguments: JSON.stringify({ code }) })
 const dispatch = (emit, sessionId, parentCallId, n, name, args = {}) => {

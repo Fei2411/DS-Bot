@@ -363,8 +363,30 @@ test('a turn that ended on the token limit gives what it said', async (t) => {
   await settle(() => second.agentOf('a').calls.length === 1)
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
-  assert.match(text(reply), /The plan is ready, up to the limit\./)
+  assert.match(text(reply), /The plan is ready, up to the limit\.\n\n\[Cut off: Writer's model stopped at its output limit, so this answer may be incomplete\.\]$/)
   // The work is settled, and the request is not run again.
+  await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
+  assert.equal(second.agentOf('b').calls.length, 0)
+})
+
+test('a turn that ended on the token limit without saying anything says its model call failed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const logs = new Map()
+  const first = await start(home, logs)
+  const request = await askWriter(first, home)
+  const exchangeId = request.source.exchangeId
+  logs.set('b', writerLog(request, undefined, { kind: 'max-tokens' }))
+  await first.stop()
+
+  const second = await start(home, logs)
+  second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('a').calls.length === 1)
+  const reply = second.agentOf('a').calls[0]
+  assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
+  assert.match(text(reply), /Writer could not answer your message: its model call failed \(OUTPUT_LIMIT: the model stopped at its output limit before it wrote an answer\)/)
+  assert.doesNotMatch(text(reply), /finished without a reply/)
   await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
   assert.equal(second.agentOf('b').calls.length, 0)
 })

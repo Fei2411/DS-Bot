@@ -450,6 +450,46 @@ test('a joined request gets the failure notice when the model call fails', () =>
   assert.match(delivered[0].text, /^Writer could not answer your message: its model call failed \(SERVER 503: upstream busy\)/)
 })
 
+// A step that hit the output limit with only reasoning: DSH's assistant message has no text.
+const reasoningOnly = { message: { content: [{ type: 'reasoning', text: 'thinking' }] }, usage: { inputTokens: 129000, outputTokens: 1 } }
+
+test('a turn cut off at the output limit before it wrote anything fails its asker and closes a joined request', () => {
+  const { emit, delivered } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('[Message from Chief]\ntask'), source: replySource('request', { exchangeId: 'e0' }) })
+  emit('b', 'user/message', { content: textBlock('[Message from Chief]\nmore'), source: replySource('request', { exchangeId: 'e1' }) })
+  emit('b', 'assistant/message', reasoningOnly)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  // Both go back as answers; the joined request is not handed to Writer again.
+  assert.deepEqual(delivered.map(job => [job.toId, job.role, job.replyTo]), [['a', 'reply', 'e0'], ['a', 'reply', 'e1']])
+  for (const job of delivered) {
+    assert.match(job.text, /^Writer could not answer your message: its model call failed \(OUTPUT_LIMIT: the model stopped at its output limit before it wrote an answer\)/)
+  }
+})
+
+test('a turn cut off at the output limit after it wrote gives what it said, marked once, and hands a joined request back', () => {
+  const { emit, delivered } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('[Message from Chief]\ntask'), source: replySource('request', { exchangeId: 'e0' }) })
+  emit('b', 'assistant/message', assistantText('first half'))
+  emit('b', 'user/message', { content: textBlock('[Message from Chief]\nmore'), source: replySource('request', { exchangeId: 'e1' }) })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  assert.deepEqual(delivered.map(job => [job.role, job.replyTo ?? job.exchangeId, job.text]), [
+    ['reply', 'e0', 'first half\n\n[Cut off: Writer\'s model stopped at its output limit, so this answer may be incomplete.]'],
+    ['request', 'e1', 'more'],
+  ])
+})
+
+test('a turn cut off at the output limit with only a tool call written as text counts as no answer', () => {
+  const { emit, delivered } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('[Message from Chief]\ntask'), source: replySource('request', { exchangeId: 'e0' }) })
+  emit('b', 'assistant/message', assistantText('<tool_call><function=read_file><parameter=path>a.md'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  assert.equal(delivered.length, 1)
+  assert.match(delivered[0].text, /its model call failed \(OUTPUT_LIMIT/)
+})
+
 test('a joined request never claims the next turn', () => {
   const { rt, emit, delivered } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })

@@ -1170,6 +1170,7 @@ const ZH = {
   'The account is out of quota': '账户额度已用尽',
   'Too many requests to the model': '模型请求太频繁',
   'The conversation is too long for the model': '对话太长，超出模型上限',
+  'The model stopped at its output limit before it answered': '模型还没回答就到了输出上限',
   'The model service refused the request': '模型服务拒绝了请求',
   'The model service failed': '模型服务出错',
   'The model took too long to answer': '模型响应超时',

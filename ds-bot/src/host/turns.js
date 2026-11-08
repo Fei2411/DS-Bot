@@ -7,7 +7,7 @@ import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
-import { splitRef, textOf } from './text.js'
+import { isPass, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 
@@ -33,6 +33,20 @@ export function turnFailure(error) {
 }
 
 export const failureLine = failure => `${failure.code}${failure.status ? ` ${failure.status}` : ''}${failure.message ? `: ${failure.message.slice(0, 200)}` : ''}`
+
+// A turn that ends on `max-tokens` and wrote nothing failed like a model call: a gateway
+// behind a route whose context window is set larger than its own answers an oversized
+// request this way, with one output token and no error (#1104). Not a blocking code:
+// the fix is the route's window, and the Bot may still answer a smaller request.
+const OUTPUT_LIMIT = 'OUTPUT_LIMIT'
+export const outputLimitFailure = () => ({ code: OUTPUT_LIMIT, message: 'the model stopped at its output limit before it wrote an answer' })
+// Whether the texts of a turn hold anything a reader gets: a written tool call alone is not.
+export const wroteAnswer = texts => texts.some(text => text !== HANDOFF_ACK && stripWrittenCalls(text) !== '')
+// The answer of a turn cut off at the output limit says so once, at its end. A pass
+// stays a pass, and an empty reply (the group already read it all as steps) stays
+// empty, so the group settles the member as it did before.
+export const withCutOff = (reply, name) => (isPass(reply) ? reply
+  : `${reply}\n\n[Cut off: ${name}'s model stopped at its output limit, so this answer may be incomplete.]`)
 
 // The reply a sender waits for, sent the way a finished turn sends it: the work it was
 // for closes, and the answer goes up to the Bot that asked. `id` is the Session the
@@ -540,16 +554,40 @@ export function install(rt) {
     const room = rt.roomOf(rt.groupOwners.get(id)?.roomId) ?? rt.roomOf(id)
     return room ? `group "${room.name}"` : 'own chat'
   }
-  const noteTurnFailure = (id, failure) => {
+  // The route a Session's last request went to, as `provider/model`.
+  const routeOf = (session) => {
+    const config = session?.requestHeader?.()?.config
+    return config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
+  }
+  // What finds a route whose context window is set larger than the model's: the route,
+  // what the last request sent, and the window DSH checked it against.
+  // DSH's `inputTokens` is only the uncached part, so the request's size adds the cache
+  // buckets back, as the token meter counts context pressure.
+  const requestFacts = (session, usage) => {
+    const window = session?.requestContext?.()?.contextWindow
+    const input = typeof usage?.inputTokens === 'number' ? usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0) : undefined
+    return {
+      route: routeOf(session),
+      ...(input !== undefined ? { inputTokens: input } : {}),
+      ...(typeof window === 'number' ? { contextWindow: window } : {}),
+    }
+  }
+  const noteTurnFailure = (id, failure, facts = {}) => {
+    const said = [
+      facts.route && `route ${facts.route}`,
+      facts.inputTokens !== undefined && `${facts.inputTokens} input tokens`,
+      facts.contextWindow !== undefined && `context window ${facts.contextWindow}`,
+    ].filter(Boolean)
     rt.noteFailure({
       source: 'turn',
-      text: failure.message || 'the model call failed',
+      text: `${failure.message || 'the model call failed'}${said.length > 0 ? ` (${said.join(', ')})` : ''}`,
       code: failure.code,
       status: failure.status,
       requestId: failure.requestId,
       bot: rt.botOf(rt.selfOf(id))?.name ?? (rt.roomOf(id) ? undefined : 'unknown Bot'),
       where: placeOf(id),
       sessionId: id,
+      ...facts,
     })
   }
 
@@ -890,6 +928,7 @@ export function install(rt) {
         }
         entry.lastText = text
         entry.lastCalled = called
+        entry.usage = event.data?.usage
         entry.step = called && text !== HANDOFF_ACK ? stripWrittenCalls(text) || undefined : undefined
         break
       }
@@ -909,7 +948,8 @@ export function install(rt) {
         // What the group already saw of the turn is not posted again.
         const texts = entry.texts.slice(entry.shown)
         const shown = entry.shown > 0 || (info?.retried === true && promisedOpenings.delete(info.exchangeId))
-        const { lastText, lastCalled } = entry
+        const { lastText, lastCalled, usage } = entry
+        const wrote = wroteAnswer(entry.texts)
         const toolCount = entry.toolCount ?? 0
         const suppressedSubagent = entry.suppressedSubagent === true
         // A turn stopped for a switch goes on in the next part, which answers instead.
@@ -929,6 +969,7 @@ export function install(rt) {
         entry.calls = undefined
         entry.lastText = undefined
         entry.lastCalled = undefined
+        entry.usage = undefined
         const later = entry.later ?? []
         entry.later = []
         if (steerCut || suppressedSubagent) break
@@ -946,13 +987,19 @@ export function install(rt) {
           }).catch(error => rt.warn('ds-bot: handing back a result failed: %s', error))
         }
         const reason = event.data?.reason
-        const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
-        if (failure !== undefined) noteTurnFailure(id, failure)
+        // A turn cut off at the output limit gives what it wrote, marked as cut off;
+        // one that wrote nothing failed.
+        const cutOff = reason?.kind === 'max-tokens' && !switched
+        const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error)
+          : cutOff && !wrote ? outputLimitFailure() : undefined
+        if (failure !== undefined) noteTurnFailure(id, failure, failure.code === OUTPUT_LIMIT ? requestFacts(session, usage) : undefined)
+        // Text from earlier steps still goes up, but the step that hit the limit is the
+        // one that finds a wrong window, so it is noted too.
+        else if (cutOff && !wroteAnswer([lastText ?? ''])) noteTurnFailure(id, outputLimitFailure(), requestFacts(session, usage))
         // A route that is not a model endpoint refuses every generation; the failed
         // Session's own request names it, so it is refused everywhere from now on.
         if (failure?.code === 'HOSTED_ENGINE_ROUTE') {
-          const config = session.requestHeader?.()?.config
-          const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
+          const ref = routeOf(session)
           if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
@@ -987,14 +1034,18 @@ export function install(rt) {
             void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
           }
         }
+        const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
         const replyText = () => {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
           return wroteCall && reply === '' ? 'Tried to run a tool but wrote the call as text, so it did not run.' : reply
         }
-        const groupReply = () => rt.withRoomSteps?.(held, replyText()) ?? replyText()
+        const groupReply = () => {
+          const reply = rt.withRoomSteps?.(held, replyText()) ?? replyText()
+          return cutOff ? withCutOff(reply, name) : reply
+        }
+        const askerReply = () => (cutOff ? withCutOff(replyText(), name) : replyText())
         // Whoever the turn answers gets the same three-way rule: a failure notice,
         // the turn's text (or a stopped-before-answer line), or nothing.
-        const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
         const answer = (source, reply) => {
           if (!expectsReply(source) || answersUser(source)) return
           if (failure !== undefined) {
@@ -1042,7 +1093,7 @@ export function install(rt) {
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
           else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown })
         } else if (!retry && info !== undefined) {
-          finish(info, replyText())
+          finish(info, askerReply())
         }
         for (const request of joined) {
           if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) continue

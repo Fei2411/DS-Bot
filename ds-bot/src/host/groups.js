@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
-import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
+import { escapeRegExp, headOf, isPass, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
@@ -109,7 +109,6 @@ const transcript = (lines, textOfLine = line => line.text) => lines.map(line => 
 
 // Models often echo the transcript format ("Name: …") despite the instruction.
 export const stripOwnName = (name, text) => text.replace(new RegExp(`^\\s*\\**${escapeRegExp(name)}\\**\\s*[:：]\\s*`), '').trim()
-export const isPass = text => text === '' || /^\s*[[【(（]\s*pass\s*[\]】)）]|^\s*pass\s*[.。!！]?\s*$/i.test(text)
 
 // Who "@" calls, in order, by the same rule the bubbles draw. `references` are the
 // round's referenced conversations: each one's "@label" is a reference, not a call.

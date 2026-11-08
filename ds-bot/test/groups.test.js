@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { isPass, mentionsIn, referenceNote, stripOwnName } from '../src/host/groups.js'
+import { mentionsIn, referenceNote, stripOwnName } from '../src/host/groups.js'
+import { isPass } from '../src/host/text.js'
 import { attachReference } from '../src/host/turns.js'
 
 const members = [{ name: 'M' }, { name: 'Mx' }, { name: 'K' }, { name: 'Writer' }]

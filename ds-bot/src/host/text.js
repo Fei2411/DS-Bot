@@ -21,6 +21,9 @@ export const normalize = value => String(value ?? '').trim().toLowerCase()
 
 export const unquote = text => String(text ?? '').trim().replace(/^["'“”「『《]+|["'“”」』》]+$/g, '').trim()
 
+// A group reply that says nothing: empty, or a [PASS] in a form models write it.
+export const isPass = text => text === '' || /^\s*[[【(（]\s*pass\s*[\]】)）]|^\s*pass\s*[.。!！]?\s*$/i.test(text)
+
 export const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // The part of a long message around the first match, so a search hit stays visible.
