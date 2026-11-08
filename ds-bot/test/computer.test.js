@@ -1155,3 +1155,67 @@ test('cua-driver registers launch_app from structuredContent and leaves text-onl
   assert.equal(blind.kind, 'deny')
   assert.match(blind.reason, /list/i)
 })
+
+test('cua-driver keeps the plain top-level array result', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (args) => gate({ name: 'cua_driver_native__click', arguments: args, agent: { id: 'w1' }, callId: `c-${JSON.stringify(args)}` }, allow)
+  // An older provider returns the window list as the value itself, not in an object.
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'array-1' },
+    async () => [{ pid: 55, name: 'Notes', window_id: 55 }])
+  const byPid = call({ pid: 55 })
+  await new Promise(resolve => setImmediate(resolve))
+  const ask = Object.values(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id: ask.id, answer: 'once' })
+  assert.equal(await byPid, 'allowed')
+  assert.equal(await call({ window_id: 55 }), 'allowed')
+})
+
+test('cua-driver keeps the title-only window record', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (args) => gate({ name: 'cua_driver_native__click', arguments: args, agent: { id: 'w1' }, callId: `c-${JSON.stringify(args)}` }, allow)
+  // A window with no pid still names its app by title and resolves by window id.
+  await track({ name: 'cua_driver_native__list_windows', arguments: {}, agent: { id: 'w1' }, callId: 'title-1' },
+    async () => ({ windows: [{ title: 'Notes', window_id: 56 }] }))
+  const pending = call({ window_id: 56 })
+  await new Promise(resolve => setImmediate(resolve))
+  const ask = Object.values(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id: ask.id, answer: 'once' })
+  assert.equal(await pending, 'allowed')
+})
+
+test('cua-driver keeps a numeric element token', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (args) => gate({ name: 'cua_driver_native__click', arguments: args, agent: { id: 'w1' }, callId: `c-${JSON.stringify(args)}` }, allow)
+  // Old get_window_state results carried a numeric token; the read side accepts it.
+  await track({ name: 'cua_driver_native__get_window_state', arguments: { window_id: 57 }, agent: { id: 'w1' }, callId: 'num-1' },
+    async () => ({ pid: 58, window_id: 57, name: 'Notes', elements: [{ token: 9001 }] }))
+  const pending = call({ token: 9001 })
+  await new Promise(resolve => setImmediate(resolve))
+  const ask = Object.values(rt.computerLive().asks)[0]
+  assert.equal(ask.appName, 'Notes')
+  await rt.computerEndpoint('app-answer', { id: ask.id, answer: 'once' })
+  assert.equal(await pending, 'allowed')
+})

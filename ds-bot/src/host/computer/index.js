@@ -327,7 +327,8 @@ export function install(rt) {
       return known ?? { key: `window:${windowId}`, name: `window ${windowId}`, unknown: true }
     }
     // An element token resolves to the window it was read from.
-    const token = [args.element_token, args.token, args.ref, args.element_id, args.elementId, args.element, typeof args.target === 'string' ? args.target : undefined].find(value => typeof value === 'string' && value !== '')
+    const token = [args.element_token, args.token, args.ref, args.element_id, args.elementId, args.element, args.target]
+      .find(value => typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))
     if (token !== undefined) {
       const known = appsOfSession(sessionId).get(`token:${token}`)
       return known ?? { key: `token:${token}`, name: 'an element', unknown: true }
@@ -381,13 +382,17 @@ export function install(rt) {
       apps.set(`pid:${pid}`, app)
       return app
     }
+    const recordTitle = (item) => {
+      const title = textOf(item?.title)
+      return title === undefined ? undefined : { key: `title:${normName(title)}`, name: title }
+    }
     const recordItem = (item, known = {}) => {
-      const app = recordPid(item, known)
+      const app = recordPid(item, known) ?? recordTitle(item)
       if (app === undefined) return
       const windowId = [item?.window_id, item?.windowId, item?.wid].find(value => value !== undefined && value !== null)
       if (windowId !== undefined) apps.set(`window:${windowId}`, app)
     }
-    const lists = [body.apps, body.windows, body.items]
+    const lists = [body.apps, body.windows, body.items, Array.isArray(body) ? body : undefined]
     for (const list of lists) {
       if (!Array.isArray(list)) continue
       for (const item of list) {
