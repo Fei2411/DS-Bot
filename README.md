@@ -129,7 +129,7 @@ Settings → **Capabilities** is a shared library of MCP servers, skills and pac
 
 ### Connectors
 
-Settings → **Connectors** connects services such as GitHub, Gmail and other mailboxes, and remote MCP servers. Sign in once with OAuth or a key; the credentials stay in DS Bot's Secrets and never reach a Bot. Every Bot can use a connected service unless you turn it off in the Bot's details. A Bot that needs a service it does not have asks you with a card, and by default every email it writes waits for you to send it.
+Settings → **Connectors** connects services such as GitHub, Gmail and other mailboxes, and remote MCP servers. Sign in once with OAuth or a key; the credentials stay in DS Bot's Secrets and never reach a Bot. Every Bot can use a connected service unless you turn it off in the Bot's details. A Bot that needs a service it does not have asks you with a card, and by default every email it writes waits for you to send it. Your own MCP server can be added too: give its address and turn on **Sign in** for a browser sign-in, or keep a fixed header or key when the server publishes no OAuth metadata.
 
 ### Local agents
 

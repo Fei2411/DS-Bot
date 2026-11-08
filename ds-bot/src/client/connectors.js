@@ -334,12 +334,13 @@ export function AddMenu({ actions, run }) {
   const [kind, setKind] = useState(null)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [oauth, setOauth] = useState(false)
   const [command, setCommand] = useState('')
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
   const row = useRef(null)
   useMorph(row, `${kind}:${found === null}`)
-  const reset = () => { setKind(null); setName(''); setUrl(''); setCommand(''); setFound(null); setPicked([]) }
+  const reset = () => { setKind(null); setName(''); setUrl(''); setOauth(false); setCommand(''); setFound(null); setPicked([]) }
   const choose = (next) => {
     setKind(next)
     if (next === 'import' && found === null) void Promise.resolve(actions.connectorImportScan()).then(list => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([]))
@@ -369,12 +370,14 @@ export function AddMenu({ actions, run }) {
           kind === 'url'
             ? h('input', { key: 'url', className: 'bt-input', 'aria-label': t('Server address'), placeholder: 'https://…', value: url, spellCheck: false, onChange: e => setUrl(e.target.value) })
             : h('input', { key: 'cmd', className: 'bt-input', 'aria-label': t('Command'), placeholder: t('Command, e.g. npx -y some-mcp'), value: command, spellCheck: false, onChange: e => setCommand(e.target.value) }),
+          // A command has nowhere to send a browser sign-in; only an address offers it.
+          kind === 'url' ? h(SwitchRow, { key: 'oauth', label: t('Sign in'), on: oauth, onChange: setOauth }) : null,
         ],
       h('div', { className: 'bt-secret-row-actions' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
         kind === 'import'
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: picked.length === 0, onClick: () => void run(actions.connectorImport(picked), reset) }, t('Import {count}', { count: picked.length }))
-          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: () => void run(kind === 'url' ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t('Add')))))
+          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: () => void run(kind === 'url' ? actions.connectorAdd({ name: name.trim(), url: url.trim(), ...(oauth ? { oauth: true } : {}) }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t('Add')))))
 }
 
 // Bot details → Connectors: one switch per connected connector (default on).
@@ -619,6 +622,7 @@ export function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions
 }
 
 export const CONNECTOR_CSS = `
+.bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
 .bt-connector-search{display:flex;flex-direction:column;gap:8px;padding:12px}

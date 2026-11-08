@@ -12394,6 +12394,7 @@ function AddMenu({ actions, run: run2 }) {
   const [kind, setKind] = (0, import_react28.useState)(null);
   const [name, setName] = (0, import_react28.useState)("");
   const [url, setUrl] = (0, import_react28.useState)("");
+  const [oauth, setOauth] = (0, import_react28.useState)(false);
   const [command, setCommand] = (0, import_react28.useState)("");
   const [found, setFound] = (0, import_react28.useState)(null);
   const [picked, setPicked] = (0, import_react28.useState)([]);
@@ -12403,6 +12404,7 @@ function AddMenu({ actions, run: run2 }) {
     setKind(null);
     setName("");
     setUrl("");
+    setOauth(false);
     setCommand("");
     setFound(null);
     setPicked([]);
@@ -12448,13 +12450,15 @@ function AddMenu({ actions, run: run2 }) {
         (0, import_react28.createElement)(Switch, { label: item.name, on: picked.some((p) => key(p) === key(item)), onChange: (on) => setPicked((list) => on ? [...list, { source: item.source, name: item.name }] : list.filter((p) => key(p) !== key(item))) })
       ))) : [
         (0, import_react28.createElement)("input", { key: "name", className: "bt-input", "aria-label": t("Name"), placeholder: t("Name"), value: name, onChange: (e) => setName(e.target.value) }),
-        kind === "url" ? (0, import_react28.createElement)("input", { key: "url", className: "bt-input", "aria-label": t("Server address"), placeholder: "https://…", value: url, spellCheck: false, onChange: (e) => setUrl(e.target.value) }) : (0, import_react28.createElement)("input", { key: "cmd", className: "bt-input", "aria-label": t("Command"), placeholder: t("Command, e.g. npx -y some-mcp"), value: command, spellCheck: false, onChange: (e) => setCommand(e.target.value) })
+        kind === "url" ? (0, import_react28.createElement)("input", { key: "url", className: "bt-input", "aria-label": t("Server address"), placeholder: "https://…", value: url, spellCheck: false, onChange: (e) => setUrl(e.target.value) }) : (0, import_react28.createElement)("input", { key: "cmd", className: "bt-input", "aria-label": t("Command"), placeholder: t("Command, e.g. npx -y some-mcp"), value: command, spellCheck: false, onChange: (e) => setCommand(e.target.value) }),
+        // A command has nowhere to send a browser sign-in; only an address offers it.
+        kind === "url" ? (0, import_react28.createElement)(SwitchRow, { key: "oauth", label: t("Sign in"), on: oauth, onChange: setOauth }) : null
       ],
       (0, import_react28.createElement)(
         "div",
         { className: "bt-secret-row-actions" },
         (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
-        kind === "import" ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: picked.length === 0, onClick: () => void run2(actions.connectorImport(picked), reset) }, t("Import {count}", { count: picked.length })) : (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: () => void run2(kind === "url" ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t("Add"))
+        kind === "import" ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: picked.length === 0, onClick: () => void run2(actions.connectorImport(picked), reset) }, t("Import {count}", { count: picked.length })) : (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: () => void run2(kind === "url" ? actions.connectorAdd({ name: name.trim(), url: url.trim(), ...oauth ? { oauth: true } : {} }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t("Add"))
       )
     )
   );
@@ -12724,6 +12728,7 @@ function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   return (0, import_react28.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react28.createElement)(MailSendCard, { key: request.id, sessionId, bot, request, roster, actions })));
 }
 var CONNECTOR_CSS = `
+.bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
 .bt-connector-search{display:flex;flex-direction:column;gap:8px;padding:12px}

@@ -32,6 +32,8 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 ## 导入与自定义
 
+自己加的远程服务器可以在添加时打开「Sign in」（`connector-add` 带 `oauth: true`，存成 `custom.oauth`）：`entryFor` 把它当成带 `remote.url` 的 `oauth` 条目，凭据、挂载、401 刷新和行内状态直接复用目录 OAuth 的那一套；没打开的、以及这个开关之前的自定义条目仍是 `custom`，照旧带固定 header 连。命令型自定义服务器没有可以授权的地址，不能打开。服务器不发布 OAuth 元数据时不走浏览器（显示 client 表单，或干脆用固定 header / 密钥）。`custom` 条目过去总被算作「已连接」，现在和目录条目一样按 auth 种类判断（`none` 看有没有保存过，其余看有没有令牌），「只读」开关和连接状态由此才准。
+
 `connector-import-scan` 只读扫 Claude Desktop、Cursor、VS Code 的 MCP 配置（不改源文件），返回名称和 env 名；`connector-import` 把 env 值移进 DS Bot 密钥（`CONNECTOR_<ID>_<ENV>`），配置里留 `$DSH_SECRET_` 引用。自定义 id 从名字派生，唯一、≤32 字符、不占目录 id；能力名校验同样拒绝连接器 id。
 
 ## 不做
@@ -48,4 +50,5 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 ## 变更
 
+- 2026-11-08 自定义远程连接器可选 OAuth：`custom.oauth` 存进状态，`entryFor` 回报 `oauth` 并暴露 `remote.url`，凭据/刷新/只读开关复用目录流程；旧的自定义连接器不变。
 - 2026-11-04 重写：修正网关把连接器路径和 query 丢到源站根的问题；下游断开销毁上游；只读模式拒批请求；CIMD 存储客户端只在固定端口复用；邮箱附件路径收紧并显示大小；卡片回话与密钥卡同一机制。
