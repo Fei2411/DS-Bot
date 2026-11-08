@@ -239,6 +239,22 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   assert.match(out.thinking, /▸/)
 })
 
+// Codex 0.166 takes camelCase fields on thread/start and drops any other one
+// without a word: the Bot's permission preset, the team instructions and DS
+// Bot's tool server must arrive in the fields it reads.
+test('codex: a thread opens with the permission preset, instructions and tool server it reads', async (t) => {
+  const adapter = makeAdapter({ preset: 'read-only' })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [system('p1', 'Team rule: be brief.'), user('m1', 'show-thread')], { provider: 'local-codex-cli' })))
+  const params = JSON.parse(out.text)
+  assert.equal(params.sandbox, 'read-only')
+  assert.equal(params.approvalPolicy, 'on-request')
+  assert.match(params.developerInstructions, /be brief/)
+  const server = params.config.mcp_servers.dsbot
+  assert.match(server.url, /^http:\/\/127\.0\.0\.1:/)
+  assert.match(server.http_headers.Authorization, /^Bearer /)
+})
+
 // The level goes on the request that starts the turn, so a Bot's choice travels
 // with every turn and a Bot without one keeps the CLI's own default.
 test('codex: the chosen thinking level reaches the turn', async (t) => {
