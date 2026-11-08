@@ -13,7 +13,7 @@ import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, validateCustom } from './engines.js'
-import { findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
+import { cleanEnv, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGN_IN = {
   'devin-cli': 'devin auth login',
@@ -66,7 +66,7 @@ export function install(rt) {
     await Promise.all([...found.values()].map(async (entry) => {
       if (entry.version !== undefined) return
       const spec = ENGINES[entry.route]
-      const result = await probeVersion(entry.path, spec.version ?? ['--version'], undefined).catch(() => undefined)
+      const result = await probeVersion(entry.path, spec.version ?? ['--version'], cleanEnv(spec.env ?? {})).catch(() => undefined)
       entry.version = result?.version
     }))
   }
