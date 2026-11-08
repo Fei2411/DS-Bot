@@ -68,10 +68,17 @@ function dshShellDeclarations() {
   return children
 }
 
-test('the seat declares exactly the child slots DSH\'s own settings shell declares', () => {
+// Slots a newer DSH's shell declares than the oldest DSH DS Bot runs on. Declaring one
+// an older shell lacks is harmless: nothing registers into it there.
+const NEWER_SLOTS = new Set(['settings.section.icon'])
+
+test('the seat declares every child slot DSH\'s own settings shell declares, alike', () => {
   // Both sides come from their own realms, so the comparison goes through plain data.
   const plain = value => JSON.parse(JSON.stringify(value))
-  assert.deepEqual(plain(shell.SETTINGS_CHILDREN), plain(dshShellDeclarations()))
+  const ours = plain(shell.SETTINGS_CHILDREN)
+  const dsh = plain(dshShellDeclarations())
+  for (const [name, spec] of Object.entries(dsh)) assert.deepEqual(ours[name], spec, name)
+  assert.deepEqual(Object.keys(ours).filter(name => !(name in dsh) && !NEWER_SLOTS.has(name)), [])
 })
 
 test('the bundle patch turns off the DSH settings shell row that dsh-web-app mounts', () => {
