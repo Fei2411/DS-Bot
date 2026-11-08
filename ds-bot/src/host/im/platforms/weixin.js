@@ -14,6 +14,16 @@ const QR_BASE = 'https://ilinkai.weixin.qq.com/'
 const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
+const ILINK_APP_ID = 'bot'
+// The iLink client version, packed as 0x00MMNNPP: 2.4.6 is what the reference
+// client (dsh-im 5.10.0, the source of this port) identifies itself as.
+const ILINK_CLIENT_VERSION = (2 << 16) | (4 << 8) | 6
+// The server answers this on getupdates when the bot session is not open; the
+// account has to scan a new QR code.
+const SESSION_EXPIRED = -14
+// Waits between attempts to open the session, from the reference client; the
+// last one repeats while the network stays down, like the poll's own retry.
+const START_RETRY_DELAYS_MS = [250, 1_000, 3_000]
 
 // iLink answers with the bare host (no trailing slash), and the request URL is
 // built by appending a path: normalize to exactly one slash either way.
@@ -21,6 +31,14 @@ const withSlash = value => `${String(value).replace(/\/+$/, '')}/`
 const qrBase = env => withSlash(env.config?.qr ?? env.config?.api ?? QR_BASE)
 const base = (env, fields) => withSlash(fields.baseUrl || env.config?.api || QR_BASE)
 const baseInfo = () => ({ channel_version: 'ds-bot' })
+// iLink identifies the calling client by these two headers on every request.
+const clientHeaders = () => ({
+  'iLink-App-Id': ILINK_APP_ID,
+  'iLink-App-ClientVersion': String(ILINK_CLIENT_VERSION),
+})
+// X-WECHAT-UIN is base64 of a random uint32. The protocol reference and the
+// reference client both mint a new value per request rather than keeping one.
+const randomUin = () => Buffer.from(String(randomBytes(4).readUInt32BE(0)), 'utf8').toString('base64')
 
 // iLink omits ret on a successful getupdates answer, so the answer itself has to
 // prove it came from iLink: a bad proxy or a stale endpoint can answer 200 with
@@ -39,7 +57,7 @@ export default {
   async loginStart(env) {
     const response = await env.fetch(`${qrBase(env)}ilink/bot/get_bot_qrcode?bot_type=${BOT_TYPE}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...clientHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ local_token_list: [] }),
     })
     const body = await response.json().catch(() => ({}))
@@ -56,6 +74,7 @@ export default {
     if (held === undefined) return { status: 'expired' }
     if (held.expiresAt < Date.now()) { logins.delete(String(loginId)); return { status: 'expired' } }
     const response = await env.fetch(`${qrBase(env)}ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(held.qrcode)}`, {
+      headers: clientHeaders(),
       signal: AbortSignal.timeout?.(POLL_TIMEOUT_MS) ?? undefined,
     }).catch(() => undefined)
     const body = await response?.json().catch(() => ({})) ?? {}
@@ -146,6 +165,13 @@ export default {
             await sleep(3000)
             continue
           }
+          const code = answer.ret ?? answer.errcode
+          if (Number(code) === SESSION_EXPIRED) {
+            const reason = 'WeChat session expired; scan the QR code again'
+            env.log?.warn?.('ds-bot im: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+            return
+          }
           if (answer.ret !== undefined) {
             if (Number(answer.ret) !== 0) {
               env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
@@ -175,8 +201,42 @@ export default {
       }
     }
 
+    // The session has to be opened before getupdates carries anything. A
+    // refused or expired session is shown once and polling never starts. A
+    // network failure keeps retrying, as the poll does: an app started before
+    // the network is up must still connect once it is. After the quick retries
+    // the failure is on screen until a start succeeds.
+    const startSession = async () => {
+      let shown = false
+      for (let attempt = 0; ; attempt += 1) {
+        if (stopped) return
+        try {
+          await notifyStart(env, base(env, fields), fields.token)
+          break
+        } catch (error) {
+          if (stopped) return
+          const reason = String(error?.message ?? error)
+          if (error?.permanent === true) {
+            env.log?.warn?.('ds-bot im: weixin could not start the session: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+            return
+          }
+          const wait = START_RETRY_DELAYS_MS[attempt]
+          if (wait === undefined && !shown) {
+            shown = true
+            env.log?.warn?.('ds-bot im: weixin could not start the session, still retrying: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+          } else if (wait !== undefined) {
+            env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', reason)
+          }
+          await sleep(wait ?? START_RETRY_DELAYS_MS.at(-1))
+        }
+      }
+      if (!stopped) void poll()
+    }
+
     handlers.onStatus({ state: 'connecting' })
-    void poll()
+    void startSession()
 
     return {
       send: async (chat, { text }) => {
@@ -235,6 +295,18 @@ const chunk = (text, limit) => {
   return chunks
 }
 
+// iLink only carries getupdates for an opened session: before msg/notifystart
+// the server keeps answering {"errcode":-14,"errmsg":"session timeout"}.
+async function notifyStart(env, baseUrl, token) {
+  const answer = await request(env, baseUrl, token, 'msg/notifystart', {}, 10_000)
+  const code = answer?.errcode ?? answer?.ret
+  if (code === undefined || Number(code) === 0) return
+  const reason = Number(code) === SESSION_EXPIRED
+    ? 'WeChat session expired; scan the QR code again'
+    : `WeChat did not start the session (${code})`
+  throw fail(reason, { permanent: true })
+}
+
 async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIMEOUT_MS, { requireJson = false } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs)
@@ -244,7 +316,9 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
     response = await env.fetch(`${baseUrl}ilink/bot/${endpoint}`, {
       method: 'POST',
       headers: {
+        ...clientHeaders(),
         'content-type': 'application/json',
+        'X-WECHAT-UIN': randomUin(),
         ...(token ? { authorization: `Bearer ${token}`, AuthorizationType: 'ilink_bot_token' } : {}),
       },
       body: JSON.stringify({ ...body, base_info: baseInfo() }),
