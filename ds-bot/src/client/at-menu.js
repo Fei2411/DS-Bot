@@ -11,6 +11,9 @@ export const CHATS_SOURCE = 'ds-bot-chats'
 // The words the group host reads as "everyone" (groups.js ROOM_ALL).
 const ROOM_ALL = ['all', 'everyone', '所有人', '全体']
 const OTHER_CHATS_MAX = 8
+// The unfiltered list stays short; a query is a search, so it gets a wider cap -
+// otherwise conversations past the eighth were never reachable.
+const MAX_CHATS_WITH_QUERY = 50
 
 const conversationOf = (roster, sessionId) => {
   if (!roster.ready) return null
@@ -40,23 +43,27 @@ export function mentionRows(roster, sessionId, query = '') {
 // The chats a message here can reference: every other Bot's chat, then the latest
 // conversations outside the team. Group chats stay out: a group's Session holds only
 // the user's messages, so a snapshot of it would miss every Bot's reply.
-export function chatRows(roster, list, sessionId) {
+export function chatRows(roster, list, sessionId, query = '') {
   const here = conversationOf(roster, sessionId)
   if (here === null) return []
+  const needle = query.trim().toLowerCase()
+  const matches = (text) => needle === '' || String(text ?? '').toLowerCase().includes(needle)
   const byId = list?.byId ?? {}
-  const bots = roster.bots.filter(bot => bot.id !== here.self?.id).map((bot) => {
+  const bots = roster.bots.filter((bot) => bot.id !== here.self?.id).map((bot) => {
     const id = currentPart(bot)
     return { sessionId: id, label: t('Chat with {name}', { name: bot.name }), bot, updatedAt: byId[id]?.updatedAt }
-  })
+  }).filter((row) => matches(row.bot.name) || matches(row.label))
   const team = new Set([
-    ...roster.bots.flatMap(bot => [bot.id, currentPart(bot), ...(bot.parts ?? [])]),
-    ...roster.rooms.flatMap(room => [room.id, room.sessionId, ...(room.ownParts ?? []), ...(room.parts ?? [])].filter(id => id !== undefined)),
+    ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...(bot.parts ?? [])]),
+    ...roster.rooms.flatMap((room) => [room.id, room.sessionId, ...(room.ownParts ?? []), ...(room.parts ?? [])].filter((id) => id !== undefined)),
   ])
-  const others = (list?.ids ?? []).map(id => byId[id])
-    .filter(row => row !== undefined && row.id !== sessionId && !team.has(row.id) && row.origin !== 'subagent' && row.blank !== true)
+  const others = (list?.ids ?? []).map((id) => byId[id])
+    .filter((row) => row !== undefined && row.id !== sessionId && !team.has(row.id) && row.origin !== 'subagent' && row.blank !== true)
+    .filter((row) => matches(row.displayTitle) || matches(row.title) || matches(row.id))
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, OTHER_CHATS_MAX)
-    .map(row => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }))
+    // 有搜索词时放宽上限：否则第 9 条之后的历史会话永远搜不到
+    .slice(0, needle === '' ? OTHER_CHATS_MAX : MAX_CHATS_WITH_QUERY)
+    .map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }))
   return [...bots, ...others]
 }
 
@@ -69,8 +76,9 @@ export function sessionMention(sessionId, label) {
   return `@[${label.replace(/[\\\]]/g, mark => `\\${mark}`)}](dsh-session:${payload})`
 }
 
-// `launched(sessionId)`: whether "+ → Reference a chat" opened the menu, so the chats
-// never join a typed "@". `iconFor(row)` is the row's character mark.
+// The chats join every typed "@" beside the Bots group, so quoting stays searchable
+// no matter how the menu opened; the shell's `launched` still arrives and is kept in
+// the signature. `iconFor(row)` is the row's character mark.
 export function atSources({ roster, sessions, launched, iconFor }) {
   const bots = {
     trigger: '@',
@@ -94,9 +102,8 @@ export function atSources({ roster, sessions, launched, iconFor }) {
     name: CHATS_SOURCE,
     order: -10,
     showGroupTitle: false,
-    async candidates(session) {
-      if (!launched(session.sessionId)) return []
-      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId).map(row => ({
+    async candidates(session, { query } = {}) {
+      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId, query ?? '').map(row => ({
         name: row.bot ? row.bot.name : row.label,
         ...(row.updatedAt ? { description: relativeShort(row.updatedAt) } : {}),
         icon: row.bot ? iconFor(row) : 'session',
