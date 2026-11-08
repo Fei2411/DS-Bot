@@ -56,10 +56,18 @@ export function install(rt) {
   const gateways = { gw: null }
   const pluginP = { p: null }
 
+  // An added remote server that signs in with OAuth takes the same shape as a
+  // catalog OAuth entry, so credentials, mounts, refresh, and rows need no
+  // separate path. Rows added before this have no `oauth` flag and stay as they were.
+  const customEntry = (id, custom) => {
+    const added = { id, name: custom.name, category: 'custom', about: custom.url ?? custom.command ?? '', auth: { kind: 'custom' }, custom }
+    if (custom.oauth !== true || custom.url === undefined) return added
+    return { ...added, auth: { kind: 'oauth' }, remote: { url: custom.url } }
+  }
   const entries = () => {
     const list = [...CATALOG.filter(entry => entry.id !== 'github' || options !== null)]
     for (const [id, saved] of Object.entries(state.connectors ?? {})) {
-      if (saved?.custom) list.push({ id, name: saved.custom.name, category: 'custom', about: saved.custom.url ?? saved.custom.command ?? '', auth: { kind: 'custom' }, custom: saved.custom })
+      if (saved?.custom) list.push(customEntry(id, saved.custom))
     }
     return list
   }
@@ -71,7 +79,7 @@ export function install(rt) {
     }
     if (catalog !== undefined) return catalog
     const custom = state.connectors?.[id]?.custom
-    if (custom !== undefined) return { id, name: custom.name, category: 'custom', about: custom.url ?? custom.command ?? '', auth: { kind: 'custom' }, custom }
+    if (custom !== undefined) return customEntry(id, custom)
     return undefined
   }
   const known = (id) => {
@@ -86,7 +94,7 @@ export function install(rt) {
   const credentialOf = (id) => {
     const entry = entryFor(id)
     if (entry === undefined) return undefined
-    if (entry.auth.kind === 'none' || entry.auth.kind === 'custom') return {}
+    if (entry.auth.kind === 'none') return {}
     if (entry.auth.kind === 'oauth') {
       const token = rt.secretValue(tokenSecretOf(id))
       return token === undefined ? undefined : { Authorization: `Bearer ${token}` }
@@ -100,7 +108,6 @@ export function install(rt) {
   const hasCredential = (id) => {
     const entry = entryFor(id)
     if (entry === undefined) return false
-    if (entry.custom !== undefined) return true
     if (entry.auth.kind === 'none') return state.connectors?.[id] !== undefined
     return credentialOf(id) !== undefined
   }
@@ -112,6 +119,10 @@ export function install(rt) {
     let url = entry.custom?.url ?? entry.remote?.url
     if (url === undefined) return undefined
     const headers = { ...(entry.headers ?? {}) }
+    // An added server keeps the headers the user typed; its sign-in token goes on top.
+    for (const [name, raw] of Object.entries(entry.custom?.headers ?? {})) {
+      headers[name] = String(raw).replace(SECRET_REF, (_m, n) => rt.secretValue(n) ?? '')
+    }
     const cred = credentialOf(id)
     if (entry.auth.kind === 'oauth' && cred !== undefined) Object.assign(headers, cred)
     if (entry.auth.kind === 'key' && cred !== undefined) {
@@ -120,11 +131,6 @@ export function install(rt) {
         const parsed = new URL(url)
         parsed.searchParams.set(entry.auth.query, cred.key)
         url = String(parsed)
-      }
-    }
-    if (entry.custom !== undefined) {
-      for (const [name, raw] of Object.entries(entry.custom.headers ?? {})) {
-        headers[name] = String(raw).replace(SECRET_REF, (_m, n) => rt.secretValue(n) ?? '')
       }
     }
     return { url, headers }
@@ -626,8 +632,10 @@ export function install(rt) {
       state: state_,
       ...(status?.error !== undefined ? { error: status.error } : {}),
       account: saved?.account ?? (id => id === 'github' ? saved?.login : undefined)(entry.id) ?? null,
-      ...(remote && connected && entry.auth.kind !== 'none' ? { readOnly: saved?.readOnly === true } : {}),
-      ...(remote && connected && (entry.auth.kind === 'oauth' || entry.auth.kind === 'key') ? { readOnly: saved?.readOnly === true } : {}),
+      // Signing in rewrites a row's auth to OAuth, so an added remote server asks about
+      // read-only by what it has (an address) rather than by how it signs in; a catalog
+      // entry with no sign-in keeps the switch off.
+      ...(remote && connected && (entry.auth.kind === 'oauth' || entry.auth.kind === 'key' || (entry.custom !== undefined && entry.auth.kind === 'custom')) ? { readOnly: saved?.readOnly === true } : {}),
       offFor: saved?.offFor ?? [],
       tools: gateways.gw?.toolCount?.(entry.id) ?? 0,
       ...(entry.custom !== undefined ? { custom: true } : {}),
@@ -748,11 +756,14 @@ export function install(rt) {
       const command = typeof body.command === 'string' ? body.command.trim() : undefined
       if (url !== undefined && insecure(url) && !/^http:\/\/(localhost|127\.)/i.test(url)) throw new Error('Connector addresses must start with https://')
       if (url === undefined && command === undefined) throw new Error('Enter an address or a command')
+      // An address can sign in with OAuth instead of a fixed header; commands cannot.
+      const oauth = body.oauth === true && url !== undefined
+      if (body.oauth === true && url === undefined) throw new Error('OAuth sign-in needs an address')
       const taken = new Set(Object.keys(state.connectors ?? {}))
       const id = customId(name, taken)
       CONNECTOR_IDS.add(id)
       const custom = url !== undefined
-        ? { name, url, headers: body.headers && typeof body.headers === 'object' ? body.headers : {} }
+        ? { name, url, headers: body.headers && typeof body.headers === 'object' ? body.headers : {}, ...(oauth ? { oauth: true } : {}) }
         : { name, command, args: Array.isArray(body.args) ? body.args.map(String) : [], env: body.env && typeof body.env === 'object' ? body.env : {} }
       await saveState(id, { custom, connectedAt: Date.now() })
       await sync(true)

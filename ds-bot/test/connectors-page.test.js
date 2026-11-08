@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { MailCatalogRow, MailToolCell } from './src/client/connectors.js'",
+    contents: "export { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -64,8 +64,10 @@ runInNewContext(outputFiles[0].text, {
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { MailCatalogRow, MailToolCell } = module.exports
-const render = () => { active = () => expand(MailCatalogRow(props)); rerender() }
+const { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } = module.exports
+const render = () => { active = () => expand(entry(props)); rerender() }
+// Which component the current test draws; the mail tests below are the default.
+let entry = MailCatalogRow
 const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
 
 const flatten = (node, out = []) => {
@@ -256,4 +258,88 @@ test('a failed mail add shows the host message inside the form', async () => {
   assert.ok(alert, 'inline error')
   assert.match(flatten(alert).join(''), /password was refused/)
   assert.ok(String(collect(n => String(n.props?.className ?? '').includes('bt-mail-form'))[0]?.props?.className ?? '').includes('bt-mail-form'), 'form stays open')
+})
+
+// Your own MCP servers: an address may sign in with OAuth, a command cannot.
+test('the add form offers OAuth only for an address and sends the flag', async () => {
+  const adds = []
+  const actions = { connectorAdd: (body) => { adds.push(body); return Promise.resolve({ connectors: [] }) } }
+  // The real page passes a `run` that shows failures; here it just awaits.
+  props = { actions, run: task => Promise.resolve(task) }
+  slots.length = 0
+  entry = AddMenu
+  render()
+  click('Add')
+  // The switch keeps its own aria-label inside the row.
+  const findToggle = () => collect(n => n.type === 'button' && n.props?.['aria-label'] === 'Sign in')[0]
+  const findAdd = () => collect(n => n.type === 'button' && flatten(n).join('') === 'Add').at(-1)
+  assert.ok(findToggle(), 'the address form offers OAuth sign-in')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  findToggle().props.onClick()
+  assert.equal(findToggle().props['aria-checked'], true)
+  fill('Name', 'Example')
+  findAdd().props.onClick()
+  await flush()
+  // Bodies cross the vm boundary, so compare field by field rather than by prototype.
+  const pick = body => ({ ...body })
+  assert.deepEqual(pick(adds[0]), { name: 'Example', url: 'https://mcp.example.com/mcp', oauth: true })
+
+  // Off by default: a fixed-header server sends no flag and behaves as it always did.
+  adds.length = 0
+  slots.length = 0
+  render()
+  click('Add')
+  fill('Server address', 'https://fixed.example.com/mcp')
+  fill('Name', 'Fixed')
+  findAdd().props.onClick()
+  await flush()
+  assert.deepEqual(pick(adds[0]), { name: 'Fixed', url: 'https://fixed.example.com/mcp' })
+
+  // A command has no browser sign-in to offer, and switching back drops the flag.
+  slots.length = 0
+  render()
+  click('Add')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  click('Command')
+  assert.equal(collect(n => n.props?.['aria-label'] === 'Sign in').length, 0, 'no OAuth switch for command')
+  click('Address')
+  assert.equal(findToggle().props['aria-checked'], false)
+
+  // Turning it on and then switching kinds must not carry the choice back: an address
+  // submitted after that would otherwise silently ask for OAuth.
+  slots.length = 0
+  render()
+  click('Add')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  findToggle().props.onClick()
+  assert.equal(findToggle().props['aria-checked'], true)
+  click('Command')
+  click('Address')
+  assert.equal(findToggle().props['aria-checked'], false, 'switching kinds clears the OAuth choice')
+  adds.length = 0
+  fill('Server address', 'https://after-switch.example.com/mcp')
+  fill('Name', 'After switch')
+  findAdd().props.onClick()
+  await flush()
+  assert.deepEqual(pick(adds[0]), { name: 'After switch', url: 'https://after-switch.example.com/mcp' })
+})
+
+// An added OAuth server that has not signed in yet keeps a way to be removed.
+test('an unconnected added server still offers Remove', async () => {
+  const removed = []
+  const actions = { connectorDisconnect: (id) => { removed.push(id); return Promise.resolve({ connectors: [] }) } }
+  entry = ConnectorRow
+  const renderRow = (connector) => { props = { connector, actions }; slots.length = 0; render() }
+  const base = { id: 'box', name: 'Simular Box', category: 'custom', about: 'https://mcp.box.simular.ai/mcp', auth: { kind: 'oauth' }, custom: true, offFor: [], tools: 0 }
+
+  renderRow({ ...base, state: 'off' })
+  const offRemove = collect(n => n.type === 'button' && flatten(n).join('') === 'Remove')[0]
+  assert.ok(offRemove, 'an added server that never signed in can be removed')
+  offRemove.props.onClick()
+  await flush()
+  assert.deepEqual(removed, ['box'])
+
+  // A catalog connector with no sign-in still says Disconnect, not Remove.
+  renderRow({ id: 'context7', name: 'Context7', category: 'docs', about: '', auth: { kind: 'none' }, offFor: [], tools: 0, state: 'off' })
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Remove').length, 0, 'catalog rows never say Remove')
 })
