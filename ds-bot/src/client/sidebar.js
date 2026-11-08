@@ -1,15 +1,16 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
+import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
+import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_TAP, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
@@ -59,7 +60,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -100,7 +101,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-    'data-bot-id': id, title: wide ? undefined : bot.name, onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id), onContextMenu,
+    'data-bot-id': id, title: wide ? undefined : bot.name,
+    draggable: wide && !tile && onDragStart ? true : undefined,
+    onDragStart: wide && !tile && onDragStart ? event => onDragStart(event, id) : undefined,
+    onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id), onContextMenu,
   },
   h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
   pinned && !wide ? h(PinMark) : null,
@@ -114,7 +118,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked }) {
+function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -132,7 +136,10 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-    'data-room-id': id, title: wide ? undefined : room.name, onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id),
+    'data-room-id': id, title: wide ? undefined : room.name,
+    draggable: wide && onDragStart ? true : undefined,
+    onDragStart: wide && onDragStart ? event => onDragStart(event, id) : undefined,
+    onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id),
     onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
   },
   h(RoomAvatar, { room, roster, size: wide ? 36 : 44 }),
@@ -196,7 +203,7 @@ function AgentSessionRow({ session, agent, actions, renaming, index }) {
 
 // The DSH Agent row: a plain dsh Session list lives in the Bot workspace, so it
 // sits among the Bots with the harness's own whale mark.
-function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, marked }) {
+function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, marked, onDragStart }) {
   const info = useSessions(list => JSON.stringify(agent.sessions.map((id) => {
     const row = list.byId[id]
     return {
@@ -230,7 +237,10 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
   return h('div', { className: 'bt-agent' },
     h('button', {
       type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-      'data-agent-id': agent.id, title: wide ? undefined : 'DSH Agent', onClick: () => actions.openAgent(agent.id),
+      'data-agent-id': agent.id, title: wide ? undefined : 'DSH Agent',
+      draggable: wide && onDragStart ? true : undefined,
+      onDragStart: wide && onDragStart ? event => onDragStart(event, agent.id) : undefined,
+      onClick: () => actions.openAgent(agent.id),
       onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'agent', id: agent.id, x: event.clientX, y: event.clientY }) },
     },
     h('span', { className: `bt-agent-ava${running ? ' bt-run' : ''}` }, h(FishLogo, { size: wide ? 22 : 24 })),
@@ -249,6 +259,168 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
         })))))
 }
 
+function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
+  return entry.kind === 'bot'
+    ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
+    : entry.kind === 'room'
+      ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
+      : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
+}
+
+function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
+  const { roster, actions, useSessions, useSessionStatus, useWork, wide } = rowProps
+  const input = useRef(null)
+  useLayoutEffect(() => {
+    if (!renaming) return
+    input.current?.focus()
+    input.current?.select()
+  }, [renaming])
+  const visibleEntries = entries.filter(entry => !entry.item.hidden || (entry.kind === 'bot' && isMainOf(roster, entry.item.id)))
+  const botsInSec = useMemo(() => {
+    const seen = new Set()
+    const list = []
+    for (const entry of visibleEntries) {
+      if (entry.kind === 'bot') {
+        if (!seen.has(entry.item.id)) { seen.add(entry.item.id); list.push(entry.item) }
+      } else if (entry.kind === 'room') {
+        for (const memberId of entry.item.members ?? []) {
+          const bot = roster.byId[memberId]
+          if (bot && !seen.has(bot.id)) { seen.add(bot.id); list.push(bot) }
+        }
+      }
+    }
+    return list
+  }, [visibleEntries, roster.byId])
+  const sessionIds = useMemo(() => entries.flatMap(entry => (
+    entry.kind === 'bot' ? [currentPart(entry.item)]
+      : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
+        : entry.item.sessions ?? []
+  )), [entries])
+  const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
+  const activeEntry = useMemo(() => {
+    if (activeSession === '') return undefined
+    return entries.find(entry => (
+      entry.kind === 'bot' ? currentPart(entry.item) === activeSession
+        : entry.kind === 'room' ? (entry.item.sessionId ?? entry.item.id) === activeSession
+          : (entry.item.sessions ?? []).includes(activeSession)
+    ))
+  }, [entries, activeSession])
+  const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
+    id,
+    map.get(id)?.running === true ? 1 : 0,
+    map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+  ])))
+  const workBits = useWork ? useWork(work => {
+    const botIds = new Set(entries.filter(e => e.kind === 'bot').map(e => e.item.id))
+    const roomIds = new Set(entries.filter(e => e.kind === 'room').map(e => e.item.id))
+    const approval = (work.approvals ?? []).some(a => botIds.has(a.botId) || roomIds.has(a.roomId))
+    const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => (
+      (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
+    ))
+    return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
+  }) : '0|0'
+  const parsedStatuses = JSON.parse(statusBits)
+  const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
+  const hasQuestion = entries.some(entry => entry.kind === 'bot' && roster.questions?.[currentPart(entry.item)] !== undefined)
+  const hasAlert = hasQuestion || hasApproval
+  const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
+  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
+    || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
+  const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
+  const toggle = () => {
+    void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))
+  }
+  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section.id, x, y })
+  if (!wide) {
+    if (section.collapsed) {
+      const folderRoom = { id: section.id, name: section.name, members: botsInSec.map(bot => bot.id) }
+      return h('div', { className: 'bt-rail-sec', 'data-sec-id': section.id },
+        h('div', { className: 'bt-rail-sec-div', title: section.name, onClick: toggle },
+          h('span', { className: 'bt-rail-sec-pill', style: section.color ? { background: inkFill(section.color) } : undefined })),
+        h('button', {
+          type: 'button', className: 'bt-rail-folder', 'aria-label': section.name, title: `${section.name} (${visibleEntries.length})`,
+          'aria-current': activeEntry ? 'page' : undefined,
+          onClick: toggle,
+          onContextMenu: (event) => { event.preventDefault(); openSecMenu('section', event.clientX, event.clientY) },
+        },
+        botsInSec.length > 0 ? h(RoomAvatar, { room: folderRoom, roster, size: 38 }) : h(FolderIcon),
+        statusKind ? h('span', { className: `bt-dot${statusKind === 'alert' ? ' bt-dot-wait' : ''}`, style: statusKind === 'working' ? { background: 'var(--bt-green)' } : undefined, 'aria-hidden': true }) : null))
+    }
+    return h(Fragment, null,
+      h('div', { className: 'bt-rail-sec-div', 'data-sec-id': section.id, title: section.name, onClick: toggle },
+        h('span', { className: 'bt-rail-sec-pill', style: section.color ? { background: inkFill(section.color) } : undefined })),
+      entries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread)))
+  }
+  const commitRename = (keep) => {
+    const value = input.current?.value ?? ''
+    actions.endSectionRename()
+    if (!keep || value.trim() === '' || value.trim() === section.name) return
+    void Promise.resolve(actions.saveSection({ id: section.id, name: value.trim() })).catch(error => actions.reportError(error, 'section-rename'))
+  }
+  return h('div', {
+    className: 'bt-sec',
+    'data-sec-id': section.id,
+    'data-collapsed': section.collapsed ? 'true' : 'false',
+    'data-drop': dropTarget === section.id ? 'true' : undefined,
+    onDragOver: onDragOverSec ? event => onDragOverSec(event, section.id) : undefined,
+    onDrop: onDropSec ? event => onDropSec(event, section.id) : undefined,
+  },
+  renaming
+    ? h('div', { className: 'bt-sec-edit' },
+        h('input', {
+          ref: input, defaultValue: section.name, maxLength: 32, 'aria-label': t('Rename section'),
+          onKeyDown: (event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'Enter') commitRename(true)
+            else if (event.key === 'Escape') commitRename(false)
+          },
+          onBlur: () => commitRename(true),
+        }))
+    : h('div', { className: 'bt-sec-head-wrap' },
+        h('button', {
+          type: 'button', className: 'bt-sec-head', 'aria-expanded': !section.collapsed,
+          onClick: toggle,
+          onDoubleClick: (event) => { event.stopPropagation(); actions.beginSectionRename(section.id) },
+          onContextMenu: (event) => { event.preventDefault(); event.stopPropagation(); openSecMenu('section', event.clientX, event.clientY) },
+        },
+        h('span', { className: 'bt-sec-chev', 'aria-hidden': true }, h(ChevronRightIcon)),
+        section.color ? h('span', { className: 'bt-sec-dot', style: { background: inkFill(section.color) }, 'aria-hidden': true }) : null,
+        h('span', { className: 'bt-sec-title' }, section.name),
+        h('span', { className: `bt-sec-count${!section.collapsed ? ' bt-sec-count-hide' : ''}` }, visibleEntries.length),
+        h('span', { className: 'bt-sec-tail' },
+          section.collapsed && botsInSec.length > 0
+            ? h('span', { className: 'bt-sec-pile', 'aria-hidden': true },
+                botsInSec.slice(0, 3).map(bot => h('span', { key: bot.id, className: 'bt-sec-pile-item' }, h(BotMark, { bot, size: 18 }))),
+                botsInSec.length > 3 ? h('span', { className: 'bt-sec-pile-more' }, `+${botsInSec.length - 3}`) : null)
+            : null,
+          section.collapsed && statusKind
+            ? h('span', { className: 'bt-sec-status', 'data-kind': statusKind, 'aria-hidden': true }, statusKind === 'alert' ? '?' : null)
+            : null)),
+        h('span', { className: 'bt-sec-acts' },
+          h('button', {
+            type: 'button', className: 'bt-sec-act', 'aria-label': t('Add to {name}', { name: section.name }), title: t('Add to {name}', { name: section.name }),
+            onClick: (event) => {
+              event.stopPropagation()
+              const rect = event.currentTarget.getBoundingClientRect()
+              openSecMenu('section-add', rect.left, rect.bottom + 4)
+            },
+          }, h(PlusIcon)),
+          h('button', {
+            type: 'button', className: 'bt-sec-act', 'aria-label': t('{name} actions', { name: section.name }), title: t('{name} actions', { name: section.name }),
+            onClick: (event) => {
+              event.stopPropagation()
+              const rect = event.currentTarget.getBoundingClientRect()
+              openSecMenu('section', rect.left, rect.bottom + 4)
+            },
+          }, h(DotsIcon)))),
+  h('div', { className: 'bt-sec-body' },
+    h('div', { className: 'bt-sec-body-in' },
+      entries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))),
+  section.collapsed && activeEntry
+    ? h('div', { className: 'bt-sec-peek' }, renderSidebarEntry(activeEntry, rowProps, markedUnread, onDragStart))
+    : null)
+}
+
 function useListGlide(listRef, layout, key) {
   const tops = useRef({ layout, map: new Map() })
   useLayoutEffect(() => {
@@ -256,8 +428,8 @@ function useListGlide(listRef, layout, key) {
     if (!list) return
     const next = new Map()
     const still = reducedMotion() || tops.current.layout !== layout
-    for (const row of list.querySelectorAll('[data-bot-id],[data-room-id],[data-agent-id]')) {
-      const id = row.dataset.botId ?? row.dataset.roomId ?? row.dataset.agentId
+    for (const row of list.querySelectorAll('[data-bot-id],[data-room-id],[data-agent-id],[data-sec-id]')) {
+      const id = row.dataset.secId ? `sec:${row.dataset.secId}` : (row.dataset.botId ?? row.dataset.roomId ?? row.dataset.agentId)
       // offsetTop ignores transforms, so a glide in flight does not skew the next one.
       const top = row.offsetTop
       next.set(id, top)
@@ -315,6 +487,7 @@ export function TeamSidebar(props) {
   const view = useUi(value => value.view ?? 'details')
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
+  const renameSection = useUi(value => value.renameSection)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
   const pref = props.useSidebarPref ? props.useSidebarPref(value => value) : 'open'
@@ -345,10 +518,48 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
+  const sections = roster.sections ?? []
+  const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
+  const ungrouped = useMemo(
+    () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
+    [order, sectionSet],
+  )
   const main = roster.byId[roster.mainBotId]
-  useListGlide(listRef, wideContent, order.map(entry => entry.item.id).join(','))
+  const glideKey = useMemo(
+    () => `${sections.map(s => `${s.id}:${s.collapsed ? 1 : 0}`).join(',')}|${order.map(entry => `${entry.item.id}:${entry.item.sectionId ?? ''}`).join(',')}`,
+    [sections, order],
+  )
+  useListGlide(listRef, wideContent, glideKey)
   useLandOnMainBot(roster, useSessions, actions)
   useReportReady(roster.ready, roster)
+  const [dragId, setDragId] = useState(null)
+  const [dropTarget, setDropTarget] = useState(null)
+  const onDragStart = (event, id) => {
+    setDragId(id)
+    event.dataTransfer?.setData?.('text/plain', id)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+  }
+  const onDragOverSec = (event, secId) => {
+    if (!dragId) return
+    event.preventDefault()
+    if (dropTarget !== secId) setDropTarget(secId)
+  }
+  const onDropSec = (event, secId) => {
+    event.preventDefault()
+    const id = dragId
+    setDragId(null)
+    setDropTarget(null)
+    if (!id) return
+    void Promise.resolve(actions.setFlags(id, { sectionId: secId })).catch(error => actions.reportError(error, 'section'))
+    if (secId && sections.find(s => s.id === secId)?.collapsed) {
+      void Promise.resolve(actions.saveSection({ id: secId, collapsed: false })).catch(() => {})
+    }
+  }
+  const createNewSection = () => {
+    void Promise.resolve(actions.saveSection({}))
+      .then((sec) => { if (sec?.id) actions.beginSectionRename(sec.id) })
+      .catch(error => actions.reportError(error, 'section'))
+  }
 
   // Our column pushes the conversation over by what it takes beyond the shell's
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
@@ -569,6 +780,7 @@ export function TeamSidebar(props) {
     ? h('div', { className: 'bt-side-top' },
         h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
+        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New section'), title: t('New section'), onClick: createNewSection }, h(FolderIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
@@ -587,13 +799,32 @@ export function TeamSidebar(props) {
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
-    h('div', { ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
+    h('div', {
+      ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list'),
+      onDragEnd: () => { setDragId(null); setDropTarget(null) },
+      onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
+    },
       wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…'))) : null,
-      order.map(entry => (entry.kind === 'bot'
-        ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
-        : entry.kind === 'room'
-          ? h(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true })
-          : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true })))),
+      sections.length > 0 && wideContent
+        ? h('div', {
+            className: 'bt-sec-ungrouped',
+            'data-drop': dropTarget === '__none__' ? 'true' : undefined,
+            onDragOver: event => onDragOverSec(event, '__none__'),
+            onDrop: event => onDropSec(event, null),
+          }, ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))
+        : ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)),
+      sections.map(section => h(SectionBlock, {
+        key: section.id,
+        section,
+        entries: order.filter(entry => entry.item.sectionId === section.id),
+        rowProps,
+        markedUnread,
+        renaming: renameSection === section.id,
+        dropTarget,
+        onDragStart,
+        onDragOverSec,
+        onDropSec,
+      }))),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
@@ -700,76 +931,11 @@ export function YouAvatar() {
     h('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' } }, t('Settings')))
 }
 
-let openShellSettings = null
-let openShellOnboarding = null
 let shellShortcuts = null
 
 export function holdShellShortcuts(shortcuts) {
   shellShortcuts = shortcuts
   return () => { if (shellShortcuts === shortcuts) shellShortcuts = null }
-}
-
-// DeepSeek Harness hands its settings opener only to the settings.launcher seat. When
-// the Desktop's account menu holds that seat, its first item (Settings) is the way in;
-// the Desktop on Windows and macOS takes shortcuts natively, so a synthetic key press
-// reaches the shell only where the page delivers them (the Web, Linux).
-export function openHarnessSettings() {
-  // A frame first, so a Bot dialog that closes on this click leaves the modal stack.
-  requestAnimationFrame(() => {
-    if (openShellSettings) { openShellSettings(); return }
-    const desktop = document.querySelector('button[aria-haspopup="menu"][data-signed-out]')
-    if (desktop) openThroughMenu(desktop)
-    else pressSettingsShortcut()
-  })
-}
-
-// Opens one of the shell's own onboarding editors, such as the DeepSeek API key form.
-export function openHarnessOnboarding(id) {
-  requestAnimationFrame(() => {
-    if (openShellOnboarding) openShellOnboarding(id)
-    else openHarnessSettings()
-  })
-}
-
-// The launcher seat can only open DSH's settings on their first section. This onboarding
-// step of DS Bot's own, opened by id, hands the shell's openSection the Models page; the
-// first-run pass meets it last and it steps aside at once.
-export const MODELS_STEP = 'ds-bot-models'
-export const MODELS_STEP_ORDER = 1000
-
-export function OpenModelsStep({ explicit, complete, openSection }) {
-  useEffect(() => {
-    if (explicit) {
-      if (typeof openSection === 'function') openSection('models')
-      else openHarnessSettings()
-    }
-    complete()
-  }, [explicit])
-  return null
-}
-
-function openThroughMenu(trigger) {
-  const before = new Set(document.querySelectorAll('[role="menu"]'))
-  trigger.click()
-  let frames = 0
-  const look = () => {
-    const menu = [...document.querySelectorAll('[role="menu"]')].find(node => !before.has(node))
-    const item = menu?.querySelector('button[role="menuitem"]')
-    if (item) item.click()
-    else if (++frames < 30) requestAnimationFrame(look)
-    else pressSettingsShortcut()
-  }
-  requestAnimationFrame(look)
-}
-
-function pressSettingsShortcut() {
-  const binding = shellShortcuts?.catalog.getSnapshot().find(row => row.id === 'settings.open')?.binding
-  if (!binding) return
-  const held = new Set(binding.modifiers)
-  window.dispatchEvent(new KeyboardEvent('keydown', {
-    code: binding.code, key: binding.code === 'Comma' ? ',' : '', bubbles: true, cancelable: true,
-    ctrlKey: held.has('control'), altKey: held.has('alt'), shiftKey: held.has('shift'), metaKey: held.has('meta'),
-  }))
 }
 
 // Whether a key press is the shell's current binding for one of its shortcuts.
@@ -789,7 +955,7 @@ const NO_SNAPSHOT = () => null
 // `seat` is the shell's settings.launcher seat: at priority -10 the whale wins it
 // over a shell account plugin's own launcher (the Desktop's "··· More"), which comes
 // back in Agent mode; FooterAccount stands in while no seat exists at all.
-export function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboarding, actions }) {
+export function AccountLauncher({ seat = true, settingsOpen, actions }) {
   const [open, setOpen] = useState(false)
   useLayoutEffect(() => {
     if (!seat) return undefined
@@ -800,17 +966,6 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
   const button = useRef(null)
   const menuRef = useRef(null)
   useEffect(() => { if (settingsOpen) setOpen(false) }, [settingsOpen])
-  // The settings dialog links back to the shell's own settings (models, providers).
-  useEffect(() => {
-    if (!openSettings) return undefined
-    openShellSettings = openSettings
-    return () => { if (openShellSettings === openSettings) openShellSettings = null }
-  }, [openSettings])
-  useEffect(() => {
-    if (!openOnboarding) return undefined
-    openShellOnboarding = openOnboarding
-    return () => { if (openShellOnboarding === openOnboarding) openShellOnboarding = null }
-  }, [openOnboarding])
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
@@ -874,15 +1029,14 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
     setSignOutError('')
     setBusy(false)
   }, [open])
-  // DS Bot's Models page where the host serves the providers, else DSH's own.
-  const openModels = actions.providers ? actions.openModels : actions.openHarnessModels
+  const openModels = actions.openModels
   const groups = [
     [
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
-      [t('Bot settings'), GearIcon, () => actions.openSettings('general')],
+      [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
   ]
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
@@ -1152,4 +1306,69 @@ export const SIDEBAR_CSS = `
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
 @keyframes bt-agent-row-in{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:blur(0)}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
+
+/* Sidebar sections: collapsible header with a 3D character pile and live status when
+   folded, active conversation peek, drag-and-drop highlight, and 88px rail cluster. */
+.bt-sec-ungrouped{display:flex;flex-direction:column;gap:3px;border-radius:10px;transition:background-color .14s ease,box-shadow .14s ease}
+.bt-sec-ungrouped[data-drop=true]{background:color-mix(in srgb,var(--bt-accent) 9%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 65%,transparent)}
+.bt-sec{display:flex;flex-direction:column;margin-top:6px;border-radius:12px;transition:background-color .14s ease,box-shadow .14s ease}
+.bt-sec[data-drop=true]{background:color-mix(in srgb,var(--bt-accent) 9%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 65%,transparent)}
+.bt-sec-head-wrap{position:relative;display:flex;align-items:center}
+.bt-sec-head{display:flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 6px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2);font-family:var(--bt-font);font-size:12px;line-height:16px;font-weight:600;cursor:pointer;width:100%;text-align:left;transition:background-color .12s ease,color .12s ease}
+.bt-sec-head-wrap:hover .bt-sec-head{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-sec-head:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-sec-chev{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex:none;color:var(--bt-ink-3);transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},color .12s ease}
+.bt-sec-head-wrap:hover .bt-sec-chev{color:var(--bt-ink-2)}
+.bt-sec[data-collapsed=false] .bt-sec-chev{transform:rotate(90deg)}
+.bt-sec-chev svg{width:12px;height:12px}
+.bt-sec-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;flex:none}
+.bt-sec-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+.bt-sec-count{font-size:11px;line-height:16px;font-weight:500;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;flex:none}
+.bt-sec-head-wrap:hover .bt-sec-count-hide{display:none}
+.bt-sec-tail{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex:none}
+.bt-sec-head-wrap:hover .bt-sec-tail{padding-right:44px}
+.bt-sec-pile{display:inline-flex;align-items:center;animation:bt-sec-pile-in ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+@keyframes bt-sec-pile-in{from{opacity:0;transform:translateX(6px) scale(.82)}to{opacity:1;transform:none}}
+.bt-sec-pile-item{display:inline-flex;border-radius:50%;corner-shape:round;background:var(--bt-sidebar);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+.bt-sec-pile-item+.bt-sec-pile-item{margin-left:-5px}
+.bt-sec-pile-more{font-size:11px;line-height:16px;font-weight:600;color:var(--bt-ink-3);margin-left:3px;font-variant-numeric:tabular-nums}
+.bt-sec-status{width:8px;height:8px;border-radius:50%;corner-shape:round;flex:none}
+.bt-sec-status[data-kind=working]{background:var(--bt-green);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-green) 22%,transparent)}
+.bt-sec-status[data-kind=alert]{width:12px;height:12px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:8.5px;line-height:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.bt-sec-status[data-kind=unread]{background:var(--bt-accent)}
+.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:none;align-items:center;gap:2px}
+.bt-sec-head-wrap:hover .bt-sec-acts,.bt-sec-acts:focus-within{display:inline-flex}
+.bt-sec-act{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-act:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-sec-act:active{transform:scale(.9)}
+.bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-sec-act svg{width:13px;height:13px}
+.bt-sec-edit{display:flex;align-items:center;height:30px;padding:0 4px}
+.bt-sec-edit input{width:100%;height:24px;padding:0 8px;border:0;border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:600;outline:none;box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-sec-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-sec[data-collapsed=true] .bt-sec-body{grid-template-rows:0fr}
+.bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
+.bt-sec[data-collapsed=false] .bt-sec-body-in{padding-top:2px}
+.bt-sec[data-collapsed=false]:hover .bt-sec-body-in::before{content:'';position:absolute;left:10px;top:6px;bottom:6px;width:1.5px;border-radius:999px;background:var(--bt-line-2);opacity:.55;pointer-events:none}
+.bt-sec-peek{margin-top:2px}
+.bt-rail-sec{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%}
+.bt-rail-sec-div{display:flex;align-items:center;justify-content:center;width:100%;padding:5px 0 2px;cursor:pointer}
+.bt-rail-sec-pill{width:22px;height:3px;border-radius:999px;background:var(--bt-line-2);transition:width .14s ease,background-color .14s ease}
+.bt-rail-sec-div:hover .bt-rail-sec-pill{width:30px;background:var(--bt-ink-3)}
+.bt-rail-folder{position:relative;display:flex;align-items:center;justify-content:center;width:56px;height:56px;padding:0;border:0;border-radius:16px;background:color-mix(in srgb,var(--bt-ink) 5%,transparent);color:var(--bt-ink-2);box-shadow:inset 0 0 0 .5px var(--bt-line-2);cursor:pointer;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-rail-folder:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-rail-folder:active{transform:scale(.95)}
+.bt-rail-folder:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-rail-folder[aria-current=page]{background:var(--bt-active);box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
+.bt-menu-sub-head{padding:4px 8px 2px;font-size:11px;line-height:16px;font-weight:600;color:var(--bt-ink-3);user-select:none}
+.bt-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left}
+.bt-menu-hint{margin-left:auto;font-size:11px;line-height:16px;color:var(--bt-ink-3);flex:none}
+.bt-menu-check{margin-left:auto;color:var(--bt-accent);display:inline-flex;flex:none}
+.bt-menu-colors{display:flex;align-items:center;gap:6px;padding:4px 8px 6px}
+.bt-menu-color-dot{width:16px;height:16px;border-radius:50%;corner-shape:round;border:0;padding:0;cursor:pointer;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
+.bt-menu-color-dot[aria-pressed=true]{outline:2px solid var(--bt-ink);outline-offset:1.5px}
+.bt-menu-color-dot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-sec-add-menu{max-width:260px}
+.bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
 `
