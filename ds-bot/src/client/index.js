@@ -404,8 +404,10 @@ export function apply(ctx) {
     }
   }
 
+  // Assigned when the actions object below is built. Calls before that do nothing.
+  let publishSurface = () => {}
   ctx.effect(() => {
-    const hub = { registerShape, registerTheme, themes: () => Object.keys(allThemes()), shapes: () => Object.keys(SHAPES) }
+    const hub = { registerShape, registerTheme, themes: () => Object.keys(allThemes()), shapes: () => Object.keys(SHAPES), setSurface: mode => publishSurface(mode) }
     const queued = Array.isArray(window.dshBotQueue) ? window.dshBotQueue : []
     window.dshBot = hub
     window.dshBotQueue = { push: (task) => { try { task(hub) } catch (error) { console.warn('[ds-bot] registration', error); noteClientError('registration', error) } } }
@@ -568,7 +570,9 @@ export function apply(ctx) {
     setPanelYield: (on) => ui.set(state => (state.panelYield === on ? state : { ...state, panelYield: on })),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
-    setSurface: (mode) => {
+    // The same function is window.dshBot.setSurface, so another plugin can switch
+    // without clicking through the account menu.
+    setSurface: publishSurface = (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
       // Already there: still worth the landing check — a cold start never calls
       // setSurface, so this is also how a stuck Bot surface recovers itself.
