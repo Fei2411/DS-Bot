@@ -15481,6 +15481,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     if (!keep || value.trim() === "" || value.trim() === section.name) return;
     void Promise.resolve(actions.saveSection({ id: section.id, name: value.trim() })).catch((error) => actions.reportError(error, "section-rename"));
   };
+  const bodyEntries = section.collapsed && activeEntry ? entries2.filter((entry) => entry !== activeEntry) : entries2;
   return (0, import_react34.createElement)(
     "div",
     {
@@ -15571,11 +15572,15 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     ),
     (0, import_react34.createElement)(
       "div",
-      { className: "bt-sec-body" },
+      {
+        className: "bt-sec-body",
+        inert: section.collapsed ? "" : void 0,
+        "aria-hidden": section.collapsed ? true : void 0
+      },
       (0, import_react34.createElement)(
         "div",
         { className: "bt-sec-body-in" },
-        entries2.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
+        bodyEntries.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
       )
     ),
     section.collapsed && activeEntry ? (0, import_react34.createElement)("div", { className: "bt-sec-peek" }, renderSidebarEntry(activeEntry, rowProps, markedUnread, onDragStart)) : null
@@ -15589,6 +15594,7 @@ function useListGlide(listRef, layout, key) {
     const next = /* @__PURE__ */ new Map();
     const still = reducedMotion() || tops.current.layout !== layout;
     for (const row of list.querySelectorAll("[data-bot-id],[data-room-id],[data-agent-id],[data-sec-id]")) {
+      if (row.closest?.('[aria-hidden="true"]')) continue;
       const id = row.dataset.secId ? `sec:${row.dataset.secId}` : row.dataset.botId ?? row.dataset.roomId ?? row.dataset.agentId;
       const top = row.offsetTop;
       next.set(id, top);
@@ -15950,6 +15956,7 @@ function TeamSidebar(props) {
       wideContent ? main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
       sections.length > 0 && wideContent ? (0, import_react34.createElement)("div", {
         className: "bt-sec-ungrouped",
+        "data-dragging": dragId ? "true" : void 0,
         "data-drop": dropTarget === "__none__" ? "true" : void 0,
         onDragOver: (event) => onDragOverSec(event, "__none__"),
         onDrop: (event) => onDropSec(event, null)
@@ -16469,7 +16476,8 @@ var SIDEBAR_CSS = `
 
 /* Sidebar sections: collapsible header with a 3D character pile and live status when
    folded, active conversation peek, drag-and-drop highlight, and 88px rail cluster. */
-.bt-sec-ungrouped{display:flex;flex-direction:column;gap:3px;border-radius:10px;transition:background-color .14s ease,box-shadow .14s ease}
+.bt-sec-ungrouped{display:flex;flex-direction:column;gap:3px;border-radius:10px;transition:min-height .14s ease,background-color .14s ease,box-shadow .14s ease}
+.bt-sec-ungrouped[data-dragging=true]:empty{min-height:28px;margin-bottom:2px;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
 .bt-sec-ungrouped[data-drop=true]{background:color-mix(in srgb,var(--bt-accent) 9%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 65%,transparent)}
 .bt-sec{display:flex;flex-direction:column;margin-top:6px;border-radius:12px;transition:background-color .14s ease,box-shadow .14s ease}
 .bt-sec[data-drop=true]{background:color-mix(in srgb,var(--bt-accent) 9%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 65%,transparent)}
@@ -24928,6 +24936,14 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
 }
 function SectionMenu({ menu, roster, actions, leaving }) {
   const ref = (0, import_react57.useRef)(null);
+  const trigger = (0, import_react57.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  (0, import_react57.useEffect)(() => {
+    const onKey = (event) => {
+      stepMenuFocus(ref.current, event, trigger.current);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   const [place, setPlace] = (0, import_react57.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
   (0, import_react57.useLayoutEffect)(() => {
