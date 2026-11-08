@@ -2151,7 +2151,12 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     answerView: (sessionId, viewId, action, values) => after(call2("view-reply", { sessionId: partFor(sessionId), viewId, action, values })),
     dismissView: (sessionId) => after(call2("dismiss-view", { sessionId: partFor(sessionId) })),
     deleteBtw: (sessionId, cardId) => after(call2("btw-delete", { sessionId, cardId })),
-    answerApproval: (id, choice) => after(call2("approval-answer", { id, choice })),
+    // A decision this window made: the host drops the approval from its list, and
+    // that drop must not read as another window's decision (#966).
+    answerApproval: (id, choice) => {
+      approvals?.set((state) => state.settled?.[id] === true ? state : { ...state, settled: { ...state.settled, [id]: true } });
+      return after(call2("approval-answer", { id, choice }));
+    },
     // An answer that lost the race (the request was decided here or on another
     // machine already) keeps its card with the reason: the host's list no longer
     // holds the approval, so this window is the only place that still knows.
@@ -27107,6 +27112,30 @@ function approvalsOf(work, chat) {
 function closedApprovals(state, chat, pending = []) {
   return Object.values(state?.closed?.[chat] ?? {}).filter((entry) => !pending.some((open) => open.id === entry.approval.id)).sort((a, b) => a.at - b.at);
 }
+var APPROVAL_STALE = "This approval is no longer open";
+function vanishedApprovals(prev, next) {
+  const open = new Set((next?.approvals ?? []).map((entry) => entry.id));
+  return (prev?.approvals ?? []).filter((entry) => !open.has(entry.id));
+}
+function closeVanishedApprovals(state, prev, next, { at = Date.now(), message = APPROVAL_STALE } = {}) {
+  const vanished = vanishedApprovals(prev, next);
+  if (vanished.length === 0) return state;
+  const settled = { ...state?.settled ?? {} };
+  const closed = { ...state?.closed ?? {} };
+  let changed = false;
+  for (const entry of vanished) {
+    if (settled[entry.id] === true) {
+      delete settled[entry.id];
+      changed = true;
+      continue;
+    }
+    const chat = approvalChat(entry);
+    if (closed[chat]?.[entry.id] !== void 0) continue;
+    closed[chat] = { ...closed[chat] ?? {}, [entry.id]: { approval: entry, message, at } };
+    changed = true;
+  }
+  return changed ? { ...state, closed, settled } : state;
+}
 function waitingIn(work, state, chat) {
   const pending = approvalsOf(work, chat);
   return pending.length > 0 || closedApprovals(state, chat, pending).length > 0;
@@ -27560,7 +27589,7 @@ function apply(ctx) {
   const activity = createSource({});
   const work = createSource({ bots: {}, approvals: [] });
   let workKey = "";
-  const approvals = createSource({ closed: {} });
+  const approvals = createSource({ closed: {}, settled: {} });
   let liveKey;
   const live = createSource({});
   const computer = createSource({});
@@ -27586,6 +27615,7 @@ function apply(ctx) {
     ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
+  const closedCards = (state) => Object.values(state?.closed ?? {}).reduce((sum, cards2) => sum + Object.keys(cards2).length, 0);
   let pulls = 0;
   let applied = 0;
   const pull = async () => {
@@ -27606,6 +27636,12 @@ function apply(ctx) {
       const nextWork = JSON.stringify(value.work);
       if (nextWork !== workKey) {
         workKey = nextWork;
+        const before = approvals.getSnapshot();
+        const after2 = closeVanishedApprovals(before, work.getSnapshot(), value.work);
+        if (after2 !== before) {
+          approvals.set(after2);
+          if (closedCards(after2) > closedCards(before)) ui2.set((state) => ({ ...state, toast: { text: APPROVAL_STALE, token: Date.now() } }));
+        }
         work.set(value.work);
       }
     }

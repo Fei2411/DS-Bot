@@ -27,6 +27,40 @@ export function closedApprovals(state, chat, pending = []) {
     .sort((a, b) => a.at - b.at)
 }
 
+// What the host says when an approval it no longer knows is answered, and what a
+// card whose approval another window decided keeps instead (#966).
+export const APPROVAL_STALE = 'This approval is no longer open'
+
+// The approvals the host's list dropped between two answers.
+export function vanishedApprovals(prev, next) {
+  const open = new Set((next?.approvals ?? []).map(entry => entry.id))
+  return (prev?.approvals ?? []).filter(entry => !open.has(entry.id))
+}
+
+// A decision made in another window reaches this one only as a shorter list: the
+// approval is gone before this window can answer it and be told why, so the card
+// must go stale here instead of vanishing. One this window answered just goes, and
+// its note in `settled` goes with it.
+export function closeVanishedApprovals(state, prev, next, { at = Date.now(), message = APPROVAL_STALE } = {}) {
+  const vanished = vanishedApprovals(prev, next)
+  if (vanished.length === 0) return state
+  const settled = { ...(state?.settled ?? {}) }
+  const closed = { ...(state?.closed ?? {}) }
+  let changed = false
+  for (const entry of vanished) {
+    if (settled[entry.id] === true) {
+      delete settled[entry.id]
+      changed = true
+      continue
+    }
+    const chat = approvalChat(entry)
+    if (closed[chat]?.[entry.id] !== undefined) continue
+    closed[chat] = { ...(closed[chat] ?? {}), [entry.id]: { approval: entry, message, at } }
+    changed = true
+  }
+  return changed ? { ...state, closed, settled } : state
+}
+
 export function waitingIn(work, state, chat) {
   const pending = approvalsOf(work, chat)
   return pending.length > 0 || closedApprovals(state, chat, pending).length > 0

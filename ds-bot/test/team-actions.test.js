@@ -50,6 +50,17 @@ test('openModels opens DS Bot settings on the Models page and closes the menus',
   assert.deepEqual(ui.getSnapshot().settings, { page: 'general', id: null })
 })
 
+// #966: the host drops an approval this window answered. That drop is not another
+// window's decision, so the id is known here as this window's own.
+test('an answer this window gives marks the approval settled here', async () => {
+  const approvals = createSource({ closed: {}, settled: {} })
+  const actions = teamActions({ call: async () => ({}), after: promise => promise, partFor: id => id, roster: createSource({}), ui: createSource({}), approvals })
+  await actions.answerApproval('one', 'allow')
+  assert.deepEqual(approvals.getSnapshot().settled, { one: true })
+  await actions.answerApproval('one', 'allow')
+  assert.deepEqual(approvals.getSnapshot().settled, { one: true })
+})
+
 // #966: once the host has forgotten an approval, only this window can still say
 // why the answer did nothing. Its card keeps that answer, and the reason, until
 // the user dismisses it.

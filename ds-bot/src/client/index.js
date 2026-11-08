@@ -49,7 +49,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
-import { APPROVAL_CSS, ApprovalCell, ApprovalDock, approvalCellWanted, approvalCellKey } from './approval-queue.js'
+import { APPROVAL_CSS, APPROVAL_STALE, ApprovalCell, ApprovalDock, approvalCellWanted, approvalCellKey, closeVanishedApprovals } from './approval-queue.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
@@ -132,8 +132,9 @@ export function apply(ctx) {
   // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
   const work = createSource({ bots: {}, approvals: [] })
   let workKey = ''
-  // Per conversation, the answers that failed and their reason, until dismissed.
-  const approvals = createSource({ closed: {} })
+  // Per conversation, the answers that failed and their reason, until dismissed;
+  // and the approvals this window answered, so the host dropping them is no stale card.
+  const approvals = createSource({ closed: {}, settled: {} })
   // The version of the live fields this window last got; while it still names the
   // host's answer, the poll leaves those fields out.
   let liveKey
@@ -169,6 +170,7 @@ export function apply(ctx) {
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
   }
   const refreshed = new Set()
+  const closedCards = state => Object.values(state?.closed ?? {}).reduce((sum, cards) => sum + Object.keys(cards).length, 0)
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
@@ -185,7 +187,18 @@ export function apply(ctx) {
     }
     if (value.work !== undefined) {
       const nextWork = JSON.stringify(value.work)
-      if (nextWork !== workKey) { workKey = nextWork; work.set(value.work) }
+      if (nextWork !== workKey) {
+        workKey = nextWork
+        // Another window's decision arrives as a shorter list, before this window
+        // can answer and be told why: keep the card with the reason (#966).
+        const before = approvals.getSnapshot()
+        const after = closeVanishedApprovals(before, work.getSnapshot(), value.work)
+        if (after !== before) {
+          approvals.set(after)
+          if (closedCards(after) > closedCards(before)) ui.set(state => ({ ...state, toast: { text: APPROVAL_STALE, token: Date.now() } }))
+        }
+        work.set(value.work)
+      }
     }
     if (value.computerLive !== undefined) {
       const nextComputer = JSON.stringify(value.computerLive)

@@ -22,7 +22,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { ApprovalQueue, approvalsOf, closedApprovals, waitingIn, approvalCellKey, approvalCellWanted } = module.exports
+const { ApprovalQueue, approvalsOf, closedApprovals, waitingIn, approvalCellKey, approvalCellWanted, vanishedApprovals, closeVanishedApprovals, APPROVAL_STALE } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const roster = {
@@ -119,6 +119,50 @@ test('an answer the host no longer knows shows its reason on the card, until dis
   assert.equal(all(staleCard, 'bt-aq-actions').length, 0)
   all(staleCard, 'bt-aq-btn')[0].props.onClick()
   assert.deepEqual(dismissed, ['gone'])
+})
+
+// #966: another window's decision reaches this one only as a shorter work list. The
+// card must stay, stale, instead of vanishing with the approval it asked about.
+test('an approval another window decided stays as a stale card, not gone', () => {
+  const gone = approval('gone', { at: 1 })
+  const prev = { approvals: [gone] }
+  const next = { approvals: [] }
+  assert.deepEqual(plain(vanishedApprovals(prev, next).map(entry => entry.id)), ['gone'])
+  assert.deepEqual(plain(vanishedApprovals(next, prev)), [])
+  const state = closeVanishedApprovals({ closed: {}, settled: {} }, prev, next, { at: 9 })
+  assert.equal(state.closed.a.gone.approval, gone)
+  assert.equal(state.closed.a.gone.message, APPROVAL_STALE)
+  assert.equal(state.closed.a.gone.at, 9)
+  // The composer's place stays held until the card is dismissed.
+  assert.equal(waitingIn(next, state, 'a'), true)
+  assert.equal(approvalCellWanted(roster, next, state, 'a'), true)
+  const node = render('a', next, state, { dismissApproval: () => {} })
+  assert.deepEqual(all(node, 'bt-aq-error').map(entry => entry.children.join('')), ['This approval is no longer open'])
+  assert.deepEqual(all(node, 'bt-aq-btn').map(entry => entry.children.join('')), ['Dismiss'])
+})
+
+test('an approval this window answered just goes when the host drops it', () => {
+  const answered = approval('answered', { at: 1 })
+  const state = closeVanishedApprovals({ closed: {}, settled: { answered: true } }, { approvals: [answered] }, { approvals: [] }, { at: 9 })
+  assert.deepEqual(plain(state.closed), {})
+  assert.deepEqual(plain(state.settled), {})
+  assert.equal(waitingIn({ approvals: [] }, state, 'a'), false)
+})
+
+test('a vanished approval already closed keeps its first reason, and a settled one beside it does not block the rest', () => {
+  const gone = approval('gone', { at: 1 })
+  const mine = approval('mine', { at: 2 })
+  const early = { approval: gone, message: 'first reason', at: 3 }
+  const state = closeVanishedApprovals(
+    { closed: { a: { gone: early } }, settled: { mine: true } },
+    { approvals: [gone, mine] },
+    { approvals: [] },
+  )
+  assert.equal(state.closed.a.gone, early)
+  assert.deepEqual(plain(state.settled), {})
+  // A list with nothing missing leaves the sources as they were.
+  const quiet = { closed: {}, settled: {} }
+  assert.equal(closeVanishedApprovals(quiet, { approvals: [gone] }, { approvals: [gone] }), quiet)
 })
 
 test('a group\'s approvals show above its composer, a Bot\'s own chat keeps them for the composer cell', () => {

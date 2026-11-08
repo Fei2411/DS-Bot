@@ -121,7 +121,12 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     answerView: (sessionId, viewId, action, values) => after(call('view-reply', { sessionId: partFor(sessionId), viewId, action, values })),
     dismissView: sessionId => after(call('dismiss-view', { sessionId: partFor(sessionId) })),
     deleteBtw: (sessionId, cardId) => after(call('btw-delete', { sessionId, cardId })),
-    answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
+    // A decision this window made: the host drops the approval from its list, and
+    // that drop must not read as another window's decision (#966).
+    answerApproval: (id, choice) => {
+      approvals?.set(state => (state.settled?.[id] === true ? state : { ...state, settled: { ...state.settled, [id]: true } }))
+      return after(call('approval-answer', { id, choice }))
+    },
     // An answer that lost the race (the request was decided here or on another
     // machine already) keeps its card with the reason: the host's list no longer
     // holds the approval, so this window is the only place that still knows.
