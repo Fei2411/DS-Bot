@@ -1071,6 +1071,19 @@ test('a private Bot\'s own write renews only its Sessions', async (t) => {
   assert.match(section('p1'), /- Ships on Fridays \[/)
 })
 
+test('a Main Bot changing another Bot\'s memory renews only that Bot\'s Sessions', async (t) => {
+  const { tool, section, stop } = start()
+  t.after(() => stop())
+  await tool('recall', {}, 'b2')
+  section('b2')
+  const coder = section('b3')
+  const main = section('m1')
+  await tool('remember', { text: 'Likes tea', scope: 'Writer' }, 'm1')
+  assert.match(section('b2'), /- Likes tea \[/)
+  assert.equal(section('b3'), coder)
+  assert.equal(section('m1'), main)
+})
+
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
   const { home, tool, section, stop } = start()
   t.after(() => stop())
