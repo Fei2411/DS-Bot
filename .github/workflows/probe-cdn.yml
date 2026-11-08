@@ -1,0 +1,41 @@
+# Temporary diagnostic: can a runner reach the pinned runtime release asset at all?
+# Answers three questions: where the redirect goes, whether a 1 KB range is answered,
+# and where on the size ladder the answer turns into 504. Not part of any product change.
+name: Probe runtime CDN
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Redirect chain, not followed
+        shell: bash
+        run: |
+          url='https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-apple-darwin-install_only_stripped.tar.gz'
+          echo "== response headers for a 1 KB range"
+          curl -sS -o /dev/null -D - --max-time 60 -r 0-1023 "$url" | sed -n '1,30p'
+      - name: Size ladder, following redirects
+        shell: bash
+        run: |
+          url='https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-apple-darwin-install_only_stripped.tar.gz'
+          for range in 0-1023 0-1048575 0-8388607; do
+            printf '== range %s: ' "$range"
+            curl -sS -o /dev/null -w 'code=%{http_code} bytes=%{size_download} redirects=%{num_redirects} effective=%{url_effective}\n' --max-time 120 -r "$range" -L "$url" || echo "curl exit $?"
+          done
+      - name: HEAD of the whole asset
+        shell: bash
+        run: |
+          url='https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-apple-darwin-install_only_stripped.tar.gz'
+          printf '== HEAD: '
+          curl -sS -o /dev/null -w 'code=%{http_code} redirects=%{num_redirects} effective=%{url_effective}\n' --max-time 60 -I -L "$url" || echo "curl exit $?"
