@@ -5,6 +5,9 @@
 //   contains "ask-permission" -> session/request_permission to the client
 //   contains "hang"         -> never ends until session/cancel
 //   otherwise               -> a thought chunk, an activity line, "ok"
+// `--exit-after-turn` makes it exit once a prompt is answered, so a test can
+// watch the client reopen the agent.
+const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const sessions = new Map()
 let nextId = 0
 const requests = new Map()
@@ -116,11 +119,15 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/set_config_option':
+        if (params.configId === 'model' && !['fake-large', 'fake-small'].includes(params.value)) fail(id, `unknown model ${params.value}`)
+        else reply(id, {})
+        break
       case 'session/set_mode':
         reply(id, {})
         break
       case 'session/prompt':
         void runPrompt(sessions.get(params.sessionId) ?? { id: params.sessionId }, params.prompt, id)
+          .then(() => { if (exitAfterTurn) setTimeout(() => process.exit(0), 50) })
         break
       case 'session/cancel':
         update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'cancelled' } })

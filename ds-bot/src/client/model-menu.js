@@ -6,6 +6,7 @@ import { BotMark } from './mark.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
+import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
 
 const MENU_EXIT_MS = 120
 
@@ -32,6 +33,7 @@ export function groupModels(models) {
 }
 
 const servedOf = (roster, ref) => (roster.models ?? []).find(model => model.ref === ref)
+const nameOf = model => (model.id === 'default' && isLocalRoute(model.ref) ? t('CLI default') : model.name)
 
 // What a Bot runs on, for display: the chosen model, else the one it last ran on.
 export function modelOf(bot, roster) {
@@ -39,7 +41,7 @@ export function modelOf(bot, roster) {
   if (!ref) return undefined
   const served = servedOf(roster, ref)
   const [provider, ...rest] = ref.split('/')
-  return { ref, name: served?.name ?? rest.join('/'), provider: served?.providerName ?? provider, served: served !== undefined }
+  return { ref, name: served === undefined ? rest.join('/') : nameOf(served), provider: served?.providerName ?? provider, served: served !== undefined }
 }
 
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
@@ -237,7 +239,7 @@ export function ModelGroupList({ groups, current, currentId, defaultModel, onPic
         key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
         onClick: () => onPick(model.ref),
       },
-      h('span', { className: 'bt-menu-label' }, model.name),
+      h('span', { className: 'bt-menu-label' }, nameOf(model)),
       model.ref === defaultModel ? h('span', { className: 'bt-menu-hint' }, t('Default')) : null,
       h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null))) : null)
   })
@@ -307,14 +309,28 @@ export function useAnchoredMenu() {
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
 
+// A local agent's list comes from its CLI, which only its own menu asks: the menu opens
+// at once and fills in when the CLI has answered.
+export function useAgentModels(actions) {
+  const [reading, setReading] = useState(false)
+  const read = (route) => {
+    if (actions?.agentModels === undefined) return
+    setReading(true)
+    void Promise.resolve(actions.agentModels(route)).finally(() => setReading(false))
+  }
+  return [reading, read]
+}
+
 // The trigger shows the model name over its provider. A Thinking section lists the
 // levels of the shown model when it has them.
 // `onPick`/`onPickEffort` replace saving to the Bot, for a Bot that does not exist yet.
 // `withEfforts: false` keeps the Thinking section out, for a pick that has no level of its own.
 export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
+  const [reading, readModels] = useAgentModels(actions)
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
+  const local = isLocalRoute(current)
   const served = servedOf(roster, current)
   const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
@@ -329,7 +345,8 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
   const toggle = () => {
     if (isOpen) { close(); return }
     // DSH settings can change the list at any time, so opening asks again.
-    void actions?.refreshModels?.()
+    if (local) readModels(routeOf(current))
+    else void actions?.refreshModels?.()
     setOpening(count => count + 1)
     open()
   }
@@ -342,8 +359,8 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     if (onPickEffort) onPickEffort(effort)
     else if (effort !== bot.effort) void run(actions.updateBot(bot.id, { effort: effort ?? null }))
   }
-  const models = roster.models ?? []
-  const manage = manageModels(actions)
+  const models = modelsFor(roster.models, current)
+  const manage = local ? undefined : manageModels(actions)
   const hasEfforts = withEfforts && effortStops(reasoning).length > 0
   return h(Fragment, null,
     h('button', {
@@ -359,8 +376,9 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
       h('div', { className: 'bt-model-scroll' },
-        models.length > 0 ? h(ModelRows, { roster, current, onPick: pick, opening })
-          : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.'))),
+        models.length > 0 ? h(ModelRows, { roster: { ...roster, models }, current, onPick: pick, opening })
+          : local ? null : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
+        reading ? h('div', { className: 'bt-model-none' }, t('Reading models…')) : null),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning, current: picked, onPick: pickEffort }) : null,
         hasEfforts && manage ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
@@ -377,7 +395,9 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
   const shown = Boolean(bot) && currentPart(bot) === sessionId && roster.ready
   useEffect(() => { if (shown) void actions.refreshModels?.() }, [shown, sessionId])
   if (!bot || currentPart(bot) !== sessionId || !roster.ready) return null
-  const models = roster.models ?? []
+  // A local agent that is gone gets the repair card; picking a model here would change what it runs on.
+  if (isLocalRoute(bot.model)) return null
+  const models = modelsFor(roster.models)
   // A model whose provider has no API key fails every turn, so it is no choice.
   const usable = models.filter(model => !model.needsKey)
   const lost = bot.model ? !models.some(model => model.ref === bot.model) : false

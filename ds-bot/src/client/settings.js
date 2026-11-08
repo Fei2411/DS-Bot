@@ -24,6 +24,7 @@ import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
+import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -113,7 +114,7 @@ function GeneralPage({ roster, actions, run }) {
     h(SetSection, { key: 'new', title: t('New Bots') },
       h(SetRow, { label: t('Default model'), className: 'bt-set-model' },
         h(ModelMenu, {
-          bot: { id: 'new-bots', name: t('New Bots'), model: prefs.defaultBotModel },
+          bot: { id: 'new-bots', name: t('New Bots'), model: isLocalRoute(prefs.defaultBotModel) ? undefined : prefs.defaultBotModel },
           roster, actions, run, wide: true, withEfforts: false,
           onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })),
         }),

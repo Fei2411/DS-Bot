@@ -35,7 +35,7 @@ const INACTIVE = 'cannot get required service "sessions" in inactive context'
 
 // `fail.create`/`fail.resolve`/`fail.flush`: true fails with the inactive-context
 // error; an Error value fails with it, so an ordinary error is testable too.
-async function start({ fail = {}, services = {}, home: reuse } = {}) {
+async function start({ fail = {}, services = {}, home: reuse, state: seed = TEAM } = {}) {
   const root = reuse === undefined
     ? realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-switch-')))
     : join(reuse, '..', '..')
@@ -43,7 +43,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
-  if (reuse === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  if (reuse === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
 
   // The real inbox is durable; the fake keeps it in a file so a "restart" sees it.
   const inboxPath = join(home, 'fake-inbox.json')
@@ -158,13 +158,21 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
   const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(-1)(
     { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000) }, async () => 'next')
+  // A Session event as DSH emits it, on the Session the test's Agent holds.
+  let seq = 0
+  const emit = (sessionId, type, data) => {
+    const session = agentOf(sessionId).session
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener(session, { type, seq: ++seq, data })
+    }
+  }
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const stop = async ({ keep = false } = {}) => {
     await ctx.dispose()
     if (!keep) rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
   await tool('list_bots', {}, 'a')
-  return { ctx, rt, root, home, team, project, created, resolved, archived, agentOf, call, tool, preStep, state, warnings, infos, fail, stop }
+  return { ctx, rt, root, home, team, project, created, resolved, archived, agentOf, call, tool, preStep, emit, state, warnings, infos, fail, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -397,4 +405,99 @@ test('a state write that fails as a switch ends is warned about, not left unhand
   await until(() => host.warnings.some(line => line.includes('did not finish') && line.includes('disk full')))
   await settle()
   assert.deepEqual(unhandled, [])
+})
+
+// A turn cut off at the output limit with nothing written, twice in a row, is the
+// shape a route whose real window is smaller than configured leaves behind. The part
+// moves on the way an overflow moves it, without a note at the same size (#1104).
+const cutOffServices = { ...services, tokenMeter: { measure: () => ({ totalTokens: 129_000 }) } }
+const GROUP_TEAM = {
+  ...TEAM,
+  rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' }, log: [], seq: 0, seen: {} } },
+}
+const cutOff = (host, sessionId, turn) => {
+  host.emit(sessionId, 'turn/start', { turn })
+  host.emit(sessionId, 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+}
+const finished = (host, sessionId, turn) => {
+  host.emit(sessionId, 'turn/start', { turn })
+  host.emit(sessionId, 'turn/end', { turn, reason: { kind: 'completed' } })
+}
+
+test('a Bot cut off at the output limit with nothing written moves on to a fresh part', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    cutOff(host, 'b', turn)
+    idle()
+    await settle()
+  }
+  await until(() => host.state().bots.b.sessionId === 's1')
+
+  // The diagnostics name the route and the input size, so a wrong window is findable.
+  const entries = (await host.rt.diagnostics.entries()).filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(entries.length, 2)
+  assert.match(entries[0].text, /^the turn was cut off at the output limit before it wrote anything \(gateway\/step-5, 129000 tokens in\)$/)
+  assert.deepEqual([entries[0].level, entries[0].bot, entries[0].where], ['warn', 'Writer', 'own chat'])
+
+  // The old part is archived and the fresh one opens with the deterministic handoff:
+  // no model call, and the cut-off turn is not replayed.
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  const handoff = text(host.agentOf('s1').calls.find(([kind]) => kind === 'followup')[1])
+  assert.match(handoff, /^\[Handoff · part 2\]/)
+  assert.match(handoff, /kept being cut off at the output limit/)
+  assert.match(handoff, /Nothing needs an answer now/)
+  assert.equal(host.state().bots.b.segments[0].fallback, 'cutoff')
+})
+
+test('a turn that finished in between resets the count, so one cut-off does not move the part', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  cutOff(host, 'b', 1)
+  idle()
+  await settle()
+  finished(host, 'b', 2)
+  idle()
+  await settle()
+  cutOff(host, 'b', 3)
+  idle()
+  await settle()
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
+})
+
+test('a cut-off turn that wrote text does not move the part', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    host.emit('b', 'turn/start', { turn })
+    host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: `Half ${turn}` }] } })
+    host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+    idle()
+    await settle()
+  }
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
+})
+
+test('a group conversation cut off with nothing written moves on too', async (t) => {
+  const host = await start({ services: cutOffServices, state: GROUP_TEAM })
+  t.after(host.stop)
+  const agent = host.agentOf('gb')
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    cutOff(host, 'gb', turn)
+    idle()
+    await settle()
+  }
+  await until(() => host.state().rooms.r1.sessions.b === 's1')
+  assert.equal(host.state().rooms.r1.segments.b[0].fallback, 'cutoff')
+  assert.deepEqual(host.archived, [['gb', { stopActivity: true }]])
 })

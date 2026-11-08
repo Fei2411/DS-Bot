@@ -4,6 +4,9 @@
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { cleanEnv, spawnAgent } from './discover.js'
 
+// The name the loopback MCP server is registered under in each thread's config.
+const MCP_SERVER = 'dsbot'
+
 export class CodexEngine {
   constructor(route, engine, { findExecutable }) {
     this.route = route
@@ -16,7 +19,9 @@ export class CodexEngine {
 
   threadFor(dshSessionId) {
     let thread = this.threads.get(dshSessionId)
-    if (thread === undefined) {
+    // A thread whose process exited keeps its queue and, with it, the pump
+    // still waiting there: a resumed thread needs a fresh one.
+    if (thread === undefined || thread.dead) {
       const queue = new EventQueue()
       thread = { dshSessionId, threadId: undefined, dead: false, push: event => queue.push(event), next: () => queue.next() }
       this.threads.set(dshSessionId, thread)
@@ -38,6 +43,8 @@ export class CodexEngine {
     wireProcess(child, peer)
     child.on('exit', () => {
       peer.close(new Error(`${this.engine.name} exited`))
+      // A process close() let go of must not take the one that replaced it along.
+      if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
@@ -96,6 +103,13 @@ export class CodexEngine {
         })
       })
     }
+    // Codex asks before every MCP tool call under `on-request`. A refusal reads as
+    // "user rejected MCP tool call", so DS Bot's own loopback server is approved
+    // here: toolsFor() already narrowed what the Bot may call. Other servers and
+    // real form elicitations keep the refusal; they are not DS Bot's to approve.
+    if (method === 'mcpServer/elicitation/request' && params?.serverName === MCP_SERVER && params?._meta?.codex_approval_kind === 'mcp_tool_call') {
+      return Promise.resolve({ action: 'accept', content: null, _meta: null })
+    }
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
@@ -108,7 +122,7 @@ export class CodexEngine {
       ...(instructions ? { developer_instructions: instructions } : {}),
       ...(mode ? { sandbox_mode: mode, approval_policy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mcp !== undefined ? { mcp_servers: { dsbot: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } : {}),
+      ...(mcp !== undefined ? { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } : {}),
     }
     if (thread.threadId !== undefined) {
       try {
@@ -129,11 +143,13 @@ export class CodexEngine {
     await this.peer?.request('thread/inject_items', { threadId: thread.threadId, items: [{ type: 'developerMessage', text }] }, { timeout: 15_000 }).catch(() => {})
   }
 
-  async prompt(thread, blocks, { signal }) {
+  async prompt(thread, blocks, { signal, effort }) {
     const peer = await this.ensure()
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
       input: blocks.map(block => block.type === 'image' ? { type: 'image', url: block.url ?? block.data } : { type: 'text', text: block.text ?? '' }),
+      // The app-server takes the level per turn and keeps it for the next ones.
+      ...(effort === undefined ? {} : { effort }),
     }, { signal, timeout: 0 })
     thread.turnId = reply?.turn?.id ?? reply?.id
     return thread.turnId
@@ -147,10 +163,32 @@ export class CodexEngine {
     this.peer?.request('turn/interrupt', { threadId: thread.threadId, turnId: thread.turnId }, { timeout: 15_000 }).catch(() => {})
   }
 
+  // The adapter stopped reading this thread: a later open starts a new queue, or
+  // the pump that waits on this one would swallow its first event.
+  forget(dshSessionId) {
+    this.threads.delete(dshSessionId)
+  }
+
   async listModels() {
     const peer = await this.ensure()
     const reply = await peer.request('model/list', {}, { timeout: 30_000 })
-    return (reply?.data ?? reply?.models ?? []).map(entry => ({ id: String(entry.id ?? entry.model), name: String(entry.displayName ?? entry.name ?? entry.id ?? entry.model) }))
+    return (reply?.data ?? reply?.models ?? []).map((entry) => {
+      const model = {
+        id: String(entry.id ?? entry.model),
+        name: String(entry.displayName ?? entry.name ?? entry.id ?? entry.model),
+      }
+      // The app-server advertises the levels each model takes. Its default is
+      // left out on purpose: DSH would send it on every turn, and the level the
+      // user set in their Codex config (model_reasoning_effort) would stop
+      // applying. A Bot without a level of its own keeps the CLI's.
+      const efforts = (entry.supportedReasoningEfforts ?? []).map(option => ({
+        id: String(option.reasoningEffort ?? option),
+        name: String(option.reasoningEffort ?? option),
+        ...(option.description ? { description: String(option.description) } : {}),
+      }))
+      if (efforts.length === 0) return model
+      return { ...model, reasoning: { efforts } }
+    })
   }
 
   async close() {
