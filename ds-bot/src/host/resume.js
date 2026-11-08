@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
-import { answerSender, failureLine, turnFailure } from './turns.js'
+import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
@@ -374,14 +374,36 @@ export function install(rt) {
       answerSender(rt, sessionId, asker, `${name} was stopped before it could answer your message.`)
       return
     }
+    // A turn cut off at the output limit is not a finish: the answer says so, and the
+    // diagnostics record it, with the route the Session's log holds for it.
+    const cutOff = reason?.kind === 'max-tokens'
+    const withoutText = cutOff && turn.texts.length === 0
+    if (cutOff) {
+      rt.noteCutOffTurn?.(sessionId, { withoutText })
+      const context = events.findLast(event => event?.type === 'request/context')?.data
+      const ref = context?.provider && context?.model ? `${context.provider}/${context.model}` : undefined
+      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
+      rt.noteFailure?.({
+        level: 'warn',
+        source: 'turn',
+        code: 'MAX_TOKENS',
+        text: `${withoutText
+          ? 'the turn was cut off at the output limit before it wrote anything'
+          : 'the turn was cut off at the output limit, so its answer is not complete'}${ref ? ` (${ref})` : ''}`,
+        bot: name,
+        where: room === undefined ? 'own chat' : `group "${room.name}"`,
+        sessionId,
+      })
+    }
+    const answer = cutOff ? cutOffText(said) : said
     // The turn ended with what it said: the answer goes up the way a finished turn's
     // does, with the results that came back for it and the text it held. A work that
     // still waits for what it handed on keeps its part until that comes back.
     if (rt.waitsWork(workId)) {
-      rt.holdWork(workId, said)
+      rt.holdWork(workId, answer)
       return
     }
-    const text = rt.answerText(workId, said, name)
+    const text = rt.answerText(workId, answer, name)
     const long = text.length > MESSAGE_INLINE_MAX ? await rt.attachLong(text, `Answer from ${name}.txt`) : undefined
     answerSender(rt, sessionId, asker, text, long)
   }
