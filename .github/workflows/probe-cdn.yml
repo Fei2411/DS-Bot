@@ -4,6 +4,8 @@
 name: Probe runtime CDN
 
 on:
+  push:
+    branches: [chore/runtime-cdn-probe]
   workflow_dispatch:
 
 permissions:
