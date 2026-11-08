@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,7 @@ import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
 import { validateCustom, isLocalAgentRoute, cliMode } from '../src/host/local-agents/engines.js'
 import { install as partsInstall } from '../src/host/parts.js'
+import { install as modelsInstall } from '../src/host/models.js'
 import { fakeContext } from './fake-ctx.js'
 
 const FIXTURE = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
@@ -174,7 +175,25 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.equal(env.PATH, process.env.PATH)
+  assert.ok(env.PATH.startsWith(process.env.PATH))
+})
+
+// A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
+// Homebrew must also find its `#!/usr/bin/env node` there.
+test('agent env PATH includes the folders CLIs are found in', { skip: process.platform === 'win32' }, () => {
+  const saved = { HOME: process.env.HOME, PATH: process.env.PATH }
+  const home = mkdtempSync(join(tmpdir(), 'dsbot-home-'))
+  mkdirSync(join(home, '.local', 'bin'), { recursive: true })
+  process.env.HOME = home
+  process.env.PATH = '/usr/bin:/bin'
+  try {
+    const dirs = cleanEnv().PATH.split(':')
+    assert.deepEqual(dirs.slice(0, 2), ['/usr/bin', '/bin'])
+    assert.ok(dirs.includes(join(home, '.local', 'bin')))
+    assert.equal(cleanEnv({ PATH: '/only' }).PATH, '/only')
+  } finally {
+    Object.assign(process.env, saved)
+  }
 })
 
 test('custom agent validation', () => {
@@ -209,6 +228,59 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
+})
+
+// The level goes on the request that starts the turn, so a Bot's choice travels
+// with every turn and a Bot without one keeps the CLI's own default.
+test('codex: the chosen thinking level reaches the turn', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const chosen = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'codex-cli', reasoningEffort: 'high' })))
+  assert.match(chosen.text, /effort=high/)
+  const none = await collect(adapter.stream(options('s2', [user('m1', 'fix it')], { provider: 'codex-cli' })))
+  assert.match(none.text, /effort=none/)
+})
+
+// What the model catalog shows for a codex ref is what model/list advertises.
+test('the catalog carries the thinking levels a codex model serves', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  // The menu lists a CLI's models once it has been asked for them.
+  await adapter.probeModels('codex-cli')
+  const rt = {
+    ctx: {
+      llm: {
+        listProviders: () => [{ id: 'codex-cli' }],
+        listModels: async () => adapter.listModels('codex-cli'),
+        resolveModelInfo: (provider, model) => adapter.resolveModel(provider, model),
+      },
+    },
+    state: { bots: { b1: { model: 'codex-cli/gpt-5.1-codex' } } },
+  }
+  modelsInstall(rt)
+  const entry = (await rt.catalog()).find(candidate => candidate.ref === 'codex-cli/gpt-5.1-codex')
+  assert.deepEqual(entry.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  // The CLI's own default is not advertised: a Bot without a level keeps the
+  // one the user set in their Codex config.
+  assert.equal(entry.reasoning.defaultEffort, undefined)
+})
+
+// An engine that advertises no level keeps today's behaviour: none, no error.
+test('an engine without levels reports none', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  assert.equal((await adapter.resolveModel('claude-code', 'default')).reasoning, undefined)
+  assert.equal((await adapter.resolveModel('acp-fake', 'default')).reasoning, undefined)
+})
+
+// Codex 0.153+ asks before every MCP tool call under on-request (#1089).
+test('codex app-server: approves tool calls on DS Bot\'s own MCP server, refuses others', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const answer = async (sessionId, text) => JSON.parse((await collect(adapter.stream(options(sessionId, [user('m1', text)], { provider: 'codex-cli' })))).text)
+  assert.deepEqual(await answer('s1', 'elicit dsbot mcp_tool_call'), { action: 'accept', content: null, _meta: null })
+  assert.deepEqual(await answer('s2', 'elicit github mcp_tool_call'), { error: -32601 })
+  assert.deepEqual(await answer('s3', 'elicit dsbot form'), { error: -32601 })
 })
 
 test('claude stream-json: thinking, activity line, usage', async (t) => {
