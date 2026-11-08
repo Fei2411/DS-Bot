@@ -8,6 +8,7 @@ import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants
 import { replaceFile } from './files.js'
 import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
+import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
 
 // A table read that sees only the keys the table holds itself. Ids that come from
 // outside (a request body, a tool argument, a name a model gives) go through this, so
@@ -146,6 +147,7 @@ export function install(rt) {
         migrated = true
       }
     }
+    if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
     if (!Array.isArray(state.mainBotIds)) state.mainBotIds = []
     if ('mainBotId' in state) {
@@ -556,4 +558,48 @@ export function install(rt) {
     chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
+}
+
+// LEGACY: local-agent routes moved under the `local-` prefix (see engines.js).
+// The CLI records and each Bot's model follow. The applied model is dropped, so
+// the Bot's Sessions are selected again on the new route. An old `opencode/...`
+// ref is also DSH's own OpenCode provider: it moves only for a Bot that ran on
+// the local CLI (a CLI record for one of its Sessions) or on its "CLI default".
+// Returns whether anything changed.
+export function migrateLocalRoutes(state) {
+  let changed = false
+  const ranOn = new Map() // old route -> Session ids the CLI served
+  for (const [sessionId, record] of Object.entries(state.localAgents?.sessions ?? {})) {
+    const next = legacyRoute(record?.route)
+    if (next === undefined) continue
+    if (!ranOn.has(record.route)) ranOn.set(record.route, new Set())
+    ranOn.get(record.route).add(sessionId)
+    record.route = next
+    changed = true
+  }
+  const split = (ref) => {
+    const at = typeof ref === 'string' ? ref.indexOf('/') : -1
+    return at <= 0 ? undefined : { provider: ref.slice(0, at), model: ref.slice(at + 1) }
+  }
+  const sessionsOf = (bot) => {
+    const ids = [bot.id, bot.sessionId, ...(bot.segments ?? []).map(segment => segment?.sessionId)]
+    for (const room of Object.values(state.rooms ?? {})) {
+      ids.push(room?.sessions?.[bot.id], ...(room?.segments?.[bot.id] ?? []).map(segment => segment?.sessionId))
+    }
+    return ids.filter(Boolean)
+  }
+  for (const bot of Object.values(state.bots ?? {})) {
+    for (const key of ['model', 'appliedModel']) {
+      const ref = split(bot[key])
+      const next = legacyRoute(ref?.provider)
+      if (next === undefined) continue
+      const local = !AMBIGUOUS_OLD_ROUTES.has(ref.provider) || ref.model === 'default'
+        || sessionsOf(bot).some(id => ranOn.get(ref.provider)?.has(id))
+      if (!local) continue
+      if (key === 'model' || bot.model === undefined) bot.model = `${next}/${ref.model}`
+      delete bot.appliedModel
+      changed = true
+    }
+  }
+  return changed
 }
