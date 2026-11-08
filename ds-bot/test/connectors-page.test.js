@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { AddMenu, MailCatalogRow, MailToolCell } from './src/client/connectors.js'",
+    contents: "export { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -64,7 +64,7 @@ runInNewContext(outputFiles[0].text, {
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { AddMenu, MailCatalogRow, MailToolCell } = module.exports
+const { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } = module.exports
 const render = () => { active = () => expand(entry(props)); rerender() }
 // Which component the current test draws; the mail tests below are the default.
 let entry = MailCatalogRow
@@ -304,4 +304,42 @@ test('the add form offers OAuth only for an address and sends the flag', async (
   assert.equal(collect(n => n.props?.['aria-label'] === 'Sign in').length, 0, 'no OAuth switch for command')
   click('Address')
   assert.equal(findToggle().props['aria-checked'], false)
+
+  // Turning it on and then switching kinds must not carry the choice back: an address
+  // submitted after that would otherwise silently ask for OAuth.
+  slots.length = 0
+  render()
+  click('Add')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  findToggle().props.onClick()
+  assert.equal(findToggle().props['aria-checked'], true)
+  click('Command')
+  click('Address')
+  assert.equal(findToggle().props['aria-checked'], false, 'switching kinds clears the OAuth choice')
+  adds.length = 0
+  fill('Server address', 'https://after-switch.example.com/mcp')
+  fill('Name', 'After switch')
+  findAdd().props.onClick()
+  await flush()
+  assert.deepEqual(pick(adds[0]), { name: 'After switch', url: 'https://after-switch.example.com/mcp' })
+})
+
+// An added OAuth server that has not signed in yet keeps a way to be removed.
+test('an unconnected added server still offers Remove', async () => {
+  const removed = []
+  const actions = { connectorDisconnect: (id) => { removed.push(id); return Promise.resolve({ connectors: [] }) } }
+  entry = ConnectorRow
+  const renderRow = (connector) => { props = { connector, actions }; slots.length = 0; render() }
+  const base = { id: 'box', name: 'Simular Box', category: 'custom', about: 'https://mcp.box.simular.ai/mcp', auth: { kind: 'oauth' }, custom: true, offFor: [], tools: 0 }
+
+  renderRow({ ...base, state: 'off' })
+  const offRemove = collect(n => n.type === 'button' && flatten(n).join('') === 'Remove')[0]
+  assert.ok(offRemove, 'an added server that never signed in can be removed')
+  offRemove.props.onClick()
+  await flush()
+  assert.deepEqual(removed, ['box'])
+
+  // A catalog connector with no sign-in still says Disconnect, not Remove.
+  renderRow({ id: 'context7', name: 'Context7', category: 'docs', about: '', auth: { kind: 'none' }, offFor: [], tools: 0, state: 'off' })
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Remove').length, 0, 'catalog rows never say Remove')
 })

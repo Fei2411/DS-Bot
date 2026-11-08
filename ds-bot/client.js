@@ -12137,7 +12137,9 @@ function ConnectorRow({ connector, actions }) {
   else {
     actionsNode = [
       connector.auth?.kind === "oauth" && connector.auth.token === true && connector.auth.client?.id ? (0, import_react28.createElement)("button", { key: "token", type: "button", className: "bt-connector-link", disabled: busy, onClick: () => setForm("token") }, t("Use a token instead")) : null,
-      (0, import_react28.createElement)("button", { key: "connect", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, busy ? t("Connecting…") : t("Connect"))
+      (0, import_react28.createElement)("button", { key: "connect", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, busy ? t("Connecting…") : t("Connect")),
+      // An added server that has no sign-in token yet still needs a way to be removed.
+      connector.custom ? (0, import_react28.createElement)("button", { key: "remove", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.connectorDisconnect(connector.id)) }, t("Remove")) : null
     ];
   }
   return (0, import_react28.createElement)(
@@ -12411,6 +12413,7 @@ function AddMenu({ actions, run: run2 }) {
   };
   const choose = (next) => {
     setKind(next);
+    if (next !== "url") setOauth(false);
     if (next === "import" && found === null) void Promise.resolve(actions.connectorImportScan()).then((list) => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([]));
   };
   const key = (item) => `${item.source}:${item.name}`;
