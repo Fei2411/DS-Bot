@@ -15,6 +15,7 @@
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const cursorModes = process.argv.includes('--cursor-modes')
 const MODES = cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
+let refusedModes = 0
 const sessions = new Map()
 let nextId = 0
 const requests = new Map()
@@ -47,7 +48,7 @@ async function runPrompt(session, prompt, requestId) {
     reply(requestId, { stopReason: 'end_turn' })
   }
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
-  if (text.includes('show-mode')) { finish(`mode: ${session.mode}`); return }
+  if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
     // the permission request names it only by id.
@@ -61,7 +62,7 @@ async function runPrompt(session, prompt, requestId) {
       ],
     })
     const outcome = answer?.result?.outcome
-    finish(outcome?.outcome === 'selected' ? `allowed via ${outcome.optionId}` : 'denied')
+    finish(outcome?.outcome === 'selected' && !outcome.optionId.startsWith('reject') ? `allowed via ${outcome.optionId}` : 'denied')
     return
   }
   if (text.includes('team-permission') || text.includes('other-permission')) {
@@ -79,7 +80,7 @@ async function runPrompt(session, prompt, requestId) {
         { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
         { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
         { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
-      ],
+      ].filter(option => !text.includes('always-only') || option.kind !== 'allow_once'),
     })
     const outcome = answer?.result?.outcome
     if (outcome?.outcome !== 'selected' || outcome.optionId.startsWith('reject')) { finish('denied'); return }
@@ -144,7 +145,8 @@ process.stdin.on('data', (chunk) => {
       }
       case 'session/load': {
         let session = sessions.get(params.sessionId)
-        if (session === undefined) { session = { id: params.sessionId, mcp: undefined }; sessions.set(session.id, session) }
+        // Bare on purpose: some agents list no modes on load (cursor-agent does).
+        if (session === undefined) { session = { id: params.sessionId, mcp: undefined, mode: MODES[0] }; sessions.set(session.id, session) }
         const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')
         if (server !== undefined) session.mcp = { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
         reply(id, { sessionId: params.sessionId })
@@ -152,14 +154,14 @@ process.stdin.on('data', (chunk) => {
       }
       case 'session/set_config_option':
         if (params.configId === 'model' && !['fake-large', 'fake-small'].includes(params.value)) fail(id, `unknown model ${params.value}`)
-        else if (params.configId === 'mode' && !MODES.includes(params.value)) fail(id, 'Invalid params')
+        else if (params.configId === 'mode' && !MODES.includes(params.value)) { refusedModes++; fail(id, 'Invalid params') }
         else {
           if (params.configId === 'mode') sessions.get(params.sessionId).mode = params.value
           reply(id, {})
         }
         break
       case 'session/set_mode':
-        if (!MODES.includes(params.modeId)) fail(id, 'Internal error')
+        if (!MODES.includes(params.modeId)) { refusedModes++; fail(id, 'Internal error') }
         else { sessions.get(params.sessionId).mode = params.modeId; reply(id, {}) }
         break
       case 'session/prompt':

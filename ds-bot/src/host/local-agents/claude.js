@@ -3,6 +3,9 @@
 // events until a `result` ends the turn.
 import { cleanEnv, spawnAgent } from './discover.js'
 
+// Claude Code tools that only read; the rest may change files or run something.
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
+
 export class ClaudeEngine {
   constructor(route, engine, { findExecutable }) {
     this.route = route
@@ -181,12 +184,13 @@ class ClaudeSession {
           const tool = request.tool_name ?? 'tool'
           this.emit({
             type: 'permission', id: event.request_id,
-            reply: (allowed) => this.write({
+            reply: (optionId) => this.write({
               type: 'control_response',
-              response: { subtype: 'success', request_id: event.request_id, response: allowed === null ? { behavior: 'deny' } : { behavior: 'allow', updatedInput: request.input ?? {} } },
+              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny' } },
             }),
             action: `Run ${tool}`,
             detail: JSON.stringify(request.input ?? {}).slice(0, 4_000),
+            changes: !READ_TOOLS.has(tool),
             options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }, { optionId: 'deny', kind: 'reject_once', name: 'Deny' }],
           })
         }

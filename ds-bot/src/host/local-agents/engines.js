@@ -86,4 +86,6 @@ export const acpMode = (preset, advertised) => {
   const ids = (advertised ?? []).map(option => option.id ?? option.value ?? option)
   return ids.length === 0 ? wanted[0] : wanted.find(id => ids.includes(id))
 }
-export const cliMode = (kind, preset, advertised) => (kind === 'acp' ? acpMode(preset, advertised) : MODES[preset]?.[kind])
+// Codex and Claude take a fixed mode; an ACP engine maps the preset itself once
+// its session lists the modes (acpMode).
+export const cliMode = (kind, preset) => (kind === 'acp' ? undefined : MODES[preset]?.[kind])

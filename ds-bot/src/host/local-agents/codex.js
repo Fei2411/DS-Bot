@@ -98,6 +98,7 @@ export class CodexEngine {
         thread?.push({
           type: 'permission', id: `perm-${Math.random().toString(36).slice(2)}`, reply,
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
+          changes: true,
           detail: detailText(params),
           options,
         })

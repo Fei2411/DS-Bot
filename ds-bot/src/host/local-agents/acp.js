@@ -11,7 +11,7 @@ const MCP_SERVER = 'dsbot'
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
-// agent's own work) | {type:'permission',id,action,detail,options,reply} |
+// agent's own work) | {type:'permission',id,action,detail,options,changes,reply} |
 // {type:'done',reason} | {type:'error',error} | {type:'usage',usage}
 export class AcpEngine {
   constructor(route, engine, { findExecutable }) {
@@ -22,6 +22,8 @@ export class AcpEngine {
     this.peer = undefined
     this.sessions = new Map()
     this.caps = {}
+    // The modes and options this CLI listed last, for a reply that lists none.
+    this.listed = { modes: [], configOptions: [] }
   }
 
   async ensure() {
@@ -127,6 +129,7 @@ export class AcpEngine {
           action,
           detail: detailText(call, action),
           options,
+          changes: CHANGE_KINDS.has(call.kind),
         })
       })
     }
@@ -151,8 +154,11 @@ export class AcpEngine {
       reply = await peer.request('session/new', params, { timeout: 60_000 })
     }
     session.acpSessionId = reply?.sessionId ?? resumeId
-    session.configOptions = reply?.configOptions ?? []
-    session.modes = reply?.modes?.availableModes ?? configOptionsOf(session.configOptions, 'mode')?.options ?? []
+    // Some agents list nothing on session/load: the session reads what this CLI
+    // listed before rather than guessing a mode.
+    const listed = this.remember(reply)
+    session.configOptions = listed.configOptions
+    session.modes = listed.modes
     // The preset maps to a mode only once the agent has listed its own.
     const mode = acpMode(preset, session.modes)
     if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
@@ -208,10 +214,18 @@ export class AcpEngine {
     }
   }
 
+  remember(reply) {
+    const configOptions = reply?.configOptions
+    const modes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
+    if (configOptions !== undefined || modes !== undefined) this.listed = { configOptions: configOptions ?? [], modes: modes ?? [] }
+    return this.listed
+  }
+
   // Models the agent advertises on a probe session (configOptions 'model').
   async listModels({ cwd, mcp }) {
     const peer = await this.ensure()
     const probe = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp) }, { timeout: 60_000 })
+    this.remember(probe)
     const option = configOptionsOf(probe?.configOptions ?? [], 'model')
     return (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
   }
@@ -229,6 +243,8 @@ const mergeCall = (known, update) => ({
   ...Object.fromEntries(Object.entries(update).filter(([key, value]) => key !== 'sessionUpdate' && value !== undefined && value !== null)),
 })
 const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefined ? undefined : session.toolCalls.get(toolCall.toolCallId), toolCall ?? {})
+// ACP tool kinds that change files or run something.
+const CHANGE_KINDS = new Set(['edit', 'delete', 'move', 'execute'])
 const VERBS = { read: 'Read', edit: 'Edit', delete: 'Delete', move: 'Move', search: 'Search', execute: 'Run', think: 'Think', fetch: 'Fetch' }
 const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'object' ? call.rawInput : {})
 // One line a person can act on: what kind of action, on what.
