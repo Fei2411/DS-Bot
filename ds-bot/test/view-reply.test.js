@@ -38,7 +38,7 @@ async function start() {
   const sent = []
   let flushError
   Object.assign(ctx, {
-    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, unarchiveSession: async () => {} },
     sessionController: {
       create: async () => ({ sessionId: 's1' }),
       resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup(message) { sent.push({ sessionId, message }) } } }),
@@ -324,4 +324,28 @@ test('a question with no call row is not recorded as a dock view', async (t) => 
   assert.equal(open.questions['writer-now'], undefined)
   assert.deepEqual(open.closedViews, {})
   assert.deepEqual(open.closedCards, {})
+})
+
+
+test('a closed dock view follows a reopened part and never returns from the old part', async (t) => {
+  const { emit, show, call, team, stop } = await start()
+  t.after(stop)
+  await team()
+  await show('writer-now', { title: 'First', view: CHOICES }, null)
+  emit('writer-now', 'user/message', { content: text('never mind'), source: { kind: 'user' } })
+  const first = (await team()).closedViews['writer-now']
+  assert.equal((await call('bot-open-part', { botId: 'writer', sessionId: 'writer-old' })).ok, true)
+  let open = await team()
+  assert.deepEqual(open.closedViews, { 'writer-old': first })
+  await show('writer-old', { title: 'Second', view: CHOICES }, null)
+  await call('dismiss-view', { sessionId: 'writer-old' })
+  const second = (await team()).closedViews['writer-old']
+  assert.equal(second.closed, 'dismissed')
+  assert.equal((await call('bot-open-part', { botId: 'writer', sessionId: 'writer-now' })).ok, true)
+  open = await team()
+  assert.deepEqual(open.closedViews, { 'writer-now': second })
+  // A new view clears the closed record; opening the other part cannot revive it.
+  await show('writer-now', { title: 'Third', view: CHOICES }, null)
+  await call('bot-open-part', { botId: 'writer', sessionId: 'writer-old' })
+  assert.deepEqual((await team()).closedViews, {})
 })
