@@ -193,6 +193,10 @@ def make_content_regressions():
     p = doc.add_paragraph()
     p.add_run("M").bold = True
     p.add_run("ATCH\nTAIL").italic = True
+    p = doc.add_paragraph('Hello')
+    p.paragraph_format.tab_stops.add_tab_stop(Inches(1))
+    doc.add_paragraph('End\t')
+    doc.add_paragraph('End\n')
     doc.save(os.path.join(OUT, "content.docx"))
 
     wb = Workbook()
@@ -203,6 +207,8 @@ def make_content_regressions():
         ws.cell(row, 1, 1234.5).number_format = fmt
     ws['B1'] = __import__('datetime').datetime(2026, 11, 8)
     ws['B1'].number_format = '"Day "yyyy-mm-dd'
+    for row, value in [(8, 44000), (9, 46000)]:
+        ws.cell(row, 1, value).number_format = '[>=45000]0;yyyy-mm-dd'
     wb.save(os.path.join(OUT, "formats.xlsx"))
 
     prs = Presentation()

@@ -784,7 +784,7 @@ describe('Office content semantics', () => {
     const pkg = Package.open(fixture('content.docx'))
     docxEdit(pkg, [{ replace: { find: 'MATCH', with: 'DONE' } }, { replace: { find: 'LEFTRIGHT', with: 'wrong' } }])
     assert.deepEqual(docxRead(pkg).blocks.map(b => b.text), [
-      'Before\tDONE\nAfter', 'DONE\nDONE\tDONE', 'LEFT\tRIGHT', 'DONE\nTAIL',
+      'Before\tDONE\nAfter', 'DONE\nDONE\tDONE', 'LEFT\tRIGHT', 'DONE\nTAIL', 'Hello', 'End\t', 'End\n',
     ])
     const doc = pkg.xml('word/document.xml')
     const paras = elementsOf(doc.documentElement, 'w:p')
@@ -802,9 +802,11 @@ describe('Office content semantics', () => {
 
   test('quoted units, colors, currencies and spacing do not turn numbers into dates', () => {
     const { rows } = xlsxRead(Package.open(fixture('formats.xlsx')), 'Budget')
-    assert.equal(rows.length, 7)
-    assert.ok(rows.every(row => row.cells[`A${row.row}`].v === '1234.5'))
+    assert.equal(rows.length, 9)
+    assert.ok(rows.slice(0, 7).every(row => row.cells[`A${row.row}`].v === '1234.5'))
     assert.equal(rows[0].cells.B1.v, '2026-11-08')
+    assert.equal(rows[7].cells.A8.v, '2020-06-18')
+    assert.equal(rows[8].cells.A9.v, '46000')
   })
 
   test('tables and charts have boxes and take part in off-slide checks', () => {
@@ -818,4 +820,18 @@ describe('Office content semantics', () => {
     assert.deepEqual(findings.map(f => f.shape), shapes.map(s => s.name))
     assert.ok(findings.every(f => f.rule === 'off-slide'))
   })
+})
+
+
+test('Word tab stops stay formatting and terminal insertions keep controls', () => {
+  const pkg = Package.open(fixture('content.docx'))
+  docxEdit(pkg, [{ replace: { find: '^Hello', with: 'Hi', regex: true } }, { replace: { find: '$', with: '!', regex: true } }])
+  assert.deepEqual(docxRead(pkg).blocks.slice(-3).map(b => b.text), ['Hi!', 'End\t!', 'End\n!'])
+  const doc = pkg.xml('word/document.xml')
+  const tabs = elementsOf(doc.documentElement, 'w:tabs')[0]
+  assert.equal(childrenOf(tabs, 'w:tab').length, 1)
+  assert.equal(elementsOf(tabs, 'w:t').length, 0)
+  const again = Package.open(fixture('content.docx'))
+  docxEdit(again, [{ replace: { find: '\\n|$', with: '!', regex: true } }])
+  assert.equal(docxRead(again).blocks.at(-1).text, 'End!!')
 })

@@ -7348,7 +7348,7 @@ function blockText(el, changes = false) {
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
     if (tag in RUN_MARKS) {
-      out += RUN_MARKS[tag];
+      if (node.parentNode?.tagName === "w:r") out += RUN_MARKS[tag];
       return;
     }
     if (!changes) {
@@ -7690,7 +7690,7 @@ function replaceInDoc(doc, re, withText) {
     let joined = "";
     const spans = [];
     for (const node of elementsOf(p)) {
-      if (nearestPara(node) !== p || isDeleted(p, node)) continue;
+      if (node.parentNode?.tagName !== "w:r" || nearestPara(node) !== p || isDeleted(p, node)) continue;
       const value = node.tagName === "w:t" ? node.textContent : RUN_MARKS[node.tagName];
       if (value === void 0) continue;
       const start = joined.length;
@@ -7705,6 +7705,12 @@ function replaceInDoc(doc, re, withText) {
       run.appendChild(node);
       p.appendChild(run);
       spans.push({ node, start: 0, end: 0 });
+    }
+    if (spans.at(-1).node.tagName !== "w:t") {
+      const last = spans.at(-1).node;
+      const node = doc.createElement("w:t");
+      last.parentNode.insertBefore(node, last.nextSibling);
+      spans.push({ node, start: joined.length, end: joined.length });
     }
     for (const match of matches.reverse()) {
       const start = match.index, end = start + match[0].length;
@@ -8396,7 +8402,20 @@ function pptxClean(pkg, { dryRun = false } = {}) {
 
 // src/office/xlsx.js
 var DATE_FORMATS = /* @__PURE__ */ new Set([14, 15, 16, 17, 22, 45, 46, 47]);
-var dateLike = (code) => /[ymdhs]/i.test((code ?? "").replace(/"[^"]*"|\\.|_.|\*./g, "").split(";")[0].replace(/\[(?![hms]+\])[^\]]*\]/gi, ""));
+function dateLike(code, value) {
+  const sections = (code ?? "").replace(/"[^"]*"|\\.|_.|\*./g, "").split(";").slice(0, 3);
+  const condition = (part) => /\[(<=|>=|<>|=|<|>)(-?\d+(?:\.\d+)?)\]/.exec(part);
+  let section;
+  if (sections.some(condition)) {
+    section = sections.find((part) => {
+      const test = condition(part);
+      if (!test) return true;
+      const n = Number(test[2]);
+      return { "<": value < n, ">": value > n, "<=": value <= n, ">=": value >= n, "=": value === n, "<>": value !== n }[test[1]];
+    }) ?? "";
+  } else section = sections[value < 0 && sections.length > 1 ? 1 : value === 0 && sections.length > 2 ? 2 : 0];
+  return /[ymdhs]/i.test(section.replace(/\[(?![hms]+\])[^\]]*\]/gi, ""));
+}
 function numFmts(pkg) {
   const map = /* @__PURE__ */ new Map();
   if (!pkg.parts.has("xl/styles.xml")) return map;
@@ -8407,7 +8426,7 @@ function numFmts(pkg) {
   let i = 0;
   for (const xf of childrenOf(cellXfs)) {
     const id = Number(xf.getAttribute("numFmtId") ?? 0);
-    map.set(i++, DATE_FORMATS.has(id) || dateLike(custom.get(id)) ? "date" : void 0);
+    map.set(i++, DATE_FORMATS.has(id) ? "date" : custom.get(id));
   }
   return map;
 }
@@ -8437,7 +8456,7 @@ function cellValue(c, shared, fmt, epoch = 25569) {
   else if (t === "b") value = value === "1";
   else if (t === "str" || t === "inlineStr") value = t === "inlineStr" ? textOf(firstOf(c, "is") ?? c) : value;
   else if (t === "e") value = value;
-  else if (value !== void 0 && fmt.get(Number(c.getAttribute("s") ?? 0)) === "date" && !Number.isNaN(Number(value))) {
+  else if (value !== void 0 && (fmt.get(Number(c.getAttribute("s") ?? 0)) === "date" || dateLike(fmt.get(Number(c.getAttribute("s") ?? 0)), Number(value))) && !Number.isNaN(Number(value))) {
     const days = Number(value) - epoch;
     value = new Date(days * 864e5).toISOString().slice(0, value.includes(".") ? 19 : 10);
   }

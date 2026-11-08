@@ -16,7 +16,7 @@ function blockText(el, changes = false) {
     if (node.nodeType === 3 || node.nodeType === 4) { if (!inside.del) out += node.data; return }
     if (node.nodeType !== 1) return
     const tag = node.tagName
-    if (tag in RUN_MARKS) { out += RUN_MARKS[tag]; return }
+    if (tag in RUN_MARKS) { if (node.parentNode?.tagName === 'w:r') out += RUN_MARKS[tag]; return }
     if (!changes) {
       for (const child of [...node.childNodes]) {
         if (tag === 'w:del' || tag === 'w:moveFrom') continue
@@ -344,7 +344,7 @@ function replaceInDoc(doc, re, withText) {
     let joined = ''
     const spans = []
     for (const node of elementsOf(p)) {
-      if (nearestPara(node) !== p || isDeleted(p, node)) continue
+      if (node.parentNode?.tagName !== 'w:r' || nearestPara(node) !== p || isDeleted(p, node)) continue
       const value = node.tagName === 'w:t' ? node.textContent : RUN_MARKS[node.tagName]
       if (value === undefined) continue
       const start = joined.length
@@ -358,6 +358,13 @@ function replaceInDoc(doc, re, withText) {
       const node = doc.createElement('w:t')
       run.appendChild(node); p.appendChild(run)
       spans.push({ node, start: 0, end: 0 })
+    }
+    // An end insertion belongs after a final control, in the same styled run.
+    if (spans.at(-1).node.tagName !== 'w:t') {
+      const last = spans.at(-1).node
+      const node = doc.createElement('w:t')
+      last.parentNode.insertBefore(node, last.nextSibling)
+      spans.push({ node, start: joined.length, end: joined.length })
     }
     // Right to left keeps offsets before each edit valid, including multiple
     // matches in one text node and replacements spanning differently styled runs.
