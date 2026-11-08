@@ -363,6 +363,28 @@ test('masking: non-Bot agents and off Bots lose the tools and the sections', asy
   assert.ok(ctx.registeredTools.size > registeredBefore)
 })
 
+test('Windows Bots that can operate apps are told how input really lands', async (t) => {
+  const { ctx, home, rt } = setup()
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  t.after(async () => { Object.defineProperty(process, 'platform', platform); await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  const services = { loader: { import: async name => ({ name }) }, agents: { list: () => [] } }
+  ctx.get = name => services[name]
+  withProvider(ctx, services)
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('provider-retry', {})
+  const text = () => ctx.sections.get('computer-use:ds-bot').text({ agent: { id: 'w1' } })
+  assert.match(text(), /use set_value/)
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'view' })
+  assert.doesNotMatch(text(), /set_value/)
+})
+
+test('the helper is protected by its real bundle id', async () => {
+  const { isProtectedApp } = await import('../src/host/computer/index.js')
+  assert.equal(isProtectedApp({ id: 'com.deepseek.harness.computer-use' }), true)
+})
+
 test('the ds-bot section is empty for a non-Bot, off, or provider-not-ready agent', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
