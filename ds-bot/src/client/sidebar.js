@@ -931,76 +931,11 @@ export function YouAvatar() {
     h('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' } }, t('Settings')))
 }
 
-let openShellSettings = null
-let openShellOnboarding = null
 let shellShortcuts = null
 
 export function holdShellShortcuts(shortcuts) {
   shellShortcuts = shortcuts
   return () => { if (shellShortcuts === shortcuts) shellShortcuts = null }
-}
-
-// DeepSeek Harness hands its settings opener only to the settings.launcher seat. When
-// the Desktop's account menu holds that seat, its first item (Settings) is the way in;
-// the Desktop on Windows and macOS takes shortcuts natively, so a synthetic key press
-// reaches the shell only where the page delivers them (the Web, Linux).
-export function openHarnessSettings() {
-  // A frame first, so a Bot dialog that closes on this click leaves the modal stack.
-  requestAnimationFrame(() => {
-    if (openShellSettings) { openShellSettings(); return }
-    const desktop = document.querySelector('button[aria-haspopup="menu"][data-signed-out]')
-    if (desktop) openThroughMenu(desktop)
-    else pressSettingsShortcut()
-  })
-}
-
-// Opens one of the shell's own onboarding editors, such as the DeepSeek API key form.
-export function openHarnessOnboarding(id) {
-  requestAnimationFrame(() => {
-    if (openShellOnboarding) openShellOnboarding(id)
-    else openHarnessSettings()
-  })
-}
-
-// The launcher seat can only open DSH's settings on their first section. This onboarding
-// step of DS Bot's own, opened by id, hands the shell's openSection the Models page; the
-// first-run pass meets it last and it steps aside at once.
-export const MODELS_STEP = 'ds-bot-models'
-export const MODELS_STEP_ORDER = 1000
-
-export function OpenModelsStep({ explicit, complete, openSection }) {
-  useEffect(() => {
-    if (explicit) {
-      if (typeof openSection === 'function') openSection('models')
-      else openHarnessSettings()
-    }
-    complete()
-  }, [explicit])
-  return null
-}
-
-function openThroughMenu(trigger) {
-  const before = new Set(document.querySelectorAll('[role="menu"]'))
-  trigger.click()
-  let frames = 0
-  const look = () => {
-    const menu = [...document.querySelectorAll('[role="menu"]')].find(node => !before.has(node))
-    const item = menu?.querySelector('button[role="menuitem"]')
-    if (item) item.click()
-    else if (++frames < 30) requestAnimationFrame(look)
-    else pressSettingsShortcut()
-  }
-  requestAnimationFrame(look)
-}
-
-function pressSettingsShortcut() {
-  const binding = shellShortcuts?.catalog.getSnapshot().find(row => row.id === 'settings.open')?.binding
-  if (!binding) return
-  const held = new Set(binding.modifiers)
-  window.dispatchEvent(new KeyboardEvent('keydown', {
-    code: binding.code, key: binding.code === 'Comma' ? ',' : '', bubbles: true, cancelable: true,
-    ctrlKey: held.has('control'), altKey: held.has('alt'), shiftKey: held.has('shift'), metaKey: held.has('meta'),
-  }))
 }
 
 // Whether a key press is the shell's current binding for one of its shortcuts.
@@ -1020,7 +955,7 @@ const NO_SNAPSHOT = () => null
 // `seat` is the shell's settings.launcher seat: at priority -10 the whale wins it
 // over a shell account plugin's own launcher (the Desktop's "··· More"), which comes
 // back in Agent mode; FooterAccount stands in while no seat exists at all.
-export function AccountLauncher({ seat = true, settingsOpen, openSettings, openOnboarding, actions }) {
+export function AccountLauncher({ seat = true, settingsOpen, actions }) {
   const [open, setOpen] = useState(false)
   useLayoutEffect(() => {
     if (!seat) return undefined
@@ -1031,17 +966,6 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
   const button = useRef(null)
   const menuRef = useRef(null)
   useEffect(() => { if (settingsOpen) setOpen(false) }, [settingsOpen])
-  // The settings dialog links back to the shell's own settings (models, providers).
-  useEffect(() => {
-    if (!openSettings) return undefined
-    openShellSettings = openSettings
-    return () => { if (openShellSettings === openSettings) openShellSettings = null }
-  }, [openSettings])
-  useEffect(() => {
-    if (!openOnboarding) return undefined
-    openShellOnboarding = openOnboarding
-    return () => { if (openShellOnboarding === openOnboarding) openShellOnboarding = null }
-  }, [openOnboarding])
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
@@ -1105,15 +1029,14 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
     setSignOutError('')
     setBusy(false)
   }, [open])
-  // DS Bot's Models page where the host serves the providers, else DSH's own.
-  const openModels = actions.providers ? actions.openModels : actions.openHarnessModels
+  const openModels = actions.openModels
   const groups = [
     [
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
-      [t('Bot settings'), GearIcon, () => actions.openSettings('general')],
+      [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
   ]
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
