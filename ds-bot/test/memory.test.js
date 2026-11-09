@@ -1668,6 +1668,21 @@ test('a topic entry and another group stay out of the memory update', async (t) 
   assert.equal(await updateOf(ctx, 'b2'), undefined)
 })
 
+test('a resident update keeps edits to legacy entries that share a short id', async (t) => {
+  const { home, ctx, section, tool, stop } = start()
+  t.after(() => stop())
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'MEMORY.md'), '# Memory\n\n- Legacy note number 307\n- Legacy note number 432\n')
+  const prompt = section('b2')
+  assert.match(prompt, /307 \[1528\][\s\S]*432 \[1528\]/)
+  await settle()
+  await tool('remember', { text: 'Corrected legacy note', replace: 'Legacy note number 307', scope: 'Writer' }, 'm1')
+  const update = textOf(await updateOf(ctx, 'b2'))
+  assert.match(update, /"Legacy note number 307" is now "Corrected legacy note"/)
+  assert.doesNotMatch(update, /Legacy note number 432/)
+})
+
 test('a running conversation receives a team entry promoted to and removed from its prompt', async (t) => {
   const { ctx, call, tool, section, stop } = start()
   t.after(() => stop())
