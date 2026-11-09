@@ -31,7 +31,7 @@ function AgentForm({ initial, submit, close }) {
 // refused permission, an insecure page), and that has to be visible instead of
 // leaving the click unanswered (#1083).
 export function AgentSignInRow({ agent, Row }) {
-  const [note, setNote] = useState(null) // { copied: boolean, command: string }
+  const [note, setNote] = useState(null)
   const copy = () => {
     const done = copied => setNote({ copied, command: agent.signIn })
     try {
