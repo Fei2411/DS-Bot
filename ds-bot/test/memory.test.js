@@ -1792,6 +1792,49 @@ test('the panel moves an entry to another memory, whole, and the first memory no
   assert.match(read('bots', 'b2', 'MEMORY.md'), /Coder drafts in plain words/)
 })
 
+test('a move keeps the source when the destination already has different metadata', async (t) => {
+  const { call, tool, read, stop } = start()
+  t.after(() => stop())
+  const text = 'The user prefers one-page reports'
+  await tool('remember', { text, pin: true, until: '2099-06-01' }, 'b2')
+  await tool('remember', { text }, 'b3')
+  const from = read('bots', 'b2', 'MEMORY.md')
+  const to = read('bots', 'b3', 'MEMORY.md')
+  const result = await call('memory-move', { botId: 'b2', scope: 'own', text, to: 'bot:b3' })
+  assert.equal(result.ok, false)
+  assert.match(result.error.message, /different details/)
+  assert.equal(read('bots', 'b2', 'MEMORY.md'), from)
+  assert.equal(read('bots', 'b3', 'MEMORY.md'), to)
+})
+
+test('two moves of one entry only write one destination', async (t) => {
+  const { call, tool, read, home, stop } = start()
+  t.after(() => stop())
+  const text = 'The user prefers one-page reports'
+  await tool('remember', { text }, 'b2')
+  const move = to => call('memory-move', { botId: 'b2', scope: 'own', text, to })
+  const results = await Promise.all([move('bot:b3'), move('group:r1')])
+  assert.equal(results.filter(result => result.ok).length, 1)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /one-page reports/)
+  const destinations = [['bots', 'b3'], ['groups', 'r1']]
+  assert.equal(destinations.filter(path => existsSync(join(home, 'memory', ...path, 'MEMORY.md')) && read(...path, 'MEMORY.md').includes(text)).length, 1)
+})
+
+test('a move can finish when its exact destination copy is already saved', async (t) => {
+  const { call, tool, read, home, stop } = start()
+  t.after(() => stop())
+  const text = 'The user prefers one-page reports'
+  await tool('remember', { text, pin: true, until: '2099-06-01' }, 'b2')
+  const dir = join(home, 'memory', 'bots', 'b3')
+  mkdirSync(dir, { recursive: true })
+  const saved = read('bots', 'b2', 'MEMORY.md')
+  writeFileSync(join(dir, 'MEMORY.md'), saved)
+  const moved = await call('memory-move', { botId: 'b2', scope: 'own', text, to: 'bot:b3' })
+  assert.equal(moved.ok, true, JSON.stringify(moved))
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /one-page reports/)
+  assert.equal(read('bots', 'b3', 'MEMORY.md'), saved)
+})
+
 test('an entry moved out of a private Bot is the only thing of it the shared log sees', async (t) => {
   const { tool, call, read, stop, home } = start()
   t.after(() => stop())
