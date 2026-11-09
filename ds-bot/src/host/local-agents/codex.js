@@ -14,6 +14,7 @@ export class CodexEngine {
     this.findExecutable = findExecutable
     this.child = undefined
     this.peer = undefined
+    this.starting = undefined
     this.threads = new Map()
   }
 
@@ -30,7 +31,17 @@ export class CodexEngine {
   }
 
   async ensure() {
+    // A peer exists before its handshake has finished; other callers wait for it.
+    if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
+    const starting = this.start()
+    this.starting = starting
+    try { return await starting } finally {
+      if (this.starting === starting) this.starting = undefined
+    }
+  }
+
+  async start() {
     const bin = this.findExecutable(this.engine.command)
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
@@ -41,22 +52,29 @@ export class CodexEngine {
     this.child = child
     const peer = this.peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
     wireProcess(child, peer)
-    child.on('exit', () => {
-      peer.close(new Error(`${this.engine.name} exited`))
+    const end = (error) => {
+      peer.close(error)
       // A process close() let go of must not take the one that replaced it along.
       if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
         thread.dead = true
-        thread.push({ type: 'error', error: new Error(`${this.engine.name} exited`) })
+        thread.push({ type: 'error', error })
       }
-    })
+    }
+    child.on('error', error => end(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`, { cause: error }), { code: 'LOCAL_AGENT_EXIT' })))
+    child.on('exit', () => end(new Error(`${this.engine.name} exited`)))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
-    await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
-    peer.notify('initialized', {})
-    return peer
+    try {
+      await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
+      peer.notify('initialized', {})
+      return peer
+    } catch (error) {
+      if (this.child === child) await this.close()
+      throw error
+    }
   }
 
   onNotice(method, params) {
@@ -201,7 +219,10 @@ export class CodexEngine {
   async close() {
     const child = this.child
     this.child = undefined
+    const peer = this.peer
     this.peer = undefined
+    this.starting = undefined
+    peer?.close(new Error(`${this.engine.name} closed`))
     if (child !== undefined) {
       child.kill('SIGTERM')
       setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
