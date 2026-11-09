@@ -1634,7 +1634,7 @@ async function updateOf(ctx, sessionId) {
 }
 
 test('a running conversation learns of memory changes as a message, and its prompt stays the same', async (t) => {
-  const { ctx, home, tool, section, call, stop } = start()
+  const { ctx, home, tool, section, stop } = start()
   t.after(() => stop())
   const opened = section('b2')
   assert.equal(await updateOf(ctx, 'b2'), undefined)
