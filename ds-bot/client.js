@@ -22614,8 +22614,8 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const goal = room2?.goal;
-  const goalCompose = useUi((state) => state.goalCompose === sessionId);
-  const goalOpen = useUi((state) => state.goalOpen === sessionId);
+  const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
+  const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[sessionId] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
