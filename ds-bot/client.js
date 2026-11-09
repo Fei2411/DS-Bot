@@ -704,6 +704,9 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Group memory size": "群记忆容量",
+  "Bot memory size": "Bot 记忆容量",
+  "Team memory size": "团队记忆容量",
   "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
   "Choose a Bot…": "选择一个 Bot…",
@@ -1086,6 +1089,8 @@ var ZH = {
   "by you": "由你添加",
   "by {name}": "由 {name} 添加",
   "Remove from memory": "从记忆中删除",
+  "until {day}": "有效至 {day}",
+  "ended {day}": "已于 {day} 结束",
   "Click again to remove": "再点一次删除",
   Remove: "删除",
   "Ask or update": "询问或更新",
@@ -2284,6 +2289,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // `summarize` starts a summary when the entries changed; `regenerate` always does.
     memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
+    memoryPin: (id, entry, pin) => call2("memory-pin", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
     memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
     memoryHistory: (id, before) => call2("memory-history", { ...memoryOf(id), ...before === void 0 ? {} : { before } }),
     memoryRestore: (id, rowId) => call2("memory-restore", { ...memoryOf(id), id: rowId }),
@@ -3685,6 +3691,7 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
+.bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
@@ -4022,6 +4029,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-remove{flex:none;height:28px;min-width:28px;border-radius:999px;border:0;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0 6px;font:inherit;font-size:12px;opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease}
 .bt-mem-entry:hover .bt-mem-remove,.bt-mem-remove:focus-visible,.bt-mem-remove[data-confirm]{opacity:1}
 .bt-mem-remove:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-mem-pin[data-on]{opacity:1;color:var(--bt-accent)}
 .bt-mem-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);padding:0 10px}
 @media (hover:none){.bt-mem-remove{opacity:1}}
 .bt-mem-none{font-size:13px;line-height:18px;color:var(--bt-ink-3);padding:8px 4px}
@@ -11394,7 +11402,7 @@ var groupEntries = (entries2) => entries2.reduce((groups, entry) => {
   else groups.push({ key, scope: entry.scope, topic: entry.topic, entries: [entry] });
   return groups;
 }, []);
-function EntryRow({ entry, remove }) {
+function EntryRow({ entry, remove, pin }) {
   const [confirming, setConfirming] = (0, import_react26.useState)(false);
   const [busy, setBusy] = (0, import_react26.useState)(false);
   (0, import_react26.useEffect)(() => {
@@ -11403,7 +11411,8 @@ function EntryRow({ entry, remove }) {
     return () => clearTimeout(timer);
   }, [confirming]);
   const by = entry.source === "memory panel" ? t("by you") : entry.by ? t("by {name}", { name: entry.by }) : null;
-  const meta = [entry.added, by].filter(Boolean).join(" · ");
+  const until = entry.until ? t(entry.expired ? "ended {day}" : "until {day}", { day: entry.until }) : null;
+  const meta = [entry.added, by, until].filter(Boolean).join(" · ");
   const click = async () => {
     if (!confirming) {
       setConfirming(true);
@@ -11423,6 +11432,16 @@ function EntryRow({ entry, remove }) {
     ),
     (0, import_react26.createElement)("button", {
       type: "button",
+      className: "bt-mem-remove bt-mem-pin",
+      "data-on": entry.pinned || void 0,
+      disabled: busy,
+      "aria-pressed": entry.pinned,
+      "aria-label": entry.pinned ? t("Unpin") : t("Pin"),
+      title: entry.pinned ? t("Unpin") : t("Pin"),
+      onClick: () => pin(entry, !entry.pinned)
+    }, (0, import_react26.createElement)(PinIcon)),
+    (0, import_react26.createElement)("button", {
+      type: "button",
       className: "bt-mem-remove",
       "data-confirm": confirming || void 0,
       disabled: busy,
@@ -11432,7 +11451,7 @@ function EntryRow({ entry, remove }) {
     }, confirming ? t("Remove") : (0, import_react26.createElement)(TrashIcon))
   );
 }
-function Entries({ owner, view, remove }) {
+function Entries({ owner, view, remove, pin }) {
   const groups = groupEntries(view.entries);
   const sections = owner.group ? [{ scope: "group", title: t("Group memory"), hint: t("Only its members read it"), size: view.sizes.group }] : [
     { scope: "own", title: t("{name}'s memory", { name: owner.name }), size: view.sizes.own },
@@ -11449,13 +11468,13 @@ function Entries({ owner, view, remove }) {
         { className: "bt-mem-section-head" },
         (0, import_react26.createElement)("h3", null, section.title),
         section.hint ? (0, import_react26.createElement)("span", null, section.hint) : null,
-        (0, import_react26.createElement)("span", { className: "bt-mem-size", title: t("MEMORY.md, which every conversation reads") }, t("{used} of {limit} characters", { used: section.size.toLocaleString(dateLocale()), limit: view.limits.main.toLocaleString(dateLocale()) }))
+        (0, import_react26.createElement)("span", { className: "bt-mem-size", title: t("MEMORY.md, which every conversation reads") }, t("{used} of {limit} characters", { used: section.size.toLocaleString(dateLocale()), limit: view.limits[section.scope].toLocaleString(dateLocale()) }))
       ),
       groups.some((group) => group.scope === section.scope) ? groups.filter((group) => group.scope === section.scope).map((group) => (0, import_react26.createElement)(
         import_react26.Fragment,
         { key: group.key },
         group.topic ? (0, import_react26.createElement)("div", { className: "bt-mem-topic" }, group.topic) : null,
-        (0, import_react26.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react26.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove })))
+        (0, import_react26.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react26.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin })))
       )) : (0, import_react26.createElement)("div", { className: "bt-mem-none" }, t("Nothing saved yet"))
     ))
   );
@@ -11670,6 +11689,13 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       return false;
     }
   };
+  const pin = async (entry, on) => {
+    try {
+      show2(await actions.memoryPin(owner.id, entry, on));
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) });
+    }
+  };
   const undo = async (row) => {
     try {
       show2(await actions.memoryRestore(owner.id, row.id));
@@ -11740,7 +11766,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         "div",
         { className: "bt-mem-body" },
         error ? (0, import_react26.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, hostText(error)) : null,
-        view === null ? error ? null : (0, import_react26.createElement)(Skeleton) : page === "entries" ? (0, import_react26.createElement)(Entries, { owner, view, remove }) : page === "history" ? (0, import_react26.createElement)(History, { owner, actions, undo, now }) : (0, import_react26.createElement)(Summary, { owner, view, regenerate })
+        view === null ? error ? null : (0, import_react26.createElement)(Skeleton) : page === "entries" ? (0, import_react26.createElement)(Entries, { owner, view, remove, pin }) : page === "history" ? (0, import_react26.createElement)(History, { owner, actions, undo, now }) : (0, import_react26.createElement)(Summary, { owner, view, regenerate })
       ),
       (0, import_react26.createElement)(
         "div",
@@ -20359,12 +20385,13 @@ function ImMark({ id, size = 36 }) {
 }
 function stateOf(conn, status) {
   if (!conn.enabled) return "off";
-  return status?.state === "ready" || status?.state === "error" || status?.state === "connecting" ? status.state : "connecting";
+  return status?.state === "ready" || status?.state === "error" || status?.state === "retrying" || status?.state === "connecting" ? status.state : "connecting";
 }
 function stateText(conn, status) {
   const state = stateOf(conn, status);
   if (state === "off") return t("Disabled");
   if (state === "ready") return t("Connected");
+  if (state === "retrying") return t("Retrying…");
   if (state === "error") return t("Could not connect: {error}", { error: hostText(status.error ?? "") });
   return t("Connecting…");
 }
@@ -20794,6 +20821,7 @@ var IM_CSS = `
 .bt-im-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
 .bt-im-dot[data-state=ready]{background:var(--bt-green)}
 .bt-im-dot[data-state=error]{background:var(--bt-danger)}
+.bt-im-dot[data-state=retrying]{background:var(--bt-star)}
 .bt-im-dot[data-state=off]{background:none;box-shadow:inset 0 0 0 1.5px var(--bt-ink-3)}
 .bt-im-dot[data-state=connecting]{animation:bt-im-breathe 1.4s ease-in-out infinite}
 @keyframes bt-im-breathe{50%{opacity:.35}}
@@ -21774,6 +21802,23 @@ var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
 var dshItem = (dsh, id) => (0, import_react48.createElement)("div", { key: id, className: "bt-dsh-item", "data-item": id }, dsh.renderSlot("settings.general.item", {}, { only: id }));
 var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var MEMORY_SIZES = [
+  { scope: "group", label: "Group memory size", size: 12e3 },
+  { scope: "bot", label: "Bot memory size", size: 8e3 },
+  { scope: "team", label: "Team memory size", size: 4e3 }
+];
+function MemorySize({ label, value, save }) {
+  const [text, setText] = (0, import_react48.useState)(String(value));
+  (0, import_react48.useEffect)(() => setText(String(value)), [value]);
+  const commit = () => {
+    const number = Number(text);
+    if (Number.isInteger(number) && number >= 1e3 && number <= 2e5 && number !== value) save(number);
+    else setText(String(value));
+  };
+  return (0, import_react48.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 1e3, max: 2e5, step: 1e3, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+    if (event.key === "Enter") event.target.blur();
+  } });
+}
 function SetSection({ title, className = "", children }) {
   return (0, import_react48.createElement)("section", { className: `bt-set-section ${className}`.trim() }, (0, import_react48.createElement)("h3", null, title), (0, import_react48.createElement)("div", { className: "bt-set-card" }, children));
 }
@@ -21913,6 +21958,15 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         { label: t("Enter sends message") },
         (0, import_react48.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       )
+    ),
+    (0, import_react48.createElement)(
+      SetSection,
+      { key: "memory", title: t("Memory") },
+      MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react48.createElement)(
+        SetRow,
+        { key: scope, label: t(label) },
+        (0, import_react48.createElement)(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: (value) => run2(actions.setPrefs({ memoryLimits: { [scope]: value } })) })
+      ))
     ),
     // Settings opens in Agent mode too; there the way goes back to Bot mode.
     actions.setSurface ? (0, import_react48.createElement)(
@@ -22890,8 +22944,8 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const goal = room2?.goal;
-  const goalCompose = useUi((state) => state.goalCompose === sessionId);
-  const goalOpen = useUi((state) => state.goalOpen === sessionId);
+  const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
+  const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[sessionId] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;

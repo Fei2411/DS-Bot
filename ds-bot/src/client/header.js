@@ -74,8 +74,11 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
   const goal = room?.goal
-  const goalCompose = useUi(state => state.goalCompose === sessionId)
-  const goalOpen = useUi(state => state.goalOpen === sessionId)
+  // Goal panels are keyed by the group, never by its current Session: `composeGoal` and
+  // `toggleGoal` store `room.id`, and a group's Session moves to a fresh part when its
+  // folder changes, so the two differ for every group whose folder was changed.
+  const goalCompose = useUi(state => room !== undefined && state.goalCompose === room.id)
+  const goalOpen = useUi(state => room !== undefined && state.goalOpen === room.id)
   // The island's live faces: who is at work in this group right now. Non-group
   // chats subscribe to a constant so their header does not redraw on work.
   const roomWorkKey = useWork?.(work => (room ? JSON.stringify(work.rooms?.[sessionId] ?? []) : '')) ?? '[]'
