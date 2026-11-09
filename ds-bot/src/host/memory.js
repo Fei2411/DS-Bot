@@ -887,7 +887,7 @@ export function install(rt) {
       rt.warn('ds-bot: memory update for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
     }
-    const rows = recentRows.filter(row => row.time > seen && keys.has(row.scope) && row.file === MAIN && row.session !== sessionId && ['add', 'remove', 'replace'].includes(row.op))
+    const rows = recentRows.filter(row => row.time > seen && keys.has(row.scope) && row.file === MAIN && row.session !== sessionId && ['add', 'remove', 'replace'].includes(row.op) && (row.op !== 'replace' || rowEntry(row.before) !== rowEntry(row.after)))
     if (rows.length === 0) return undefined
     markSeen(sessionId, rows.at(-1).time)
     const text = updateText(rows, bot)
