@@ -32,10 +32,12 @@ import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/ds
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
-import { estimateTokens, splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
-import { GROUP_HEADING, GROUP_MEMORY_SOURCE, SUMMARY_SYSTEM, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
+import { estimateTokens, splitRef, textOf, unquote } from './text.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
+import { pickRecalled, rankEntries } from './memory-search.js'
+import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
+import { installTidy } from './memory-tidy.js'
 import { output } from './tools.js'
 
 export { MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey, looksSecret, matchEntries, parseAsk, parseMemory, parseReview, removeLink, reviewEntries, splitMeta } from './memory-entries.js'
@@ -44,6 +46,18 @@ export { writtenIn } from './memory-copy.js'
 // Where entries go when MEMORY.md is at its size.
 const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
+// A model's window is looked up this often, not on every step.
+const WINDOW_ASK_MS = 10 * 60_000
+// What the first step of a turn may bring along from the topics.
+const AUTO_RECALL_MAX = 5
+const AUTO_RECALL_TEXT_MAX = 3_000
+const AUTO_RECALL_QUERY_MAX = 2_000
+// One memory update message says this much; the rest is left to recall.
+const UPDATE_ROWS_MAX = 20
+const UPDATE_TEXT_MAX = 4_000
+// The changes kept in memory for update messages, and how far back a start reads them.
+const RECENT_ROWS_MAX = 2_000
+const RECENT_TAIL_CHARS = 512 * 1024
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
@@ -231,6 +245,7 @@ export function install(rt) {
     const half = text.slice(cut)
     const line = JSON.stringify(row)
     mkdirSync(dirname(path), { recursive: true })
+    rememberRow(row)
     if (half === '') {
       await appendFile(path, `${line}\n`, 'utf8')
       return true
@@ -245,6 +260,34 @@ export function install(rt) {
     truncateSync(path, Buffer.byteLength(text.slice(0, cut), 'utf8'))
     await appendFile(path, `${line}\n`, 'utf8')
     return true
+  }
+
+  // Recent changes, for the memory updates a running conversation gets.
+  const recentRows = []
+  const tailsRead = new Set()
+  const rememberRow = (row) => {
+    if (recentRows.some(known => known.id === row.id)) return
+    recentRows.push(row)
+    recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
+    if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+  }
+  function readTail(path) {
+    if (tailsRead.has(path)) return
+    tailsRead.add(path)
+    for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
+      try {
+        const row = JSON.parse(line)
+        if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
+      } catch { /* a line cut by the tail, or half-written */ }
+    }
+  }
+
+  // Whether anything but a tidy changed a memory after a time.
+  function changedSince(key, time) {
+    readTail(journalPath)
+    const botId = key.startsWith('bot:') ? key.slice(4) : undefined
+    if (botId !== undefined) readTail(journalFor(key, 'read').path)
+    return recentRows.some(row => row.scope === key && (time === undefined || row.time > time) && row.op !== 'tidy' && row.op !== 'tidy-undo')
   }
 
   // Publishes a change: the files it touches, then the row that goes with it in the
@@ -418,7 +461,7 @@ export function install(rt) {
   }
   const capital = text => text[0].toUpperCase() + text.slice(1)
   const allEntries = files => files.flatMap(file => file.entries.map(entry => ({ ...entry, file })))
-  const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}) })
+  const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}), ...(actor.session ? { session: actor.session } : {}) })
 
   // The latest change to a Bot's memory or a group's, by remember, forget, or the
   // memory review; a team change counts for the Bot that made it. The conversation
@@ -576,7 +619,10 @@ export function install(rt) {
 
   // What a Bot's model leaves room for, from the last time it was asked.
   const windows = new Map()
+  const windowAsked = new Map()
   async function noteWindow(bot) {
+    if (Date.now() - (windowAsked.get(bot.id) ?? 0) < WINDOW_ASK_MS) return
+    windowAsked.set(bot.id, Date.now())
     const info = await modelFor(bot).then(route => ctx.llm.resolveModelInfo(route.provider, route.model)).catch(() => undefined)
     const size = info?.context?.contextWindow
     if (typeof size === 'number' && size > 0) windows.set(bot.id, size - (info.defaultMaxTokens ?? 0))
@@ -592,8 +638,11 @@ export function install(rt) {
     return lines.length > 0 ? lines : ['(nothing saved yet)']
   }
   const topicLine = (scope) => {
-    const names = topicNames(scope)
-    return names.length > 0 ? [`Topics: ${names.map(name => `[[${name}]]`).join(', ')}`] : []
+    const dir = dirOf(scope)
+    return topicNames(scope).map((name) => {
+      const about = topicAbout(parseMemory(readFileSync(join(dir, `${name}.md`), 'utf8')), scope.kind !== 'team')
+      return `Topic [[${name}]]${about === '' ? '' : `: ${about}`}`
+    })
   }
   // The prompt section reads on its own: it may not throw, or one unreadable memory
   // would fail the whole turn. The unreadable file shows as a line instead of entries.
@@ -660,6 +709,30 @@ export function install(rt) {
   /** @type {Map<string, string>} */
   const frozen = new Map()
   const snapshotPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.md`)
+  // Where a Session's memory stands: the time of its snapshot, then of the last update.
+  const seenPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.seen`)
+  const seenTimes = new Map()
+  const seenOf = (sessionId) => {
+    if (seenTimes.has(sessionId)) return seenTimes.get(sessionId)
+    try {
+      const time = readFileSync(seenPath(sessionId), 'utf8').trim()
+      if (time !== '') seenTimes.set(sessionId, time)
+      return time || undefined
+    } catch {
+      return undefined
+    }
+  }
+  const markSeen = (sessionId, time) => {
+    seenTimes.set(sessionId, time)
+    if (rt.readOnly() !== undefined) return
+    try {
+      mkdirSync(dirname(seenPath(sessionId)), { recursive: true })
+      writeFileSync(seenPath(sessionId), time, 'utf8')
+    } catch (error) {
+      rt.warn('ds-bot: memory place for %s not saved: %s', sessionId, error)
+    }
+  }
+
   function sectionFor(sessionId) {
     if (sessionId === undefined) return ''
     const bot = rt.botOf(rt.selfOf(sessionId))
@@ -696,6 +769,7 @@ export function install(rt) {
           mkdirSync(dirname(path), { recursive: true })
           writeFileSync(`${path}.tmp`, text, 'utf8')
           renameSync(`${path}.tmp`, path)
+          markSeen(sessionId, new Date().toISOString())
         } catch (error) {
           rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
         }
@@ -708,7 +782,9 @@ export function install(rt) {
   function renewMemory(sessionId) {
     if (sessionId === undefined) return
     frozen.delete(sessionId)
+    seenTimes.delete(sessionId)
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
+    try { unlinkSync(seenPath(sessionId)) } catch { /* none saved */ }
   }
 
   ctx.effect(() => ctx.systemPrompt.section({
@@ -729,20 +805,117 @@ export function install(rt) {
     await rt.load()
     const roomId = roomIdOf(agent.id)
     const bot = rt.botOf(rt.selfOf(agent.id))
-    if (bot !== undefined) await noteWindow(bot)
-    if (roomId === undefined || bot === undefined || !rt.roomOf(roomId)?.members.includes(bot.id)) return decision
-    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return decision
+    if (bot === undefined) return decision
+    await noteWindow(bot)
+    const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    const front = []
+    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
+    if (snapshot !== undefined) front.push(snapshot)
+    const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
+    if (update !== undefined) front.push(update)
+    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision)
+    if (recalled !== undefined) front.push(recalled)
+    return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
+  })
+
+  // Topic entries that share enough with what was just said, once per conversation part.
+  // MEMORY.md is in view already. Off when the user turns it off.
+  const isRecalled = message => message?.source?.kind === MEMORY_RECALL_SOURCE
+  const SAID = new Set(['user', 'schedule', 'bot'])
+  function autoRecall(agent, bot, roomId, decision) {
+    if (state.prefs.memoryAutoRecall === false) return undefined
+    const said = decision.messages.findLast(message => message?.role === 'user' && SAID.has(message.source?.kind))
+    const query = said === undefined ? '' : textOf(said.content).slice(0, AUTO_RECALL_QUERY_MAX)
+    if (query.trim() === '') return undefined
+    let history = []
+    try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* nothing to look in */ }
+    const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
+    const own = ownScope(bot.id)
+    const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
+    let topicEntries
     try {
-      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return decision
+      topicEntries = scopes.flatMap(scope => allEntries(loadScope(scope).slice(1)).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+    } catch (error) {
+      rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
+      return undefined
+    }
+    const open = topicEntries.filter(entry => !isExpired(entry, today()) && !shown.has(entryId(entry)))
+    const picked = []
+    let used = 0
+    for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX)) {
+      const line = `- (${entry.tag} · ${entry.file.topic}) ${promptEntry(entry).slice(2)}`
+      if (used + line.length > AUTO_RECALL_TEXT_MAX) break
+      used += line.length
+      picked.push({ line, id: entryId(entry) })
+    }
+    if (picked.length === 0) return undefined
+    const text = [RECALL_HEADING, RECALL_NOTE, '', ...picked.map(item => item.line)].join('\n')
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: MEMORY_RECALL_SOURCE, form: 'snapshot', ids: picked.map(item => item.id), sections: [{ name: MEMORY_RECALL_SOURCE, text }] },
+    })
+  }
+
+  function groupSnapshot(agent, roomId, bot, decision) {
+    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
+    try {
+      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return undefined
     } catch { /* no history to look in: the snapshot goes in */ }
     const group = groupSection(roomId, bot)
-    if (group.failed) return decision
-    const message = createUserMessage({
+    if (group.failed) return undefined
+    return createUserMessage({
       content: [{ type: 'text', text: group.text }],
       source: { kind: GROUP_MEMORY_SOURCE, form: 'snapshot', sections: [{ name: GROUP_MEMORY_SOURCE, text: group.text }] },
     })
-    return { ...decision, messages: [message, ...decision.messages] }
-  })
+  }
+
+  // What changed in the memory a Session has in view since it last looked, as a message
+  // of its own at the end of the conversation: the prompt above stays byte for byte, so
+  // the provider's prefix cache holds. A Session's own writes are not news to it.
+  function memoryUpdate(sessionId, bot, roomId) {
+    const seen = seenOf(sessionId)
+    const now = new Date().toISOString()
+    if (seen === undefined) {
+      markSeen(sessionId, now)
+      return undefined
+    }
+    const own = ownScope(bot.id)
+    const keys = new Set([scopeKey(own), scopeKey(TEAM), ...(roomId === undefined ? [] : [scopeKey(groupScope(roomId))])])
+    try {
+      for (const path of new Set([journalPath, journalFor(scopeKey(own), 'read').path])) readTail(path)
+    } catch (error) {
+      rt.warn('ds-bot: memory update for %s not read: %s', bot.name, error?.message ?? error)
+      return undefined
+    }
+    const rows = recentRows.filter(row => row.time > seen && keys.has(row.scope) && row.file === MAIN && row.session !== sessionId && ['add', 'remove', 'replace'].includes(row.op))
+    if (rows.length === 0) return undefined
+    markSeen(sessionId, rows.at(-1).time)
+    const text = updateText(rows, bot)
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: MEMORY_UPDATE_SOURCE, form: 'snapshot', sections: [{ name: MEMORY_UPDATE_SOURCE, text }] },
+    })
+  }
+
+  const rowEntry = line => splitMeta(String(line ?? '').replace(/^\s*[-*]\s+/, '')).text
+  function updateText(rows, bot) {
+    const where = row => (row.scope === 'team' ? 'team memory' : row.scope.startsWith('group:') ? 'group memory' : 'your memory')
+    const who = row => (row.actor === 'user' ? 'the user' : row.actor === bot.id ? (row.auto ? 'the memory review' : 'you, elsewhere') : row.actorName)
+    const lines = rows.map((row) => {
+      if (row.op === 'add') return `- Added to ${where(row)} by ${who(row)}: ${rowEntry(row.after)}`
+      if (row.op === 'remove') return `- Removed from ${where(row)} by ${who(row)}: ${rowEntry(row.before)}`
+      return `- Changed in ${where(row)} by ${who(row)}: "${rowEntry(row.before)}" is now "${rowEntry(row.after)}"`
+    })
+    const kept = []
+    let used = 0
+    for (const line of lines.slice(-UPDATE_ROWS_MAX).reverse()) {
+      if (used + line.length > UPDATE_TEXT_MAX) break
+      used += line.length
+      kept.unshift(line)
+    }
+    const left = lines.length - kept.length
+    return [UPDATE_HEADING, UPDATE_NOTE, '', ...(left > 0 ? [`(${left} earlier changes are not listed; recall finds what is saved.)`] : []), ...kept].join('\n')
+  }
 
   // ---------------------------------------------------------------------------
   // Tools.
@@ -757,7 +930,10 @@ export function install(rt) {
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
     const owner = rt.groupOwners.get(sessionId)
-    if (owner !== undefined) return `group "${rt.roomOf(owner.roomId)?.name ?? '?'}" ${rt.clock(Date.now())}`
+    if (owner !== undefined) {
+      const room = rt.roomOf(owner.roomId)
+      return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
+    }
     const parts = rt.partsOf(rt.selfOf(sessionId))
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const number = at === -1 ? Math.max(parts.length, 1) : at + 1
@@ -823,6 +999,7 @@ export function install(rt) {
       topic: { type: 'string', description: 'A topic for details not every conversation needs, such as "travel" or "project-x"; omit for MEMORY.md, which every conversation reads' },
       until: { type: 'string', description: 'The day this stops holding, YYYY-MM-DD, for a temporary arrangement or a plan with an end. After it the entry no longer shows' },
       pin: { type: 'boolean', description: 'True only when the user says to always keep this. A pinned entry is never moved or changed automatically' },
+      always: { type: 'boolean', description: 'With scope "team": true only when the user says every Bot must always know this, so it goes in what every Bot reads in every conversation. Without it the entry waits where any Bot can find it with recall' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -840,10 +1017,11 @@ export function install(rt) {
       try {
         const until = cleanDay(args.until)
         const meta = { ...await metaFor(context.caller, context.scope), ...(until === undefined ? {} : { until }), ...(args.pin === true ? { pinned: 'user' } : {}) }
+        const shared = context.scope.kind === 'team' && args.always !== true && topic === undefined ? TEAM_SHARED : args.always === true && context.scope.kind === 'team' ? undefined : topic
         const result = replace === ''
-          ? await addEntry({ ...context, topic, text, meta })
+          ? await addEntry({ ...context, topic: shared, text, meta })
           : await replaceEntry({ ...context, topic, match: replace, text, meta })
-        const shows = context.scope.kind === 'group' ? 'Every member sees it in its next conversation in this group' : 'It shows in your memory from your next conversation'
+        const shows = context.scope.kind === 'group' ? 'The other members see it at their next step in this group' : 'Your other conversations see it at their next step'
         return result.changed ? `${result.message} ${shows}; recall finds it now.` : result.message
       } catch (failure) {
         throw writeFailure(failure)
@@ -949,7 +1127,8 @@ export function install(rt) {
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
       })).filter(hit => hit.count > 0)
       const every = scored.filter(hit => hit.count === terms.length)
-      const hits = (every.length > 0 ? every : scored.sort((a, b) => b.count - a.count)).slice(0, RECALL_MAX)
+      const scores = new Map(rankEntries(scored.map(hit => hit.entry), query).map(hit => [hit.entry, hit.score]))
+      const hits = (every.length > 0 ? every : scored).sort((a, b) => b.count - a.count || (scores.get(b.entry) ?? 0) - (scores.get(a.entry) ?? 0)).slice(0, RECALL_MAX)
       const names = loaded.map(item => item.label)
       const labels = names.length > 2 ? `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}` : names.join(' and ')
       if (hits.length === 0) return `Nothing in ${labels} mentions "${query}". read_own_chat searches what was said.`
@@ -1110,6 +1289,7 @@ export function install(rt) {
       summary: entries.length > 0 && saved !== undefined ? { text: saved.text, at: saved.at } : null,
       fresh: entries.length === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
+      tidy: tidyView(panel.scopes),
       error: failed !== undefined && !summarizing.has(panel.id) ? failed.message : null,
     }
   }
@@ -1155,6 +1335,42 @@ export function install(rt) {
     const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
     const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
     await removeEntry({ scope, topic, match: String(body.text ?? ''), actor: USER, label: panelLabel(panel, scope) })
+    return await memoryView(panelBody(panel))
+  }
+
+  // One team entry the user brings in front of every Bot, or sends back to wait in a topic.
+  async function memoryLayer(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes.team
+    if (scope === undefined) throw new Error('Only team entries have a place to move to')
+    const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
+    const label = panelLabel(panel, scope)
+    await queued(async () => {
+      await recoverPending()
+      writable(scope, USER)
+      const files = loadScope(scope)
+      const old = findOne(files, topic, String(body.text ?? ''), label)
+      const always = body.always === true
+      if (always === (old.file.topic === undefined)) return
+      const line = old.file.lines[old.line]
+      const remaining = old.file.lines.filter((_line, at) => at !== old.line)
+      const main = files[0]
+      const steps = []
+      if (always) {
+        const emptied = remaining.every(item => item.trim() === '' || HEADING.test(item))
+        const mainBase = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+        const put = insertEntry(emptied ? removeLink(mainBase, old.file.topic) : mainBase, line)
+        const seen = files.map(file => (file === old.file ? { ...file, ...parseMemory(joinLines(remaining)), content: joinLines(remaining) } : file))
+        const room = makeRoom(seen, scope, put, line)
+        steps.push(emptied ? removeStep(old.file.path) : writeStep(old.file.path, joinLines(remaining)), writeStep(main.path, joinLines(room.lines)), ...room.steps)
+      } else {
+        const shared = files.find(file => file.topic === TEAM_SHARED)
+        const base = shared === undefined || shared.lines.length === 0 ? parseMemory(`# ${TEAM_SHARED}\n`).lines : shared.lines
+        const left = main.links.includes(TEAM_SHARED) ? remaining : addLink(remaining, TEAM_SHARED)
+        steps.push(writeStep(join(dirOf(scope), `${TEAM_SHARED}.md`), joinLines(insertEntry(base, line))), writeStep(main.path, joinLines(left)))
+      }
+      await publish({ op: 'move', scope: scopeKey(scope), steps, row: { op: 'move', scope: scopeKey(scope), file: old.file.file, to: always ? MAIN : `${TEAM_SHARED}.md`, ...actorOf(USER), after: line } })
+    })
     return await memoryView(panelBody(panel))
   }
 
@@ -1393,11 +1609,23 @@ export function install(rt) {
 
   const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
 
+  const { tidyView, undoTidy, tidyNow } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
+
+  async function memoryTidyUndo(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope]
+    if (scope === undefined) throw new Error('Unknown memory')
+    await undoTidy(scope, String(body.batch ?? ''))
+    return await memoryView(panelBody(panel))
+  }
+
   async function memoryEndpoint(endpoint, body) {
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
     if (endpoint === 'memory-pin') return memoryPin(body)
+    if (endpoint === 'memory-tidy-undo') return memoryTidyUndo(body)
+    if (endpoint === 'memory-layer') return memoryLayer(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
@@ -1405,6 +1633,6 @@ export function install(rt) {
 
   Object.assign(rt, {
     memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
-    memoryNews: () => Object.fromEntries(news), botShot,
+    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }

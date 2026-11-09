@@ -11,6 +11,9 @@ export const MEMORY_LIMITS = { entry: 300, group: 12_000, bot: 8_000, team: 4_00
 export const WINDOW_SHARE = 0.02
 
 export const MAIN = 'MEMORY.md'
+// Where the team's entries wait for whoever needs them. MEMORY.md is for what every Bot
+// must always have in view, and only the user puts things there.
+export const TEAM_SHARED = 'shared'
 export const EMPTY_MAIN = '# Memory\n\n## Index\n'
 export const INDEX = /^##\s+index\s*$/i
 export const HEADING = /^#{1,6}\s/
@@ -50,6 +53,15 @@ export function newEntryId(entries) {
     if (!taken.has(id)) return id
   }
 }
+// A topic's line in the prompt: the note under its title, else its first entry. A team
+// topic has no first entry to show, or it would reach every Bot by the back door.
+const ABOUT_MAX = 60
+export function topicAbout(parsed, withEntry = true) {
+  const note = parsed.lines.find(line => /^>\s*\S/.test(line))?.replace(/^>\s*/, '')
+  const text = note ?? (withEntry ? parsed.entries[0]?.text ?? '' : '')
+  return text.length > ABOUT_MAX ? `${text.slice(0, ABOUT_MAX)}…` : text
+}
+
 export const isPinned = entry => Boolean(entry.meta?.pinned)
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 export const cleanDay = raw => (DAY.test(String(raw ?? '').trim()) ? String(raw).trim() : undefined)
@@ -226,7 +238,7 @@ export function parseAsk(text) {
 
 // Words to compare by: Latin words of three letters or more, and pairs of Han
 // characters, which Chinese writes without spaces.
-const wordsOf = (text) => {
+export const wordsOf = (text) => {
   const lower = squash(text)
   const words = new Set(lower.match(/[a-z0-9]{3,}/g) ?? [])
   for (const run of lower.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
@@ -282,7 +294,7 @@ const wellFormed = (change) => {
   if (change === null || typeof change !== 'object') return false
   const texted = typeof change.text === 'string' && change.text.trim() !== ''
   const numbered = Number.isInteger(Number(change.entry)) && Number(change.entry) >= 1
-  if (change.op === 'add') return texted && (change.topic === undefined || typeof change.topic === 'string') && (change.team === undefined || typeof change.team === 'boolean') && (change.until === undefined || typeof change.until === 'string')
+  if (change.op === 'add') return texted && (change.topic === undefined || typeof change.topic === 'string') && (change.team === undefined || typeof change.team === 'boolean') && (change.for === undefined || typeof change.for === 'string') && (change.group === undefined || typeof change.group === 'string') && (change.until === undefined || typeof change.until === 'string')
   if (change.op === 'edit') return texted && numbered
   return change.op === 'remove' && numbered
 }

@@ -704,6 +704,7 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
   "Bot memory size": "Bot 记忆容量",
   "Team memory size": "团队记忆容量",
@@ -1090,6 +1091,9 @@ var ZH = {
   "by {name}": "由 {name} 添加",
   "Remove from memory": "从记忆中删除",
   "until {day}": "有效至 {day}",
+  "Tidied: {merged} merged, {moved} moved, {retired} archived": "已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条",
+  "Only when needed": "需要时才读",
+  "Every conversation": "每次都带",
   "ended {day}": "已于 {day} 结束",
   "Click again to remove": "再点一次删除",
   Remove: "删除",
@@ -2289,6 +2293,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // `summarize` starts a summary when the entries changed; `regenerate` always does.
     memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
+    memoryLayer: (id, entry, always) => call2("memory-layer", { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
+    memoryTidyUndo: (id, scope, batch) => call2("memory-tidy-undo", { ...memoryOf(id), scope, batch }),
     memoryPin: (id, entry, pin) => call2("memory-pin", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
     memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
     memoryHistory: (id, before) => call2("memory-history", { ...memoryOf(id), ...before === void 0 ? {} : { before } }),
@@ -4030,6 +4036,13 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-entry:hover .bt-mem-remove,.bt-mem-remove:focus-visible,.bt-mem-remove[data-confirm]{opacity:1}
 .bt-mem-remove:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-mem-pin[data-on]{opacity:1;color:var(--bt-accent)}
+.bt-mem-tidy{margin-bottom:12px;font-size:12px;color:var(--bt-ink-3)}
+.bt-mem-tidy summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.bt-mem-tidy ul{margin:8px 0 0;padding-left:16px}
+.bt-mem-place{flex:none;height:28px;padding:0 8px;border:0;border-radius:999px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer;opacity:0}
+.bt-mem-entry:hover .bt-mem-place,.bt-mem-place:focus-visible{opacity:1}
+.bt-mem-place:hover{background:var(--bt-hover);color:var(--bt-ink)}
+@media (hover:none){.bt-mem-place{opacity:1}}
 .bt-mem-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);padding:0 10px}
 @media (hover:none){.bt-mem-remove{opacity:1}}
 .bt-mem-none{font-size:13px;line-height:18px;color:var(--bt-ink-3);padding:8px 4px}
@@ -11402,7 +11415,7 @@ var groupEntries = (entries2) => entries2.reduce((groups, entry) => {
   else groups.push({ key, scope: entry.scope, topic: entry.topic, entries: [entry] });
   return groups;
 }, []);
-function EntryRow({ entry, remove, pin }) {
+function EntryRow({ entry, remove, pin, layer }) {
   const [confirming, setConfirming] = (0, import_react26.useState)(false);
   const [busy, setBusy] = (0, import_react26.useState)(false);
   (0, import_react26.useEffect)(() => {
@@ -11440,6 +11453,12 @@ function EntryRow({ entry, remove, pin }) {
       title: entry.pinned ? t("Unpin") : t("Pin"),
       onClick: () => pin(entry, !entry.pinned)
     }, (0, import_react26.createElement)(PinIcon)),
+    entry.scope === "team" ? (0, import_react26.createElement)("button", {
+      type: "button",
+      className: "bt-mem-place",
+      disabled: busy,
+      onClick: () => layer(entry, entry.topic !== null)
+    }, entry.topic === null ? t("Only when needed") : t("Every conversation")) : null,
     (0, import_react26.createElement)("button", {
       type: "button",
       className: "bt-mem-remove",
@@ -11451,7 +11470,27 @@ function EntryRow({ entry, remove, pin }) {
     }, confirming ? t("Remove") : (0, import_react26.createElement)(TrashIcon))
   );
 }
-function Entries({ owner, view, remove, pin }) {
+function TidyNote({ tidy, undo }) {
+  const [busy, setBusy] = (0, import_react26.useState)(false);
+  const line = t("Tidied: {merged} merged, {moved} moved, {retired} archived", { merged: tidy.merged, moved: tidy.moved, retired: tidy.retired });
+  return (0, import_react26.createElement)(
+    "details",
+    { className: "bt-mem-tidy" },
+    (0, import_react26.createElement)(
+      "summary",
+      null,
+      (0, import_react26.createElement)("span", null, line),
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        await undo(tidy);
+        setBusy(false);
+      } }, t("Undo"))
+    ),
+    (0, import_react26.createElement)("ul", null, tidy.items.map((item, at) => (0, import_react26.createElement)("li", { key: at }, item.text)))
+  );
+}
+function Entries({ owner, view, remove, pin, layer, undoTidy }) {
   const groups = groupEntries(view.entries);
   const sections = owner.group ? [{ scope: "group", title: t("Group memory"), hint: t("Only its members read it"), size: view.sizes.group }] : [
     { scope: "own", title: t("{name}'s memory", { name: owner.name }), size: view.sizes.own },
@@ -11460,6 +11499,7 @@ function Entries({ owner, view, remove, pin }) {
   return (0, import_react26.createElement)(
     "div",
     { className: "bt-mem-entries" },
+    view.tidy ? (0, import_react26.createElement)(TidyNote, { tidy: view.tidy, undo: undoTidy }) : null,
     sections.map((section) => (0, import_react26.createElement)(
       "section",
       { key: section.scope, className: "bt-mem-section" },
@@ -11474,7 +11514,7 @@ function Entries({ owner, view, remove, pin }) {
         import_react26.Fragment,
         { key: group.key },
         group.topic ? (0, import_react26.createElement)("div", { className: "bt-mem-topic" }, group.topic) : null,
-        (0, import_react26.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react26.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin })))
+        (0, import_react26.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react26.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin, layer })))
       )) : (0, import_react26.createElement)("div", { className: "bt-mem-none" }, t("Nothing saved yet"))
     ))
   );
@@ -11689,6 +11729,20 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       return false;
     }
   };
+  const undoTidy = async (tidy) => {
+    try {
+      show2(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch));
+    } catch (failure) {
+      setAnswer({ asked: t("Undo"), error: failure?.message ?? String(failure) });
+    }
+  };
+  const layer = async (entry, always) => {
+    try {
+      show2(await actions.memoryLayer(owner.id, entry, always));
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) });
+    }
+  };
   const pin = async (entry, on) => {
     try {
       show2(await actions.memoryPin(owner.id, entry, on));
@@ -11766,7 +11820,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         "div",
         { className: "bt-mem-body" },
         error ? (0, import_react26.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, hostText(error)) : null,
-        view === null ? error ? null : (0, import_react26.createElement)(Skeleton) : page === "entries" ? (0, import_react26.createElement)(Entries, { owner, view, remove, pin }) : page === "history" ? (0, import_react26.createElement)(History, { owner, actions, undo, now }) : (0, import_react26.createElement)(Summary, { owner, view, regenerate })
+        view === null ? error ? null : (0, import_react26.createElement)(Skeleton) : page === "entries" ? (0, import_react26.createElement)(Entries, { owner, view, remove, pin, layer, undoTidy }) : page === "history" ? (0, import_react26.createElement)(History, { owner, actions, undo, now }) : (0, import_react26.createElement)(Summary, { owner, view, regenerate })
       ),
       (0, import_react26.createElement)(
         "div",
@@ -21962,6 +22016,11 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
     (0, import_react48.createElement)(
       SetSection,
       { key: "memory", title: t("Memory") },
+      (0, import_react48.createElement)(
+        SetRow,
+        { label: t("Bring up related memory") },
+        (0, import_react48.createElement)(Switch, { label: t("Bring up related memory"), on: prefs.memoryAutoRecall !== false, onChange: (memoryAutoRecall) => run2(actions.setPrefs({ memoryAutoRecall })) })
+      ),
       MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react48.createElement)(
         SetRow,
         { key: scope, label: t(label) },

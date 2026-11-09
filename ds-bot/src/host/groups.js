@@ -1192,7 +1192,8 @@ export function install(rt) {
     description: 'Read the latest messages of a group chat, including what you said there. You speak in groups from separate conversations, so your own chat does not show them. Main Bots may read any group; others the groups they are in.',
     parameters: {
       group: GROUP_REF,
-      seq: { type: 'integer', description: 'Read one message whole: the seq that a cut message names' },
+      seq: { type: 'integer', description: 'Read one message whole: the seq that a cut message or a memory source names, however old' },
+      query: { type: 'string', description: 'Words to find in everything said in this group, newest first' },
     },
     output,
     async execute(args, exec) {
@@ -1205,7 +1206,13 @@ export function install(rt) {
       await loadGroupLines(room)
       if (args.seq !== undefined) {
         const line = room.log.find(entry => entry.seq === Number(args.seq))
-        return line === undefined ? `"${room.name}" no longer keeps message ${args.seq}; it keeps its latest ${ROOM_LOG_MAX}.` : lineText(line, memberText(room)(line))
+        if (line !== undefined) return lineText(line, memberText(room)(line))
+        const kept = await rt.groupLine(room.id, Number(args.seq)).catch(() => undefined)
+        return kept === undefined ? `"${room.name}" has no message ${args.seq}.` : lineText(kept, headOf(kept.text ?? '', GROUP_LINE_READ))
+      }
+      if (typeof args.query === 'string' && args.query.trim() !== '') {
+        const found = await rt.searchGroupLog(room.id, args.query).catch(() => [])
+        return found.length === 0 ? `Nothing said in "${room.name}" has "${args.query}".` : `In "${room.name}" (newest first):\n${found.map(line => `#${line.seq} ${lineText(line, headOf(line.text, TEXT_KEPT))}`).join('\n')}`
       }
       // Thirty whole lines could fill the context, so a long one shows its start.
       const short = (line) => {
