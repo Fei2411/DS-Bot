@@ -1186,6 +1186,7 @@ export function install(rt) {
         state.views[freshId] = pending
         delete state.views[agent.id]
       }
+      moveClosedView(agent.id, freshId)
     }
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
@@ -1709,6 +1710,14 @@ export function install(rt) {
     return true
   }
 
+  // The active chat's dock is authoritative, including when it has no closed view.
+  function moveClosedView(from, to) {
+    const closed = state.closedViews ??= {}
+    if (closed[from] === undefined) delete closed[to]
+    else closed[to] = closed[from]
+    delete closed[from]
+  }
+
   // Opening an earlier part again: it becomes the current one and the part that
   // was current joins the earlier ones where it sat.
   async function switchPart(botId, partId) {
@@ -1728,6 +1737,7 @@ export function install(rt) {
     segments.splice(at, 1)
     segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
+    moveClosedView(current, partId)
     rt.chatOwners.delete(current)
     rt.chatOwners.set(partId, botId)
     rt.pastOwners.delete(partId)

@@ -15,6 +15,10 @@ const invalid = message => Object.assign(new Error(message), { code: 'bot/invali
 // any other error is a refusal whose message is meant for the user.
 const isInternal = error => error instanceof TypeError || error instanceof ReferenceError || error instanceof RangeError
   || error instanceof SyntaxError || (typeof error?.code === 'string' && /^E[A-Z_]+$/.test(error.code))
+const MEMORY_LIMIT_SCOPES = new Set(['group', 'bot', 'team'])
+const MEMORY_LIMIT_MIN = 1_000
+const MEMORY_LIMIT_MAX = 200_000
+
 export function errorCode(error) {
   if (typeof error?.code === 'string' && error.code.startsWith('bot/')) return error.code
   return isInternal(error) ? 'bot/internal' : 'bot/refused'
@@ -62,6 +66,7 @@ export function install(rt) {
     questions: state.questions,
     views: state.views ?? {},
     closedCards: state.closedCards ?? {},
+    closedViews: state.closedViews ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
@@ -183,6 +188,11 @@ export function install(rt) {
       if (body.enterToSend === false) state.prefs.enterToSend = false
       else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend
     }
+    if (body.memoryLimits !== undefined) {
+      const sizes = Object.entries(body.memoryLimits ?? {}).filter(([scope, size]) => MEMORY_LIMIT_SCOPES.has(scope) && Number.isInteger(size) && size >= MEMORY_LIMIT_MIN && size <= MEMORY_LIMIT_MAX)
+      if (sizes.length === 0) delete state.prefs.memoryLimits
+      else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
+    }
     return rt.save()
   }
 
@@ -290,6 +300,12 @@ export function install(rt) {
         case 'update-bot':
           await rt.load()
           return ok(await rt.updateBot(body.id, body))
+        // Give up one wait for a hand-off that will not come back: only that sub-work
+        // closes, with an explicit result for the work above it.
+        case 'abandon-work':
+          await rt.load()
+          if (rt.abandonWork?.(String(body.id ?? '')) !== true) return fail('That wait is no longer open', 'bot/stale')
+          return ok(true)
         // The repair card's Retry, once the user fixed what failed the Bot's turn.
         case 'resume': {
           await rt.load()
@@ -474,6 +490,7 @@ export function install(rt) {
           return ok(await rt.scheduleEndpoint(endpoint, body))
         case 'memory-view':
         case 'memory-ask':
+        case 'memory-pin':
         case 'memory-forget':
         case 'memory-history':
         case 'memory-restore':

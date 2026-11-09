@@ -754,6 +754,8 @@ export function install(rt) {
         view,
         askedAt: Date.now(),
       }
+      // A new card supersedes the closed one the dock may still show.
+      if (state.closedViews !== undefined) delete state.closedViews[id]
       await rt.save()
       exec.concludeTurn?.()
       return 'The view is on screen; the user\'s answer arrives as their next message.'
@@ -822,7 +824,37 @@ export function install(rt) {
       unscope(id)
       held = undefined
     }
-    if (!wanted || held?.tools === true) return
+    if (!wanted) return
+    // A live Agent can be scoped while the modules that add tools are still installing:
+    // loading the plugin again walks the live Agents from the load the memory module
+    // starts, and the tools added after it (memory, secrets, connectors) would never
+    // join that scope. Register what it is missing, so the next request is whole.
+    if (held?.tools === true) {
+      for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
+        if (relayOnly && def.name !== 'group_relay') continue
+        if (held.added?.has(def.name) === true) continue
+        try {
+          const dispose = agent.ctx.tools.register(def)
+          if (typeof dispose === 'function') {
+            ;(held.toolLifts ??= new Map()).set(def.name, dispose)
+            held.disposers.push(dispose)
+          }
+          // Recorded only once the Agent took it: one that failed is tried again at
+          // the next assemble, so a reload cannot leave that tool out for good.
+          ;(held.added ??= new Set()).add(def.name)
+          held.unlisted.add(def.name)
+        } catch (error) {
+          // A name the replaced plugin's scope still holds reads as already
+          // registered. It is left out of `added`, so the next assemble tries again
+          // once that scope is released, and it is not reported as a new failure.
+          if (/already registered/i.test(String(error?.message ?? error))) continue
+          if (held.missed?.has(def.name) === true) continue
+          ;(held.missed ??= new Set()).add(def.name)
+          rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
+        }
+      }
+      return
+    }
     if (typeof agent.ctx?.tools?.register !== 'function') {
       if (!registerless.has(agent)) {
         registerless.add(agent)
@@ -855,6 +887,7 @@ export function install(rt) {
     held.tools = true
     held.local = localBot
     held.disposers.push(...disposers)
+    held.added = new Set(registered)
     scoped.set(id, held)
     // A scope made outside creation never reached a collected tool list; the
     // assemble adds the pending names to the step's list once, then clears them.
@@ -895,6 +928,7 @@ export function install(rt) {
       try {
         const dispose = held.agent.ctx.tools.register(def)
         if (typeof dispose === 'function') held.disposers.push(dispose)
+        ;(held.added ??= new Set()).add(def.name)
         held.unlisted.add(def.name)
       } catch { /* an agent that refuses it simply lacks the tool */ }
     }
@@ -906,6 +940,7 @@ export function install(rt) {
     for (const held of scoped.values()) {
       held.toolLifts?.get(name)?.()
       held.toolLifts?.delete(name)
+      held.added?.delete(name)
       held.unlisted.delete(name)
     }
   }

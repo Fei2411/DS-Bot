@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { setImmediate as tick } from 'node:timers/promises'
 import { test } from 'node:test'
 import { install } from '../src/host/groups.js'
+import { install as installDelivery } from '../src/host/delivery.js'
 import { qqRequestId, qqReplyOf, qqReplyChat } from '../src/shared/qq-reply.js'
 
 const reply = (messageId, senderId) => ({ connectionId: 'im_one', chatKey: 'g1', kind: 'group', messageId, senderId })
@@ -25,6 +26,25 @@ test('QQ request sources round-trip without confusing old IDs or other listeners
     [{ id: 'im_one', platform: 'qq' }, 'g1', 'direct'],
     [{ platform: 'telegram' }, 'g1', 'group'],
   ]) assert.equal(qqReplyChat(conn, key, { kind }, anchor).replyTo, undefined)
+})
+
+test('delivery preserves QQ context together with the abandoned-wait options', async () => {
+  const messages = []
+  const agent = { session: {}, followup: message => messages.push(message) }
+  const rt = {
+    ctx: { sessionController: { resolveAgent: async () => ({ agent }) }, sessions: { flush: async () => {} } },
+    state: { exchanges: [] }, botOf: id => id === 'recipient' ? { id } : undefined,
+    roomOf: () => undefined, chatOf: id => id, hideBotUnusedTools() {}, ensureCapabilities: async () => {},
+  }
+  installDelivery(rt)
+  const qqReply = reply('message-a', 'alice')
+  await rt.deliver({ toId: 'recipient', fromName: 'Former sender', role: 'reply', text: 'No reply came back', abandoned: true, recordExchange: false, qqReply })
+  assert.equal(messages.length, 1)
+  assert.match(messages[0].content[0].text, /Waiting given up · Former sender/)
+  assert.equal(messages[0].source.senderName, 'Former sender')
+  assert.equal(messages[0].source.abandoned, true)
+  assert.deepEqual(messages[0].source.qqReply, qqReply)
+  assert.deepEqual(rt.state.exchanges, [], 'a synthetic wait result is not recorded as a new exchange')
 })
 
 test('a group member keeps its QQ reply source when a second question joins the running round', async (t) => {
