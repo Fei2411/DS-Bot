@@ -623,6 +623,7 @@ const ZH = {
   'Text width': '正文宽度',
   'Show thinking': '显示思考过程',
   'Enter sends message': '回车发送消息',
+  'Bring up related memory': '自动带上相关记忆',
   'Group memory size': '群记忆容量',
   'Bot memory size': 'Bot 记忆容量',
   'Team memory size': '团队记忆容量',

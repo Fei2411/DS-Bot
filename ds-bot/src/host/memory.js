@@ -32,9 +32,10 @@ import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/ds
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
-import { estimateTokens, splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
-import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
+import { estimateTokens, splitRef, textOf, unquote } from './text.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
+import { pickRecalled, rankEntries } from './memory-search.js'
+import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { output } from './tools.js'
 
@@ -44,6 +45,10 @@ export { writtenIn } from './memory-copy.js'
 // Where entries go when MEMORY.md is at its size.
 const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
+// What the first step of a turn may bring along from the topics.
+const AUTO_RECALL_MAX = 5
+const AUTO_RECALL_TEXT_MAX = 3_000
+const AUTO_RECALL_QUERY_MAX = 2_000
 // One memory update message says this much; the rest is left to recall.
 const UPDATE_ROWS_MAX = 20
 const UPDATE_TEXT_MAX = 4_000
@@ -619,8 +624,11 @@ export function install(rt) {
     return lines.length > 0 ? lines : ['(nothing saved yet)']
   }
   const topicLine = (scope) => {
-    const names = topicNames(scope)
-    return names.length > 0 ? [`Topics: ${names.map(name => `[[${name}]]`).join(', ')}`] : []
+    const dir = dirOf(scope)
+    return topicNames(scope).map((name) => {
+      const about = topicAbout(parseMemory(readFileSync(join(dir, `${name}.md`), 'utf8')), scope.kind !== 'team')
+      return `Topic [[${name}]]${about === '' ? '' : `: ${about}`}`
+    })
   }
   // The prompt section reads on its own: it may not throw, or one unreadable memory
   // would fail the whole turn. The unreadable file shows as a line instead of entries.
@@ -791,8 +799,48 @@ export function install(rt) {
     if (snapshot !== undefined) front.push(snapshot)
     const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
     if (update !== undefined) front.push(update)
+    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision)
+    if (recalled !== undefined) front.push(recalled)
     return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
   })
+
+  // Topic entries that share enough with what was just said, once per conversation part.
+  // MEMORY.md is in view already. Off when the user turns it off.
+  const isRecalled = message => message?.source?.kind === MEMORY_RECALL_SOURCE
+  const SAID = new Set(['user', 'schedule', 'bot'])
+  function autoRecall(agent, bot, roomId, decision) {
+    if (state.prefs.memoryAutoRecall === false) return undefined
+    const said = decision.messages.findLast(message => message?.role === 'user' && SAID.has(message.source?.kind))
+    const query = said === undefined ? '' : textOf(said.content).slice(0, AUTO_RECALL_QUERY_MAX)
+    if (query.trim() === '') return undefined
+    let history = []
+    try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* nothing to look in */ }
+    const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
+    const own = ownScope(bot.id)
+    const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
+    let topicEntries
+    try {
+      topicEntries = scopes.flatMap(scope => allEntries(loadScope(scope).slice(1)).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+    } catch (error) {
+      rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
+      return undefined
+    }
+    const open = topicEntries.filter(entry => !isExpired(entry, today()) && !shown.has(entryId(entry)))
+    const picked = []
+    let used = 0
+    for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX)) {
+      const line = `- (${entry.tag} · ${entry.file.topic}) ${promptEntry(entry).slice(2)}`
+      if (used + line.length > AUTO_RECALL_TEXT_MAX) break
+      used += line.length
+      picked.push({ line, id: entryId(entry) })
+    }
+    if (picked.length === 0) return undefined
+    const text = [RECALL_HEADING, RECALL_NOTE, '', ...picked.map(item => item.line)].join('\n')
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: MEMORY_RECALL_SOURCE, form: 'snapshot', ids: picked.map(item => item.id), sections: [{ name: MEMORY_RECALL_SOURCE, text }] },
+    })
+  }
 
   function groupSnapshot(agent, roomId, bot, decision) {
     if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
@@ -1062,7 +1110,8 @@ export function install(rt) {
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
       })).filter(hit => hit.count > 0)
       const every = scored.filter(hit => hit.count === terms.length)
-      const hits = (every.length > 0 ? every : scored.sort((a, b) => b.count - a.count)).slice(0, RECALL_MAX)
+      const scores = new Map(rankEntries(scored.map(hit => hit.entry), query).map(hit => [hit.entry, hit.score]))
+      const hits = (every.length > 0 ? every : scored).sort((a, b) => b.count - a.count || (scores.get(b.entry) ?? 0) - (scores.get(a.entry) ?? 0)).slice(0, RECALL_MAX)
       const names = loaded.map(item => item.label)
       const labels = names.length > 2 ? `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}` : names.join(' and ')
       if (hits.length === 0) return `Nothing in ${labels} mentions "${query}". read_own_chat searches what was said.`
