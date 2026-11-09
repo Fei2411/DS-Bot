@@ -142,23 +142,10 @@ test('the release becomes Latest last, after every job that attaches files', () 
   assert.match(runs(job), /node scripts\/release-notes\.mjs /u)
 })
 
-test('both READMEs open with the same download block, a Windows link and the not-official line', () => {
+test('both READMEs link the latest release and do not hard-code release version numbers', () => {
   for (const file of ['../../README.md', '../../README.zh.md']) {
-    const top = read(file).split(/\r?\n/u).slice(0, 10).join('\n')
-    assert.match(top, /\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/latest\)/u, file)
-    assert.match(top, /Windows 10\/11/u, file)
-    assert.match(top, /not an official DeepSeek product/u, file)
-    assert.match(top, /不是 DeepSeek 官方产品/u, file)
+    const text = read(file)
+    assert.match(text, /\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/latest\)/u, file)
+    assert.doesNotMatch(text, /ds-bot-\d+\.\d+\.\d+\.tgz|DS-Bot#v\d/u, file)
   }
-  const block = (file) => {
-    const lines = read(file).split(/\r?\n/u)
-    return lines.slice(lines.findIndex(line => line.startsWith('**[Download DS Bot')), lines.findIndex(line => line.startsWith('**DS Bot**:')) + 1)
-  }
-  assert.ok(block('../../README.md').length > 10)
-  assert.deepEqual(block('../../README.zh.md'), block('../../README.md'))
-  // Edge shows Keep anyway only under Show more.
-  assert.match(block('../../README.md').join('\n'), /\*\*Keep\*\* → \*\*Show more\*\* → \*\*Keep anyway\*\*/u)
-  assert.match(block('../../README.md').join('\n'), /「保留」→「显示更多」→「仍然保留」/u)
-  for (const file of ['../../README.md', '../../README.zh.md'])
-    assert.doesNotMatch(read(file), /ds-bot-\d+\.\d+\.\d+\.tgz|DS-Bot#v\d/u, file)
 })

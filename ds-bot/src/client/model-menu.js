@@ -6,6 +6,7 @@ import { BotMark } from './mark.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
+import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
 
 const MENU_EXIT_MS = 120
 
@@ -32,6 +33,7 @@ export function groupModels(models) {
 }
 
 const servedOf = (roster, ref) => (roster.models ?? []).find(model => model.ref === ref)
+const nameOf = model => (model.id === 'default' && isLocalRoute(model.ref) ? t('CLI default') : model.name)
 
 // What a Bot runs on, for display: the chosen model, else the one it last ran on.
 export function modelOf(bot, roster) {
@@ -39,7 +41,7 @@ export function modelOf(bot, roster) {
   if (!ref) return undefined
   const served = servedOf(roster, ref)
   const [provider, ...rest] = ref.split('/')
-  return { ref, name: served?.name ?? rest.join('/'), provider: served?.providerName ?? provider, served: served !== undefined }
+  return { ref, name: served === undefined ? rest.join('/') : nameOf(served), provider: served?.providerName ?? provider, served: served !== undefined }
 }
 
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
@@ -191,16 +193,72 @@ export function EffortBar({ reasoning, current, onPick }) {
     h('span', { className: 'bt-effort-knob', 'aria-hidden': true })))
 }
 
-function ModelRows({ roster, current, onPick }) {
-  return groupModels(roster.models).map(([provider, list]) => h(Fragment, { key: list[0].provider ?? provider },
-    h('div', { className: 'bt-model-group', role: 'presentation' }, provider),
-    list.map(model => h('button', {
-      key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
-      onClick: () => onPick(model.ref),
-    },
-    h('span', { className: 'bt-menu-label' }, model.name),
-    model.ref === roster.defaultModel ? h('span', { className: 'bt-menu-hint' }, t('Default')) : null,
-    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null)))))
+// The stable id of a provider group: the models' provider, never the display name,
+// which repeats when two providers carry the same name.
+const groupIdOf = list => list[0]?.provider ?? (typeof list[0]?.ref === 'string' ? list[0].ref.split('/')[0] : '')
+
+// The group that holds the Bot's model, by that id; undefined when the model is no
+// longer served, or the Bot has none.
+function currentGroupId(groups, current) {
+  if (current === undefined || current === null) return undefined
+  const found = groups.find(([, list]) => list.some(model => model.ref === current))
+  return found === undefined ? undefined : groupIdOf(found[1])
+}
+
+// A group is open when the user opened or closed it during this opening of the menu.
+// Otherwise the current model's provider is open, or the first provider when the model
+// is not in the catalog. A search opens every group it matched, so a result is never
+// hidden behind a heading, and the manual state applies again once the search clears.
+export function groupOpen({ id, index, currentId, filtering, manual }) {
+  if (filtering) return true
+  const chosen = manual[id]
+  if (chosen !== undefined) return chosen
+  return currentId === undefined ? index === 0 : id === currentId
+}
+
+// The manual state after a heading is clicked, `open` being what the heading showed.
+export const toggledGroup = (manual, id, open) => ({ ...manual, [id]: !open })
+
+// The provider headings and the models under the open ones. A search shows the plain
+// headings of every matched group, with nothing to collapse: every result is visible.
+// Kept apart from the state so a test can open and close a group the way its heading does.
+export function ModelGroupList({ groups, current, currentId, defaultModel, onPick, manual, onToggle, filtering = false }) {
+  return groups.map(([provider, list], index) => {
+    const id = groupIdOf(list)
+    const open = groupOpen({ id, index, currentId, filtering, manual })
+    return h(Fragment, { key: `group:${id || provider}` },
+      filtering
+        ? h('div', { className: 'bt-model-group', role: 'presentation' }, provider)
+        : h('button', {
+            type: 'button', role: 'menuitem', className: 'bt-model-group bt-model-group-toggle',
+            'aria-expanded': open, 'data-open': open ? '' : undefined,
+            onClick: () => onToggle(id, open),
+          },
+          h(Caret), h('span', { className: 'bt-menu-label' }, provider)),
+      open ? list.map(model => h('button', {
+        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
+        onClick: () => onPick(model.ref),
+      },
+      h('span', { className: 'bt-menu-label' }, nameOf(model)),
+      model.ref === defaultModel ? h('span', { className: 'bt-menu-hint' }, t('Default')) : null,
+      h('span', { className: 'bt-model-tick', 'aria-hidden': true }, model.ref === current ? h(CheckIcon) : null))) : null)
+  })
+}
+
+const NO_MANUAL = {}
+// The manual state belongs to one opening of the menu. The leaving menu lives through
+// its 120ms exit animation, so a reopen can land on the same mounted rows; asking with
+// the new opening number then reads the default again instead of the old choices.
+export const manualFor = (state, opening) => (state.opening === opening ? state.manual : NO_MANUAL)
+
+export function ModelRows({ roster, current, onPick, filtering = false, opening = 0 }) {
+  const groups = groupModels(roster.models)
+  const [state, setState] = useState({ opening, manual: NO_MANUAL })
+  const manual = manualFor(state, opening)
+  return h(ModelGroupList, {
+    groups, current, currentId: currentGroupId(groups, current), defaultModel: roster.defaultModel, onPick, filtering, manual,
+    onToggle: (id, open) => setState(previous => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) })),
+  })
 }
 
 export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, height: 12, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M5.5 8l4.5 4.5L14.5 8' }))
@@ -251,14 +309,28 @@ export function useAnchoredMenu() {
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
 
+// A local agent's list comes from its CLI, which only its own menu asks: the menu opens
+// at once and fills in when the CLI has answered.
+export function useAgentModels(actions) {
+  const [reading, setReading] = useState(false)
+  const read = (route) => {
+    if (actions?.agentModels === undefined) return
+    setReading(true)
+    void Promise.resolve(actions.agentModels(route)).finally(() => setReading(false))
+  }
+  return [reading, read]
+}
+
 // The trigger shows the model name over its provider. A Thinking section lists the
 // levels of the shown model when it has them.
 // `onPick`/`onPickEffort` replace saving to the Bot, for a Bot that does not exist yet.
 // `withEfforts: false` keeps the Thinking section out, for a pick that has no level of its own.
 export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
+  const [reading, readModels] = useAgentModels(actions)
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
+  const local = isLocalRoute(current)
   const served = servedOf(roster, current)
   const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
@@ -267,10 +339,15 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
   const effortLabel = currentEffort === undefined
     ? (reasoning?.efforts?.length > 0 ? t('Default') : undefined)
     : reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort
+  // Each opening is a new number, so the rows start from the current model again even
+  // when the previous menu is still playing its exit animation under a quick reopen.
+  const [opening, setOpening] = useState(0)
   const toggle = () => {
     if (isOpen) { close(); return }
     // DSH settings can change the list at any time, so opening asks again.
-    void actions?.refreshModels?.()
+    if (local) readModels(routeOf(current))
+    else void actions?.refreshModels?.()
+    setOpening(count => count + 1)
     open()
   }
   const pick = (ref) => {
@@ -282,8 +359,8 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     if (onPickEffort) onPickEffort(effort)
     else if (effort !== bot.effort) void run(actions.updateBot(bot.id, { effort: effort ?? null }))
   }
-  const models = roster.models ?? []
-  const manage = manageModels(actions)
+  const models = modelsFor(roster.models, current)
+  const manage = local ? undefined : manageModels(actions)
   const hasEfforts = withEfforts && effortStops(reasoning).length > 0
   return h(Fragment, null,
     h('button', {
@@ -299,8 +376,9 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
       h('div', { className: 'bt-model-scroll' },
-        models.length > 0 ? h(ModelRows, { roster, current, onPick: pick })
-          : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.'))),
+        models.length > 0 ? h(ModelRows, { roster: { ...roster, models }, current, onPick: pick, opening })
+          : local ? null : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
+        reading ? h('div', { className: 'bt-model-none' }, t('Reading models…')) : null),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning, current: picked, onPick: pickEffort }) : null,
         hasEfforts && manage ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
@@ -317,7 +395,9 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
   const shown = Boolean(bot) && currentPart(bot) === sessionId && roster.ready
   useEffect(() => { if (shown) void actions.refreshModels?.() }, [shown, sessionId])
   if (!bot || currentPart(bot) !== sessionId || !roster.ready) return null
-  const models = roster.models ?? []
+  // A local agent that is gone gets the repair card; picking a model here would change what it runs on.
+  if (isLocalRoute(bot.model)) return null
+  const models = modelsFor(roster.models)
   // A model whose provider has no API key fails every turn, so it is no choice.
   const usable = models.filter(model => !model.needsKey)
   const lost = bot.model ? !models.some(model => model.ref === bot.model) : false
@@ -397,8 +477,8 @@ export function ModelKeyCard({ model, actions, onSaved }) {
       h('button', { type: 'button', className: 'bt-q-submit', disabled: !ready, onClick: save }, busy ? t('Saving…') : t('Save'))))
 }
 
-// Where the providers are set up: DS Bot's Models page, else DSH's own.
-export const manageModels = actions => actions.openModels ?? actions.openHarnessModels ?? actions.openHarnessSettings
+// Where the providers are set up: the Models page of Settings.
+export const manageModels = actions => actions.openModels ?? (actions.openSettings ? () => actions.openSettings('models') : undefined)
 
 // Ways to get a first model. The DeepSeek sign-in exists only where the shell carries
 // its account plugin; the API key uses the shell's own editor.
@@ -475,6 +555,13 @@ export const MODEL_CSS = `
 .bt-effort-track:hover .bt-effort-knob,.bt-effort-track[data-dragging] .bt-effort-knob{scale:1.08}
 .bt-model-group{flex:none;padding:8px 8px 2px;font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3);text-transform:none}
 .bt-model-group:first-child{padding-top:2px}
+/* A heading that opens and closes its group: the same type as the plain headings other
+menus use, with the menu item's hover, focus ring and a caret that points at the state. */
+.bt-model-group-toggle{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;margin:0;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);font:inherit;font-size:11px;line-height:14px;font-weight:500;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-model-group-toggle:hover{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-model-group-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-model-group-toggle .bt-model-caret{color:inherit}
+.bt-model-group-toggle[aria-expanded=false] .bt-model-caret{transform:rotate(-90deg)}
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}

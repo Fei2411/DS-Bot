@@ -290,6 +290,27 @@ test('a Bot without a pick keeps the standard default and the team file gains no
   assert.equal(host.state().bots.chief.agentPreset, undefined)
 })
 
+test('a Bot keeps its preset and sidebar section through creation, copy and update', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const section = await host.rt.saveSection({ name: 'Research' })
+  const created = await host.call('create-bot', { name: 'Writer', agentPreset: 'research', sectionId: section.id })
+  assert.equal(created.ok, true, JSON.stringify(created))
+  const writer = created.value
+  assert.equal(writer.sectionId, section.id)
+  assert.equal(host.headers.get(writer.id), 'research')
+  const copied = await host.call('duplicate-bot', { id: writer.id })
+  assert.equal(copied.ok, true, JSON.stringify(copied))
+  assert.equal(copied.value.sectionId, section.id)
+  assert.equal(copied.value.agentPreset, 'research')
+  const updated = await host.call('update-bot', { id: writer.id, agentPreset: 'standard', sectionId: null })
+  assert.equal(updated.ok, true, JSON.stringify(updated))
+  await until(() => host.chatOf(writer.id) !== writer.id)
+  assert.equal(host.state().bots[writer.id].sectionId, undefined)
+  assert.equal(host.headers.get(host.chatOf(writer.id)), 'standard')
+})
+
 test('an unknown or broken preset leaves no Bot and no Session behind', async (t) => {
   const cases = [
     [[{ id: 'standard' }, { id: 'research' }], 'nope', /not available/],

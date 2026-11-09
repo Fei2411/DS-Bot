@@ -185,9 +185,46 @@ def make_xlsx():
     wb.save(os.path.join(OUT, "sample.xlsx"))
 
 
+def make_content_regressions():
+    doc = Document()
+    doc.add_paragraph().add_run("Before\tMATCH\nAfter").bold = True
+    doc.add_paragraph().add_run("MATCH\nMATCH\tMATCH").italic = True
+    doc.add_paragraph("LEFT\tRIGHT")
+    p = doc.add_paragraph()
+    p.add_run("M").bold = True
+    p.add_run("ATCH\nTAIL").italic = True
+    p = doc.add_paragraph('Hello')
+    p.paragraph_format.tab_stops.add_tab_stop(Inches(1))
+    doc.add_paragraph('End\t')
+    doc.add_paragraph('End\n')
+    doc.save(os.path.join(OUT, "content.docx"))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Budget"
+    for row, fmt in enumerate(['"USD" #,##0.00', '[Red]#,##0.00', '[$USD-409]#,##0.00',
+                               r'0.00\d', '0.00_d', '0.00*d', '0.00;[Red]-0.00;0.00;"USD"'], 1):
+        ws.cell(row, 1, 1234.5).number_format = fmt
+    ws['B1'] = __import__('datetime').datetime(2026, 11, 8)
+    ws['B1'].number_format = '"Day "yyyy-mm-dd'
+    for row, value in [(8, 44000), (9, 46000)]:
+        ws.cell(row, 1, value).number_format = '[>=45000]0;yyyy-mm-dd'
+    wb.save(os.path.join(OUT, "formats.xlsx"))
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_table(2, 2, PInches(9), PInches(1), PInches(3), PInches(1))
+    chart = CategoryChartData()
+    chart.categories = ['Q1']
+    chart.add_series('Sales', (1,))
+    slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, PInches(9), PInches(4), PInches(3), PInches(2), chart)
+    prs.save(os.path.join(OUT, "frames.pptx"))
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     make_docx()
     make_pptx()
     make_xlsx()
+    make_content_regressions()
     print("fixtures written to", os.path.abspath(OUT))

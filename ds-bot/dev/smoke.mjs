@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { modelsFor } from '../src/client/agent-routes.js'
 
 const [name, port, ...rest] = process.argv.slice(2)
 if (!name || !port) {
@@ -62,17 +63,17 @@ const state = () => readJson(join(HOME, 'bot', 'state.json'))
 const botNamed = wanted => Object.values(state().bots).find(bot => bot.name === wanted)
 const roomNamed = wanted => Object.values(state().rooms).find(room => room.name === wanted)
 
-// Quiet: no Bot shows an activity and the mock has taken no call for QUIET_MS. Deliveries
-// start a moment after a turn ends, so activity alone is not enough.
+// View tools clear their activity before execution finishes. Wait for the turns too;
+// deliveries start a moment after a turn ends, so also let the mock stay quiet.
 async function settle() {
   const deadline = Date.now() + STEP_TIMEOUT_MS
   let calls = mockLog().length
   let since = Date.now()
   while (Date.now() < deadline) {
     await sleep(400)
-    const { activity = {} } = await api('state')
+    const { activity = {}, work = {} } = await api('state')
     const now = mockLog().length
-    if (now !== calls || Object.keys(activity).length > 0) {
+    if (now !== calls || Object.keys(activity).length > 0 || Object.keys(work.turns ?? {}).length > 0) {
       calls = now
       since = Date.now()
     } else if (Date.now() - since >= QUIET_MS) {
@@ -167,7 +168,8 @@ let models = []
 await step('bootstrap: Chief waits for a model', () => api('state'), (value, calls) => {
   const current = state()
   const bots = Object.values(current.bots)
-  models = value.models ?? []
+  // The model card offers DS Bot models only; a CLI found on this machine is no pick there.
+  models = modelsFor(value.models)
   return expect(bots.length === 1 && bots[0].name === 'Chief' && current.mainBotIds[0] === bots[0].id, 'expected one Main Bot named Chief')
     ?? expect(bots[0].model === undefined && bots[0].kickoff !== undefined, 'Chief should hold its greeting until a model is picked')
     ?? expect(value.bots[0].waiting === true, 'the view should show Chief as waiting')

@@ -114,6 +114,9 @@ test('a create sends only the preset the user picked', () => {
   assert.equal('agentPreset' in createPayload({ name: 'A', look }), false)
   assert.equal('agentPreset' in createPayload({ name: 'A', look, agentPreset: null }), false)
   assert.equal(createPayload({ name: 'A', look, agentPreset: 'ptc' }).agentPreset, 'ptc')
+  const grouped = createPayload({ name: 'A', look, agentPreset: 'ptc', sectionId: 'research', ownLook: true })
+  assert.equal(grouped.agentPreset, 'ptc')
+  assert.equal(grouped.sectionId, 'research')
 })
 
 test('an update clears the choice with null and sends nothing when it did not change', () => {

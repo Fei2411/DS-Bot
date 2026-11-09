@@ -104,6 +104,11 @@ test('the Bot settings give the picker and the hint the same directory', () => {
   assert.equal(hint(tree), presetHint(bot, picker.props.presets, picker.props.error))
 })
 
+test('local agent settings do not offer a DSH Agent preset', () => {
+  const tree = walk(BotSettingsForm({ bot: { ...bot, engine: 'codex' }, roster, actions: {}, run: fn => fn }))
+  assert.equal(tree.some(node => node.type === AgentPresetMenu), false)
+})
+
 test('the menu opens into the document, with the failure and the retry inside it', () => {
   menusOpen = true
   try {

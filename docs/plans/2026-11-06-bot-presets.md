@@ -49,6 +49,7 @@ DSH 的 Agent 预设决定一个 Session 有哪些工具、提示段和技能。
 - `api/bot` 的 `presets` 操作（只读，另一个 dsh 持有团队时也可答）返回 `{ presets: [{ id, name?, description?, broken? }] }`：这个 profile 的预设目录；坏的、以及与 Bot 不兼容的，留在列表里带原因，让选择器能显示但禁选。
 - `create-bot` / `update-bot` 的 payload 接受 `agentPreset`：字符串 id 或 `null`（清掉显式选择，回到默认）。未提供即不改。`null` 表示用户自己挑了默认，Bot 上因此记下内部标记 `agentPresetDefault`（不对外暴露，见上）。
 - 建 Bot 表单和 Bot 设置里有一个 Agent preset 选择器：第一项是默认项，后面是目录里每个预设。第一项的名字和提示**跟着目录走**：目录里有可用的 `standard` 时叫「Default (Standard)」，没有时叫「Default (DSH default)」；目录还没读到时第一项只写「Default」，Bot 设置那一行显示「Loading…」，读到之后才定名。选默认项等于清掉显式选择。`broken`（含不兼容）的禁选并显示原因；已选但不在目录里的显示为「Missing preset」，并带着原来的 id，不静默换成别的预设。选择器打开时重新取一次目录。
+- 选择器只在 DSH 模型运行方式下显示；本地 Agent CLI 使用自己的组成。切换到本地 CLI 时保留 Bot 已存的 DSH 预设，切回模型运行方式后继续使用。
 
 ## 不做什么
 

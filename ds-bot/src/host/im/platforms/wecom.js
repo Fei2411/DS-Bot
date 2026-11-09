@@ -5,13 +5,23 @@
 // aibot_send_msg. Template-card buttons come back as aibot_event_callback.
 // Encrypted images download with their per-link AES-256 key. Markdown.
 // Wire details ported from @wecom/aibot-node-sdk (MIT, see NOTICE).
+// The gateway takes a WebSocket on its root path only (/wss answers 403) and
+// matches Connection / Upgrade case-sensitively, so the socket comes from `ws`:
+// Node's built-in WebSocket sends those header names in lowercase.
 import { createDecipheriv } from 'node:crypto'
+import WebSocket from 'ws'
 import { chunkMarkdown } from '../format.js'
 
 const WSS = 'wss://openws.work.weixin.qq.com'
 const TEXT_LIMIT = 4000
 
-const wsBase = env => String(env.config?.gateway ?? env.config?.api ?? WSS).replace(/\/+$/, '')
+const socketUrl = env => String(env.config?.gateway ?? env.config?.api ?? WSS).replace(/\/+$/, '')
+// Keep the cause on screen: a refused handshake reports its HTTP status here.
+const socketError = (error) => {
+  const code = error?.code ?? error?.cause?.code
+  const message = String(error?.message ?? error)
+  return code !== undefined && !message.includes(code) ? `${message} (${code})` : message
+}
 
 export default {
   id: 'wecom',
@@ -21,32 +31,34 @@ export default {
   async check(fields, env) {
     const botId = String(fields.botId ?? '').trim()
     const secret = String(fields.secret ?? '').trim()
-    if (env.WebSocket === undefined) throw new Error('This dsh runs on a Node without WebSocket')
     return await new Promise((resolve, reject) => {
       let socket
+      let settled = false
       const finish = (error, account) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
-        try { socket?.close(1000, 'check') } catch { /* not open */ }
+        try { socket?.terminate() } catch { /* not open */ }
         if (error === undefined) resolve({ account })
         else reject(error)
       }
       const timer = setTimeout(() => finish(new Error('WeCom did not answer the subscription')), 10_000)
-      try { socket = new env.WebSocket(`${wsBase(env)}/wss`) } catch (error) {
-        finish(new Error(`WeCom could not open a socket: ${error?.message ?? error}`))
+      try { socket = new WebSocket(socketUrl(env)) } catch (error) {
+        finish(new Error(`WeCom could not open a socket: ${socketError(error)}`))
         return
       }
-      socket.addEventListener('open', () => {
+      socket.on('open', () => {
         socket.send(JSON.stringify({ cmd: 'aibot_subscribe', headers: { req_id: 'check-1' }, body: { secret, bot_id: botId } }))
       })
-      socket.addEventListener('message', (event) => {
+      socket.on('message', (data) => {
         let packet
-        try { packet = JSON.parse(String(event.data)) } catch { return }
+        try { packet = JSON.parse(String(data)) } catch { return }
         if (packet.errcode === undefined) return
         if (packet.errcode === 0) finish(undefined, { id: botId, name: botId })
         else finish(new Error(String(packet.errmsg ?? `WeCom answered ${packet.errcode}`)))
       })
-      socket.addEventListener('error', () => finish(new Error('WeCom refused the socket')))
-      socket.addEventListener('close', () => {})
+      socket.on('error', error => finish(new Error(`WeCom could not connect: ${socketError(error)}`)))
+      socket.on('close', () => {})
     })
   },
 
@@ -59,6 +71,12 @@ export default {
     let reconnectTimer
     let pingTimer
     let reqCounter = 0
+    // A refusal is kept on the status while the adapter retries.
+    let lastError
+    const fail = (message) => {
+      lastError = message
+      handlers.onStatus({ state: 'error', error: message })
+    }
     // Passive replies reuse the last callback req_id per chat.
     const lastReqId = new Map()
     const pending = new Map() // req_id → {resolve, reject}
@@ -114,20 +132,20 @@ export default {
 
     const open = () => {
       const gen = generation
-      try { socket = new env.WebSocket(`${wsBase(env)}/wss`) } catch (error) {
-        handlers.onStatus({ state: 'error', error: `WeCom could not open a socket: ${error?.message ?? error}` })
+      try { socket = new WebSocket(socketUrl(env)) } catch (error) {
+        fail(`WeCom could not open a socket: ${socketError(error)}`)
         return
       }
-      socket.addEventListener('open', () => {
+      socket.on('open', () => {
         sendFrame({ cmd: 'aibot_subscribe', headers: { req_id: nextReqId() }, body: { secret, bot_id: botId } })
       })
-      socket.addEventListener('message', (event) => {
+      socket.on('message', (data) => {
         if (stopped || generation !== gen) return
         let packet
-        try { packet = JSON.parse(String(event.data)) } catch { return }
+        try { packet = JSON.parse(String(data)) } catch { return }
         if (packet.errcode !== undefined) {
           if (packet.errcode !== 0) {
-            handlers.onStatus({ state: 'error', error: String(packet.errmsg ?? `WeCom answered ${packet.errcode}`) })
+            fail(String(packet.errmsg ?? `WeCom answered ${packet.errcode}`))
             const held = pending.get(packet.headers?.req_id)
             if (held !== undefined) {
               pending.delete(packet.headers?.req_id)
@@ -140,6 +158,7 @@ export default {
             pending.delete(packet.headers.req_id)
             held.resolve(packet.body)
           }
+          lastError = undefined
           handlers.onStatus({ state: 'ready', account: { id: botId, name: botId } })
           return
         }
@@ -149,14 +168,18 @@ export default {
           void onEvent(packet.headers, packet.body ?? {}).catch(error => env.log?.warn?.('ds-bot im: wecom event failed: %s', error?.message ?? error))
         }
       })
-      socket.addEventListener('close', () => {
+      socket.on('close', () => {
         clearTimeout(pingTimer)
         if (stopped || generation !== gen) return
-        handlers.onStatus({ state: 'connecting' })
+        // A refusal stays on screen until a socket subscribes again.
+        if (lastError === undefined) handlers.onStatus({ state: 'connecting' })
         reconnectTimer = setTimeout(() => { if (!stopped) open() }, 2000)
         reconnectTimer.unref?.()
       })
-      socket.addEventListener('error', () => {})
+      socket.on('error', (error) => {
+        if (stopped || generation !== gen) return
+        fail(`WeCom socket failed: ${socketError(error)}`)
+      })
       pingTimer = setInterval(() => { if (!stopped && socket?.readyState === 1) sendFrame({ cmd: 'ping', headers: { req_id: nextReqId() } }) }, 30_000)
       pingTimer.unref?.()
     }
