@@ -19,13 +19,10 @@ const SIGN_IN = {
   'devin-cli': 'devin auth login',
   'claude-code': 'claude',
   'codex-cli': 'codex login',
-  'opencode': 'opencode auth login',
   'cursor-cli': 'cursor-agent login',
   'gemini-cli': 'gemini',
-  'grok-cli': 'grok',
   'cline': 'cline auth',
   'qwen-code': 'qwen',
-  'goose': 'goose configure',
 }
 
 const SIGNED_IN_TTL_MS = 60_000
