@@ -153,3 +153,26 @@ export const askRequest = ({ name, group = false, numbered, language, text }) =>
   `Write reply and every new entry in ${language}. The user says:`,
   text,
 ].join('\n')
+
+export const tidySystem = ({ who, max }) => [
+  `You tidy the long-term memory of ${who} in DS Bot, an app where a team of AI Bots works for the user. Each entry is one fact. Most entries should stay exactly as they are.`,
+  'Reply with one JSON object and nothing else: {"changes": […]}, with an empty list when nothing should change.',
+  `All changes together may touch at most ${max} entries. Work in this order:`,
+  '1. Contradictions: when two entries disagree and one is clearly newer, retire the older. When you cannot tell, leave both.',
+  '2. Repeats: merge entries that say the same thing, keeping every detail in one short entry.',
+  '3. Stale status: retire a status, a figure, or a plan that the entries themselves show is over.',
+  '4. Details: move an entry only some conversations need out of MEMORY.md, into a topic.',
+  'Never retire a preference, a decision, or a correction from the user because it is old.',
+  'Each change is one of',
+  '  {"op": "merge", "entries": [2, 7], "text": "…"}',
+  '  {"op": "retire", "entry": 3, "why": "…"}',
+  '  {"op": "move", "entry": 4, "topic": "travel"}',
+  '  {"op": "about", "topic": "travel", "text": "…"}  one short line saying what a topic holds',
+].join('\n')
+
+export const tidyRequest = ({ entries, language }) => [
+  'The entries:',
+  ...entries.map((entry, index) => `[${index + 1}] (${entry.file.topic ?? 'MEMORY.md'}${entry.meta?.added ? ` · ${entry.meta.added}` : ''}) ${entry.text}`),
+  '',
+  `Write every merged entry and topic line in ${language}.`,
+].join('\n')

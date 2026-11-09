@@ -1761,6 +1761,62 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 9999 }, 'g3'), /has no message 9999/)
 })
 
+test('the tidy merges and archives within a fifth of the entries, leaves a pin, and a batch undoes whole', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  const facts = Array.from({ length: 20 }, (_, at) => `- Fact number ${at + 1} [id: a${String(at).padStart(3, '0')}; added: 2026-10-01]`)
+  const original = `# Memory\n\n${facts.join('\n')}\n- Keep this forever [id: beef; added: 2026-01-01; pinned: user]\n- Over now [id: dead; added: 2026-01-01; until: 2020-01-01]\n\n## Index\n`
+  writeFileSync(join(dir, 'MEMORY.md'), original)
+  const replies = [JSON.stringify({ changes: [
+    { op: 'merge', entries: [1, 2], text: 'Facts one and two' },
+    { op: 'move', entry: 3, topic: 'details' },
+    { op: 'about', topic: 'details', text: 'Small details' },
+    { op: 'retire', entry: 4, why: 'over' },
+    { op: 'retire', entry: 5, why: 'past the limit' },
+    { op: 'retire', entry: 99 },
+  ] })]
+  const { call, read, requests, stop } = start({ home, replies })
+  t.after(() => stop())
+  await call('state', {})
+  await rt.tidyMemoryNow('bot:b2')
+  assert.equal(requests.length, 1)
+  assert.doesNotMatch(requests[0].messages[0].content[0].text, /Keep this forever|Over now/)
+  const main = read('bots', 'b2', 'MEMORY.md')
+  assert.match(main, /- Facts one and two \[id: a000;.*merged: a000 a001/)
+  assert.doesNotMatch(main, /Fact number 2 |Fact number 3 |Fact number 4 |Over now/)
+  // Four entries of twenty-one is the limit: the next change was past it.
+  assert.match(main, /Fact number 5 /)
+  assert.match(main, /- Keep this forever \[/)
+  assert.match(read('bots', 'b2', 'details.md'), /> Small details\n[\s\S]*- Fact number 3 /)
+  const retired = read('bots', 'b2', 'retired.jsonl').trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(retired.map(row => row.why).sort(), ['ended', 'merged', 'merged', 'over'])
+  // Nothing new today: no second call. The panel shows it and undoes it.
+  await rt.tidyMemoryNow('bot:b2')
+  const view = (await call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([view.tidy.scope, view.tidy.merged, view.tidy.moved], ['own', 2, 1])
+  const undone = await call('memory-tidy-undo', { botId: 'b2', scope: 'own', batch: view.tidy.batch })
+  assert.equal(undone.ok, true, JSON.stringify(undone))
+  assert.equal(read('bots', 'b2', 'MEMORY.md'), original)
+  assert.equal(existsSync(join(dir, 'details.md')), false)
+  assert.equal(existsSync(join(dir, 'retired.jsonl')), false)
+  assert.equal(undone.value.tidy, null)
+})
+
+test('a team tidy never offers what every Bot always reads', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const dir = join(home, 'memory', 'team')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'MEMORY.md'), '# Memory\n\n- Always there\n\n## Index\n- [[shared]]\n')
+  writeFileSync(join(dir, 'shared.md'), `# shared\n\n${Array.from({ length: 9 }, (_, at) => `- Shared note ${at}`).join('\n')}\n`)
+  const { call, requests, stop } = start({ home, replies: [JSON.stringify({ changes: [] })] })
+  t.after(() => stop())
+  await call('state', {})
+  await rt.tidyMemoryNow('team')
+  assert.match(requests[0].messages[0].content[0].text, /Shared note 0/)
+  assert.doesNotMatch(requests[0].messages[0].content[0].text, /Always there/)
+})
+
 test('a new entry on a full MEMORY.md moves the oldest in the same change, and the log says so', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })

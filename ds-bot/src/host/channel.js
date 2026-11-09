@@ -488,6 +488,7 @@ export function install(rt) {
         case 'memory-view':
         case 'memory-ask':
         case 'memory-pin':
+        case 'memory-tidy-undo':
         case 'memory-layer':
         case 'memory-forget':
         case 'memory-history':
