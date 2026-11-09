@@ -32,8 +32,8 @@ import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/ds
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
-import { splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, joinLines, looksSecret, matchEntries, parseAsk, parseMemory, removeLink, splitMeta, squash } from './memory-entries.js'
+import { estimateTokens, splitRef, unquote } from './text.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanEntry, cleanTopic, fitWindow, formatEntry, insertEntry, joinLines, looksSecret, matchEntries, parseAsk, parseMemory, promptEntry, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, SUMMARY_SYSTEM, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { output } from './tools.js'
@@ -140,7 +140,7 @@ export function install(rt) {
       return { topic, file, path: join(dir, file), content, ...parseMemory(content) }
     })
   }
-  const limitOf = file => (file.topic === undefined ? MEMORY_LIMITS.main : MEMORY_LIMITS.topic)
+  const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
   const fileName = file => (file.topic === undefined ? MAIN : `topic [[${file.topic}]]`)
 
   async function writeText(path, text) {
@@ -357,7 +357,8 @@ export function install(rt) {
   // reads, so past its size the oldest entries move to a topic, in the same change, and
   // recall still finds them. A topic is only as long as one recall can read; a full one
   // continues in `<name>-2`.
-  const sizeOf = lines => joinLines(lines).length
+  const bodyOf = lines => bodySize(parseMemory(joinLines(lines)))
+  const sizeNote = (file, scope) => (file.topic === undefined ? `${MAIN}: ${bodySize(file)} of ${mainLimit(scope)} characters` : `${file.file}: ${file.content.length} of ${MEMORY_LIMITS.topic} characters`)
 
   const overflowName = at => (at === 1 ? OVERFLOW : `${OVERFLOW}-${at}`)
   function placeMoved(files, moved) {
@@ -378,14 +379,14 @@ export function install(rt) {
   // `keep` is the line this change writes, which is not the one to move.
   function makeRoom(files, scope, lines, keep) {
     const main = files[0]
-    const limit = limitOf(main)
+    const limit = mainLimit(scope)
     let kept = lines
     let moved = []
     let placed = new Map()
     const linked = () => [...placed.keys()].filter(name => !main.links.includes(name)).reduce((list, name) => addLink(list, name), kept)
     // A file already past its size (edited by hand) may still shrink.
-    const fits = list => sizeOf(list) <= limit || sizeOf(list) <= main.content.length
-    while (!fits(linked())) {
+    const grew = bodyOf(lines) > bodySize(main)
+    while (grew && bodyOf(linked()) > limit) {
       const entries = parseMemory(joinLines(kept)).entries.filter(entry => kept[entry.line] !== keep)
       if (entries.length === 0) break
       const oldest = entries.reduce((a, b) => (String(b.meta.added ?? '') < String(a.meta.added ?? '') ? b : a))
@@ -415,7 +416,6 @@ export function install(rt) {
     }
   }
   const capital = text => text[0].toUpperCase() + text.slice(1)
-  const sizeNote = (file, size) => `${file.file}: ${size} of ${limitOf(file)} characters`
   const allEntries = files => files.flatMap(file => file.entries.map(entry => ({ ...entry, file })))
   const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}) })
 
@@ -456,8 +456,8 @@ export function install(rt) {
       await publish({ op: 'add', scope: scopeKey(scope), steps: [...steps, ...room.steps], row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
       noteNews(scope, actor, 'add', line)
       const where = target === main ? MAIN : fresh ? `the new topic [[${name}]], linked from MEMORY.md` : `topic [[${name}]]`
-      const size = target === main ? sizeOf(room.lines) : sizeOf(written)
-      return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote(target, size)}).${movedNote(room)}` }
+      const after = target === main ? room.lines : written
+      return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote({ ...target, ...parseMemory(joinLines(after)), content: joinLines(after) }, scope)}).${movedNote(room)}` }
     })
   }
 
@@ -573,8 +573,21 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The prompt section, frozen per Session.
 
-  const shownEntries = (file) => {
-    const lines = file.entries.map(entry => formatEntry(entry.text, entry.meta))
+  // What a Bot's model leaves room for, from the last time it was asked.
+  const windows = new Map()
+  async function noteWindow(bot) {
+    const info = await modelFor(bot).then(route => ctx.llm.resolveModelInfo(route.provider, route.model)).catch(() => undefined)
+    const size = info?.context?.contextWindow
+    if (typeof size === 'number' && size > 0) windows.set(bot.id, size - (info.defaultMaxTokens ?? 0))
+  }
+  const windowTokens = (bot) => {
+    const usable = windows.get(bot.id)
+    return usable === undefined ? undefined : Math.floor(usable * WINDOW_SHARE)
+  }
+  const shownEntries = (file, bot) => {
+    const { shown, left } = fitWindow(file.entries, windowTokens(bot), estimateTokens)
+    const lines = shown.map(promptEntry)
+    if (left > 0) lines.push(`(${left} older entries are saved here too; recall finds them.)`)
     return lines.length > 0 ? lines : ['(nothing saved yet)']
   }
   const topicLine = (scope) => {
@@ -592,7 +605,7 @@ export function install(rt) {
       return { text: '', failed: `(this memory could not be read: ${error?.code ?? error?.name ?? 'error'})` }
     }
   }
-  const sectionEntries = read => (read.failed === undefined ? shownEntries(parseMemory(read.text)) : [read.failed])
+  const sectionEntries = (read, bot) => (read.failed === undefined ? shownEntries(parseMemory(read.text), bot) : [read.failed])
   const sectionTopics = (scope) => {
     try {
       return { lines: topicLine(scope) }
@@ -612,21 +625,21 @@ export function install(rt) {
       teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id)),
       '',
       '## Your memory (MEMORY.md)',
-      ...sectionEntries(main),
+      ...sectionEntries(main, bot),
       ...ownTopics.lines,
       '',
       '## Team memory, shared by every Bot (team/MEMORY.md)',
-      ...sectionEntries(team),
+      ...sectionEntries(team, bot),
       ...teamTopics.lines,
     ]
     return { text: lines.join('\n'), failed: main.failed !== undefined || team.failed !== undefined || ownTopics.failed === true || teamTopics.failed === true }
   }
-  function groupSection(roomId) {
+  function groupSection(roomId, bot) {
     const group = groupScope(roomId)
     const groupRead = sectionRead(join(dirOf(group), MAIN))
     const groupTopics = sectionTopics(group)
     return {
-      text: [GROUP_HEADING, groupNote(reviewOn), '', ...sectionEntries(groupRead), ...groupTopics.lines].join('\n'),
+      text: [GROUP_HEADING, groupNote(reviewOn), '', ...sectionEntries(groupRead, bot), ...groupTopics.lines].join('\n'),
       failed: groupRead.failed !== undefined || groupTopics.failed === true,
     }
   }
@@ -715,12 +728,13 @@ export function install(rt) {
     await rt.load()
     const roomId = roomIdOf(agent.id)
     const bot = rt.botOf(rt.selfOf(agent.id))
+    if (bot !== undefined) await noteWindow(bot)
     if (roomId === undefined || bot === undefined || !rt.roomOf(roomId)?.members.includes(bot.id)) return decision
     if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return decision
     try {
       if (agent.session?.deriveMessages?.().some(isGroupMemory)) return decision
     } catch { /* no history to look in: the snapshot goes in */ }
-    const group = groupSection(roomId)
+    const group = groupSection(roomId, bot)
     if (group.failed) return decision
     const message = createUserMessage({
       content: [{ type: 'text', text: group.text }],
@@ -895,9 +909,9 @@ export function install(rt) {
       }
       if (args.topic !== undefined && String(args.topic).trim() !== '') {
         const topic = cleanTopic(args.topic)
-        for (const { label, files } of loaded) {
+        for (const { scope, label, files } of loaded) {
           const file = files.find(item => item.topic === topic)
-          if (file !== undefined) return `Topic [[${topic}]] in ${label} (${sizeNote(file, file.content.length)}):\n${file.content.trim() || '(empty)'}`
+          if (file !== undefined) return `Topic [[${topic}]] in ${label} (${sizeNote(file, scope)}):\n${file.content.trim() || '(empty)'}`
         }
         const known = loaded.flatMap(({ tag, files }) => files.filter(file => file.topic).map(file => `[[${file.topic}]] (${tag})`))
         return `No topic [[${String(args.topic).slice(0, 60)}]] there. Topics: ${known.join(', ') || 'none yet'}.`
@@ -905,10 +919,10 @@ export function install(rt) {
       const where = (tag, file) => `${tag} · ${file.topic === undefined ? MAIN : `[[${file.topic}]]`}`
       const query = String(args.query ?? '').trim().slice(0, 120)
       if (query === '') {
-        return loaded.map(({ tag, label, files }) => {
+        return loaded.map(({ scope, tag, label, files }) => {
           const [main, ...topics] = files
           return [
-            `${capital(label)}: ${MAIN} has ${main.entries.length} entries (${sizeNote(main, main.content.length)})${topics.length > 0 ? `; topics ${topics.map(file => `[[${file.topic}]] (${file.entries.length})`).join(', ')}` : '; no topics'}.`,
+            `${capital(label)}: ${MAIN} has ${main.entries.length} entries (${sizeNote(main, scope)})${topics.length > 0 ? `; topics ${topics.map(file => `[[${file.topic}]] (${file.entries.length})`).join(', ')}` : '; no topics'}.`,
             ...main.entries.map(entry => `[${where(tag, main)}] ${formatEntry(entry.text, entry.meta).slice(2)}`),
           ].join('\n')
         }).join('\n\n')
@@ -1086,8 +1100,8 @@ export function install(rt) {
     return {
       ...panelBody(panel),
       entries,
-      sizes: Object.fromEntries(Object.entries(loaded).map(([tag, files]) => [tag, files[0].content.length])),
-      limits: MEMORY_LIMITS,
+      sizes: Object.fromEntries(Object.entries(loaded).map(([tag, files]) => [tag, bodySize(files[0])])),
+      limits: { ...MEMORY_LIMITS, ...Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, mainLimit(scope)])) },
       summary: entries.length > 0 && saved !== undefined ? { text: saved.text, at: saved.at } : null,
       fresh: entries.length === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
@@ -1352,7 +1366,7 @@ export function install(rt) {
     return await memoryView(panelBody(panel))
   }
 
-  const { memoryReviews } = installReview(rt, { root, reviewOn, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
+  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
 
   async function memoryEndpoint(endpoint, body) {
     if (endpoint === 'memory-view') return memoryView(body)
