@@ -602,6 +602,7 @@ export function TeamSidebar(props) {
     chatRoom.hold(true)
     const columns = chatRoom.columns()
     for (const col of columns) col.style.setProperty('transition', 'none', 'important')
+    const panes = [...document.querySelectorAll('.bt-pane')]
     const offLeft = frameSnap.collapsedWidth ?? 0
     let last = null
     let liveLeft = mode
@@ -610,8 +611,10 @@ export function TeamSidebar(props) {
       const width = at.left === 'rail' ? RAIL_WIDTH : at.width
       column.style.width = `${width}px`
       column.style.setProperty('--bt-lc-w', `${width}px`)
-      const push = Math.max(0, (at.left === 'open' ? width : RAIL_WIDTH) - offLeft)
+      const occupied = at.left === 'open' ? width : RAIL_WIDTH
+      const push = Math.max(0, occupied - offLeft)
       for (const col of columns) col.style.setProperty('margin-left', `${push}px`, 'important')
+      for (const pane of panes) pane.style.left = `${occupied}px`
     }
     // A snap crossing arms the spring for the switch's glide; the timer takes it
     // back off once the switch has had its duration.

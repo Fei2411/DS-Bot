@@ -2052,8 +2052,9 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   return {
+    // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null }));
+      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
     },
     openPalette: (query = "") => {
       ui2.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
@@ -3060,7 +3061,7 @@ function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = nul
       panelState = occupied + need <= viewport ? "shown" : "overlay";
     } else panelState = "folded";
   }
-  return { left, panel: panelState, room: Math.max(0, viewport - occupied) };
+  return { left, panel: panelState, column: occupied, room: Math.max(0, viewport - occupied) };
 }
 function dragColumn(x, viewport) {
   if (x < RAIL_SNAP) return { left: "rail", width: RAIL_WIDTH };
@@ -4948,14 +4949,6 @@ function useEscape(onClose) {
       if (escapeLayers.length === 0) window.removeEventListener("keydown", onEscapeKey);
     };
   }, []);
-}
-function usePaneLeft() {
-  const [paneLeft, setPaneLeft] = (0, import_react5.useState)(280);
-  (0, import_react5.useLayoutEffect)(() => {
-    const column = document.querySelector('[class*="_footArea"]')?.parentElement;
-    if (column) setPaneLeft(Math.round(column.getBoundingClientRect().right));
-  }, []);
-  return paneLeft;
 }
 
 // src/client/goal.js
@@ -15842,6 +15835,7 @@ function TeamSidebar(props) {
     chatRoom.hold(true);
     const columns2 = chatRoom.columns();
     for (const col of columns2) col.style.setProperty("transition", "none", "important");
+    const panes = [...document.querySelectorAll(".bt-pane")];
     const offLeft = frameSnap.collapsedWidth ?? 0;
     let last = null;
     let liveLeft = mode;
@@ -15850,8 +15844,10 @@ function TeamSidebar(props) {
       const width = at.left === "rail" ? RAIL_WIDTH : at.width;
       column.style.width = `${width}px`;
       column.style.setProperty("--bt-lc-w", `${width}px`);
-      const push = Math.max(0, (at.left === "open" ? width : RAIL_WIDTH) - offLeft);
+      const occupied = at.left === "open" ? width : RAIL_WIDTH;
+      const push = Math.max(0, occupied - offLeft);
       for (const col of columns2) col.style.setProperty("margin-left", `${push}px`, "important");
+      for (const pane of panes) pane.style.left = `${occupied}px`;
     };
     let springUntil = 0;
     const springOff = () => {
@@ -24303,7 +24299,7 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
 
 // src/client/new-chat.js
 var import_react54 = require("react");
-function NewChat({ mode, sectionId = null, roster, actions }) {
+function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   const [query, setQuery] = (0, import_react54.useState)("");
   const [picked, setPicked] = (0, import_react54.useState)([]);
   const [group, setGroup] = (0, import_react54.useState)(mode === "group");
@@ -24316,7 +24312,6 @@ function NewChat({ mode, sectionId = null, roster, actions }) {
   const inputRef = (0, import_react54.useRef)(null);
   const close = () => actions.closeOverlay();
   useEscape(close);
-  const paneLeft = usePaneLeft();
   const wanted = query.trim().toLowerCase();
   const matches2 = roster.bots.filter((bot) => !picked.includes(bot.id) && bot.id !== admin && (wanted === "" || bot.name.toLowerCase().includes(wanted) || (bot.role ?? "").toLowerCase().includes(wanted)));
   const choosingAdmin = group && admin === null;
@@ -24563,7 +24558,7 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
 // src/client/exchange.js
 var import_react55 = require("react");
 var SHEET_EXIT_MS = 220;
-function ExchangeDialog({ pair, roster, actions }) {
+function ExchangeDialog({ pair, paneLeft, roster, actions }) {
   const [entries2, setEntries] = (0, import_react55.useState)(null);
   const [leaving, setLeaving] = (0, import_react55.useState)(false);
   const log = (0, import_react55.useRef)(null);
@@ -24603,7 +24598,6 @@ function ExchangeDialog({ pair, roster, actions }) {
   const right = roster.byId[pair[1]];
   const flat = layoutOf(roster.prefs) === "flat";
   let lastDay = 0;
-  const paneLeft = usePaneLeft();
   return (0, import_react55.createElement)(
     "div",
     { className: "bt-pane bt-exchange", style: { left: paneLeft }, "data-leaving": leaving || void 0 },
@@ -24723,7 +24717,7 @@ function useMicLevel(enabled) {
   }, [enabled]);
   return level;
 }
-function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }) {
+function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessionStatus }) {
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const name = bot?.name ?? room2?.name ?? t("Bot");
@@ -24745,7 +24739,6 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
   const reply = (0, import_react56.useRef)(lastReply);
   reply.current = lastReply;
   const turn = (0, import_react56.useRef)(0);
-  const paneLeft = usePaneLeft();
   const close = () => {
     turn.current += 1;
     window.speechSynthesis?.cancel();
@@ -27057,10 +27050,10 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     import_react61.Fragment,
     null,
     pane ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, roster, actions }), document.body) : null,
+    ui2.newChat ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui2.palette ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    ui2.exchange ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui2.voice ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     owner ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
