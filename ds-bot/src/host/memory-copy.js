@@ -19,11 +19,11 @@ export const memoryRules = review => [
 ].join('\n')
 
 export const teamRule = (main, writer, privateBot) => (main
-  ? '- The team memory is shared by every Bot. As a Main Bot you write it with remember scope "team", for what the whole team needs; with scope set to a Bot\'s name you read or change that Bot\'s memory, when the user asks.'
+  ? '- The team memory is shared by every Bot. As a Main Bot you write it with remember scope "team": that saves it where any Bot can find it with recall. Add always true only when the user says every Bot must always know it. When only some Bots need something, save it for them: with scope set to a Bot\'s name you read or change that Bot\'s memory, when the user asks.'
   : privateBot
     ? '- The team memory is shared by every Bot. Main Bots and group admins write it; with scope set to a public Bot\'s name you read that Bot\'s memory.'
     : writer
-      ? '- The team memory is shared by every Bot. As a group admin you write it with remember scope "team", for what the whole team needs.'
+      ? '- The team memory is shared by every Bot. As a group admin you write it with remember scope "team": that saves it where any Bot can find it with recall. Add always true only when the user says every Bot must always know it.'
       : '- The team memory is shared by every Bot. Main Bots and group admins write it; when the whole team should know something, tell a Main Bot with message_bot.')
 
 export const GROUP_HEADING = '## Group memory, shared by the members of this group chat'
@@ -74,7 +74,7 @@ export const askSystem = group => [
 
 // A group's review keeps what the work there needs, its project's own rules included,
 // which a Bot's review leaves out: only the members read it, and only there.
-export const reviewSystem = ({ teamWrites = false, group = false } = {}) => [
+export const reviewSystem = ({ teamWrites = false, group = false, routes = false, rooms = [] } = {}) => [
   group
     ? 'You keep the long-term memory of one group chat in DS Bot, an app where a team of AI Bots works for the user. The members read it in their later conversations in this group, which will not have these messages; no Bot reads it anywhere else. After each turn you read the new messages and decide what the group should still know. Most turns hold nothing worth keeping.'
     : 'You keep the long-term memory of one Bot in DS Bot, an app where a team of AI Bots works for the user. After each turn of a conversation you read the new messages and decide what the Bot should still know in its later conversations, which will not have these messages. Most turns hold nothing worth keeping.',
@@ -103,7 +103,12 @@ export const reviewSystem = ({ teamWrites = false, group = false } = {}) => [
   `Change an entry with edit when the user says it changed or is no longer true, and remove one that the messages show was wrong or was only for one task${group ? ', or a goal or plan the messages show is reached or over' : ''}. Never add an entry that contradicts another.`,
   'Each change is one of',
   '  {"op": "add", "text": "…"}',
-  ...(teamWrites ? ['  {"op": "add", "text": "…", "team": true}  for what every Bot on the team needs, such as how the user wants all work delivered'] : []),
+  ...(teamWrites ? [
+    '  {"op": "add", "text": "…", "team": true}  for what other Bots may need; any Bot can find it with recall. Prefer the narrowest place that fits',
+    ...(routes ? ['  {"op": "add", "text": "…", "for": "Bot name"}  for what one other Bot needs: it goes in that Bot\'s memory'] : []),
+    ...(rooms.length > 0 ? [`  {"op": "add", "text": "…", "group": "group name"}  for what one group chat needs: it goes in that group's memory. Your groups: ${rooms.join(', ')}`] : []),
+    'A rule of one project, such as its paths, branches, or how it ships, is not memory: leave it out, it belongs in that project\'s AGENTS.md.',
+  ] : []),
   '  {"op": "add", "text": "…", "topic": "travel"}  for a detail only some conversations need, or when MEMORY.md is nearly full; a short topic name, in the user\'s language',
   '  {"op": "edit", "entry": 3, "text": "…"}  replaces entry 3',
   '  {"op": "remove", "entry": 3}',

@@ -95,7 +95,7 @@ const groupEntries = entries => entries.reduce((groups, entry) => {
   return groups
 }, [])
 
-function EntryRow({ entry, remove, pin }) {
+function EntryRow({ entry, remove, pin, layer }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -119,13 +119,16 @@ function EntryRow({ entry, remove, pin }) {
       type: 'button', className: 'bt-mem-remove bt-mem-pin', 'data-on': entry.pinned || undefined, disabled: busy, 'aria-pressed': entry.pinned,
       'aria-label': entry.pinned ? t('Unpin') : t('Pin'), title: entry.pinned ? t('Unpin') : t('Pin'), onClick: () => pin(entry, !entry.pinned),
     }, h(PinIcon)),
+    entry.scope === 'team' ? h('button', {
+      type: 'button', className: 'bt-mem-layer', disabled: busy, onClick: () => layer(entry, entry.topic !== null),
+    }, entry.topic === null ? t('Only when needed') : t('Every conversation')) : null,
     h('button', {
       type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to remove') : t('Remove from memory'), title: confirming ? undefined : t('Remove from memory'), onClick: click,
     }, confirming ? t('Remove') : h(TrashIcon)))
 }
 
-function Entries({ owner, view, remove, pin }) {
+function Entries({ owner, view, remove, pin, layer }) {
   const groups = groupEntries(view.entries)
   const sections = owner.group
     ? [{ scope: 'group', title: t('Group memory'), hint: t('Only its members read it'), size: view.sizes.group }]
@@ -142,7 +145,7 @@ function Entries({ owner, view, remove, pin }) {
       groups.some(group => group.scope === section.scope)
         ? groups.filter(group => group.scope === section.scope).map(group => h(Fragment, { key: group.key },
             group.topic ? h('div', { className: 'bt-mem-topic' }, group.topic) : null,
-            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin })))))
+            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin, layer })))))
         : h('div', { className: 'bt-mem-none' }, t('Nothing saved yet')))))
 }
 
@@ -311,6 +314,13 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       return false
     }
   }
+  const layer = async (entry, always) => {
+    try {
+      show(await actions.memoryLayer(owner.id, entry, always))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
   const pin = async (entry, on) => {
     try {
       show(await actions.memoryPin(owner.id, entry, on))
@@ -372,7 +382,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       h('div', { className: 'bt-mem-body' },
         error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, hostText(error)) : null,
         view === null ? (error ? null : h(Skeleton))
-          : page === 'entries' ? h(Entries, { owner, view, remove, pin })
+          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer })
             : page === 'history' ? h(History, { owner, actions, undo, now })
               : h(Summary, { owner, view, regenerate })),
       h('div', { className: 'bt-mem-foot' },

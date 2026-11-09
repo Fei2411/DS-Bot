@@ -33,7 +33,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { output } from './tools.js'
@@ -934,6 +934,7 @@ export function install(rt) {
       topic: { type: 'string', description: 'A topic for details not every conversation needs, such as "travel" or "project-x"; omit for MEMORY.md, which every conversation reads' },
       until: { type: 'string', description: 'The day this stops holding, YYYY-MM-DD, for a temporary arrangement or a plan with an end. After it the entry no longer shows' },
       pin: { type: 'boolean', description: 'True only when the user says to always keep this. A pinned entry is never moved or changed automatically' },
+      always: { type: 'boolean', description: 'With scope "team": true only when the user says every Bot must always know this, so it goes in what every Bot reads in every conversation. Without it the entry waits where any Bot can find it with recall' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -951,8 +952,9 @@ export function install(rt) {
       try {
         const until = cleanDay(args.until)
         const meta = { ...await metaFor(context.caller, context.scope), ...(until === undefined ? {} : { until }), ...(args.pin === true ? { pinned: 'user' } : {}) }
+        const shared = context.scope.kind === 'team' && args.always !== true && topic === undefined ? TEAM_SHARED : args.always === true && context.scope.kind === 'team' ? undefined : topic
         const result = replace === ''
-          ? await addEntry({ ...context, topic, text, meta })
+          ? await addEntry({ ...context, topic: shared, text, meta })
           : await replaceEntry({ ...context, topic, match: replace, text, meta })
         const shows = context.scope.kind === 'group' ? 'The other members see it at their next step in this group' : 'Your other conversations see it at their next step'
         return result.changed ? `${result.message} ${shows}; recall finds it now.` : result.message
@@ -1269,6 +1271,42 @@ export function install(rt) {
     return await memoryView(panelBody(panel))
   }
 
+  // One team entry the user brings in front of every Bot, or sends back to wait in a topic.
+  async function memoryLayer(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes.team
+    if (scope === undefined) throw new Error('Only team entries have a place to move to')
+    const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
+    const label = panelLabel(panel, scope)
+    await queued(async () => {
+      await recoverPending()
+      writable(scope, USER)
+      const files = loadScope(scope)
+      const old = findOne(files, topic, String(body.text ?? ''), label)
+      const always = body.always === true
+      if (always === (old.file.topic === undefined)) return
+      const line = old.file.lines[old.line]
+      const remaining = old.file.lines.filter((_line, at) => at !== old.line)
+      const main = files[0]
+      const steps = []
+      if (always) {
+        const emptied = remaining.every(item => item.trim() === '' || HEADING.test(item))
+        const mainBase = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+        const put = insertEntry(emptied ? removeLink(mainBase, old.file.topic) : mainBase, line)
+        const seen = files.map(file => (file === old.file ? { ...file, ...parseMemory(joinLines(remaining)), content: joinLines(remaining) } : file))
+        const room = makeRoom(seen, scope, put, line)
+        steps.push(emptied ? removeStep(old.file.path) : writeStep(old.file.path, joinLines(remaining)), writeStep(main.path, joinLines(room.lines)), ...room.steps)
+      } else {
+        const shared = files.find(file => file.topic === TEAM_SHARED)
+        const base = shared === undefined || shared.lines.length === 0 ? parseMemory(`# ${TEAM_SHARED}\n`).lines : shared.lines
+        const left = main.links.includes(TEAM_SHARED) ? remaining : addLink(remaining, TEAM_SHARED)
+        steps.push(writeStep(join(dirOf(scope), `${TEAM_SHARED}.md`), joinLines(insertEntry(base, line))), writeStep(main.path, joinLines(left)))
+      }
+      await publish({ op: 'move', scope: scopeKey(scope), steps, row: { op: 'move', scope: scopeKey(scope), file: old.file.file, to: always ? MAIN : `${TEAM_SHARED}.md`, ...actorOf(USER), after: line } })
+    })
+    return await memoryView(panelBody(panel))
+  }
+
   // One entry the user pins, or lets go of. Its text and the rest stay as they are.
   async function memoryPin(body) {
     const panel = panelOf(body)
@@ -1509,6 +1547,7 @@ export function install(rt) {
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
     if (endpoint === 'memory-pin') return memoryPin(body)
+    if (endpoint === 'memory-layer') return memoryLayer(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
