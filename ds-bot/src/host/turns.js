@@ -110,6 +110,9 @@ const subEndText = (data) => {
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and do the work now. If your last reply already was your whole answer, reply [PASS]; it stays posted.'
+// The turn number a running turn gets when it started before this plugin was loaded and
+// dsh does not say which number it has. dsh numbers turns from 1, so this one is unused.
+const RECOVERED_TURN = -1
 // A turn cut off at the model's output limit is not a finish. Whoever reads its answer
 // is told, so half an answer is not taken as the whole one and silence is not taken as
 // a deliberate one.
@@ -256,6 +259,37 @@ export function install(rt) {
       }
     }
     return true
+  }
+
+  // A plugin update replaces the files under a running dsh and loads the plugin again
+  // in place: the process keeps its turns and child agents, while the maps above start
+  // empty. Adopt what dsh still runs from its live Agents, so Stop, the group view and
+  // a late child settle still see it: a subagent child belongs to the Session in its
+  // header, and a Bot Session whose Agent runs is mid-turn. A running call is not in
+  // dsh's registry, so an adopted turn shows as working without its call line.
+  async function adoptLiveWork() {
+    const agents = ctx.get?.('agents')
+    if (agents?.list === undefined) return
+    await rt.load()
+    const known = id => rt.isBotSession(id) || rt.roomOf(id) !== undefined
+    for (const agent of agents.list()) {
+      if (agent?.status !== 'running') continue
+      const sessionId = agent?.session?.id ?? agent?.id
+      const header = agent?.session?.header
+      const parentId = header?.parentSession
+      if (typeof parentId === 'string' && header?.origin === 'subagent' && known(parentId)) {
+        noteSubagentStart(parentId, sessionId, undefined, Date.now())
+        continue
+      }
+      if (typeof sessionId !== 'string' || !known(sessionId)) continue
+      const entry = liveOf(sessionId)
+      if (entry.turn !== undefined) continue
+      entry.turn = RECOVERED_TURN
+      // Its input was consumed before the reload; a later request joins this turn.
+      entry.opened = true
+      entry.since ??= Date.now()
+      setActivity(sessionId, 'thinking')
+    }
   }
 
   // A stopped round stops the member work it started: the turn that answers it, or the
@@ -1189,5 +1223,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
 }
