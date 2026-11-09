@@ -258,6 +258,8 @@ const ZH = {
   'Add agent': '添加 Agent',
   'Copies the sign-in command': '复制登录命令',
   'Sign in': '登录',
+  'Sign-in command copied. Run it in a terminal: {command}': '登录命令已复制。请在终端运行：{command}',
+  'Could not copy the sign-in command. Run this in a terminal: {command}': '没能复制登录命令。请在终端手动运行：{command}',
   Found: '已找到',
   'Not found': '未找到',
   Arguments: '参数',
