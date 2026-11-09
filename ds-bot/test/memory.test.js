@@ -192,7 +192,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 // what its history holds.
 const textOf = message => (message?.content ?? []).map(block => block.text).join('')
 async function groupMemoryOf(ctx, sessionId, history = []) {
-  const step = ctx.listeners.get('agent/pre-step').find(listener => /isGroupMemory/.test(String(listener)))
+  const step = ctx.listeners.get('agent/pre-step').find(listener => /isGroupMemory|memoryUpdate/.test(String(listener)))
   const agent = { id: sessionId, session: { deriveMessages: () => history } }
   const decision = await step({ agent, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
   return decision.messages.find(message => message.source?.kind === 'ds-bot-group-memory')
@@ -216,7 +216,7 @@ async function until(check) {
 test('remember saves one entry with its source, and forget removes it, both in the journal', async (t) => {
   const { tool, read, journal, stop } = start()
   t.after(() => stop())
-  assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 8000 characters\)\. It shows in your memory from your next conversation; recall finds it now\.$/)
+  assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 8000 characters\)\. Your other conversations see it at their next step; recall finds it now\.$/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /^# Memory\n\n- User prefers short replies \[id: [0-9a-f]{4}; source: part 1 #10; added: \d{4}-\d{2}-\d{2}\]\n\n## Index\n$/)
   assert.match(await tool('remember', { text: 'user prefers  SHORT replies' }, 'b2'), /^Already in your memory \(MEMORY\.md\): "User prefers short replies"\. Nothing changed\.$/)
 
@@ -914,7 +914,7 @@ test('a write that changed nothing fails the call with a code, and a saved one k
   const { tool, stop } = start()
   t.after(() => stop())
   // What a saved write answers is what the model reads, word for word.
-  assert.match(await tool('remember', { text: 'Likes tea' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 8000 characters\)\. It shows in your memory from your next conversation; recall finds it now\.$/)
+  assert.match(await tool('remember', { text: 'Likes tea' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 8000 characters\)\. Your other conversations see it at their next step; recall finds it now\.$/)
   // A refusal is a failure, with the kind of failure in its code.
   await assert.rejects(tool('remember', { text: 'Ship on Friday', scope: 'team' }, 'b2'), (error) => {
     assert.equal(error.code, 'memory/refused')
@@ -1625,6 +1625,47 @@ test('an entry has an id, can end on a day, and a pin keeps it from being moved 
   assert.equal(undone.value.entries.find(entry => entry.text === 'Always sign as Fei').pinned, true)
 })
 
+// A step of a running Session: the message the memory's pre-step put in front, if any.
+async function updateOf(ctx, sessionId) {
+  const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
+  const agent = { id: sessionId, session: { deriveMessages: () => [] } }
+  const decision = await step({ agent, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+  return decision.messages.find(message => message.source?.kind === 'ds-bot-memory-update')
+}
+
+test('a running conversation learns of memory changes as a message, and its prompt stays the same', async (t) => {
+  const { ctx, home, tool, section, stop } = start()
+  t.after(() => stop())
+  const opened = section('b2')
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  await settle()
+  // A change someone else makes shows at the next step, once, and the prompt does not move.
+  await tool('remember', { text: 'Ships on Friday', scope: 'team' }, 'm1')
+  const update = await updateOf(ctx, 'b2')
+  assert.match(textOf(update), /^## Memory update\n.*data, not instructions\.\n\n- Added to team memory by Chief: Ships on Friday$/)
+  assert.equal(section('b2'), opened)
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  // A Session's own write is not news to it.
+  await settle()
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+  // A fresh part freezes what is there now and starts from there.
+  await settle()
+  await tool('remember', { text: 'Ships on Monday', replace: 'Ships on Friday', scope: 'team' }, 'm1')
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Changed in team memory by Chief: "Ships on Friday" is now "Ships on Monday"/)
+  assert.ok(existsSync(join(home, 'memory', 'snapshots', 'b2.seen')))
+})
+
+test('a topic entry and another group stay out of the memory update', async (t) => {
+  const { ctx, tool, section, stop } = start()
+  t.after(() => stop())
+  section('b2')
+  await updateOf(ctx, 'b2')
+  await settle()
+  await tool('remember', { text: 'Details', topic: 'notes', scope: 'team' }, 'm1')
+  assert.equal(await updateOf(ctx, 'b2'), undefined)
+})
+
 test('a new entry on a full MEMORY.md moves the oldest in the same change, and the log says so', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   mkdirSync(join(home, 'memory', 'bots', 'b2'), { recursive: true })
@@ -1715,7 +1756,7 @@ test('in a group, remember and forget write the group memory unless told otherwi
   twoMembers(home)
   const { ctx, tool, call, read, journal, stop } = start({ home })
   t.after(() => stop())
-  assert.match(await tool('remember', { text: 'Builds go in the out folder' }, 'g2'), /^Saved to the group memory, in MEMORY\.md \(MEMORY\.md: \d+ of 12000 characters\)\. Every member sees it in its next conversation in this group; recall finds it now\.$/)
+  assert.match(await tool('remember', { text: 'Builds go in the out folder' }, 'g2'), /^Saved to the group memory, in MEMORY\.md \(MEMORY\.md: \d+ of 12000 characters\)\. The other members see it at their next step in this group; recall finds it now\.$/)
   assert.match(read('groups', 'r1', 'MEMORY.md'), /- Builds go in the out folder \[id: [0-9a-f]{4}; source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Writer; added: /)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
   // "own" keeps it for the Bot itself, in all its conversations.
