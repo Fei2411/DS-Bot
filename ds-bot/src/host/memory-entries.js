@@ -1,10 +1,13 @@
 // Memory as text: the entry and file format (Agent Memory Repo), and the checks an
 // entry passes. Nothing here touches the disk.
 
-// Fixed sizes, in characters. Both MEMORY.md files ride in every request of every
-// part, so together they stay near 8,000 characters, a few thousand tokens. A topic is
-// read whole in one recall. An entry holds one fact.
-export const MEMORY_LIMITS = { entry: 300, main: 4_000, topic: 16_000, topics: 40 }
+// Sizes, in characters of entry text: metadata does not count. Each MEMORY.md rides in
+// every request of a conversation, so its size is what a scope may always have in view;
+// the user can change these three (prefs.memoryLimits). A topic is read whole in one
+// recall. An entry holds one fact.
+export const MEMORY_LIMITS = { entry: 300, group: 12_000, bot: 8_000, team: 4_000, topic: 16_000, topics: 40 }
+// What one MEMORY.md may take of the model's window, however large the size is set.
+export const WINDOW_SHARE = 0.02
 
 export const MAIN = 'MEMORY.md'
 export const EMPTY_MAIN = '# Memory\n\n## Index\n'
@@ -34,6 +37,29 @@ export function splitMeta(body) {
 }
 
 const metaValue = value => String(value ?? '').replace(/[;[\]\n]/g, ' ').replace(/\s+/g, ' ').trim()
+export const bodySize = parsed => parsed.entries.reduce((sum, entry) => sum + entry.text.length, 0)
+
+// An entry as the prompt shows it: the text and when it was saved. recall shows the rest.
+export function promptEntry(entry) {
+  const day = /^\d{4}-(\d{2}-\d{2})$/.exec(String(entry.meta?.added ?? ''))?.[1]
+  return `- ${entry.text}${day === undefined ? '' : ` [${day}]`}`
+}
+
+// The entries a window has room for, newest kept, shown in their own order.
+export function fitWindow(entries, tokens, measure) {
+  if (tokens === undefined) return { shown: entries, left: 0 }
+  const order = entries.map((entry, at) => ({ entry, at })).sort((a, b) => String(b.entry.meta?.added ?? '').localeCompare(String(a.entry.meta?.added ?? '')) || b.at - a.at)
+  const kept = new Set()
+  let used = 0
+  for (const { entry } of order) {
+    const cost = measure(promptEntry(entry))
+    if (used + cost > tokens) continue
+    used += cost
+    kept.add(entry)
+  }
+  return { shown: entries.filter(entry => kept.has(entry)), left: entries.length - kept.size }
+}
+
 export function formatEntry(text, meta = {}) {
   const pairs = Object.entries(meta).filter(([, value]) => metaValue(value) !== '').map(([key, value]) => `${key}: ${metaValue(value)}`)
   return `- ${text}${pairs.length > 0 ? ` [${pairs.join('; ')}]` : ''}`

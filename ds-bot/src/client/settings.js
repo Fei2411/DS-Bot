@@ -47,6 +47,23 @@ const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
 const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
+// What each MEMORY.md holds by default, in characters of entry text.
+const MEMORY_SIZES = [
+  { scope: 'group', label: 'Group memory size', size: 12_000 },
+  { scope: 'bot', label: 'Bot memory size', size: 8_000 },
+  { scope: 'team', label: 'Team memory size', size: 4_000 },
+]
+function MemorySize({ label, value, save }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  const commit = () => {
+    const number = Number(text)
+    if (Number.isInteger(number) && number >= 1_000 && number <= 200_000 && number !== value) save(number)
+    else setText(String(value))
+  }
+  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
+}
+
 function SetSection({ title, className = '', children }) {
   return h('section', { className: `bt-set-section ${className}`.trim() }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
 }
@@ -138,6 +155,9 @@ function GeneralPage({ roster, actions, run, dsh }) {
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
+    h(SetSection, { key: 'memory', title: t('Memory') },
+      MEMORY_SIZES.map(({ scope, label, size }) => h(SetRow, { key: scope, label: t(label) },
+        h(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: value => run(actions.setPrefs({ memoryLimits: { [scope]: value } })) })))),
     // Settings opens in Agent mode too; there the way goes back to Bot mode.
     actions.setSurface ? h(SetSection, { key: 'mode', title: t('Mode') },
       actions.surfaceMode?.() === 'agent'

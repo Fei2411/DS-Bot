@@ -683,6 +683,9 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Group memory size": "群记忆容量",
+  "Bot memory size": "Bot 记忆容量",
+  "Team memory size": "团队记忆容量",
   "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
   "Choose a Bot…": "选择一个 Bot…",
@@ -3653,6 +3656,7 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
+.bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
@@ -11199,7 +11203,7 @@ function Entries({ owner, view, remove }) {
         { className: "bt-mem-section-head" },
         (0, import_react25.createElement)("h3", null, section.title),
         section.hint ? (0, import_react25.createElement)("span", null, section.hint) : null,
-        (0, import_react25.createElement)("span", { className: "bt-mem-size", title: t("MEMORY.md, which every conversation reads") }, t("{used} of {limit} characters", { used: section.size.toLocaleString(dateLocale()), limit: view.limits.main.toLocaleString(dateLocale()) }))
+        (0, import_react25.createElement)("span", { className: "bt-mem-size", title: t("MEMORY.md, which every conversation reads") }, t("{used} of {limit} characters", { used: section.size.toLocaleString(dateLocale()), limit: view.limits[section.scope].toLocaleString(dateLocale()) }))
       ),
       groups.some((group) => group.scope === section.scope) ? groups.filter((group) => group.scope === section.scope).map((group) => (0, import_react25.createElement)(
         import_react25.Fragment,
@@ -21467,6 +21471,23 @@ var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
 var dshItem = (dsh, id) => (0, import_react47.createElement)("div", { key: id, className: "bt-dsh-item", "data-item": id }, dsh.renderSlot("settings.general.item", {}, { only: id }));
 var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var MEMORY_SIZES = [
+  { scope: "group", label: "Group memory size", size: 12e3 },
+  { scope: "bot", label: "Bot memory size", size: 8e3 },
+  { scope: "team", label: "Team memory size", size: 4e3 }
+];
+function MemorySize({ label, value, save }) {
+  const [text, setText] = (0, import_react47.useState)(String(value));
+  (0, import_react47.useEffect)(() => setText(String(value)), [value]);
+  const commit = () => {
+    const number = Number(text);
+    if (Number.isInteger(number) && number >= 1e3 && number <= 2e5 && number !== value) save(number);
+    else setText(String(value));
+  };
+  return (0, import_react47.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 1e3, max: 2e5, step: 1e3, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+    if (event.key === "Enter") event.target.blur();
+  } });
+}
 function SetSection({ title, className = "", children }) {
   return (0, import_react47.createElement)("section", { className: `bt-set-section ${className}`.trim() }, (0, import_react47.createElement)("h3", null, title), (0, import_react47.createElement)("div", { className: "bt-set-card" }, children));
 }
@@ -21606,6 +21627,15 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         { label: t("Enter sends message") },
         (0, import_react47.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       )
+    ),
+    (0, import_react47.createElement)(
+      SetSection,
+      { key: "memory", title: t("Memory") },
+      MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react47.createElement)(
+        SetRow,
+        { key: scope, label: t(label) },
+        (0, import_react47.createElement)(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: (value) => run2(actions.setPrefs({ memoryLimits: { [scope]: value } })) })
+      ))
     ),
     // Settings opens in Agent mode too; there the way goes back to Bot mode.
     actions.setSurface ? (0, import_react47.createElement)(
