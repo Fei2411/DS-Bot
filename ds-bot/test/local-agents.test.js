@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -589,6 +589,45 @@ test('claude: print mode asks DS Bot for permission and lets team tools through'
   const args = adapter.engines.get('local-claude-code').sessions.get('s1').child.spawnargs
   assert.equal(args[args.indexOf('--permission-prompt-tool') + 1], 'stdio')
   assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__dsbot')
+})
+
+// Windows allows 32,767 characters for a whole command line. Under the inline
+// flag a Bot with a large instruction set never starts, so the prompt travels in
+// a file and only its path may be an argument.
+test('claude: a system prompt larger than the Windows command-line limit starts the session', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const big = 'x'.repeat(40_000)
+  const out = await collect(adapter.stream(options('s1', [system('m1', big), user('m2', 'hello')], { provider: 'local-claude-code' })))
+  assert.equal(out.finish.kind, 'stop')
+  const args = adapter.engines.get('local-claude-code').sessions.get('s1').child.spawnargs
+  assert.ok(args.includes('--append-system-prompt-file'))
+  assert.ok(!args.includes('--append-system-prompt'))
+  assert.equal(readFileSync(args[args.indexOf('--append-system-prompt-file') + 1], 'utf8'), big)
+})
+
+// The file outlives the turn but not the session: a killed process must leave
+// nothing behind in the temp folder.
+test('claude: the temp system-prompt file is gone once the session is killed', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [system('m1', 'a short prompt'), user('m2', 'hello')], { provider: 'local-claude-code' })))
+  const session = adapter.engines.get('local-claude-code').sessions.get('s1')
+  const file = session.child.spawnargs[session.child.spawnargs.indexOf('--append-system-prompt-file') + 1]
+  assert.equal(existsSync(file), true)
+  session.kill()
+  assert.equal(existsSync(file), false)
+})
+
+// An argument that grows the same way fails with a message naming the flag,
+// instead of Windows' bare "spawn ENAMETOOLONG" which names nothing.
+test('claude: an over-cap command line fails with a typed error naming the flag', async (t) => {
+  const adapter = makeAdapter({ claudeArgs: ['--oversized', 'x'.repeat(40_000)] })
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'hello')], { provider: 'local-claude-code' }))),
+    error => error.code === 'LOCAL_AGENT_EXIT' && /command line is \d+ characters and Windows allows 30000/u.test(error.message) && /--oversized/u.test(error.message),
+  )
 })
 
 // A CLI that exits before init leaves a dead bridge: the retry must start a
