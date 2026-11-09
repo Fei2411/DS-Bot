@@ -3,13 +3,27 @@
 // The platform adapters (im/platforms/) own the wire; this module owns pairing,
 // routing, cards and the send queues. Only the dsh holding the team lock connects.
 import { randomBytes, randomUUID } from 'node:crypto'
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { appendFile, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { adapters } from './platforms/index.js'
 
+// A Bot attaches a file by writing [[file:/absolute/path]] on a line of its
+// reply: the line leaves the text, the file goes out on the same chat.
+const FILE_MARK = /^[ \t]*\[\[file:([^\]\n]+)\]\][ \t]*$/gm
+const splitFiles = (body) => {
+  const files = []
+  const text = String(body ?? '')
+    .replace(FILE_MARK, (_, path) => { files.push(String(path).trim()); return '' })
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { text, files }
+}
+const IM_DEBUG_LOG = '/home/ubuntu/.dsh/bot/workspace/logs/im-file.log'
+const imLog = (line) => appendFile(IM_DEBUG_LOG, `${new Date().toISOString()} ${line}\n`).catch(() => {})
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
 const RETRY_MS = 5_000
@@ -192,12 +206,24 @@ export function install(rt) {
     if (runner?.handle === undefined || queue === undefined) return
     while (queue.jobs.length > 0) {
       const job = queue.jobs[0]
+      if (job.path !== undefined && job.file === undefined) {
+        job.file = await readFile(job.path)
+          .then(data => ({ name: basename(job.path), data }))
+          .catch(() => undefined)
+        if (job.file === undefined) {
+          imLog(`unreadable ${job.path}`)
+          rt.warn('ds-bot: im file not readable: %s', job.path)
+          queue.jobs.shift()
+          continue
+        }
+      }
       try {
         const sent = await runner.handle.send(job.chat, job)
         job.after?.(sent)
         queue.jobs.shift()
       } catch (error) {
         const how = failClass(error)
+        imLog(`send failed (${how}; file=${job.file?.name ?? '-'}): ${error?.message ?? error}`)
         if (how === 'retry') {
           const wait = Number(error?.retryAfter) > 0 ? error.retryAfter * 1000 : RETRY_MS
           queue.retry = setTimeout(() => { void drain(conn, chatKey) }, wait)
@@ -577,8 +603,10 @@ export function install(rt) {
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
-          for (const { chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
-            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chat.key ?? chat, kind: chat.kind, title: chat.title }).catch?.(() => {})
+          // chats are stored under their key, not with one: `chat.key` is always
+          // undefined, so the key has to come from targetsOf itself.
+          for (const { chatKey, chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
+            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
           }
         }, TYPING_MS)
         runner.typing.unref?.()
@@ -875,10 +903,15 @@ export function install(rt) {
     }
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
-      const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
+      const raw = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
+      const { text: body, files } = splitFiles(raw)
       for (const conn of Object.values(connections())) {
         if (!runners.has(conn.id)) continue
-        for (const { chatKey, chat } of listeners(conn, { botId })) sendTo(conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
+        for (const { chatKey, chat } of listeners(conn, { botId })) {
+          const where = { key: chatKey, kind: chat.kind, title: chat.title }
+          if (body !== '') sendTo(conn, chatKey, where, body)
+          for (const path of files) enqueue(conn, chatKey, { chat: where, path })
+        }
       }
     }
   })
