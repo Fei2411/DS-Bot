@@ -120,7 +120,10 @@ export function installReview(rt, memory) {
     const done = []
     const counts = () => ({ kept: done.length, changed: done.filter(result => result.changed).length })
     let failed
-    for (const change of changes) {
+    // A removal frees room and an edit names an entry as it reads now, so both go
+    // before what is new.
+    const order = change => ({ remove: 0, edit: 1 })[String(change?.op)] ?? 2
+    for (const change of changes.toSorted((a, b) => order(a) - order(b))) {
       // A keeper deleted mid-review keeps no more changes, its team ones included.
       if (rt.botOf(keeper.id) === undefined) return counts()
       // Its role may change mid-review too, so each change asks again.
