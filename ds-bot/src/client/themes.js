@@ -28,12 +28,18 @@ const THEMES = {
     light: { bg: '#f7f9fc', sidebar: '#eef2f8', bubble: '#e5ebf5', card: '#ffffff', text: '#121826', user: '#1e3a8a', userText: '#ffffff', accent: '#1e86ff' },
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
   },
+  mist: {
+    label: 'Mist',
+    light: { bg: '#f4f6fb', sidebar: '#ffffff', bubble: '#eef2f9', card: '#ffffff', text: '#141414', user: '#2f6bff', userText: '#ffffff', accent: '#2f6bff' },
+    dark: { bg: '#0e1118', sidebar: '#151a24', bubble: '#1e2534', card: '#171c27', text: '#e8ecf5', user: '#2f6bff', userText: '#ffffff', accent: '#5c86ff' },
+  },
 }
 // Text on the accent: near-black or white, whichever has the higher WCAG contrast.
 // (L + .05)² > 1.05 × (L(#141414) + .05) is "dark ink reads better".
 const DARK_INK = '#141414'
 const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
+const TIP_GREEN = '#2FAF6A'
 function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
@@ -44,6 +50,15 @@ function themeVars(mode, dark, accent = mode.accent) {
     '--bt-accent': accent, '--bt-accent-ink': accentInk(accent),
     '--bt-user': mode.user, '--bt-user-ink': mode.userText,
     '--bt-tag-bg': rgba(mode.text, dark ? 0.09 : 0.06), '--bt-tag-ink': rgba(mode.text, 0.58),
+    // The card sidebar: the page behind it, the panel itself, and the quiet fills inside.
+    '--bt-page': mode.bg, '--bt-panel': mode.card, '--bt-panel-rim': rgba(mode.text, dark ? 0.1 : 0.06),
+    '--bt-panel-shadow': dark ? '0 1px 2px rgba(0,0,0,.4),0 14px 40px rgba(0,0,0,.35)' : '0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.04)',
+    '--bt-field': dark ? `color-mix(in srgb, ${mode.card} 94%, ${mode.text} 6%)` : `color-mix(in srgb, ${mode.card} 97%, ${accent} 3%)`,
+    '--bt-seg-on': dark ? `color-mix(in srgb, ${mode.card} 90%, ${mode.text} 10%)` : '#ffffff',
+    '--bt-row-sel': `color-mix(in srgb, ${mode.card} 89%, ${accent} 11%)`,
+    '--bt-tip-bg': `color-mix(in srgb, ${mode.card} ${dark ? 88 : 93}%, ${TIP_GREEN} ${dark ? 12 : 7}%)`,
+    '--bt-tip-rim': `color-mix(in srgb, ${mode.card} 82%, ${TIP_GREEN} 18%)`,
+    '--bt-tip-ink': rgba(mode.text, dark ? 0.62 : 0.58),
   }
 }
 const declarations = vars => Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(';')
