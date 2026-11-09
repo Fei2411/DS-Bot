@@ -15,7 +15,7 @@ import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, validateCustom } from './engines.js'
 import { cleanEnv, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
-const SIGN_IN = {
+export const SIGN_IN = {
   'devin-cli': 'devin auth login',
   'claude-code': 'claude',
   'codex-cli': 'codex login',
@@ -26,6 +26,7 @@ const SIGN_IN = {
   'cline': 'cline auth',
   'qwen-code': 'qwen',
   'goose': 'goose configure',
+  'codebuddy': 'codebuddy',
 }
 
 const SIGNED_IN_TTL_MS = 60_000

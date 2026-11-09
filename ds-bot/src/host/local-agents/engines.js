@@ -24,6 +24,7 @@ const CLIS = {
   'cline': { name: 'Cline', kind: 'acp', command: 'cline', args: ['--acp'], version: ['--version'], env: { CLINE_SESSION_BACKEND_MODE: 'local' } },
   'qwen-code': { name: 'Qwen Code', kind: 'acp', command: 'qwen', args: ['--acp'], version: ['--version'], signedIn: { file: ['.qwen', 'oauth_creds.json'] } },
   'goose': { name: 'Goose', kind: 'acp', command: 'goose', args: ['acp'], version: ['--version'] },
+  'codebuddy': { name: 'CodeBuddy', kind: 'acp', command: 'codebuddy', args: ['--acp'], version: ['--version'] },
 }
 
 // route -> engine, e.g. 'local-codex-cli'. `id` is the CLI's name without the prefix.
