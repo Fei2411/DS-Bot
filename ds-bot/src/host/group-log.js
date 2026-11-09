@@ -41,7 +41,7 @@ export function install(rt) {
       if (error?.code !== 'ENOENT') throw error
     }
     // Upgraded groups still have recent messages that predate this file.
-    const lines = new Map((rt.roomOf(roomId)?.log ?? []).map(line => [line.seq, line]))
+    const lines = new Map((await rt.recentGroupLines(roomId)).map(line => [line.seq, line]))
     for (const row of text.split('\n')) {
       if (row === '') continue
       try {

@@ -1811,6 +1811,21 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 9999 }, 'g3'), /has no message 9999/)
 })
 
+test('group search after an upgrade reads the saved full text of a legacy line', async (t) => {
+  const first = start()
+  t.after(() => first.stop())
+  await first.call('state', {})
+  const room = rt.roomOf('r1')
+  const text = `The launch notes follow. ${'Plan details. '.repeat(155)}Final deliverable appendix.`
+  const line = rt.keepGroupLine(room.id, { who: 'User', seq: 4, text }, text)
+  assert.doesNotMatch(line.text, /deliverable appendix/)
+  writeFileSync(join(first.home, 'state.json'), JSON.stringify({ ...TEAM, rooms: { r1: { ...TEAM.rooms.r1, seq: 4, log: [...TEAM.rooms.r1.log, line] } } }))
+  await first.stop({ keep: true })
+  const second = start({ home: first.home })
+  t.after(() => second.ctx.dispose())
+  assert.match(await second.tool('read_group_chat', { group: 'Launch', query: 'deliverable appendix' }, 'g3'), /#4 /)
+})
+
 test('a group review writes only to the group whose conversation it read', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   const r2 = { ...TEAM.rooms.r1, id: 'r2', name: 'Other project', log: [], seq: 0, sessions: {} }
