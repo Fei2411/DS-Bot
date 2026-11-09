@@ -33,7 +33,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, FULL, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, joinLines, looksSecret, matchEntries, parseAsk, parseMemory, removeLink, splitMeta, squash } from './memory-entries.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, joinLines, looksSecret, matchEntries, parseAsk, parseMemory, removeLink, splitMeta, squash } from './memory-entries.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, SUMMARY_SYSTEM, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { output } from './tools.js'
@@ -41,6 +41,8 @@ import { output } from './tools.js'
 export { MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey, looksSecret, matchEntries, parseAsk, parseMemory, parseReview, removeLink, reviewEntries, splitMeta } from './memory-entries.js'
 export { writtenIn } from './memory-copy.js'
 
+// Where entries go when MEMORY.md is at its size.
+const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
@@ -351,13 +353,66 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // Changes. Each runs alone, rereads the files, and returns what changed.
 
-  function checkSize(file, next, label) {
-    const limit = limitOf(file)
+  // Memory never refuses a fact for lack of room. MEMORY.md is what every conversation
+  // reads, so past its size the oldest entries move to a topic, in the same change, and
+  // recall still finds them. A topic is only as long as one recall can read; a full one
+  // continues in `<name>-2`.
+  const sizeOf = lines => joinLines(lines).length
+
+  const overflowName = at => (at === 1 ? OVERFLOW : `${OVERFLOW}-${at}`)
+  function placeMoved(files, moved) {
+    const placed = new Map()
+    let at = 1
+    let size = files.find(file => file.topic === overflowName(at))?.content.length ?? 0
+    for (const line of moved) {
+      while (size > 0 && size + line.length + 1 > MEMORY_LIMITS.topic) {
+        at += 1
+        size = files.find(file => file.topic === overflowName(at))?.content.length ?? 0
+      }
+      placed.set(overflowName(at), [...placed.get(overflowName(at)) ?? [], line])
+      size += line.length + 1
+    }
+    return placed
+  }
+
+  // `keep` is the line this change writes, which is not the one to move.
+  function makeRoom(files, scope, lines, keep) {
+    const main = files[0]
+    const limit = limitOf(main)
+    let kept = lines
+    let moved = []
+    let placed = new Map()
+    const linked = () => [...placed.keys()].filter(name => !main.links.includes(name)).reduce((list, name) => addLink(list, name), kept)
     // A file already past its size (edited by hand) may still shrink.
-    if (next.length <= limit || next.length <= file.content.length) return
-    throw Object.assign(new Error(file.topic === undefined
-      ? `${capital(label)}'s MEMORY.md would have ${next.length} of its ${limit} characters. Make room first: move details into a topic (remember with topic, then forget them here), merge entries with replace, or forget what no longer matters.`
-      : `The topic [[${file.topic}]] in ${label} would have ${next.length} of its ${limit} characters. Put the rest in another topic, or forget old entries.`), { code: FULL })
+    const fits = list => sizeOf(list) <= limit || sizeOf(list) <= main.content.length
+    while (!fits(linked())) {
+      const entries = parseMemory(joinLines(kept)).entries.filter(entry => kept[entry.line] !== keep)
+      if (entries.length === 0) break
+      const oldest = entries.reduce((a, b) => (String(b.meta.added ?? '') < String(a.meta.added ?? '') ? b : a))
+      moved = [...moved, kept[oldest.line]]
+      kept = kept.filter((_line, at) => at !== oldest.line)
+      placed = placeMoved(files, moved)
+    }
+    const steps = [...placed].map(([name, entries]) => {
+      const file = files.find(item => item.topic === name)
+      const base = file === undefined || file.lines.length === 0 ? parseMemory(`# ${name}\n`).lines : file.lines
+      return writeStep(join(dirOf(scope), `${name}.md`), joinLines(entries.reduce(insertEntry, base)))
+    })
+    return { lines: linked(), moved, steps, topics: [...placed.keys()] }
+  }
+  const movedNote = room => (room.moved.length === 0 ? '' : ` MEMORY.md was at its size, so ${room.moved.length === 1 ? 'its oldest entry' : `its ${room.moved.length} oldest entries`} moved to ${room.topics.map(name => `[[${name}]]`).join(', ')}, where recall finds ${room.moved.length === 1 ? 'it' : 'them'}.`)
+  const movedRow = room => (room.moved.length === 0 ? {} : { moved: room.moved, movedTo: room.topics.map(name => `${name}.md`) })
+
+  // The topic an entry goes in. Past the last topic there is none, and the entry goes
+  // to MEMORY.md, which makes room for it.
+  function roomInTopic(files, topic, length) {
+    if (topic === undefined) return undefined
+    for (let at = 1; ; at += 1) {
+      const name = at === 1 ? topic : `${topic}-${at}`
+      const file = files.find(item => item.topic === name)
+      if (file === undefined) return files.length - 1 >= MEMORY_LIMITS.topics ? undefined : name
+      if (file.content.length + length + 1 <= MEMORY_LIMITS.topic) return name
+    }
   }
   const capital = text => text[0].toUpperCase() + text.slice(1)
   const sizeNote = (file, size) => `${file.file}: ${size} of ${limitOf(file)} characters`
@@ -384,27 +439,25 @@ export function install(rt) {
       const [same] = matchEntries(allEntries(files), text).filter(entry => squash(entry.text) === squash(text))
       if (same !== undefined) return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
       const main = files[0]
-      let target = topic === undefined ? main : files.find(file => file.topic === topic)
-      const fresh = target === undefined
-      if (fresh) {
-        if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
-        target = { topic, file: `${topic}.md`, path: join(dirOf(scope), `${topic}.md`), content: '', ...parseMemory(`# ${topic}\n`) }
-      }
-      const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${topic}\n`).lines
       const line = formatEntry(text, meta)
-      const next = joinLines(insertEntry(base, line))
-      checkSize(target, next, label)
-      let index
-      if (topic !== undefined && !main.links.includes(topic)) {
-        index = joinLines(addLink(main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines, topic))
-        checkSize(main, index, label)
-      }
-      const steps = [writeStep(target.path, next)]
-      if (index !== undefined) steps.push(writeStep(main.path, index))
-      await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line } })
+      const name = roomInTopic(files, topic, line.length)
+      let target = name === undefined ? main : files.find(file => file.topic === name)
+      const fresh = target === undefined
+      if (fresh) target = { topic: name, file: `${name}.md`, path: join(dirOf(scope), `${name}.md`), content: '', ...parseMemory(`# ${name}\n`) }
+      const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${name}\n`).lines
+      const written = insertEntry(base, line)
+      const mainLines = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+      // What the overflow writes sees this entry, in case the two are the same topic.
+      const seen = target === main ? files : [...files.filter(file => file !== target), { ...target, ...parseMemory(joinLines(written)), content: joinLines(written) }]
+      const room = makeRoom(seen, scope, target === main ? written : name !== undefined && !main.links.includes(name) ? addLink(mainLines, name) : mainLines, target === main ? line : undefined)
+      const steps = target === main
+        ? [writeStep(main.path, joinLines(room.lines))]
+        : [writeStep(target.path, joinLines(written)), ...(room.lines === mainLines ? [] : [writeStep(main.path, joinLines(room.lines))])]
+      await publish({ op: 'add', scope: scopeKey(scope), steps: [...steps, ...room.steps], row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
       noteNews(scope, actor, 'add', line)
-      const where = topic === undefined ? MAIN : fresh ? `the new topic [[${topic}]], linked from MEMORY.md` : `topic [[${topic}]]`
-      return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote(target, next.length)}).` }
+      const where = target === main ? MAIN : fresh ? `the new topic [[${name}]], linked from MEMORY.md` : `topic [[${name}]]`
+      const size = target === main ? sizeOf(room.lines) : sizeOf(written)
+      return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote(target, size)}).${movedNote(room)}` }
     })
   }
 
@@ -425,21 +478,21 @@ export function install(rt) {
     return queued(async () => {
       await recoverPending()
       writable(scope, actor)
-      const old = findOne(loadScope(scope), topic, match, label)
+      const files = loadScope(scope)
+      const old = findOne(files, topic, match, label)
       const line = formatEntry(text, meta)
       const lines = [...old.file.lines]
       const before = lines[old.line]
       lines[old.line] = line
-      const next = joinLines(lines)
-      checkSize(old.file, next, label)
+      const room = old.file.topic === undefined ? makeRoom(files, scope, lines, line) : { lines, moved: [], steps: [], topics: [] }
       await publish({
         op: 'replace',
         scope: scopeKey(scope),
-        steps: [writeStep(old.file.path, next)],
-        row: { op: 'replace', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, after: line },
+        steps: [writeStep(old.file.path, joinLines(room.lines)), ...room.steps],
+        row: { op: 'replace', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, after: line, ...movedRow(room) },
       })
       noteNews(scope, actor, 'replace', line)
-      return { changed: true, file: old.file, message: `Updated in ${label} (${fileName(old.file)}): "${old.text}" is now "${text}".` }
+      return { changed: true, file: old.file, message: `Updated in ${label} (${fileName(old.file)}): "${old.text}" is now "${text}".${movedNote(room)}` }
     })
   }
 
@@ -1254,21 +1307,17 @@ export function install(rt) {
             // The rebuilt topic carries its name into a heading and the Index link:
             // a name that is a saved secret now must not come back either.
             if (secretEntry(topic)) throw new Error(`The topic the change removed cannot be put back: its name looks like a key, token, password, or ID number, which memory never keeps.`)
-            if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
             file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
           }
         }
         const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
-        const next = joinLines(insertEntry(lines, row.before))
-        checkSize(file, next, label)
-        steps.push(writeStep(file.path, next))
+        const put = insertEntry(lines, row.before)
         const main = files[0]
-        if (file.topic !== undefined && !main.links.includes(file.topic)) {
-          const index = joinLines(addLink(main.lines, file.topic))
-          checkSize(main, index, label)
-          steps.push(writeStep(main.path, index))
-        }
-        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before } })
+        const room = makeRoom(files, scope, file === main ? put : file.topic !== undefined && !main.links.includes(file.topic) ? addLink(main.lines, file.topic) : main.lines, file === main ? row.before : undefined)
+        if (file !== main) steps.push(writeStep(file.path, joinLines(put)))
+        if (file === main || room.lines !== main.lines) steps.push(writeStep(main.path, joinLines(room.lines)))
+        steps.push(...room.steps)
+        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before, ...movedRow(room) } })
         return
       }
 
@@ -1297,9 +1346,8 @@ export function install(rt) {
       if (secretEntry(row.after)) throw new Error(`The entry the change wrote cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
       const lines = [...target.lines]
       lines[found[0].line] = row.before
-      const next = joinLines(lines)
-      checkSize(target, next, label)
-      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, next)], row: { op: 'replace', ...base, before: row.after, after: row.before } })
+      const room = target.topic === undefined ? makeRoom(files, scope, lines, row.before) : { lines, moved: [], steps: [], topics: [] }
+      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, joinLines(room.lines)), ...room.steps], row: { op: 'replace', ...base, before: row.after, after: row.before, ...movedRow(room) } })
     })
     return await memoryView(panelBody(panel))
   }

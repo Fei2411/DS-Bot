@@ -16,10 +16,8 @@ const META = /\s*\[([A-Za-z][\w-]*:[^\];]*(?:;\s*[A-Za-z][\w-]*:[^\];]*)*)\]\s*$
 export const NO_MATCH = 'memory/no-match'
 export const GONE = 'memory/bot-gone'
 export const DENIED = 'memory/denied'
-// A change the memory has no room for: a file at its size, or the last topic.
-export const FULL = 'memory/full'
 // The codes the memory review routes on. A failure that carries one keeps it.
-export const ROUTED = new Set([NO_MATCH, GONE, DENIED, FULL])
+export const ROUTED = new Set([NO_MATCH, GONE, DENIED])
 // What a review shows of memory, in characters of entry text.
 export const REVIEW_MEMORY_MAX = 16_000
 
