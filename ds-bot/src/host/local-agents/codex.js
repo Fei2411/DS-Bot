@@ -118,24 +118,28 @@ export class CodexEngine {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
-    // The app-server's own fields (camelCase); anything else is ignored without
-    // a word. The MCP server is a config.toml setting, so it rides in `config`.
-    const settings = {
+    // Codex 0.166 reads `ThreadStartParams` from the top level and takes the MCP
+    // servers from `config`; it drops unknown keys without a word. So the fields keep
+    // their documented names: `sandbox`, `approvalPolicy`, and `config.mcp_servers`.
+    // The team instructions belong to a new thread: a resumed one keeps the
+    // instructions it was started with, and instruct() updates them later.
+    const params = {
       cwd,
       ...(model && model !== 'default' ? { model } : {}),
       ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
-      ...(instructions ? { developerInstructions: instructions } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
       try {
-        await peer.request('thread/resume', { threadId: thread.threadId, ...settings }, { timeout: 30_000 })
+        // thread/resume takes the same params, plus the thread id. The instructions it
+        // was started with stay: they are not sent again here.
+        await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
         return thread
       } catch {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', settings, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }
