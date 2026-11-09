@@ -301,14 +301,20 @@ export function install(rt) {
     if (step === undefined) return undefined
     const byId = (content) => {
       const { lines, entries } = parseMemory(content)
-      return new Map(entries.map(entry => [entryId(entry), lines[entry.line]]))
+      return Map.groupBy(entries.map(entry => ({ ...entry, raw: lines[entry.line] })), entryId)
     }
     const before = byId(readText(path))
     const after = byId(step.text)
     const changes = [...new Set([...before.keys(), ...after.keys()])].flatMap((id) => {
-      const old = before.get(id)
-      const next = after.get(id)
-      return old === next ? [] : [{ before: old, after: next }]
+      // Older entries derive a short id from their text, so several can share one.
+      const added = [...after.get(id) ?? []]
+      const removed = (before.get(id) ?? []).filter((entry) => {
+        const same = added.findIndex(next => next.raw === entry.raw)
+        if (same < 0) return true
+        added.splice(same, 1)
+        return false
+      })
+      return Array.from({ length: Math.max(removed.length, added.length) }, (_, i) => ({ before: removed[i]?.raw, after: added[i]?.raw }))
     })
     const [change] = changes
     if (row.file === MAIN && ['add', 'remove', 'replace'].includes(row.op) && changes.length === 1 && change.before === row.before && change.after === row.after) return undefined
