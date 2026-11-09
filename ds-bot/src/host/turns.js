@@ -41,13 +41,19 @@ export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
   const work = rt.closeWork?.(source.exchangeId, name, text)
+  // A reply that arrives after the user gave up the wait is a late answer: it closes
+  // nothing, opens nothing, and says on it that the wait was already over.
+  const late = work === undefined ? rt.abandonedWork?.(source.exchangeId) : undefined
+  const marker = late === undefined ? '' : '[Late answer: the user had already given up waiting for this work; its result was settled then.]\n\n'
+  const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
+  const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
   const exchangeId = randomUUID()
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
     ...(back ? { sessionId: back } : {}),
-    text: long?.text ?? text,
-    ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+    text: body,
+    ...(length === undefined ? {} : { files: long.files, length }),
     role: 'reply',
     replyTo: source.exchangeId,
     exchangeId,
