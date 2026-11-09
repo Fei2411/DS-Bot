@@ -3,12 +3,15 @@
 // session, created or resumed with our loopback MCP server attached.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { cleanEnv, spawnAgent } from './discover.js'
+import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
+// DS Bot's loopback MCP server, which carries the Bot's team tools.
+const MCP_SERVER = 'dsbot'
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
-// agent's own work) | {type:'permission',id,action,detail,options,reply} |
+// agent's own work) | {type:'permission',id,action,detail,options,changes,reply} |
 // {type:'done',reason} | {type:'error',error} | {type:'usage',usage}
 export class AcpEngine {
   constructor(route, engine, { findExecutable }) {
@@ -19,6 +22,8 @@ export class AcpEngine {
     this.peer = undefined
     this.sessions = new Map()
     this.caps = {}
+    // The modes and options this CLI listed last, for a reply that lists none.
+    this.listed = { modes: [], configOptions: [] }
   }
 
   async ensure() {
@@ -107,6 +112,11 @@ export class AcpEngine {
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
       const call = callOf(session, params?.toolCall)
+      // Cursor and Devin ask before every MCP tool call. A call to DS Bot's own server
+      // is approved once here: toolsFor() already narrowed what the Bot may call.
+      // Other tools, and an agent that offers no one-time allow, still ask.
+      const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
+      if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
@@ -119,6 +129,7 @@ export class AcpEngine {
           action,
           detail: detailText(call, action),
           options,
+          changes: CHANGE_KINDS.has(call.kind),
         })
       })
     }
@@ -126,10 +137,10 @@ export class AcpEngine {
   }
 
   // A new or resumed ACP session for one DS Bot Session.
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, model }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, preset, model }) {
     const peer = await this.ensure()
     const session = this.sessionFor(dshSessionId)
-    const mcpServers = mcp === undefined ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }]
+    const mcpServers = serversFor(mcp)
     if (mcp !== undefined && this.caps.mcpHttp === false) throw Object.assign(new Error(`${this.engine.name} cannot use HTTP MCP servers; the team tools cannot reach it`), { code: 'NOT_SUPPORTED' })
     const params = { cwd, mcpServers }
     let reply
@@ -143,8 +154,13 @@ export class AcpEngine {
       reply = await peer.request('session/new', params, { timeout: 60_000 })
     }
     session.acpSessionId = reply?.sessionId ?? resumeId
-    session.configOptions = reply?.configOptions ?? []
-    session.modes = reply?.modes?.availableModes ?? configOptionsOf(session.configOptions, 'mode')?.options ?? []
+    // Some agents list nothing on session/load: the session reads what this CLI
+    // listed before rather than guessing a mode.
+    const listed = this.remember(reply)
+    session.configOptions = listed.configOptions
+    session.modes = listed.modes
+    // The preset maps to a mode only once the agent has listed its own.
+    const mode = acpMode(preset, session.modes)
     if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
     // A model the agent does not take fails the turn: going on would answer with a
     // model the user did not pick.
@@ -198,15 +214,28 @@ export class AcpEngine {
     }
   }
 
+  remember(reply) {
+    const configOptions = reply?.configOptions
+    const modes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
+    if (configOptions !== undefined || modes !== undefined) this.listed = { configOptions: configOptions ?? [], modes: modes ?? [] }
+    return this.listed
+  }
+
   // Models the agent advertises on a probe session (configOptions 'model').
   async listModels({ cwd, mcp }) {
     const peer = await this.ensure()
-    const probe = await peer.request('session/new', { cwd, mcpServers: mcp === undefined ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }] }, { timeout: 60_000 })
+    const probe = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp) }, { timeout: 60_000 })
+    this.remember(probe)
     const option = configOptionsOf(probe?.configOptions ?? [], 'model')
     return (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
   }
 }
 
+const serversFor = mcp => (mcp === undefined ? [] : [{ type: 'http', name: MCP_SERVER, url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }])
+// ACP has no field for the MCP server of a call, so each agent says it its own way:
+// Cursor in the call's input, Devin in the permission rule the request names.
+const ownToolCall = call => call?.rawInput?.providerIdentifier === MCP_SERVER
+  || String(call?._meta?.['cognition.ai/permissionRule'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')
@@ -215,6 +244,8 @@ const mergeCall = (known, update) => ({
   ...Object.fromEntries(Object.entries(update).filter(([key, value]) => key !== 'sessionUpdate' && value !== undefined && value !== null)),
 })
 const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefined ? undefined : session.toolCalls.get(toolCall.toolCallId), toolCall ?? {})
+// ACP tool kinds that change files or run something.
+const CHANGE_KINDS = new Set(['edit', 'delete', 'move', 'execute'])
 const VERBS = { read: 'Read', edit: 'Edit', delete: 'Delete', move: 'Move', search: 'Search', execute: 'Run', think: 'Think', fetch: 'Fetch' }
 const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'object' ? call.rawInput : {})
 // One line a person can act on: what kind of action, on what.

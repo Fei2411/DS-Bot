@@ -47,10 +47,15 @@ class FakeObserver {
 // The markdown the host's renderer is given, and what DS Bot's copy controls write.
 const markdownTexts = []
 const copiedTexts = []
+const clipboard = {}
+class ClipboardItem {
+  constructor(items) { this.getType = type => Promise.resolve(items[type]) }
+}
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   document: { hidden: false }, TextEncoder, MutationObserver: FakeObserver,
+  navigator: { clipboard }, ClipboardItem, Blob,
   setTimeout: (fn) => { const timer = { fn }; timers.add(timer); return timer },
   clearTimeout: timer => timers.delete(timer),
   require: (name) => {
@@ -1076,4 +1081,58 @@ test('a folded code block leaves no copy of only its shown part', async () => {
   assert.ok(markdownTexts.some(given => given.includes('```js')))
   assert.equal(copyOf(short).length, 0)
   effects = []
+})
+
+
+test('an attachment preview copies its full code and never writes a partial read', async () => {
+  const inner = Array.from({ length: 4000 }, (_, i) => `line ${i + 1}`).join('\n')
+  const full = '```js\n' + inner + '\n```'
+  let whole = true
+  const errors = []
+  const bubble = () => expand(Bubbles({
+    texts: [full.slice(0, 1000)], roster: team(), selfId: chief.id, sessionId: chief.id,
+    actions: { reportError: error => errors.push(error.message) },
+    whole: { length: full.length, load: async () => ({ text: full, whole }) },
+    useUi: select => select({ reactions: {} }),
+  }))
+  const copyOf = out => find(out, node => node.type === 'button' && node.props?.className?.includes('bt-fold-copy'))
+  markdownTexts.length = 0
+  copiedTexts.length = 0
+  await copyOf(bubble()).props.onClick()
+  assert.deepEqual(copiedTexts, [inner])
+  assert.ok(markdownTexts.every(text => !text.includes('```')))
+  copiedTexts.length = 0
+  whole = false
+  await copyOf(bubble()).props.onClick()
+  assert.deepEqual(copiedTexts, [])
+  assert.deepEqual(errors, ['Could not read the whole code block'])
+  effects = []
+})
+
+
+test('an attachment starts the clipboard write inside its click before loading the text', async t => {
+  const inner = Array.from({ length: 4000 }, (_, i) => `line ${i + 1}`).join('\n')
+  const full = '```js\n' + inner + '\n```'
+  let release
+  const loaded = new Promise(resolve => { release = resolve })
+  let writing = false
+  clipboard.write = async items => {
+    writing = true
+    const blob = await items[0].getType('text/plain')
+    copiedTexts.push(await blob.text())
+  }
+  t.after(() => { delete clipboard.write; effects = [] })
+  const out = expand(Bubbles({
+    texts: [full.slice(0, 1000)], roster: team(), selfId: chief.id,
+    whole: { length: full.length, load: () => loaded },
+    useUi: select => select({ reactions: {} }),
+  }))
+  copiedTexts.length = 0
+  const button = find(out, node => node.type === 'button' && node.props?.className?.includes('bt-fold-copy'))
+  const copying = button.props.onClick()
+  assert.equal(writing, true, 'write is called synchronously in the gesture')
+  assert.deepEqual(copiedTexts, [], 'nothing is written before the full read')
+  release({ text: full, whole: true })
+  await copying
+  assert.deepEqual(copiedTexts, [inner])
 })

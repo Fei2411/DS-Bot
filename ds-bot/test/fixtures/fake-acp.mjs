@@ -3,11 +3,20 @@
 //   contains "call-tool"    -> calls the dsbot MCP server's tools/call
 //   contains "two-calls"    -> two queued MCP calls
 //   contains "ask-permission" -> session/request_permission to the client
+//   contains "team-permission" / "other-permission" -> an MCP call to the dsbot / another
+//                              server that asks first, in the shape cursor-agent 2026.11.05 sends
 //   contains "hang"         -> never ends until session/cancel
 //   otherwise               -> a thought chunk, an activity line, "ok"
 // `--exit-after-turn` makes it exit once a prompt is answered, so a test can
 // watch the client reopen the agent.
+//   contains "devin-team" / "devin-other" -> the same, in the shape Devin CLI 3000.12.28 sends
+//   contains "show-mode"    -> answers with the mode the session is in
+// `--cursor-modes` lists the modes cursor-agent 2026.11.05 does (agent, plan, ask)
+// and refuses any other, as it does.
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
+const cursorModes = process.argv.includes('--cursor-modes')
+const MODES = cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
+let refusedModes = 0
 const sessions = new Map()
 let nextId = 0
 const requests = new Map()
@@ -40,6 +49,7 @@ async function runPrompt(session, prompt, requestId) {
     reply(requestId, { stopReason: 'end_turn' })
   }
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
+  if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
     // the permission request names it only by id.
@@ -53,7 +63,56 @@ async function runPrompt(session, prompt, requestId) {
       ],
     })
     const outcome = answer?.result?.outcome
-    finish(outcome?.outcome === 'selected' ? `allowed via ${outcome.optionId}` : 'denied')
+    finish(outcome?.outcome === 'selected' && !outcome.optionId.startsWith('reject') ? `allowed via ${outcome.optionId}` : 'denied')
+    return
+  }
+  if (text.includes('devin-team') || text.includes('devin-other')) {
+    // Recorded from devin acp: the server is named only in `_meta`, by the
+    // permission rule on the request.
+    const provider = text.includes('devin-team') ? 'dsbot' : 'github'
+    const name = `mcp__${provider}__message_bot`
+    const toolCallId = 'mcp_call_tool:0#1'
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId, title: `Calling message_bot from ${provider}`, rawInput: { to: 'River', message: 'ping' }, _meta: { 'cognition.ai/toolName': name, 'cognition.ai/eventType': 'mcp_tool_call' } })
+    const answer = await ask('session/request_permission', {
+      sessionId,
+      toolCall: { toolCallId, _meta: { 'cognition.ai/permissionRule': name } },
+      options: [
+        { optionId: 'allow_once', name: 'Allow', kind: 'allow_once' },
+        { optionId: 'allow_session', name: `Yes, allow calling message_bot on the ${provider} MCP server (this session)`, kind: 'allow_always' },
+        { optionId: 'allow_always', name: `Yes, always allow calling message_bot on the ${provider} MCP server`, kind: 'allow_always' },
+        { optionId: 'switch_bypass', name: 'Yes, switch to bypass mode', kind: 'allow_always' },
+        { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    const outcome = answer?.result?.outcome
+    if (outcome?.outcome !== 'selected' || outcome.optionId.startsWith('reject')) { finish('denied'); return }
+    if (provider !== 'dsbot') { finish(`allowed via ${outcome.optionId}`); return }
+    const result = await mcpCall(session.mcp, 'message_bot', { to: 'River', message: 'ping' })
+    finish(`allowed via ${outcome.optionId}; tool said: ${(result.content ?? []).map(block => block.text).join('')}`)
+    return
+  }
+  if (text.includes('team-permission') || text.includes('other-permission')) {
+    // Recorded from cursor-agent acp: the call opens empty, an update names the
+    // server and tool, then the permission request carries only a title.
+    const provider = text.includes('team-permission') ? 'dsbot' : 'github'
+    const toolCallId = 'call-1\nfc_1_0'
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId, title: 'MCP: tool', kind: 'other', status: 'pending', rawInput: {} })
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId, title: `${provider}: message_bot`, rawInput: { providerIdentifier: provider, toolName: 'message_bot', args: { to: 'River', message: 'ping' } } })
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' })
+    const answer = await ask('session/request_permission', {
+      sessionId,
+      toolCall: { toolCallId, title: `${provider}-message_bot: message_bot`, kind: 'other', status: 'pending', content: [{ type: 'content', content: { type: 'text', text: '```json\n{"to":"River","message":"ping"}\n```' } }] },
+      options: [
+        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
+        { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+      ].filter(option => !text.includes('always-only') || option.kind !== 'allow_once'),
+    })
+    const outcome = answer?.result?.outcome
+    if (outcome?.outcome !== 'selected' || outcome.optionId.startsWith('reject')) { finish('denied'); return }
+    if (provider !== 'dsbot') { finish(`allowed via ${outcome.optionId}`); return }
+    const result = await mcpCall(session.mcp, 'message_bot', { to: 'River', message: 'ping' })
+    finish(`allowed via ${outcome.optionId}; tool said: ${(result.content ?? []).map(block => block.text).join('')}`)
     return
   }
   if (text.includes('call-tool') || text.includes('two-calls')) {
@@ -97,7 +156,7 @@ process.stdin.on('data', (chunk) => {
         reply(id, { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: false }, loadSession: true }, authMethods: [] })
         break
       case 'session/new': {
-        const session = { id: `acp-${++nextId}`, mcp: undefined }
+        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0] }
         const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')
         if (server !== undefined) session.mcp = { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
         sessions.set(session.id, session)
@@ -105,14 +164,15 @@ process.stdin.on('data', (chunk) => {
           sessionId: session.id,
           configOptions: [
             { id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] },
-            { id: 'mode', category: 'mode', name: 'Mode', options: [{ id: 'ask', name: 'Ask' }, { id: 'accept-edits', name: 'Accept edits' }, { id: 'bypass', name: 'Bypass' }] },
+            { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
           ],
         })
         break
       }
       case 'session/load': {
         let session = sessions.get(params.sessionId)
-        if (session === undefined) { session = { id: params.sessionId, mcp: undefined }; sessions.set(session.id, session) }
+        // Bare on purpose: some agents list no modes on load (cursor-agent does).
+        if (session === undefined) { session = { id: params.sessionId, mcp: undefined, mode: MODES[0] }; sessions.set(session.id, session) }
         const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')
         if (server !== undefined) session.mcp = { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
         reply(id, { sessionId: params.sessionId })
@@ -120,10 +180,15 @@ process.stdin.on('data', (chunk) => {
       }
       case 'session/set_config_option':
         if (params.configId === 'model' && !['fake-large', 'fake-small'].includes(params.value)) fail(id, `unknown model ${params.value}`)
-        else reply(id, {})
+        else if (params.configId === 'mode' && !MODES.includes(params.value)) { refusedModes++; fail(id, 'Invalid params') }
+        else {
+          if (params.configId === 'mode') sessions.get(params.sessionId).mode = params.value
+          reply(id, {})
+        }
         break
       case 'session/set_mode':
-        reply(id, {})
+        if (!MODES.includes(params.modeId)) { refusedModes++; fail(id, 'Internal error') }
+        else { sessions.get(params.sessionId).mode = params.modeId; reply(id, {}) }
         break
       case 'session/prompt':
         void runPrompt(sessions.get(params.sessionId) ?? { id: params.sessionId }, params.prompt, id)

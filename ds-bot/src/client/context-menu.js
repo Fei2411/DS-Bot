@@ -1,8 +1,8 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
-import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, FolderIcon, PlusIcon, CheckIcon, PeopleIcon } from './icons.js'
+import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, FolderIcon, PlusIcon, CheckIcon, PeopleIcon, SignOutIcon } from './icons.js'
 import { BotMark, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { stepMenuFocus, useViewport, viewBottom } from './motion.js'
@@ -28,7 +28,7 @@ function sectionMoveItems(entry, roster, actions) {
   ].filter(Boolean)
 }
 
-export function ContextMenu({ menu, roster, actions, leaving = false }) {
+export function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   useEscape(() => actions.closeMenu())
   const ref = useRef(null)
   const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
@@ -51,6 +51,9 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   const bot = roster.byId[menu.id]
   const room = roster.roomsById[menu.id]
   const entry = bot ?? room
+  // Only a Bot that is waiting on a hand-off offers to give one up.
+  const waitsRaw = useWork && bot ? useWork(work => JSON.stringify(work.waiting?.[bot.id] ?? null)) : 'null'
+  const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
   if (entry === undefined) return null
   const isMainBot = isMainOf(roster, menu.id)
   const isTile = roster.mainBotId === menu.id
@@ -71,6 +74,7 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
       bot && isMainBot && mainCount > 1 ? [t('Remove Main Bot role'), StarLineIcon, () => actions.setMain(bot.id, false)] : null,
     ],
     [[t('Copy conversation ID'), CopyIcon, () => navigator.clipboard?.writeText(bot ? currentPart(bot) : menu.id)]],
+    bot ? (waits?.waits ?? []).map(item => [t('Give up waiting for {name}', { name: item.name ?? t('a Bot') }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t('Hide from sidebar'), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
       isMainBot ? null : [room ? t('Delete group') : t('Delete'), TrashIcon, () => (bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id)), true],
@@ -87,6 +91,12 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
 
 function SectionMenu({ menu, roster, actions, leaving }) {
   const ref = useRef(null)
+  const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
+  useEffect(() => {
+    const onKey = (event) => { stepMenuFocus(ref.current, event, trigger.current) }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   const tick = useViewport()
   useLayoutEffect(() => {
