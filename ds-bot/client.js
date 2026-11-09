@@ -1075,6 +1075,7 @@ var ZH = {
   "until {day}": "有效至 {day}",
   "Tidied: {merged} merged, {moved} moved, {retired} archived": "已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条",
   "Only when needed": "需要时才读",
+  "Move to…": "移到…",
   "Every conversation": "每次都带",
   "ended {day}": "已于 {day} 结束",
   "Click again to remove": "再点一次删除",
@@ -2267,6 +2268,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
     memoryLayer: (id, entry, always) => call2("memory-layer", { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
+    memoryMove: (id, entry, to) => call2("memory-move", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, to }),
     memoryTidyUndo: (id, scope, batch) => call2("memory-tidy-undo", { ...memoryOf(id), scope, batch }),
     memoryPin: (id, entry, pin) => call2("memory-pin", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
     memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
@@ -3966,6 +3968,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-head-gap{flex:1}
 .bt-mem-menu{position:absolute;top:52px;right:50px;min-width:220px;--bt-origin:top right}
 .bt-mem-menu button:disabled{opacity:.4;cursor:default;background:none}
+.bt-mem-move{min-width:200px;max-width:min(280px,calc(100vw - 24px));overflow-y:auto;overscroll-behavior:contain;--bt-origin:top right}
 .bt-mem-body{flex:1;overflow-y:auto;padding:22px 28px 24px;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px}
 .bt-mem-summary{transition:opacity .3s ease}
 .bt-mem-summary[data-stale]{opacity:.55}
@@ -4763,6 +4766,7 @@ var ReplyIcon = lineIcon(["M8 5L4 9l4 4", "M4 9h7.5a4.5 4.5 0 0 1 4.5 4.5V15"]);
 var DotsIcon = lineIcon(["M5 10h.01M10 10h.01M15 10h.01"]);
 var CheckIcon = lineIcon(["M4.5 10.5l3.5 3.5 7.5-8"]);
 var GlobeIcon = lineIcon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z"]);
+var MoveIcon = lineIcon(["M3.5 10h9.5", "M9.5 6l4 4-4 4", "M16.5 4.5v11"]);
 var ArrowDownIcon = lineIcon(["M10 4v12", "M5 11l5 5 5-5"]);
 var DownloadIcon = lineIcon(["M10 3.5v9", "M6.5 9.5L10 13l3.5-3.5", "M4 16h12"]);
 var GaugeIcon = lineIcon(["M3.5 13.5a6.5 6.5 0 1 1 13 0", "M10 13.5l3-4", "M10 13.5h.01"]);
@@ -11072,12 +11076,36 @@ var AVATAR_LIBRARY_CSS = `
 var import_react25 = require("react");
 var POLL_MS2 = 1500;
 var MENU_EXIT_MS2 = 120;
+var MOVE_MENU_GAP = 12;
 var counts = /* @__PURE__ */ new Map();
 var countListeners = /* @__PURE__ */ new Set();
 function noteCount(id, count) {
   if (counts.get(id) === count) return;
   counts.set(id, count);
   for (const listener of countListeners) listener();
+}
+function useMenuDismiss(open, menuRef, triggerRef, close) {
+  (0, import_react25.useEffect)(() => {
+    if (!open) return void 0;
+    const onDown = (event) => {
+      if (menuRef.current?.contains(event.target) || triggerRef.current?.contains(event.target)) return;
+      close();
+    };
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return;
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+        triggerRef.current?.focus();
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
 }
 function useMemoryCount(id, actions) {
   const [count, setCount] = (0, import_react25.useState)(counts.get(id) ?? null);
@@ -11173,7 +11201,7 @@ var groupEntries = (entries2) => entries2.reduce((groups, entry) => {
   else groups.push({ key, scope: entry.scope, topic: entry.topic, entries: [entry] });
   return groups;
 }, []);
-function EntryRow({ entry, remove, pin, layer }) {
+function EntryRow({ entry, remove, pin, layer, openMove }) {
   const [confirming, setConfirming] = (0, import_react25.useState)(false);
   const [busy, setBusy] = (0, import_react25.useState)(false);
   (0, import_react25.useEffect)(() => {
@@ -11220,12 +11248,37 @@ function EntryRow({ entry, remove, pin, layer }) {
     (0, import_react25.createElement)("button", {
       type: "button",
       className: "bt-mem-remove",
+      disabled: busy,
+      "aria-haspopup": "menu",
+      "aria-label": t("Move to…"),
+      title: t("Move to…"),
+      onClick: (event) => openMove(entry, event.currentTarget)
+    }, (0, import_react25.createElement)(MoveIcon)),
+    (0, import_react25.createElement)("button", {
+      type: "button",
+      className: "bt-mem-remove",
       "data-confirm": confirming || void 0,
       disabled: busy,
       "aria-label": confirming ? t("Click again to remove") : t("Remove from memory"),
       title: confirming ? void 0 : t("Remove from memory"),
       onClick: click
     }, confirming ? t("Remove") : (0, import_react25.createElement)(TrashIcon))
+  );
+}
+function MoveMenu({ menuRef, moving, view, move, leaving }) {
+  const { entry, box } = moving;
+  const here = view.keys[entry.scope];
+  const item = (key, label) => (0, import_react25.createElement)("button", { key, type: "button", role: "menuitem", onClick: () => move(entry, key) }, (0, import_react25.createElement)("span", { className: "bt-menu-label" }, label));
+  const list = (kind, head) => {
+    const places = view.places.filter((place) => place.kind === kind && place.key !== here);
+    return places.length === 0 ? null : (0, import_react25.createElement)(import_react25.Fragment, { key: kind }, (0, import_react25.createElement)("div", { className: "bt-menu-sub-head" }, head), places.map((place) => item(place.key, place.name)));
+  };
+  return (0, import_react25.createElement)(
+    "div",
+    { ref: menuRef, className: "bt-menu bt-mem-move", role: "menu", "aria-label": t("Move to…"), style: box, "data-leaving": leaving || void 0 },
+    here === "team" ? null : item("team", t("Team memory")),
+    list("bot", t("Bots")),
+    list("group", t("Group chats"))
   );
 }
 function TidyNote({ tidy, undo }) {
@@ -11248,7 +11301,7 @@ function TidyNote({ tidy, undo }) {
     (0, import_react25.createElement)("ul", null, tidy.items.map((item, at) => (0, import_react25.createElement)("li", { key: at }, item.text)))
   );
 }
-function Entries({ owner, view, remove, pin, layer, undoTidy }) {
+function Entries({ owner, view, remove, pin, layer, openMove, undoTidy }) {
   const groups = groupEntries(view.entries);
   const sections = owner.group ? [{ scope: "group", title: t("Group memory"), hint: t("Only its members read it"), size: view.sizes.group }] : [
     { scope: "own", title: t("{name}'s memory", { name: owner.name }), size: view.sizes.own },
@@ -11272,7 +11325,7 @@ function Entries({ owner, view, remove, pin, layer, undoTidy }) {
         import_react25.Fragment,
         { key: group.key },
         group.topic ? (0, import_react25.createElement)("div", { className: "bt-mem-topic" }, group.topic) : null,
-        (0, import_react25.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react25.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin, layer })))
+        (0, import_react25.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react25.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin, layer, openMove })))
       )) : (0, import_react25.createElement)("div", { className: "bt-mem-none" }, t("Nothing saved yet"))
     ))
   );
@@ -11432,6 +11485,11 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   const [page, setPage] = (0, import_react25.useState)("summary");
   const [menu, setMenu] = (0, import_react25.useState)(false);
   const [menuShown, menuLeaving] = useLinger(menu, MENU_EXIT_MS2);
+  const [moving, setMoving] = (0, import_react25.useState)(null);
+  const [moveOpen, setMoveOpen] = (0, import_react25.useState)(false);
+  const [moveShown, moveLeaving] = useLinger(moveOpen, MENU_EXIT_MS2);
+  const moveRef = (0, import_react25.useRef)(null);
+  const moveAnchor = (0, import_react25.useRef)(null);
   const [text, setText] = (0, import_react25.useState)("");
   const [answer, setAnswer] = (0, import_react25.useState)(null);
   const menuRef = (0, import_react25.useRef)(null);
@@ -11440,27 +11498,29 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   const now = useNow(3e4);
   const close = (0, import_react25.useCallback)(() => actions.closeMemory(), []);
   useEscape(close);
+  useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false));
+  useMenuDismiss(moveOpen, moveRef, moveAnchor, () => setMoveOpen(false));
   (0, import_react25.useEffect)(() => {
-    if (!menu) return void 0;
-    const onDown = (event) => {
-      if (menuRef.current?.contains(event.target) || dotsRef.current?.contains(event.target)) return;
-      setMenu(false);
+    if (!moveOpen) return void 0;
+    const onScroll = (event) => {
+      if (!moveRef.current?.contains(event.target)) setMoveOpen(false);
     };
-    const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, dotsRef.current)) return;
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setMenu(false);
-        dotsRef.current?.focus();
-      }
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [menu]);
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [moveOpen]);
+  const openMove = (entry, button) => {
+    if (moveOpen && moveAnchor.current === button) {
+      setMoveOpen(false);
+      return;
+    }
+    moveAnchor.current = button;
+    const rect = button.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - MOVE_MENU_GAP;
+    const above = rect.top - MOVE_MENU_GAP;
+    const right = Math.max(MOVE_MENU_GAP, window.innerWidth - rect.right);
+    setMoving({ entry, box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above } : { right, top: rect.bottom + 4, maxHeight: below } });
+    setMoveOpen(true);
+  };
   const regenerate = () => {
     setMenu(false);
     setPage("summary");
@@ -11492,6 +11552,14 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       show2(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch));
     } catch (failure) {
       setAnswer({ asked: t("Undo"), error: failure?.message ?? String(failure) });
+    }
+  };
+  const move = async (entry, to) => {
+    setMoveOpen(false);
+    try {
+      show2(await actions.memoryMove(owner.id, entry, to));
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) });
     }
   };
   const layer = async (entry, always) => {
@@ -11578,7 +11646,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         "div",
         { className: "bt-mem-body" },
         error ? (0, import_react25.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, hostText(error)) : null,
-        view === null ? error ? null : (0, import_react25.createElement)(Skeleton) : page === "entries" ? (0, import_react25.createElement)(Entries, { owner, view, remove, pin, layer, undoTidy }) : page === "history" ? (0, import_react25.createElement)(History, { owner, actions, undo, now }) : (0, import_react25.createElement)(Summary, { owner, view, regenerate })
+        view === null ? error ? null : (0, import_react25.createElement)(Skeleton) : page === "entries" ? (0, import_react25.createElement)(Entries, { owner, view, remove, pin, layer, openMove, undoTidy }) : page === "history" ? (0, import_react25.createElement)(History, { owner, actions, undo, now }) : (0, import_react25.createElement)(Summary, { owner, view, regenerate })
       ),
       (0, import_react25.createElement)(
         "div",
@@ -11604,7 +11672,8 @@ function MemoryDialog({ owner, actions, leaving = false }) {
           )
         )
       )
-    )
+    ),
+    moveShown && moving !== null && view !== null ? (0, import_react25.createElement)(MoveMenu, { menuRef: moveRef, moving, view, move, leaving: moveLeaving }) : null
   );
 }
 

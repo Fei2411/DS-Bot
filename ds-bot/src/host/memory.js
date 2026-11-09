@@ -497,34 +497,46 @@ export function install(rt) {
     news.set(id, { at: Date.now(), op, text: splitMeta(String(line ?? '').replace(/^- /, '')).text.slice(0, NEWS_TEXT_MAX) })
   }
 
-  function addEntry({ scope, topic, text, meta, actor, label }) {
+  function addEntry(change) {
     return queued(async () => {
       await recoverPending()
-      writable(scope, actor)
-      const files = loadScope(scope)
-      const [same] = matchEntries(allEntries(files), text).filter(entry => squash(entry.text) === squash(text))
-      if (same !== undefined) return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
-      const main = files[0]
-      const line = formatEntry(text, { id: newEntryId(allEntries(files)), ...meta })
-      const name = roomInTopic(files, scope, topic, line.length)
-      let target = name === undefined ? main : files.find(file => file.topic === name)
-      const fresh = target === undefined
-      if (fresh) target = { topic: name, file: `${name}.md`, path: join(dirOf(scope), `${name}.md`), content: '', ...parseMemory(`# ${name}\n`) }
-      const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${name}\n`).lines
-      const written = insertEntry(base, line)
-      const mainLines = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
-      // What the overflow writes sees this entry, in case the two are the same topic.
-      const seen = target === main ? files : [...files.filter(file => file !== target), { ...target, ...parseMemory(joinLines(written)), content: joinLines(written) }]
-      const room = makeRoom(seen, scope, target === main ? written : name !== undefined && !main.links.includes(name) ? addLink(mainLines, name) : mainLines, target === main ? line : undefined)
-      const steps = target === main
-        ? [writeStep(main.path, joinLines(room.lines))]
-        : [writeStep(target.path, joinLines(written)), ...(room.lines === mainLines ? [] : [writeStep(main.path, joinLines(room.lines))])]
-      await publish({ op: 'add', scope: scopeKey(scope), steps: [...steps, ...room.steps], row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
-      noteNews(scope, actor, 'add', line)
-      const where = target === main ? MAIN : fresh ? `the new topic [[${name}]], linked from MEMORY.md` : `topic [[${name}]]`
-      const after = target === main ? room.lines : written
-      return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote({ ...target, ...parseMemory(joinLines(after)), content: joinLines(after) }, scope)}).${movedNote(room)}` }
+      return addEntryNow(change)
     })
+  }
+
+  async function addEntryNow({ scope, topic, text, meta, actor, label, moving = false }) {
+    writable(scope, actor)
+    const files = loadScope(scope)
+    const entries = allEntries(files)
+    const same = entries.find(entry => squash(entry.text) === squash(text))
+    const line = formatEntry(text, { id: meta.id ?? newEntryId(entries), ...meta })
+    if (same !== undefined) {
+      // An exact copy lets a move finish after its destination was saved before a restart.
+      if (moving && (formatEntry(same.text, { id: same.meta.id, ...same.meta }) !== line || (scope.kind === 'team' && same.file.topic === undefined))) {
+        throw new Error('The destination already has this entry with different details.')
+      }
+      return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
+    }
+    if (moving && entries.some(entry => entryId(entry) === meta.id)) throw new Error('The destination already uses this entry id for another entry.')
+    const main = files[0]
+    const name = roomInTopic(files, scope, topic, line.length)
+    let target = name === undefined ? main : files.find(file => file.topic === name)
+    const fresh = target === undefined
+    if (fresh) target = { topic: name, file: `${name}.md`, path: join(dirOf(scope), `${name}.md`), content: '', ...parseMemory(`# ${name}\n`) }
+    const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${name}\n`).lines
+    const written = insertEntry(base, line)
+    const mainLines = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+    // What the overflow writes sees this entry, in case the two are the same topic.
+    const seen = target === main ? files : [...files.filter(file => file !== target), { ...target, ...parseMemory(joinLines(written)), content: joinLines(written) }]
+    const room = makeRoom(seen, scope, target === main ? written : name !== undefined && !main.links.includes(name) ? addLink(mainLines, name) : mainLines, target === main ? line : undefined)
+    const steps = target === main
+      ? [writeStep(main.path, joinLines(room.lines))]
+      : [writeStep(target.path, joinLines(written)), ...(room.lines === mainLines ? [] : [writeStep(main.path, joinLines(room.lines))])]
+    await publish({ op: 'add', scope: scopeKey(scope), steps: [...steps, ...room.steps], row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
+    noteNews(scope, actor, 'add', line)
+    const where = target === main ? MAIN : fresh ? `the new topic [[${name}]], linked from MEMORY.md` : `topic [[${name}]]`
+    const after = target === main ? room.lines : written
+    return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote({ ...target, ...parseMemory(joinLines(after)), content: joinLines(after) }, scope)}).${movedNote(room)}` }
   }
 
   // `topic` narrows where to look; undefined looks in every file of the scope.
@@ -569,27 +581,31 @@ export function install(rt) {
       writable(scope, actor)
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
-      const before = old.file.lines[old.line]
-      const lines = old.file.lines.filter((_line, index) => index !== old.line)
-      // A topic left with nothing but its title goes, and so does its link.
-      const empty = old.file.topic !== undefined && lines.every(line => line.trim() === '' || HEADING.test(line))
-      const steps = []
-      if (empty) {
-        steps.push(removeStep(old.file.path))
-        const main = files[0]
-        if (main.links.includes(old.file.topic)) steps.push(writeStep(main.path, joinLines(removeLink(main.lines, old.file.topic))))
-      } else {
-        steps.push(writeStep(old.file.path, joinLines(lines)))
-      }
-      await publish({
-        op: 'remove',
-        scope: scopeKey(scope),
-        steps,
-        row: { op: 'remove', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, ...(empty ? { removedTopic: true } : {}) },
-      })
-      noteNews(scope, actor, 'remove', before)
-      return { changed: true, file: old.file, message: `Removed from ${label} (${fileName(old.file)}): "${old.text}", all of it, so save again with remember any part that is still true. The change log keeps a copy.${empty ? ` The topic [[${old.file.topic}]] was empty, so it is gone too.` : ''}` }
+      return removeEntryNow({ scope, files, old, actor, label })
     })
+  }
+
+  async function removeEntryNow({ scope, files, old, actor, label }) {
+    const before = old.file.lines[old.line]
+    const lines = old.file.lines.filter((_line, index) => index !== old.line)
+    // A topic left with nothing but its title goes, and so does its link.
+    const empty = old.file.topic !== undefined && lines.every(line => line.trim() === '' || HEADING.test(line))
+    const steps = []
+    if (empty) {
+      steps.push(removeStep(old.file.path))
+      const main = files[0]
+      if (main.links.includes(old.file.topic)) steps.push(writeStep(main.path, joinLines(removeLink(main.lines, old.file.topic))))
+    } else {
+      steps.push(writeStep(old.file.path, joinLines(lines)))
+    }
+    await publish({
+      op: 'remove',
+      scope: scopeKey(scope),
+      steps,
+      row: { op: 'remove', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, ...(empty ? { removedTopic: true } : {}) },
+    })
+    noteNews(scope, actor, 'remove', before)
+    return { changed: true, file: old.file, message: `Removed from ${label} (${fileName(old.file)}): "${old.text}", all of it, so save again with remember any part that is still true. The change log keeps a copy.${empty ? ` The topic [[${old.file.topic}]] was empty, so it is gone too.` : ''}` }
   }
 
   // A deleted Bot's memory moves to the archive, whole.
@@ -1339,6 +1355,11 @@ export function install(rt) {
       fresh: entries.length === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
       tidy: tidyView(panel.scopes),
+      keys: Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, scopeKey(scope)])),
+      places: [
+        ...Object.values(state.bots).map(bot => ({ key: scopeKey(ownScope(bot.id)), kind: 'bot', name: bot.name })),
+        ...Object.values(state.rooms).map(room => ({ key: scopeKey(groupScope(room.id)), kind: 'group', name: room.name })),
+      ],
       error: failed !== undefined && !summarizing.has(panel.id) ? failed.message : null,
     }
   }
@@ -1423,6 +1444,31 @@ export function install(rt) {
       }
       await publish({ op: 'move', scope: scopeKey(scope), steps, row: { op: 'move', scope: scopeKey(scope), file: old.file.file, to, ...actorOf(USER), after: line } })
     })
+    return await memoryView(panelBody(panel))
+  }
+
+  // One entry the user moves to another memory. It goes as it is, with its id, end
+  // date and pin. The new place is written first, so an interruption can leave it in
+  // both places but never in neither. In the team's it waits in a topic, as one from a
+  // review does: what every Bot always reads is a choice of its own.
+  async function memoryMove(body) {
+    const panel = panelOf(body)
+    const from = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const to = journalScope(body.to)
+    if (to === undefined) throw new Error('Choose where to move the entry')
+    if (scopeKey(to) !== scopeKey(from)) {
+      await queued(async () => {
+        await recoverPending()
+        writable(from, USER)
+        const files = loadScope(from)
+        const file = files.find(item => item.topic === (body.topic ?? undefined))
+        const entry = file?.entries.find(item => item.text === body.text)
+        if (entry === undefined) throw noMatch('This entry changed or moved. Reload the memory and try again.')
+        const old = { ...entry, file }
+        await addEntryNow({ scope: to, topic: to.kind === 'team' ? TEAM_SHARED : undefined, text: old.text, meta: { ...old.meta, id: entryId(old) }, actor: USER, label: labelOf(to), moving: true })
+        await removeEntryNow({ scope: from, files, old, actor: USER, label: panelLabel(panel, from) })
+      })
+    }
     return await memoryView(panelBody(panel))
   }
 
@@ -1678,6 +1724,7 @@ export function install(rt) {
     if (endpoint === 'memory-pin') return memoryPin(body)
     if (endpoint === 'memory-tidy-undo') return memoryTidyUndo(body)
     if (endpoint === 'memory-layer') return memoryLayer(body)
+    if (endpoint === 'memory-move') return memoryMove(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
