@@ -883,6 +883,7 @@ export function install(rt) {
       delete state.questions[part]
       if (state.views !== undefined) delete state.views[part]
       if (state.closedCards !== undefined) delete state.closedCards[part]
+      if (state.closedViews !== undefined) delete state.closedViews[part]
       delete state.exchangeTurns[part]
       delete state.switching[part]
     }
