@@ -88,6 +88,105 @@ test('the bundle patch turns off the DSH settings shell row that dsh-web-app mou
   assert.ok(ours.some(row => row.id === 'ui-settings-general' && row.disabled === true))
 })
 
+// The public slot contract: child declarations have one owner, duplicate entry
+// ids fail, and an injected iterable rolls back and disposes in reverse order.
+function settingsInstall({ dsh = false, ready = true } = {}) {
+  const declared = new Map(ready ? [['sidebar.settings', {}]] : [])
+  const entries = new Map()
+  const waits = new Set()
+  const held = []
+  const activate = (wait) => {
+    if (wait.stopped || wait.active || !declared.has(wait.name)) return
+    wait.active = true
+    const offs = []
+    try {
+      const effect = wait.setup()
+      if (typeof effect === 'function') offs.push(effect)
+      else if (effect) for (const off of effect) offs.push(off)
+    } catch (error) {
+      for (const off of offs.reverse()) off()
+      throw error
+    }
+    wait.off = () => { for (const off of offs.reverse()) off() }
+  }
+  const declare = (name, spec) => {
+    declared.set(name, spec)
+    for (const wait of waits) activate(wait)
+  }
+  const slots = {
+    register(options, component) {
+      const { name, children = {} } = options
+      if (!declared.has(name)) throw new Error(`undeclared slot: ${name}`)
+      const id = `${name}:${options.id ?? ''}`
+      if (entries.has(id)) throw new Error(`duplicate entry: ${id}`)
+      for (const child of Object.keys(children)) {
+        if (declared.has(child)) throw new Error(`duplicate declaration: ${child}`)
+      }
+      entries.set(id, component)
+      for (const [child, spec] of Object.entries(children)) declare(child, spec)
+      return () => {
+        entries.delete(id)
+        for (const child of Object.keys(children)) declared.delete(child)
+      }
+    },
+    inject(name, setup) {
+      const wait = { name, setup }
+      waits.add(wait)
+      activate(wait)
+      return () => { wait.stopped = true; wait.off?.(); waits.delete(wait) }
+    },
+  }
+  const dshTrigger = () => null
+  const dshSeat = () => null
+  if (dsh) {
+    slots.register({ name: 'sidebar.settings', children: shell.SETTINGS_CHILDREN }, dshSeat)
+    slots.register({ name: 'settings.trigger' }, dshTrigger)
+  }
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }) }
+  const install = () => shell.installSettingsShell(ctx, {
+    face: () => ({}), actions: {}, ui: { getSnapshot: () => ({}) }, held: { set: value => held.push(value) },
+  })
+  return { entries, declared, held, dshTrigger, dshSeat, install, declare }
+}
+
+test('an enabled DSH settings shell keeps its trigger and DS Bot installs without a collision (#1245)', () => {
+  const rig = settingsInstall({ dsh: true })
+  const installed = rig.install()
+  assert.equal(rig.entries.get('settings.trigger:'), rig.dshTrigger)
+  assert.equal(rig.entries.get('sidebar.settings:'), rig.dshSeat)
+  assert.ok(!rig.held.includes(true))
+  installed.dispose()
+  assert.equal(rig.entries.get('sidebar.settings:'), rig.dshSeat)
+  assert.equal(rig.entries.get('settings.trigger:'), rig.dshTrigger)
+  for (const name of Object.keys(shell.SETTINGS_CHILDREN)) assert.ok(rig.declared.has(name))
+})
+
+test('DS Bot owns its default settings trigger only for its settings seat lifetime', () => {
+  const rig = settingsInstall()
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const installed = rig.install()
+    assert.ok(rig.entries.has('sidebar.settings:'))
+    assert.ok(rig.entries.has('settings.trigger:'))
+    assert.equal(rig.held.at(-1), true)
+    installed.dispose()
+    assert.equal(rig.held.at(-1), false)
+    assert.equal(rig.entries.size, 0)
+    assert.ok(!rig.declared.has('settings.trigger'))
+  }
+})
+
+test('the settings trigger waits for the seat and a disposed pending install stays inactive', () => {
+  const rig = settingsInstall({ ready: false })
+  const first = rig.install()
+  first.dispose()
+  rig.declare('sidebar.settings', {})
+  assert.equal(rig.entries.size, 0)
+  const second = rig.install()
+  assert.ok(rig.entries.has('settings.trigger:'))
+  second.dispose()
+  assert.equal(rig.entries.size, 0)
+})
+
 test('onboarding skips DSH\'s preview notice and keeps the ledger order', () => {
   const entries = [
     { options: { id: 'deepseek-official', order: 0 } },
