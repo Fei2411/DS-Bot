@@ -21534,7 +21534,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row3 }) {
       (0, import_react48.createElement)(
         "div",
         { className: "bt-set-row bt-phone-server" },
-        (0, import_react48.createElement)("input", { className: "bt-input", value: server, placeholder: "wss://relay.example.com/v1/link", spellCheck: false, "aria-label": t("Server"), onChange: (event) => setServer(event.target.value), onKeyDown: (event) => {
+        (0, import_react48.createElement)("input", { className: "bt-input", value: server, placeholder: "wss://relay.dsbot.app/v1/link", spellCheck: false, "aria-label": t("Server"), onChange: (event) => setServer(event.target.value), onKeyDown: (event) => {
           if (event.key === "Enter") saveServer();
         } }),
         (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || server.trim() === phone.server, onClick: saveServer }, t("Save"))

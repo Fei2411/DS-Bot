@@ -7,6 +7,7 @@ import { apply } from '../index.js'
 import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
+import { DEFAULT_SERVER } from '../src/host/phone.js'
 
 const TEAM = {
   version: 1,
@@ -56,7 +57,7 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
   t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
 
   const first = await desk.call('state', {})
-  assert.deepEqual(first.value.phone, { server: '', on: false, status: 'off', phones: [], pairing: null })
+  assert.deepEqual(first.value.phone, { server: DEFAULT_SERVER, on: false, status: 'off', phones: [], pairing: null })
   assert.equal((await desk.call('phone-set', { server: 'http://relay.test' })).error.code, 'bot/invalid')
   assert.equal((await desk.call('phone-pair', {})).ok, false)
 
@@ -149,4 +150,9 @@ test('a bare Server host means the link path; a dead Server shows why', async (t
   assert.equal((await desk.call('state', {})).value.phone.server, 'ws://127.0.0.1:1/some-path')
   const state = await until(() => desk.call('state', {}), next => next.value.phone.status === 'offline')
   assert.equal(typeof state.value.phone.error, 'string')
+
+  // Turned off and cleared, the address falls back to the DS Bot relay (off, so nothing dials it).
+  await desk.call('phone-set', { on: false })
+  await desk.call('phone-set', { server: '' })
+  assert.equal((await desk.call('state', {})).value.phone.server, DEFAULT_SERVER)
 })

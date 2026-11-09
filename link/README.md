@@ -18,4 +18,17 @@ npm test
 PORT=8787 DSBOT_LINK_DATA=./data/devices.json npm run server
 ```
 
-The Server speaks plain `ws://`. Put it behind a TLS proxy and give phones the `wss://` address.
+The Server speaks plain `ws://`. Put it behind a TLS proxy and give phones the `wss://` address. DS Bot uses `wss://relay.dsbot.app/v1/link` unless the user enters another Server in Settings → Phone.
+
+Settings, all optional:
+
+| Variable | Default | |
+|---|---|---|
+| `HOST`, `PORT` | `0.0.0.0`, `8787` | Where the Server listens |
+| `DSBOT_LINK_DATA` | none (memory only) | File for the known devices |
+| `DSBOT_LINK_TRUST_PROXY` | off | `1`: take the client address from the last `X-Forwarded-For` entry. Set it only behind a proxy that writes this header |
+| `DSBOT_LINK_MAX_SOCKETS` | `1024` | Open sockets in total |
+| `DSBOT_LINK_MAX_LINKS` | `1024` | Phone-to-computer links in total |
+| `DSBOT_LINK_MAX_SOCKETS_PER_ADDRESS` | `256` | Open sockets from one address |
+| `DSBOT_LINK_MAX_NEW_DEVICES_PER_HOUR` | `20` | New devices one address may register in an hour |
+| `DSBOT_LINK_DEVICE_TTL_DAYS` | none | Forget devices not seen for this many days |

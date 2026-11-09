@@ -11,6 +11,7 @@ import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pair
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
+export const DEFAULT_SERVER = `wss://relay.dsbot.app${LINK_PATH}`
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
@@ -38,6 +39,8 @@ export function install(rt) {
     writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
     renameSync(temp, path)
   }
+  // An empty address means the DS Bot relay; a user's own Server replaces it.
+  const serverUrl = () => data.server || DEFAULT_SERVER
   const identity = () => {
     const keys = data.identity
     try {
@@ -76,15 +79,15 @@ export function install(rt) {
   }
   const reconcile = () => {
     read()
-    blocked = !data.on || !data.server ? undefined
+    blocked = !data.on ? undefined
       : rt.readOnly() !== undefined ? 'Another dsh has this Bot team open, so phones connect to that one'
         : typeof WebSocket !== 'function' ? 'This dsh runs on a Node without WebSocket'
           : undefined
-    const want = data.on === true && typeof data.server === 'string' && data.server !== '' && serve !== null && blocked === undefined
-    if (link !== null && (!want || linkServer !== data.server)) void stop()
+    const want = data.on === true && serve !== null && blocked === undefined
+    if (link !== null && (!want || linkServer !== serverUrl())) void stop()
     if (!want || link !== null) return
     link = new HostLink({
-      url: data.server,
+      url: serverUrl(),
       identity: identity(),
       accessToken: data.accessToken,
       name: hostname(),
@@ -103,7 +106,7 @@ export function install(rt) {
         }
       },
     })
-    linkServer = data.server
+    linkServer = serverUrl()
     link.start()
   }
 
@@ -113,7 +116,7 @@ export function install(rt) {
     const connected = new Set(link?.connectedDevices() ?? [])
     const reason = blocked ?? link?.error
     return {
-      server: data.server ?? '',
+      server: serverUrl(),
       on: data.on === true,
       status: link?.status ?? 'off',
       ...(reason === undefined ? {} : { error: reason }),
@@ -136,7 +139,6 @@ export function install(rt) {
           registry?.closePairing()
         }
         if (body.on !== undefined) data.on = body.on === true
-        if (data.on && !data.server) throw invalid('Enter the Server address first')
         identity()
         write()
         break
@@ -145,7 +147,7 @@ export function install(rt) {
         reconcile()
         if (link === null) throw invalid(blocked ?? 'Turn on phone access first')
         const { code, expiresAt } = registry.openPairing()
-        pairing = { uri: pairingUri({ server: data.server, hostDeviceId: data.identity.deviceId, hostKey: data.identity.publicKey, code, name: hostname() }), expiresAt }
+        pairing = { uri: pairingUri({ server: serverUrl(), hostDeviceId: data.identity.deviceId, hostKey: data.identity.publicKey, code, name: hostname() }), expiresAt }
         break
       }
       case 'phone-pair-cancel':

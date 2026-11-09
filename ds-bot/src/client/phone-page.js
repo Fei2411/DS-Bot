@@ -63,7 +63,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
         h(Switch, { on: phone.on, label: t('Phone access'), disabled: busy, onChange: on => void run(actions.phoneSet({ on })) })),
       h(Row, { label: t('Server'), hint: t('The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.') }),
       h('div', { className: 'bt-set-row bt-phone-server' },
-        h('input', { className: 'bt-input', value: server, placeholder: 'wss://relay.example.com/v1/link', spellCheck: false, 'aria-label': t('Server'), onChange: event => setServer(event.target.value), onKeyDown: event => { if (event.key === 'Enter') saveServer() } }),
+        h('input', { className: 'bt-input', value: server, placeholder: 'wss://relay.dsbot.app/v1/link', spellCheck: false, 'aria-label': t('Server'), onChange: event => setServer(event.target.value), onKeyDown: event => { if (event.key === 'Enter') saveServer() } }),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || server.trim() === phone.server, onClick: saveServer }, t('Save')))),
     error ? h('div', { className: 'bt-connector-error bt-phone-error', role: 'alert' }, error) : null,
     h(Section, { title: t('Pair a phone') }, phone.pairing
