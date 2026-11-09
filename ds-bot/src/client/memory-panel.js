@@ -128,7 +128,16 @@ function EntryRow({ entry, remove, pin, layer }) {
     }, confirming ? t('Remove') : h(TrashIcon)))
 }
 
-function Entries({ owner, view, remove, pin, layer }) {
+function TidyNote({ tidy, undo }) {
+  const [busy, setBusy] = useState(false)
+  const line = t('Tidied: {merged} merged, {moved} moved, {retired} archived', { merged: tidy.merged, moved: tidy.moved, retired: tidy.retired })
+  return h('details', { className: 'bt-mem-tidy' },
+    h('summary', null, h('span', null, line),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: async (event) => { event.preventDefault(); setBusy(true); await undo(tidy); setBusy(false) } }, t('Undo'))),
+    h('ul', null, tidy.items.map((item, at) => h('li', { key: at }, item.text))))
+}
+
+function Entries({ owner, view, remove, pin, layer, undoTidy }) {
   const groups = groupEntries(view.entries)
   const sections = owner.group
     ? [{ scope: 'group', title: t('Group memory'), hint: t('Only its members read it'), size: view.sizes.group }]
@@ -137,6 +146,7 @@ function Entries({ owner, view, remove, pin, layer }) {
         { scope: 'team', title: t('Team memory'), hint: t('Every Bot reads it'), size: view.sizes.team },
       ]
   return h('div', { className: 'bt-mem-entries' },
+    view.tidy ? h(TidyNote, { tidy: view.tidy, undo: undoTidy }) : null,
     sections.map(section => h('section', { key: section.scope, className: 'bt-mem-section' },
       h('div', { className: 'bt-mem-section-head' },
         h('h3', null, section.title),
@@ -314,6 +324,13 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       return false
     }
   }
+  const undoTidy = async (tidy) => {
+    try {
+      show(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch))
+    } catch (failure) {
+      setAnswer({ asked: t('Undo'), error: failure?.message ?? String(failure) })
+    }
+  }
   const layer = async (entry, always) => {
     try {
       show(await actions.memoryLayer(owner.id, entry, always))
@@ -382,7 +399,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       h('div', { className: 'bt-mem-body' },
         error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, hostText(error)) : null,
         view === null ? (error ? null : h(Skeleton))
-          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer })
+          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer, undoTidy })
             : page === 'history' ? h(History, { owner, actions, undo, now })
               : h(Summary, { owner, view, regenerate })),
       h('div', { className: 'bt-mem-foot' },

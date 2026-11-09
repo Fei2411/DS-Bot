@@ -1023,6 +1023,7 @@ const ZH = {
   'by {name}': '由 {name} 添加',
   'Remove from memory': '从记忆中删除',
   'until {day}': '有效至 {day}',
+  'Tidied: {merged} merged, {moved} moved, {retired} archived': '已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条',
   'Only when needed': '需要时才读',
   'Every conversation': '每次都带',
   'ended {day}': '已于 {day} 结束',

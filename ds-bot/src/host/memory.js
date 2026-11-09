@@ -37,6 +37,7 @@ import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTE
 import { pickRecalled, rankEntries } from './memory-search.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
+import { installTidy } from './memory-tidy.js'
 import { output } from './tools.js'
 
 export { MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey, looksSecret, matchEntries, parseAsk, parseMemory, parseReview, removeLink, reviewEntries, splitMeta } from './memory-entries.js'
@@ -45,6 +46,8 @@ export { writtenIn } from './memory-copy.js'
 // Where entries go when MEMORY.md is at its size.
 const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
+// A model's window is looked up this often, not on every step.
+const WINDOW_ASK_MS = 10 * 60_000
 // What the first step of a turn may bring along from the topics.
 const AUTO_RECALL_MAX = 5
 const AUTO_RECALL_TEXT_MAX = 3_000
@@ -277,6 +280,14 @@ export function install(rt) {
         if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
       } catch { /* a line cut by the tail, or half-written */ }
     }
+  }
+
+  // Whether anything but a tidy changed a memory after a time.
+  function changedSince(key, time) {
+    readTail(journalPath)
+    const botId = key.startsWith('bot:') ? key.slice(4) : undefined
+    if (botId !== undefined) readTail(journalFor(key, 'read').path)
+    return recentRows.some(row => row.scope === key && (time === undefined || row.time > time) && row.op !== 'tidy' && row.op !== 'tidy-undo')
   }
 
   // Publishes a change: the files it touches, then the row that goes with it in the
@@ -608,7 +619,10 @@ export function install(rt) {
 
   // What a Bot's model leaves room for, from the last time it was asked.
   const windows = new Map()
+  const windowAsked = new Map()
   async function noteWindow(bot) {
+    if (Date.now() - (windowAsked.get(bot.id) ?? 0) < WINDOW_ASK_MS) return
+    windowAsked.set(bot.id, Date.now())
     const info = await modelFor(bot).then(route => ctx.llm.resolveModelInfo(route.provider, route.model)).catch(() => undefined)
     const size = info?.context?.contextWindow
     if (typeof size === 'number' && size > 0) windows.set(bot.id, size - (info.defaultMaxTokens ?? 0))
@@ -1275,6 +1289,7 @@ export function install(rt) {
       summary: entries.length > 0 && saved !== undefined ? { text: saved.text, at: saved.at } : null,
       fresh: entries.length === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
+      tidy: tidyView(panel.scopes),
       error: failed !== undefined && !summarizing.has(panel.id) ? failed.message : null,
     }
   }
@@ -1594,11 +1609,22 @@ export function install(rt) {
 
   const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
 
+  const { tidyView, undoTidy, tidyNow } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
+
+  async function memoryTidyUndo(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope]
+    if (scope === undefined) throw new Error('Unknown memory')
+    await undoTidy(scope, String(body.batch ?? ''))
+    return await memoryView(panelBody(panel))
+  }
+
   async function memoryEndpoint(endpoint, body) {
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
     if (endpoint === 'memory-pin') return memoryPin(body)
+    if (endpoint === 'memory-tidy-undo') return memoryTidyUndo(body)
     if (endpoint === 'memory-layer') return memoryLayer(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
@@ -1607,6 +1633,6 @@ export function install(rt) {
 
   Object.assign(rt, {
     memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
-    memoryNews: () => Object.fromEntries(news), botShot,
+    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }
