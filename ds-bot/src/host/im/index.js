@@ -577,8 +577,8 @@ export function install(rt) {
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
-          for (const { chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
-            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chat.key ?? chat, kind: chat.kind, title: chat.title }).catch?.(() => {})
+          for (const { chatKey, chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
+            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
           }
         }, TYPING_MS)
         runner.typing.unref?.()
