@@ -218,6 +218,7 @@ Agent logos (ds-bot/src/client/agent-logos.js)
 The logos name the agent CLI a Bot runs on. Each is a trademark of its owner:
 Claude (Anthropic), Cursor (Anysphere), Gemini (Google), OpenCode (SST),
 Cline (Cline Bot Inc.), Qwen (Alibaba Cloud), Devin (Cognition AI),
-OpenAI (OpenAI). DS Bot is not affiliated with or endorsed by these owners.
+OpenAI (OpenAI), CodeBuddy (Tencent). DS Bot is not affiliated with or
+endorsed by these owners.
 Vector marks from Simple Icons (https://simpleicons.org), CC0-1.0.
 Devin and OpenAI marks from the vendors' application icons.
