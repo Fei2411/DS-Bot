@@ -3,7 +3,22 @@
 import { childrenOf, elementsOf, firstOf, textOf } from './xml.js'
 
 const DATE_FORMATS = new Set([14, 15, 16, 17, 22, 45, 46, 47])
-const dateLike = (code) => /(^|[^\\])[ymdhs]/i.test(code ?? '')
+// Select the numeric format section before reading date tokens. The fourth
+// section is for text; literals and fill/padding characters are not tokens.
+function dateLike(code, value) {
+  const sections = (code ?? '').replace(/"[^"]*"|\\.|_.|\*./g, '').split(';').slice(0, 3)
+  const condition = part => /\[(<=|>=|<>|=|<|>)(-?\d+(?:\.\d+)?)\]/.exec(part)
+  let section
+  if (sections.some(condition)) {
+    section = sections.find(part => {
+      const test = condition(part)
+      if (!test) return true
+      const n = Number(test[2])
+      return { '<': value < n, '>': value > n, '<=': value <= n, '>=': value >= n, '=': value === n, '<>': value !== n }[test[1]]
+    }) ?? ''
+  } else section = sections[value < 0 && sections.length > 1 ? 1 : value === 0 && sections.length > 2 ? 2 : 0]
+  return /[ymdhs]/i.test(section.replace(/\[(?![hms]+\])[^\]]*\]/gi, ''))
+}
 
 function numFmts(pkg) {
   const map = new Map()
@@ -15,7 +30,7 @@ function numFmts(pkg) {
   let i = 0
   for (const xf of childrenOf(cellXfs)) {
     const id = Number(xf.getAttribute('numFmtId') ?? 0)
-    map.set(i++, DATE_FORMATS.has(id) || dateLike(custom.get(id)) ? 'date' : undefined)
+    map.set(i++, DATE_FORMATS.has(id) ? 'date' : custom.get(id))
   }
   return map
 }
@@ -52,7 +67,7 @@ function cellValue(c, shared, fmt, epoch = 25569) {
   else if (t === 'b') value = value === '1'
   else if (t === 'str' || t === 'inlineStr') value = t === 'inlineStr' ? textOf(firstOf(c, 'is') ?? c) : value
   else if (t === 'e') value = value // error text as stored
-  else if (value !== undefined && fmt.get(Number(c.getAttribute('s') ?? 0)) === 'date' && !Number.isNaN(Number(value))) {
+  else if (value !== undefined && (fmt.get(Number(c.getAttribute('s') ?? 0)) === 'date' || dateLike(fmt.get(Number(c.getAttribute('s') ?? 0)), Number(value))) && !Number.isNaN(Number(value))) {
     const days = Number(value) - epoch
     value = new Date(days * 86400_000).toISOString().slice(0, value.includes('.') ? 19 : 10)
   }

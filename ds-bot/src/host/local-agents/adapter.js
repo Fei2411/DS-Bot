@@ -48,15 +48,20 @@ function digestChunks(messages) {
   ]
 }
 
+// Marks the one retry of a turn whose saved Claude conversation was gone.
+const RESUME_RETRIED = Symbol('resume retried')
+
 export class LocalAgentAdapter extends LlmAdapter {
   // deps: {rt, findExecutable, spawnEngine(kind,route,engine), record(sessionId),
-  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route)}
+  //        saveRecord, dropRecord, presetFor(sessionId), toolsFor(options), signInHint(route),
+  //        usedModels(route)}
   constructor(deps) {
     super()
     this.deps = deps
     this.engines = new Map()   // route -> engine driver
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
+    this.probes = new Map()    // route -> the probe under way
     this.disposed = false
   }
 
@@ -78,22 +83,37 @@ export class LocalAgentAdapter extends LlmAdapter {
     return driver
   }
 
+  // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
+  // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    const cached = this.modelCache.get(route)
-    if (cached !== undefined) return cached
-    const spec = engineOf(route, this.deps.customAgents())
-    if (spec === undefined) return []
-    const fallback = [{ provider: route, id: 'default', name: 'CLI default' }]
-    let models
-    try {
-      models = await this.engine(route).listModels({ cwd: this.deps.probeCwd(), mcp: undefined })
-    } catch {
-      models = []
+    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    const listed = [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
+    const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
+    return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
+  }
+
+  // Asks one CLI what it serves, once. A failure is not kept, so the next look tries
+  // again. The process it took leaves unless a Session runs on it.
+  async probeModels(route) {
+    if (this.modelCache.has(route)) return this.listModels(route)
+    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    let probe = this.probes.get(route)
+    if (probe === undefined) {
+      probe = this.askModels(route).finally(() => this.probes.delete(route))
+      this.probes.set(route, probe)
     }
-    const value = [...fallback, ...(models ?? []).filter(model => model.id !== 'default')
-      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id }))]
-    this.modelCache.set(route, value)
-    return value
+    await probe
+    return this.listModels(route)
+  }
+
+  async askModels(route) {
+    const engine = this.engine(route)
+    try {
+      const models = await engine.listModels({ cwd: this.deps.probeCwd(), mcp: undefined })
+      this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
+        .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
+    } catch { /* the menu still has the CLI's default */ }
+    if (![...this.live.values()].some(other => other.engine === engine && !other.dead)) await engine.close?.().catch(() => {})
   }
 
   dropModelCache(route) {
@@ -110,6 +130,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       name: listed?.name ?? model,
       inputModalities: ['text', 'image'],
       context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
+      // The thinking levels the engine advertises for this model, if any.
+      ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
     }
   }
 
@@ -120,10 +142,25 @@ export class LocalAgentAdapter extends LlmAdapter {
     let live = this.live.get(sessionId)
     const record = this.deps.record(sessionId)
     const route = options.provider
-    if (live !== undefined && !live.dead && live.route === route) return live
-    if (live !== undefined) await this.closeLive(live)
+    if (live !== undefined && !live.dead && live.route === route) {
+      // An agent CLI can exit between the spawn and its first message (a failed
+      // sign-in, for one): the cached bridge is dead, so the next call starts a
+      // new process instead of writing into the one that is gone.
+      if (live.engineSession?.dead === true) {
+        this.rollbackUnread(live, sessionId)
+        live.engineSession = undefined
+        live.pumpToken = {}
+        // The queue belongs to the process that is gone: the retry starts clean
+        // instead of reading its exit as the new turn's failure.
+        live.events.length = 0
+      }
+      // A CLI takes its model when its session opens. Another model reopens the same
+      // CLI session as soon as no turn runs in it.
+      if (live.model === options.model || live.state !== 'idle') return live
+      await this.closeLive(live, { idle: true })
+    } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
-    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
+    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     const engine = this.engine(route)
     live = {
       sessionId, route, spec, engine, dead: false,
@@ -165,6 +202,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.dead = true
     clearTimeout(live.idle)
     this.live.delete(live.sessionId)
+    live.engine.forget?.(live.sessionId)
     live.mcp?.close()
     if (idle) {
       // The CLI session survives on the agent side; the process leaves and the
@@ -177,10 +215,52 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (!stillUsed) await live.engine.close?.().catch(() => {})
   }
 
+  // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
+  stopTurn(live, reason) {
+    live.state = 'idle'
+    live.queue.length = 0
+    if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
+    live.mcp?.failAll(new Error(reason))
+    for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
+    live.pending.clear()
+  }
+
+  // The Session left this CLI: its part moved on. Its process leaves; the CLI session
+  // and its record stay, so opening that part again resumes it.
+  async closeSession(sessionId, reason = 'the conversation moved on') {
+    const live = this.live.get(String(sessionId))
+    if (live === undefined) return
+    this.stopTurn(live, reason)
+    await this.closeLive(live, { idle: true })
+  }
+
+  // A Claude CLI that died before `system/init` never read the prompt it was
+  // handed: roll the marker back in the live state and in the saved record, so a
+  // host that restarts before the next call still replays the input. ACP and
+  // Codex create their session before the prompt, so theirs was read.
+  // A resume that found its conversation gone also drops the id: the next start
+  // opens a new conversation and replays the history, instead of failing every
+  // turn on the same id.
+  rollbackUnread(live, sessionId) {
+    if (live.spec.kind !== 'claude') return
+    const session = live.engineSession
+    if (session?.dead !== true || session.cliSessionId !== undefined || session.rolledBack === true) return
+    session.rolledBack = true
+    if (session.resumeMissing === true) {
+      live.cliSessionId = undefined
+      live.handed = undefined
+      live.resumeLost = true
+    } else live.handed = live.handedBefore
+    this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
+  }
+
   // The loopback MCP server for one live session; tools/call lands in its event queue.
+  // `tools` lists the current turn's tools; the server outlives the turn that
+  // started it, so tools/list reads the latest one.
   async ensureMcp(live, tools) {
+    live.tools = tools
     if (live.mcp !== undefined) return live.mcp
-    const mcp = new LoopbackMcp(() => tools, ({ name, arguments: args, callId }) => {
+    const mcp = new LoopbackMcp(() => live.tools(), ({ name, arguments: args, callId }) => {
       const dshCallId = `dsbot-${callId}`
       return new Promise((resolve) => {
         live.pending.set(dshCallId, { name, mcpCallId: callId, resolve })
@@ -256,7 +336,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.cwd = cwd
 
     const preset = this.deps.presetFor(sessionId)
-    const mode = cliMode(live.spec.kind, preset, live.engineSession?.modes)
+    const mode = cliMode(live.spec.kind, preset)
     const instructions = system === '' ? undefined : system
 
     const freshCli = live.cliSessionId === undefined
@@ -266,6 +346,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         mcp,
         resumeId: live.cliSessionId,
         mode,
+        preset,
         model: options.model,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
@@ -275,7 +356,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
-      live.cliSessionId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      // A resumed CLI reports its id only with `system/init`: keep the saved one
+      // in the meantime, or a resume that fails would erase it.
+      const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
+      if (reportedId !== undefined) live.cliSessionId = reportedId
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -289,6 +373,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       })()
       if (live.spec.kind !== 'acp' && instructions !== undefined) live.promptHash = promptHash
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
+      // Claude reports its session id with `system/init`, after start() resolved:
+      // the record above has no id yet, so persist it when it lands or the next
+      // host has nothing to resume and the conversation starts over.
+      const pendingId = session.whenSessionId?.()
+      if (pendingId !== undefined) {
+        void pendingId.then((id) => {
+          if (id === undefined || live.dead) return
+          live.cliSessionId = id
+          this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: id, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
+        })
+      }
     }
 
     let promptText = fresh ? renderReplay(messages, system)
@@ -307,24 +402,41 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
     if (promptText !== '') {
-      this.sendInput(live, promptText, options.signal)
+      this.sendInput(live, promptText, options.signal, options.reasoningEffort)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
     }
     if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
-      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal)
+      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
 
     // The last DSH message is handed now; a later call sends only what follows.
+    // The marker before it is kept: a start that fails before the CLI reads
+    // anything must not count that message as delivered.
     const last = messages.at(-1)
     if (last !== undefined) {
+      live.handedBefore = live.handed
       live.handed = last.id
       this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd, handedId: live.handed, promptHash: live.promptHash ?? promptHash, model: options.model })
     }
 
-    yield* this.drain(live, options)
+    try {
+      yield* this.drain(live, options)
+    } catch (error) {
+      // The caller sees the failure now: a start that died before reading its
+      // prompt must not count as delivered, in case the host restarts next.
+      this.rollbackUnread(live, sessionId)
+      // The saved conversation is gone: start over in a new one with the
+      // history, once, so the user sees the answer instead of this failure.
+      if (live.resumeLost === true && options[RESUME_RETRIED] !== true) {
+        live.resumeLost = false
+        yield* this.stream({ ...options, [RESUME_RETRIED]: true })
+        return
+      }
+      throw error
+    }
   }
 
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
@@ -333,7 +445,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // ends, inside the same stream). The prompt request itself stays open for
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
-  sendInput(live, text, signal) {
+  sendInput(live, text, signal, effort) {
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp') { live.queue.push(text); return }
       try {
@@ -346,7 +458,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     live.state = 'running'
     try {
-      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal }))
+      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
         .catch(error => live.push({ type: 'error', error }))
     } catch (error) {
       live.push({ type: 'error', error })
@@ -389,12 +501,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (;;) {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
-        live.state = 'idle'
-        live.queue.length = 0
-        live.engine.cancel?.(live.engineSession)
-        live.mcp?.failAll(new Error('the turn was stopped'))
-        for (const pending of live.pending.values()) pending.resolve({ text: 'the turn was stopped', isError: true })
-        live.pending.clear()
+        this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
       }
@@ -433,6 +540,10 @@ export class LocalAgentAdapter extends LlmAdapter {
           return
         }
         case 'permission': {
+          // The preset answers what it already decides, also on an agent with no
+          // matching mode of its own: full access allows, read-only refuses a change.
+          const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
+          if (answer !== undefined) { event.reply(answer); break }
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
@@ -450,7 +561,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            this.sendInput(live, next, options.signal)
+            this.sendInput(live, next, options.signal, options.reasoningEffort)
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }
@@ -484,21 +595,38 @@ function pickAllowOption(options, result) {
   let decision
   try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
   if (decision !== 'allow') return null
-  const option = (options ?? []).find(entry => /allow/.test(entry.kind ?? ''))
-  return option?.optionId ?? null
+  return optionOf(options, 'allow') ?? null
+}
+
+// The agent's one-time option of a kind ('allow' or 'reject'), else any of it.
+// A one-time allow leaves the agent's own saved rules as they were.
+const optionOf = (options, kind) => ((options ?? []).find(entry => entry.kind === `${kind}_once`)
+  ?? (options ?? []).find(entry => (entry.kind ?? '').startsWith(kind)))?.optionId
+
+// What the preset answers without asking: an option id, null to refuse, or
+// undefined to ask the user.
+function presetAnswer(preset, event) {
+  if (preset === 'danger-full-access') return optionOf(event.options, 'allow')
+  if (preset === 'read-only' && event.changes === true) return optionOf(event.options, 'reject') ?? null
+  return undefined
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text, newest first, always with the latest input.
+// recent messages rendered as text, newest first, always with the latest input
+// and the handoff a new part opens with, both word for word.
 function renderReplay(messages, system) {
   const picked = []
   let used = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
+  let full = false
   for (const message of [...body].reverse()) {
-    const line = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}: ${textOf(message.content).slice(0, 2_000)}`
-    if (message === latest) { picked.unshift(line); used += line.length; continue }
-    if (picked.length >= REPLAY_MESSAGES || used + line.length > REPLAY_BYTES) break
+    const whole = message === latest || message.source?.handoff === true
+    const text = textOf(message.content)
+    const line = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}: ${whole ? text : text.slice(0, 2_000)}`
+    if (whole) { picked.unshift(line); used += line.length; continue }
+    full ||= picked.length >= REPLAY_MESSAGES || used + line.length > REPLAY_BYTES
+    if (full) continue
     picked.unshift(line)
     used += line.length
   }
