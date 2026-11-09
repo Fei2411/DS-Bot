@@ -1803,6 +1803,21 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
   assert.equal(undone.value.tidy, null)
 })
 
+test('a tidy keeps its records in the memory folder it tidied', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'MEMORY.md'), `# Memory\n\n${Array.from({ length: 10 }, (_, at) => `- Secret plan ${at} [id: c${String(at).padStart(3, '0')}]`).join('\n')}\n\n## Index\n`)
+  const { call, stop } = start({ home, replies: [JSON.stringify({ changes: [{ op: 'retire', entry: 1, why: 'over' }] })] })
+  t.after(() => stop())
+  await call('state', {})
+  await rt.tidyMemoryNow('bot:b2')
+  assert.equal(existsSync(join(dir, 'tidied.json')), true)
+  assert.equal(readdirSync(join(dir, 'tidy')).length, 1)
+  assert.equal(existsSync(join(home, 'memory', 'tidy')), false)
+  assert.equal(existsSync(join(home, 'memory', 'tidied.json')), false)
+})
+
 test('a team tidy never offers what every Bot always reads', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   const dir = join(home, 'memory', 'team')
