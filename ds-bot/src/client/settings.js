@@ -3,6 +3,7 @@ import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
 import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
+import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
@@ -24,15 +25,44 @@ import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
+import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
 // Settings dialog: a 198px page list beside the page. Bots and group chats each list
 // their members, and one opens on its own settings form. Usage widens the dialog.
-// Models is there wherever the host serves the model providers, beside DSH's own settings.
+// DS Bot's pages come first; below a rule, the pages DSH and other plugins register
+// (`settings.section`), then Feedback and About. DSH's General rows join General, and
+// its Models page opens from DS Bot's Models page as the advanced settings.
 const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const LAST_PAGES = new Set(['feedback', 'about'])
+// DSH sections DS Bot's own pages already hold.
+const MERGED_SECTIONS = new Set(['general', 'models'])
+// DSH General rows that sit under Appearance; the rest go under More.
+const LOOK_ITEMS = ['appearance', 'font-size']
+const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
+export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
+const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
+const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
 const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+
+// What each MEMORY.md holds by default, in characters of entry text.
+const MEMORY_SIZES = [
+  { scope: 'group', label: 'Group memory size', size: 12_000 },
+  { scope: 'bot', label: 'Bot memory size', size: 8_000 },
+  { scope: 'team', label: 'Team memory size', size: 4_000 },
+]
+function MemorySize({ label, value, save }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  const commit = () => {
+    const number = Number(text)
+    if (Number.isInteger(number) && number >= 1_000 && number <= 200_000 && number !== value) save(number)
+    else setText(String(value))
+  }
+  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
+}
 
 function SetSection({ title, className = '', children }) {
   return h('section', { className: `bt-set-section ${className}`.trim() }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
@@ -79,7 +109,10 @@ function WidthSlider({ label, value, save }) {
     h('output', null, `${width}%`))
 }
 
-function GeneralPage({ roster, actions, run }) {
+function GeneralPage({ roster, actions, run, dsh }) {
+  const items = (dsh?.items ?? []).map(row => row.id).filter(id => id !== '')
+  const look = LOOK_ITEMS.filter(id => items.includes(id))
+  const more = items.filter(id => !LOOK_ITEMS.includes(id))
   const prefs = roster.prefs ?? {}
   const themes = allThemes()
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
@@ -109,11 +142,12 @@ function GeneralPage({ roster, actions, run }) {
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === 'flat' ? h(SetRow, { label: t('Text width') }, h(WidthSlider, { label: t('Text width'), value: flatWidthOf(prefs), save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
-      h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
+      h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) })),
+      look.map(id => dshItem(dsh, id))),
     h(SetSection, { key: 'new', title: t('New Bots') },
       h(SetRow, { label: t('Default model'), className: 'bt-set-model' },
         h(ModelMenu, {
-          bot: { id: 'new-bots', name: t('New Bots'), model: prefs.defaultBotModel },
+          bot: { id: 'new-bots', name: t('New Bots'), model: isLocalRoute(prefs.defaultBotModel) ? undefined : prefs.defaultBotModel },
           roster, actions, run, wide: true, withEfforts: false,
           onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })),
         }),
@@ -121,10 +155,18 @@ function GeneralPage({ roster, actions, run }) {
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
+    h(SetSection, { key: 'memory', title: t('Memory') },
+      h(SetRow, { label: t('Bring up related memory') },
+        h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),
+      MEMORY_SIZES.map(({ scope, label, size }) => h(SetRow, { key: scope, label: t(label) },
+        h(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: value => run(actions.setPrefs({ memoryLimits: { [scope]: value } })) })))),
+    // Settings opens in Agent mode too; there the way goes back to Bot mode.
     actions.setSurface ? h(SetSection, { key: 'mode', title: t('Mode') },
-      h(SetRow, { label: t('Classic Agent mode') },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
+      actions.surfaceMode?.() === 'agent'
+        ? h(SetRow, { label: t('Bot mode') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('bot') }, t('Switch')))
+        : h(SetRow, { label: t('Classic Agent mode') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
     h(LocationsSection, { key: 'places', actions, run }),
+    more.length > 0 ? h(SetSection, { key: 'more', title: t('More'), className: 'bt-dsh-items' }, more.map(id => dshItem(dsh, id))) : null,
   ]
 }
 
@@ -256,7 +298,7 @@ class PageBoundary extends Component {
 }
 
 // While `leaving`, the dialog plays its exit and takes no input.
-export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false }) {
+export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
   const close = useCallback(() => actions.closeSettings(), [])
   useEscape(close)
@@ -267,16 +309,21 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const bot = page === 'bots' && id ? roster.byId[id] : undefined
   const room = page === 'groups' && id ? roster.roomsById[id] : undefined
   const pages = SETTINGS_PAGES.filter(([key]) => key !== 'models' || actions.providers !== undefined)
-  const shown = pages.some(([key]) => key === page) ? page : 'general'
+  const extra = dshPages(dsh)
+  // A DSH page is `dsh` with its section id; one no longer registered falls back to General.
+  const section = page === 'dsh' ? extra.find(row => row.id === id) : undefined
+  // DSH's Models page, one level into Models.
+  const advanced = page === 'models' && id === 'advanced' && hasSection(dsh, 'models')
+  const shown = section ? 'dsh' : pages.some(([key]) => key === page) ? page : 'general'
   const usageFocus = shown === 'usage' && id ? id : null
-  const label = t(pages.find(([key]) => key === shown)[1])
-  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : null
-  const nav = useGlide(shown, { axis: 'y' })
+  const label = section ? section.label : advanced ? t('Advanced settings') : t(pages.find(([key]) => key === shown)[1])
+  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : null
+  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: 'y' })
   // A page enters from the right when it is one level in, from the left when it comes
   // back out, and from below beside it. Usage keeps its own entrance and its data
   // across its own levels, so they share one page.
-  const pageKey = `${shown}:${bot?.id ?? room?.id ?? ''}`
-  const depth = bot || room ? 1 : 0
+  const pageKey = `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : '')}`
+  const depth = bot || room || advanced ? 1 : 0
   const last = useRef({ key: pageKey, depth, move: 'up' })
   if (last.current.key !== pageKey) {
     last.current = { key: pageKey, depth, move: depth > last.current.depth ? 'in' : depth < last.current.depth ? 'out' : 'up' }
@@ -287,28 +334,37 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const [usageOpened, setUsageOpened] = useState(shown === 'usage')
   if (shown === 'usage' && !usageOpened) setUsageOpened(true)
   const errorLine = error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null
+  const pageButton = (key, text) => h('button', {
+    key, type: 'button', className: 'bt-settings-item', 'aria-current': shown === key ? 'page' : undefined, onClick: () => actions.openSettings(key),
+  }, h(PAGE_ICONS[key]), t(text))
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onMouseDown: close }),
-    h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('DS Bot settings') },
+    h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
       h('nav', { ref: nav.box, className: 'bt-settings-nav', 'aria-label': t('Settings pages') },
         h('span', { ref: nav.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-        pages.map(([key, text]) => h('button', {
-          key, type: 'button', className: 'bt-settings-item', 'aria-current': shown === key ? 'page' : undefined, onClick: () => actions.openSettings(key),
-        }, h(PAGE_ICONS[key]), t(text))),
-        actions.openHarnessSettings ? h('button', {
-          type: 'button', className: 'bt-settings-item bt-settings-shell', title: t('Models, providers, and the rest of DeepSeek Harness'),
-          onClick: () => { close(); actions.openHarnessSettings() },
-        }, h(SlidersIcon), t('Harness settings')) : null),
+        pages.filter(([key]) => !LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text)),
+        extra.length > 0 ? h('span', { className: 'bt-settings-rule', 'aria-hidden': true }) : null,
+        extra.map(row => h('button', {
+          key: `dsh:${row.id}`, type: 'button', className: 'bt-settings-item', 'aria-current': section?.id === row.id ? 'page' : undefined,
+          onClick: () => actions.openSettings('dsh', row.id),
+        }, h('span', { className: 'bt-settings-icon', 'aria-hidden': true }, dsh.renderSlot('settings.section.icon', { size: 16, active: section?.id === row.id }, {
+          only: row.id, fallback: h(DSH_ICONS[row.id] ?? IconSettingsOutlineMedium, { size: 16 }),
+        })), row.label)),
+        h('span', { className: 'bt-settings-rule', 'aria-hidden': true }),
+        pages.filter(([key]) => LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text))),
       h('div', { className: 'bt-settings-main' },
         h('div', { className: 'bt-settings-head' },
           back ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': back, title: back, onClick: () => actions.openSettings(shown) }, h(ChevronLeftIcon)) : null,
-          h('h2', { key: bot?.id ?? room?.id ?? shown }, bot?.name ?? room?.name ?? label)),
+          h('h2', { key: bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown) }, bot?.name ?? room?.name ?? label),
+          dsh ? h('div', { className: 'bt-settings-actions' }, dsh.renderSlot('settings.action', {})) : null),
         shown === 'usage' ? null : h('div', { key: pageKey, className: 'bt-settings-scroll bt-settings-page', 'data-move': last.current.move },
           errorLine,
           h(PageBoundary, null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
-          shown === 'general' ? h(GeneralPage, { roster, actions, run }) : null,
-          shown === 'models' ? h(ProvidersPage, { actions, run, Section: SetSection }) : null,
+          shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
+          shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
+          advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
+          section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
           shown === 'local-agents' ? h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow }) : null,
           bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
           shown === 'bots' && !bot ? h(BotsPage, { roster, actions, run }) : null,

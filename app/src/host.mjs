@@ -8,6 +8,7 @@ import { inspect } from 'node:util'
 import { loadLayeredEnv, reportSkippedBundles } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import { writeAppPatch } from './app-patch.mjs'
+import { reconcileComputerHelper } from './computer-helper.mjs'
 import { CHECK_PROFILE, INSTALL_ANCHOR, loadAppProfile, loadCheckProfile, PROFILE } from './profile.mjs'
 import { reconcileGoal } from './goal-patch.mjs'
 import { reconcileOfficeRuntime } from './office-patch.mjs'
@@ -31,6 +32,7 @@ async function main() {
   const office = check === undefined ? reconcileOfficeRuntime(profile) : { patchFiles: [] }
   // ds-bot reads the payload's Node for the Office commands it runs itself.
   if (office.node !== undefined) process.env.DS_BOT_OFFICE_NODE = office.node
+  if (check === undefined) await reconcileComputerHelper()
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: check === undefined ? PROFILE : CHECK_PROFILE,
