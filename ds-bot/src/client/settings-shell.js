@@ -393,6 +393,32 @@ export function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     })))
 }
 
+export function surfaceModeCommand(actions, ui, roster) {
+  return {
+    id: 'ds-bot.toggle-surface',
+    label: () => t('Switch Bot / Classic Agent mode'),
+    aliases: ['bot mode', 'classic agent mode'],
+    defaults: {},
+    regions: ['page', 'editable'],
+    modals: [],
+    resolve: ({ modal, region }) => {
+      if (modal !== null) return { status: 'blocked', reason: 'modal' }
+      if (region === 'terminal') return { status: 'pass' }
+      // A pending home subscription must not land after a rapid return to Agent mode.
+      if (!roster.getSnapshot().ready) return { status: 'pass' }
+      const state = ui.getSnapshot()
+      // Bot panels and forms can keep unsent drafts only in their mounted components.
+      const draftView = state.details || state.newChat || state.exchange || state.voice || state.memory
+        || state.palette || state.goalCompose || state.signIn || state.renameSection || state.renameAgent
+      if (actions.surfaceMode() === 'bot' && draftView) return { status: 'pass' }
+      return {
+        status: 'handled',
+        run: () => actions.setSurface(actions.surfaceMode() === 'bot' ? 'agent' : 'bot'),
+      }
+    },
+  }
+}
+
 // Registers the seat and its companions. `face` is DS Bot's own injected face; the
 // returned `openOnboarding` reaches a registered onboarding step by id.
 export function installSettingsShell(ctx, { face, actions, ui, held }) {
@@ -472,6 +498,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
           return { status: 'handled', run: () => actions.openSettings('general') }
         },
       }), 'ds-bot: settings command')
+      scope.effect(() => scope.shortcuts.register(surfaceModeCommand(actions, ui, face().hooks.roster)), 'ds-bot: surface mode command')
     }),
     ctx.inject(['modules'], (scope) => {
       scope.effect(() => slots.inject('shell.overlay', () => slots.register({

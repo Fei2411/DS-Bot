@@ -225,6 +225,54 @@ test('General settings keeps the Classic Agent mode switch', () => {
   assert.deepEqual(calls, ['agent'])
 })
 
+test('a native command switches between Bot and Agent modes without a preset binding', () => {
+  const registered = []
+  const shortcuts = { register: command => { registered.push(command); return () => registered.splice(registered.indexOf(command), 1) } }
+  const ctx = {
+    slots: { inject: (_name, install) => install(), register: () => () => {} },
+    get: () => undefined,
+    inject: (names, install) => {
+      const disposers = []
+      if (names[0] === 'shortcuts') install({ shortcuts, effect: register => disposers.push(register()) })
+      return { dispose: () => disposers.forEach(dispose => dispose()) }
+    },
+  }
+  let mode = 'bot'
+  let view = { details: null, newChat: null }
+  let rosterReady = true
+  const actions = { surfaceMode: () => mode, setSurface: next => { mode = next } }
+  const ui = { getSnapshot: () => view }
+  const face = () => ({ hooks: { roster: { getSnapshot: () => ({ ready: rosterReady }) } } })
+  const installed = shell.installSettingsShell(ctx, { face, actions, ui })
+  const command = registered.find(row => row.id === 'ds-bot.toggle-surface')
+  assert.ok(command, 'the shortcut must remain registered in both modes')
+  assert.equal(command.label(), 'Switch Bot / Classic Agent mode')
+  assert.deepEqual(JSON.parse(JSON.stringify(command.defaults)), {})
+  assert.deepEqual(Array.from(command.regions), ['page', 'editable'])
+  assert.deepEqual(Array.from(command.modals), [])
+  assert.equal(command.resolve({ modal: 'settings' }).status, 'blocked')
+  assert.equal(command.resolve({ modal: null, region: 'terminal' }).status, 'pass')
+  view = { details: 'b1', view: 'side', newChat: null }
+  assert.equal(command.resolve({ modal: null, region: 'editable' }).status, 'pass', 'keep the Side Chat view and its local draft mounted')
+  assert.equal(mode, 'bot')
+  view = { details: null, newChat: { name: 'unsent form' } }
+  assert.equal(command.resolve({ modal: null, region: 'page' }).status, 'pass', 'keep the new-chat draft mounted even after focus leaves its field')
+  view = { details: null, newChat: null, renameSection: 'group-1' }
+  assert.equal(command.resolve({ modal: null, region: 'editable' }).status, 'pass', 'preserve a local sidebar rename draft')
+  view = { details: null, newChat: null }
+  rosterReady = false
+  assert.equal(command.resolve({ modal: null, region: 'page' }).status, 'pass', 'avoid switching during a cold-start roster pull')
+  rosterReady = true
+  const toAgent = command.resolve({ modal: null })
+  assert.equal(toAgent.status, 'handled')
+  toAgent.run()
+  assert.equal(mode, 'agent')
+  command.resolve({ modal: null }).run()
+  assert.equal(mode, 'bot')
+  installed.dispose()
+  assert.equal(registered.some(row => row.id === 'ds-bot.toggle-surface'), false)
+})
+
 // Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
 const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
 

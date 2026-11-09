@@ -206,6 +206,7 @@ const ZH = {
   'No such connector': '没有这个连接器',
   'Classic Agent mode': '经典 Agent 模式',
   'Bot mode': 'Bot 模式',
+  'Switch Bot / Classic Agent mode': '切换 Bot / 经典 Agent 模式',
   'Switch': '切换',
   '{model} is not available anymore. Pick another model for me.': '{model} 已经不可用了。给我换一个模型吧。',
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": '你好，我是 {name}。我还没有可用的模型。你想怎么配置？',
