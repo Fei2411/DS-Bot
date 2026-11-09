@@ -4,7 +4,7 @@
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { randomUUID } from 'node:crypto'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
-import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { HANDOFF_ACK, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
@@ -41,13 +41,19 @@ export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
   const work = rt.closeWork?.(source.exchangeId, name, text)
+  // A reply that arrives after the user gave up the wait is a late answer: it closes
+  // nothing, opens nothing, and says on it that the wait was already over.
+  const late = work === undefined ? rt.abandonedWork?.(source.exchangeId) : undefined
+  const marker = late === undefined ? '' : LATE_ANSWER
+  const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
+  const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
   const exchangeId = randomUUID()
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
     ...(back ? { sessionId: back } : {}),
-    text: long?.text ?? text,
-    ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+    text: body,
+    ...(length === undefined ? {} : { files: long.files, length }),
     role: 'reply',
     replyTo: source.exchangeId,
     exchangeId,
@@ -85,12 +91,21 @@ export function attachReference(queued, source, text) {
 }
 
 // A tool call some models write into their text instead of making it (the XML-like
-// form of their own chat template).
-const WRITTEN_CALL = /<tool_call>\s*<function=|<function=[\w.-]+>\s*<parameter=/
+// form of their own chat template). A reply cut off in the middle of such a call can
+// keep only its closing tags, so those count as one too, or only the first tags of a
+// parameter. Some models write the CJK brackets, so both forms match.
+const TAG_OPEN = '[<＜]'
+const TAG_CLOSE = '[>＞]'
+const TOOL_CALL_TAG = `${TAG_OPEN}tool_call${TAG_CLOSE}`
+const FUNCTION_TAG = `${TAG_OPEN}function=[\\w.-]+${TAG_CLOSE}`
+const PARAMETER_TAG = `${TAG_OPEN}parameter=[\\w.-]+${TAG_CLOSE}`
+const CLOSING_TAG = `${TAG_OPEN}/(?:parameter|function|tool_call)${TAG_CLOSE}`
+const WRITTEN_CALL = new RegExp(`${TOOL_CALL_TAG}\\s*${TAG_OPEN}function=|${FUNCTION_TAG}\\s*${TAG_OPEN}parameter=|${CLOSING_TAG}`)
 export const writesToolCall = text => typeof text === 'string' && WRITTEN_CALL.test(text)
 export const stripWrittenCalls = text => text
-  .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/g, '')
-  .replace(/<function=[\w.-]+>[\s\S]*?(?:<\/function>|$)/g, '')
+  .replace(new RegExp(`${TOOL_CALL_TAG}[\\s\\S]*?(?:${TAG_OPEN}/tool_call${TAG_CLOSE}|$)`, 'g'), '')
+  .replace(new RegExp(`${FUNCTION_TAG}[\\s\\S]*?(?:${TAG_OPEN}/function${TAG_CLOSE}|$)`, 'g'), '')
+  .replace(new RegExp(`(?:${CLOSING_TAG}|${PARAMETER_TAG})\\s*`, 'g'), '')
   .trim()
 
 // Under DSH's PTC presentation the model calls only this tool; the program's sub-calls
@@ -110,6 +125,9 @@ const subEndText = (data) => {
 
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and do the work now. If your last reply already was your whole answer, reply [PASS]; it stays posted.'
+// The turn number a running turn gets when it started before this plugin was loaded and
+// dsh does not say which number it has. dsh numbers turns from 1, so this one is unused.
+const RECOVERED_TURN = -1
 // A turn cut off at the model's output limit is not a finish. Whoever reads its answer
 // is told, so half an answer is not taken as the whole one and silence is not taken as
 // a deliberate one.
@@ -256,6 +274,37 @@ export function install(rt) {
       }
     }
     return true
+  }
+
+  // A plugin update replaces the files under a running dsh and loads the plugin again
+  // in place: the process keeps its turns and child agents, while the maps above start
+  // empty. Adopt what dsh still runs from its live Agents, so Stop, the group view and
+  // a late child settle still see it: a subagent child belongs to the Session in its
+  // header, and a Bot Session whose Agent runs is mid-turn. A running call is not in
+  // dsh's registry, so an adopted turn shows as working without its call line.
+  async function adoptLiveWork() {
+    const agents = ctx.get?.('agents')
+    if (agents?.list === undefined) return
+    await rt.load()
+    const known = id => rt.isBotSession(id) || rt.roomOf(id) !== undefined
+    for (const agent of agents.list()) {
+      if (agent?.status !== 'running') continue
+      const sessionId = agent?.session?.id ?? agent?.id
+      const header = agent?.session?.header
+      const parentId = header?.parentSession
+      if (typeof parentId === 'string' && header?.origin === 'subagent' && known(parentId)) {
+        noteSubagentStart(parentId, sessionId, undefined, Date.now())
+        continue
+      }
+      if (typeof sessionId !== 'string' || !known(sessionId)) continue
+      const entry = liveOf(sessionId)
+      if (entry.turn !== undefined) continue
+      entry.turn = RECOVERED_TURN
+      // Its input was consumed before the reload; a later request joins this turn.
+      entry.opened = true
+      entry.since ??= Date.now()
+      setActivity(sessionId, 'thinking')
+    }
   }
 
   // A stopped round stops the member work it started: the turn that answers it, or the
@@ -1189,5 +1238,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
 }

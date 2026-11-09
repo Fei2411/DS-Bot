@@ -98,6 +98,7 @@ var ZH = {
   "{count} members": "{count} 位成员",
   "Loading…": "加载中…",
   "Edit Bot": "编辑 Bot",
+  "Give up waiting for {name}": "不再等 {name}",
   "Make Main Bot": "设为主 Bot",
   "Remove Main Bot role": "取消主 Bot",
   "Create group chat": "新建群聊",
@@ -294,6 +295,8 @@ var ZH = {
   "Add agent": "添加 Agent",
   "Copies the sign-in command": "复制登录命令",
   "Sign in": "登录",
+  "Sign-in command copied. Run it in a terminal: {command}": "登录命令已复制。请在终端运行：{command}",
+  "Could not copy the sign-in command. Run this in a terminal: {command}": "没能复制登录命令。请在终端手动运行：{command}",
   Found: "已找到",
   "Not found": "未找到",
   Arguments: "参数",
@@ -2157,6 +2160,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     deleteAvatar: (id) => call2("avatar-delete", { id }),
     createRoom: (members, options = {}) => after(call2("create-room", { members, ...options })),
     updateBot: (id, patch) => after(call2("update-bot", { id, ...patch })),
+    // Give up one wait the Bot has on a hand-off that will not come back.
+    abandonWork: (id) => after(call2("abandon-work", { id })),
     refreshModels: () => after(call2("models")).catch(() => {
     }),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
@@ -3900,6 +3905,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
+.bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
 .bt-swatch-custom[data-on=true]{border-color:var(--bt-ink)}
@@ -8824,9 +8830,11 @@ function ClosedView({ title, closed }) {
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
+  const closed = useRoster((value) => value.closedViews?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
-  if (view === void 0 || view.callId && drawn && !held) return null;
+  if (view === void 0) return closed === void 0 ? null : (0, import_react16.createElement)("div", { className: "bt-q-dock" }, (0, import_react16.createElement)(SettledQuestion, { question: { question: closed.title || t("View") }, closed: closed.closed }));
+  if (view.callId && drawn && !held) return null;
   return (0, import_react16.createElement)(PendingView, { sessionId, view, actions, inline: false });
 }
 function AnsweredView2({ node }) {
@@ -20155,12 +20163,13 @@ function ImMark({ id, size = 36 }) {
 }
 function stateOf(conn, status) {
   if (!conn.enabled) return "off";
-  return status?.state === "ready" || status?.state === "error" || status?.state === "connecting" ? status.state : "connecting";
+  return status?.state === "ready" || status?.state === "error" || status?.state === "retrying" || status?.state === "connecting" ? status.state : "connecting";
 }
 function stateText(conn, status) {
   const state = stateOf(conn, status);
   if (state === "off") return t("Disabled");
   if (state === "ready") return t("Connected");
+  if (state === "retrying") return t("Retrying…");
   if (state === "error") return t("Could not connect: {error}", { error: hostText(status.error ?? "") });
   return t("Connecting…");
 }
@@ -20590,6 +20599,7 @@ var IM_CSS = `
 .bt-im-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
 .bt-im-dot[data-state=ready]{background:var(--bt-green)}
 .bt-im-dot[data-state=error]{background:var(--bt-danger)}
+.bt-im-dot[data-state=retrying]{background:var(--bt-star)}
 .bt-im-dot[data-state=off]{background:none;box-shadow:inset 0 0 0 1.5px var(--bt-ink-3)}
 .bt-im-dot[data-state=connecting]{animation:bt-im-breathe 1.4s ease-in-out infinite}
 @keyframes bt-im-breathe{50%{opacity:.35}}
@@ -21475,6 +21485,43 @@ function AgentForm({ initial, submit, close }) {
     )
   );
 }
+function AgentSignInRow({ agent, Row: Row4 }) {
+  const [note, setNote] = (0, import_react46.useState)(null);
+  const copy2 = () => {
+    const done = (copied) => setNote({ copied, command: agent.signIn });
+    try {
+      const writing = navigator.clipboard?.writeText(agent.signIn);
+      if (writing === void 0) {
+        done(false);
+        return;
+      }
+      void Promise.resolve(writing).then(() => done(true), () => done(false));
+    } catch {
+      done(false);
+    }
+  };
+  const message = note === null ? null : (0, import_react46.createElement)("span", {
+    className: note.copied ? "bt-note" : "bt-note bt-danger",
+    role: note.copied ? "status" : "alert"
+  }, note.copied ? t("Sign-in command copied. Run it in a terminal: {command}", { command: note.command }) : t("Could not copy the sign-in command. Run this in a terminal: {command}", { command: note.command }));
+  return (0, import_react46.createElement)(
+    Row4,
+    {
+      label: agent.name,
+      hint: [
+        [agent.path, agent.version].filter(Boolean).join(" · "),
+        message === null ? null : (0, import_react46.createElement)("br"),
+        message
+      ]
+    },
+    (0, import_react46.createElement)(
+      "div",
+      { className: "bt-set-actions" },
+      agent.signIn ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null,
+      (0, import_react46.createElement)("span", { className: "bt-tag" }, agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : agent.path ? t("Found") : t("Not found"))
+    )
+  );
+}
 function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
   const [view, setView] = (0, import_react46.useState)(null);
   const [editing, setEditing] = (0, import_react46.useState)(null);
@@ -21490,21 +21537,7 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
       Section2,
       { key: "found", title: t("Detected agents") },
       view.detected.length === 0 ? (0, import_react46.createElement)(Row4, { label: t("No agent CLIs found") }) : null,
-      view.detected.map((agent) => (0, import_react46.createElement)(
-        Row4,
-        {
-          key: agent.route,
-          label: agent.name,
-          hint: [agent.path, agent.version].filter(Boolean).join(" · ")
-        },
-        (0, import_react46.createElement)(
-          "div",
-          { className: "bt-set-actions" },
-          agent.signIn ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: () => navigator.clipboard?.writeText(agent.signIn).catch(() => {
-          }) }, t("Sign in")) : null,
-          (0, import_react46.createElement)("span", { className: "bt-tag" }, agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : agent.path ? t("Found") : t("Not found"))
-        )
-      )),
+      view.detected.map((agent) => (0, import_react46.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 })),
       (0, import_react46.createElement)(
         Row4,
         { key: "refresh", label: t("Refresh"), hint: t("Scan again for agent CLIs.") },
@@ -22694,8 +22727,8 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const goal = room2?.goal;
-  const goalCompose = useUi((state) => state.goalCompose === sessionId);
-  const goalOpen = useUi((state) => state.goalOpen === sessionId);
+  const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
+  const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[sessionId] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
@@ -24982,7 +25015,7 @@ function sectionMoveItems(entry, roster, actions) {
     }]
   ].filter(Boolean);
 }
-function ContextMenu({ menu, roster, actions, leaving = false }) {
+function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   useEscape(() => actions.closeMenu());
   const ref = (0, import_react57.useRef)(null);
   const trigger = (0, import_react57.useRef)(typeof document === "undefined" ? null : document.activeElement);
@@ -25012,6 +25045,8 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
   const bot = roster.byId[menu.id];
   const room2 = roster.roomsById[menu.id];
   const entry = bot ?? room2;
+  const waitsRaw = useWork && bot ? useWork((work) => JSON.stringify(work.waiting?.[bot.id] ?? null)) : "null";
+  const waits = (0, import_react57.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
   if (entry === void 0) return null;
   const isMainBot = isMainOf(roster, menu.id);
   const isTile = roster.mainBotId === menu.id;
@@ -25035,6 +25070,7 @@ function ContextMenu({ menu, roster, actions, leaving = false }) {
       bot && isMainBot && mainCount > 1 ? [t("Remove Main Bot role"), StarLineIcon, () => actions.setMain(bot.id, false)] : null
     ],
     [[t("Copy conversation ID"), CopyIcon, () => navigator.clipboard?.writeText(bot ? currentPart(bot) : menu.id)]],
+    bot ? (waits?.waits ?? []).map((item) => [t("Give up waiting for {name}", { name: item.name ?? t("a Bot") }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t("Hide from sidebar"), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
       isMainBot ? null : [room2 ? t("Delete group") : t("Delete"), TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true]
@@ -27025,7 +27061,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     ui2.palette ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
     ui2.exchange ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
     ui2.voice ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
-    menu ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
+    menu ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     owner ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
   );
