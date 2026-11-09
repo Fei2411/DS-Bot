@@ -5,6 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { load } from 'js-yaml'
 import { parse } from 'yaml'
 import { copySessions, findTeam, importTeam, newerSessions, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
 
@@ -319,6 +321,42 @@ describe('links in the old team workspace', () => {
     assert.equal(readFileSync(join(workspace, 'node_modules', 'pkg', 'index.js'), 'utf8'), 'package')
     assert.equal(realpathSync.native(join(workspace, 'node_modules', 'pkg')), realpathSync.native(join(workspace, '.pnpm', 'pkg')))
     assert.equal(readFileSync(join(workspace, 'notes.txt'), 'utf8'), 'old notes')
+  })
+})
+
+describe('JS expressions in profile patches', () => {
+  let root
+  before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-app-js-')) })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('copies a !!js model value as the same expression, and keeps one the data location has, without a YAML warning', async () => {
+    const from = oldHome(root)
+    write(join(from, 'profiles', 'desktop', 'cordis.patch.yml'), [
+      '- id: agent-default-model', '  config:', "    model: !!js process.env.X ?? 'deepseek-official/deepseek-flash'",
+      '- id: sandbox-policy', '  config:', '    mode: !!js process.env.DSH_PERMISSION_MODE', '',
+    ].join('\n'))
+    const { to, workspace } = newHome(root)
+    // DSH writes the data location's own patch too, and it may hold a !!js value.
+    write(join(to, 'profiles', 'ds-bot', 'cordis.patch.yml'), [
+      '- id: webserver', '  config:', '    port: 0',
+      '- id: ui-settings-general', '  config:', "    welcomeNoticeVersion: !!js process.env.NOTICE ?? 'seen'", '',
+    ].join('\n'))
+    const warnings = []
+    const onWarning = (warning) => { if (/Unresolved tag/u.test(warning.message)) warnings.push(warning.message) }
+    process.on('warning', onWarning)
+    try {
+      findTeam(from)
+      await importTeam({ from, to, workspace, profile: 'desktop' })
+      await new Promise(resolve => setImmediate(resolve))
+    } finally {
+      process.off('warning', onWarning)
+    }
+    assert.deepEqual(warnings, [])
+    const text = readFileSync(join(to, 'profiles', 'ds-bot', 'cordis.patch.yml'), 'utf8')
+    assert.match(text, /!!js/u)
+    const rows = Object.fromEntries(load(text, { schema: entryListSchema }).map(row => [row.id, row]))
+    assert.deepEqual(rows['agent-default-model'].config.model, { __jsExpr: "process.env.X ?? 'deepseek-official/deepseek-flash'" })
+    assert.deepEqual(rows['ui-settings-general'].config.welcomeNoticeVersion, { __jsExpr: "process.env.NOTICE ?? 'seen'" })
   })
 })
 
