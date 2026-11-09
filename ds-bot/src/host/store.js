@@ -4,10 +4,11 @@
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
+import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, SECTION_COLORS, SECTION_NAME_MAX, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
 import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
+import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
 
 // A table read that sees only the keys the table holds itself. Ids that come from
 // outside (a request body, a tool argument, a name a model gives) go through this, so
@@ -18,8 +19,8 @@ export const own = (table, key) => (table != null && Object.hasOwn(table, key) ?
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, closedViews: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -146,6 +147,7 @@ export function install(rt) {
         migrated = true
       }
     }
+    if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
     if (!Array.isArray(state.mainBotIds)) state.mainBotIds = []
     if ('mainBotId' in state) {
@@ -155,6 +157,24 @@ export function install(rt) {
     }
     state.mainBotIds = state.mainBotIds.filter(id => state.bots[id])
     if (!Array.isArray(state.privateArchives)) state.privateArchives = []
+    if (!Array.isArray(state.sections)) state.sections = []
+    else {
+      const seen = new Set()
+      state.sections = state.sections
+        .filter(sec => sec && typeof sec === 'object' && typeof sec.id === 'string' && sec.id !== '' && typeof sec.name === 'string' && sec.name.trim() !== '' && !seen.has(sec.id) && seen.add(sec.id))
+        .map(sec => ({
+          id: sec.id,
+          name: sec.name.trim().slice(0, SECTION_NAME_MAX),
+          ...(sec.collapsed === true ? { collapsed: true } : {}),
+          ...(SECTION_COLORS.includes(sec.color) ? { color: sec.color } : {}),
+        }))
+    }
+    const sectionIds = new Set(state.sections.map(sec => sec.id))
+    for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms), ...Object.values(state.agents)]) {
+      if (entry.sectionId !== undefined && (typeof entry.sectionId !== 'string' || !sectionIds.has(entry.sectionId) || entry.id === state.mainBotIds[0])) {
+        delete entry.sectionId
+      }
+    }
     // Teams from before the whale was stored at setup: their first Bot, while still a
     // Main Bot, gets it once wherever it has no look of its own. After that the whale is
     // an ordinary look the user can change, and it never passes to another Bot.
@@ -175,6 +195,7 @@ export function install(rt) {
     if (state.requests === null || typeof state.requests !== 'object' || Array.isArray(state.requests)) state.requests = {}
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
+    if (state.closedViews === null || typeof state.closedViews !== 'object' || Array.isArray(state.closedViews)) state.closedViews = {}
     // LEGACY: aside cards lived in this file only before the feature shipped;
     // they are kept under btw/ per part now. A saved copy is dropped, not moved.
     if ('btwCards' in state) {
@@ -546,8 +567,15 @@ export function install(rt) {
   // answered by a message) stays in the chat, read-only: by Session, its call id
   // and how it closed. A card answered on the card shows on its reply message.
   const closeCard = (sessionId, card, outcome) => {
-    if (typeof card?.callId !== 'string') return
-    state.closedCards[sessionId] = { ...own(state.closedCards, sessionId), [card.callId]: outcome }
+    if (card === null || typeof card !== 'object') return
+    if (typeof card.callId === 'string') {
+      state.closedCards[sessionId] = { ...own(state.closedCards, sessionId), [card.callId]: outcome }
+      return
+    }
+    // A view card with no call row (a hidden Bot-to-Bot turn) has no place in the
+    // transcript: keep it above the composer instead of losing it. A question
+    // card without a call row has no dock form, and keeps its old behaviour.
+    if (card.view !== undefined && typeof card.id === 'string') state.closedViews[sessionId] = { id: card.id, title: typeof card.title === 'string' ? card.title : '', closed: outcome }
   }
 
   Object.assign(rt, {
@@ -556,4 +584,48 @@ export function install(rt) {
     chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
+}
+
+// LEGACY: local-agent routes moved under the `local-` prefix (see engines.js).
+// The CLI records and each Bot's model follow. The applied model is dropped, so
+// the Bot's Sessions are selected again on the new route. An old `opencode/...`
+// ref is also DSH's own OpenCode provider: it moves only for a Bot that ran on
+// the local CLI (a CLI record for one of its Sessions) or on its "CLI default".
+// Returns whether anything changed.
+export function migrateLocalRoutes(state) {
+  let changed = false
+  const ranOn = new Map() // old route -> Session ids the CLI served
+  for (const [sessionId, record] of Object.entries(state.localAgents?.sessions ?? {})) {
+    const next = legacyRoute(record?.route)
+    if (next === undefined) continue
+    if (!ranOn.has(record.route)) ranOn.set(record.route, new Set())
+    ranOn.get(record.route).add(sessionId)
+    record.route = next
+    changed = true
+  }
+  const split = (ref) => {
+    const at = typeof ref === 'string' ? ref.indexOf('/') : -1
+    return at <= 0 ? undefined : { provider: ref.slice(0, at), model: ref.slice(at + 1) }
+  }
+  const sessionsOf = (bot) => {
+    const ids = [bot.id, bot.sessionId, ...(bot.segments ?? []).map(segment => segment?.sessionId)]
+    for (const room of Object.values(state.rooms ?? {})) {
+      ids.push(room?.sessions?.[bot.id], ...(room?.segments?.[bot.id] ?? []).map(segment => segment?.sessionId))
+    }
+    return ids.filter(Boolean)
+  }
+  for (const bot of Object.values(state.bots ?? {})) {
+    for (const key of ['model', 'appliedModel']) {
+      const ref = split(bot[key])
+      const next = legacyRoute(ref?.provider)
+      if (next === undefined) continue
+      const local = !AMBIGUOUS_OLD_ROUTES.has(ref.provider) || ref.model === 'default'
+        || sessionsOf(bot).some(id => ranOn.get(ref.provider)?.has(id))
+      if (!local) continue
+      if (key === 'model' || bot.model === undefined) bot.model = `${next}/${ref.model}`
+      delete bot.appliedModel
+      changed = true
+    }
+  }
+  return changed
 }
