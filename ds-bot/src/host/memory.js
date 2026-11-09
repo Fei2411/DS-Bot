@@ -916,7 +916,10 @@ export function install(rt) {
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
     const owner = rt.groupOwners.get(sessionId)
-    if (owner !== undefined) return `group "${rt.roomOf(owner.roomId)?.name ?? '?'}" ${rt.clock(Date.now())}`
+    if (owner !== undefined) {
+      const room = rt.roomOf(owner.roomId)
+      return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
+    }
     const parts = rt.partsOf(rt.selfOf(sessionId))
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const number = at === -1 ? Math.max(parts.length, 1) : at + 1

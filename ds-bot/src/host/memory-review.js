@@ -84,8 +84,6 @@ export function installReview(rt, memory) {
     // replies from many members can push out of the last few.
     const lastUser = log.findLastIndex(line => line.who === 'User' && line.botId === undefined)
     let start = since === undefined ? Math.max(0, Math.min(log.length - REVIEW_FIRST_LINES, lastUser === -1 ? log.length : lastUser)) : log.findIndex(line => line.seq > since)
-    const oldest = room.log?.[0]?.seq
-    if (since !== undefined && oldest !== undefined && oldest > since + 1) rt.warn('ds-bot: %d lines of group "%s" left its log before they were reviewed', oldest - since - 1, room.name)
     if (start === -1) start = log.length
     const line = (entry) => {
       const who = entry.botId === undefined && entry.who === 'User' ? 'user' : 'bot'
@@ -96,7 +94,11 @@ export function installReview(rt, memory) {
       fresh: log.slice(start).map(line),
       earlier: log.slice(Math.max(0, start - REVIEW_CONTEXT_LINES), start).map(line),
       where: `the group chat "${room.name}"`,
-      source: () => `group "${room.name}" ${rt.clock(Date.now())}`,
+      // The user's latest line among those the review read, which read_group_chat opens.
+      source: (lines) => {
+        const said = lines.findLast(item => item.who === 'user') ?? lines.at(-1)
+        return said === undefined ? `group "${room.name}"` : `group "${room.name}" #${said.seq}`
+      },
     }
   }
 
@@ -203,6 +205,15 @@ export function installReview(rt, memory) {
     return { ...roomCopy(now), log: [...kept.log.filter(line => line.seq < oldest), ...now.log ?? []] }
   }
 
+  // A line that has left the room's log comes from the group's own, whole. So does one
+  // the room's log holds cut.
+  const withKeptLines = (room, kept) => {
+    if (kept.length === 0) return room
+    const bySeq = new Map((room.log ?? []).map(line => [line.seq, line]))
+    for (const line of kept) bySeq.set(line.seq, line)
+    return { ...room, log: [...bySeq.values()].sort((a, b) => a.seq - b.seq) }
+  }
+
   // What a Session's turn gives the review: its Bot's own chat, or its group with a
   // copy of the group's log as of now. `key` is where the review keeps its place.
   const reviewOf = (sessionId) => {
@@ -239,8 +250,11 @@ export function installReview(rt, memory) {
     const live = rt.roomOf(seen.roomId)
     const keeper = live === undefined ? undefined : keeperOf(live)
     if (keeper === undefined) return
-    const room = joinLogs(seen.room, live)
     const since = cursorsNow()[seen.key]
+    const room = withKeptLines(joinLogs(seen.room, live), await rt.groupLinesAfter(live.id, since).catch((error) => {
+      rt.warn('ds-bot: the log of group "%s" could not be read: %s', live.name, error?.message ?? error)
+      return []
+    }))
     const members = live.members.map(id => rt.botOf(id)).filter(Boolean).map(bot => `${bot.name}${live.admin === bot.id ? ' (admin)' : ''}`)
     await reviewBatch({
       key: seen.key, since, batch: groupBatch(room, since),
