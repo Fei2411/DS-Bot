@@ -273,6 +273,23 @@ function checkComputerUse(app) {
   `, 60_000)
 }
 
+// The macOS helper must run from outside the app: inside the asar the system cannot start it, and
+// inside the signed bundle Screen Recording goes to the outer app (#1066).
+function checkComputerHelper(app) {
+  const resources = resolve(app, '..', '..', 'Resources')
+  runInHost(app, 'computer use helper', `
+    const { pathToFileURL } = require('node:url')
+    ;(async () => {
+      const { prepareComputerHelper } = await import(pathToFileURL(${JSON.stringify(join(resources, 'app.asar', 'src', 'computer-helper.mjs'))}).href)
+      const helper = await prepareComputerHelper({ runtimeDir: ${JSON.stringify(resources)}, home: ${JSON.stringify(join(work, 'computer-use'))} })
+      assert.ok(helper !== undefined, 'the packaged app carries no computer-use helper')
+      assert.equal(helper.error, undefined, String(helper.error))
+      assert.ok(!helper.path.startsWith(${JSON.stringify(dirname(resources))}), 'the helper still runs from inside the app: ' + helper.path)
+      console.log('check-packed: the computer-use helper is placed at ' + helper.path)
+    })().then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
+  `, 60_000)
+}
+
 function startMock() {
   const mock = spawn(process.execPath, [join(root, '..', 'ds-bot', 'dev', 'mock-llm.mjs')], {
     env: { ...process.env, MOCK_PORT: '0', MOCK_LOG: join(work, 'mock.log') }, stdio: ['ignore', 'pipe', 'inherit'],
@@ -468,6 +485,19 @@ async function chat(cdp) {
   }
   await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
+  if (process.platform === 'darwin') {
+    await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'computer-set-enabled', payload: { enabled: true } }) })")
+    await until("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.computer?.provider?.state === 'ready')", 'the computer-use provider')
+    // On the headless macOS 26 Intel CI runner, dsh-cua-native hangs in IconServices when reading its own icon.
+    if (process.arch === 'arm64') {
+      const status = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'computer-system-status', payload: {} }) }).then(r => r.json()).then(r => r.value)")
+      if (typeof status?.accessibility !== 'boolean' || !status?.helper?.path?.startsWith(join(work, 'shell', 'computer-use'))) {
+        throw new Error(`the computer-use helper did not answer from outside the app: ${JSON.stringify(status)}`)
+      }
+      console.log(`check-packed: the computer-use helper answers from ${status.helper.path}`)
+    }
+    await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'computer-set-enabled', payload: { enabled: false } }) })")
+  }
 }
 
 let failed = false
@@ -479,6 +509,7 @@ try {
   checkOffice(packedApp)
   checkPlaywright(packedApp)
   if (process.platform === 'win32') checkComputerUse(packedApp)
+  if (process.platform === 'darwin') checkComputerHelper(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
   const mainPort = await freePort()
