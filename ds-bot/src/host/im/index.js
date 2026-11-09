@@ -9,6 +9,7 @@ import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { adapters } from './platforms/index.js'
+import { qqRequestId, qqReplyOf, qqReplyChat } from '../../shared/qq-reply.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -358,7 +359,8 @@ export function install(rt) {
     }
     const sessionId = target.botId ?? target.roomId
     const content = []
-    if (body !== '') content.push({ type: 'text', text: body })
+    if (body !== '') content.push({ type: 'text', text: conn.platform === 'qq' && msg.chat.kind === 'group'
+      ? `[QQ group sender: member_openid=${JSON.stringify(msg.sender.id)}]\n${body}` : body })
     for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
     const env = await envFor(conn)
     for (const file of msg.files ?? []) {
@@ -370,7 +372,8 @@ export function install(rt) {
       }
     }
     if (content.length === 0) return
-    await rt.sendUser({ sessionId, content, requestId: `im:${conn.platform}:${randomUUID()}` })
+    await rt.sendUser({ sessionId, content, requestId: conn.platform === 'qq'
+      ? qqRequestId(conn.id, msg, randomUUID()) : `im:${conn.platform}:${randomUUID()}` })
   }
 
   const onAction = (conn) => async (action) => {
@@ -863,10 +866,19 @@ export function install(rt) {
   }
 
   // ----------------------------------------------------------------- outbound
+  const qqTurns = new Map()
   ctx.on('session/event', (session, event) => {
+    if (event.type === 'turn/start') qqTurns.delete(session.id)
+    if (event.type === 'user/message') {
+      const reply = qqReplyOf(event.data?.source)
+      // Freeze the first consumed QQ request in this turn. A queued message
+      // has no user/message event until it is actually read by the model.
+      if (reply !== undefined && !qqTurns.has(session.id)) qqTurns.set(session.id, reply)
+    }
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) {
       imVia.delete(session.id)
+      qqTurns.delete(session.id)
       return
     }
     const rpcId = event.type === 'user/message' ? event.data?.source?.rpcId : undefined
@@ -878,7 +890,10 @@ export function install(rt) {
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
       for (const conn of Object.values(connections())) {
         if (!runners.has(conn.id)) continue
-        for (const { chatKey, chat } of listeners(conn, { botId })) sendTo(conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
+        for (const { chatKey, chat } of listeners(conn, { botId })) {
+          const replyChat = qqReplyChat(conn, chatKey, chat, qqTurns.get(session.id))
+          sendTo(conn, chatKey, replyChat, body)
+        }
       }
     }
   })
@@ -888,7 +903,10 @@ export function install(rt) {
     const body = `**${line.who}**: ${line.text}`
     for (const conn of Object.values(connections())) {
       if (!runners.has(conn.id)) continue
-      for (const { chatKey, chat } of listeners(conn, { roomId: room.id })) sendTo(conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
+      for (const { chatKey, chat } of listeners(conn, { roomId: room.id })) {
+        const replyChat = qqReplyChat(conn, chatKey, chat, line.qqReply)
+        sendTo(conn, chatKey, replyChat, body)
+      }
     }
   })
 

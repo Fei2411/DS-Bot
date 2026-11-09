@@ -99,7 +99,7 @@ export default {
       lastMsgId.set(key, String(d.id ?? ''))
       const sender = c2c ? d.author?.user_openid : d.author?.member_openid ?? d.author?.id
       await handlers.onMessage({
-        chat: { key, kind: c2c ? 'direct' : 'group', title: '' },
+        chat: { key, kind: c2c ? 'direct' : 'group', title: '', replyTo: { messageId: String(d.id ?? ''), senderId: String(sender ?? '') } },
         sender: { id: String(sender ?? ''), name: String(sender ?? '') },
         text: String(d.content ?? '').trim(),
         images: [], files: [],
@@ -168,7 +168,7 @@ export default {
     return {
       send: async (chat, { text }) => {
         const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
-        const msgId = lastMsgId.get(chat.key)
+        const msgId = chat.replyTo?.messageId ?? lastMsgId.get(chat.key)
         const base = chat.kind === 'direct' ? `/v2/users/${chat.key}/messages` : `/v2/groups/${chat.key}/messages`
         let messageId
         for (const chunk of chunks) {
