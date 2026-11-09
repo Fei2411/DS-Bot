@@ -11,6 +11,7 @@ import {
 } from '../src/host/memory.js'
 import { fitWindow, promptEntry } from '../src/host/memory-entries.js'
 import { rankEntries } from '../src/host/memory-search.js'
+import { estimateTokens } from '../src/host/text.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -961,7 +962,7 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   t.after(() => renewed.stop())
   rmSync(join(first.home, 'memory', 'snapshots', 'b2.md'))
   await renewed.tool('recall', {}, 'b2')
-  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopic \[\[home\]\]: Lives in Hangzhou\n/)
+  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopic \[\[home\]\]\n/)
 })
 
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
@@ -1667,6 +1668,54 @@ test('a topic entry and another group stay out of the memory update', async (t) 
   assert.equal(await updateOf(ctx, 'b2'), undefined)
 })
 
+test('a running conversation receives a team entry promoted to and removed from its prompt', async (t) => {
+  const { ctx, call, tool, section, stop } = start()
+  t.after(() => stop())
+  const opened = section('b2')
+  await tool('remember', { scope: 'team', text: 'The team prefers one-page reports' }, 'm1')
+  const entry = { botId: 'b2', text: 'The team prefers one-page reports' }
+  await call('memory-layer', { ...entry, topic: 'shared', always: true })
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Added to team memory by the user: The team prefers one-page reports/)
+  await settle()
+  await call('memory-layer', { ...entry, always: false })
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Removed from team memory by the user: The team prefers one-page reports/)
+  assert.equal(section('b2'), opened)
+})
+
+test('team entries never fall back to the resident layer without always', async (t) => {
+  const { home, tool, read, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { scope: 'team', text: 'Always answer in Chinese', always: true }, 'm1')
+  await assert.rejects(tool('remember', { scope: 'team', replace: 'Always answer in Chinese', text: 'Always answer in English' }, 'm1'), /requires always/)
+  const dir = join(home, 'memory', 'team')
+  for (let i = 0; i < MEMORY_LIMITS.topics; i += 1) writeFileSync(join(dir, `topic-${i}.md`), `# Topic ${i}\n`)
+  await tool('remember', { scope: 'team', text: 'Coder knows the build' }, 'm1')
+  assert.match(read('team', 'shared.md'), /Coder knows the build/)
+  assert.doesNotMatch(read('team', 'MEMORY.md'), /Coder knows the build|Always answer in English/)
+})
+
+test('a topic never shows its expired first entry as a navigation note', async (t) => {
+  const { section, tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'The old launch is on Friday', topic: 'launch', until: '2020-01-01' }, 'b2')
+  const prompt = section('b2')
+  assert.match(prompt, /Topic \[\[launch\]\]/)
+  assert.doesNotMatch(prompt, /The old launch is on Friday/)
+})
+
+test('topic navigation shares the resident prompt budget', async (t) => {
+  const { ctx, tool, section, stop } = start()
+  t.after(() => stop())
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 5_000 } })
+  await updateOf(ctx, 'b2')
+  await tool('remember', { text: 'The user prefers one-page reports' }, 'b2')
+  for (let i = 0; i < 20; i += 1) await tool('remember', { text: `Launch reference number ${i}`, topic: `launch-${i}` }, 'b2')
+  const own = section('b2').split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
+  assert.match(own, /The user prefers one-page reports/)
+  assert.match(own, /Topic \[\[launch-0\]\]/)
+  assert.ok(estimateTokens(own) <= 100)
+})
+
 test('the team memory every Bot always reads takes what the user says, and the rest waits in a topic', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   const history = { m1: [...ownChat] }
@@ -1805,6 +1854,7 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   t.after(() => stop())
   await call('state', {})
   const room = rt.roomOf('r1')
+  assert.match(await tool('read_group_chat', { group: 'Launch', query: 'one page' }, 'g3'), /#1 .*under one page/)
   for (let at = 0; at < 70; at += 1) rt.logRoom(room, { who: 'User', text: `Plan number ${at} for the launch` })
   assert.ok(room.log[0].seq > 4, 'the first lines should have left the room log')
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
@@ -1814,6 +1864,56 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 4 }, 'g3'), /Plan number 0 for the launch/)
   assert.match(await tool('read_group_chat', { group: 'Launch', query: 'number 1 launch' }, 'g3'), /#5 .*Plan number 1 for the launch/)
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 9999 }, 'g3'), /has no message 9999/)
+})
+
+test('group search after an upgrade reads the saved full text of a legacy line', async (t) => {
+  const first = start()
+  t.after(() => first.stop())
+  await first.call('state', {})
+  const room = rt.roomOf('r1')
+  const text = `The launch notes follow. ${'Plan details. '.repeat(155)}Final deliverable appendix.`
+  const line = rt.keepGroupLine(room.id, { who: 'User', seq: 4, text }, text)
+  assert.doesNotMatch(line.text, /deliverable appendix/)
+  writeFileSync(join(first.home, 'state.json'), JSON.stringify({ ...TEAM, rooms: { r1: { ...TEAM.rooms.r1, seq: 4, log: [...TEAM.rooms.r1.log, line] } } }))
+  await first.stop({ keep: true })
+  const second = start({ home: first.home })
+  t.after(() => second.ctx.dispose())
+  assert.match(await second.tool('read_group_chat', { group: 'Launch', query: 'deliverable appendix' }, 'g3'), /#4 /)
+})
+
+test('a group review writes only to the group whose conversation it read', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const r2 = { ...TEAM.rooms.r1, id: 'r2', name: 'Other project', log: [], seq: 0, sessions: {} }
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, rooms: { ...TEAM.rooms, r2 } }))
+  const replies = [JSON.stringify({ changes: [{ op: 'add', group: 'Other project', text: 'Launch reports fit one page' }] })]
+  const { ctx, call, read, stop } = start({ home, replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /Launch reports fit one page/)
+  assert.equal(existsSync(join(home, 'memory', 'groups', 'r2', 'MEMORY.md')), false)
+})
+
+test('a tidy does not retire an entry that changed after the model read it', async (t) => {
+  const started = Promise.withResolvers()
+  const answer = Promise.withResolvers()
+  const { ctx, tool, read, home, stop } = start({ replies: [answer.promise] })
+  t.after(() => stop())
+  const stream = ctx.llm.stream
+  ctx.llm.stream = async function* (request) {
+    started.resolve()
+    yield* stream(request)
+  }
+  await tool('remember', { text: 'The team met on Monday' }, 'b2')
+  for (let i = 0; i < 7; i += 1) await tool('remember', { text: `Other fact number ${i}` }, 'b2')
+  const tidying = rt.tidyMemoryNow('bot:b2')
+  await started.promise
+  await tool('remember', { replace: 'The team met on Monday', text: 'The team meets on Friday' }, 'b2')
+  answer.resolve(JSON.stringify({ changes: [{ op: 'retire', entry: 1, why: 'The old meeting is over' }] }))
+  await tidying
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /The team meets on Friday/)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'retired.jsonl')), false)
 })
 
 test('the tidy merges and archives within a fifth of the entries, leaves a pin, and a batch undoes whole', async (t) => {
@@ -1831,10 +1931,13 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
     { op: 'retire', entry: 5, why: 'past the limit' },
     { op: 'retire', entry: 99 },
   ] })]
-  const { call, read, requests, stop } = start({ home, replies })
+  const { ctx, call, read, requests, section, stop } = start({ home, replies })
   t.after(() => stop())
   await call('state', {})
+  section('b2')
+  await settle()
   await rt.tidyMemoryNow('bot:b2')
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Removed from your memory by the memory review: Fact number 3/)
   assert.equal(requests.length, 1)
   assert.doesNotMatch(requests[0].messages[0].content[0].text, /Keep this forever|Over now/)
   const main = read('bots', 'b2', 'MEMORY.md')
@@ -1856,6 +1959,7 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
   assert.equal(existsSync(join(dir, 'details.md')), false)
   assert.equal(existsSync(join(dir, 'retired.jsonl')), false)
   assert.equal(undone.value.tidy, null)
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Added to your memory by the user: Fact number 3/)
 })
 
 test('a tidy keeps its records in the memory folder it tidied', async (t) => {
