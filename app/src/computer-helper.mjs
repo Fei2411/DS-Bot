@@ -22,11 +22,20 @@ const copyApplication = async (from, to) => {
 const verifyApplication = application => run('/usr/bin/codesign', ['--verify', '--strict', application])
 
 const sameFile = async (a, b) => existsSync(b) && (await readFile(a)).equals(await readFile(b))
+const validCopy = async (source, target, verify) => {
+  if (!(await sameFile(join(source, HELPER_EXECUTABLE), join(target, HELPER_EXECUTABLE)))) return false
+  try {
+    await verify(join(target, HELPER_APP))
+    return true
+  } catch {
+    return false
+  }
+}
 
 async function placeCopy({ source, home, bundle, copy, verify }) {
   const target = join(home, bundle)
   const installed = join(target, HELPER_EXECUTABLE)
-  if (await sameFile(join(source, HELPER_EXECUTABLE), installed)) return installed
+  if (await validCopy(source, target, verify)) return installed
   await mkdir(home, { recursive: true })
   await rm(target, { recursive: true, force: true })
   const partial = join(home, `.${bundle}-${process.pid}`)

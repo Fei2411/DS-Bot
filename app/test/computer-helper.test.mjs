@@ -36,8 +36,25 @@ test('a matching copy is reused without copying again', async (t) => {
   const { runtimeDir, home } = fixture(t)
   await prepareComputerHelper({ runtimeDir, home, arch: 'arm64', copy, verify })
   let copies = 0
-  const helper = await prepareComputerHelper({ runtimeDir, home, arch: 'arm64', copy: (a, b) => { copies++; copy(a, b) }, verify })
+  let checks = 0
+  const helper = await prepareComputerHelper({ runtimeDir, home, arch: 'arm64', copy: (a, b) => { copies++; copy(a, b) }, verify: () => { checks++ } })
   assert.equal(copies, 0)
+  assert.equal(checks, 1)
+  assert.equal(helper.error, undefined)
+})
+
+test('a cached copy whose bundle signature fails is replaced', async (t) => {
+  const { runtimeDir, home } = fixture(t)
+  await prepareComputerHelper({ runtimeDir, home, arch: 'arm64', copy, verify })
+  let copies = 0
+  let checks = 0
+  const helper = await prepareComputerHelper({
+    runtimeDir, home, arch: 'arm64',
+    copy: (a, b) => { copies++; copy(a, b) },
+    verify: () => { if (++checks === 1) throw new Error('a resource in the bundle was modified') },
+  })
+  assert.equal(copies, 1)
+  assert.equal(checks, 2)
   assert.equal(helper.error, undefined)
 })
 
@@ -108,4 +125,12 @@ test('a real copy keeps DeepSeek\'s signature and drops quarantine', { skip: pro
   assert.equal(helper.path, join(root, 'support', bundle, EXECUTABLE))
   execFileSync('/usr/bin/codesign', ['--verify', '--strict', copied])
   assert.doesNotMatch(execFileSync('/usr/bin/xattr', [copied], { encoding: 'utf8' }), /com\.apple\.quarantine/)
+
+  // A cached copy whose executable still matches but whose bundle signature is broken is replaced.
+  const plist = join(copied, 'Contents', 'Info.plist')
+  writeFileSync(plist, `${readFileSync(plist, 'utf8')}\n<!-- tampered -->\n`)
+  assert.throws(() => execFileSync('/usr/bin/codesign', ['--verify', '--strict', copied], { stdio: 'pipe' }))
+  const repaired = await prepareComputerHelper({ runtimeDir, home: join(root, 'support'), arch: process.arch })
+  assert.equal(repaired.error, undefined)
+  execFileSync('/usr/bin/codesign', ['--verify', '--strict', copied])
 })

@@ -264,60 +264,20 @@ function checkComputerUse(app) {
 }
 
 // The macOS helper must run from outside the app: inside the asar the system cannot start it, and
-// inside the signed bundle Screen Recording goes to the outer app (#1066). The Host's own code
-// places the copy, then the helper is started and asked for its permission status.
+// inside the signed bundle Screen Recording goes to the outer app (#1066).
 function checkComputerHelper(app) {
   const resources = resolve(app, '..', '..', 'Resources')
   runInHost(app, 'computer use helper', `
-    const { spawn, spawnSync } = require('node:child_process')
-    const { createHash } = require('node:crypto')
-    const { mkdtempSync, readdirSync, readFileSync, rmSync } = require('node:fs')
-    const { connect } = require('node:net')
-    const { join } = require('node:path')
     const { pathToFileURL } = require('node:url')
-    const runtime = mkdtempSync('/tmp/dsbh-')
     ;(async () => {
       const { prepareComputerHelper } = await import(pathToFileURL(${JSON.stringify(join(resources, 'app.asar', 'src', 'computer-helper.mjs'))}).href)
       const helper = await prepareComputerHelper({ runtimeDir: ${JSON.stringify(resources)}, home: ${JSON.stringify(join(work, 'computer-use'))} })
       assert.ok(helper !== undefined, 'the packaged app carries no computer-use helper')
       assert.equal(helper.error, undefined, String(helper.error))
       assert.ok(!helper.path.startsWith(${JSON.stringify(dirname(resources))}), 'the helper still runs from inside the app: ' + helper.path)
-      const runtimeKey = createHash('sha256').update(readFileSync(helper.path)).digest('hex')
-      const startedAt = Date.now()
-      const launcher = spawn(helper.path, ['--ensure-shared', '--runtime-key', runtimeKey, '--runtime-directory', runtime, '--startup-timeout-ms', '120000'], { stdio: 'inherit' })
-      const code = await new Promise((done, fail) => { launcher.on('error', fail); launcher.on('close', done) })
-      console.log('check-packed: the helper launcher finished in ' + (Date.now() - startedAt) + ' ms (exit ' + code + ')')
-      if (code !== 0) {
-        console.error('runtime directory:', readdirSync(runtime))
-        console.error(spawnSync('/usr/bin/log', ['show', '--last', '4m', '--style', 'compact', '--predicate', 'process == "dsh-cua-native" OR eventMessage CONTAINS "com.deepseek.harness.computer-use"'], { encoding: 'utf8' }).stdout.slice(-8000))
-      }
-      assert.equal(code, 0, 'the helper did not start')
-      const status = await new Promise((done, fail) => {
-        const socket = connect(join(runtime, runtimeKey + '.sock'))
-        let buffer = ''
-        let ready = false
-        socket.on('error', fail)
-        socket.on('connect', () => socket.write(JSON.stringify({ type: 'hello', protocol: 1, runtimeKey, config: { maxRequestBytes: 1048576, maxResponseBytes: 33554432, axTimeoutMs: 5000, textEventIntervalMs: 8, maxClickHoldMs: 5000, screenshotTimeoutMs: 10000, timeoutMs: 30000, graceMs: 2000 } }) + '\\n'))
-        socket.on('data', (chunk) => {
-          buffer += chunk
-          for (let at = buffer.indexOf('\\n'); at >= 0; at = buffer.indexOf('\\n')) {
-            const message = JSON.parse(buffer.slice(0, at))
-            buffer = buffer.slice(at + 1)
-            if (!ready) {
-              ready = true
-              assert.equal(message.type, 'ready', JSON.stringify(message))
-              socket.write(JSON.stringify({ id: 'status', method: 'permissionStatus', params: {} }) + '\\n')
-            } else {
-              socket.end()
-              done(message.result)
-            }
-          }
-        })
-      })
-      assert.equal(typeof status?.accessibility, 'boolean', 'the helper gave no permission status')
-      console.log('check-packed: the computer-use helper runs from ' + helper.path + ' and answers')
-    })().finally(() => rmSync(runtime, { recursive: true, force: true })).then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
-  `, 240_000)
+      console.log('check-packed: the computer-use helper is placed at ' + helper.path)
+    })().then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
+  `, 60_000)
 }
 
 function startMock() {
@@ -515,6 +475,19 @@ async function chat(cdp) {
   }
   await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
+  if (process.platform === 'darwin') {
+    await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'computer-set-enabled', payload: { enabled: true } }) })")
+    await until("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.computer?.provider?.state === 'ready')", 'the computer-use provider')
+    // On the headless macOS 26 Intel CI runner, dsh-cua-native hangs in IconServices when reading its own icon.
+    if (process.arch === 'arm64') {
+      const status = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'computer-system-status', payload: {} }) }).then(r => r.json()).then(r => r.value)")
+      if (typeof status?.accessibility !== 'boolean' || !status?.helper?.path?.startsWith(join(work, 'shell', 'computer-use'))) {
+        throw new Error(`the computer-use helper did not answer from outside the app: ${JSON.stringify(status)}`)
+      }
+      console.log(`check-packed: the computer-use helper answers from ${status.helper.path}`)
+    }
+    await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'computer-set-enabled', payload: { enabled: false } }) })")
+  }
 }
 
 let failed = false
