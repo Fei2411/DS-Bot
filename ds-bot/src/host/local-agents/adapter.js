@@ -336,7 +336,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.cwd = cwd
 
     const preset = this.deps.presetFor(sessionId)
-    const mode = cliMode(live.spec.kind, preset, live.engineSession?.modes)
+    const mode = cliMode(live.spec.kind, preset)
     const instructions = system === '' ? undefined : system
 
     const freshCli = live.cliSessionId === undefined
@@ -346,6 +346,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         mcp,
         resumeId: live.cliSessionId,
         mode,
+        preset,
         model: options.model,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
@@ -539,6 +540,10 @@ export class LocalAgentAdapter extends LlmAdapter {
           return
         }
         case 'permission': {
+          // The preset answers what it already decides, also on an agent with no
+          // matching mode of its own: full access allows, read-only refuses a change.
+          const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
+          if (answer !== undefined) { event.reply(answer); break }
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
@@ -590,8 +595,20 @@ function pickAllowOption(options, result) {
   let decision
   try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
   if (decision !== 'allow') return null
-  const option = (options ?? []).find(entry => /allow/.test(entry.kind ?? ''))
-  return option?.optionId ?? null
+  return optionOf(options, 'allow') ?? null
+}
+
+// The agent's one-time option of a kind ('allow' or 'reject'), else any of it.
+// A one-time allow leaves the agent's own saved rules as they were.
+const optionOf = (options, kind) => ((options ?? []).find(entry => entry.kind === `${kind}_once`)
+  ?? (options ?? []).find(entry => (entry.kind ?? '').startsWith(kind)))?.optionId
+
+// What the preset answers without asking: an option id, null to refuse, or
+// undefined to ask the user.
+function presetAnswer(preset, event) {
+  if (preset === 'danger-full-access') return optionOf(event.options, 'allow')
+  if (preset === 'read-only' && event.changes === true) return optionOf(event.options, 'reject') ?? null
+  return undefined
 }
 
 // The replay a fresh CLI session stands up on: the system prompt, then the

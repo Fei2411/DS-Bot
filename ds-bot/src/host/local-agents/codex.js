@@ -98,6 +98,7 @@ export class CodexEngine {
         thread?.push({
           type: 'permission', id: `perm-${Math.random().toString(36).slice(2)}`, reply,
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
+          changes: true,
           detail: detailText(params),
           options,
         })
@@ -117,22 +118,24 @@ export class CodexEngine {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
-    const config = {
+    // The app-server's own fields (camelCase); anything else is ignored without
+    // a word. The MCP server is a config.toml setting, so it rides in `config`.
+    const settings = {
       cwd,
-      ...(instructions ? { developer_instructions: instructions } : {}),
-      ...(mode ? { sandbox_mode: mode, approval_policy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mcp !== undefined ? { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
+      ...(instructions ? { developerInstructions: instructions } : {}),
+      ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
       try {
-        await peer.request('thread/resume', { threadId: thread.threadId, config }, { timeout: 30_000 })
+        await peer.request('thread/resume', { threadId: thread.threadId, ...settings }, { timeout: 30_000 })
         return thread
       } catch {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', config, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', settings, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }

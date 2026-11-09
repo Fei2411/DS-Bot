@@ -22,7 +22,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { GROUP_LINE_READ, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
+import { GROUP_LINE_READ, LATE_ANSWER, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
@@ -913,7 +913,7 @@ export function install(rt) {
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
-      slot.status = typeof reply === 'string' ? 'passed' : 'missed'
+      slot.status = reply === null ? 'cancelled' : typeof reply === 'string' ? 'passed' : 'missed'
       round.passed.push(member.name)
       if (reply?.missed) {
         round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
@@ -926,8 +926,8 @@ export function install(rt) {
     // A result the admin asked for reports its goal task; a failed model call puts it back.
     if (slot.status === 'posted' && slot.by === room.admin && final !== undefined) rt.goalTaskReported?.(room.id, member.id)
     if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
-    // Settle the member's place in its call batch when its work did not continue in the background.
-    if (slot.status !== 'working') {
+    // Yielding to work, approval or an unanswered turn keeps the task pending.
+    if (['posted', 'passed', 'failed', 'left', 'cancelled'].includes(slot.status)) {
       const batch = (slot.batchKey ? roomBatches.get(slot.batchKey) : undefined) ?? memberBatch.get(batchKeyOf(room.id, member.id))
       if (batch !== undefined) {
         if (slot.status === 'posted') {
@@ -1534,10 +1534,14 @@ export function install(rt) {
     ].filter(Boolean).join('\n\n')
     // Replies the poster waited for go on with the work it posted for.
     const work = post.sub === undefined ? undefined : rt.closeWork(post.sub, `Group "${room.name}"`, text)
+    // The wait may already have been given up: the replies still reach the poster,
+    // marked as the late answer they are, and open no work.
+    const late = work === undefined && post.sub !== undefined ? rt.abandonedWork?.(post.sub) : undefined
+    const body = late === undefined ? text : LATE_ANSWER + text
     // The report goes back to the conversation the post was written from: its
     // Session in that group when the post came from one, else the own chat.
     const back = rt.roomOf(post.fromRoomId)?.sessions?.[post.botId]
-    await rt.deliver({ toId: post.botId, ...(back ? { sessionId: back } : {}), role: 'report', roomId: room.id, text, ...(work ? { work, replyTo: post.sub } : {}) })
+    await rt.deliver({ toId: post.botId, ...(back ? { sessionId: back } : {}), role: 'report', roomId: room.id, text: body, ...(work ? { work, replyTo: post.sub } : {}) })
       .catch(error => rt.warn('ds-bot: group report to %s failed: %s', post.name, error))
   }
 

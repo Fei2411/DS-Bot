@@ -31,7 +31,7 @@ export function install(rt) {
 
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
-  // Models come from DSH, not state.json, so a provider added in Harness settings
+  // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
   const view = () => ({
@@ -62,6 +62,7 @@ export function install(rt) {
     questions: state.questions,
     views: state.views ?? {},
     closedCards: state.closedCards ?? {},
+    closedViews: state.closedViews ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
@@ -70,6 +71,8 @@ export function install(rt) {
     sideChats: rt.sideView?.() ?? {},
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.
     agents: Object.values(state.agents),
+    // Sidebar sections that group Bots, group chats and the DSH Agent by workflow.
+    sections: state.sections ?? [],
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
     capabilities: rt.capabilityLibraryView(),
@@ -282,12 +285,18 @@ export function install(rt) {
         }
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
           return ok(bot)
         }
         case 'update-bot':
           await rt.load()
           return ok(await rt.updateBot(body.id, body))
+        // Give up one wait for a hand-off that will not come back: only that sub-work
+        // closes, with an explicit result for the work above it.
+        case 'abandon-work':
+          await rt.load()
+          if (rt.abandonWork?.(String(body.id ?? '')) !== true) return fail('That wait is no longer open', 'bot/stale')
+          return ok(true)
         // The repair card's Retry, once the user fixed what failed the Bot's turn.
         case 'resume': {
           await rt.load()
@@ -323,7 +332,7 @@ export function install(rt) {
           return ok(view())
         case 'create-room': {
           await rt.load()
-          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
+          const room = await rt.createRoom({ members: Array.isArray(body.members) ? body.members : [], name: body.name, section: body.section, sectionId: body.sectionId, ...(typeof body.admin === 'string' ? { admin: body.admin } : {}) })
           if (body.greet === true) await rt.greetRoom(room.id).catch(error => rt.warn('ds-bot: greeting in %s failed: %s', room.name, error))
           return ok(room)
         }
@@ -339,6 +348,8 @@ export function install(rt) {
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
             permission: body.permission,
+            section: body.section,
+            sectionId: body.sectionId,
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
         }
@@ -374,6 +385,17 @@ export function install(rt) {
         case 'set-flags':
           await rt.load()
           return ok(await rt.setFlags(body.id, body))
+        case 'section-save':
+          await rt.load()
+          return ok(await rt.saveSection(body))
+        case 'section-order':
+          await rt.load()
+          await rt.reorderSections(body.ids)
+          return ok(view())
+        case 'section-delete':
+          await rt.load()
+          await rt.deleteSection(body.id)
+          return ok(view())
         case 'delete-room':
           await rt.load()
           await rt.deleteRoom(body.id)

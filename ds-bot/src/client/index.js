@@ -5,9 +5,10 @@ import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sourc
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
-import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
+import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
-import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts, openHarnessOnboarding, openHarnessSettings, MODELS_STEP, MODELS_STEP_ORDER, OpenModelsStep } from './sidebar.js'
+import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
+import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
@@ -85,6 +86,9 @@ export function apply(ctx) {
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
   const surface = createSource({ mode: readMode(), plain: false })
+  // Whether DS Bot holds the settings seat; Overlays draws the Settings dialog while it does not.
+  const settingsShellHeld = createSource(false)
+  let settingsShell = null
   // DSH Agent Session ids from the last pull, so a reload already knows the main
   // view is a plain Session before the team answers.
   let agentSessionCache = new Set()
@@ -569,6 +573,7 @@ export function apply(ctx) {
     setPanelYield: (on) => ui.set(state => (state.panelYield === on ? state : { ...state, panelYield: on })),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
+    surfaceMode: () => surface.getSnapshot().mode,
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
       // Already there: still worth the landing check — a cold start never calls
@@ -679,15 +684,9 @@ export function apply(ctx) {
   actions.accountT = () => ctx.get('locale').bind('settings.account')
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
-  // DSH's own settings: models, providers, keys and its plugins.
-  actions.openHarnessSettings = openHarnessSettings
-  actions.openHarnessOnboarding = openHarnessOnboarding
-  // DSH's Models page, through DS Bot's own onboarding step while it is registered.
-  actions.openHarnessModels = () => {
-    const step = (ctx.slots.entries?.('settings.onboarding') ?? []).some(entry => entry.options?.id === MODELS_STEP)
-    if (step) openHarnessOnboarding(MODELS_STEP)
-    else openHarnessSettings()
-  }
+  // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
+  // through the settings shell's coordinator.
+  actions.openHarnessOnboarding = id => settingsShell?.openOnboarding(id)
   // With the plugin manager mounted, setup is its bundle page (the model's size
   // and download notes live there). Where it is not mounted — the desktop app's
   // profile has no plugin manager — the speech Remote prepares the provider
@@ -819,7 +818,14 @@ export function apply(ctx) {
       else if (kind === 'letgo') void actions.computerAllowForeground(botId)
     })
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
+  // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.
+  ctx.effect(() => {
+    const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, 'settings-shell')
+    settingsShell = installSettingsShell(ctx, { face, actions, ui, held: settingsShellHeld })
+    return () => { settingsShell?.dispose(); settingsShell = null; offStyles() }
+  }, 'ds-bot: settings shell')
   // The queue dock's per-session verbs, supplied the way the shell's own dock
   // injects them (the session facade and the conversation service).
   const queueFace = (sessionId) => ({
@@ -1018,25 +1024,44 @@ export function apply(ctx) {
   // The shell group paints the team surface around the session; the conversation
   // group re-skins the session itself. Each step returns a disposer from slots.inject,
   // so a surface change withdraws the whole group and the outlets re-render.
+  // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
+  const SHELL_SHEETS = [
+    [SHELL_CSS, 'shell'],
+    [SIDEBAR_CSS, 'sidebar'],
+    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
+    [LEARNING_CSS, 'learning'],
+    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
+    [USAGE_CSS, 'usage'],
+    [SCHEDULE_CSS, 'schedules'],
+    [FEEDBACK_CSS, 'feedback'],
+    [ABOUT_CSS, 'about'],
+    [MEMBER_CSS, 'members'],
+    [IM_CSS, 'im'],
+    [GOAL_CSS, 'goal'],
+    [USER_MESSAGE_CSS, 'user-messages'],
+    [WIDGET_CSS, 'widgets'],
+    [HANDOFF_CSS, 'handoff'],
+    [SIDE_CSS, 'side'],
+    [BROWSER_CSS, 'browser'],
+  ]
+  // Settings outside Bot mode (Agent mode) brings DS Bot's own rules and colors while it
+  // shows; the shell overrides and DSH's tokens stay as Agent mode has them.
+  let shellSheets = 0
+  actions.holdSettingsLook = () => {
+    if (shellSheets > 0) return () => {}
+    const snapshot = roster.getSnapshot()
+    const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
+    const themes = allThemes()
+    const theme = themes[prefs.theme] ?? themes.deepseek
+    const offs = [
+      ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
+      installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : undefined)), 'settings-theme'),
+    ]
+    return () => { for (const off of offs) off() }
+  }
   const installShell = () => [
-    () => installCompiledStyles(SHELL_CSS, 'shell'),
-    () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
-    () => installCompiledStyles(SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'),
-    () => installCompiledStyles(LEARNING_CSS, 'learning'),
-    () => installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'),
-    () => installCompiledStyles(USAGE_CSS, 'usage'),
-    () => installCompiledStyles(SCHEDULE_CSS, 'schedules'),
-    () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
-    () => installCompiledStyles(ABOUT_CSS, 'about'),
-    () => installCompiledStyles(MEMBER_CSS, 'members'),
-    () => installCompiledStyles(IM_CSS, 'im'),
-    () => installCompiledStyles(GOAL_CSS, 'goal'),
-    () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
-    () => installCompiledStyles(WIDGET_CSS, 'widgets'),
-    () => installCompiledStyles(HANDOFF_CSS, 'handoff'),
-    () => installCompiledStyles(SIDE_CSS, 'side'),
-    // Strip and panel styles also serve the side-chat tabs, which need no bridge.
-    () => installCompiledStyles(BROWSER_CSS, 'browser'),
+    () => { shellSheets += 1; return () => { shellSheets -= 1 } },
+    ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
@@ -1048,7 +1073,6 @@ export function apply(ctx) {
     // The whale wins the seat over a shell account plugin's own launcher (the
     // Desktop's "··· More"), which comes back in Agent mode.
     () => shadow('settings.launcher', { priority: BOT_PRIORITY, inject: face }, AccountLauncher),
-    () => shadow('settings.onboarding', { id: MODELS_STEP, order: MODELS_STEP_ORDER }, OpenModelsStep),
     () => shadow('shell.overlay', { id: 'bot-computer', order: 40, inject: face }, ComputerIndicator),
     () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
     () => shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
