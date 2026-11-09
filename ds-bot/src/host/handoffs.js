@@ -8,7 +8,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { TEXT_KEPT } from './constants.js'
+import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { headOf } from './text.js'
 
 const minutes = since => {
@@ -150,10 +150,27 @@ export function install(rt) {
   function settleSubWork(id, text, child) {
     const key = works()[id] !== undefined ? id : child
     const work = works()[key]
-    if (work === undefined) return undefined
+    if (work === undefined) {
+      // The wait was already given up: the run's closing text still reaches the
+      // Bot that waited, marked late, and settles nothing a second time.
+      lateSubWorkResult(id, child, text)
+      return undefined
+    }
     const { parent } = work
     closeWork(key, work.name ?? 'subagent', text)
     return parent
+  }
+  // The closing text of a run whose wait was given up: delivered like a late reply,
+  // and only while the Bot that waited is still on the team.
+  function lateSubWorkResult(id, child, text) {
+    const late = takeAbandoned(id) ?? takeAbandoned(child)
+    if (late === undefined || text === '') return
+    const waiting = late.waiting ?? works()[late.parent]?.to
+    if (waiting === undefined || rt.botOf(waiting) === undefined) return
+    void rt.deliver({
+      fromName: late.name ?? 'the subagent', toId: waiting, text: LATE_ANSWER + text, role: 'reply',
+      exchangeId: randomUUID(), recordExchange: false,
+    }).catch(error => rt.warn('ds-bot: the late result of %s did not reach %s: %s', late.name ?? 'a subagent', waiting, error))
   }
   // A fast child can settle before its tool result identifies the call that made it.
   const nameSubWork = (id, name) => {
@@ -315,7 +332,7 @@ export function install(rt) {
     const text = reason === 'gone'
       ? cap(target) + ' is no longer on the team, so no reply can come back for the work handed to it. The user gave up waiting for that answer: this counts as its result. Go on with the work you were given, and say plainly that this answer is missing.'
       : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
-    rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason })
+    rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, parent: work.parent, name, reason, ...(parent.to !== undefined ? { waiting: parent.to } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
     parent.open = parent.open.filter(other => other !== id)
@@ -335,27 +352,19 @@ export function install(rt) {
     return true
   }
 
-  // The Session of a subagent run a work waits on: a run whose Session is gone can
-  // never settle. Undefined means this host cannot tell, and then nothing is assumed.
-  async function runGone(child) {
-    const inspect = ctx?.sessionController?.inspect
-    if (typeof inspect !== 'function') return undefined
-    const seen = await inspect(child, AbortSignal.timeout(10_000)).then(value => value, () => undefined)
-    return seen === undefined ? true : false
-  }
-
   // A restart settles the waits whose target no longer exists, with the same path as a
-  // user giving up: a deleted Bot, a deleted group, or a subagent run whose Session is
-  // gone. A target that is still there but has not answered keeps waiting.
-  async function reconcileLostWorks() {
+  // user giving up: a deleted Bot or a deleted group. Those are the targets the team
+  // file states for certain. A subagent run is left to the menu: whether its Session
+  // still exists cannot be told apart from a DSH that cannot read Sessions, and a
+  // running child must not be given up on a guess.
+  function reconcileLostWorks() {
     if (rt.readOnly?.() !== undefined) return
     for (const [id, work] of Object.entries(works())) {
       if (work.parent === undefined || works()[work.parent] === undefined) continue
       if (!works()[work.parent].open.includes(id)) continue
-      let gone = false
-      if (work.room !== undefined) gone = rt.roomOf(work.room) === undefined
-      else if (work.to !== undefined) gone = rt.botOf(work.to) === undefined
-      else if (work.child !== undefined) gone = await runGone(work.child) === true
+      const gone = work.room !== undefined ? rt.roomOf(work.room) === undefined
+        : work.to !== undefined ? rt.botOf(work.to) === undefined
+          : false
       if (gone) abandonWork(id, 'gone')
     }
   }

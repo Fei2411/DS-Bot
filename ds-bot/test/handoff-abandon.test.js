@@ -32,7 +32,7 @@ const seed = () => ({
 
 // A host over the plugin's own folder. Starting the same folder again is a restart:
 // the first host is closed before the second one starts.
-async function startHost(home, team) {
+async function startHost(home, team, options = {}) {
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext()
   const agents = new Map()
@@ -78,6 +78,7 @@ async function startHost(home, team) {
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
+      ...(options.inspect === undefined ? {} : { inspect: options.inspect }),
     },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
@@ -120,7 +121,7 @@ function bench(t) {
     for (const host of hosts.reverse()) await host.stop()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   })
-  return { home, start: async team => { const host = await startHost(home, team); hosts.push(host); return host } }
+  return { home, start: async (team, options) => { const host = await startHost(home, team, options); hosts.push(host); return host } }
 }
 
 const textBlock = content => [{ type: 'text', text: content }]
@@ -328,4 +329,46 @@ test('a restart gives up a wait whose target no longer exists, and only those', 
   // Writer hears about the wait that was given up for it.
   await settled(() => callsOf(host.agents, 'b').length >= 1)
   assert.match(textOf(callsOf(host.agents, 'b').at(-1)[1].content), /^\[Waiting given up · the other Bot did not hand back this work/)
+})
+
+// A subagent run's Session cannot be told gone for certain: DSH says nothing both
+// when the Session is gone and when it cannot be read (resume.js relies on the same
+// reading). The sweep leaves such a wait to the user's menu, whether the read is
+// missing, refuses, times out, says nothing, or returns a live log.
+test('a restart leaves a subagent wait alone, whatever the Session read says', async (t) => {
+  const cases = [
+    ['the host cannot read Sessions', undefined],
+    ['the read refuses', async () => { throw new Error('inspect timed out') }],
+    ['the read says nothing', async () => undefined],
+    ['the read returns a live log', async () => ({ events: [] })],
+  ]
+  for (const [label, inspect] of cases) {
+    const team = seed()
+    delete team.bots.c
+    team.works = {
+      p1: { from: 'a', to: 'b', open: ['gone-bot'], results: [], at: 1 },
+      'gone-bot': { from: 'b', to: 'c', parent: 'p1', open: [], results: [], at: 2 },
+      p2: { from: 'a', to: 'b', open: ['r1'], results: [], at: 3 },
+      r1: { from: 'b', parent: 'p2', child: 'sub1', name: 'subagent review', open: [], results: [], at: 4 },
+    }
+    const { home, start } = bench(t)
+    const host = await start(team, { inspect })
+    // The sweep ran: the work for the deleted Bot is settled.
+    await settled(() => {
+      try {
+        return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).works?.['gone-bot'] === undefined
+      } catch { return false }
+    })
+    const works = await worksIn(host)
+    assert.equal(works['gone-bot'], undefined, label)
+    assert.equal(works.p1.results[0].abandonedReason, 'gone', label)
+    // The run keeps waiting, and its Bot is not woken for it.
+    assert.ok(works.r1 !== undefined, label)
+    assert.deepEqual(works.p2.open, ['r1'], label)
+    assert.equal(works.p2.results.length, 0, label)
+    await settled(() => callsOf(host.agents, 'b').length === 1)
+    await delay(20)
+    assert.equal(callsOf(host.agents, 'b').length, 1, label)
+    assert.equal((await host.call('state', {})).value.work.waiting.b.waits.length, 1, label)
+  }
 })
