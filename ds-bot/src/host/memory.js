@@ -33,7 +33,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanEntry, cleanTopic, fitWindow, formatEntry, insertEntry, joinLines, looksSecret, matchEntries, parseAsk, parseMemory, promptEntry, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, SUMMARY_SYSTEM, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { output } from './tools.js'
@@ -387,9 +387,10 @@ export function install(rt) {
     // A file already past its size (edited by hand) may still shrink.
     const grew = bodyOf(lines) > bodySize(main)
     while (grew && bodyOf(linked()) > limit) {
-      const entries = parseMemory(joinLines(kept)).entries.filter(entry => kept[entry.line] !== keep)
+      const entries = parseMemory(joinLines(kept)).entries.filter(entry => kept[entry.line] !== keep && !isPinned(entry))
       if (entries.length === 0) break
-      const oldest = entries.reduce((a, b) => (String(b.meta.added ?? '') < String(a.meta.added ?? '') ? b : a))
+      const age = entry => (isExpired(entry, today()) ? '' : String(entry.meta.added ?? ''))
+      const oldest = entries.reduce((a, b) => (age(b) < age(a) ? b : a))
       moved = [...moved, kept[oldest.line]]
       kept = kept.filter((_line, at) => at !== oldest.line)
       placed = placeMoved(files, moved)
@@ -439,7 +440,7 @@ export function install(rt) {
       const [same] = matchEntries(allEntries(files), text).filter(entry => squash(entry.text) === squash(text))
       if (same !== undefined) return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
       const main = files[0]
-      const line = formatEntry(text, meta)
+      const line = formatEntry(text, { id: newEntryId(allEntries(files)), ...meta })
       const name = roomInTopic(files, topic, line.length)
       let target = name === undefined ? main : files.find(file => file.topic === name)
       const fresh = target === undefined
@@ -480,7 +481,7 @@ export function install(rt) {
       writable(scope, actor)
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
-      const line = formatEntry(text, meta)
+      const line = formatEntry(text, { id: entryId(old), ...meta, ...(old.meta.pinned === undefined ? {} : { pinned: old.meta.pinned }) })
       const lines = [...old.file.lines]
       const before = lines[old.line]
       lines[old.line] = line
@@ -585,7 +586,7 @@ export function install(rt) {
     return usable === undefined ? undefined : Math.floor(usable * WINDOW_SHARE)
   }
   const shownEntries = (file, bot) => {
-    const { shown, left } = fitWindow(file.entries, windowTokens(bot), estimateTokens)
+    const { shown, left } = fitWindow(file.entries.filter(entry => !isExpired(entry, today())), windowTokens(bot), estimateTokens)
     const lines = shown.map(promptEntry)
     if (left > 0) lines.push(`(${left} older entries are saved here too; recall finds them.)`)
     return lines.length > 0 ? lines : ['(nothing saved yet)']
@@ -820,6 +821,8 @@ export function install(rt) {
       text: { type: 'string', required: true, description: `The entry: one line of at most ${MEMORY_LIMITS.entry} characters, in the user's language` },
       replace: { type: 'string', description: 'An entry already saved that this one replaces, because the fact changed: its text, or a part only it contains' },
       topic: { type: 'string', description: 'A topic for details not every conversation needs, such as "travel" or "project-x"; omit for MEMORY.md, which every conversation reads' },
+      until: { type: 'string', description: 'The day this stops holding, YYYY-MM-DD, for a temporary arrangement or a plan with an end. After it the entry no longer shows' },
+      pin: { type: 'boolean', description: 'True only when the user says to always keep this. A pinned entry is never moved or changed automatically' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -835,7 +838,8 @@ export function install(rt) {
       if (error) throw refused(error)
       const replace = String(args.replace ?? '').trim()
       try {
-        const meta = await metaFor(context.caller, context.scope)
+        const until = cleanDay(args.until)
+        const meta = { ...await metaFor(context.caller, context.scope), ...(until === undefined ? {} : { until }), ...(args.pin === true ? { pinned: 'user' } : {}) }
         const result = replace === ''
           ? await addEntry({ ...context, topic, text, meta })
           : await replaceEntry({ ...context, topic, match: replace, text, meta })
@@ -964,8 +968,9 @@ export function install(rt) {
   const USER = { id: 'user', name: 'user' }
   const languageNow = () => rt.uiLanguage?.() ?? 'the language most entries are written in'
   const panelEntries = (files, scope) => allEntries(files).map(entry => ({
-    scope, topic: entry.file.topic ?? null, text: entry.text,
+    scope, topic: entry.file.topic ?? null, text: entry.text, id: entryId(entry),
     added: entry.meta.added ?? null, by: entry.meta.by ?? null, source: entry.meta.source ?? null,
+    until: entry.meta.until ?? null, pinned: isPinned(entry), expired: isExpired(entry, today()),
   }))
 
   async function modelFor(bot) {
@@ -1150,6 +1155,26 @@ export function install(rt) {
     const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
     const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
     await removeEntry({ scope, topic, match: String(body.text ?? ''), actor: USER, label: panelLabel(panel, scope) })
+    return await memoryView(panelBody(panel))
+  }
+
+  // One entry the user pins, or lets go of. Its text and the rest stay as they are.
+  async function memoryPin(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
+    const label = panelLabel(panel, scope)
+    await queued(async () => {
+      await recoverPending()
+      writable(scope, USER)
+      const old = findOne(loadScope(scope), topic, String(body.text ?? ''), label)
+      const { pinned: _pinned, ...meta } = old.meta
+      const line = formatEntry(old.text, { ...meta, id: entryId(old), ...(body.pin === true ? { pinned: 'user' } : {}) })
+      const lines = [...old.file.lines]
+      const before = lines[old.line]
+      lines[old.line] = line
+      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(old.file.path, joinLines(lines))], row: { op: 'replace', scope: scopeKey(scope), file: old.file.file, ...actorOf(USER), before, after: line } })
+    })
     return await memoryView(panelBody(panel))
   }
 
@@ -1372,6 +1397,7 @@ export function install(rt) {
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
+    if (endpoint === 'memory-pin') return memoryPin(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)

@@ -4,7 +4,7 @@
 // Modeled on ChatGPT's memory summary.
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useEscape } from './overlay-hooks.js'
-import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, TrashIcon } from './icons.js'
+import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, PinIcon, TrashIcon } from './icons.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
 import { stepMenuFocus, useLinger } from './motion.js'
@@ -95,7 +95,7 @@ const groupEntries = entries => entries.reduce((groups, entry) => {
   return groups
 }, [])
 
-function EntryRow({ entry, remove }) {
+function EntryRow({ entry, remove, pin }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -104,7 +104,8 @@ function EntryRow({ entry, remove }) {
     return () => clearTimeout(timer)
   }, [confirming])
   const by = entry.source === 'memory panel' ? t('by you') : entry.by ? t('by {name}', { name: entry.by }) : null
-  const meta = [entry.added, by].filter(Boolean).join(' · ')
+  const until = entry.until ? t(entry.expired ? 'ended {day}' : 'until {day}', { day: entry.until }) : null
+  const meta = [entry.added, by, until].filter(Boolean).join(' · ')
   const click = async () => {
     if (!confirming) { setConfirming(true); return }
     setBusy(true)
@@ -115,12 +116,16 @@ function EntryRow({ entry, remove }) {
       h('span', { className: 'bt-mem-entry-text' }, entry.text),
       meta ? h('span', { className: 'bt-mem-entry-meta' }, meta) : null),
     h('button', {
+      type: 'button', className: 'bt-mem-remove bt-mem-pin', 'data-on': entry.pinned || undefined, disabled: busy, 'aria-pressed': entry.pinned,
+      'aria-label': entry.pinned ? t('Unpin') : t('Pin'), title: entry.pinned ? t('Unpin') : t('Pin'), onClick: () => pin(entry, !entry.pinned),
+    }, h(PinIcon)),
+    h('button', {
       type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to remove') : t('Remove from memory'), title: confirming ? undefined : t('Remove from memory'), onClick: click,
     }, confirming ? t('Remove') : h(TrashIcon)))
 }
 
-function Entries({ owner, view, remove }) {
+function Entries({ owner, view, remove, pin }) {
   const groups = groupEntries(view.entries)
   const sections = owner.group
     ? [{ scope: 'group', title: t('Group memory'), hint: t('Only its members read it'), size: view.sizes.group }]
@@ -137,7 +142,7 @@ function Entries({ owner, view, remove }) {
       groups.some(group => group.scope === section.scope)
         ? groups.filter(group => group.scope === section.scope).map(group => h(Fragment, { key: group.key },
             group.topic ? h('div', { className: 'bt-mem-topic' }, group.topic) : null,
-            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove })))))
+            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin })))))
         : h('div', { className: 'bt-mem-none' }, t('Nothing saved yet')))))
 }
 
@@ -306,6 +311,13 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       return false
     }
   }
+  const pin = async (entry, on) => {
+    try {
+      show(await actions.memoryPin(owner.id, entry, on))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
   const undo = async (row) => {
     try {
       show(await actions.memoryRestore(owner.id, row.id))
@@ -360,7 +372,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       h('div', { className: 'bt-mem-body' },
         error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, hostText(error)) : null,
         view === null ? (error ? null : h(Skeleton))
-          : page === 'entries' ? h(Entries, { owner, view, remove })
+          : page === 'entries' ? h(Entries, { owner, view, remove, pin })
             : page === 'history' ? h(History, { owner, actions, undo, now })
               : h(Summary, { owner, view, regenerate })),
       h('div', { className: 'bt-mem-foot' },

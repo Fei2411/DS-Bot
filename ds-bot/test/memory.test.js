@@ -217,7 +217,7 @@ test('remember saves one entry with its source, and forget removes it, both in t
   const { tool, read, journal, stop } = start()
   t.after(() => stop())
   assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 8000 characters\)\. It shows in your memory from your next conversation; recall finds it now\.$/)
-  assert.match(read('bots', 'b2', 'MEMORY.md'), /^# Memory\n\n- User prefers short replies \[source: part 1 #10; added: \d{4}-\d{2}-\d{2}\]\n\n## Index\n$/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /^# Memory\n\n- User prefers short replies \[id: [0-9a-f]{4}; source: part 1 #10; added: \d{4}-\d{2}-\d{2}\]\n\n## Index\n$/)
   assert.match(await tool('remember', { text: 'user prefers  SHORT replies' }, 'b2'), /^Already in your memory \(MEMORY\.md\): "User prefers short replies"\. Nothing changed\.$/)
 
   assert.match(await tool('remember', { text: 'User prefers detailed replies', replace: 'short replies' }, 'b2'), /"User prefers short replies" is now "User prefers detailed replies"/)
@@ -245,7 +245,7 @@ test('topics hold details, linked from MEMORY.md, and go when their last entry d
   await assert.rejects(tool('remember', { text: 'x', topic: '../up' }, 'b2'), /cannot be a topic name/)
 
   assert.match(await tool('recall', { topic: 'travel' }, 'b2'), /^Topic \[\[travel\]\] in your memory \(travel\.md: \d+ of 16000 characters\):\n# travel\n\n- Flies from Hangzhou/)
-  assert.match(await tool('recall', { query: 'window' }, 'b2'), /^Entries with "window" in your memory and the team memory:\n\[yours · \[\[travel\]\]\] Prefers window seats \[source: part 1 #10; added: /)
+  assert.match(await tool('recall', { query: 'window' }, 'b2'), /^Entries with "window" in your memory and the team memory:\n\[yours · \[\[travel\]\]\] Prefers window seats \[id: [0-9a-f]{4}; source: part 1 #10; added: /)
   assert.match(await tool('recall', {}, 'b2'), /^Your memory: MEMORY\.md has 0 entries \(MEMORY\.md: \d+ of 8000 characters\); topics \[\[travel\]\] \(2\)\.\n\nThe team memory: MEMORY\.md has 0 entries/)
 
   await tool('forget', { entry: 'Flies' }, 'b2')
@@ -867,7 +867,7 @@ test('a mixed word keeps its Latin part in recall', async (t) => {
   await tool('remember', { text: '中文资料保存在文档中' }, 'b2')
   await tool('remember', { text: 'AI中文教程在书架上' }, 'b2')
   // "AI中文" is more than 中文: only the entry that holds the phrase is a full match.
-  assert.match(await tool('recall', { query: 'AI中文' }, 'b2'), /^Entries with "AI中文" in your memory and the team memory:\n\[yours · MEMORY\.md\] AI中文教程在书架上 \[source: /)
+  assert.match(await tool('recall', { query: 'AI中文' }, 'b2'), /^Entries with "AI中文" in your memory and the team memory:\n\[yours · MEMORY\.md\] AI中文教程在书架上 \[id: [0-9a-f]{4}; source: /)
 })
 
 test('Main Bots and group admins write the team memory; only Main Bots touch another Bot\'s', async (t) => {
@@ -876,9 +876,9 @@ test('Main Bots and group admins write the team memory; only Main Bots touch ano
   await assert.rejects(tool('remember', { text: 'Ship on Friday', scope: 'team' }, 'b2'), /Only Main Bots and group admins write the team memory/)
   // Coder is the admin of Launch, and speaks there from its group Session.
   assert.match(await tool('remember', { text: 'Ship on Friday', scope: 'team' }, 'g3'), /^Saved to the team memory/)
-  assert.match(read('team', 'MEMORY.md'), /- Ship on Friday \[source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Coder; added: /)
+  assert.match(read('team', 'MEMORY.md'), /- Ship on Friday \[id: [0-9a-f]{4}; source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Coder; added: /)
   assert.match(await tool('remember', { text: 'Writes in Chinese', scope: 'Writer' }, 'm1'), /^Saved to Writer's memory/)
-  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Writes in Chinese \[source: part 1 #10; by: Chief; added: /)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Writes in Chinese \[id: [0-9a-f]{4}; source: part 1 #10; by: Chief; added: /)
   await assert.rejects(tool('remember', { text: 'Bossy', scope: 'Chief' }, 'b2'), /Only a Main Bot can change another Bot's memory/)
   assert.match(await tool('recall', { scope: 'Writer' }, 'b3'), /^Only a Main Bot can read another Bot's memory/)
   assert.match(await tool('recall', { scope: 'Nobody' }, 'b3'), /^No Bot named Nobody/)
@@ -941,7 +941,7 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   await first.tool('remember', { text: 'Likes tea' }, 'b2')
   const opened = first.section('b2')
   assert.match(opened, /^# Your memory\n/)
-  assert.match(opened, /## Your memory \(MEMORY\.md\)\n- Likes tea \[\d\d-\d\d\]\n\n## Team memory, shared by every Bot \(team\/MEMORY\.md\)\n\(nothing saved yet\)$/)
+  assert.match(opened, /## Your memory \(MEMORY\.md\)\n- Likes tea \[[0-9a-f]{4} · \d\d-\d\d\]\n\n## Team memory, shared by every Bot \(team\/MEMORY\.md\)\n\(nothing saved yet\)$/)
   assert.match(opened, /when the whole team should know something, tell a Main Bot with message_bot/)
   assert.match(first.section('m1'), /As a Main Bot you write it with remember scope "team"/)
   assert.match(first.section('g3'), /As a group admin you write it/)
@@ -1193,7 +1193,7 @@ test('"ask or update" answers from the entries and changes them through the same
   assert.match(answer.changes[4].error, /looks like a key/)
   assert.equal(answer.changes[5].error, 'There is no entry 9.')
   assert.deepEqual(answer.view.entries.map(entry => entry.text), ['Likes green tea', 'Lives in Hangzhou', 'Team meets on Monday'])
-  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes green tea \[source: memory panel; by: user; added: /)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes green tea \[id: [0-9a-f]{4}; source: memory panel; by: user; added: /)
   assert.ok(journal().slice(-4).every(record => record.actor === 'user'))
 
   const forgot = (await call('memory-forget', { botId: 'b2', scope: 'team', topic: null, text: 'Team meets on Monday' })).value
@@ -1318,7 +1318,7 @@ test('a group\'s review keeps what is said there in the group memory, read once 
   const text = requests[0].messages[0].content[0].text
   assert.match(text, /^The group chat: "Launch", with the user and Writer, Coder \(admin\)\.\n\nMEMORY\.md has 0 of 12000 characters \(group\) and 0 of 4000 \(team\)\.\n\nIts memory now \(group: shared by the members of this group; team: shared by every Bot\):\n\(none yet\)\n/)
   assert.match(text, /New in the group chat "Launch", oldest first:\nUser: Keep everything you send me under one page\nCoder: Will do\.\n\nWrite every new or changed entry in English\.$/)
-  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The user wants everything under one page \[source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; added: /)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The user wants everything under one page \[id: [0-9a-f]{4}; source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; added: /)
   for (const elsewhere of [['team'], ['bots', 'b2'], ['bots', 'b3']]) assert.equal(existsSync(join(home, 'memory', ...elsewhere, 'MEMORY.md')), false, elsewhere.join('/'))
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 3 })
   assert.equal((await call('state', {})).value.memoryNews.r1.op, 'add')
@@ -1582,12 +1582,47 @@ test('a size counts entry text only and follows the user\'s setting', async (t) 
 
 test('a prompt shows what the model window has room for, the newest first, and says the rest', () => {
   const entries = Array.from({ length: 4 }, (_, at) => ({ text: `Fact ${at}`, meta: { added: `2026-11-0${at + 1}` } }))
-  const { shown, left } = fitWindow(entries, 20, text => text.length)
+  const { shown, left } = fitWindow(entries, 26, text => text.length)
   assert.deepEqual(shown.map(entry => entry.text), ['Fact 3'])
   assert.equal(left, 3)
   assert.deepEqual(fitWindow(entries, undefined, text => text.length), { shown: entries, left: 0 })
-  assert.equal(promptEntry(entries[0]), '- Fact 0 [11-01]')
-  assert.equal(promptEntry({ text: 'Undated', meta: {} }), '- Undated')
+  assert.match(promptEntry(entries[0]), /^- Fact 0 \[[0-9a-f]{4} · 11-01\]$/)
+  assert.match(promptEntry({ text: 'Undated', meta: {} }), /^- Undated \[[0-9a-f]{4}\]$/)
+})
+
+test('an entry has an id, can end on a day, and a pin keeps it from being moved or changed', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const replies = [JSON.stringify({ changes: [{ op: 'remove', entry: 1 }, { op: 'edit', entry: 1, text: 'Changed' }, { op: 'add', text: 'Back on Monday', until: '2099-01-01' }] })]
+  const { ctx, tool, call, read, warnings, journal, section, stop } = start({ home, replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await tool('remember', { text: 'Always sign as Fei', pin: true }, 'b2')
+  const { meta } = parseMemory(read('bots', 'b2', 'MEMORY.md')).entries[0]
+  assert.match(meta.id, /^[0-9a-f]{4}$/)
+  assert.equal(meta.pinned, 'user')
+  // The id names the entry for replace, which keeps it.
+  await tool('remember', { text: 'Short lived' }, 'b2')
+  const second = parseMemory(read('bots', 'b2', 'MEMORY.md')).entries[1]
+  await tool('remember', { text: 'Replaced by id', replace: second.meta.id }, 'b2')
+  const replaced = parseMemory(read('bots', 'b2', 'MEMORY.md')).entries[1]
+  assert.deepEqual([replaced.text, replaced.meta.id], ['Replaced by id', second.meta.id])
+  await tool('remember', { text: 'Ended', until: '2020-01-01' }, 'b2')
+  const prompt = section('b2')
+  assert.ok(prompt.includes(`- Always sign as Fei [${meta.id} · `), prompt)
+  assert.doesNotMatch(prompt, /Ended/)
+  // The review leaves the pinned entry alone, and keeps its own end date.
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Always sign as Fei/)
+  assert.ok(warnings.some(warning => warning.includes('an entry the user pinned')), warnings.join('\n'))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Back on Monday .*until: 2099-01-01/)
+  // The user pins and lets go from the panel, and that can be undone.
+  const view = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(view.entries.find(entry => entry.text === 'Always sign as Fei').pinned, true)
+  assert.equal(view.entries.find(entry => entry.text === 'Ended').expired, true)
+  const off = await call('memory-pin', { botId: 'b2', scope: 'own', text: 'Always sign as Fei', pin: false })
+  assert.equal(off.value.entries.find(entry => entry.text === 'Always sign as Fei').pinned, false)
+  const undone = await call('memory-restore', { botId: 'b2', id: journal().at(-1).id })
+  assert.equal(undone.value.entries.find(entry => entry.text === 'Always sign as Fei').pinned, true)
 })
 
 test('a new entry on a full MEMORY.md moves the oldest in the same change, and the log says so', async (t) => {
@@ -1663,7 +1698,7 @@ test('the members of a group read its memory in their Sessions there, and no Bot
     // The prompt is the Bot's own, so the provider's cached prefix holds in both; the
     // group's memory comes in a snapshot message before the first step.
     assert.equal(section(member), section(bot))
-    assert.match(textOf(await groupMemoryOf(ctx, member)), /^## Group memory, shared by the members of this group chat\nOnly the members of this group read it[^\n]*\n\n- The user wants everything under one page \[\d\d-\d\d\]$/)
+    assert.match(textOf(await groupMemoryOf(ctx, member)), /^## Group memory, shared by the members of this group chat\nOnly the members of this group read it[^\n]*\n\n- The user wants everything under one page \[[0-9a-f]{4} · \d\d-\d\d\]$/)
     assert.match(await tool('recall', { query: 'page' }, member), /^Entries with "page" in your memory, the group memory, and the team memory:\n\[group · MEMORY\.md\] The user wants everything under one page/)
   }
   // Not in a member's own chat, nor for a Bot outside the group, a Main Bot included.
@@ -1681,11 +1716,11 @@ test('in a group, remember and forget write the group memory unless told otherwi
   const { ctx, tool, call, read, journal, stop } = start({ home })
   t.after(() => stop())
   assert.match(await tool('remember', { text: 'Builds go in the out folder' }, 'g2'), /^Saved to the group memory, in MEMORY\.md \(MEMORY\.md: \d+ of 12000 characters\)\. Every member sees it in its next conversation in this group; recall finds it now\.$/)
-  assert.match(read('groups', 'r1', 'MEMORY.md'), /- Builds go in the out folder \[source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Writer; added: /)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- Builds go in the out folder \[id: [0-9a-f]{4}; source: group "Launch" \d{2}-\d{2} \d{2}:\d{2}; by: Writer; added: /)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
   // "own" keeps it for the Bot itself, in all its conversations.
   assert.match(await tool('remember', { text: 'I review drafts twice', scope: 'own' }, 'g2'), /^Saved to your memory/)
-  assert.match(read('bots', 'b2', 'MEMORY.md'), /- I review drafts twice \[source: group "Launch"/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- I review drafts twice \[id: [0-9a-f]{4}; source: group "Launch"/)
   // Another member changes the same memory.
   assert.match(await tool('remember', { text: 'Builds go in the dist folder', replace: 'out folder' }, 'g3'), /"Builds go in the out folder" is now "Builds go in the dist folder"/)
   assert.match(await tool('forget', { entry: 'dist folder' }, 'g3'), /^Removed from the group memory/)
@@ -1767,7 +1802,7 @@ test('a group\'s memory panel shows only the group memory, and what the user cha
   assert.doesNotMatch(requests[1].system, /"team"/)
   assert.match(requests[1].messages[0].content[0].text, /^Entries of the group chat "Launch" \(group: shared by its members\):\n\[1\] \(group\) Ship on Friday\n/)
   assert.deepEqual(answer.changes.map(change => [change.op, change.scope, change.ok]), [['add', 'group', true], ['remove', 'group', true]])
-  assert.match(read('groups', 'r1', 'MEMORY.md'), /- Demo on Monday \[source: memory panel; by: user; added: /)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- Demo on Monday \[id: [0-9a-f]{4}; source: memory panel; by: user; added: /)
   assert.doesNotMatch(read('team', 'MEMORY.md'), /Demo/)
   const forgot = (await call('memory-forget', { roomId: 'r1', scope: 'group', topic: null, text: 'Demo on Monday' })).value
   assert.deepEqual(forgot.entries, [])
@@ -1821,7 +1856,7 @@ test('what is said after a member leaves is still reviewed, for the group', asyn
   const text = requests[0].messages[0].content[0].text
   assert.match(text, /^The group chat: "Launch", with the user and Coder \(admin\), Temp\./)
   assert.match(text, /\nUser: Keep everything you send me under one page\nCoder: Will do\.\n[\s\S]*The launch moved to Friday/)
-  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The launch moved to Friday \[source: group "Launch"/)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The launch moved to Friday \[id: [0-9a-f]{4}; source: group "Launch"/)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
 })
 
@@ -1853,7 +1888,7 @@ test('a turn that ends after its member left the group is still reviewed, for th
   await reviewed(call)
   assert.equal(requests.length, 1)
   assert.match(requests[0].messages[0].content[0].text, /^The group chat: "Launch"[\s\S]*\nUser: Keep everything you send me under one page\n/)
-  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The user wants one page \[source: group "Launch"/)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The user wants one page \[id: [0-9a-f]{4}; source: group "Launch"/)
   assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
 })
 
@@ -1879,7 +1914,7 @@ test('a keeper out of the group during the review keeps the place, and the next 
   await reviewed(call)
   assert.equal(requests.length, 2)
   assert.match(requests[1].messages[0].content[0].text, /\nUser: Keep everything you send me under one page\n/)
-  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The user wants everything under one page \[source: group "Launch"/)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /- The user wants everything under one page \[id: [0-9a-f]{4}; source: group "Launch"/)
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 3 })
 })
 
@@ -1981,7 +2016,7 @@ test('a turn whose Session moves to a fresh part before its review is still revi
   await call('state', {})
   await reviewed(call)
   assert.equal(requests.length, 1)
-  assert.match(read('bots', 'b2', 'MEMORY.md'), /- The user wants short answers \[source: part 1 #/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /- The user wants short answers \[id: [0-9a-f]{4}; source: part 1 #/)
   assert.deepEqual(Object.keys(JSON.parse(read('reviewed.json'))), ['chat:b2'])
 })
 

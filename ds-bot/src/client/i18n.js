@@ -1021,6 +1021,8 @@ const ZH = {
   'by you': '由你添加',
   'by {name}': '由 {name} 添加',
   'Remove from memory': '从记忆中删除',
+  'until {day}': '有效至 {day}',
+  'ended {day}': '已于 {day} 结束',
   'Click again to remove': '再点一次删除',
   Remove: '删除',
   'Ask or update': '询问或更新',
