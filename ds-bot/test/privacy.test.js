@@ -443,12 +443,16 @@ test('one private Bot reads its own data but not another private Bot\'s', async 
 })
 
 test('a private Bot reads public memory and keeps its own journal out of the shared log', async (t) => {
-  const { tool, home, stop } = await start()
+  const { tool, run, home, stop } = await start()
   t.after(stop)
   await tool('remember', { text: 'a public fact', scope: 'own' }, 'b')
   await tool('remember', { text: 'a private fact', scope: 'own' }, P)
   const recalled = await tool('recall', { scope: 'Writer', query: 'public fact' }, P)
   assert.match(recalled, /a public fact/)
+  assert.match(await tool('recall', { scope: 'Diary' }, 'a'), /That Bot is private/)
+  const denied = await run('recall', { scope: 'Diary' }, 'a')
+  assert.equal(denied.ran, false)
+  assert.match(denied.error, CLOSED)
   const shared = readFileSync(join(home, 'memory', 'journal.jsonl'), 'utf8')
   assert.match(shared, /a public fact/)
   assert.doesNotMatch(shared, /a private fact/)

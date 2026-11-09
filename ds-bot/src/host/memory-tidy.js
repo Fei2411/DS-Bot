@@ -73,16 +73,15 @@ export function installTidy(rt, memory) {
       if (parsed === undefined) rt.warn('ds-bot: the memory tidy of %s got no list of changes from the model', key)
       else changes = parsed
     }
-    const numbered = open.map(entryId)
     await queued(async () => {
       await recoverPending()
       if (rt.botOf(job.keeper.id) === undefined) return
       writable(job.scope, USER)
-      await applyTidy(job, key, day, changes, numbered, ended.map(entryId), prior)
+      await applyTidy(job, key, day, changes, open, ended, prior)
     })
   }
 
-  async function applyTidy(job, key, day, changes, numbered, endedIds, prior) {
+  async function applyTidy(job, key, day, changes, numbered, ended, prior) {
     const files = loadScope(job.scope)
     const offered = offeredOf(job, files)
     const byId = new Map(offered.map(entry => [entryId(entry), entry]))
@@ -96,11 +95,17 @@ export function installTidy(rt, memory) {
     const time = new Date().toISOString()
     const take = (entry) => { draft.set(entry.file.file, draft.get(entry.file.file).filter(line => line !== entry.file.lines[entry.line])) }
     const retire = (entry, why, extra = {}) => retired.push({ batch, time, file: entry.file.file, line: entry.file.lines[entry.line], why, ...extra })
-    const pick = at => byId.get(numbered[Number(at) - 1])
+    const unchanged = (expected) => {
+      if (expected === undefined) return undefined
+      const current = byId.get(entryId(expected))
+      if (current?.file.file === expected.file.file && current.file.lines[current.line] === expected.file.lines[expected.line]) return current
+      return undefined
+    }
+    const pick = at => unchanged(numbered[Number(at) - 1])
     const used = new Set()
 
-    for (const id of endedIds) {
-      const entry = byId.get(id)
+    for (const expected of ended) {
+      const entry = unchanged(expected)
       if (entry === undefined) continue
       take(entry)
       retire(entry, 'ended')
@@ -123,7 +128,8 @@ export function installTidy(rt, memory) {
         continue
       }
       if (op === 'merge') {
-        const entries = [...new Set((Array.isArray(change.entries) ? change.entries : []).map(pick))].filter(entry => entry !== undefined && !used.has(entry))
+        const entries = [...new Set((Array.isArray(change.entries) ? change.entries : []).map(pick))]
+        if (entries.some(entry => entry === undefined || used.has(entry))) continue
         const text = cleanEntry(change.text)
         if (entries.length < 2 || entries.length > budget.left || entryProblem(text) !== undefined) continue
         budget.left -= entries.length

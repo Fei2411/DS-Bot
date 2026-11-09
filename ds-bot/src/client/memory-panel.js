@@ -4,13 +4,14 @@
 // Modeled on ChatGPT's memory summary.
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useEscape } from './overlay-hooks.js'
-import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, PinIcon, TrashIcon } from './icons.js'
+import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, MoveIcon, PinIcon, TrashIcon } from './icons.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
 import { stepMenuFocus, useLinger } from './motion.js'
 
 const POLL_MS = 1500
 const MENU_EXIT_MS = 120
+const MOVE_MENU_GAP = 12
 
 // Entry counts per Bot or group, for the details pane; the dialog updates them as it loads.
 const counts = new Map()
@@ -19,6 +20,27 @@ function noteCount(id, count) {
   if (counts.get(id) === count) return
   counts.set(id, count)
   for (const listener of countListeners) listener()
+}
+
+// A menu closes on a press outside it or on Escape, without closing the dialog under it.
+function useMenuDismiss(open, menuRef, triggerRef, close) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (event) => {
+      if (menuRef.current?.contains(event.target) || triggerRef.current?.contains(event.target)) return
+      close()
+    }
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return
+      if (event.key === 'Escape') { event.stopPropagation(); close(); triggerRef.current?.focus() }
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
 }
 
 export function useMemoryCount(id, actions) {
@@ -95,7 +117,7 @@ const groupEntries = entries => entries.reduce((groups, entry) => {
   return groups
 }, [])
 
-function EntryRow({ entry, remove, pin, layer }) {
+function EntryRow({ entry, remove, pin, layer, openMove }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -123,9 +145,28 @@ function EntryRow({ entry, remove, pin, layer }) {
       type: 'button', className: 'bt-mem-place', disabled: busy, onClick: () => layer(entry, entry.topic !== null),
     }, entry.topic === null ? t('Only when needed') : t('Every conversation')) : null,
     h('button', {
+      type: 'button', className: 'bt-mem-remove', disabled: busy, 'aria-haspopup': 'menu',
+      'aria-label': t('Move to…'), title: t('Move to…'), onClick: event => openMove(entry, event.currentTarget),
+    }, h(MoveIcon)),
+    h('button', {
       type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to remove') : t('Remove from memory'), title: confirming ? undefined : t('Remove from memory'), onClick: click,
     }, confirming ? t('Remove') : h(TrashIcon)))
+}
+
+// Where an entry can go: the team's memory, a Bot's, or a group chat's.
+function MoveMenu({ menuRef, moving, view, move, leaving }) {
+  const { entry, box } = moving
+  const here = view.keys[entry.scope]
+  const item = (key, label) => h('button', { key, type: 'button', role: 'menuitem', onClick: () => move(entry, key) }, h('span', { className: 'bt-menu-label' }, label))
+  const list = (kind, head) => {
+    const places = view.places.filter(place => place.kind === kind && place.key !== here)
+    return places.length === 0 ? null : h(Fragment, { key: kind }, h('div', { className: 'bt-menu-sub-head' }, head), places.map(place => item(place.key, place.name)))
+  }
+  return h('div', { ref: menuRef, className: 'bt-menu bt-mem-move', role: 'menu', 'aria-label': t('Move to…'), style: box, 'data-leaving': leaving || undefined },
+    here === 'team' ? null : item('team', t('Team memory')),
+    list('bot', t('Bots')),
+    list('group', t('Group chats')))
 }
 
 function TidyNote({ tidy, undo }) {
@@ -137,7 +178,7 @@ function TidyNote({ tidy, undo }) {
     h('ul', null, tidy.items.map((item, at) => h('li', { key: at }, item.text))))
 }
 
-function Entries({ owner, view, remove, pin, layer, undoTidy }) {
+function Entries({ owner, view, remove, pin, layer, openMove, undoTidy }) {
   const groups = groupEntries(view.entries)
   const sections = owner.group
     ? [{ scope: 'group', title: t('Group memory'), hint: t('Only its members read it'), size: view.sizes.group }]
@@ -155,7 +196,7 @@ function Entries({ owner, view, remove, pin, layer, undoTidy }) {
       groups.some(group => group.scope === section.scope)
         ? groups.filter(group => group.scope === section.scope).map(group => h(Fragment, { key: group.key },
             group.topic ? h('div', { className: 'bt-mem-topic' }, group.topic) : null,
-            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin, layer })))))
+            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin, layer, openMove })))))
         : h('div', { className: 'bt-mem-none' }, t('Nothing saved yet')))))
 }
 
@@ -286,6 +327,11 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const [page, setPage] = useState('summary')
   const [menu, setMenu] = useState(false)
   const [menuShown, menuLeaving] = useLinger(menu, MENU_EXIT_MS)
+  const [moving, setMoving] = useState(null)
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [moveShown, moveLeaving] = useLinger(moveOpen, MENU_EXIT_MS)
+  const moveRef = useRef(null)
+  const moveAnchor = useRef(null)
   const [text, setText] = useState('')
   const [answer, setAnswer] = useState(null)
   const menuRef = useRef(null)
@@ -294,23 +340,24 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const now = useNow(30_000)
   const close = useCallback(() => actions.closeMemory(), [])
   useEscape(close)
+  useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false))
+  useMenuDismiss(moveOpen, moveRef, moveAnchor, () => setMoveOpen(false))
   useEffect(() => {
-    if (!menu) return undefined
-    const onDown = (event) => {
-      if (menuRef.current?.contains(event.target) || dotsRef.current?.contains(event.target)) return
-      setMenu(false)
-    }
-    const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, dotsRef.current)) return
-      if (event.key === 'Escape') { event.stopPropagation(); setMenu(false); dotsRef.current?.focus() }
-    }
-    window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [menu])
+    if (!moveOpen) return undefined
+    const onScroll = (event) => { if (!moveRef.current?.contains(event.target)) setMoveOpen(false) }
+    window.addEventListener('scroll', onScroll, true)
+    return () => window.removeEventListener('scroll', onScroll, true)
+  }, [moveOpen])
+  const openMove = (entry, button) => {
+    if (moveOpen && moveAnchor.current === button) { setMoveOpen(false); return }
+    moveAnchor.current = button
+    const rect = button.getBoundingClientRect()
+    const below = window.innerHeight - rect.bottom - MOVE_MENU_GAP
+    const above = rect.top - MOVE_MENU_GAP
+    const right = Math.max(MOVE_MENU_GAP, window.innerWidth - rect.right)
+    setMoving({ entry, box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above } : { right, top: rect.bottom + 4, maxHeight: below } })
+    setMoveOpen(true)
+  }
   const regenerate = () => { setMenu(false); setPage('summary'); void load({ regenerate: true }) }
   const openEntries = () => { setMenu(false); setPage('entries') }
   const openHistory = () => { setMenu(false); setPage('history') }
@@ -329,6 +376,14 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       show(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch))
     } catch (failure) {
       setAnswer({ asked: t('Undo'), error: failure?.message ?? String(failure) })
+    }
+  }
+  const move = async (entry, to) => {
+    setMoveOpen(false)
+    try {
+      show(await actions.memoryMove(owner.id, entry, to))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
     }
   }
   const layer = async (entry, always) => {
@@ -399,7 +454,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       h('div', { className: 'bt-mem-body' },
         error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, hostText(error)) : null,
         view === null ? (error ? null : h(Skeleton))
-          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer, undoTidy })
+          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer, openMove, undoTidy })
             : page === 'history' ? h(History, { owner, actions, undo, now })
               : h(Summary, { owner, view, regenerate })),
       h('div', { className: 'bt-mem-foot' },
@@ -411,5 +466,6 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
             onChange: event => setText(event.target.value),
           }),
           h('button', { type: 'submit', className: 'bt-mem-send', disabled: busy || text.trim() === '', 'aria-label': t('Send') },
-            busy ? h('span', { className: 'bt-mem-spin', 'aria-hidden': true }) : h(ArrowUpIcon))))))
+            busy ? h('span', { className: 'bt-mem-spin', 'aria-hidden': true }) : h(ArrowUpIcon))))),
+    moveShown && moving !== null && view !== null ? h(MoveMenu, { menuRef: moveRef, moving, view, move, leaving: moveLeaving }) : null)
 }
