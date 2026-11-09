@@ -1,0 +1,21 @@
+name: Probe computer-use helper
+on:
+  push:
+    branches: [probe/cua-intel]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26-intel, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm i --no-save --no-fund --no-audit @deepseek-ai/dsh-experimental-cua-macos@0.2.2-rc.1
+      - run: node .github/probe/run.mjs
