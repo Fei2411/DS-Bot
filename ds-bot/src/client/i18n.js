@@ -524,6 +524,8 @@ const ZH = {
   'This preset cannot start ({reason}). Pick another one.': '这个预设无法启动（{reason}）。请换一个。',
   'This preset is not in the profile anymore. Pick another one.': '这个预设已不在当前 profile 中。请换一个。',
   'The preset list could not be loaded.': '无法加载预设列表。',
+  'DS Bot needs the Bot\'s own prompt, which this preset replaces': '这个预设会覆盖 Bot 的身份和指令，无法用于 Bot。',
+  'DS Bot could not verify that it keeps the Bot\'s own prompt': '无法确认这个预设是否保留 Bot 的身份和指令，请选择其他预设。',
   'Applies from the next conversation segment.': '从下一段对话开始生效。',
   'The Bot runs on the default agent preset.': 'Bot 会使用默认 Agent 预设。',
   'The Bot runs on the {name} agent preset.': 'Bot 会使用 {name} Agent 预设。',
@@ -1679,6 +1681,12 @@ export function installLocale(locale) {
 
 export function t(key, params) {
   return bound ? bound(key, params) : fill(key, params)
+}
+
+// The host owns built-in preset copy, including languages DS Bot does not translate.
+export function presetText(key) {
+  const value = service?.bind('settings.agentPreset')(key)
+  return typeof value === 'string' && value !== key ? value : undefined
 }
 
 // A message from the host, in the interface language.

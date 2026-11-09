@@ -555,6 +555,8 @@ var ZH = {
   "This preset cannot start ({reason}). Pick another one.": "这个预设无法启动（{reason}）。请换一个。",
   "This preset is not in the profile anymore. Pick another one.": "这个预设已不在当前 profile 中。请换一个。",
   "The preset list could not be loaded.": "无法加载预设列表。",
+  "DS Bot needs the Bot's own prompt, which this preset replaces": "这个预设会覆盖 Bot 的身份和指令，无法用于 Bot。",
+  "DS Bot could not verify that it keeps the Bot's own prompt": "无法确认这个预设是否保留 Bot 的身份和指令，请选择其他预设。",
   "Applies from the next conversation segment.": "从下一段对话开始生效。",
   "The Bot runs on the default agent preset.": "Bot 会使用默认 Agent 预设。",
   "The Bot runs on the {name} agent preset.": "Bot 会使用 {name} Agent 预设。",
@@ -1719,6 +1721,10 @@ function installLocale(locale) {
 }
 function t(key, params) {
   return bound ? bound(key, params) : fill(key, params);
+}
+function presetText(key) {
+  const value = service?.bind("settings.agentPreset")(key);
+  return typeof value === "string" && value !== key ? value : void 0;
 }
 function hostText(message) {
   if (!language().startsWith("zh")) return message;
@@ -9964,6 +9970,14 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 `;
 
 // src/client/agent-preset.js
+var PRESET_COPY = /* @__PURE__ */ new Map([["standard", "Standard"], ["ptc", "Ptc"], ["minimal", "Minimal"], ["cordis", "Cordis"]]);
+function displayOf(row) {
+  const key = row.name === void 0 ? PRESET_COPY.get(row.id) : void 0;
+  return {
+    name: (key ? presetText(`preset${key}Name`) : void 0) ?? row.name ?? row.id,
+    description: (key ? presetText(`preset${key}Description`) : void 0) ?? row.description
+  };
+}
 var DEFAULT_PRESET = null;
 function defaultPreset(presets) {
   if (presets === null || presets === void 0) return { name: t("Default"), description: void 0 };
@@ -9979,7 +9993,7 @@ function normalizePresets(value) {
   const list = Array.isArray(value) ? value : Array.isArray(value?.presets) ? value.presets : [];
   return list.filter((entry) => entry !== null && typeof entry === "object" && typeof entry.id === "string" && entry.id !== "").map((entry) => ({
     id: entry.id,
-    name: typeof entry.name === "string" && entry.name !== "" ? entry.name : entry.id,
+    name: typeof entry.name === "string" && entry.name !== "" ? entry.name : void 0,
     description: typeof entry.description === "string" && entry.description !== "" ? entry.description : void 0,
     broken: brokenReason(entry.broken)
   }));
@@ -9990,7 +10004,7 @@ function presetState(saved, presets) {
   if (presets === null || presets === void 0) return { id, name: id, missing: false, broken: void 0, pending: true };
   const found = normalizePresets(presets).find((entry) => entry.id === id);
   if (found === void 0) return { id, name: t("Missing preset"), missing: true, broken: void 0, pending: false };
-  return { id, name: found.name, description: found.description, missing: false, broken: found.broken, pending: false };
+  return { id, ...displayOf(found), missing: false, broken: found.broken, pending: false };
 }
 function presetRows(saved, presets) {
   const list = normalizePresets(presets);
@@ -9999,9 +10013,11 @@ function presetRows(saved, presets) {
   const rows2 = [{ id: null, name: fallback.name, description: fallback.description, broken: void 0, disabled: false, missing: false }];
   for (const entry of list) {
     const broken = entry.broken !== void 0;
+    const display = displayOf(entry);
     rows2.push({
       ...entry,
-      description: broken ? entry.broken !== "" ? entry.broken : t("This preset cannot start.") : entry.description,
+      ...display,
+      description: broken ? entry.broken !== "" ? hostText(entry.broken) : t("This preset cannot start.") : display.description,
       disabled: broken,
       missing: false
     });
@@ -10019,7 +10035,7 @@ function presetHint(bot, presets, error) {
   if (presets === null || presets === void 0) return t("Loading…");
   const state = presetState(bot.agentPreset, presets);
   if (state.missing) return t("This preset is not in the profile anymore. Pick another one.");
-  if (state.broken !== void 0) return state.broken === "" ? t("This preset cannot start. Pick another one.") : t("This preset cannot start ({reason}). Pick another one.", { reason: state.broken });
+  if (state.broken !== void 0) return state.broken === "" ? t("This preset cannot start. Pick another one.") : t("This preset cannot start ({reason}). Pick another one.", { reason: hostText(state.broken) });
   if (state.id === null) return defaultPreset(presets).description;
   return t("Applies from the next conversation segment.");
 }

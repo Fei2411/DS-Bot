@@ -1,6 +1,17 @@
 // The Agent preset a Bot runs on: the profile's preset directory, and the choice a
 // Bot keeps. Plain helpers, kept free of React so tests can load them.
-import { t } from './i18n.js'
+import { hostText, presetText, t } from './i18n.js'
+
+const PRESET_COPY = new Map([['standard', 'Standard'], ['ptc', 'Ptc'], ['minimal', 'Minimal'], ['cordis', 'Cordis']])
+
+function displayOf(row) {
+  // Named declarations own their copy, even if they replace a shipped preset id.
+  const key = row.name === undefined ? PRESET_COPY.get(row.id) : undefined
+  return {
+    name: (key ? presetText(`preset${key}Name`) : undefined) ?? row.name ?? row.id,
+    description: (key ? presetText(`preset${key}Description`) : undefined) ?? row.description,
+  }
+}
 
 // The default choice: no explicit preset, so the host's own rule stands.
 export const DEFAULT_PRESET = null
@@ -30,7 +41,7 @@ export function normalizePresets(value) {
     .filter(entry => entry !== null && typeof entry === 'object' && typeof entry.id === 'string' && entry.id !== '')
     .map(entry => ({
       id: entry.id,
-      name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : entry.id,
+      name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : undefined,
       description: typeof entry.description === 'string' && entry.description !== '' ? entry.description : undefined,
       broken: brokenReason(entry.broken),
     }))
@@ -46,7 +57,7 @@ export function presetState(saved, presets) {
   if (presets === null || presets === undefined) return { id, name: id, missing: false, broken: undefined, pending: true }
   const found = normalizePresets(presets).find(entry => entry.id === id)
   if (found === undefined) return { id, name: t('Missing preset'), missing: true, broken: undefined, pending: false }
-  return { id, name: found.name, description: found.description, missing: false, broken: found.broken, pending: false }
+  return { id, ...displayOf(found), missing: false, broken: found.broken, pending: false }
 }
 
 // The rows the picker shows: the default first, then every preset the profile
@@ -59,9 +70,11 @@ export function presetRows(saved, presets) {
   const rows = [{ id: null, name: fallback.name, description: fallback.description, broken: undefined, disabled: false, missing: false }]
   for (const entry of list) {
     const broken = entry.broken !== undefined
+    const display = displayOf(entry)
     rows.push({
       ...entry,
-      description: broken ? (entry.broken !== '' ? entry.broken : t('This preset cannot start.')) : entry.description,
+      ...display,
+      description: broken ? (entry.broken !== '' ? hostText(entry.broken) : t('This preset cannot start.')) : display.description,
       disabled: broken,
       missing: false,
     })
@@ -89,7 +102,7 @@ export function presetHint(bot, presets, error) {
   if (state.missing) return t('This preset is not in the profile anymore. Pick another one.')
   if (state.broken !== undefined) return state.broken === ''
     ? t('This preset cannot start. Pick another one.')
-    : t('This preset cannot start ({reason}). Pick another one.', { reason: state.broken })
+    : t('This preset cannot start ({reason}). Pick another one.', { reason: hostText(state.broken) })
   if (state.id === null) return defaultPreset(presets).description
   return t('Applies from the next conversation segment.')
 }

@@ -20,7 +20,7 @@ test('the profile directory is the only source of presets', () => {
     { id: 'writer', name: 'Writer', description: undefined, broken: undefined },
   ])
   // A bare list is accepted too, and an entry without an id is not a preset.
-  assert.deepEqual(normalizePresets([{ id: 'x' }]), [{ id: 'x', name: 'x', description: undefined, broken: undefined }])
+  assert.deepEqual(normalizePresets([{ id: 'x' }]), [{ id: 'x', name: undefined, description: undefined, broken: undefined }])
   assert.deepEqual(normalizePresets({ presets: [{ name: 'No id' }, null, { id: '' }] }), [])
   assert.deepEqual(normalizePresets(null), [])
   assert.deepEqual(normalizePresets({ presets: 'no' }), [])
@@ -184,6 +184,41 @@ test('the host errors about a preset are translated where the interface shows th
       '这个 Agent 预设「gone」在当前 DeepSeek Harness 中不可用。请在 Bot 设置里换一个预设。')
     assert.equal(hostText('The agent preset "ptc" cannot run: failed to start. Pick another preset in the Bot\'s settings.'),
       '这个 Agent 预设「ptc」无法运行：failed to start。请在 Bot 设置里换一个预设。')
+  } finally {
+    off()
+  }
+})
+
+test('built-in presets use the host locale at render time and keep custom names intact', async () => {
+  let language = 'zh'
+  const host = {
+    zh: { presetStandardName: '标准模式', presetPtcName: 'PTC 模式', presetMinimalName: '极简模式', presetCordisName: '创造模式', presetStandardDescription: '宿主提供的标准模式说明' },
+    en: { presetStandardName: 'Standard mode', presetStandardDescription: 'Host standard description' },
+  }
+  const own = new Map()
+  const off = installLocale({
+    register: (namespace, lang, dict) => { own.set(`${namespace}:${lang}`, dict); return () => own.delete(`${namespace}:${lang}`) },
+    bind: namespace => (key, params) => {
+      const value = (namespace === 'settings.agentPreset' ? host[language]?.[key] : own.get(`${namespace}:${language}`)?.[key]) ?? key
+      return params ? value.replace(/\{(\w+)\}/g, (match, name) => params[name] ?? match) : value
+    },
+    getLocale: () => ({ active: language }),
+  })
+  try {
+    const read = createReader(async () => ({ presets: ['standard', 'ptc', 'minimal', 'cordis'].map(id => ({ id })) }))
+    const { presets } = await read()
+    assert.deepEqual(presetRows(null, presets).slice(1).map(row => row.name), ['标准模式', 'PTC 模式', '极简模式', '创造模式'])
+    assert.equal(presetState('standard', presets).description, '宿主提供的标准模式说明')
+    const custom = [{ id: 'standard', name: 'My standard', description: 'My description' }]
+    assert.equal(presetState('standard', custom).name, 'My standard')
+    assert.equal(presetState('standard', custom).description, 'My description')
+    const broken = [{ id: 'minimal', broken: 'DS Bot needs the Bot\'s own prompt, which this preset replaces' }]
+    assert.equal(presetRows('minimal', broken)[1].description, '这个预设会覆盖 Bot 的身份和指令，无法用于 Bot。')
+    assert.doesNotMatch(presetHint({ agentPreset: 'minimal' }, broken, ''), /DS Bot needs/)
+    language = 'en'
+    assert.equal(presetState('standard', presets).name, 'Standard mode')
+    assert.equal(presetState('standard', presets).description, 'Host standard description')
+    assert.equal(presetState('unknown', [{ id: 'unknown' }]).name, 'unknown')
   } finally {
     off()
   }
