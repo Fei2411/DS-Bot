@@ -120,7 +120,7 @@ function SectionMenu({ menu, roster, actions, leaving }) {
       }, h(PlusIcon), h('span', { className: 'bt-menu-label' }, t('Create new Bot'))),
       h('button', {
         type: 'button', role: 'menuitem',
-        onClick: () => { actions.closeMenu(); actions.openNewChat('group', sec.id) },
+        onClick: () => { actions.closeMenu(); actions.openNewChat('group') },
       }, h(PeopleIcon), h('span', { className: 'bt-menu-label' }, t('Create group chat'))),
       candidates.length > 0 ? h(Fragment, null,
         h('div', { className: 'bt-menu-sep', role: 'separator' }),

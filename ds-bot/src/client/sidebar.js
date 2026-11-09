@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
-import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon, MonitorIcon } from './icons.js'
+import { currentPart, previewOf, relativeShort, rowForSession } from './text.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon, PersonIcon, PeopleIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
@@ -59,9 +59,6 @@ const waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map(id => roster.byId[id]?.name), ...(waits?.rooms ?? []).map(id => roster.roomsById[id]?.name)].filter(Boolean)
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
-
-const PLATFORM_NAMES = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
-const deviceName = () => (typeof document === 'undefined' ? '' : PLATFORM_NAMES[document.documentElement?.dataset?.platform] ?? '')
 
 // Today reads as a clock, anything older as a date, and a date from another year
 // carries the year so two Januaries cannot look alike.
@@ -321,14 +318,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
         : entry.item.sessions ?? []
   )), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
-  const activeEntry = useMemo(() => {
-    if (activeSession === '') return undefined
-    return entries.find(entry => (
-      entry.kind === 'bot' ? currentPart(entry.item) === activeSession
-        : entry.kind === 'room' ? (entry.item.sessionId ?? entry.item.id) === activeSession
-          : (entry.item.sessions ?? []).includes(activeSession)
-    ))
-  }, [entries, activeSession])
+  const activeEntry = useMemo(() => rowForSession(entries, activeSession), [entries, activeSession])
   const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
     id,
     map.get(id)?.running === true ? 1 : 0,
@@ -463,17 +453,6 @@ function fixedGroup(title, entries, rowProps, markedUnread, onDragStart) {
     entries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))
 }
 
-// What the sidebar says about how DS Bot runs: on this machine, with the API the user
-// configured. The host names the platform on <html>; without it the card just says local.
-function StatusCard() {
-  const device = deviceName()
-  return h('div', { className: 'bt-tip' },
-    h('span', { className: 'bt-tip-ico', 'aria-hidden': true }, h(MonitorIcon)),
-    h('span', { className: 'bt-tip-body' },
-      h('span', { className: 'bt-tip-title' }, device ? t('Runs locally on {device}', { device }) : t('Runs locally')),
-      h('span', { className: 'bt-tip-sub' }, t('Model requests go to the API you set up'))))
-}
-
 function useListGlide(listRef, layout, key) {
   const tops = useRef({ layout, map: new Map() })
   useLayoutEffect(() => {
@@ -506,14 +485,15 @@ function LeftColumn({ mode, width, onGrip, leaving, children }) {
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
 
-// The top-left switch hides the whole column and brings it back. Under a
-// Windows title bar it takes the shell's own place in the title band; elsewhere
-// it shows only while the column is hidden, since the column's own top row
-// carries it otherwise.
+// The top-left switch brings a hidden column back. Under a Windows title bar it
+// takes the shell's own place in the title band and hides it too; elsewhere it
+// floats by the window buttons. Either way it shows only while the column is
+// hidden — the open column and the rail carry no collapse button; they are
+// dragged and ⌘B toggles them.
 function TitleToggle({ hidden, onToggle }) {
   if (typeof document === 'undefined') return null
   const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
-  if (!titlebar && !hidden) return null
+  if (!hidden) return null
   const label = t(hidden ? 'Expand sidebar' : 'Collapse sidebar')
   return createPortal(h('button', {
     type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'aria-label': label, title: label, onClick: onToggle,
@@ -883,17 +863,16 @@ export function TeamSidebar(props) {
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
   }, [])
+  const newChat = (mode) => () => actions.openNewChat(mode)
+  const newButtons = [
+    h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create new Bot'), title: t('Create new Bot'), onClick: newChat('create') }, h(PersonIcon)),
+    h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create group chat'), title: t('Create group chat'), onClick: newChat('group') }, h(PeopleIcon, { size: 17, strokeWidth: 1.6 })),
+  ]
   const top = wideContent
-    ? h('div', { className: 'bt-side-top' },
-        h('span', { className: 'bt-side-title' }, t('Inbox')),
-        h('span', { className: 'bt-side-acts' },
-          h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-          h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New section'), title: t('New section'), onClick: createNewSection }, h(FolderIcon)),
-          h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-          h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon))))
+    ? h('div', { className: 'bt-side-top' }, ...newButtons, h(UpdateButton, { useUpdate: props.useUpdate, actions }))
     : h('div', { className: 'bt-rail-top' },
+        ...newButtons,
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-        h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The dictionary's "Chats" means chats in general (聊天); this tab is the group
@@ -955,13 +934,10 @@ export function TeamSidebar(props) {
         fixedGroup(t('Groups'), ungrouped.filter(entry => entry.kind === 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
         fixedGroup(t('Recent'), ungrouped.filter(entry => entry.kind !== 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
       ]
-  // The foot stands in for the shell's hidden footer: a status card, then the account
-  // row; on the rail just the new-chat button and the account avatar.
+  // The foot stands in for the shell's hidden footer: just the account avatar.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot bt-foot-stack' }, h(StatusCard), h(AccountLauncher, { seat: false, actions, row: true }))
-    : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h(AccountLauncher, { seat: false, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
+    : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     filters,
@@ -1101,7 +1077,7 @@ const NO_SNAPSHOT = () => null
 // `seat` is the shell's settings.launcher seat: at priority -10 the whale wins it
 // over a shell account plugin's own launcher (the Desktop's "··· More"), which comes
 // back in Agent mode; FooterAccount stands in while no seat exists at all.
-export function AccountLauncher({ seat = true, settingsOpen, actions, row = false }) {
+export function AccountLauncher({ seat = true, settingsOpen, actions, onNewSection }) {
   const [open, setOpen] = useState(false)
   useLayoutEffect(() => {
     if (!seat) return undefined
@@ -1164,11 +1140,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions, row = fals
   const tick = useViewport()
   const anchor = () => {
     const rect = button.current?.getBoundingClientRect()
-    if (!rect) return
-    // The row's gear sits at the far right of the column, so its menu opens flush
-    // with the gear's right edge and stays on screen.
-    const left = row ? Math.max(8, Math.min(rect.right - 224, window.innerWidth - 232)) : rect.left
-    setBox({ left, bottom: viewBottom() - rect.top + 5 })
+    if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 })
   }
   useLayoutEffect(() => { if (open) anchor() }, [open, tick])
   const toggle = () => { if (!open) anchor(); setOpen(value => !value) }
@@ -1186,27 +1158,15 @@ export function AccountLauncher({ seat = true, settingsOpen, actions, row = fals
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      onNewSection ? [t('New section'), FolderIcon, onNewSection] : null,
       [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
   ]
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
   else if (signedOut) groups.push([[t('Sign in to DeepSeek'), SignInIcon, () => actions.signIn()]])
-  const who = String(account?.view?.name || account?.view?.email || t('You')).trim()
-  const device = row ? deviceName() : ''
-  const gear = h('button', {
-    ref: button, type: 'button', className: row ? 'bt-account bt-account-gear' : 'bt-account',
-    'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle,
-  }, row ? h(GearIcon) : h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon)))
-  const trigger = row
-    ? h('div', { className: 'bt-account-row' },
-        h('span', { className: 'bt-account-ava', 'aria-hidden': true }, who.slice(0, 1).toUpperCase() || h(GearIcon)),
-        h('span', { className: 'bt-account-info' },
-          h('span', { className: 'bt-account-name' }, who),
-          h('span', { className: 'bt-account-sub' }, device ? t('This device · {device}', { device }) : t('This device'))),
-        gear)
-    : gear
   return h(Fragment, null,
-    trigger,
+    h('button', { ref: button, type: 'button', className: 'bt-account', 'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle },
+      h('span', { className: 'bt-you', 'aria-hidden': true }, h(GearIcon))),
     open && box ? createPortal(h('div', { ref: menuRef, className: 'bt-menu bt-menu-up bt-account-menu', role: 'menu', 'aria-label': t('Account'), style: box },
       confirm !== null ? h('div', { className: 'bt-confirm', role: 'alertdialog', 'aria-label': accountT('signOut') },
         h('p', { className: 'bt-confirm-text' }, accountT(confirm === 'running' ? 'signOutRunningDescription' : confirm === 'unknown' ? 'signOutUnknownDescription' : 'signOutDescription')),
@@ -1410,9 +1370,6 @@ export const SIDEBAR_CSS = `
 .bt-confirm-go{height:28px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease}
 .bt-confirm-go:hover:not(:disabled){opacity:.9}
 .bt-confirm-go:disabled{opacity:.6;cursor:default}
-.bt-side-top .bt-brand{cursor:default;padding-left:6px}
-.bt-side-top .bt-brand:hover{background:none}
-.bt-brand .bt-mark{flex:none}
 .bt-pin{flex:none;display:inline-flex;color:var(--bt-ink-3)}
 .bt-rail .bt-row{position:relative}
 .bt-rail .bt-pin{position:absolute;top:1px;left:calc(50% + 14px)}
@@ -1540,12 +1497,6 @@ export const SIDEBAR_CSS = `
    the All/Bots/Chats filter, the list, and the status and account rows at the foot. */
 .bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar))}
 .bt-leftcol:not([data-left=rail])>.bt-side{background:var(--bt-panel,var(--bt-card));border:1px solid var(--bt-panel-rim,var(--bt-line));border-radius:16px;box-shadow:var(--bt-panel-shadow,none);padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
-.bt-side-top{justify-content:space-between;gap:6px;padding:0 2px}
-.bt-side-title{margin-right:auto;padding-left:2px;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.02em;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt-side-acts{display:inline-flex;align-items:center;gap:2px;flex:none}
-.bt-side-acts .bt-round{width:28px;height:28px;border:0;background:transparent;color:var(--bt-ink-2)}
-.bt-side-acts .bt-round:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-side-acts .bt-round.bt-update svg{width:16px;height:16px}
 .bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:box-shadow .12s ease}
 .bt-search:focus-within{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 45%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
@@ -1578,21 +1529,6 @@ export const SIDEBAR_CSS = `
 .bt-row-time{font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-row-new{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap}
 .bt-row-new[data-wait]{color:var(--bt-star)}
-.bt-tip{display:flex;align-items:flex-start;gap:9px;padding:10px 11px;border-radius:12px;background:var(--bt-tip-bg);box-shadow:inset 0 0 0 1px var(--bt-tip-rim);flex:none}
-.bt-tip-ico{flex:none;display:inline-flex;padding-top:1px;color:var(--bt-tip-ink)}
-.bt-tip-ico svg{width:16px;height:16px}
-.bt-tip-body{display:flex;flex-direction:column;min-width:0}
-.bt-tip-title{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink)}
-.bt-tip-sub{margin-top:1px;font-size:12px;line-height:16px;color:var(--bt-tip-ink)}
-.bt-leftcol-foot.bt-foot-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-account-row{display:flex;align-items:center;gap:9px;min-width:0;padding:2px 0}
-.bt-account-ava{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-2);font-size:14px;font-weight:600;box-shadow:inset 0 0 0 1px var(--bt-line)}
-.bt-account-info{display:flex;flex-direction:column;min-width:0;flex:1}
-.bt-account-name{font-size:13.5px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-account-sub{font-size:12px;line-height:16px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-account.bt-account-gear{width:30px;height:30px;border-radius:8px;color:var(--bt-ink-3);background:transparent}
-.bt-account.bt-account-gear:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-account-gear svg{width:15px;height:15px}
 .bt-leftcol:not([data-left=rail]) .bt-side>.bt-list{margin-right:-10px}
 .bt-leftcol:not([data-left=rail]) .bt-tile-wrap{padding:6px 0 10px}
 .bt-rail .bt-fixed-head{display:none}

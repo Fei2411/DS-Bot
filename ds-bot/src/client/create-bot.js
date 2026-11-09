@@ -3,7 +3,7 @@ import { BotMark } from './mark.js'
 import { CharacterGrid } from './bot-settings.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { DEFAULT_SHAPES, DEFAULT_COLORS } from './characters.js'
-import { ChevronLeftIcon, CloseIcon } from './icons.js'
+import { CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { createPayload, freshBotName, startModel } from './bot-draft.js'
 import { ModelMenu, useAgentModels } from './model-menu.js'
@@ -19,9 +19,10 @@ const randomLook = (avoid = {}) => {
   return { shape: pick(shapes), color: pick(colors) }
 }
 
-// The new-Bot form: what it runs on, then look, name and model. Nothing exists until Create.
-// `inline` drops the pane's header for a form shown inside Settings.
-export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBack, onCreated, inline = false }) {
+// The new-Bot form: look, name and model. Nothing exists until Create.
+// `inline` drops the dialog for a form shown inside Settings; otherwise it opens in the
+// same centred card as the Add group chat dialog.
+export function CreateBot({ roster, actions, start, brief = '', onBack, onCreated, inline = false, leaving = false }) {
   const [look, setLook] = useState(() => randomLook())
   const [image, setImage] = useState(null)
   const [library, setLibrary] = useState(false)
@@ -35,13 +36,19 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [error, setError] = useState('')
   const fileRef = useRef(null)
   const frame = useRef(null)
+  const nameRef = useRef(null)
+  // A close while the request is out must not pull the reader into the new Bot.
+  const cancelled = useRef(false)
   const localAgents = useLocalAgents(mode === 'local')
   const [reading, readModels] = useAgentModels(actions)
   const local = mode === 'local'
   const chosen = local ? agentModel : model
-  useEscape(onBack)
+  const close = () => { cancelled.current = true; onBack?.() }
+  useEscape(close)
   // Inside Settings the form opens below other sections, so it scrolls itself into view.
   useEffect(() => { if (inline) frame.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [])
+  // The dialog takes the keyboard without jumping the form to the name field at its end.
+  useEffect(() => { if (!inline) nameRef.current?.focus({ preventScroll: true }) }, [])
   const fallbackName = freshBotName(roster, t('New Bot'))
   const finalName = name.trim() || fallbackName
   const clash = roster.bots.some(bot => bot.name.toLowerCase() === finalName.toLowerCase())
@@ -53,6 +60,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setBusy(true)
     try {
       const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, ownLook, sectionId: start?.sectionId }))
+      if (cancelled.current) return
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -70,7 +78,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   }
   const worn = local && chosen !== '' && !ownLook ? agentAvatar(routeOf(chosen))?.image : undefined
   const previewLook = image ? { ...look, image } : worn ? { ...look, image: worn } : look
-  const card = h('div', { className: 'bt-create-card' },
+  const fields = [
     h(RunModeSwitch, { mode, setMode }),
     h('div', { className: 'bt-create-preview' },
       // The key remounts the mark, so every new pick plays the pop.
@@ -95,7 +103,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     h('label', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Name')),
       h('input', {
-        className: 'bt-input', autoFocus: !inline, value: name, placeholder: fallbackName, maxLength: 40, 'aria-label': t('Name'),
+        ref: nameRef, className: 'bt-input', autoFocus: inline, value: name, placeholder: fallbackName, maxLength: 40, 'aria-label': t('Name'),
         onChange: event => setName(event.target.value),
         onKeyDown: (event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void create() } },
       }),
@@ -113,14 +121,22 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
           ? t('Pick a model here, or the Bot asks for one in its chat.')
           : t('Add a provider and a model in DeepSeek Harness first, or pick one in the Bot\'s chat later.'))) : null,
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
-    h('div', { className: 'bt-create-foot' },
-      h('button', { type: 'button', className: 'bt-soft', onClick: onBack }, canGoBack ? t('Back') : t('Cancel')),
-      h('button', { type: 'button', className: 'bt-send bt-create-go', disabled: blocked, onClick: () => void create() }, busy ? t('Creating…') : t('Create'))))
-  if (inline) return h('div', { ref: frame, className: 'bt-create-inline', role: 'group', 'aria-label': t('Create Bot') }, card)
-  return h('div', { className: 'bt-create', role: 'dialog', 'aria-label': t('Create Bot') },
-    h('div', { className: 'bt-create-head' },
-      canGoBack ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back to new chat'), onClick: onBack }, h(ChevronLeftIcon)) : h('span', { className: 'bt-create-gap' }),
-      h('span', { className: 'bt-create-title' }, t('Create Bot')),
-      h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: () => actions.closeOverlay() }, h(CloseIcon))),
-    h('div', { className: 'bt-create-body' }, card))
+  ]
+  if (inline) {
+    return h('div', { ref: frame, className: 'bt-create-inline', role: 'group', 'aria-label': t('Create Bot') },
+      h('div', { className: 'bt-create-card' }, ...fields,
+        h('div', { className: 'bt-create-foot' },
+          h('button', { type: 'button', className: 'bt-soft', onClick: close }, t('Cancel')),
+          h('button', { type: 'button', className: 'bt-send bt-create-go', disabled: blocked, onClick: () => void create() }, busy ? t('Creating…') : t('Create')))))
+  }
+  return h('div', { className: 'bt-gm-layer', 'data-leaving': leaving || undefined },
+    h('div', { className: 'bt-scrim bt-gm-scrim', onMouseDown: close }),
+    h('div', { className: 'bt-gm bt-bm', role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'bt-bm-title' },
+      h('div', { className: 'bt-gm-head' },
+        h('h2', { id: 'bt-bm-title' }, t('Create Bot')),
+        h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: close }, h(CloseIcon))),
+      h('div', { className: 'bt-gm-body bt-bm-body' },
+        h('div', { className: 'bt-create-card' }, ...fields)),
+      h('div', { className: 'bt-gm-foot' },
+        h('button', { type: 'button', className: 'bt-gm-create', disabled: blocked, onClick: () => void create() }, busy ? t('Creating…') : t('Create Bot')))))
 }

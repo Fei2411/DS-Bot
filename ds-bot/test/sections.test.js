@@ -259,7 +259,7 @@ test('section-add menu offers both creating a new Bot/group in the section and a
   }
   const actions = {
     closeMenu() {},
-    openNewChat: (mode, secId) => opened.push([mode, secId]),
+    openNewChat: (...args) => opened.push(args),
     setFlags: (id, patch) => flagged.push([id, patch]),
     reportError() {},
   }
@@ -284,7 +284,7 @@ test('section-add menu offers both creating a new Bot/group in the section and a
   assert.equal(buttons.length, 5)
   buttons[0].props.onClick()
   buttons[1].props.onClick()
-  assert.deepEqual(opened, [['create', 'sec-1'], ['group', 'sec-1']])
+  assert.deepEqual(opened, [['create', 'sec-1'], ['group']])
 
   // Writer is already in sec-1, so clicking toggles it out (null); Editor is not, so clicking moves it into sec-1
   buttons[2].props.onClick()

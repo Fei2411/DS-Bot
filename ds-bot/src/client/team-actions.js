@@ -18,10 +18,29 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     ui.set(state => ({ ...state, details: sessionId, view: 'side', side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, 'side') }))
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
-  const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null, newBot: null })) }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
-    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
+    // A group chat opens the centred Add group chat dialog and a new Bot its own centred
+    // dialog; the other modes take the right-hand new-chat pane.
+    openNewChat: (mode, sectionId = null) => {
+      if (mode === 'group') {
+        // The token remounts the dialog, so a reopen during the exit animation starts empty.
+        ui.set(state => ({ ...state, groupChat: { token: Date.now() }, newChat: null, newChatSection: null, newBot: null, menu: null, palette: null, leftDrawer: false }))
+        return
+      }
+      if (mode === 'create') {
+        ui.set(state => ({ ...state, newBot: { token: Date.now(), name: '', sectionId: sectionId ?? null, brief: '' }, newChat: null, newChatSection: null, menu: null, palette: null, leftDrawer: false }))
+        return
+      }
+      ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, newBot: null, menu: null, palette: null, leftDrawer: false }))
+    },
+    // The new-chat pane hands over the name typed into it and the message drafted below.
+    openNewBot: ({ name = '', sectionId = null, brief = '' } = {}) => {
+      ui.set(state => ({ ...state, newBot: { token: Date.now(), name, sectionId, brief }, newChat: null, newChatSection: null, menu: null, palette: null, leftDrawer: false }))
+    },
+    closeNewBot: () => ui.set(state => (state.newBot ? { ...state, newBot: null } : state)),
+    closeGroupChat: () => ui.set(state => (state.groupChat ? { ...state, groupChat: null } : state)),
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
@@ -93,7 +112,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     deleteRoom: id => after(call('delete-room', { id })),
     openMenu: (menu) => { ui.set(state => ({ ...state, menu, palette: null })) },
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
-    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
+    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, newBot: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
     // The avatar library: photos the user imported once, kept by the host.
     avatarLibrary: (options = {}) => call('avatar-library', options),

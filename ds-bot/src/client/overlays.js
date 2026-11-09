@@ -2,6 +2,8 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import { CommandPalette } from './palette.js'
 import { NewChat } from './new-chat.js'
+import { CreateBot } from './create-bot.js'
+import { GroupModal } from './group-modal.js'
 import { ExchangeDialog } from './exchange.js'
 import { VoiceMode } from './voice.js'
 import { SettingsDialog } from './settings.js'
@@ -59,10 +61,18 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   }
   const [memory, memoryLeaving] = useLinger(ui.memory && memoryOwner(ui.memory) ? ui.memory : null, DIALOG_EXIT_MS)
   const owner = memory ? memoryOwner(memory) : null
+  const [groupChat, groupLeaving] = useLinger(ui.groupChat ?? null, DIALOG_EXIT_MS)
+  const [newBot, newBotLeaving] = useLinger(ui.newBot ?? null, DIALOG_EXIT_MS)
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   return h(Fragment, null,
     pane ? createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ''}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
+    groupChat ? createPortal(h(GroupModal, { key: `group:${groupChat.token ?? ''}`, roster, actions, leaving: groupLeaving }), document.body) : null,
+    newBot ? createPortal(h(CreateBot, {
+      key: `bot:${newBot.token}`, roster, actions, start: { name: newBot.name, sectionId: newBot.sectionId }, brief: newBot.brief, leaving: newBotLeaving,
+      onBack: () => actions.closeNewBot(),
+      onCreated: (bot) => { actions.closeNewBot(); actions.openSession(bot.id); actions.showDetails(bot.id, 'settings') },
+    }), document.body) : null,
     ui.palette ? createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui.voice ? createPortal(h(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,

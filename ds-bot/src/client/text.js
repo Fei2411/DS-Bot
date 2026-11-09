@@ -75,6 +75,18 @@ export const contentText = content => (content ?? []).filter(block => block?.typ
 // newline, a legacy inline header still stops at its first closing bracket.
 export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
 export const currentPart = bot => bot.sessionId ?? bot.id
+// The conversation the main view holds: the one session retained by it.
+export const shownSessionOf = list => Object.values(list?.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? ''
+// The row a session belongs to: a Bot's current part, a group's own session, or any
+// part of an Agent.
+export const rowForSession = (entries, sessionId) => {
+  if (!sessionId) return undefined
+  return entries.find(entry => (
+    entry.kind === 'bot' ? currentPart(entry.item) === sessionId
+      : entry.kind === 'room' ? (entry.item.sessionId ?? entry.item.id) === sessionId
+        : (entry.item.sessions ?? []).includes(sessionId)
+  ))
+}
 // The prompts in a due scheduled task's message. DSH frames it for the model: one
 // task as `reminder_prompt_json: "…"`, several as `reminders_json: [{reminder_prompt}]`.
 export function reminderPrompts(text) {
