@@ -4,7 +4,7 @@
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { randomUUID } from 'node:crypto'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
-import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { HANDOFF_ACK, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
@@ -41,13 +41,19 @@ export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
   const work = rt.closeWork?.(source.exchangeId, name, text)
+  // A reply that arrives after the user gave up the wait is a late answer: it closes
+  // nothing, opens nothing, and says on it that the wait was already over.
+  const late = work === undefined ? rt.abandonedWork?.(source.exchangeId) : undefined
+  const marker = late === undefined ? '' : LATE_ANSWER
+  const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
+  const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
   const exchangeId = randomUUID()
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
     ...(back ? { sessionId: back } : {}),
-    text: long?.text ?? text,
-    ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+    text: body,
+    ...(length === undefined ? {} : { files: long.files, length }),
     role: 'reply',
     replyTo: source.exchangeId,
     exchangeId,

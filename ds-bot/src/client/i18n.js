@@ -61,6 +61,7 @@ const ZH = {
   '{count} members': '{count} 位成员',
   'Loading…': '加载中…',
   'Edit Bot': '编辑 Bot',
+  'Give up waiting for {name}': '不再等 {name}',
   'Make Main Bot': '设为主 Bot',
   'Remove Main Bot role': '取消主 Bot',
   'Create group chat': '新建群聊',
