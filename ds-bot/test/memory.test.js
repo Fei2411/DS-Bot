@@ -1705,6 +1705,61 @@ test('the team memory every Bot always reads takes what the user says, and the r
   assert.equal(down.value.entries.find(entry => entry.text === 'Coder knows the build').topic, 'shared')
 })
 
+test('the panel moves an entry to another memory, whole, and the first memory no longer has it', async (t) => {
+  const { tool, call, read, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Coder drafts in plain words', until: '2099-01-01' }, 'b2')
+  const pinned = await call('memory-pin', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', pin: true })
+  const before = pinned.value.entries.find(entry => entry.text === 'Coder drafts in plain words')
+  assert.ok(pinned.value.places.some(place => place.kind === 'bot' && place.key === 'bot:b3'), JSON.stringify(pinned.value.places))
+  assert.equal(pinned.value.keys.own, 'bot:b2')
+  const idOf = file => /\bid: ?([\w-]+)/.exec(read(...file).split('\n').find(line => line.includes('Coder drafts')))?.[1]
+  const id = idOf(['bots', 'b2', 'MEMORY.md'])
+  assert.ok(id)
+  // To another Bot: the line keeps its id, end date and pin.
+  const moved = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'bot:b3' })
+  assert.equal(moved.value.entries.some(entry => entry.text === before.text), false)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Coder drafts/)
+  const there = read('bots', 'b3', 'MEMORY.md').split('\n').find(line => line.includes('Coder drafts'))
+  assert.match(there, /until: 2099-01-01/)
+  assert.match(there, /pinned: user/)
+  assert.equal(idOf(['bots', 'b3', 'MEMORY.md']), id)
+  // To the team: it waits in a topic, and every Bot does not start reading it.
+  await call('memory-move', { botId: 'b3', scope: 'own', text: 'Coder drafts in plain words', to: 'team' })
+  assert.doesNotMatch(read('bots', 'b3', 'MEMORY.md'), /Coder drafts/)
+  assert.doesNotMatch(read('team', 'MEMORY.md').replace(/\[\[shared\]\].*/g, ''), /Coder drafts/)
+  assert.match(read('team', 'shared.md'), /Coder drafts in plain words/)
+  // Back out of the team: the empty topic goes, and so does its link.
+  await call('memory-move', { botId: 'b2', scope: 'team', topic: 'shared', text: 'Coder drafts in plain words', to: 'bot:b2' })
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Coder drafts in plain words/)
+  assert.doesNotMatch(read('team', 'MEMORY.md'), /\[\[shared\]\]/)
+  // Where it already is, and a place that does not exist, change nothing.
+  const same = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'bot:b2' })
+  assert.equal(same.value.entries.filter(entry => entry.text === 'Coder drafts in plain words').length, 1)
+  const gone = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'bot:nobody' })
+  assert.equal(gone.ok ?? false, false, JSON.stringify(gone))
+  const unknown = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'somewhere' })
+  assert.equal(unknown.ok ?? false, false, JSON.stringify(unknown))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Coder drafts in plain words/)
+})
+
+test('an entry moved out of a private Bot is the only thing of it the shared log sees', async (t) => {
+  const { tool, call, read, stop, home } = start()
+  t.after(() => stop())
+  const team = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  team.bots.b2.private = true
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  await tool('remember', { text: 'A private fact' }, 'b2')
+  await tool('remember', { text: 'A fact to share' }, 'b2')
+  await call('memory-move', { botId: 'b2', scope: 'own', text: 'A fact to share', to: 'team' })
+  assert.match(read('team', 'shared.md'), /A fact to share/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /A fact to share/)
+  assert.match(read('bots', 'b2', 'journal.jsonl'), /"op":"remove".*A fact to share/)
+  const shared = read('journal.jsonl')
+  assert.match(shared, /"op":"add","scope":"team".*A fact to share/)
+  assert.doesNotMatch(shared, /A private fact|"scope":"bot:b2"/)
+})
+
 async function recallOf(ctx, sessionId, said, history = []) {
   const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
   const agent = { id: sessionId, session: { deriveMessages: () => history } }

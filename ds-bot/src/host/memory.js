@@ -1290,6 +1290,11 @@ export function install(rt) {
       fresh: entries.length === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
       tidy: tidyView(panel.scopes),
+      keys: Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, scopeKey(scope)])),
+      places: [
+        ...Object.values(state.bots).map(bot => ({ key: scopeKey(ownScope(bot.id)), kind: 'bot', name: bot.name })),
+        ...Object.values(state.rooms).map(room => ({ key: scopeKey(groupScope(room.id)), kind: 'group', name: room.name })),
+      ],
       error: failed !== undefined && !summarizing.has(panel.id) ? failed.message : null,
     }
   }
@@ -1371,6 +1376,25 @@ export function install(rt) {
       }
       await publish({ op: 'move', scope: scopeKey(scope), steps, row: { op: 'move', scope: scopeKey(scope), file: old.file.file, to: always ? MAIN : `${TEAM_SHARED}.md`, ...actorOf(USER), after: line } })
     })
+    return await memoryView(panelBody(panel))
+  }
+
+  // One entry the user moves to another memory. It goes as it is, with its id, end
+  // date and pin. The new place is written first, so an interruption can leave it in
+  // both places but never in neither. In the team's it waits in a topic, as one from a
+  // review does: what every Bot always reads is a choice of its own.
+  async function memoryMove(body) {
+    const panel = panelOf(body)
+    const from = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const to = journalScope(body.to)
+    if (to === undefined) throw new Error('Choose where to move the entry')
+    if (scopeKey(to) !== scopeKey(from)) {
+      const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
+      const label = panelLabel(panel, from)
+      const old = await settled(() => findOne(loadScope(from), topic, String(body.text ?? ''), label))
+      await addEntry({ scope: to, topic: to.kind === 'team' ? TEAM_SHARED : undefined, text: old.text, meta: { ...old.meta, id: entryId(old) }, actor: USER, label: labelOf(to) })
+      await removeEntry({ scope: from, topic: old.file.topic, match: old.text, actor: USER, label })
+    }
     return await memoryView(panelBody(panel))
   }
 
@@ -1626,6 +1650,7 @@ export function install(rt) {
     if (endpoint === 'memory-pin') return memoryPin(body)
     if (endpoint === 'memory-tidy-undo') return memoryTidyUndo(body)
     if (endpoint === 'memory-layer') return memoryLayer(body)
+    if (endpoint === 'memory-move') return memoryMove(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
