@@ -81,5 +81,13 @@ export function createRuntime(ctx, config = {}) {
     },
   }
   for (const module of MODULES) module.install(rt)
+  // A live Agent can be scoped before the last module has added its tools (the memory
+  // module starts a load during install): complete the scope now that every tool is in.
+  rt.syncScopedTools?.()
+  // dsh can load this plugin again in place, its files replaced while it runs: dsh
+  // keeps the turns and child agents it had, while this runtime starts with empty
+  // maps. Adopt them now, so Stop, the group view and a late child settle still see
+  // the work. A fresh start has nothing to adopt.
+  void rt.adoptLiveWork?.().catch(error => rt.warn?.('ds-bot: adopting the work still running failed: %s', error))
   return rt
 }
