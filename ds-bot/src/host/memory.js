@@ -1055,8 +1055,8 @@ export function install(rt) {
     if (error) return { error }
     if (scope === undefined) return { scopes: roomId === undefined ? [ownScope(botId), TEAM] : [ownScope(botId), groupScope(roomId), TEAM] }
     if (scope.kind === 'bot' && scope.botId !== botId) {
-      const allowed = rt.isMain(botId) || (rt.isPrivate(botId) && rt.botOf(scope.botId)?.private !== true)
-      if (!allowed) return { error: 'Only a Main Bot can read another Bot\'s memory. Ask that Bot with message_bot instead.' }
+      const allowed = rt.isMain(botId) || rt.botOf(scope.botId)?.private !== true
+      if (!allowed) return { error: 'That Bot is private, so its memory stays with it. Ask it with message_bot instead.' }
     }
     return { scopes: [scope] }
   }
@@ -1068,7 +1068,7 @@ export function install(rt) {
     parameters: {
       query: { type: 'string', description: 'Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown' },
       topic: { type: 'string', description: 'A topic to read whole, as listed with [[topic]]' },
-      scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name (Main Bots; private Bots may read public Bots)' },
+      scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name to read that Bot\'s memory, unless it is private' },
     },
     output,
     async execute(args, exec) {
