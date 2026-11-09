@@ -221,7 +221,7 @@ test('A: Mist is a registered theme with the specified accents, DeepSeek untouch
 test('A: themeVars derives every new token for light and dark', () => {
   const css = themeCss(allThemes().mist)
   const [light, dark] = css.split('html body[data-ds-dark-theme]')
-  const tokens = ['--bt-page', '--bt-panel', '--bt-panel-rim', '--bt-panel-shadow', '--bt-field', '--bt-seg-on', '--bt-row-sel', '--bt-tip-bg', '--bt-tip-rim', '--bt-tip-ink']
+  const tokens = ['--bt-page', '--bt-panel', '--bt-panel-rim', '--bt-panel-shadow', '--bt-field', '--bt-seg-on', '--bt-row-sel']
   for (const token of tokens) {
     assert.match(light, new RegExp(`${token}:[^;]+`), `${token} in light`)
     assert.match(dark, new RegExp(`${token}:[^;]+`), `${token} in dark`)
@@ -258,8 +258,6 @@ test('B: card, title, search, segments, group heads and rows carry the specified
   assert.match(panel, /border:1px solid var\(--bt-panel-rim/)
   assert.match(panel, /border-radius:16px/)
   assert.match(panel, /box-shadow:var\(--bt-panel-shadow/)
-  assert.match(rule('.bt-side-title'), /font-size:20px/)
-  assert.match(rule('.bt-side-title'), /font-weight:600/)
   const search = rule('.bt-search')
   assert.match(search, /height:36px/)
   assert.match(search, /border-radius:10px/)
@@ -285,11 +283,6 @@ test('B: card, title, search, segments, group heads and rows carry the specified
   assert.match(rule('.bt-row-time'), /font-size:12px/)
   assert.match(rule('.bt-row[aria-current=page]'), /background:var\(--bt-row-sel/)
   assert.match(rule('.bt-row[aria-current=page] .bt-row-ava'), /background:var\(--bt-accent/)
-  const tip = rule('.bt-tip')
-  assert.match(tip, /background:var\(--bt-tip-bg/)
-  assert.match(tip, /box-shadow:inset 0 0 0 1px var\(--bt-tip-rim/)
-  assert.match(rule('.bt-account-ava'), /width:36px/)
-  assert.match(rule('.bt-account-ava'), /border-radius:50%/)
 })
 
 test('B: segment rules outrank the globally installed shell ones', () => {
@@ -306,13 +299,13 @@ test('B: segment rules outrank the globally installed shell ones', () => {
   assert.match(SIDEBAR_CSS, /prefers-reduced-motion:reduce\)\{\.bt-search,\.bt-seg \.bt-seg-btn,/)
 })
 
-test('B: the status card draws the monitor icon from the repo icon set', () => {
+test('B: the foot keeps the original gear button and no status card', () => {
   const { roster, sessions } = fixtures()
   const tree = createApp({ roster, sessions }).render()
-  const tile = byClass(tree, 'bt-tip')[0]
-  assert.ok(tile, 'a status card renders')
-  assert.equal(byClass(tile, 'bt-tip-ico').length, 1)
-  assert.ok(byClass(tile, 'bt-tip-ico')[0].props.children.length > 0, 'the icon has a glyph')
+  assert.equal(byClass(tree, 'bt-tip').length, 0, 'no status card')
+  assert.equal(byClass(tree, 'bt-account-row').length, 0, 'no account row')
+  assert.equal(byClass(tree, 'bt-account').length, 1, 'the gear button is the whole foot')
+  assert.doesNotMatch(INBOX_CSS, /\.bt-tip|\.bt-account-row|\.bt-account-ava|\.bt-account-info|\.bt-account-name|\.bt-account-sub|\.bt-account-gear|\.bt-foot-stack/)
 })
 
 // ---------------------------------------------------------------------------
@@ -476,54 +469,24 @@ test('C4: a running Bot keeps its doing phrase instead of the plain preview', ()
 })
 
 // ---------------------------------------------------------------------------
-// C5 · the status card
+// C5/C6 · the foot (reverted to the original single gear button)
 
-test('C5: the card names the platform when the host gives one and stays local when not', () => {
+test('C5: the foot says nothing about where the model runs', () => {
   const { roster, sessions } = fixtures()
-  let tree = createApp({ roster, sessions }).render()
-  assert.equal(textOf(byClass(tree, 'bt-tip-title')[0]), 'Runs locally on macOS')
-  assert.equal(textOf(byClass(tree, 'bt-tip-sub')[0]), 'Model requests go to the API you set up')
-
-  delete documentElement.dataset.platform
-  tree = createApp({ roster, sessions }).render()
-  assert.equal(textOf(byClass(tree, 'bt-tip-title')[0]), 'Runs locally')
-  assert.equal(textOf(byClass(tree, 'bt-tip-sub')[0]), 'Model requests go to the API you set up')
-  assert.doesNotMatch(textOf(tree), /MacBook|iMac|ThinkPad|Surface|XPS/i)
-  documentElement.dataset.platform = 'darwin'
-})
-
-test('C5: an unknown platform reads as local only', () => {
-  const { roster, sessions } = fixtures()
-  documentElement.dataset.platform = 'freebsd'
   const tree = createApp({ roster, sessions }).render()
-  assert.equal(textOf(byClass(tree, 'bt-tip-title')[0]), 'Runs locally')
-  documentElement.dataset.platform = 'darwin'
+  assert.doesNotMatch(textOf(tree), /Runs locally|Model requests go to|This device/)
 })
 
-// ---------------------------------------------------------------------------
-// C6 · the account row
-
-test('C6: the account row shows the name, the device line and the existing gear menu', () => {
+test('C6: the gear button opens the account menu at the foot', () => {
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions, settings: { account: { view: { name: '千寻', email: 'q@example.com' } } } })
   let tree = app.render()
-  assert.equal(textOf(byClass(tree, 'bt-account-name')[0]), '千寻')
-  assert.equal(textOf(byClass(tree, 'bt-account-sub')[0]), 'This device · macOS')
-  const gear = byClass(tree, 'bt-account-gear')[0]
+  const gear = byClass(tree, 'bt-account')[0]
   assert.ok(gear, 'the gear is its own button')
   assert.equal(gear.props['aria-haspopup'], 'menu')
   gear.props.onClick()
   tree = app.render()
-  assert.equal(byClass(tree, 'bt-account-gear')[0].props['aria-expanded'], true)
-})
-
-test('C6: without an account name the row says You, and the email stands in', () => {
-  const { roster, sessions } = fixtures()
-  let tree = createApp({ roster, sessions }).render()
-  assert.equal(textOf(byClass(tree, 'bt-account-name')[0]), 'You')
-  const app = createApp({ roster, sessions, settings: { account: { view: { email: 'q@example.com' } } } })
-  tree = app.render()
-  assert.equal(textOf(byClass(tree, 'bt-account-name')[0]), 'q@example.com')
+  assert.equal(byClass(tree, 'bt-account')[0].props['aria-expanded'], true)
 })
 
 // ---------------------------------------------------------------------------
@@ -590,7 +553,7 @@ test('F: the field, the segments, the list and the gear expose their roles and l
     assert.ok(row.props['aria-label'], 'every row is named')
   }
   assert.match(SIDEBAR_CSS, /\.bt-seg-btn:focus-visible\{outline:2px solid var\(--bt-accent\)/)
-  assert.equal(byClass(tree, 'bt-account-gear')[0].props['aria-label'], 'Account')
+  assert.equal(byClass(tree, 'bt-account')[0].props['aria-label'], 'Account')
 })
 
 // ---------------------------------------------------------------------------
@@ -656,7 +619,7 @@ test('G4: the empty drop strip is hidden unless a drag is running', () => {
 // ---------------------------------------------------------------------------
 // Chinese copy
 
-test('C5/C6: the Chinese copy names the device and the local API', () => {
+test('C5/C6: the Chinese copy of the inbox chrome holds', () => {
   installLocale({
     register: () => () => {},
     bind: () => (key, params) => DICTIONARY.zh[key]?.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match)) ?? key,
@@ -664,11 +627,10 @@ test('C5/C6: the Chinese copy names the device and the local API', () => {
   })
   const { roster, sessions } = fixtures()
   const tree = createApp({ roster, sessions, settings: { account: { view: { name: '千寻' } } } }).render()
-  assert.equal(textOf(byClass(tree, 'bt-side-title')[0]), '收件箱')
+  assert.equal(byClass(tree, 'bt-brand').length, 0, 'no brand on the top row')
+  assert.equal(byClass(tree, 'bt-side-title').length, 0, 'no inbox title')
+  assert.deepEqual(byClass(tree, 'bt-round').filter(node => !hasClass(node, 'bt-update')).map(node => node.props['aria-label']), ['新建 Bot', '创建群组聊天'], 'the top row is the new Bot and group chat buttons')
   assert.equal(byClass(tree, 'bt-search-in')[0].props.placeholder, '搜索会话')
-  assert.equal(textOf(byClass(tree, 'bt-tip-title')[0]), '本地运行 · macOS')
-  assert.equal(textOf(byClass(tree, 'bt-tip-sub')[0]), '模型请求走你配置的 API')
-  assert.equal(textOf(byClass(tree, 'bt-account-sub')[0]), '本机 · macOS')
   assert.deepEqual(byClass(tree, 'bt-fixed-title').map(textOf), ['群聊', '最近'])
   installLocale({
     register: () => () => {},
@@ -680,5 +642,5 @@ test('C5/C6: the Chinese copy names the device and the local API', () => {
 // SHELL_CSS is bundled with the sidebar; a sanity check keeps the import honest.
 test('the sidebar bundle still carries the shell styles', () => {
   assert.ok(SHELL_CSS.length > 1000)
-  assert.equal(t('Inbox'), 'Inbox')
+  assert.equal(t('Search chats'), 'Search chats')
 })

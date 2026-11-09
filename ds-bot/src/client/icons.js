@@ -10,8 +10,13 @@ export function SidebarIcon() {
   return h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, 'aria-hidden': true },
     h('rect', { x: 3, y: 4, width: 14, height: 12, rx: 2.5 }), h('path', { d: 'M8 4v12' }))
 }
-export function PeopleIcon() {
-  return h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', 'aria-hidden': true },
+// One person: the front figure of PeopleIcon on its own, for a single Bot.
+export function PersonIcon({ size = 17, strokeWidth = 1.6 }) {
+  return h('svg', { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', 'aria-hidden': true },
+    h('circle', { cx: 10, cy: 6.9, r: 3.1 }), h('path', { d: 'M4 16.6c.6-3 3.1-4.8 6-4.8s5.4 1.8 6 4.8' }))
+}
+export function PeopleIcon({ size = 14, strokeWidth = 1.5 }) {
+  return h('svg', { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', 'aria-hidden': true },
     h('circle', { cx: 7.5, cy: 7, r: 3 }), h('path', { d: 'M2 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5' }),
     h('path', { d: 'M13 4.3a3 3 0 0 1 0 5.4M15 12.4c1.6.6 2.6 2 3 4.1' }))
 }

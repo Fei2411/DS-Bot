@@ -1,9 +1,8 @@
 import { createElement as h, useRef, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
-import { PlusIcon, PeopleIcon, ArrowUpIcon } from './icons.js'
-import { AdminStar, BotMark } from './mark.js'
+import { PeopleIcon, PlusIcon, ArrowUpIcon } from './icons.js'
+import { BotMark } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
-import { CreateBot } from './create-bot.js'
 import { QUICK_EDGES, useFlip, useGlide, useMorph } from './motion.js'
 import { t } from './i18n.js'
 import { sendsOnEnter } from './enter-key.js'
@@ -11,21 +10,15 @@ import { sendsOnEnter } from './enter-key.js'
 export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState([])
-  const [group, setGroup] = useState(mode === 'group')
-  // A new group chat picks its admin first, then the other members.
-  const [admin, setAdmin] = useState(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [cursor, setCursor] = useState(0)
-  // The Create Bot form, opened straight from 'create' mode or from the list.
-  const [draft, setDraft] = useState(mode === 'create' ? { name: '', fromList: false, sectionId } : null)
   const inputRef = useRef(null)
   const close = () => actions.closeOverlay()
   useEscape(close)
   const wanted = query.trim().toLowerCase()
-  const matches = roster.bots.filter(bot => !picked.includes(bot.id) && bot.id !== admin && (wanted === '' || bot.name.toLowerCase().includes(wanted) || (bot.role ?? '').toLowerCase().includes(wanted)))
-  const choosingAdmin = group && admin === null
+  const matches = roster.bots.filter(bot => !picked.includes(bot.id) && (wanted === '' || bot.name.toLowerCase().includes(wanted) || (bot.role ?? '').toLowerCase().includes(wanted)))
   const exact = roster.bots.some(bot => bot.name.toLowerCase() === wanted)
   const pickedBots = picked.map(id => roster.byId[id]).filter(Boolean)
   const run = async (task) => {
@@ -40,15 +33,8 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
     setCursor(0)
     inputRef.current?.focus()
   }
-  const chooseAdmin = (bot) => {
-    setAdmin(bot.id)
-    setQuery('')
-    setCursor(0)
-    inputRef.current?.focus()
-  }
   const openBot = bot => run(async () => {
-    if (choosingAdmin) { chooseAdmin(bot); return }
-    if (group || picked.length > 0) { pick(bot); return }
+    if (picked.length > 0) { pick(bot); return }
     if (bot.hidden || (sectionId && bot.sectionId !== sectionId)) {
       await actions.setFlags(bot.id, { ...(bot.hidden ? { hidden: false } : {}), ...(sectionId ? { sectionId } : {}) })
     }
@@ -56,32 +42,14 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
     actions.openSession(bot.id)
     close()
   })
+  // The Create Bot dialog takes the name typed here and the message drafted below.
   const createBot = () => {
     if (busy) return
     setError('')
-    setDraft({ name: query.trim() !== '' && !exact ? query.trim() : '', fromList: true, sectionId })
+    actions.openNewBot({ name: query.trim() !== '' && !exact ? query.trim() : '', sectionId, brief: message.trim() })
   }
-  // Close first: closing the new-chat pane keeps the details panel, while closing
-  // nothing would clear it.
-  const created = (bot) => {
-    close()
-    actions.openSession(bot.id)
-    actions.showDetails(bot.id, 'settings')
-  }
-  // The admin and at least one more Bot make a group; a message typed below goes with it,
-  // else the admin opens by asking what the group is for.
-  const makeGroup = async () => {
-    if (admin === null || picked.length === 0) return
-    const text = message.trim()
-    const room = await actions.createRoom([admin, ...picked], { admin, ...(sectionId ? { sectionId } : {}), ...(text ? {} : { greet: true }) })
-    if (text) await actions.send(room.id, text)
-    actions.openSession(room.id)
-    close()
-  }
-  const createGroup = () => run(makeGroup)
   const sendMessage = () => run(async () => {
     const text = message.trim()
-    if (group && admin !== null) { await makeGroup(); return }
     if (text === '' || picked.length === 0) return
     if (picked.length === 1) {
       if (sectionId) await actions.setFlags(picked[0], { sectionId })
@@ -96,16 +64,17 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
     close()
   })
   const options = []
-  if (!group && picked.length === 0 && mode !== 'search' && wanted === '') {
+  if (picked.length === 0 && mode !== 'search' && wanted === '') {
     options.push({ key: 'new', icon: h(PlusIcon), label: t('Create new Bot'), run: createBot })
-    options.push({ key: 'group', icon: h(PeopleIcon), label: t('Create group chat'), run: () => { setGroup(true); setCursor(0); inputRef.current?.focus() } })
+    // The group flow lives in its own centred dialog; opening it from here closes the pane.
+    options.push({ key: 'group', icon: h(PeopleIcon), label: t('Create group chat'), run: () => actions.openNewChat('group') })
     // A team holds at most one DSH Agent; the entry exists only while there is none.
     if ((roster.agents ?? []).length === 0 && actions.addAgent) {
       options.push({ key: 'agent', icon: h(FishLogo, { size: 16 }), label: t('Add DSH Agent'), run: () => run(async () => { await actions.addAgent(); close() }) })
     }
   }
   for (const bot of matches) {
-    options.push({ key: bot.id, bot, label: bot.name, hint: choosingAdmin ? t('Make admin') : group || picked.length > 0 ? t('Add to group chat') : undefined, run: () => openBot(bot) })
+    options.push({ key: bot.id, bot, label: bot.name, hint: picked.length > 0 ? t('Add to group chat') : undefined, run: () => openBot(bot) })
   }
   if (wanted !== '' && !exact && mode !== 'search') options.push({ key: 'create', icon: h(PlusIcon), label: t('Create new Bot “{name}”', { name: query.trim() }), run: createBot })
   const active = Math.min(cursor, Math.max(options.length - 1, 0))
@@ -114,35 +83,21 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   useFlip(glide.box, listed, '[data-flip]')
   const drop = useRef(null)
   useMorph(drop, listed)
-  if (draft) {
-    return h('div', { className: 'bt-pane', style: { left: paneLeft } },
-      h(CreateBot, {
-        roster, actions, start: draft, brief: message.trim(), canGoBack: draft.fromList,
-        onBack: draft.fromList ? () => { setDraft(null); setTimeout(() => inputRef.current?.focus()) } : close,
-        onCreated: created,
-      }))
-  }
-  const adminBot = admin === null ? undefined : roster.byId[admin]
-  const recipients = adminBot ? [adminBot, ...pickedBots] : pickedBots
+  const recipients = pickedBots
   const placeholder = recipients.length > 0 ? t('Message {name}', { name: recipients.map(bot => bot.name).join(t(' and ')) }) : t('Message Bot')
   const unpick = () => {
     if (picked.length > 0) setPicked(current => current.slice(0, -1))
-    else if (admin !== null) setAdmin(null)
   }
   return h('div', { className: 'bt-pane', style: { left: paneLeft } },
     h('div', { className: 'bt-newchat', role: 'dialog', 'aria-label': mode === 'search' ? t('Search') : t('New chat') },
       h('div', { className: 'bt-to' },
         h('span', { className: 'bt-to-label' }, t('To:')),
-        adminBot ? h('span', { key: adminBot.id, className: 'bt-token bt-token-admin', title: t('Admin') },
-          h(BotMark, { bot: adminBot, size: 16 }), adminBot.name, h(AdminStar),
-          h('button', { type: 'button', 'aria-label': t('Remove {name}', { name: adminBot.name }), onClick: () => setAdmin(null) }, '×')) : null,
-        choosingAdmin ? h('span', { className: 'bt-to-star', 'aria-hidden': true }, h(AdminStar)) : null,
         pickedBots.map(bot => h('span', { key: bot.id, className: 'bt-token' },
           h(BotMark, { bot: bot, size: 16 }), bot.name,
           h('button', { type: 'button', 'aria-label': t('Remove {name}', { name: bot.name }), onClick: () => setPicked(current => current.filter(id => id !== bot.id)) }, '×'))),
         h('input', {
           ref: inputRef, autoFocus: true, value: query, 'aria-label': t('Recipient'),
-          placeholder: mode === 'search' ? t('Search Bots…') : choosingAdmin ? t('Choose the group admin') : group ? t('Who to chat with…') : t('Start a chat with…'),
+          placeholder: mode === 'search' ? t('Search Bots…') : t('Start a chat with…'),
           onChange: (event) => { setQuery(event.target.value); setCursor(0) },
           onKeyDown: (event) => {
             if (event.nativeEvent.isComposing) return
@@ -152,10 +107,6 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
             else if (event.key === 'Backspace' && query === '') unpick()
           },
         }),
-        group && admin !== null ? h('button', {
-          type: 'button', className: 'bt-send bt-to-create', disabled: busy || picked.length === 0,
-          title: picked.length === 0 ? t('Add at least one more Bot') : undefined, onClick: createGroup,
-        }, t('Create group chat')) : null,
         h('button', { type: 'button', className: 'bt-x', 'aria-label': t('Close new chat'), onClick: close }, '×')),
       h('div', { ref: drop, className: 'bt-drop' }, h('div', { ref: glide.box, role: 'listbox', 'aria-label': t('Recipients'), className: 'bt-drop-list' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),

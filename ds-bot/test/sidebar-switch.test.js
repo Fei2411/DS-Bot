@@ -289,7 +289,7 @@ function shell({ platform, collapsed }) {
         <div class="x_logoRow">${collapsed ? '' : '<button class="x_brand x_wide"></button>'}${darwin ? '' : toggle}</div>
       <button class="bt-title-toggle"></button>
         <div class="x_newSession"></div>
-        <div class="team">${collapsed ? '' : '<div class="bt-side-top"><button class="bt-round bt-side-collapse"></button></div>'}</div>
+        <div class="team">${collapsed ? '' : '<div class="bt-side-top"></div>'}</div>
         <div class="x_footArea"><span class="bt-foot-account"></span></div>
       </div>
     </div></body></html>`
@@ -318,7 +318,7 @@ for (const collapsed of [false, true]) {
 test('off a Windows title bar the column\'s top row and the floating switch are never hidden by style', () => {
   for (const platform of ['web', 'mac']) {
     const { document, hidden } = shell({ platform, collapsed: false })
-    assert.equal(hidden(document.querySelector('.bt-side-collapse')), false, platform)
+    assert.equal(hidden(document.querySelector('.bt-side-top')), false, platform)
     assert.equal(hidden(document.querySelector('.bt-title-toggle')), false, platform)
   }
 })
@@ -364,7 +364,7 @@ test('the collapsed shell grid override leaves layouts below 1024px to the host'
     'the zero-width first track must not override a narrow host layout')
 })
 
-test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
+test('no column carries a hide button: both are dragged, and each edge is a drag grip', () => {
   viewport.innerWidth = 1280
   const calls = []
   const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
@@ -381,16 +381,19 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
     return match(node) ? node : find(node.props?.children, match)
   }
   const collapse = node => node.type === 'button' && node.props['aria-label'] === 'Collapse sidebar'
-  for (const pref of ['open', 'rail']) {
-    const tree = TeamSidebar(props(pref))
-    const button = find(tree, collapse)
-    assert.ok(button?.props.className.split(' ').includes('bt-side-collapse'), pref)
-    button.props.onClick()
-    const column = find(tree, node => node.type?.name === 'LeftColumn')
-    assert.equal(column.props.mode, pref)
-    assert.equal(typeof column.props.onGrip, 'function')
-  }
-  assert.deepEqual(calls, ['toggle', 'toggle'])
+  // Neither the open column nor the rail carries a hide button: both are dragged,
+  // and ⌘B toggles; only the hidden state shows the floating switch.
+  const open = TeamSidebar(props('open'))
+  assert.equal(find(open, collapse), undefined)
+  const openColumn = find(open, node => node.type?.name === 'LeftColumn')
+  assert.equal(openColumn.props.mode, 'open')
+  assert.equal(typeof openColumn.props.onGrip, 'function')
+  const rail = TeamSidebar(props('rail'))
+  assert.equal(find(rail, collapse), undefined)
+  const railColumn = find(rail, node => node.type?.name === 'LeftColumn')
+  assert.equal(railColumn.props.mode, 'rail')
+  assert.equal(typeof railColumn.props.onGrip, 'function')
+  assert.deepEqual(calls, [])
   // Hidden, there is no column at all; the floating switch brings it back.
   const hidden = TeamSidebar(props('hidden'))
   assert.equal(find(hidden, node => node.type?.name === 'LeftColumn'), undefined)

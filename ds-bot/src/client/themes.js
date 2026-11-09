@@ -39,7 +39,6 @@ const THEMES = {
 const DARK_INK = '#141414'
 const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
-const TIP_GREEN = '#2FAF6A'
 function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
@@ -56,9 +55,6 @@ function themeVars(mode, dark, accent = mode.accent) {
     '--bt-field': dark ? `color-mix(in srgb, ${mode.card} 94%, ${mode.text} 6%)` : `color-mix(in srgb, ${mode.card} 97%, ${accent} 3%)`,
     '--bt-seg-on': dark ? `color-mix(in srgb, ${mode.card} 90%, ${mode.text} 10%)` : '#ffffff',
     '--bt-row-sel': `color-mix(in srgb, ${mode.card} 89%, ${accent} 11%)`,
-    '--bt-tip-bg': `color-mix(in srgb, ${mode.card} ${dark ? 88 : 93}%, ${TIP_GREEN} ${dark ? 12 : 7}%)`,
-    '--bt-tip-rim': `color-mix(in srgb, ${mode.card} 82%, ${TIP_GREEN} 18%)`,
-    '--bt-tip-ink': rgba(mode.text, dark ? 0.62 : 0.58),
   }
 }
 const declarations = vars => Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(';')
@@ -139,5 +135,5 @@ export const MESSAGE_WIDTH = { min: 50, max: 100, step: 5 }
 const percent = (value, initial) => (Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial)
 export const layoutOf = prefs => (prefs?.layout === 'flat' ? 'flat' : 'bubble')
 export const thinkingShown = prefs => prefs?.thinking === true
-export const widthOf = prefs => percent(prefs?.width, 80)
+export const widthOf = prefs => percent(prefs?.width, 90)
 export const flatWidthOf = prefs => percent(prefs?.flatWidth, 100)
