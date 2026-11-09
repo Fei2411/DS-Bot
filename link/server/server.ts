@@ -1,12 +1,12 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { Gateway } from './gateway.ts'
+import { Gateway, type GatewayOptions } from './gateway.ts'
 import { DeviceStore } from './store.ts'
 import { LINK_PATH } from '../src/frames.ts'
 
 export { LINK_PATH }
 
-export interface RelayServerOptions {
+export interface RelayServerOptions extends Omit<GatewayOptions, 'store' | 'serverVersion'> {
   port?: number
   host?: string
   dataFile?: string
@@ -21,8 +21,9 @@ export interface RelayServer {
 const VERSION = 'ds-bot-link/0.1.0'
 
 export async function startRelayServer(options: RelayServerOptions = {}): Promise<RelayServer> {
-  const store = new DeviceStore(options.dataFile)
-  const gateway = new Gateway({ store, serverVersion: VERSION })
+  const { port: listenPort, host, dataFile, ...limits } = options
+  const store = new DeviceStore(dataFile)
+  const gateway = new Gateway({ ...limits, store, serverVersion: VERSION })
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'text/plain' }).end('ok\n')
@@ -39,7 +40,7 @@ export async function startRelayServer(options: RelayServerOptions = {}): Promis
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(options.port ?? 0, options.host ?? '127.0.0.1', () => { server.off('error', reject); resolve() })
+    server.listen(listenPort ?? 0, host ?? '127.0.0.1', () => { server.off('error', reject); resolve() })
   })
   const { address, port } = server.address() as AddressInfo
   const shown = address.includes(':') ? `[${address}]` : address

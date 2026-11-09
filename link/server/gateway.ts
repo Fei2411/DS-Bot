@@ -39,10 +39,19 @@ export interface GatewayOptions {
   serverVersion: string
   maxSockets?: number
   maxLinks?: number
+  /** Open sockets from one address. Phones behind carrier NAT share addresses, so keep this generous. */
+  maxSocketsPerAddress?: number
+  /** Devices one address may register per hour, so nobody can fill the device table. */
+  maxNewDevicesPerHour?: number
+  /** Take the client address from the last X-Forwarded-For entry. Only behind a proxy that sets it. */
+  trustProxy?: boolean
+  /** Forget devices not seen for this long. */
+  deviceTtlMs?: number
 }
 
 const RELAY_CAPABILITY = 'transport.relay'
 const HEARTBEAT_MS = 25_000
+const HOUR_MS = 3_600_000
 
 /**
  * Pairs a phone's control socket with its computer's and forwards their frames.
@@ -55,19 +64,32 @@ export class Gateway {
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: MAX_RELAY_FRAME_BYTES, perMessageDeflate: false })
   private readonly heartbeat: ReturnType<typeof setInterval>
   private readonly options: GatewayOptions
+  private readonly sockets = new Map<string, number>()
+  private readonly registrations = new Map<string, { start: number; count: number }>()
+  private lastPrune = 0
 
   constructor(options: GatewayOptions) {
     this.options = options
     this.heartbeat = setInterval(() => this.beat(), HEARTBEAT_MS)
     this.heartbeat.unref()
+    this.prune()
   }
 
   handleUpgrade(req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
+    const address = this.addressOf(req)
+    const open = this.sockets.get(address) ?? 0
     if (this.wss.clients.size >= (this.options.maxSockets ?? 1024) || !sameOrigin(req)) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       return
     }
-    this.wss.handleUpgrade(req, socket, head, ws => this.accept(ws))
+    if (open >= (this.options.maxSocketsPerAddress ?? 256)) {
+      socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n')
+      return
+    }
+    this.sockets.set(address, open + 1)
+    // Count the TCP socket, not the WebSocket: a failed upgrade closes the socket without one.
+    socket.once('close', () => this.release(address))
+    this.wss.handleUpgrade(req, socket, head, ws => this.accept(ws, address))
   }
 
   close(): void {
@@ -76,7 +98,42 @@ export class Gateway {
     this.wss.close()
   }
 
+  private addressOf(req: IncomingMessage): string {
+    const forwarded = req.headers['x-forwarded-for']
+    if (this.options.trustProxy && typeof forwarded === 'string') {
+      const last = forwarded.split(',').at(-1)?.trim()
+      if (last) return last
+    }
+    return req.socket.remoteAddress ?? 'unknown'
+  }
+
+  private release(address: string): void {
+    const open = (this.sockets.get(address) ?? 1) - 1
+    if (open > 0) this.sockets.set(address, open)
+    else this.sockets.delete(address)
+  }
+
+  private registerNew(address: string): void {
+    const now = Date.now()
+    let window = this.registrations.get(address)
+    if (window === undefined || now - window.start >= HOUR_MS) {
+      window = { start: now, count: 0 }
+      this.registrations.set(address, window)
+    }
+    if (window.count >= (this.options.maxNewDevicesPerHour ?? 20)) throw new LinkError('RATE_LIMITED')
+    window.count += 1
+  }
+
+  private prune(): void {
+    const now = Date.now()
+    for (const [address, window] of this.registrations) if (now - window.start >= HOUR_MS) this.registrations.delete(address)
+    if (this.options.deviceTtlMs === undefined || now - this.lastPrune < HOUR_MS) return
+    this.lastPrune = now
+    this.options.store.prune(this.options.deviceTtlMs, now)
+  }
+
   private beat(): void {
+    this.prune()
     for (const peer of this.peers.values()) {
       if (Date.now() - peer.lastPong > 3 * HEARTBEAT_MS) { this.disconnect(peer.id, 'CONNECTION_FAILED'); continue }
       peer.nonce = randomUUID()
@@ -111,7 +168,7 @@ export class Gateway {
     }
   }
 
-  private accept(ws: WebSocket): void {
+  private accept(ws: WebSocket, address: string): void {
     let peer: Peer | undefined
     const deadline = setTimeout(() => ws.terminate(), 5_000)
     let windowStart = Date.now()
@@ -132,7 +189,7 @@ export class Gateway {
         if (++frames > 512 || (bytes += Buffer.byteLength(text)) > 16 * MAX_RELAY_FRAME_BYTES) throw new LinkError('RATE_LIMITED')
         frame = decodeControlFrame(text, { maxControlFrameBytes: MAX_CONTROL_FRAME_BYTES, maxRelayFrameBytes: MAX_RELAY_FRAME_BYTES })
         if (peer === undefined) {
-          peer = this.hello(ws, frame)
+          peer = this.hello(ws, frame, address)
           clearTimeout(deadline)
           return
         }
@@ -155,7 +212,7 @@ export class Gateway {
     })
   }
 
-  private hello(ws: WebSocket, frame: ControlFrame): Peer {
+  private hello(ws: WebSocket, frame: ControlFrame, address: string): Peer {
     if (frame.type !== 'hello') throw new LinkError('AUTH_REQUIRED')
     const p = frame.payload as Partial<HelloPayload>
     if ((p.role !== 'host' && p.role !== 'client') || typeof p.deviceId !== 'string' || typeof p.identityKey !== 'string'
@@ -168,6 +225,7 @@ export class Gateway {
     try { derived = deviceIdFor(p.identityKey) } catch {}
     if (derived !== p.deviceId) throw new LinkError('AUTH_INVALID')
     if (!p.protocols.includes(PROTOCOL_VERSION)) throw new LinkError('UNSUPPORTED_VERSION')
+    if (this.options.store.get(p.deviceId) === undefined) this.registerNew(address)
     this.options.store.admit(p.deviceId, p.role, p.identityKey, p.accessToken)
     this.disconnect(p.deviceId, 'CONNECTION_REPLACED')
     const peer: Peer = { ws, id: p.deviceId, role: p.role, capabilities: p.capabilities, lastPong: Date.now() }

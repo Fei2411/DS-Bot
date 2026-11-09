@@ -43,6 +43,16 @@ export class DeviceStore {
 
   get(deviceId: string): DeviceRecord | undefined { return this.devices.get(deviceId) }
 
+  /** Forgets devices not seen for `maxAgeMs`. A forgotten device claims its id again on its next hello. */
+  prune(maxAgeMs: number, now = Date.now()): number {
+    let removed = 0
+    for (const [id, record] of this.devices) {
+      if (now - record.lastSeen > maxAgeMs) { this.devices.delete(id); removed += 1 }
+    }
+    if (removed > 0) this.scheduleSave()
+    return removed
+  }
+
   /** Checks a hello and records the device on first sight. */
   admit(deviceId: string, role: 'host' | 'client', identityKey: string, accessToken: string): DeviceRecord {
     const tokenHash = hash(accessToken)
