@@ -4,7 +4,7 @@
 // Modeled on ChatGPT's memory summary.
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useEscape } from './overlay-hooks.js'
-import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, TrashIcon } from './icons.js'
+import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, PinIcon, TrashIcon } from './icons.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
 import { stepMenuFocus, useLinger } from './motion.js'
@@ -95,7 +95,7 @@ const groupEntries = entries => entries.reduce((groups, entry) => {
   return groups
 }, [])
 
-function EntryRow({ entry, remove }) {
+function EntryRow({ entry, remove, pin, layer }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -104,7 +104,8 @@ function EntryRow({ entry, remove }) {
     return () => clearTimeout(timer)
   }, [confirming])
   const by = entry.source === 'memory panel' ? t('by you') : entry.by ? t('by {name}', { name: entry.by }) : null
-  const meta = [entry.added, by].filter(Boolean).join(' · ')
+  const until = entry.until ? t(entry.expired ? 'ended {day}' : 'until {day}', { day: entry.until }) : null
+  const meta = [entry.added, by, until].filter(Boolean).join(' · ')
   const click = async () => {
     if (!confirming) { setConfirming(true); return }
     setBusy(true)
@@ -115,12 +116,28 @@ function EntryRow({ entry, remove }) {
       h('span', { className: 'bt-mem-entry-text' }, entry.text),
       meta ? h('span', { className: 'bt-mem-entry-meta' }, meta) : null),
     h('button', {
+      type: 'button', className: 'bt-mem-remove bt-mem-pin', 'data-on': entry.pinned || undefined, disabled: busy, 'aria-pressed': entry.pinned,
+      'aria-label': entry.pinned ? t('Unpin') : t('Pin'), title: entry.pinned ? t('Unpin') : t('Pin'), onClick: () => pin(entry, !entry.pinned),
+    }, h(PinIcon)),
+    entry.scope === 'team' ? h('button', {
+      type: 'button', className: 'bt-mem-place', disabled: busy, onClick: () => layer(entry, entry.topic !== null),
+    }, entry.topic === null ? t('Only when needed') : t('Every conversation')) : null,
+    h('button', {
       type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to remove') : t('Remove from memory'), title: confirming ? undefined : t('Remove from memory'), onClick: click,
     }, confirming ? t('Remove') : h(TrashIcon)))
 }
 
-function Entries({ owner, view, remove }) {
+function TidyNote({ tidy, undo }) {
+  const [busy, setBusy] = useState(false)
+  const line = t('Tidied: {merged} merged, {moved} moved, {retired} archived', { merged: tidy.merged, moved: tidy.moved, retired: tidy.retired })
+  return h('details', { className: 'bt-mem-tidy' },
+    h('summary', null, h('span', null, line),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: async (event) => { event.preventDefault(); setBusy(true); await undo(tidy); setBusy(false) } }, t('Undo'))),
+    h('ul', null, tidy.items.map((item, at) => h('li', { key: at }, item.text))))
+}
+
+function Entries({ owner, view, remove, pin, layer, undoTidy }) {
   const groups = groupEntries(view.entries)
   const sections = owner.group
     ? [{ scope: 'group', title: t('Group memory'), hint: t('Only its members read it'), size: view.sizes.group }]
@@ -129,15 +146,16 @@ function Entries({ owner, view, remove }) {
         { scope: 'team', title: t('Team memory'), hint: t('Every Bot reads it'), size: view.sizes.team },
       ]
   return h('div', { className: 'bt-mem-entries' },
+    view.tidy ? h(TidyNote, { tidy: view.tidy, undo: undoTidy }) : null,
     sections.map(section => h('section', { key: section.scope, className: 'bt-mem-section' },
       h('div', { className: 'bt-mem-section-head' },
         h('h3', null, section.title),
         section.hint ? h('span', null, section.hint) : null,
-        h('span', { className: 'bt-mem-size', title: t('MEMORY.md, which every conversation reads') }, t('{used} of {limit} characters', { used: section.size.toLocaleString(dateLocale()), limit: view.limits.main.toLocaleString(dateLocale()) }))),
+        h('span', { className: 'bt-mem-size', title: t('MEMORY.md, which every conversation reads') }, t('{used} of {limit} characters', { used: section.size.toLocaleString(dateLocale()), limit: view.limits[section.scope].toLocaleString(dateLocale()) }))),
       groups.some(group => group.scope === section.scope)
         ? groups.filter(group => group.scope === section.scope).map(group => h(Fragment, { key: group.key },
             group.topic ? h('div', { className: 'bt-mem-topic' }, group.topic) : null,
-            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove })))))
+            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin, layer })))))
         : h('div', { className: 'bt-mem-none' }, t('Nothing saved yet')))))
 }
 
@@ -306,6 +324,27 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       return false
     }
   }
+  const undoTidy = async (tidy) => {
+    try {
+      show(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch))
+    } catch (failure) {
+      setAnswer({ asked: t('Undo'), error: failure?.message ?? String(failure) })
+    }
+  }
+  const layer = async (entry, always) => {
+    try {
+      show(await actions.memoryLayer(owner.id, entry, always))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
+  const pin = async (entry, on) => {
+    try {
+      show(await actions.memoryPin(owner.id, entry, on))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
   const undo = async (row) => {
     try {
       show(await actions.memoryRestore(owner.id, row.id))
@@ -360,7 +399,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       h('div', { className: 'bt-mem-body' },
         error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, hostText(error)) : null,
         view === null ? (error ? null : h(Skeleton))
-          : page === 'entries' ? h(Entries, { owner, view, remove })
+          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer, undoTidy })
             : page === 'history' ? h(History, { owner, actions, undo, now })
               : h(Summary, { owner, view, regenerate })),
       h('div', { className: 'bt-mem-foot' },
