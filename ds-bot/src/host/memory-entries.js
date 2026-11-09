@@ -53,6 +53,15 @@ export function newEntryId(entries) {
     if (!taken.has(id)) return id
   }
 }
+// A topic's line in the prompt: the note under its title, else its first entry. A team
+// topic has no first entry to show, or it would reach every Bot by the back door.
+const ABOUT_MAX = 60
+export function topicAbout(parsed, withEntry = true) {
+  const note = parsed.lines.find(line => /^>\s*\S/.test(line))?.replace(/^>\s*/, '')
+  const text = note ?? (withEntry ? parsed.entries[0]?.text ?? '' : '')
+  return text.length > ABOUT_MAX ? `${text.slice(0, ABOUT_MAX)}…` : text
+}
+
 export const isPinned = entry => Boolean(entry.meta?.pinned)
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 export const cleanDay = raw => (DAY.test(String(raw ?? '').trim()) ? String(raw).trim() : undefined)
@@ -229,7 +238,7 @@ export function parseAsk(text) {
 
 // Words to compare by: Latin words of three letters or more, and pairs of Han
 // characters, which Chinese writes without spaces.
-const wordsOf = (text) => {
+export const wordsOf = (text) => {
   const lower = squash(text)
   const words = new Set(lower.match(/[a-z0-9]{3,}/g) ?? [])
   for (const run of lower.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))

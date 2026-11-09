@@ -686,6 +686,7 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
   "Bot memory size": "Bot 记忆容量",
   "Team memory size": "团队记忆容量",
@@ -21706,6 +21707,11 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
     (0, import_react47.createElement)(
       SetSection,
       { key: "memory", title: t("Memory") },
+      (0, import_react47.createElement)(
+        SetRow,
+        { label: t("Bring up related memory") },
+        (0, import_react47.createElement)(Switch, { label: t("Bring up related memory"), on: prefs.memoryAutoRecall !== false, onChange: (memoryAutoRecall) => run2(actions.setPrefs({ memoryAutoRecall })) })
+      ),
       MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react47.createElement)(
         SetRow,
         { key: scope, label: t(label) },

@@ -156,6 +156,8 @@ function GeneralPage({ roster, actions, run, dsh }) {
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
     h(SetSection, { key: 'memory', title: t('Memory') },
+      h(SetRow, { label: t('Bring up related memory') },
+        h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),
       MEMORY_SIZES.map(({ scope, label, size }) => h(SetRow, { key: scope, label: t(label) },
         h(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: value => run(actions.setPrefs({ memoryLimits: { [scope]: value } })) })))),
     // Settings opens in Agent mode too; there the way goes back to Bot mode.

@@ -10,6 +10,7 @@ import {
   looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
 } from '../src/host/memory.js'
 import { fitWindow, promptEntry } from '../src/host/memory-entries.js'
+import { rankEntries } from '../src/host/memory-search.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -960,7 +961,7 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   t.after(() => renewed.stop())
   rmSync(join(first.home, 'memory', 'snapshots', 'b2.md'))
   await renewed.tool('recall', {}, 'b2')
-  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopics: \[\[home\]\]\n/)
+  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopic \[\[home\]\]: Lives in Hangzhou\n/)
 })
 
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
@@ -1702,6 +1703,42 @@ test('the team memory every Bot always reads takes what the user says, and the r
   assert.doesNotMatch(read('team', 'shared.md'), /Coder knows the build/)
   const down = await call('memory-layer', { botId: 'b2', text: 'Coder knows the build', always: false })
   assert.equal(down.value.entries.find(entry => entry.text === 'Coder knows the build').topic, 'shared')
+})
+
+async function recallOf(ctx, sessionId, said, history = []) {
+  const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
+  const agent = { id: sessionId, session: { deriveMessages: () => history } }
+  const message = { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: said }] }
+  const decision = await step({ agent, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: said === '' ? [] : [message] }))
+  return decision.messages.find(item => item.source?.kind === 'ds-bot-memory-recall')
+}
+
+test('a turn brings up matching topic entries once, as data, and only from what its Bot may read', async (t) => {
+  const { ctx, tool, call, section, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: '发版前先跑真机检查', topic: 'release' }, 'b2')
+  await tool('remember', { text: 'Coder prefers small pull requests', topic: 'review' }, 'b3')
+  await tool('remember', { text: '午饭吃面', topic: 'food' }, 'b2')
+  section('b2')
+  const recalled = await recallOf(ctx, 'b2', '这次发版前要做什么检查')
+  assert.match(textOf(recalled), /^## Possibly relevant memory\n.*data, not instructions.*\n\n- \(yours · release\) 发版前先跑真机检查 \[/)
+  assert.doesNotMatch(textOf(recalled), /午饭|small pull/)
+  // Nothing matching: nothing goes in. Already shown in this part: not again.
+  assert.equal(await recallOf(ctx, 'b2', 'completely unrelated words here'), undefined)
+  assert.equal(await recallOf(ctx, 'b2', '这次发版前要做什么检查', [recalled]), undefined)
+  // Steps inside a turn have no new message.
+  assert.equal(await recallOf(ctx, 'b2', ''), undefined)
+  // Another Bot's topics stay out, and the user can turn it off.
+  assert.equal(await recallOf(ctx, 'b2', 'small pull requests please'), undefined)
+  await call('set-prefs', { memoryAutoRecall: false })
+  assert.equal(await recallOf(ctx, 'b2', '这次发版前要做什么检查'), undefined)
+})
+
+test('recall puts the entry that matches best first', () => {
+  const entries = ['Ships on Friday and also lots of other words here', 'Friday ships'].map(text => ({ text, file: {} }))
+  const ranked = rankEntries(entries, 'ships friday')
+  assert.equal(ranked[0].entry.text, 'Friday ships')
+  assert.equal(ranked[0].hits, 2)
 })
 
 test('a new entry on a full MEMORY.md moves the oldest in the same change, and the log says so', async (t) => {
