@@ -132,3 +132,24 @@ test('a dropped socket reconnects', async (t) => {
   await until(() => fake.sockets.length === 2)
   assert.ok(fake.calls.filter(call => call.path === '/v1.0/gateway/connections/open').length >= 2)
 })
+
+test('opening the gateway that fails on a network error is tried again', async () => {
+  const fake = await fakeDingtalk()
+  const base = env(fake)
+  let attempts = 0
+  const flaky = {
+    ...base,
+    fetch: (url, options) => {
+      if (String(url).endsWith('/v1.0/gateway/connections/open') && attempts++ === 0) return Promise.reject(new Error('getaddrinfo ENOTFOUND api.dingtalk.com'))
+      return base.fetch(url, options)
+    },
+  }
+  try {
+    const statuses = []
+    const handle = dingtalk.connect(FIELDS, flaky, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+    await until(() => statuses.some(next => next.state === 'error'))
+    await until(() => statuses.some(next => next.state === 'ready'), 200)
+    assert.ok(attempts >= 2, 'the adapter asked for a gateway again')
+    handle.stop()
+  } finally { fake.close() }
+})

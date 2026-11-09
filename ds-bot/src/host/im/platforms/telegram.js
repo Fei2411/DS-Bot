@@ -153,15 +153,27 @@ export default {
     }
 
     let delay = 0
+    let startTimer
     const poll = async () => {
       let me
       try {
         me = await getMe()
       } catch (error) {
-        if (error.stopped) return
+        if (error.stopped || stopped) return
         handlers.onStatus({ state: 'error', error: reason(error) })
+        // A failed getMe used to end the adapter here: the poll loop below never
+        // started, so the close handler that schedules reconnects never ran
+        // either, and the host only starts a connection whose runner is gone —
+        // the channel stayed dead until someone pressed retry (#1119). A rejected
+        // token is still a dead end; a network error is worth another try.
+        if (error.permanent !== true) {
+          delay = Math.min(Math.max(1_000, delay * 2 || 1_000), BACKOFF_MAX_MS)
+          startTimer = setTimeout(() => { if (!stopped) void poll() }, delay)
+          startTimer.unref?.()
+        }
         return
       }
+      delay = 0
       handlers.onStatus({ state: 'ready', account: { id: String(me.id), name: selfName || String(me.id) } })
       while (!stopped) {
         try {
@@ -227,6 +239,7 @@ export default {
       typing: chat => call('sendChatAction', { chat_id: chat.key, action: 'typing' }).catch(() => {}),
       stop: () => {
         stopped = true
+        clearTimeout(startTimer)
         for (const abort of inFlight) abort.abort(stoppedError())
       },
     }

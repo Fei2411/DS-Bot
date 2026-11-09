@@ -134,3 +134,27 @@ test('a dropped socket reconnects and resumes', async (t) => {
   await until(() => fake.sockets.length === 2)
   await until(() => fake.packets.some(packet => packet.op === 6))
 })
+
+test('a gateway call that fails on a network error is tried again', async () => {
+  const fake = await fakeQq()
+  const base = env(fake)
+  let attempts = 0
+  // The first gateway call never reaches the platform, which is what a DNS or
+  // proxy failure looks like; before this the adapter reported the error and
+  // gave up, and nothing else would ever start it again (#1119).
+  const flaky = {
+    ...base,
+    fetch: (url, options) => {
+      if (String(url).endsWith('/gateway') && attempts++ === 0) return Promise.reject(new Error('getaddrinfo ENOTFOUND api.sgroup.qq.com'))
+      return base.fetch(url, options)
+    },
+  }
+  try {
+    const statuses = []
+    const handle = qq.connect(FIELDS, flaky, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+    await until(() => statuses.some(next => next.state === 'error'))
+    await until(() => statuses.some(next => next.state === 'ready'), 200)
+    assert.ok(attempts >= 2, 'the adapter asked for a gateway again')
+    handle.stop()
+  } finally { fake.close() }
+})

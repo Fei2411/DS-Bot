@@ -30,6 +30,18 @@ export default {
     let reconnectTimer
     let token
     let tokenExpiresAt = 0
+    // A first attempt that fails leaves nothing to reconnect from: the socket was
+    // never opened, so its close handler — the only place that schedules the next
+    // try — never runs, and the host starts a connection again only when its
+    // runner is gone. The channel stayed in error until someone pressed retry
+    // (#1119), so every dead end below schedules the next attempt itself.
+    const RETRY_MAX_MS = 30_000
+    let retryDelay = 0
+    const retry = (again) => {
+      retryDelay = Math.min(Math.max(1_000, retryDelay * 2 || 1_000), RETRY_MAX_MS)
+      reconnectTimer = setTimeout(() => { if (!stopped) void again() }, retryDelay)
+      reconnectTimer.unref?.()
+    }
     const ensureToken = async () => {
       if (token !== undefined && tokenExpiresAt > Date.now() + 30_000) return token
       const answer = await appToken(fields, env)
@@ -122,10 +134,12 @@ export default {
         url = `${body.endpoint}?ticket=${body.ticket}`
       } catch (error) {
         handlers.onStatus({ state: 'error', error: error.message })
+        retry(open)
         return
       }
       try { socket = new env.WebSocket(url) } catch (error) {
         handlers.onStatus({ state: 'error', error: `DingTalk could not open a socket: ${error?.message ?? error}` })
+        retry(() => open())
         return
       }
       socket.addEventListener('message', (event) => {
@@ -143,7 +157,7 @@ export default {
           void onCallback(headers, String(packet.data ?? '{}')).catch(error => env.log?.warn?.('ds-bot im: dingtalk message failed: %s', error?.message ?? error))
         }
       })
-      socket.addEventListener('open', () => handlers.onStatus({ state: 'ready' }))
+      socket.addEventListener('open', () => { retryDelay = 0; handlers.onStatus({ state: 'ready' }) })
       socket.addEventListener('close', () => {
         if (stopped || generation !== gen) return
         handlers.onStatus({ state: 'connecting' })
@@ -154,17 +168,20 @@ export default {
     }
 
     handlers.onStatus({ state: 'connecting' })
-    void (async () => {
+    const boot = async () => {
       try {
         const got = await appToken(fields, env)
         token = got.accessToken
         tokenExpiresAt = got.expiresAt
       } catch (error) {
+        if (stopped) return
         handlers.onStatus({ state: 'error', error: error.message })
+        retry(boot)
         return
       }
       if (!stopped) await open()
-    })()
+    }
+    void boot()
 
     return {
       send: async (chat, { text }) => markdown(chat, text),
