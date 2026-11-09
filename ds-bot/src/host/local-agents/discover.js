@@ -1,10 +1,10 @@
 // Finding agent CLIs and the environment they run in: PATH plus the user's
 // login-shell PATH plus the usual install folders, and an environment that
 // keeps their own sign-in but leaks nothing of ours.
-import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { execFile, spawn } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, win32 } from 'node:path'
 
 // The CLI signs in by itself; an API key or another agent's backend variable in
 // our environment would shadow that or leak, so neither reaches the child.
@@ -20,6 +20,10 @@ export function cleanEnv(extra = {}) {
     if (DROP_EXACT.has(key) || DROP_PREFIX.some(prefix => key.startsWith(prefix))) continue
     env[key] = value
   }
+  // A CLI found outside our sparse PATH (a script with `#!/usr/bin/env node`)
+  // needs the same folders to find its interpreter. Windows spells it `Path`.
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH'
+  env[pathKey] = searchDirs().join(delimiter)
   return { ...env, ...extra }
 }
 
@@ -88,12 +92,75 @@ export function findExecutable(name) {
   return undefined
 }
 
+// npm's shims name their runner in _prog: "%dp0%\node.exe" when one lies beside them, else "node".
+const SHIM_PROGRAM = /SET "_prog=(?:%dp0%\\)?([^"\\]+?)(?:\.exe)?"/iu
+const CMD_SAFE = /^[\w\-.:/\\=@+,~ ]*$/u
+
+// What a Windows shim starts: the quoted paths on its last line that passes the
+// arguments on (%*), with the shim's folder (npm "%dp0%", pnpm "%~dp0") filled in.
+function shimLaunch(shim, dir, { exists, find }) {
+  const line = shim.split(/\r?\n/u).filter(text => text.includes('%*')).at(-1) ?? ''
+  const paths = [...line.matchAll(/"([^"]+)"/gu)].map(match => match[1])
+  if (paths.length === 0) return undefined
+  const expand = path => win32.resolve(dir, path.replace(/^%~?dp0%?\\?/iu, ''))
+  const target = expand(paths.at(-1))
+  if (paths.length === 1 && /\.exe$/iu.test(target)) return { file: target }
+  const named = paths.length > 1 && paths[0] !== '%_prog%' ? expand(paths[0]) : undefined
+  const program = SHIM_PROGRAM.exec(shim)?.[1] ?? 'node'
+  const runner = named !== undefined && exists(named) ? named : exists(win32.join(dir, `${program}.exe`)) ? win32.join(dir, `${program}.exe`) : find(program)
+  return runner !== undefined && /\.exe$/iu.test(runner) ? { file: runner, script: target } : undefined
+}
+
+// The program and arguments that start `executable`. Node starts no `.cmd` or
+// `.bat` without a shell (spawn EINVAL), and a shell would mangle a system prompt
+// with quotes or line breaks. The shims that npm and pnpm install for a CLI only
+// start a script with Node or a program beside them, so that runs directly.
+export function launchOf(executable, args, { platform = process.platform, readFile = readFileSync, exists = existsSync, find = findExecutable } = {}) {
+  if (platform !== 'win32' || !/\.(?:cmd|bat)$/iu.test(executable)) return { file: executable, args }
+  let shim = ''
+  try { shim = readFile(executable, 'utf8') } catch { /* started through cmd.exe below */ }
+  const shimmed = shimLaunch(shim, win32.dirname(executable), { exists, find })
+  if (shimmed !== undefined) return { file: shimmed.file, args: shimmed.script === undefined ? args : [shimmed.script, ...args] }
+  // Another kind of batch file goes through cmd.exe, which only passes plain arguments intact.
+  if (![executable, ...args].every(arg => CMD_SAFE.test(arg))) {
+    throw new Error(`${win32.basename(executable)} is a batch file that DS Bot cannot start with these arguments. Point the agent at its .exe or Node script instead.`)
+  }
+  const line = [executable, ...args].map(arg => (arg === '' || arg.includes(' ') ? `"${arg}"` : arg)).join(' ')
+  return { file: process.env.ComSpec ?? 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`], options: { windowsVerbatimArguments: true } }
+}
+
+// spawn() for an agent CLI, also when Windows found it as a `.cmd` shim.
+export function spawnAgent(executable, args, options) {
+  const launch = launchOf(executable, args)
+  return spawn(launch.file, launch.args, { ...options, ...launch.options })
+}
+
 // One `--version` call, bounded; the version line is for display only.
 export function probeVersion(executable, args, env) {
   return new Promise((resolve) => {
-    execFile(executable, args, { encoding: 'utf8', timeout: 10_000, env }, (error, stdout, stderr) => {
-      const text = `${stdout ?? ''}${stderr ?? ''}`.split('\n').map(line => line.trim()).find(Boolean)
-      resolve({ ok: error === null, version: text })
-    })
+    try {
+      const launch = launchOf(executable, args)
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 10_000, env, windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
+        const text = `${stdout ?? ''}${stderr ?? ''}`.split('\n').map(line => line.trim()).find(Boolean)
+        resolve({ ok: error === null, version: text })
+      })
+    } catch { resolve({ ok: false, version: undefined }) }
+  })
+}
+
+// Whether a CLI is signed in: true, false, or null when it cannot tell. A missing
+// credential file proves nothing (macOS keeps some in the Keychain), so only a
+// command can say false. The output and the file stay here; only the answer leaves.
+export function probeSignIn(executable, check, { home = homedir() } = {}) {
+  if (check === undefined) return Promise.resolve(null)
+  if (check.file !== undefined) return Promise.resolve(existsSync(join(home, ...check.file)) ? true : null)
+  return new Promise((resolve) => {
+    try {
+      const launch = launchOf(executable, check.args)
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 3_000, env: cleanEnv(), windowsHide: true, ...launch.options }, (_error, stdout, stderr) => {
+        const text = `${stdout ?? ''}${stderr ?? ''}`
+        resolve(/not (?:logged|signed) in/iu.test(text) ? false : /(?:logged|signed) in/iu.test(text) ? true : null)
+      })
+    } catch { resolve(null) }
   })
 }
