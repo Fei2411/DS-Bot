@@ -55,9 +55,10 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
   const provider = computer.provider ?? { state: computer.enabled ? 'loading' : 'off' }
   const refresh = () => { if (actions.computerSystemStatus) void Promise.resolve(actions.computerSystemStatus()).then(setSystem, () => {}) }
   useEffect(() => {
-    if (computer.enabled && computer.macos === true) refresh()
+    if (computer.enabled && computer.macos === true && provider.state === 'ready') refresh()
+    else setSystem(null)
     return undefined
-  }, [computer.enabled, computer.macos])
+  }, [computer.enabled, computer.macos, provider.state])
   const perms = system ?? {}
   const permRow = (key, label) => {
     const state = perms[key]?.state ?? perms[key]
@@ -75,7 +76,7 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
         ['error', 'missing', 'occupied'].includes(provider.state) && actions.computerProviderRetry
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerProviderRetry()) }, t('Retry')) : null),
       provider.state === 'missing' && provider.install?.command ? h(InstallRow, { install: provider.install, Row }) : null,
-      computer.macos === true ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
+      computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
     h(Section, { key: 'bots', title: t('Bots') },
       computer.enabled && !providerWorks(provider) ? h('p', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.')) : null,
       roster.bots.map(bot => h(Row, { key: bot.id, label: bot.name },

@@ -137,7 +137,7 @@ Bot 是长期的：用户和一个 Bot 聊几周、几个月，上下文一定�
 - DSH 的一些适配器会给没写 `contextWindow` 的模型自己填一个默认值，这时插件拿到的是适配器的值，不是 500k。README 里要求用户填 `contextWindow`。
 - 已经开着的会话通过增量消息看到别人改动的 `MEMORY.md` 条目，主题里的内容靠自动召回或 `recall`（#214、#453，见 [记忆的四种读法](2026-11-09-memory-layers.md)）。
 - 和[愿景](../vision.zh.md)第 3 条的差距：
-  - Bot 之间的记忆互相只读：用 `recall` 按需读，不注入；隐私 Bot 的记忆只有 Main Bot 能读（见 [隐私 Bot](2026-10-27-private-bots.md)）。
+  - Bot 之间的记忆互相只读：用 `recall` 按需读，不注入；隐私 Bot 的记忆只有它自己和用户能读（见 [隐私 Bot](2026-10-27-private-bots.md)）。
   - 愿景要求目标驱动地完成工作：群聊已有 DS Bot 自己的 [群聊 Goal](2026-11-01-group-goal.md)（#791），单 Bot 私聊里的 Goal 还没做；Bot 会话里关掉了 DSH 的会话级 goal（见 [DSH 让步总账](2026-10-13-dsh-concessions.md)）。
 - 「Bot 开一个全新的会话、保留身份」（相当于 /new）还没有（#122）。
 

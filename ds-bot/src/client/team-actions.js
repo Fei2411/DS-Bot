@@ -206,6 +206,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     memoryView: (id, flags = {}) => call('memory-view', { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call('memory-ask', { ...memoryOf(id), text }),
     memoryLayer: (id, entry, always) => call('memory-layer', { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
+    memoryMove: (id, entry, to) => call('memory-move', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, to }),
     memoryTidyUndo: (id, scope, batch) => call('memory-tidy-undo', { ...memoryOf(id), scope, batch }),
     memoryPin: (id, entry, pin) => call('memory-pin', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
     memoryForget: (id, entry) => call('memory-forget', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),

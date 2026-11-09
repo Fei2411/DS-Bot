@@ -1025,6 +1025,7 @@ const ZH = {
   'until {day}': '有效至 {day}',
   'Tidied: {merged} merged, {moved} moved, {retired} archived': '已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条',
   'Only when needed': '需要时才读',
+  'Move to…': '移到…',
   'Every conversation': '每次都带',
   'ended {day}': '已于 {day} 结束',
   'Click again to remove': '再点一次删除',

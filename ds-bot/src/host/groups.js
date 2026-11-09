@@ -265,6 +265,13 @@ export function install(rt) {
   }
   Object.assign(rt, {
     keepGroupLine, dropGroupLines,
+    async recentGroupLines(roomId) {
+      const room = rt.roomOf(roomId)
+      if (room === undefined) return []
+      ensureRoomLog(room)
+      await loadGroupLines(room)
+      return room.log.map(line => ({ ...line, text: wholeLines.get(lineKey(room.id, line.seq)) ?? line.text }))
+    },
     logRoom: (room, line) => { ensureRoomLog(room); appendRoom(room, line) },
     onRoomLine: (listener) => {
       roomLineListeners.add(listener)
@@ -1203,10 +1210,12 @@ export function install(rt) {
       const { room, error } = rt.pickRoom(args.group, self)
       if (error) return error
       ensureRoomLog(room)
-      await loadGroupLines(room)
       if (args.seq !== undefined) {
         const line = room.log.find(entry => entry.seq === Number(args.seq))
-        if (line !== undefined) return lineText(line, memberText(room)(line))
+        if (line !== undefined) {
+          await loadGroupLines(room)
+          return lineText(line, memberText(room)(line))
+        }
         const kept = await rt.groupLine(room.id, Number(args.seq)).catch(() => undefined)
         return kept === undefined ? `"${room.name}" has no message ${args.seq}.` : lineText(kept, headOf(kept.text ?? '', GROUP_LINE_READ))
       }
