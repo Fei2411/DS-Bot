@@ -62,6 +62,7 @@ export function install(rt) {
     questions: state.questions,
     views: state.views ?? {},
     closedCards: state.closedCards ?? {},
+    closedViews: state.closedViews ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
@@ -290,6 +291,12 @@ export function install(rt) {
         case 'update-bot':
           await rt.load()
           return ok(await rt.updateBot(body.id, body))
+        // Give up one wait for a hand-off that will not come back: only that sub-work
+        // closes, with an explicit result for the work above it.
+        case 'abandon-work':
+          await rt.load()
+          if (rt.abandonWork?.(String(body.id ?? '')) !== true) return fail('That wait is no longer open', 'bot/stale')
+          return ok(true)
         // The repair card's Retry, once the user fixed what failed the Bot's turn.
         case 'resume': {
           await rt.load()
