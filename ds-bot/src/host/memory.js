@@ -34,7 +34,7 @@ import { replaceFile } from './files.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, removeLink, splitMeta, squash, WINDOW_SHARE } from './memory-entries.js'
-import { GROUP_HEADING, GROUP_MEMORY_SOURCE, SUMMARY_SYSTEM, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
+import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { output } from './tools.js'
 
@@ -44,6 +44,12 @@ export { writtenIn } from './memory-copy.js'
 // Where entries go when MEMORY.md is at its size.
 const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
+// One memory update message says this much; the rest is left to recall.
+const UPDATE_ROWS_MAX = 20
+const UPDATE_TEXT_MAX = 4_000
+// The changes kept in memory for update messages, and how far back a start reads them.
+const RECENT_ROWS_MAX = 2_000
+const RECENT_TAIL_CHARS = 512 * 1024
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
@@ -231,6 +237,7 @@ export function install(rt) {
     const half = text.slice(cut)
     const line = JSON.stringify(row)
     mkdirSync(dirname(path), { recursive: true })
+    rememberRow(row)
     if (half === '') {
       await appendFile(path, `${line}\n`, 'utf8')
       return true
@@ -245,6 +252,26 @@ export function install(rt) {
     truncateSync(path, Buffer.byteLength(text.slice(0, cut), 'utf8'))
     await appendFile(path, `${line}\n`, 'utf8')
     return true
+  }
+
+  // Recent changes, for the memory updates a running conversation gets.
+  const recentRows = []
+  const tailsRead = new Set()
+  const rememberRow = (row) => {
+    if (recentRows.some(known => known.id === row.id)) return
+    recentRows.push(row)
+    recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
+    if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+  }
+  function readTail(path) {
+    if (tailsRead.has(path)) return
+    tailsRead.add(path)
+    for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
+      try {
+        const row = JSON.parse(line)
+        if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
+      } catch { /* a line cut by the tail, or half-written */ }
+    }
   }
 
   // Publishes a change: the files it touches, then the row that goes with it in the
@@ -418,7 +445,7 @@ export function install(rt) {
   }
   const capital = text => text[0].toUpperCase() + text.slice(1)
   const allEntries = files => files.flatMap(file => file.entries.map(entry => ({ ...entry, file })))
-  const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}) })
+  const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}), ...(actor.session ? { session: actor.session } : {}) })
 
   // The latest change to a Bot's memory or a group's, by remember, forget, or the
   // memory review; a team change counts for the Bot that made it. The conversation
@@ -660,6 +687,30 @@ export function install(rt) {
   /** @type {Map<string, string>} */
   const frozen = new Map()
   const snapshotPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.md`)
+  // Where a Session's memory stands: the time of its snapshot, then of the last update.
+  const seenPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.seen`)
+  const seenTimes = new Map()
+  const seenOf = (sessionId) => {
+    if (seenTimes.has(sessionId)) return seenTimes.get(sessionId)
+    try {
+      const time = readFileSync(seenPath(sessionId), 'utf8').trim()
+      if (time !== '') seenTimes.set(sessionId, time)
+      return time || undefined
+    } catch {
+      return undefined
+    }
+  }
+  const markSeen = (sessionId, time) => {
+    seenTimes.set(sessionId, time)
+    if (rt.readOnly() !== undefined) return
+    try {
+      mkdirSync(dirname(seenPath(sessionId)), { recursive: true })
+      writeFileSync(seenPath(sessionId), time, 'utf8')
+    } catch (error) {
+      rt.warn('ds-bot: memory place for %s not saved: %s', sessionId, error)
+    }
+  }
+
   function sectionFor(sessionId) {
     if (sessionId === undefined) return ''
     const bot = rt.botOf(rt.selfOf(sessionId))
@@ -696,6 +747,7 @@ export function install(rt) {
           mkdirSync(dirname(path), { recursive: true })
           writeFileSync(`${path}.tmp`, text, 'utf8')
           renameSync(`${path}.tmp`, path)
+          markSeen(sessionId, new Date().toISOString())
         } catch (error) {
           rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
         }
@@ -708,7 +760,9 @@ export function install(rt) {
   function renewMemory(sessionId) {
     if (sessionId === undefined) return
     frozen.delete(sessionId)
+    seenTimes.delete(sessionId)
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
+    try { unlinkSync(seenPath(sessionId)) } catch { /* none saved */ }
   }
 
   ctx.effect(() => ctx.systemPrompt.section({
@@ -729,20 +783,77 @@ export function install(rt) {
     await rt.load()
     const roomId = roomIdOf(agent.id)
     const bot = rt.botOf(rt.selfOf(agent.id))
-    if (bot !== undefined) await noteWindow(bot)
-    if (roomId === undefined || bot === undefined || !rt.roomOf(roomId)?.members.includes(bot.id)) return decision
-    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return decision
+    if (bot === undefined) return decision
+    await noteWindow(bot)
+    const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    const front = []
+    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
+    if (snapshot !== undefined) front.push(snapshot)
+    const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
+    if (update !== undefined) front.push(update)
+    return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
+  })
+
+  function groupSnapshot(agent, roomId, bot, decision) {
+    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
     try {
-      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return decision
+      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return undefined
     } catch { /* no history to look in: the snapshot goes in */ }
     const group = groupSection(roomId, bot)
-    if (group.failed) return decision
-    const message = createUserMessage({
+    if (group.failed) return undefined
+    return createUserMessage({
       content: [{ type: 'text', text: group.text }],
       source: { kind: GROUP_MEMORY_SOURCE, form: 'snapshot', sections: [{ name: GROUP_MEMORY_SOURCE, text: group.text }] },
     })
-    return { ...decision, messages: [message, ...decision.messages] }
-  })
+  }
+
+  // What changed in the memory a Session has in view since it last looked, as a message
+  // of its own at the end of the conversation: the prompt above stays byte for byte, so
+  // the provider's prefix cache holds. A Session's own writes are not news to it.
+  function memoryUpdate(sessionId, bot, roomId) {
+    const seen = seenOf(sessionId)
+    const now = new Date().toISOString()
+    if (seen === undefined) {
+      markSeen(sessionId, now)
+      return undefined
+    }
+    const own = ownScope(bot.id)
+    const keys = new Set([scopeKey(own), scopeKey(TEAM), ...(roomId === undefined ? [] : [scopeKey(groupScope(roomId))])])
+    try {
+      for (const path of new Set([journalPath, journalFor(scopeKey(own), 'read').path])) readTail(path)
+    } catch (error) {
+      rt.warn('ds-bot: memory update for %s not read: %s', bot.name, error?.message ?? error)
+      return undefined
+    }
+    const rows = recentRows.filter(row => row.time > seen && keys.has(row.scope) && row.file === MAIN && row.session !== sessionId && ['add', 'remove', 'replace'].includes(row.op))
+    if (rows.length === 0) return undefined
+    markSeen(sessionId, rows.at(-1).time)
+    const text = updateText(rows, bot)
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: MEMORY_UPDATE_SOURCE, form: 'snapshot', sections: [{ name: MEMORY_UPDATE_SOURCE, text }] },
+    })
+  }
+
+  const rowEntry = line => splitMeta(String(line ?? '').replace(/^\s*[-*]\s+/, '')).text
+  function updateText(rows, bot) {
+    const where = row => (row.scope === 'team' ? 'team memory' : row.scope.startsWith('group:') ? 'group memory' : 'your memory')
+    const who = row => (row.actor === 'user' ? 'the user' : row.actor === bot.id ? (row.auto ? 'the memory review' : 'you, elsewhere') : row.actorName)
+    const lines = rows.map((row) => {
+      if (row.op === 'add') return `- Added to ${where(row)} by ${who(row)}: ${rowEntry(row.after)}`
+      if (row.op === 'remove') return `- Removed from ${where(row)} by ${who(row)}: ${rowEntry(row.before)}`
+      return `- Changed in ${where(row)} by ${who(row)}: "${rowEntry(row.before)}" is now "${rowEntry(row.after)}"`
+    })
+    const kept = []
+    let used = 0
+    for (const line of lines.slice(-UPDATE_ROWS_MAX).reverse()) {
+      if (used + line.length > UPDATE_TEXT_MAX) break
+      used += line.length
+      kept.unshift(line)
+    }
+    const left = lines.length - kept.length
+    return [UPDATE_HEADING, UPDATE_NOTE, '', ...(left > 0 ? [`(${left} earlier changes are not listed; recall finds what is saved.)`] : []), ...kept].join('\n')
+  }
 
   // ---------------------------------------------------------------------------
   // Tools.
@@ -843,7 +954,7 @@ export function install(rt) {
         const result = replace === ''
           ? await addEntry({ ...context, topic, text, meta })
           : await replaceEntry({ ...context, topic, match: replace, text, meta })
-        const shows = context.scope.kind === 'group' ? 'Every member sees it in its next conversation in this group' : 'It shows in your memory from your next conversation'
+        const shows = context.scope.kind === 'group' ? 'The other members see it at their next step in this group' : 'Your other conversations see it at their next step'
         return result.changed ? `${result.message} ${shows}; recall finds it now.` : result.message
       } catch (failure) {
         throw writeFailure(failure)
