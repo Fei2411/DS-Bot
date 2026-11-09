@@ -14,10 +14,37 @@ const QR_BASE = 'https://ilinkai.weixin.qq.com/'
 const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
+const ILINK_APP_ID = 'bot'
+// The iLink client version, packed as 0x00MMNNPP: 2.4.6 is what the reference
+// client (dsh-im 5.10.0, the source of this port) identifies itself as.
+const ILINK_CLIENT_VERSION = (2 << 16) | (4 << 8) | 6
+// The server answers this on getupdates when the bot session is not open; the
+// account has to scan a new QR code.
+const SESSION_EXPIRED = -14
+// Waits between attempts to open the session, from the reference client; the
+// last one repeats while the network stays down, like the poll's own retry.
+const START_RETRY_DELAYS_MS = [250, 1_000, 3_000]
 
-const qrBase = env => String(env.config?.qr ?? env.config?.api ?? QR_BASE).replace(/\/+$/, '/')
-const base = (env, fields) => String(fields.baseUrl || env.config?.api || QR_BASE).replace(/\/+$/, '/')
+// iLink answers with the bare host (no trailing slash), and the request URL is
+// built by appending a path: normalize to exactly one slash either way.
+const withSlash = value => `${String(value).replace(/\/+$/, '')}/`
+const qrBase = env => withSlash(env.config?.qr ?? env.config?.api ?? QR_BASE)
+const base = (env, fields) => withSlash(fields.baseUrl || env.config?.api || QR_BASE)
 const baseInfo = () => ({ channel_version: 'ds-bot' })
+// iLink identifies the calling client by these two headers on every request.
+const clientHeaders = () => ({
+  'iLink-App-Id': ILINK_APP_ID,
+  'iLink-App-ClientVersion': String(ILINK_CLIENT_VERSION),
+})
+// X-WECHAT-UIN is base64 of a random uint32. The protocol reference and the
+// reference client both mint a new value per request rather than keeping one.
+const randomUin = () => Buffer.from(String(randomBytes(4).readUInt32BE(0)), 'utf8').toString('base64')
+
+// iLink omits ret on a successful getupdates answer, so the answer itself has to
+// prove it came from iLink: a bad proxy or a stale endpoint can answer 200 with
+// anything, and that must not read as an idle successful poll.
+const isUpdatesAnswer = answer => answer !== null && typeof answer === 'object'
+  && (Array.isArray(answer.msgs) || typeof answer.get_updates_buf === 'string' || typeof answer.sync_buf === 'string')
 
 const logins = new Map() // loginId → { qrcode, baseUrl, expiresAt, result }
 
@@ -30,7 +57,7 @@ export default {
   async loginStart(env) {
     const response = await env.fetch(`${qrBase(env)}ilink/bot/get_bot_qrcode?bot_type=${BOT_TYPE}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...clientHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ local_token_list: [] }),
     })
     const body = await response.json().catch(() => ({}))
@@ -47,6 +74,7 @@ export default {
     if (held === undefined) return { status: 'expired' }
     if (held.expiresAt < Date.now()) { logins.delete(String(loginId)); return { status: 'expired' } }
     const response = await env.fetch(`${qrBase(env)}ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(held.qrcode)}`, {
+      headers: clientHeaders(),
       signal: AbortSignal.timeout?.(POLL_TIMEOUT_MS) ?? undefined,
     }).catch(() => undefined)
     const body = await response?.json().catch(() => ({})) ?? {}
@@ -66,10 +94,16 @@ export default {
     }
   },
 
-  // The token is proven by a short getupdates poll: ret 0 is a valid bot.
+  // The token is proven by a short getupdates poll: ret 0 is a valid bot. iLink
+  // omits ret altogether on success and sends it only on errors; without one the
+  // answer must still look like a getupdates answer.
   async check(fields, env) {
-    const answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: '', timeout_ms: 0 }, 8_000)
-    if (Number(answer.ret) !== 0) throw fail(`WeChat answered ${answer.ret}`, { permanent: true })
+    const answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: '', timeout_ms: 0 }, 8_000, { requireJson: true })
+    if (answer.ret !== undefined) {
+      if (Number(answer.ret) !== 0) throw fail(`WeChat answered ${answer.ret}`, { permanent: true })
+    } else if (!isUpdatesAnswer(answer)) {
+      throw fail('WeChat answered an unreadable response')
+    }
     return { account: { id: String(fields.ilinkBotId ?? ''), name: 'WeChat' } }
   },
 
@@ -121,7 +155,7 @@ export default {
         while (!stopped && generation === gen) {
           let answer
           try {
-            answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: runtime().cursor ?? '' }, POLL_TIMEOUT_MS + 15_000)
+            answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: runtime().cursor ?? '' }, POLL_TIMEOUT_MS + 15_000, { requireJson: true })
           } catch (error) {
             if (stopped || generation !== gen) return
             if (error?.timeout) { continue }
@@ -131,12 +165,26 @@ export default {
             await sleep(3000)
             continue
           }
-          if (Number(answer.ret) !== 0) {
-            env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
-            if (Number(answer.ret) === 401 || Number(answer.ret) === 403) {
-              handlers.onStatus({ state: 'error', error: `WeChat answered ${answer.ret}` })
-              return
+          const code = answer.ret ?? answer.errcode
+          if (Number(code) === SESSION_EXPIRED) {
+            const reason = 'WeChat session expired; scan the QR code again'
+            env.log?.warn?.('ds-bot im: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+            return
+          }
+          if (answer.ret !== undefined) {
+            if (Number(answer.ret) !== 0) {
+              env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
+              if (Number(answer.ret) === 401 || Number(answer.ret) === 403) {
+                handlers.onStatus({ state: 'error', error: `WeChat answered ${answer.ret}` })
+                return
+              }
+              await sleep(3000)
+              continue
             }
+          } else if (!isUpdatesAnswer(answer)) {
+            env.log?.warn?.('ds-bot im: weixin getupdates answered an unreadable response')
+            handlers.onStatus({ state: 'connecting' })
             await sleep(3000)
             continue
           }
@@ -153,8 +201,42 @@ export default {
       }
     }
 
+    // The session has to be opened before getupdates carries anything. A
+    // refused or expired session is shown once and polling never starts. A
+    // network failure keeps retrying, as the poll does: an app started before
+    // the network is up must still connect once it is. After the quick retries
+    // the failure is on screen until a start succeeds.
+    const startSession = async () => {
+      let shown = false
+      for (let attempt = 0; ; attempt += 1) {
+        if (stopped) return
+        try {
+          await notifyStart(env, base(env, fields), fields.token)
+          break
+        } catch (error) {
+          if (stopped) return
+          const reason = String(error?.message ?? error)
+          if (error?.permanent === true) {
+            env.log?.warn?.('ds-bot im: weixin could not start the session: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+            return
+          }
+          const wait = START_RETRY_DELAYS_MS[attempt]
+          if (wait === undefined && !shown) {
+            shown = true
+            env.log?.warn?.('ds-bot im: weixin could not start the session, still retrying: %s', reason)
+            handlers.onStatus({ state: 'error', error: reason })
+          } else if (wait !== undefined) {
+            env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', reason)
+          }
+          await sleep(wait ?? START_RETRY_DELAYS_MS.at(-1))
+        }
+      }
+      if (!stopped) void poll()
+    }
+
     handlers.onStatus({ state: 'connecting' })
-    void poll()
+    void startSession()
 
     return {
       send: async (chat, { text }) => {
@@ -213,7 +295,19 @@ const chunk = (text, limit) => {
   return chunks
 }
 
-async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIMEOUT_MS) {
+// iLink only carries getupdates for an opened session: before msg/notifystart
+// the server keeps answering {"errcode":-14,"errmsg":"session timeout"}.
+async function notifyStart(env, baseUrl, token) {
+  const answer = await request(env, baseUrl, token, 'msg/notifystart', {}, 10_000)
+  const code = answer?.errcode ?? answer?.ret
+  if (code === undefined || Number(code) === 0) return
+  const reason = Number(code) === SESSION_EXPIRED
+    ? 'WeChat session expired; scan the QR code again'
+    : `WeChat did not start the session (${code})`
+  throw fail(reason, { permanent: true })
+}
+
+async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIMEOUT_MS, { requireJson = false } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs)
   timer.unref?.()
@@ -222,7 +316,9 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
     response = await env.fetch(`${baseUrl}ilink/bot/${endpoint}`, {
       method: 'POST',
       headers: {
+        ...clientHeaders(),
         'content-type': 'application/json',
+        'X-WECHAT-UIN': randomUin(),
         ...(token ? { authorization: `Bearer ${token}`, AuthorizationType: 'ilink_bot_token' } : {}),
       },
       body: JSON.stringify({ ...body, base_info: baseInfo() }),
@@ -230,14 +326,26 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
     })
   } catch (error) {
     const timedOut = error?.name === 'AbortError' || /timeout|aborted/i.test(String(error?.message))
-    throw Object.assign(new Error(timedOut ? 'timeout' : String(error?.message ?? error)), { timeout: timedOut })
+    // fetch reports "fetch failed" and hides ENOTFOUND, ECONNRESET and the like in
+    // cause; surface it in the message and keep the chain for diagnosis.
+    const cause = error?.cause?.code ?? error?.cause?.message
+    throw Object.assign(new Error(timedOut ? 'timeout' : String(cause ?? error?.message ?? error), { cause: error }), { timeout: timedOut })
   } finally {
     clearTimeout(timer)
   }
-  const json = await response.json().catch(() => ({}))
-  if (response.status === 429 || json.ret === 429) throw fail('WeChat rate limited the request', { retryAfter: Number(response.headers.get('retry-after')) })
+  const text = await response.text().catch(() => '')
+  let parsed
+  try { parsed = text === '' ? {} : JSON.parse(text) } catch { parsed = undefined }
+  const json = parsed !== null && typeof parsed === 'object' ? parsed : undefined
+  if (response.status === 429 || json?.ret === 429) throw fail('WeChat rate limited the request', { retryAfter: Number(response.headers.get('retry-after')) })
   if (response.status === 401 || response.status === 403) throw fail('WeChat refused the token', { permanent: true })
   if (!response.ok) throw fail(`WeChat answered ${response.status}`)
+  // A caller that reads fields from the answer (getupdates) needs a real JSON
+  // object; anyone else keeps the old empty answer on a malformed body.
+  if (json === undefined) {
+    if (requireJson) throw fail('WeChat answered an unreadable response', { status: response.status })
+    return {}
+  }
   return json
 }
 

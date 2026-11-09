@@ -4,7 +4,13 @@
 import { INKS } from './inks.js'
 import { AGENT_LOGOS } from './agent-logos.js'
 
-// route -> [glyph, ink name]. Custom agents (acp-*) share the 'AC' mark.
+// Local-agent routes carry this prefix ('local-codex-cli'); the maps below are
+// keyed by the CLI's own name. Custom agents ('local-acp-*') share the 'AC' mark.
+const PREFIX = 'local-'
+const CUSTOM_PREFIX = `${PREFIX}acp-`
+const cliOf = route => (typeof route === 'string' && route.startsWith(PREFIX) ? route.slice(PREFIX.length) : undefined)
+
+// CLI name -> [glyph, ink name].
 export const AGENT_BADGES = {
   'devin-cli': ['DV', 'violet'],
   'claude-code': ['CC', 'tangerine'],
@@ -19,12 +25,27 @@ export const AGENT_BADGES = {
 }
 const CUSTOM = ['AC', 'rose']
 
-export const logoOf = engine => AGENT_LOGOS[engine]
+export const logoOf = engine => (cliOf(engine) === undefined ? undefined : AGENT_LOGOS[cliOf(engine)])
 
-export const badgeOf = engine => AGENT_BADGES[engine] ?? (engine?.startsWith('acp-') ? CUSTOM : undefined)
+export const badgeOf = (engine) => {
+  if (typeof engine !== 'string') return undefined
+  if (engine.startsWith(CUSTOM_PREFIX)) return CUSTOM
+  return cliOf(engine) === undefined ? undefined : AGENT_BADGES[cliOf(engine)]
+}
 
 // A model ref's provider part is a local-agent route when the CLIs serve it.
 export const isLocalRoute = ref => badgeOf(String(ref ?? '').split('/')[0]) !== undefined
+
+export const routeOf = ref => String(ref ?? '').split('/')[0]
+
+// The models a pick can go to from `ref`: a local agent lists only its own, and
+// everything else lists DS Bot's models. What a Bot runs on changes in its settings.
+export function modelsFor(models, ref) {
+  const list = models ?? []
+  return isLocalRoute(ref)
+    ? list.filter(model => routeOf(model.ref) === routeOf(ref))
+    : list.filter(model => !isLocalRoute(model.ref))
+}
 
 // A badge-style avatar image for a new abot: the monogram large on its ink.
 export function agentAvatar(engine) {
