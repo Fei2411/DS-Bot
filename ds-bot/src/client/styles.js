@@ -534,7 +534,24 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-item[aria-current=page]{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-nav>.bt-thumb{left:8px;right:8px;border-radius:8px;background:var(--bt-active)}
 .bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent}
-.bt-settings-shell{margin-top:auto}
+.bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
+.bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
+.bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center}
+.bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
+.bt-settings-actions:empty{display:none}
+.bt-dsh-section{min-width:0}
+/* A DSH page opens on its own title, which the dialog head already shows. */
+.bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
+.bt-dsh-item{min-width:0}
+/* DSH's General rows draw their own row inside DS Bot's card: the card's inset and
+   rules apply, an empty row takes no line, and Appearance is already the section title. */
+.bt-dsh-item>[data-slot]>*{padding-left:12px;padding-right:12px;border-bottom-width:0}
+.bt-dsh-item>[data-slot]>.bt-set-row{padding:10px 12px}
+.bt-dsh-item:has(>[data-slot]:empty){display:none}
+.bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
+.bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
+.bt-advanced:hover{background:var(--bt-hover)}
+.bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
 .bt-settings-item>svg{flex:none}
 /* Usage while another page is open: out of the flow, so it keeps its layout, and not
    rendered. */
@@ -575,6 +592,7 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
+.bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
@@ -640,9 +658,10 @@ html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{heig
 html[data-windows-titlebar] .bt-side-collapse{display:none}
 /* Under a Windows title bar our own switch replaces the shell's: the shell's
    toggle expands the shell sidebar first, and pulling it back afterwards is a
-   visible flash of the shell's column. */
+   visible flash of the shell's column. A host whose window controls stand at the band's
+   left (the macOS traffic lights) sets --bt-caption-start to the room they take. */
 html[data-windows-titlebar] [class*="_logoRow"]>[class*="_toggle"]{display:none!important}
-html[data-windows-titlebar] .bt-title-toggle{position:fixed;left:12px;top:calc((var(--dsh-windows-titlebar-height,0px) - 28px) / 2);width:28px;height:28px;z-index:30;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;padding:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:var(--bt-font)}
+html[data-windows-titlebar] .bt-title-toggle{position:fixed;left:calc(12px + var(--bt-caption-start,0px));top:calc((var(--dsh-windows-titlebar-height,0px) - 28px) / 2);width:28px;height:28px;z-index:30;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;padding:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-title-toggle:hover{background:var(--bt-hover)}
 /* Elsewhere the switch shows only while the column is hidden, where the column's
    own top row had it. */
@@ -809,6 +828,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
+.bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
 .bt-swatch-custom[data-on=true]{border-color:var(--bt-ink)}
@@ -869,6 +889,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-head-gap{flex:1}
 .bt-mem-menu{position:absolute;top:52px;right:50px;min-width:220px;--bt-origin:top right}
 .bt-mem-menu button:disabled{opacity:.4;cursor:default;background:none}
+.bt-mem-move{min-width:200px;max-width:min(280px,calc(100vw - 24px));overflow-y:auto;overscroll-behavior:contain;--bt-origin:top right}
 .bt-mem-body{flex:1;overflow-y:auto;padding:22px 28px 24px;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px}
 .bt-mem-summary{transition:opacity .3s ease}
 .bt-mem-summary[data-stale]{opacity:.55}
@@ -911,6 +932,14 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-remove{flex:none;height:28px;min-width:28px;border-radius:999px;border:0;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0 6px;font:inherit;font-size:12px;opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease}
 .bt-mem-entry:hover .bt-mem-remove,.bt-mem-remove:focus-visible,.bt-mem-remove[data-confirm]{opacity:1}
 .bt-mem-remove:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-mem-pin[data-on]{opacity:1;color:var(--bt-accent)}
+.bt-mem-tidy{margin-bottom:12px;font-size:12px;color:var(--bt-ink-3)}
+.bt-mem-tidy summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.bt-mem-tidy ul{margin:8px 0 0;padding-left:16px}
+.bt-mem-place{flex:none;height:28px;padding:0 8px;border:0;border-radius:999px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer;opacity:0}
+.bt-mem-entry:hover .bt-mem-place,.bt-mem-place:focus-visible{opacity:1}
+.bt-mem-place:hover{background:var(--bt-hover);color:var(--bt-ink)}
+@media (hover:none){.bt-mem-place{opacity:1}}
 .bt-mem-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);padding:0 10px}
 @media (hover:none){.bt-mem-remove{opacity:1}}
 .bt-mem-none{font-size:13px;line-height:18px;color:var(--bt-ink-3);padding:8px 4px}
@@ -969,7 +998,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
      right border keeps the last tab clear of the close button. */
   .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(--bt-line);scrollbar-width:thin;box-sizing:border-box}
   .bt-settings-item{flex:none}
-  .bt-settings-shell{margin-top:0;margin-left:auto;flex:none}
+  .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
   .bt-settings-usage[data-off]{left:0;width:100%}
   .bt-settings-scroll{overflow-x:clip}
@@ -1284,6 +1313,59 @@ div:has(> nav [class*="_marks"]){display:none!important}
 // it is materializing and deletes a module's styles when it unloads. Ours carry our
 // module id from the start, so another plugin's claim or teardown never takes them.
 const PLUGIN_ID = 'ds-bot'
+
+// The part of a style sheet that only reaches DS Bot's own elements: selectors on a
+// `.bt-` class, the `--bt-*` variables on the page root, and the keyframes they run.
+// Rules that re-skin the shell's own elements (the `[class*=…]` overrides) drop out, so
+// Settings can show in Agent mode without dressing DSH's page in Bot mode.
+const ROOT_SELECTOR = /^(?:html\s+)?(?:body|:root)(?:\[[^\]]*\])*$/
+const ownSelector = selector => selector.includes('.bt-') && !/\[class[*^$]?=/.test(selector)
+function splitTopLevel(text, separator) {
+  const parts = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '(' || char === '[') depth += 1
+    else if (char === ')' || char === ']') depth -= 1
+    else if (char === separator && depth === 0) { parts.push(text.slice(start, index)); start = index + 1 }
+  }
+  parts.push(text.slice(start))
+  return parts
+}
+export function botOwnCss(css) {
+  let out = ''
+  let index = 0
+  while (index < css.length) {
+    const open = css.indexOf('{', index)
+    if (open === -1) break
+    let depth = 1
+    let close = open + 1
+    while (close < css.length && depth > 0) {
+      if (css[close] === '{') depth += 1
+      else if (css[close] === '}') depth -= 1
+      close += 1
+    }
+    const head = css.slice(index, open).replace(/\/\*[\s\S]*?\*\//g, '').trim()
+    const body = css.slice(open + 1, close - 1)
+    index = close
+    if (head.startsWith('@keyframes') || head.startsWith('@font-face')) { out += `${head}{${body}}\n`; continue }
+    if (head.startsWith('@')) {
+      const inner = botOwnCss(body)
+      if (inner.trim() !== '') out += `${head}{${inner}}\n`
+      continue
+    }
+    const selectors = splitTopLevel(head, ',').map(part => part.trim())
+    if (selectors.every(selector => ROOT_SELECTOR.test(selector))) {
+      const custom = splitTopLevel(body, ';').map(part => part.trim()).filter(part => part.startsWith('--'))
+      if (custom.length > 0) out += `${head}{${custom.join(';')}}\n`
+      continue
+    }
+    const own = selectors.filter(ownSelector)
+    if (own.length > 0) out += `${own.join(',')}{${body}}\n`
+  }
+  return out
+}
 
 export function installStyles(text, tag) {
   const style = document.createElement('style')

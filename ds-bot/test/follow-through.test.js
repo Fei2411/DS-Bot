@@ -62,8 +62,11 @@ async function start(home, logs, inspect) {
   rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data) => {
+    // A Session already resolved by the test stands in for the one DSH emits, so a
+    // test can give it a route or a size; otherwise only the id is known.
+    const session = agents.get(id)?.session ?? { id }
     for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+      if (listener.length >= 2) listener(session, { type, seq: ++seq, data })
     }
   }
   const tool = (name, args, sessionId, exec = {}) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId }, ...exec })
@@ -104,6 +107,20 @@ const settle = async (check) => {
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const notes = (home) => {
   try { return JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')) } catch { return { turns: {}, queued: {} } }
+}
+// The diagnostics log, once the plugin's background write of it landed.
+const readDiagnostics = async (home, wanted = () => true) => {
+  const deadline = performance.now() + 3000
+  while (performance.now() < deadline) {
+    try {
+      const text = readFileSync(join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+      const entries = text.trim() === '' ? [] : text.trim().split('\n').map(line => JSON.parse(line))
+      // The log is written in the background: wait for the entry a test is after.
+      if (wanted(entries)) return entries
+    } catch {}
+    await realDelay(10)
+  }
+  return []
 }
 const inflight = home => notes(home).turns ?? {}
 // A message as DSH would replay it: the turn starts and takes it up.
@@ -225,7 +242,8 @@ const askWriter = async (host, home) => {
 }
 
 // The durable log of Writer's Session: the turn that took the request up, and what it said.
-const writerLog = (request, said, reason = { kind: 'completed' }) => [
+const writerLog = (request, said, reason = { kind: 'completed' }, route) => [
+  ...(route === undefined ? [] : [{ type: 'request/context', seq: 0, data: route }]),
   { type: 'turn/start', seq: 1, data: { turn: 1 } },
   { type: 'user/message', seq: 2, data: { source: request.source, content: request.content } },
   ...(said === undefined ? [] : [{ type: 'assistant/message', seq: 3, data: { turn: 1, message: { content: [{ type: 'text', text: said }] } } }]),
@@ -347,14 +365,14 @@ test('a turn that ended without saying anything says it finished', async (t) => 
   assert.equal(second.agentOf('b').calls.length, 0)
 })
 
-test('a turn that ended on the token limit gives what it said', async (t) => {
+test('a turn that ended on the token limit gives what it said, marked as not complete', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
   const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
-  logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', { kind: 'max-tokens' }))
+  logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', { kind: 'max-tokens' }, { provider: 'gateway', model: 'step-5' }))
   await first.stop()
 
   const second = await start(home, logs)
@@ -364,9 +382,73 @@ test('a turn that ended on the token limit gives what it said', async (t) => {
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /The plan is ready, up to the limit\./)
+  // Half an answer is not passed on as a whole one.
+  assert.match(text(reply), /\[cut off at the model's output limit; the answer is not complete\]$/)
   // The work is settled, and the request is not run again.
   await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
   assert.equal(second.agentOf('b').calls.length, 0)
+  // The diagnostics name the route, so a wrong contextWindow can be found from them.
+  const entries = await readDiagnostics(home)
+  const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(cutOff.length, 1)
+  assert.match(cutOff[0].text, /answer is not complete \(gateway\/step-5\)/)
+  assert.deepEqual([cutOff[0].level, cutOff[0].bot, cutOff[0].where], ['warn', 'Writer', 'own chat'])
+})
+
+test('a turn cut off on the token limit without any text is not reported as finished', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const logs = new Map()
+  const first = await start(home, logs)
+  const request = await askWriter(first, home)
+  const exchangeId = request.source.exchangeId
+  logs.set('b', writerLog(request, undefined, { kind: 'max-tokens' }, { provider: 'gateway', model: 'step-5' }))
+  await first.stop()
+
+  const second = await start(home, logs)
+  second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('a').calls.length === 1)
+  const reply = second.agentOf('a').calls[0]
+  assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
+  assert.match(text(reply), /\[cut off at the model's output limit before it wrote anything\]/)
+  // Silence is not passed on as a deliberate finish.
+  assert.doesNotMatch(text(reply), /finished without a reply/)
+  await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
+  assert.equal(second.agentOf('b').calls.length, 0)
+  const entries = await readDiagnostics(home)
+  const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(cutOff.length, 1)
+  assert.match(cutOff[0].text, /cut off at the output limit before it wrote anything/)
+})
+
+test('a watched turn cut off without text tells the asker instead of finishing silently', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  await askWriter(host, home)
+  host.agentOf('b').session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const reply = text(host.agentOf('a').calls[0])
+  assert.match(reply, /\[cut off at the model's output limit before it wrote anything\]/)
+  assert.doesNotMatch(reply, /finished without a reply/)
+  // It is on record with the route that was over its window.
+  const entries = await readDiagnostics(home, list => list.some(entry => entry.code === 'MAX_TOKENS'))
+  const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(cutOff.length, 1)
+  assert.match(cutOff[0].text, /before it wrote anything \(gateway\/step-5\)/)
+})
+
+test('a watched turn cut off after writing text is passed on marked unfinished', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  await askWriter(host, home)
+  host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'The first half.' }] } })
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const reply = text(host.agentOf('a').calls[0])
+  assert.match(reply, /The first half\./)
+  assert.match(reply, /\[cut off at the model's output limit; the answer is not complete\]$/)
 })
 
 test('the answer that goes up keeps what came back for the work', async (t) => {
@@ -763,6 +845,10 @@ test('a resend whose first send never landed records the exchange once it arrive
 })
 
 const WRITTEN = 'Checking now.\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem E:\\\n</parameter>\n</function>\n</tool_call>'
+// A reply cut off inside the model's own call template keeps only its closing tags,
+// as the group report shows (it pasted the CJK brackets the model wrote).
+const ORPHAN_TAGS = '＜/parameter＞\n＜/function＞\n＜/tool_call＞'
+const MIXED_TAGS = '＜/parameter＞ ＜parameter=name＞length"＞15 Hi, everyone.'
 
 test('a tool call written as text gets one more turn on the same round slot', async (t) => {
   const home = freshHome(t)
@@ -785,6 +871,70 @@ test('a tool call written as text gets one more turn on the same round slot', as
   assert.equal(host.agentOf('gb').calls.length, 2)
 })
 
+test('a group member that leaves only the call tags gets the same retry, and never posts the tags', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.agentOf('gb').calls[1]
+  assert.deepEqual([retry.source.role, retry.source.retried, retry.source.exchangeId], ['room', true, host.agentOf('gb').calls[0].source.exchangeId])
+  assert.match(text(retry), /^\[Group chat "Ops" · your tool call did not run\]/)
+  assert.equal(result(), undefined)
+
+  // Leftover tags again: the round gets one readable line, no markup.
+  run(host, 'gb', 2, retry)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['Tried to run a tool but wrote the call as text, so it did not run.'])
+  assert.equal(host.agentOf('gb').calls.length, 2)
+})
+
+test('call tags mixed into the text are stripped, and the readable part still goes out', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.agentOf('gb').calls[1]
+  assert.equal(retry.source.retried, true)
+  assert.equal(result(), undefined)
+
+  // Written again: what was said around the tags goes on, without them.
+  run(host, 'gb', 2, retry)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  const [reply] = result().replies.map(entry => entry.text)
+  assert.match(reply, /Hi, everyone\./)
+  assert.doesNotMatch(reply, /parameter|function|tool_call/)
+})
+
+test('a group member cut off on the token limit is not counted as a silent pass', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  // The turn wrote nothing: the round must not read it as the member having passed.
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['[cut off at the model\'s output limit before it wrote anything]'])
+  assert.equal(host.agentOf('gb').calls.length, 1)
+})
+
+test('a group member cut off on the token limit keeps what it said and marks it unfinished', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Half of the answer.' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['Half of the answer.\n\n[cut off at the model\'s output limit; the answer is not complete]'])
+  assert.equal(host.agentOf('gb').calls.length, 1)
+})
+
 test('in its own chat, a Bot that wrote a tool call as text is asked to make it', async (t) => {
   const home = freshHome(t)
   const host = await start(home)
@@ -805,4 +955,18 @@ test('a written tool call is told apart from text about one', () => {
   assert.equal(writesToolCall('Models such as Step write `<tool_call>` tags in their template.'), false)
   assert.equal(writesToolCall(undefined), false)
   assert.equal(stripWrittenCalls(WRITTEN), 'Checking now.')
+
+  // A call cut off before its opening tags is still one.
+  assert.equal(writesToolCall('</parameter>\n</function>\n</tool_call>'), true)
+  assert.equal(writesToolCall(ORPHAN_TAGS), true)
+  assert.equal(writesToolCall(MIXED_TAGS), true)
+  assert.equal(stripWrittenCalls('</parameter>\n</function>\n</tool_call>'), '')
+  assert.equal(stripWrittenCalls(ORPHAN_TAGS), '')
+  assert.equal(stripWrittenCalls(MIXED_TAGS), 'length"＞15 Hi, everyone.')
+  assert.equal(stripWrittenCalls('Checking </parameter> now.'), 'Checking now.')
+
+  // Ordinary text keeps its marks, also when it talks about the tags.
+  assert.equal(stripWrittenCalls('plain <text> with an angle or two'), 'plain <text> with an angle or two')
+  assert.equal(writesToolCall('plain <text> with an angle or two'), false)
+  assert.equal(stripWrittenCalls('a < b or c > d'), 'a < b or c > d')
 })

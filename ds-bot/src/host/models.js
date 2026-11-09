@@ -121,9 +121,12 @@ export function install(rt) {
     return refused.has(ref) ? undefined : ref
   }
   // A model whose provider has no key fails every turn, so no Bot is given one unasked.
-  const usableOf = entries => entries.filter(entry => entry.needsKey !== true)
+  const keyed = entries => entries.filter(entry => entry.needsKey !== true)
+  const isLocal = ref => rt.isLocalAgentRef?.(ref) === true
+  // Nor is a Bot given a local agent unasked: what it runs on changes only in its settings.
+  const usableOf = entries => keyed(entries).filter(entry => !isLocal(entry.ref))
   // By the catalog as last listed, without waiting for a fresh one.
-  const isUsable = ref => usableOf(catalogCache.value).some(entry => entry.ref === ref)
+  const isUsable = ref => keyed(catalogCache.value).some(entry => entry.ref === ref)
   // The profile default model of DSH, when it is served and usable; else the first
   // usable model; else none.
   function pickDefault(entries) {
@@ -141,13 +144,24 @@ export function install(rt) {
   const defaultBotModel = async () => {
     const entries = await catalog()
     const preferred = state.prefs.defaultBotModel
-    return entries.some(entry => entry.ref === preferred) ? preferred : pickDefault(entries)
+    return !isLocal(preferred) && entries.some(entry => entry.ref === preferred) ? preferred : pickDefault(entries)
+  }
+
+  // A local agent's model, by its full ref only, so a short name never moves a Bot onto
+  // a CLI. Its CLI is asked only when DS Bot does not know the model yet.
+  async function resolveLocalModel(ref) {
+    const { provider, model } = splitRef(ref)
+    const known = await ctx.llm.listModels(provider).catch(() => [])
+    const served = known.some(entry => entry.id === model) ? known : await rt.localAgentModels(provider)
+    if (served.some(entry => entry.id === model)) return ref
+    throw new Error(`Model ${ref} is not available. Available models: ${served.map(entry => `${provider}/${entry.id}`).join(', ') || 'none'}`)
   }
 
   // A full `provider/model` ref, or a model id or name that only one provider serves.
   async function resolveModel(text) {
-    const entries = await catalog({ fresh: true })
     const wanted = String(text ?? '').trim()
+    if (isLocal(wanted)) return resolveLocalModel(wanted)
+    const entries = (await catalog({ fresh: true })).filter(entry => !isLocal(entry.ref))
     const exact = entries.find(entry => entry.ref === wanted)
     if (exact) return exact.ref
     const key = normalize(wanted)
@@ -161,9 +175,11 @@ export function install(rt) {
 
   // A Bot with no model yet waits for the user to pick one and changes nothing. A
   // model that is no longer served falls back to the last one it ran on, then the
-  // default; a fallback is never one that needs a key.
+  // default; a fallback is never one that needs a key, nor a local agent. A local
+  // agent that is gone stays the Bot's: its turn fails with the repair card.
   async function desiredModel(bot) {
     if (!bot.model) return undefined
+    if (isLocal(bot.model)) return bot.model
     const entries = await catalog()
     if (entries.some(entry => entry.ref === bot.model)) return bot.model
     return usableOf(entries).some(entry => entry.ref === bot.appliedModel) ? bot.appliedModel : pickDefault(entries)

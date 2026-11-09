@@ -41,6 +41,9 @@ export const ROOM_STEP_GAP_MS = 30_000
 export const SOURCE_KIND = 'bot'
 // The fixed reply that opens a fresh conversation part; it is never shown or sent on.
 export const HANDOFF_ACK = 'Noted. I have my handoff note and carry on from here.'
+// A result that arrives after the user gave up waiting for it: it settled once
+// already, so it closes nothing and opens nothing, and its text says why it is late.
+export const LATE_ANSWER = '[Late answer: the user had already given up waiting for this work; its result was settled then.]\n\n'
 // An answer from a question card, in the shape DSH's own late question replies use.
 export const REPLY_KIND = 'user-question-reply'
 // DSH's snapshot of a referenced conversation, logged right after the user's message
@@ -54,6 +57,8 @@ export const ROOM_MODES = ['everyone', 'admin']
 export const ROOM_NAME_MAX = 60
 export const ROOM_NOTICE_MAX = 2000
 export const ROOM_MAX_MEMBERS = 12
+export const SECTION_NAME_MAX = 32
+export const SECTION_COLORS = ['blue', 'orange', 'green', 'violet', 'rose']
 
 // A team's one DSH Agent: a plain dsh entry in the sidebar, not a Bot. Its Sessions
 // are ordinary root Sessions, so the team tools must not be offered to them.

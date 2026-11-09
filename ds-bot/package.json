@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -73,6 +73,8 @@
     "deep-view": "0.1.2",
     "imapflow": "2.9.1",
     "mailparser": "3.12.4",
-    "nodemailer": "10.2.1"
+    "nodemailer": "10.2.1",
+    "playwright-core": "1.64.1",
+    "ws": "8.18.3"
   }
 }

@@ -6,6 +6,7 @@
 import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
 import { within } from './copy-tree.mjs'
+import { frameOptions, framelessOn, keepVibrancy } from './window-frame.mjs'
 
 export const START_STATE = 'ds-bot:start-state'
 export const START_ACT = 'ds-bot:start-act'
@@ -39,9 +40,8 @@ export const FAILURE_LINES = 200
 // 〔保存日志…〕 saves this many of the latest log lines, after the same header as the copied details.
 export const SAVED_LINES = 5000
 // The DeepSeek theme's --bt-main and --bt-ink (ui-standard 2.1), as in start.css: the window's
-// own background and caption symbols, which show before the page paints and where Mica is not.
+// own background and caption symbols, which show before the page paints and where no material is.
 const COLORS = { light: { main: '#fcfcfc', ink: '#141414' }, dark: { main: '#141414', ink: '#f2f2f2' } }
-const CAPTION_HEIGHT = 40
 export const PAINT_WAIT_MS = 3000
 // A window that Windows has just shown is drawn a few frames before its page is (and its own
 // opening transition runs over them): the start window shows see-through and turns opaque
@@ -251,7 +251,7 @@ export function startSnapshot(state, now) {
     lang: state.lang,
     start: state.start,
     motion: state.motion,
-    // Windows draws the caption buttons over the page's band; macOS and Linux a system title bar.
+    // Windows and macOS draw their window controls over the page's band; Linux a system title bar.
     frame: state.frame,
     view: state.view,
     phases: [...phasesOf(state)],
@@ -312,7 +312,7 @@ export class StartWindow {
   /**
    * @param {{
    *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, nativeTheme: any, systemPreferences: any },
-   *   page: string, preload: string, icon: string, mica: boolean, devTools: boolean, css?: string,
+   *   page: string, preload: string, icon: string, material?: 'mica' | 'vibrancy', devTools: boolean, css?: string,
    *   lang: () => 'zh' | 'en', motion: string, version: string, program: string[],
    *   log: { dir: string, tail: (count: number) => string[] },
    *   mainWindow: () => any,
@@ -354,20 +354,16 @@ export class StartWindow {
     this.#reset(start)
     const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
     const win32 = process.platform === 'win32'
-    const { mica } = this.#o
+    const { material } = this.#o
     const colors = this.#colors()
     const rect = centred(startSize(area), area)
     const win = new BrowserWindow({
       ...rect,
       useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, minimizable: true,
       show: false, title: 'DS Bot', icon: this.#o.icon,
-      backgroundColor: mica ? '#00000000' : colors.main,
-      // Frameless with the system minimize and close buttons over the page's empty 40 px band.
-      ...(win32 ? {
-        titleBarStyle: 'hidden',
-        titleBarOverlay: { height: CAPTION_HEIGHT, color: mica ? '#00000000' : colors.main, symbolColor: colors.ink },
-        ...(mica ? { backgroundMaterial: 'mica' } : {}),
-      } : {}),
+      backgroundColor: material ? '#00000000' : colors.main,
+      // Frameless with the system window controls over the page's empty 40 px band.
+      ...frameOptions(process.platform, material, { color: material ? '#00000000' : colors.main, symbolColor: colors.ink }),
       webPreferences: {
         preload: this.#o.preload, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, spellcheck: false,
         // The page paces the whale and the hand-off on timers, which a covered or minimized
@@ -379,6 +375,7 @@ export class StartWindow {
     // At a fractional display scale, Electron 44 on Windows makes a frameless window a few pixels
     // larger than asked; setting the size again once it exists gives the size asked for.
     win.setContentBounds(rect)
+    if (material === 'vibrancy') keepVibrancy(win, () => this.#colors().main)
     this.#window = win
     this.#url = startUrl(this.#o.page, start)
     const contents = win.webContents
@@ -409,8 +406,8 @@ export class StartWindow {
     const recolor = () => {
       if (win.isDestroyed()) return
       const next = this.#colors()
-      if (win32) win.setTitleBarOverlay({ color: mica ? '#00000000' : next.main, symbolColor: next.ink })
-      if (!mica) win.setBackgroundColor(next.main)
+      if (win32) win.setTitleBarOverlay({ color: material ? '#00000000' : next.main, symbolColor: next.ink })
+      if (!material) win.setBackgroundColor(next.main)
     }
     nativeTheme.on('updated', recolor)
     win.once('closed', () => {
@@ -726,7 +723,7 @@ export class StartWindow {
     const now = Date.now()
     this.#phaseAt = now
     this.#state = {
-      lang: this.#o.lang(), start, motion: this.#o.motion, frame: process.platform === 'win32' ? 'band' : 'system',
+      lang: this.#o.lang(), start, motion: this.#o.motion, frame: framelessOn(process.platform) ? 'band' : 'system',
       view: start === 'moving' ? 'moving' : 'boot',
       done: [], explain: this.#explain, celebrate: start === 'first', shown: false,
       clock: { base: 0, from: now, running: true },

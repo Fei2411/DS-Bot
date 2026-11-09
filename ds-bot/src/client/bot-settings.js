@@ -5,6 +5,7 @@ import { isMainOf } from './sources.js'
 import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
+import { RunModeCard } from './agent-cards.js'
 import { FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
@@ -210,6 +211,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
+    h(RunModeCard, { bot, roster, actions, run, Card }),
     h(Card, { title: t('Model') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), h('span', { className: 'bt-set-hint' }, modelHint(bot, roster))),
