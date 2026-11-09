@@ -4006,10 +4006,10 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-tidy{margin-bottom:12px;font-size:12px;color:var(--bt-ink-3)}
 .bt-mem-tidy summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
 .bt-mem-tidy ul{margin:8px 0 0;padding-left:16px}
-.bt-mem-layer{flex:none;height:28px;padding:0 8px;border:0;border-radius:999px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer;opacity:0}
-.bt-mem-entry:hover .bt-mem-layer,.bt-mem-layer:focus-visible{opacity:1}
-.bt-mem-layer:hover{background:var(--bt-hover);color:var(--bt-ink)}
-@media (hover:none){.bt-mem-layer{opacity:1}}
+.bt-mem-place{flex:none;height:28px;padding:0 8px;border:0;border-radius:999px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer;opacity:0}
+.bt-mem-entry:hover .bt-mem-place,.bt-mem-place:focus-visible{opacity:1}
+.bt-mem-place:hover{background:var(--bt-hover);color:var(--bt-ink)}
+@media (hover:none){.bt-mem-place{opacity:1}}
 .bt-mem-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger);padding:0 10px}
 @media (hover:none){.bt-mem-remove{opacity:1}}
 .bt-mem-none{font-size:13px;line-height:18px;color:var(--bt-ink-3);padding:8px 4px}
@@ -11205,7 +11205,7 @@ function EntryRow({ entry, remove, pin, layer }) {
     }, (0, import_react25.createElement)(PinIcon)),
     entry.scope === "team" ? (0, import_react25.createElement)("button", {
       type: "button",
-      className: "bt-mem-layer",
+      className: "bt-mem-place",
       disabled: busy,
       onClick: () => layer(entry, entry.topic !== null)
     }, entry.topic === null ? t("Only when needed") : t("Every conversation")) : null,

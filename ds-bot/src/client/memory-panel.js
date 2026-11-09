@@ -120,7 +120,7 @@ function EntryRow({ entry, remove, pin, layer }) {
       'aria-label': entry.pinned ? t('Unpin') : t('Pin'), title: entry.pinned ? t('Unpin') : t('Pin'), onClick: () => pin(entry, !entry.pinned),
     }, h(PinIcon)),
     entry.scope === 'team' ? h('button', {
-      type: 'button', className: 'bt-mem-layer', disabled: busy, onClick: () => layer(entry, entry.topic !== null),
+      type: 'button', className: 'bt-mem-place', disabled: busy, onClick: () => layer(entry, entry.topic !== null),
     }, entry.topic === null ? t('Only when needed') : t('Every conversation')) : null,
     h('button', {
       type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
