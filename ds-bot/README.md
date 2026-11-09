@@ -107,7 +107,7 @@ After each turn, a memory review reads what is new in the conversation and keeps
 - **Safety**: memory is data, not instructions. An entry that looks like a key or token is refused, and a Bot is told not to save what a web page, file or tool result asks it to remember.
 - **History**: files change in place, and `journal.jsonl` keeps every change with the line before and after (a private Bot keeps its own `journal.jsonl` in its folder). When a Bot or a group chat is deleted, its memory moves to `archive/`.
 
-**The memory panel**: the details panel of a Bot, and of a group chat, has a Memory row with the entry count; Manage opens the memory panel. A Bot's panel shows its own memory and the team memory; a group's shows the group memory.
+**The memory panel**: the details panel of a Bot, and of a group chat, has a Memory row with the entry count; Manage opens the memory panel. A Bot's panel shows its own memory and the team memory; a group's shows the group memory. Each entry can be moved to the team memory, another Bot, or a group chat; it keeps its end date and pin, and in the team memory it starts as "Only when needed".
 
 - **Memory summary**: a model writes a short summary in prose from every entry, in the interface language: the Bot's, or for a group its admin's. It is written again when the entries change, and the ⋯ menu can regenerate it.
 - **All entries**: the ⋯ menu lists every entry by scope and topic, with its date and author, and the size of each `MEMORY.md`. Remove takes two clicks.
