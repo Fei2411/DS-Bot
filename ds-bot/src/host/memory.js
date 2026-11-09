@@ -46,6 +46,8 @@ export { writtenIn } from './memory-copy.js'
 // Where entries go when MEMORY.md is at its size.
 const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
+// A model's window is looked up this often, not on every step.
+const WINDOW_ASK_MS = 10 * 60_000
 // What the first step of a turn may bring along from the topics.
 const AUTO_RECALL_MAX = 5
 const AUTO_RECALL_TEXT_MAX = 3_000
@@ -617,7 +619,10 @@ export function install(rt) {
 
   // What a Bot's model leaves room for, from the last time it was asked.
   const windows = new Map()
+  const windowAsked = new Map()
   async function noteWindow(bot) {
+    if (Date.now() - (windowAsked.get(bot.id) ?? 0) < WINDOW_ASK_MS) return
+    windowAsked.set(bot.id, Date.now())
     const info = await modelFor(bot).then(route => ctx.llm.resolveModelInfo(route.provider, route.model)).catch(() => undefined)
     const size = info?.context?.contextWindow
     if (typeof size === 'number' && size > 0) windows.set(bot.id, size - (info.defaultMaxTokens ?? 0))
@@ -1604,7 +1609,7 @@ export function install(rt) {
 
   const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
 
-  const { tidyView, undoTidy, tidyNow } = installTidy(rt, { root, TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
+  const { tidyView, undoTidy, tidyNow } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
 
   async function memoryTidyUndo(body) {
     const panel = panelOf(body)
