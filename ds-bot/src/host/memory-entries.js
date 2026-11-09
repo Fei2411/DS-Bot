@@ -1,5 +1,6 @@
 // Memory as text: the entry and file format (Agent Memory Repo), and the checks an
 // entry passes. Nothing here touches the disk.
+import { createHash, randomBytes } from 'node:crypto'
 
 // Sizes, in characters of entry text: metadata does not count. Each MEMORY.md rides in
 // every request of a conversation, so its size is what a scope may always have in view;
@@ -39,16 +40,31 @@ export function splitMeta(body) {
 const metaValue = value => String(value ?? '').replace(/[;[\]\n]/g, ' ').replace(/\s+/g, ' ').trim()
 export const bodySize = parsed => parsed.entries.reduce((sum, entry) => sum + entry.text.length, 0)
 
-// An entry as the prompt shows it: the text and when it was saved. recall shows the rest.
+// An entry is named by a short id. One saved before ids has none in its file, and its
+// text gives it one that stays the same as long as the text does.
+export const entryId = entry => entry.meta?.id ?? createHash('sha256').update(squash(entry.text)).digest('hex').slice(0, 4)
+export function newEntryId(entries) {
+  const taken = new Set(entries.map(entryId))
+  for (;;) {
+    const id = randomBytes(2).toString('hex')
+    if (!taken.has(id)) return id
+  }
+}
+export const isPinned = entry => Boolean(entry.meta?.pinned)
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+export const cleanDay = raw => (DAY.test(String(raw ?? '').trim()) ? String(raw).trim() : undefined)
+export const isExpired = (entry, today) => DAY.test(String(entry.meta?.until ?? '')) && entry.meta.until < today
+
+// An entry as the prompt shows it: its id and the day it was saved. recall shows the rest.
 export function promptEntry(entry) {
   const day = /^\d{4}-(\d{2}-\d{2})$/.exec(String(entry.meta?.added ?? ''))?.[1]
-  return `- ${entry.text}${day === undefined ? '' : ` [${day}]`}`
+  return `- ${entry.text} [${[entryId(entry), day].filter(Boolean).join(' · ')}]`
 }
 
 // The entries a window has room for, newest kept, shown in their own order.
 export function fitWindow(entries, tokens, measure) {
   if (tokens === undefined) return { shown: entries, left: 0 }
-  const order = entries.map((entry, at) => ({ entry, at })).sort((a, b) => String(b.entry.meta?.added ?? '').localeCompare(String(a.entry.meta?.added ?? '')) || b.at - a.at)
+  const order = entries.map((entry, at) => ({ entry, at })).sort((a, b) => Number(isPinned(b.entry)) - Number(isPinned(a.entry)) || String(b.entry.meta?.added ?? '').localeCompare(String(a.entry.meta?.added ?? '')) || b.at - a.at)
   const kept = new Set()
   let used = 0
   for (const { entry } of order) {
@@ -143,6 +159,8 @@ export const squash = text => String(text ?? '').replace(/\s+/g, ' ').trim().toL
 export function matchEntries(entries, wanted) {
   const key = squash(cleanEntry(wanted))
   if (key === '') return []
+  const named = entries.find(entry => entry.meta?.id === key || (/^[0-9a-f]{4}$/.test(key) && entryId(entry) === key))
+  if (named !== undefined) return [named]
   const exact = entries.find(entry => squash(entry.text) === key)
   if (exact !== undefined) return [exact]
   return entries.filter(entry => squash(entry.text).includes(key))
@@ -264,7 +282,7 @@ const wellFormed = (change) => {
   if (change === null || typeof change !== 'object') return false
   const texted = typeof change.text === 'string' && change.text.trim() !== ''
   const numbered = Number.isInteger(Number(change.entry)) && Number(change.entry) >= 1
-  if (change.op === 'add') return texted && (change.topic === undefined || typeof change.topic === 'string') && (change.team === undefined || typeof change.team === 'boolean')
+  if (change.op === 'add') return texted && (change.topic === undefined || typeof change.topic === 'string') && (change.team === undefined || typeof change.team === 'boolean') && (change.until === undefined || typeof change.until === 'string')
   if (change.op === 'edit') return texted && numbered
   return change.op === 'remove' && numbered
 }

@@ -6,7 +6,7 @@
 // before its review starts is read in one go.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { GONE, REVIEW_MEMORY_MAX, ROUTED, cleanEntry, cleanTopic, bodySize, parseReview, reviewEntries } from './memory-entries.js'
+import { GONE, REVIEW_MEMORY_MAX, ROUTED, bodySize, cleanDay, cleanEntry, cleanTopic, isPinned, parseReview, reviewEntries } from './memory-entries.js'
 import { REVIEW_CHANGES_MAX, reviewRequest, reviewSystem, writtenIn } from './memory-copy.js'
 import { speakerOf } from '../shared/mentions.js'
 
@@ -134,7 +134,8 @@ export function installReview(rt, memory) {
       const scope = op === 'add' ? (change.team === true && team ? TEAM : home) : target?.scope === 'team' ? TEAM : home
       const label = labelOf(scope, keeper.id)
       const text = cleanEntry(change?.text)
-      const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today() }
+      const until = cleanDay(change?.until)
+      const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today(), ...(until === undefined ? {} : { until }) }
       // A change memory cannot keep is set aside and said, so what was not saved
       // shows in the diagnostics; the rest of the answer is kept all the same —
       // the same lines read again would meet the same limit. A secret's text is
@@ -143,6 +144,7 @@ export function installReview(rt, memory) {
       const problem = op === 'add' || op === 'edit' ? entryProblem(text) : undefined
       const leftOut =
         op !== 'add' && target === undefined ? `it names entry ${change?.entry}, which is not listed` :
+        op !== 'add' && isPinned(target) ? 'it changes an entry the user pinned' :
         scope.kind === 'team' && !team ? 'it is for the team memory, which the review may not write' :
         badTopic ? `it names the topic "${clip(String(change.topic), 60)}", which cannot be a topic name` :
         problem !== undefined ? (secretEntry(text) ? 'the entry looks like a key, token, password, or ID number, which memory never keeps' : `the entry "${clip(text, 160)}": ${problem}`) :

@@ -483,6 +483,7 @@ export function install(rt) {
           return ok(await rt.scheduleEndpoint(endpoint, body))
         case 'memory-view':
         case 'memory-ask':
+        case 'memory-pin':
         case 'memory-forget':
         case 'memory-history':
         case 'memory-restore':
