@@ -2,13 +2,13 @@ import { createElement as h, useRef, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { PlusIcon, PeopleIcon, ArrowUpIcon } from './icons.js'
 import { AdminStar, BotMark } from './mark.js'
-import { useEscape, usePaneLeft } from './overlay-hooks.js'
+import { useEscape } from './overlay-hooks.js'
 import { CreateBot } from './create-bot.js'
 import { QUICK_EDGES, useFlip, useGlide, useMorph } from './motion.js'
 import { t } from './i18n.js'
 import { sendsOnEnter } from './enter-key.js'
 
-export function NewChat({ mode, sectionId = null, roster, actions }) {
+export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState([])
   const [group, setGroup] = useState(mode === 'group')
@@ -23,7 +23,6 @@ export function NewChat({ mode, sectionId = null, roster, actions }) {
   const inputRef = useRef(null)
   const close = () => actions.closeOverlay()
   useEscape(close)
-  const paneLeft = usePaneLeft()
   const wanted = query.trim().toLowerCase()
   const matches = roster.bots.filter(bot => !picked.includes(bot.id) && bot.id !== admin && (wanted === '' || bot.name.toLowerCase().includes(wanted) || (bot.role ?? '').toLowerCase().includes(wanted)))
   const choosingAdmin = group && admin === null

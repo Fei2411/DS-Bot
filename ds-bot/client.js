@@ -1075,6 +1075,7 @@ var ZH = {
   "until {day}": "有效至 {day}",
   "Tidied: {merged} merged, {moved} moved, {retired} archived": "已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条",
   "Only when needed": "需要时才读",
+  "Move to…": "移到…",
   "Every conversation": "每次都带",
   "ended {day}": "已于 {day} 结束",
   "Click again to remove": "再点一次删除",
@@ -2052,8 +2053,9 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   return {
+    // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null }));
+      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
     },
     openPalette: (query = "") => {
       ui2.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
@@ -2267,6 +2269,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
     memoryLayer: (id, entry, always) => call2("memory-layer", { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
+    memoryMove: (id, entry, to) => call2("memory-move", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, to }),
     memoryTidyUndo: (id, scope, batch) => call2("memory-tidy-undo", { ...memoryOf(id), scope, batch }),
     memoryPin: (id, entry, pin) => call2("memory-pin", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
     memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
@@ -3060,7 +3063,7 @@ function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = nul
       panelState = occupied + need <= viewport ? "shown" : "overlay";
     } else panelState = "folded";
   }
-  return { left, panel: panelState, room: Math.max(0, viewport - occupied) };
+  return { left, panel: panelState, column: occupied, room: Math.max(0, viewport - occupied) };
 }
 function dragColumn(x, viewport) {
   if (x < RAIL_SNAP) return { left: "rail", width: RAIL_WIDTH };
@@ -3736,9 +3739,10 @@ html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{heig
 html[data-windows-titlebar] .bt-side-collapse{display:none}
 /* Under a Windows title bar our own switch replaces the shell's: the shell's
    toggle expands the shell sidebar first, and pulling it back afterwards is a
-   visible flash of the shell's column. */
+   visible flash of the shell's column. A host whose window controls stand at the band's
+   left (the macOS traffic lights) sets --bt-caption-start to the room they take. */
 html[data-windows-titlebar] [class*="_logoRow"]>[class*="_toggle"]{display:none!important}
-html[data-windows-titlebar] .bt-title-toggle{position:fixed;left:12px;top:calc((var(--dsh-windows-titlebar-height,0px) - 28px) / 2);width:28px;height:28px;z-index:30;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;padding:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:var(--bt-font)}
+html[data-windows-titlebar] .bt-title-toggle{position:fixed;left:calc(12px + var(--bt-caption-start,0px));top:calc((var(--dsh-windows-titlebar-height,0px) - 28px) / 2);width:28px;height:28px;z-index:30;-webkit-app-region:no-drag;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;padding:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-title-toggle:hover{background:var(--bt-hover)}
 /* Elsewhere the switch shows only while the column is hidden, where the column's
    own top row had it. */
@@ -3966,6 +3970,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-head-gap{flex:1}
 .bt-mem-menu{position:absolute;top:52px;right:50px;min-width:220px;--bt-origin:top right}
 .bt-mem-menu button:disabled{opacity:.4;cursor:default;background:none}
+.bt-mem-move{min-width:200px;max-width:min(280px,calc(100vw - 24px));overflow-y:auto;overscroll-behavior:contain;--bt-origin:top right}
 .bt-mem-body{flex:1;overflow-y:auto;padding:22px 28px 24px;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px}
 .bt-mem-summary{transition:opacity .3s ease}
 .bt-mem-summary[data-stale]{opacity:.55}
@@ -4763,6 +4768,7 @@ var ReplyIcon = lineIcon(["M8 5L4 9l4 4", "M4 9h7.5a4.5 4.5 0 0 1 4.5 4.5V15"]);
 var DotsIcon = lineIcon(["M5 10h.01M10 10h.01M15 10h.01"]);
 var CheckIcon = lineIcon(["M4.5 10.5l3.5 3.5 7.5-8"]);
 var GlobeIcon = lineIcon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z"]);
+var MoveIcon = lineIcon(["M3.5 10h9.5", "M9.5 6l4 4-4 4", "M16.5 4.5v11"]);
 var ArrowDownIcon = lineIcon(["M10 4v12", "M5 11l5 5 5-5"]);
 var DownloadIcon = lineIcon(["M10 3.5v9", "M6.5 9.5L10 13l3.5-3.5", "M4 16h12"]);
 var GaugeIcon = lineIcon(["M3.5 13.5a6.5 6.5 0 1 1 13 0", "M10 13.5l3-4", "M10 13.5h.01"]);
@@ -4948,14 +4954,6 @@ function useEscape(onClose) {
       if (escapeLayers.length === 0) window.removeEventListener("keydown", onEscapeKey);
     };
   }, []);
-}
-function usePaneLeft() {
-  const [paneLeft, setPaneLeft] = (0, import_react5.useState)(280);
-  (0, import_react5.useLayoutEffect)(() => {
-    const column = document.querySelector('[class*="_footArea"]')?.parentElement;
-    if (column) setPaneLeft(Math.round(column.getBoundingClientRect().right));
-  }, []);
-  return paneLeft;
 }
 
 // src/client/goal.js
@@ -5916,9 +5914,10 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4
     });
   };
   (0, import_react11.useEffect)(() => {
-    if (computer.enabled && computer.macos === true) refresh();
+    if (computer.enabled && computer.macos === true && provider.state === "ready") refresh();
+    else setSystem(null);
     return void 0;
-  }, [computer.enabled, computer.macos]);
+  }, [computer.enabled, computer.macos, provider.state]);
   const perms = system ?? {};
   const permRow = (key, label) => {
     const state = perms[key]?.state ?? perms[key];
@@ -5949,7 +5948,7 @@ function ComputerPage({ roster, actions, run: run2, Section: Section2, Row: Row4
         ["error", "missing", "occupied"].includes(provider.state) && actions.computerProviderRetry ? (0, import_react11.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.computerProviderRetry()) }, t("Retry")) : null
       ),
       provider.state === "missing" && provider.install?.command ? (0, import_react11.createElement)(InstallRow, { install: provider.install, Row: Row4 }) : null,
-      computer.macos === true ? [permRow("accessibility", "Accessibility"), permRow("screenRecording", "Screen Recording")] : null
+      computer.macos === true && provider.state === "ready" ? [permRow("accessibility", "Accessibility"), permRow("screenRecording", "Screen Recording")] : null
     ) : null,
     (0, import_react11.createElement)(
       Section2,
@@ -11072,12 +11071,36 @@ var AVATAR_LIBRARY_CSS = `
 var import_react25 = require("react");
 var POLL_MS2 = 1500;
 var MENU_EXIT_MS2 = 120;
+var MOVE_MENU_GAP = 12;
 var counts = /* @__PURE__ */ new Map();
 var countListeners = /* @__PURE__ */ new Set();
 function noteCount(id, count) {
   if (counts.get(id) === count) return;
   counts.set(id, count);
   for (const listener of countListeners) listener();
+}
+function useMenuDismiss(open, menuRef, triggerRef, close) {
+  (0, import_react25.useEffect)(() => {
+    if (!open) return void 0;
+    const onDown = (event) => {
+      if (menuRef.current?.contains(event.target) || triggerRef.current?.contains(event.target)) return;
+      close();
+    };
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return;
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+        triggerRef.current?.focus();
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
 }
 function useMemoryCount(id, actions) {
   const [count, setCount] = (0, import_react25.useState)(counts.get(id) ?? null);
@@ -11173,7 +11196,7 @@ var groupEntries = (entries2) => entries2.reduce((groups, entry) => {
   else groups.push({ key, scope: entry.scope, topic: entry.topic, entries: [entry] });
   return groups;
 }, []);
-function EntryRow({ entry, remove, pin, layer }) {
+function EntryRow({ entry, remove, pin, layer, openMove }) {
   const [confirming, setConfirming] = (0, import_react25.useState)(false);
   const [busy, setBusy] = (0, import_react25.useState)(false);
   (0, import_react25.useEffect)(() => {
@@ -11220,12 +11243,37 @@ function EntryRow({ entry, remove, pin, layer }) {
     (0, import_react25.createElement)("button", {
       type: "button",
       className: "bt-mem-remove",
+      disabled: busy,
+      "aria-haspopup": "menu",
+      "aria-label": t("Move to…"),
+      title: t("Move to…"),
+      onClick: (event) => openMove(entry, event.currentTarget)
+    }, (0, import_react25.createElement)(MoveIcon)),
+    (0, import_react25.createElement)("button", {
+      type: "button",
+      className: "bt-mem-remove",
       "data-confirm": confirming || void 0,
       disabled: busy,
       "aria-label": confirming ? t("Click again to remove") : t("Remove from memory"),
       title: confirming ? void 0 : t("Remove from memory"),
       onClick: click
     }, confirming ? t("Remove") : (0, import_react25.createElement)(TrashIcon))
+  );
+}
+function MoveMenu({ menuRef, moving, view, move, leaving }) {
+  const { entry, box } = moving;
+  const here = view.keys[entry.scope];
+  const item = (key, label) => (0, import_react25.createElement)("button", { key, type: "button", role: "menuitem", onClick: () => move(entry, key) }, (0, import_react25.createElement)("span", { className: "bt-menu-label" }, label));
+  const list = (kind, head) => {
+    const places = view.places.filter((place) => place.kind === kind && place.key !== here);
+    return places.length === 0 ? null : (0, import_react25.createElement)(import_react25.Fragment, { key: kind }, (0, import_react25.createElement)("div", { className: "bt-menu-sub-head" }, head), places.map((place) => item(place.key, place.name)));
+  };
+  return (0, import_react25.createElement)(
+    "div",
+    { ref: menuRef, className: "bt-menu bt-mem-move", role: "menu", "aria-label": t("Move to…"), style: box, "data-leaving": leaving || void 0 },
+    here === "team" ? null : item("team", t("Team memory")),
+    list("bot", t("Bots")),
+    list("group", t("Group chats"))
   );
 }
 function TidyNote({ tidy, undo }) {
@@ -11248,7 +11296,7 @@ function TidyNote({ tidy, undo }) {
     (0, import_react25.createElement)("ul", null, tidy.items.map((item, at) => (0, import_react25.createElement)("li", { key: at }, item.text)))
   );
 }
-function Entries({ owner, view, remove, pin, layer, undoTidy }) {
+function Entries({ owner, view, remove, pin, layer, openMove, undoTidy }) {
   const groups = groupEntries(view.entries);
   const sections = owner.group ? [{ scope: "group", title: t("Group memory"), hint: t("Only its members read it"), size: view.sizes.group }] : [
     { scope: "own", title: t("{name}'s memory", { name: owner.name }), size: view.sizes.own },
@@ -11272,7 +11320,7 @@ function Entries({ owner, view, remove, pin, layer, undoTidy }) {
         import_react25.Fragment,
         { key: group.key },
         group.topic ? (0, import_react25.createElement)("div", { className: "bt-mem-topic" }, group.topic) : null,
-        (0, import_react25.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react25.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin, layer })))
+        (0, import_react25.createElement)("ul", { className: "bt-mem-list" }, group.entries.map((entry) => (0, import_react25.createElement)(EntryRow, { key: `${entry.topic ?? ""}:${entry.text}`, entry, remove, pin, layer, openMove })))
       )) : (0, import_react25.createElement)("div", { className: "bt-mem-none" }, t("Nothing saved yet"))
     ))
   );
@@ -11432,6 +11480,11 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   const [page, setPage] = (0, import_react25.useState)("summary");
   const [menu, setMenu] = (0, import_react25.useState)(false);
   const [menuShown, menuLeaving] = useLinger(menu, MENU_EXIT_MS2);
+  const [moving, setMoving] = (0, import_react25.useState)(null);
+  const [moveOpen, setMoveOpen] = (0, import_react25.useState)(false);
+  const [moveShown, moveLeaving] = useLinger(moveOpen, MENU_EXIT_MS2);
+  const moveRef = (0, import_react25.useRef)(null);
+  const moveAnchor = (0, import_react25.useRef)(null);
   const [text, setText] = (0, import_react25.useState)("");
   const [answer, setAnswer] = (0, import_react25.useState)(null);
   const menuRef = (0, import_react25.useRef)(null);
@@ -11440,27 +11493,29 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   const now = useNow(3e4);
   const close = (0, import_react25.useCallback)(() => actions.closeMemory(), []);
   useEscape(close);
+  useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false));
+  useMenuDismiss(moveOpen, moveRef, moveAnchor, () => setMoveOpen(false));
   (0, import_react25.useEffect)(() => {
-    if (!menu) return void 0;
-    const onDown = (event) => {
-      if (menuRef.current?.contains(event.target) || dotsRef.current?.contains(event.target)) return;
-      setMenu(false);
+    if (!moveOpen) return void 0;
+    const onScroll = (event) => {
+      if (!moveRef.current?.contains(event.target)) setMoveOpen(false);
     };
-    const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, dotsRef.current)) return;
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setMenu(false);
-        dotsRef.current?.focus();
-      }
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [menu]);
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [moveOpen]);
+  const openMove = (entry, button) => {
+    if (moveOpen && moveAnchor.current === button) {
+      setMoveOpen(false);
+      return;
+    }
+    moveAnchor.current = button;
+    const rect = button.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - MOVE_MENU_GAP;
+    const above = rect.top - MOVE_MENU_GAP;
+    const right = Math.max(MOVE_MENU_GAP, window.innerWidth - rect.right);
+    setMoving({ entry, box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above } : { right, top: rect.bottom + 4, maxHeight: below } });
+    setMoveOpen(true);
+  };
   const regenerate = () => {
     setMenu(false);
     setPage("summary");
@@ -11492,6 +11547,14 @@ function MemoryDialog({ owner, actions, leaving = false }) {
       show2(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch));
     } catch (failure) {
       setAnswer({ asked: t("Undo"), error: failure?.message ?? String(failure) });
+    }
+  };
+  const move = async (entry, to) => {
+    setMoveOpen(false);
+    try {
+      show2(await actions.memoryMove(owner.id, entry, to));
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) });
     }
   };
   const layer = async (entry, always) => {
@@ -11578,7 +11641,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         "div",
         { className: "bt-mem-body" },
         error ? (0, import_react25.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, hostText(error)) : null,
-        view === null ? error ? null : (0, import_react25.createElement)(Skeleton) : page === "entries" ? (0, import_react25.createElement)(Entries, { owner, view, remove, pin, layer, undoTidy }) : page === "history" ? (0, import_react25.createElement)(History, { owner, actions, undo, now }) : (0, import_react25.createElement)(Summary, { owner, view, regenerate })
+        view === null ? error ? null : (0, import_react25.createElement)(Skeleton) : page === "entries" ? (0, import_react25.createElement)(Entries, { owner, view, remove, pin, layer, openMove, undoTidy }) : page === "history" ? (0, import_react25.createElement)(History, { owner, actions, undo, now }) : (0, import_react25.createElement)(Summary, { owner, view, regenerate })
       ),
       (0, import_react25.createElement)(
         "div",
@@ -11604,7 +11667,8 @@ function MemoryDialog({ owner, actions, leaving = false }) {
           )
         )
       )
-    )
+    ),
+    moveShown && moving !== null && view !== null ? (0, import_react25.createElement)(MoveMenu, { menuRef: moveRef, moving, view, move, leaving: moveLeaving }) : null
   );
 }
 
@@ -15842,6 +15906,7 @@ function TeamSidebar(props) {
     chatRoom.hold(true);
     const columns2 = chatRoom.columns();
     for (const col of columns2) col.style.setProperty("transition", "none", "important");
+    const panes = [...document.querySelectorAll(".bt-pane")];
     const offLeft = frameSnap.collapsedWidth ?? 0;
     let last = null;
     let liveLeft = mode;
@@ -15850,8 +15915,10 @@ function TeamSidebar(props) {
       const width = at.left === "rail" ? RAIL_WIDTH : at.width;
       column.style.width = `${width}px`;
       column.style.setProperty("--bt-lc-w", `${width}px`);
-      const push = Math.max(0, (at.left === "open" ? width : RAIL_WIDTH) - offLeft);
+      const occupied = at.left === "open" ? width : RAIL_WIDTH;
+      const push = Math.max(0, occupied - offLeft);
       for (const col of columns2) col.style.setProperty("margin-left", `${push}px`, "important");
+      for (const pane of panes) pane.style.left = `${occupied}px`;
     };
     let springUntil = 0;
     const springOff = () => {
@@ -24303,7 +24370,7 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
 
 // src/client/new-chat.js
 var import_react54 = require("react");
-function NewChat({ mode, sectionId = null, roster, actions }) {
+function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   const [query, setQuery] = (0, import_react54.useState)("");
   const [picked, setPicked] = (0, import_react54.useState)([]);
   const [group, setGroup] = (0, import_react54.useState)(mode === "group");
@@ -24316,7 +24383,6 @@ function NewChat({ mode, sectionId = null, roster, actions }) {
   const inputRef = (0, import_react54.useRef)(null);
   const close = () => actions.closeOverlay();
   useEscape(close);
-  const paneLeft = usePaneLeft();
   const wanted = query.trim().toLowerCase();
   const matches2 = roster.bots.filter((bot) => !picked.includes(bot.id) && bot.id !== admin && (wanted === "" || bot.name.toLowerCase().includes(wanted) || (bot.role ?? "").toLowerCase().includes(wanted)));
   const choosingAdmin = group && admin === null;
@@ -24563,7 +24629,7 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
 // src/client/exchange.js
 var import_react55 = require("react");
 var SHEET_EXIT_MS = 220;
-function ExchangeDialog({ pair, roster, actions }) {
+function ExchangeDialog({ pair, paneLeft, roster, actions }) {
   const [entries2, setEntries] = (0, import_react55.useState)(null);
   const [leaving, setLeaving] = (0, import_react55.useState)(false);
   const log = (0, import_react55.useRef)(null);
@@ -24603,7 +24669,6 @@ function ExchangeDialog({ pair, roster, actions }) {
   const right = roster.byId[pair[1]];
   const flat = layoutOf(roster.prefs) === "flat";
   let lastDay = 0;
-  const paneLeft = usePaneLeft();
   return (0, import_react55.createElement)(
     "div",
     { className: "bt-pane bt-exchange", style: { left: paneLeft }, "data-leaving": leaving || void 0 },
@@ -24723,7 +24788,7 @@ function useMicLevel(enabled) {
   }, [enabled]);
   return level;
 }
-function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }) {
+function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessionStatus }) {
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
   const name = bot?.name ?? room2?.name ?? t("Bot");
@@ -24745,7 +24810,6 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
   const reply = (0, import_react56.useRef)(lastReply);
   reply.current = lastReply;
   const turn = (0, import_react56.useRef)(0);
-  const paneLeft = usePaneLeft();
   const close = () => {
     turn.current += 1;
     window.speechSynthesis?.cancel();
@@ -27057,10 +27121,10 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     import_react61.Fragment,
     null,
     pane ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, roster, actions }), document.body) : null,
+    ui2.newChat ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui2.palette ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    ui2.exchange ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui2.voice ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     owner ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null

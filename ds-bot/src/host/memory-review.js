@@ -117,6 +117,7 @@ export function installReview(rt, memory) {
 
   // Where an add goes: the review's own memory, or the audience it names.
   function routeOf(change, keeper, home, team) {
+    if (home.kind === 'group') return { scope: home }
     if (change.team === true && team) return { scope: TEAM }
     if (typeof change.for === 'string' && change.for.trim() !== '') {
       const bot = rt.findBot(change.for)
