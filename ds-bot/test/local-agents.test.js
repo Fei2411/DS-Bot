@@ -12,7 +12,9 @@ import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
-import { validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
+import { validateCustom, isLocalAgentRoute, cliMode, acpMode, ENGINES } from '../src/host/local-agents/engines.js'
+import { SIGN_IN } from '../src/host/local-agents/index.js'
+import { AGENT_BADGES } from '../src/client/agent-routes.js'
 import { install as partsInstall } from '../src/host/parts.js'
 import { install as modelsInstall } from '../src/host/models.js'
 import { fakeContext } from './fake-ctx.js'
@@ -234,6 +236,13 @@ test('routes and modes', () => {
   assert.equal(acpMode('workspace-write', [{ value: 'agent' }, { value: 'plan' }, { value: 'ask' }]), undefined)
   assert.equal(cliMode('claude', 'workspace-write'), 'acceptEdits')
   assert.equal(cliMode('acp', 'workspace-write'), undefined)
+})
+
+test('every engine has a badge and a sign-in command', () => {
+  for (const [route, spec] of Object.entries(ENGINES)) {
+    assert.ok(AGENT_BADGES[spec.id] !== undefined, `${route} has a badge`)
+    assert.ok(SIGN_IN[spec.id] !== undefined, `${route} has a sign-in command`)
+  }
 })
 
 test('acp: a resumed session that lists no modes keeps the ones its CLI listed', async (t) => {

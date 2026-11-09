@@ -17,8 +17,8 @@ and model changes all work the same way.
   DSH LLM adapter that DS Bot registers. Routes: `local-devin-cli`,
   `local-claude-code`, `local-codex-cli`, `local-opencode`, `local-cursor-cli`,
   `local-gemini-cli`, `local-grok-cli`, `local-cline`, `local-qwen-code`,
-  `local-goose`, and `local-acp-<id>` for custom agents the user adds. A route
-  appears only while its CLI is found; a refresh re-scans.
+  `local-goose`, `local-codebuddy`, and `local-acp-<id>` for custom agents the
+  user adds. A route appears only while its CLI is found; a refresh re-scans.
 - The `local-` prefix keeps these routes apart from providers that DSH or other
   plugins register. Without it, a CLI named like such a provider (`opencode` is
   also DSH's OpenCode provider) made both register the same name, and the LLM

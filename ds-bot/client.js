@@ -4877,7 +4877,8 @@ var AGENT_BADGES = {
   "grok-cli": ["GX", "graphite"],
   "cline": ["CL", "cyan"],
   "qwen-code": ["QW", "cobalt"],
-  "goose": ["GS", "brown"]
+  "goose": ["GS", "brown"],
+  "codebuddy": ["CB", "sky"]
 };
 var CUSTOM = ["AC", "rose"];
 var logoOf = (engine) => cliOf(engine) === void 0 ? void 0 : AGENT_LOGOS[cliOf(engine)];
