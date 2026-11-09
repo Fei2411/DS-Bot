@@ -53,13 +53,11 @@ export function newEntryId(entries) {
     if (!taken.has(id)) return id
   }
 }
-// A topic's line in the prompt: the note under its title, else its first entry. A team
-// topic has no first entry to show, or it would reach every Bot by the back door.
+// A topic's navigation note is separate from its entries.
 const ABOUT_MAX = 60
-export function topicAbout(parsed, withEntry = true) {
-  const note = parsed.lines.find(line => /^>\s*\S/.test(line))?.replace(/^>\s*/, '')
-  const text = note ?? (withEntry ? parsed.entries[0]?.text ?? '' : '')
-  return text.length > ABOUT_MAX ? `${text.slice(0, ABOUT_MAX)}…` : text
+export function topicAbout(parsed) {
+  const note = parsed.lines.find(line => /^>\s*\S/.test(line))?.replace(/^>\s*/, '') ?? ''
+  return note.length > ABOUT_MAX ? `${note.slice(0, ABOUT_MAX)}…` : note
 }
 
 export const isPinned = entry => Boolean(entry.meta?.pinned)

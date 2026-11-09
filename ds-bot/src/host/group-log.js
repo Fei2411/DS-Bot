@@ -34,22 +34,22 @@ export function install(rt) {
   // Oldest first. A line cut by an interruption is not a line.
   async function linesOf(roomId) {
     await writing.get(roomId)
-    let text
+    let text = ''
     try {
       text = await readFile(pathOf(roomId), 'utf8')
     } catch (error) {
-      if (error?.code === 'ENOENT') return []
-      throw error
+      if (error?.code !== 'ENOENT') throw error
     }
-    const lines = []
+    // Upgraded groups still have recent messages that predate this file.
+    const lines = new Map((rt.roomOf(roomId)?.log ?? []).map(line => [line.seq, line]))
     for (const row of text.split('\n')) {
       if (row === '') continue
       try {
         const line = JSON.parse(row)
-        if (Number.isInteger(line?.seq)) lines.push(line)
+        if (Number.isInteger(line?.seq)) lines.set(line.seq, line)
       } catch { /* half-written */ }
     }
-    return lines
+    return [...lines.values()].sort((a, b) => a.seq - b.seq)
   }
 
   async function groupLinesAfter(roomId, since) {
