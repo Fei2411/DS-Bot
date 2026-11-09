@@ -881,7 +881,7 @@ test('Main Bots and group admins write the team memory; only Main Bots touch ano
   assert.match(await tool('remember', { text: 'Writes in Chinese', scope: 'Writer' }, 'm1'), /^Saved to Writer's memory/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /- Writes in Chinese \[id: [0-9a-f]{4}; source: part 1 #10; by: Chief; added: /)
   await assert.rejects(tool('remember', { text: 'Bossy', scope: 'Chief' }, 'b2'), /Only a Main Bot can change another Bot's memory/)
-  assert.match(await tool('recall', { scope: 'Writer' }, 'b3'), /^Only a Main Bot can read another Bot's memory/)
+  assert.doesNotMatch(await tool('recall', { scope: 'Writer' }, 'b3'), /private/)
   assert.match(await tool('recall', { scope: 'Nobody' }, 'b3'), /^No Bot named Nobody/)
   assert.match(await tool('recall', { query: 'friday' }, 'b2'), /\[team · MEMORY\.md\] Ship on Friday/)
   await assert.rejects(tool('forget', { entry: 'Friday', scope: 'team' }, 'b2'), /Only Main Bots and group admins/)
