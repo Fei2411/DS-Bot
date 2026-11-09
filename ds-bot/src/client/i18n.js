@@ -73,6 +73,17 @@ const ZH = {
 
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
+  Inbox: '收件箱',
+  'Search chats': '搜索会话',
+  'Filter chats': '筛选会话',
+  'No matches': '没有匹配结果',
+  Groups: '群聊',
+  Recent: '最近',
+  'This device': '本机',
+  'This device · {device}': '本机 · {device}',
+  'Runs locally': '本地运行',
+  'Runs locally on {device}': '本地运行 · {device}',
+  'Model requests go to the API you set up': '模型请求走你配置的 API',
   'Setting up your Main Bot…': '正在设置你的主 Bot…',
   'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
   'The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
