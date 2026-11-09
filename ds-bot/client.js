@@ -295,6 +295,8 @@ var ZH = {
   "Add agent": "添加 Agent",
   "Copies the sign-in command": "复制登录命令",
   "Sign in": "登录",
+  "Sign-in command copied. Run it in a terminal: {command}": "登录命令已复制。请在终端运行：{command}",
+  "Could not copy the sign-in command. Run this in a terminal: {command}": "没能复制登录命令。请在终端手动运行：{command}",
   Found: "已找到",
   "Not found": "未找到",
   Arguments: "参数",
@@ -3890,6 +3892,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
+.bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
 .bt-swatch-custom[data-on=true]{border-color:var(--bt-ink)}
@@ -21398,6 +21401,43 @@ function AgentForm({ initial, submit, close }) {
     )
   );
 }
+function AgentSignInRow({ agent, Row: Row4 }) {
+  const [note, setNote] = (0, import_react46.useState)(null);
+  const copy2 = () => {
+    const done = (copied) => setNote({ copied, command: agent.signIn });
+    try {
+      const writing = navigator.clipboard?.writeText(agent.signIn);
+      if (writing === void 0) {
+        done(false);
+        return;
+      }
+      void Promise.resolve(writing).then(() => done(true), () => done(false));
+    } catch {
+      done(false);
+    }
+  };
+  const message = note === null ? null : (0, import_react46.createElement)("span", {
+    className: note.copied ? "bt-note" : "bt-note bt-danger",
+    role: note.copied ? "status" : "alert"
+  }, note.copied ? t("Sign-in command copied. Run it in a terminal: {command}", { command: note.command }) : t("Could not copy the sign-in command. Run this in a terminal: {command}", { command: note.command }));
+  return (0, import_react46.createElement)(
+    Row4,
+    {
+      label: agent.name,
+      hint: [
+        [agent.path, agent.version].filter(Boolean).join(" · "),
+        message === null ? null : (0, import_react46.createElement)("br"),
+        message
+      ]
+    },
+    (0, import_react46.createElement)(
+      "div",
+      { className: "bt-set-actions" },
+      agent.signIn ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null,
+      (0, import_react46.createElement)("span", { className: "bt-tag" }, agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : agent.path ? t("Found") : t("Not found"))
+    )
+  );
+}
 function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
   const [view, setView] = (0, import_react46.useState)(null);
   const [editing, setEditing] = (0, import_react46.useState)(null);
@@ -21413,21 +21453,7 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
       Section2,
       { key: "found", title: t("Detected agents") },
       view.detected.length === 0 ? (0, import_react46.createElement)(Row4, { label: t("No agent CLIs found") }) : null,
-      view.detected.map((agent) => (0, import_react46.createElement)(
-        Row4,
-        {
-          key: agent.route,
-          label: agent.name,
-          hint: [agent.path, agent.version].filter(Boolean).join(" · ")
-        },
-        (0, import_react46.createElement)(
-          "div",
-          { className: "bt-set-actions" },
-          agent.signIn ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: () => navigator.clipboard?.writeText(agent.signIn).catch(() => {
-          }) }, t("Sign in")) : null,
-          (0, import_react46.createElement)("span", { className: "bt-tag" }, agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : agent.path ? t("Found") : t("Not found"))
-        )
-      )),
+      view.detected.map((agent) => (0, import_react46.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 })),
       (0, import_react46.createElement)(
         Row4,
         { key: "refresh", label: t("Refresh"), hint: t("Scan again for agent CLIs.") },
