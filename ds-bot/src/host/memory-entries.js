@@ -11,6 +11,9 @@ export const MEMORY_LIMITS = { entry: 300, group: 12_000, bot: 8_000, team: 4_00
 export const WINDOW_SHARE = 0.02
 
 export const MAIN = 'MEMORY.md'
+// Where the team's entries wait for whoever needs them. MEMORY.md is for what every Bot
+// must always have in view, and only the user puts things there.
+export const TEAM_SHARED = 'shared'
 export const EMPTY_MAIN = '# Memory\n\n## Index\n'
 export const INDEX = /^##\s+index\s*$/i
 export const HEADING = /^#{1,6}\s/
@@ -282,7 +285,7 @@ const wellFormed = (change) => {
   if (change === null || typeof change !== 'object') return false
   const texted = typeof change.text === 'string' && change.text.trim() !== ''
   const numbered = Number.isInteger(Number(change.entry)) && Number(change.entry) >= 1
-  if (change.op === 'add') return texted && (change.topic === undefined || typeof change.topic === 'string') && (change.team === undefined || typeof change.team === 'boolean') && (change.until === undefined || typeof change.until === 'string')
+  if (change.op === 'add') return texted && (change.topic === undefined || typeof change.topic === 'string') && (change.team === undefined || typeof change.team === 'boolean') && (change.for === undefined || typeof change.for === 'string') && (change.group === undefined || typeof change.group === 'string') && (change.until === undefined || typeof change.until === 'string')
   if (change.op === 'edit') return texted && numbered
   return change.op === 'remove' && numbered
 }

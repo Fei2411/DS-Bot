@@ -6,7 +6,7 @@
 // before its review starts is read in one go.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { GONE, REVIEW_MEMORY_MAX, ROUTED, bodySize, cleanDay, cleanEntry, cleanTopic, isPinned, parseReview, reviewEntries } from './memory-entries.js'
+import { GONE, REVIEW_MEMORY_MAX, ROUTED, TEAM_SHARED, bodySize, cleanDay, cleanEntry, cleanTopic, isPinned, parseReview, reviewEntries } from './memory-entries.js'
 import { REVIEW_CHANGES_MAX, reviewRequest, reviewSystem, writtenIn } from './memory-copy.js'
 import { speakerOf } from '../shared/mentions.js'
 
@@ -113,6 +113,24 @@ export function installReview(rt, memory) {
     return { texts: kept, count: kept.length }
   }
 
+  // Where an add goes: the review's own memory, or the audience it names.
+  function routeOf(change, keeper, home, team) {
+    if (change.team === true && team) return { scope: TEAM }
+    if (typeof change.for === 'string' && change.for.trim() !== '') {
+      const bot = rt.findBot(change.for)
+      if (!rt.isMain(keeper.id)) return { scope: home, error: 'only a Main Bot keeps notes for another Bot' }
+      if (bot === undefined) return { scope: home, error: `there is no Bot named "${clip(change.for, 60)}"` }
+      if (rt.isPrivate(bot.id)) return { scope: home, error: 'a private Bot keeps its own memory' }
+      return { scope: ownScope(bot.id) }
+    }
+    if (typeof change.group === 'string' && change.group.trim() !== '') {
+      const room = roomsOf(keeper).find(item => item.name === change.group.trim())
+      return room === undefined ? { scope: home, error: `the keeper is in no group named "${clip(change.group, 60)}"` } : { scope: groupScope(room.id) }
+    }
+    return { scope: home }
+  }
+  const roomsOf = keeper => Object.values(rt.state.rooms).filter(room => room.members.includes(keeper.id))
+
   // `home` is the memory the review keeps what it finds in: the keeper's own, or its
   // group's. `teamWrites` says whether the keeper may also write the team's.
   async function applyReview({ keeper, name, home, numbered, changes, source, teamWrites }) {
@@ -129,9 +147,11 @@ export function installReview(rt, memory) {
       // Its role may change mid-review too, so each change asks again.
       const team = teamWrites()
       const op = String(change?.op ?? '')
-      const topic = op === 'add' && change?.topic !== undefined ? cleanTopic(String(change.topic)) : undefined
       const target = numbered[Number(change?.entry) - 1]
-      const scope = op === 'add' ? (change.team === true && team ? TEAM : home) : target?.scope === 'team' ? TEAM : home
+      const route = op === 'add' ? routeOf(change, keeper, home, team) : undefined
+      const scope = op === 'add' ? route.scope : target?.scope === 'team' ? TEAM : home
+      // What the review keeps for the team waits in a topic: it does not get in front of every Bot by itself.
+      const topic = op === 'add' && scope.kind === 'team' ? cleanTopic(String(change?.topic ?? TEAM_SHARED)) : op === 'add' && change?.topic !== undefined ? cleanTopic(String(change.topic)) : undefined
       const label = labelOf(scope, keeper.id)
       const text = cleanEntry(change?.text)
       const until = cleanDay(change?.until)
@@ -145,6 +165,8 @@ export function installReview(rt, memory) {
       const leftOut =
         op !== 'add' && target === undefined ? `it names entry ${change?.entry}, which is not listed` :
         op !== 'add' && isPinned(target) ? 'it changes an entry the user pinned' :
+        op !== 'add' && target.scope === 'team' && target.file.topic === undefined ? 'it changes what every Bot always reads, which only the user does' :
+        route?.error !== undefined ? route.error :
         scope.kind === 'team' && !team ? 'it is for the team memory, which the review may not write' :
         badTopic ? `it names the topic "${clip(String(change.topic), 60)}", which cannot be a topic name` :
         problem !== undefined ? (secretEntry(text) ? 'the entry looks like a key, token, password, or ID number, which memory never keeps' : `the entry "${clip(text, 160)}": ${problem}`) :
@@ -258,7 +280,7 @@ export function installReview(rt, memory) {
       const sizes = { home: bodySize(homeFiles[0]), homeLimit: mainLimit(home), team: bodySize(teamFiles[0]), teamLimit: mainLimit(TEAM) }
       const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
       const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
-      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
+      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group, routes: !group && rt.isMain(keeper.id), rooms: group || !teamWrites() ? [] : roomsOf(keeper).map(room => room.name) }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
       if (!alive()) return
       const parsed = parseReview(reply)
       // An answer that is no list of changes keeps nothing of the batch; the miss
