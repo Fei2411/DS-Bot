@@ -1696,3 +1696,14 @@ export const dateLocale = () => (language().startsWith('zh') ? 'zh-CN' : 'en-US'
 
 // Translations for the tests: the Chinese dictionary itself.
 export const DICTIONARY = { zh: ZH }
+
+// MarkdownText re-parses when `labels` changes identity, and a streaming message starts
+// over, so one object serves until the language changes the text.
+let labels = null
+export function mdLabels() {
+  const [copyLabel, copiedLabel, footnotes] = [t('Copy'), t('Copied'), t('Footnotes')]
+  if (labels?.code.copyLabel !== copyLabel || labels.code.copiedLabel !== copiedLabel || labels.footnotes !== footnotes) {
+    labels = { code: { copyLabel, copiedLabel }, footnotes }
+  }
+  return labels
+}
