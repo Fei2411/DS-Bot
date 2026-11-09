@@ -84,7 +84,7 @@ function fakeLlm() {
   }
 }
 
-async function start(t, { saved = team() } = {}) {
+async function start(t, { saved = team(), presets } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-run-mode-')))
   const dsh = join(root, 'dsh')
   const home = join(dsh, 'bot')
@@ -96,7 +96,15 @@ async function start(t, { saved = team() } = {}) {
   process.env.DSH_HOME = dsh
 
   const llm = fakeLlm()
-  const ctx = fakeContext({})
+  const headers = new Map()
+  const services = presets === undefined ? {} : {
+    agentPresets: {
+      list: async () => presets,
+      presetForSession: session => headers.get(session.id),
+      defaultId: 'standard',
+    },
+  }
+  const ctx = fakeContext({ services })
   const created = []
   const archived = []
   const selected = []
@@ -151,6 +159,7 @@ async function start(t, { saved = team() } = {}) {
       create: async (options) => {
         const sessionId = `s${created.length + 1}`
         created.push(options)
+        headers.set(sessionId, options.agentPreset)
         return { sessionId }
       },
       prompt: async () => ({ accepted: true }),
@@ -190,7 +199,39 @@ async function start(t, { saved = team() } = {}) {
   await tool('list_bots', {}, 'a')
   // Everything a route could not register for until the state load has finished.
   await until(() => llm.routes.has('local-acp-fake'), 'the custom routes')
-  return { rt, ctx, llm, call, tool, preStep, state, agentOf, handoffOf, created, archived, selected, lastRoute, starts, startCount, root }
+  return { rt, ctx, llm, call, tool, preStep, state, agentOf, handoffOf, created, archived, selected, lastRoute, starts, startCount, root, headers }
+}
+
+for (const pick of ['ptc', 'removed']) {
+  test(`a local run ignores the saved ${pick} preset in every conversation`, async (t) => {
+    const saved = team()
+    saved.bots.b.agentPreset = pick
+    const env = await start(t, { saved, presets: [{ id: 'standard' }, { id: 'ptc' }] })
+    for (const id of ['b', 'gb', 'gb2']) env.lastRoute.set(id, { provider: 'ds', model: 'flash' })
+    const changed = await env.call('update-bot', { id: 'b', model: CLI, changeEngine: true })
+    assert.equal(changed.ok, true, JSON.stringify(changed))
+    await until(() => env.archived.length === 3, 'all conversations moved to the local agent')
+    assert.equal(env.state().bots.b.agentPreset, pick)
+    assert.deepEqual(env.created.map(row => row.agentPreset), ['standard', 'standard', 'standard'])
+    assert.equal(await env.rt.botPresetOf(env.rt.botOf('b')), undefined)
+    assert.equal(await env.rt.applyBotPreset(env.rt.botOf('b')), false)
+    const copy = await env.call('duplicate-bot', { id: 'b' })
+    assert.equal(copy.ok, true, JSON.stringify(copy))
+    assert.equal(copy.value.agentPreset, pick)
+    assert.equal(env.created.at(-1).agentPreset, 'standard')
+    const fresh = await env.call('create-bot', { name: 'Local newcomer', model: CLI, agentPreset: pick })
+    assert.equal(fresh.ok, true, JSON.stringify(fresh))
+    assert.equal(env.created.at(-1).agentPreset, 'standard')
+    if (pick === 'ptc') {
+      const before = env.archived.length
+      for (const id of [env.rt.chatOf('b'), ...env.rt.groupSessionsOf('b')]) {
+        env.lastRoute.set(id, { provider: 'local-acp-fake', model: 'default' })
+      }
+      assert.equal((await env.call('update-bot', { id: 'b', model: DS, changeEngine: true })).ok, true)
+      await until(() => env.archived.length === before + 3, 'all conversations moved back to DSH')
+      assert.deepEqual(env.created.slice(-3).map(row => row.agentPreset), ['ptc', 'ptc', 'ptc'])
+    }
+  })
 }
 
 // -----------------------------------------------------------------------------

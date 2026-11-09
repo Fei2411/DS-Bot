@@ -1260,16 +1260,6 @@ export function install(rt) {
     const place = placeOf(agent.id)
     if (place === undefined) return next()
     adoptCompaction(agent)
-    // The preset this part runs is checked before its first step. The switch starts only
-    // once this step is on its way, so it never takes the step over: the turn that is
-    // starting runs as it was, and the fresh part runs the Bot's pick from the next one.
-    const movingToPreset = place.botId === undefined || readOnly() || switches.has(agent.id)
-      ? false
-      : await presetMismatch(agent, place.botId)
-    const proceed = () => {
-      if (movingToPreset) startSwitch(agent, { preset: true })
-      return next()
-    }
     const job = switches.get(agent.id)
     if (job !== undefined) {
       job.carry.push(...payload.messages)
@@ -1283,17 +1273,17 @@ export function install(rt) {
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
-    if (place.botId === undefined) return proceed()
+    if (place.botId === undefined) return next()
     if (!readOnly() && engineMoved(agent, place, payload.modelSelection)) return switchBeforeStep(agent, payload, { engine: true })
     if (offEngine(agent, place, payload.modelSelection)) return holdStep(agent, payload)
     // A local agent CLI owns its in-session compaction; the DSH Session keeps the
     // full history for read_own_chat and never condenses or switches on size.
-    if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return proceed()
+    if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
-    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return proceed()
-    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return proceed()
-    if (!await canMakeRoom(agent, payload.messages)) return proceed()
+    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
+    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
+    if (!await canMakeRoom(agent, payload.messages)) return next()
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
 
@@ -1509,7 +1499,9 @@ export function install(rt) {
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
-      void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      void followPreset(agent).then(() => {
+        if (agent.status === 'idle') return checkContext(agent)
+      }).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
     }
   })
 
@@ -1716,31 +1708,31 @@ export function install(rt) {
   // moves on to a fresh part at its next idle moment; its history stays readable and
   // input that arrives meanwhile moves along.
   async function applyBotPreset(bot) {
-    const wanted = await rt.botPresetOf?.(bot)
-    if (wanted === undefined) return false
-    if (!wanted.usable) {
-      rt.presetProblem?.(bot, wanted.id)
-      return false
-    }
-    const presets = ctx.get?.('agentPresets')
     let started = false
     for (const sessionId of presetSessionsOf(bot)) {
       if (rt.botOf(bot.id) === undefined) break
       // A part already moving reads the pick when it makes its fresh part.
       if (switches.has(sessionId)) continue
       const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
-      if (agent === undefined) continue
-      // A part made after the pick was saved already runs it.
-      if (typeof presets?.presetForSession === 'function' && presets.presetForSession(agent.session) === wanted.id) continue
-      startSwitch(agent, { preset: true })
-      started = true
+      if (agent !== undefined && await followPreset(agent)) started = true
     }
     return started
   }
 
-  // Whether the part about to run a turn still needs to move to the Bot's pick. Checked
-  // before the first step, so a pick that changed while no window was open (a schedule,
-  // a group turn, a message from another Bot) takes effect on the next part. A Bot with
+  // Registering a switch blocks the next step, so wait for the whole turn to finish.
+  // The idle event also retries saved changes after a failed switch or host restart.
+  async function followPreset(agent) {
+    const place = placeOf(agent.id)
+    if (place?.botId === undefined || agent.status !== 'idle' || readOnly() || switches.has(agent.id)) return
+    if (!await presetMismatch(agent, place.botId)) return
+    // Resolving the preset can yield to a new turn or a switch of run mode.
+    if (agent.status !== 'idle' || placeOf(agent.id)?.botId !== place.botId
+      || rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return
+    startSwitch(agent, { preset: true })
+    return true
+  }
+
+  // Whether the idle part still needs to move to the Bot's saved pick. A Bot with
   // no pick at all keeps the preset its parts were made with (a team saved before presets
   // existed); one whose user cleared the pick has stated the default as its intent, so a
   // switch that failed is tried again here.

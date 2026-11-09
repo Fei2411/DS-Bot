@@ -2,7 +2,7 @@
 
 - 日期：2026-11-06
 - 相关：#1039；预设归 DS Bot 所有、不跟随 DSH「新任务默认」的既定立场见 [Bot 运行配置](2026-10-10-bot-runtime.md)；DSH 侧限制见 [DSH 让步总账](2026-10-13-dsh-concessions.md) C13
-- 代码：`ds-bot/src/host/roster.js`（预设目录、兼容检查、存取）、`parts.js`（换预设换段与 pre-step 补换）、`channel.js`（`presets` 操作）、`store.js`（数据清理）；界面在 `src/client/agent-preset.js`、`agent-preset-menu.js`、`create-bot.js`、`bot-settings.js`
+- 代码：`ds-bot/src/host/roster.js`（预设目录、兼容检查、存取）、`parts.js`（换预设换段与空闲时补换）、`channel.js`（`presets` 操作）、`store.js`（数据清理）；界面在 `src/client/agent-preset.js`、`agent-preset-menu.js`、`create-bot.js`、`bot-settings.js`
 
 ## 为什么
 
@@ -33,10 +33,10 @@ DSH 的 Agent 预设决定一个 Session 有哪些工具、提示段和技能。
 ### 换预设
 
 - 换一个 Bot 的预设后，DS Bot **主动**给这个 Bot 名下的每个会话排一次换段（私聊和它在每个群里已有的成员会话），换段在它们各自空闲时发生：Session 的预设改不了，只能换段。走既有的安全机制（parts.js）：旧段整段保留可读，交接包写明原因是「agent preset changed」，换段期间到达和已排队的消息随新段继续，不丢消息；换段失败时把输入放回旧段继续，不留半截。
-- 换段没成功也不算数：每一轮开始前（pre-step）都会看这一段记的预设和 Bot 现在的选择是否一致，不一致就补一次换段。正在跑的那一步不被接管，新段从下一步起跑在新的预设上。用户显式清回默认的 Bot（`agentPresetDefault`）也走这条补的路径。
+- 换段没成功也不算数：每次会话进入空闲状态都会看这一段记的预设和 Bot 现在的选择是否一致，不一致就补一次换段。正在跑的整轮任务继续完成，空闲前不登记换段，避免下一步被换段守卫接管。用户显式清回默认的 Bot（`agentPresetDefault`）也走这条补的路径。
 - 新段照常带上这个 Bot 的模型、思考强度、权限预设和能力，不被预设冲掉。
 - 群自己的中继会话不是哪个 Bot 的：按默认走，不换。
-- 一次换段还没走完又改了预设：正在换的那一段不打断，它建成新段时读的是**当时**最新的选择，所以通常直接落在最新的选择上，不必再换一次；万一新段仍不是最新的，下一轮的 pre-step 会补一次。
+- 一次换段还没走完又改了预设：正在换的那一段不打断，它建成新段时读的是**当时**最新的选择，所以通常直接落在最新的选择上，不必再换一次；万一新段仍不是最新的，下次空闲时会补一次。等待当前轮次结束期间改回原预设，不再换段。
 
 ### 安全边界
 
@@ -49,7 +49,7 @@ DSH 的 Agent 预设决定一个 Session 有哪些工具、提示段和技能。
 - `api/bot` 的 `presets` 操作（只读，另一个 dsh 持有团队时也可答）返回 `{ presets: [{ id, name?, description?, broken? }] }`：这个 profile 的预设目录；坏的、以及与 Bot 不兼容的，留在列表里带原因，让选择器能显示但禁选。
 - `create-bot` / `update-bot` 的 payload 接受 `agentPreset`：字符串 id 或 `null`（清掉显式选择，回到默认）。未提供即不改。`null` 表示用户自己挑了默认，Bot 上因此记下内部标记 `agentPresetDefault`（不对外暴露，见上）。
 - 建 Bot 表单和 Bot 设置里有一个 Agent preset 选择器：第一项是默认项，后面是目录里每个预设。第一项的名字和提示**跟着目录走**：目录里有可用的 `standard` 时叫「Default (Standard)」，没有时叫「Default (DSH default)」；目录还没读到时第一项只写「Default」，Bot 设置那一行显示「Loading…」，读到之后才定名。选默认项等于清掉显式选择。`broken`（含不兼容）的禁选并显示原因；已选但不在目录里的显示为「Missing preset」，并带着原来的 id，不静默换成别的预设。选择器打开时重新取一次目录。
-- 选择器只在 DSH 模型运行方式下显示；本地 Agent CLI 使用自己的组成。切换到本地 CLI 时保留 Bot 已存的 DSH 预设，切回模型运行方式后继续使用。
+- 选择器只在 DSH 模型运行方式下显示；本地 Agent CLI 使用自己的组成。切换到本地 CLI 时保留 Bot 已存的 DSH 预设，但不应用、不校验它，也不因它触发换段；承载 CLI 的 DSH 会话沿用默认组成来提供团队工具。切回模型运行方式后继续使用保存的选择。
 
 ## 不做什么
 

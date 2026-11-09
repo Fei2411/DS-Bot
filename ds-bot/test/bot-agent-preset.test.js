@@ -147,16 +147,27 @@ function start({ presets = ROSTER, team = TEAM, home: reuse } = {}) {
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   // DS Bot's own pre-step listener (parts.js registers it last): a turn starting in a
   // Session checks the preset that Session runs.
-  const startTurn = async (sessionId) => {
+  const step = async (sessionId, number = 1) => {
     const listener = (ctx.listeners.get('agent/pre-step') ?? []).at(-1)
     assert.ok(listener !== undefined, 'no pre-step listener')
-    return listener({ agent: agentOf(sessionId), messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => 'next')
+    return listener({ agent: agentOf(sessionId), messages: [], step: number, signal: AbortSignal.timeout(10_000) }, async () => 'next')
+  }
+  const idle = (sessionId) => {
+    const agent = agentOf(sessionId)
+    agent.status = 'idle'
+    for (const listener of ctx.listeners.get('agent/status') ?? []) listener({ agent, status: 'idle' })
+  }
+  const startTurn = async (sessionId) => {
+    agentOf(sessionId).status = 'running'
+    const result = await step(sessionId)
+    idle(sessionId)
+    return result
   }
   const stop = async ({ keep = false } = {}) => {
     await ctx.dispose()
     if (!keep) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, rt, home, call, state, stop, startTurn, chatOf: id => rt.chatOf(id), created, archived, headers, agentOf, fail, warnings, sent, teamPath, complete, presetService: services.agentPresets }
+  return { ctx, rt, home, call, state, stop, startTurn, step, idle, chatOf: id => rt.chatOf(id), created, archived, headers, agentOf, fail, warnings, sent, teamPath, complete, presetService: services.agentPresets }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 15))
@@ -230,6 +241,23 @@ test('with no usable standard, a compatible default is named for the new Session
   const writer = (await host.call('create-bot', { name: 'Writer' })).value
   assert.equal(writer.agentPreset, undefined)
   assert.equal(host.created.at(-1).agentPreset, 'research')
+})
+
+test('an incompatible standard falls back for creation and clearing a saved pick', async (t) => {
+  const host = start({ presets: [...ROSTER, { id: 'custom' }] })
+  t.after(host.stop)
+  host.complete.add('standard')
+  host.presetService.defaultId = 'research'
+  await host.call('state')
+  const answer = await host.call('create-bot', { name: 'Default Writer' })
+  assert.equal(answer.ok, true, JSON.stringify(answer))
+  assert.equal(host.headers.get(answer.value.id), 'research')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'custom' })).value
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
+  await until(() => host.chatOf(writer.id) !== writer.id)
+  assert.equal(host.headers.get(host.chatOf(writer.id)), 'research')
+  const refused = await host.call('create-bot', { name: 'Explicit', agentPreset: 'standard' })
+  assert.equal(refused.ok, false, 'an explicit incompatible choice still fails')
 })
 
 test('with no standard, clearing the pick follows the compatible default', async (t) => {
@@ -371,9 +399,17 @@ test('changing the pick moves the Bot\'s own chat and its group Session to fresh
   host.agentOf(memberBefore).inbox.nextTurn.push({
     id: 'held', role: 'user', content: [{ type: 'text', text: 'held for the group' }], source: { kind: 'user' },
   })
+  host.agentOf(ownBefore).status = 'running'
+  host.agentOf(memberBefore).status = 'running'
 
   const answer = await host.call('update-bot', { id: writer.id, agentPreset: 'research' })
   assert.equal(answer.ok, true, JSON.stringify(answer))
+  for (const sessionId of [ownBefore, memberBefore]) {
+    assert.equal(await host.step(sessionId, 2), 'next')
+    assert.equal(await host.step(sessionId, 3), 'next')
+  }
+  host.idle(ownBefore)
+  host.idle(memberBefore)
   await until(() => host.chatOf(writer.id) !== ownBefore)
   await until(() => host.state().rooms[room.id].sessions[writer.id] !== memberBefore)
 
@@ -396,7 +432,7 @@ test('changing the pick moves the Bot\'s own chat and its group Session to fresh
   assert.deepEqual(host.archived.map(([sessionId]) => sessionId).sort(), [memberBefore, ownBefore].sort())
 })
 
-test('a pick made while a part is moving is the one the fresh part runs', async (t) => {
+test('changing back during a running turn needs no new part', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state')
@@ -407,11 +443,65 @@ test('a pick made while a part is moving is the one the fresh part runs', async 
   await settle()
   // A second pick lands while that switch waits.
   assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: 'standard' })).ok, true)
-  host.agentOf(writer.id).status = 'idle'
-  await until(() => host.chatOf(writer.id) !== writer.id)
-  await until(() => host.headers.get(host.chatOf(writer.id)) === 'standard')
+  host.idle(writer.id)
+  await settle()
+  assert.equal(host.chatOf(writer.id), writer.id)
   assert.equal(host.state().bots[writer.id].agentPreset, 'standard')
   assert.equal(host.headers.get(host.chatOf(writer.id)), 'standard')
+})
+
+test('a preset edit lets every step finish before moving the conversation', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'standard' })).value
+  host.agentOf(writer.id).status = 'running'
+  assert.equal(await host.step(writer.id), 'next')
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: 'research' })).ok, true)
+  assert.equal(await host.step(writer.id, 2), 'next')
+  assert.equal(await host.step(writer.id, 3), 'next')
+  assert.equal(host.chatOf(writer.id), writer.id)
+  assert.equal(host.state().switching?.[writer.id], undefined)
+  host.idle(writer.id)
+  await until(() => host.chatOf(writer.id) !== writer.id)
+  assert.equal(host.headers.get(host.chatOf(writer.id)), 'research')
+})
+
+test('a saved mismatch after restart lets a whole turn finish before switching', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  host.rt.botOf('chief').agentPreset = 'research'
+  host.headers.set('chief', 'standard')
+  host.agentOf('chief').status = 'running'
+  assert.equal(await host.step('chief'), 'next')
+  assert.equal(await host.step('chief', 2), 'next')
+  assert.equal(host.chatOf('chief'), 'chief')
+  host.idle('chief')
+  await until(() => host.chatOf('chief') !== 'chief')
+  assert.equal(host.headers.get(host.chatOf('chief')), 'research')
+})
+
+test('an idle preset check yields to a turn that starts during validation', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  host.rt.botOf('chief').agentPreset = 'research'
+  host.headers.set('chief', 'standard')
+  const list = host.presetService.list
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  let entered = false
+  host.presetService.list = async () => { entered = true; await held; return list() }
+  host.idle('chief')
+  await until(() => entered)
+  host.agentOf('chief').status = 'running'
+  release()
+  await settle()
+  assert.equal(await host.step('chief', 2), 'next')
+  assert.equal(host.chatOf('chief'), 'chief')
+  host.idle('chief')
+  await until(() => host.chatOf('chief') !== 'chief')
 })
 
 test('a switch that fails keeps the queued input, and the stored pick is applied later', async (t) => {

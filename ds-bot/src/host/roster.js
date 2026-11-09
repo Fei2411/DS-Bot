@@ -145,9 +145,7 @@ export function install(rt) {
     const standard = (await agentPresetRows()).find(row => row.id === 'standard' && row.broken === undefined)
     if (standard !== undefined) {
       const fit = await presetFits('standard')
-      return fit.fits
-        ? { id: 'standard', usable: true }
-        : { id: 'standard', usable: false, problem: `The standard agent preset cannot be used for a Bot: ${fit.reason}. Choose a preset for the Bot in its settings.` }
+      if (fit.fits) return { id: 'standard', usable: true }
     }
     // No usable standard: DSH composes its own default for a Session that names none.
     // Name that one and check it like any other pick, so a default that replaces the
@@ -184,6 +182,7 @@ export function install(rt) {
   // cleared pick follows the same default creation does. `usable` is false when the
   // preset is gone, broken, or incompatible, so a part is never made on it.
   async function botPresetOf(bot) {
+    if (rt.isLocalAgentRef?.(bot?.model ?? bot?.appliedModel) === true) return undefined
     const effective = await effectivePreset(typeof bot?.agentPreset === 'string' && bot.agentPreset !== '' ? bot.agentPreset : undefined)
     return effective === undefined ? undefined : { id: effective.id, usable: effective.usable }
   }
@@ -211,7 +210,8 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
     // Checked before anything is made, so a pick that is gone or broken leaves no
     // workspace, folder, or Session behind.
-    const preset = await sessionPreset(agentPreset !== undefined ? agentPreset : bot?.agentPreset)
+    const local = rt.isLocalAgentRef?.(bot?.model ?? bot?.appliedModel) === true
+    const preset = await sessionPreset(local ? undefined : agentPreset !== undefined ? agentPreset : bot?.agentPreset)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const known = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
@@ -326,7 +326,7 @@ export function install(rt) {
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
     if (!main && (section !== undefined || sectionId !== undefined)) resolveSectionInput({ section, sectionId }, { allowCreate: false })
-    const id = await createSession(cleanName, { dir, agentPreset: presetId })
+    const id = await createSession(cleanName, { dir, bot: { model: modelRef }, agentPreset: presetId })
     try {
       const resolvedSecId = !main ? resolveSectionInput({ section, sectionId }) : undefined
       state.bots[id] = {
@@ -502,7 +502,6 @@ export function install(rt) {
     }
     // Checked first, so a pick that is gone or broken leaves everything else unchanged.
     const presetPick = cleanPreset(patch.agentPreset)
-    const presetId = presetPick === undefined || presetPick === null ? presetPick : await checkedPreset(presetPick)
     const presetBefore = bot.agentPreset
     if ((patch.section !== undefined || patch.sectionId !== undefined) && actorId !== undefined && !rt.isMain(actorId)) {
       throw new Error(`Only the user or a Main Bot can move ${bot.name} between sidebar sections`)
@@ -531,6 +530,8 @@ export function install(rt) {
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
+    const presetId = presetPick === undefined || presetPick === null || rt.isLocalAgentRef?.(effortRef) === true
+      ? presetPick : await checkedPreset(presetPick)
     let effortId
     if (patch.effort !== undefined) {
       if (patch.effort === null || patch.effort === '') effortId = null
