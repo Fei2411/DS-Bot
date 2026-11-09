@@ -17,7 +17,8 @@ const DROP_PREFIX = ['DS_BOT_', 'DSH_']
 export function cleanEnv(extra = {}) {
   const env = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (DROP_EXACT.has(key) || DROP_PREFIX.some(prefix => key.startsWith(prefix))) continue
+    const upper = key.toUpperCase()
+    if (DROP_EXACT.has(upper) || /KEY|TOKEN|SECRET|PASSWORD/.test(upper) || DROP_PREFIX.some(prefix => upper.startsWith(prefix))) continue
     env[key] = value
   }
   // A CLI found outside our sparse PATH (a script with `#!/usr/bin/env node`)
