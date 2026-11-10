@@ -197,3 +197,14 @@ test('the flat toolbar hangs below reactions instead of covering them', () => {
   assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{top:100%;/)
   assert.doesNotMatch(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
 })
+
+test('on touch, the message toolbar sits below the message and is shorter', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const touch = css.slice(css.indexOf('@media (hover:none)'), css.indexOf('.bt-mic-note'))
+  // A touch tap opens the toolbar, so it must not sit over the bubble it belongs to.
+  assert.match(touch, /\.bt-msg\{position:relative\}/)
+  assert.match(touch, /\.bt-msg-line\{position:static\}/)
+  assert.match(touch, /\.bt-tools\{top:100%;bottom:auto;/)
+  assert.match(touch, /\.bt-tool\{width:36px;height:36px\}/)
+  assert.doesNotMatch(touch, /\.bt-tool\{width:44px;height:44px\}/)
+})
