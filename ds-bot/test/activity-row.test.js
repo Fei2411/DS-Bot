@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { findHost, rowVisible, freshInputAt } from './src/client/activity-row.js'",
+      "export { findHost, rowVisible, freshInputAt, ownActivity } from './src/client/activity-row.js'",
       "export { clientErrors } from './src/client/diagnostics.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
@@ -43,7 +43,7 @@ runInNewContext(outputFiles[0].text, {
   cancelAnimationFrame: id => clearTimeout(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { findHost, rowVisible, freshInputAt, clientErrors } = module.exports
+const { findHost, rowVisible, freshInputAt, ownActivity, clientErrors } = module.exports
 
 test('the activity row mounts at the running slot even under an extra wrapper', () => {
   dom.window.document.body.innerHTML = '<div data-chat-flow><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
@@ -99,4 +99,27 @@ test('fresh input ignores queued sends and takes the newest of the rest', () => 
   assert.equal(freshInputAt([{ placement: 'queued', time: 300 }], undefined), 0)
   assert.equal(freshInputAt(undefined, 400), 400)
   assert.equal(freshInputAt([], undefined), 0)
+})
+
+// A Bot's own chat names what the turn is on, from the host's own-turn state: the
+// step's speech, else its running tool, else the kind of work.
+test("a Bot's own turn is named by what it is on", () => {
+  const said = ownActivity({ said: '找传输关闭与进程回收', tool: 'bash' })
+  assert.equal(said.label, '找传输关闭与进程回收')
+  assert.equal(said.state, 'working')
+  const tool = ownActivity({ tool: 'bash' })
+  assert.equal(tool.label, 'Running shell commands')
+  const none = ownActivity({})
+  assert.equal(none.label, 'Thinking about it')
+  const move = ownActivity({ switching: true, folder: false })
+  assert.equal(move.label, 'Moving to a fresh conversation')
+  assert.equal(move.state, 'thinking')
+})
+
+// A new thing said in the same turn redraws the phrase; repeating it does not.
+test('the own-turn phrase key follows what the turn says', () => {
+  const first = ownActivity({ said: 'checking the log' })
+  assert.equal(first.key, ownActivity({ said: 'checking the log' }).key)
+  assert.notEqual(first.key, ownActivity({ said: 'reading the config' }).key)
+  assert.notEqual(first.key, ownActivity({ said: 'checking the log', tool: 'bash' }).key)
 })
