@@ -245,6 +245,14 @@ export const KO = {
   'Change and start a new part': '변경 후 새 구간 시작',
   // Local agents page
   'Local agents': '로컬 Agent',
+  // Plugins page
+  'Plugins': '플러그인',
+  'Installed plugins': '설치된 플러그인',
+  'Official catalog': '공식 카탈로그',
+  'No plugins are installed': '설치된 플러그인이 없습니다',
+  'This host has no plugin manager.': '이 호스트에는 플러그인 관리자가 없습니다.',
+  'Install': '설치',
+  'Not available here': '여기에서는 사용할 수 없습니다',
   'This DSH cannot register local agent routes.': '이 DSH에서는 로컬 Agent 경로를 등록할 수 없습니다.',
   'Detected agents': '감지된 Agent',
   Refresh: '새로고침',

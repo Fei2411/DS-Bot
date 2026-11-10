@@ -245,6 +245,14 @@ export const DE = {
   'Change and start a new part': 'Ändern und neuen Abschnitt starten',
   // Local agents page
   'Local agents': 'Lokale Agenten',
+  // Plugins page
+  'Plugins': 'Plugins',
+  'Installed plugins': 'Installierte Plugins',
+  'Official catalog': 'Offizieller Katalog',
+  'No plugins are installed': 'Keine Plugins installiert',
+  'This host has no plugin manager.': 'Dieser Host hat keinen Plugin-Manager.',
+  'Install': 'Installieren',
+  'Not available here': 'Hier nicht verfügbar',
   'This DSH cannot register local agent routes.': 'Dieses DSH kann keine Routen für lokale Agenten registrieren.',
   'Detected agents': 'Erkannte Agenten',
   Refresh: 'Aktualisieren',

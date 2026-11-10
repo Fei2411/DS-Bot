@@ -255,6 +255,14 @@ const ZH = {
   'Change and start a new part': '更换并开新的一段',
   // Local agents page
   'Local agents': '本地 Agent',
+  // Plugins page
+  'Plugins': '插件',
+  'Installed plugins': '已安装的插件',
+  'Official catalog': '官方目录',
+  'No plugins are installed': '没有安装任何插件',
+  'This host has no plugin manager.': '这个宿主没有插件管理器。',
+  'Install': '安装',
+  'Not available here': '这里不可用',
   'This DSH cannot register local agent routes.': '这个 DSH 不能注册本地 Agent 路由。',
   'Detected agents': '已检测到的 Agent',
   Refresh: '刷新',

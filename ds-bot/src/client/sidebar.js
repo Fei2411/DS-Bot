@@ -4,7 +4,7 @@ import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
@@ -1045,6 +1045,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
+      [t('Plugins'), PlugIcon, () => actions.openSettings('plugins')],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),

@@ -155,7 +155,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models'])
+  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'plugins'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -693,6 +693,11 @@ export function install(rt) {
         case 'local-agent-remove':
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
+        case 'plugins':
+        case 'plugin-entry':
+        case 'plugin-bundle':
+        case 'plugin-install':
+          return ok(await rt.pluginsEndpoint(endpoint, body))
         // "New session" and "open an earlier session" on an abot's chat: ordinary
         // parts moves (parts.js), the same mechanism every Bot's chat uses.
         case 'bot-new-part': {

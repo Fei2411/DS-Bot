@@ -112,7 +112,7 @@ test('the coordinator runs first-run steps on a blank main view, and a requested
 test('a step\'s openSection lands on DS Bot\'s page for that section', () => {
   assert.deepEqual([...shell.settingsPlace('models')], ['models'])
   assert.deepEqual([...shell.settingsPlace('general')], ['general'])
-  assert.deepEqual([...shell.settingsPlace('plugins')], ['dsh', 'plugins'])
+  assert.deepEqual([...shell.settingsPlace('plugins')], ['plugins'])
 })
 
 test('the Desktop update carrier feeds the status, and one action runs at a time', async () => {
@@ -167,18 +167,28 @@ const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node 
 test('one Settings: DS Bot\'s pages, then DSH\'s, then Feedback and About; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
   assert.ok(!labels.includes('Harness settings'))
-  assert.deepEqual(labels.slice(-5), ['Account', 'Plugins', 'Agent presets', 'Feedback', 'About DS Bot'])
+  // DS Bot's own Plugins page replaces DSH's plugins section.
+  assert.deepEqual(labels.slice(-4), ['Account', 'Agent presets', 'Feedback', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
+  assert.equal(labels.filter(label => label === 'Plugins').length, 1)
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
   const nav = dialog()
-  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Plugins')[0].props.onClick()
-  assert.deepEqual(nav.calls, [['dsh', 'plugins']])
-  const page = dialog({ page: 'dsh', id: 'plugins' })
-  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
-  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
+  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Agent presets')[0].props.onClick()
+  assert.deepEqual(nav.calls, [['dsh', 'agent-presets']])
+  const page = dialog({ page: 'dsh', id: 'agent-presets' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'agent-presets'))
+  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Agent presets')
+})
+
+test("DS Bot's Plugins page opens from the nav, and DSH's plugins section stays out", () => {
+  const nav = dialog()
+  const buttons = walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Plugins')
+  assert.equal(buttons.length, 1)
+  buttons[0].props.onClick()
+  assert.deepEqual(nav.calls, [['plugins']])
 })
 
 test('a DSH page that left the ledger falls back to General', () => {

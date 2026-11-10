@@ -293,6 +293,7 @@ export function SettingsShell(props) {
 export function settingsPlace(id) {
   if (id === 'general') return ['general']
   if (id === 'models') return ['models']
+  if (id === 'plugins') return ['plugins']
   return ['dsh', id]
 }
 

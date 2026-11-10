@@ -180,7 +180,7 @@ function AutomationOff({ actions }) {
     h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
     h('span', { className: 'bt-task-off-title' }, t('Turn on Automation tasks in DSH')),
     h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.')),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('plugins') }, t('Open Plugins')))
 }
 
 // A plain `start` opens the create form for that Bot or group chat; the
@@ -222,7 +222,7 @@ export function BotSchedules({ bot, roster, actions }) {
       !view.available
         ? h('div', { className: 'bt-set-row bt-bs-row' },
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.'))),
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('plugins') }, t('Open Plugins')))
         : [
             ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish })),
             h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon), t('New task')),
