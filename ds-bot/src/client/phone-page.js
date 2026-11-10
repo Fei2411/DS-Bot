@@ -34,6 +34,9 @@ function minutesLeft(until) {
   return Math.max(0, Math.ceil((until - Date.now()) / 60_000))
 }
 
+// The phone app ships with each DS Bot release, as the release's Android APK.
+const APP_DOWNLOAD = 'https://github.com/Fei2411/DS-Bot/releases/latest'
+
 // Settings → Phone: the DS Bot phone app reaches this computer through a Relay Server.
 export function PhonePage({ roster, actions, Section, Row }) {
   const phone = roster.phone ?? OFF
@@ -66,6 +69,9 @@ export function PhonePage({ roster, actions, Section, Row }) {
         h('input', { className: 'bt-input', value: server, placeholder: 'wss://relay.dsbot.app/v1/link', spellCheck: false, 'aria-label': t('Server'), onChange: event => setServer(event.target.value), onKeyDown: event => { if (event.key === 'Enter') saveServer() } }),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || server.trim() === phone.server, onClick: saveServer }, t('Save')))),
     error ? h('div', { className: 'bt-connector-error bt-phone-error', role: 'alert' }, error) : null,
+    h(Section, { title: t('Phone app') },
+      h(Row, { label: t('Android beta') },
+        h('a', { className: 'bt-soft bt-soft-sm', href: APP_DOWNLOAD, target: '_blank', rel: 'noopener noreferrer' }, t('Download')))),
     h(Section, { title: t('Pair a phone') }, phone.pairing
       ? h('div', { className: 'bt-phone-pair' },
         h(QrCode, { text: phone.pairing.uri }),

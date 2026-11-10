@@ -750,6 +750,9 @@ var ZH = {
   "On. Paired phones can use DS Bot here.": "已开启。配对过的手机可以用这台电脑上的 DS Bot。",
   "Cannot reach the Server. Trying again…": "连不上服务器，正在重试…",
   "Phone access": "手机访问",
+  "Beta": "测试版",
+  "Phone app": "手机 App",
+  "Android beta": "Android 测试版",
   Server: "服务器",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。",
   "Pair a phone": "配对手机",
@@ -20324,6 +20327,7 @@ function QrCode({ text }) {
 function minutesLeft(until) {
   return Math.max(0, Math.ceil((until - Date.now()) / 6e4));
 }
+var APP_DOWNLOAD = "https://github.com/Fei2411/DS-Bot/releases/latest";
 function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const phone = roster.phone ?? OFF;
   const [server, setServer] = (0, import_react41.useState)(phone.server);
@@ -20370,6 +20374,15 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
       )
     ),
     error ? (0, import_react41.createElement)("div", { className: "bt-connector-error bt-phone-error", role: "alert" }, error) : null,
+    (0, import_react41.createElement)(
+      Section2,
+      { title: t("Phone app") },
+      (0, import_react41.createElement)(
+        Row4,
+        { label: t("Android beta") },
+        (0, import_react41.createElement)("a", { className: "bt-soft bt-soft-sm", href: APP_DOWNLOAD, target: "_blank", rel: "noopener noreferrer" }, t("Download"))
+      )
+    ),
     (0, import_react41.createElement)(Section2, { title: t("Pair a phone") }, phone.pairing ? (0, import_react41.createElement)(
       "div",
       { className: "bt-phone-pair" },
@@ -22303,7 +22316,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     className: "bt-settings-item",
     "aria-current": shown === key ? "page" : void 0,
     onClick: () => actions.openSettings(key)
-  }, (0, import_react48.createElement)(PAGE_ICONS[key]), t(text));
+  }, (0, import_react48.createElement)(PAGE_ICONS[key]), t(text), key === "phone" ? (0, import_react48.createElement)("span", { className: "bt-tag", style: { marginLeft: "auto" } }, t("Beta")) : null);
   return (0, import_react48.createElement)(
     "div",
     { className: "bt-settings-layer", "data-leaving": leaving || void 0 },

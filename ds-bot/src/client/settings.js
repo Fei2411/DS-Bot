@@ -337,7 +337,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const errorLine = error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null
   const pageButton = (key, text) => h('button', {
     key, type: 'button', className: 'bt-settings-item', 'aria-current': shown === key ? 'page' : undefined, onClick: () => actions.openSettings(key),
-  }, h(PAGE_ICONS[key]), t(text))
+  }, h(PAGE_ICONS[key]), t(text), key === 'phone' ? h('span', { className: 'bt-tag', style: { marginLeft: 'auto' } }, t('Beta')) : null)
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onMouseDown: close }),
     h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
