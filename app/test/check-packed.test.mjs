@@ -62,6 +62,9 @@ test('the packed check still sends exactly one Enter and waits for the reply', a
   const { error, keys } = await runChat('sent')
   assert.equal(error, undefined)
   assert.deepEqual(keys.map(key => key.type), ['keyDown', 'keyUp'])
+  assert.equal(keys[0].text, '\r')
+  assert.equal(keys[0].unmodifiedText, '\r')
+  assert.equal(keys[1].text, undefined)
 })
 
 test('a dropped Enter reports readiness and no received keyboard events, without retrying', async () => {
@@ -72,6 +75,8 @@ test('a dropped Enter reports readiness and no received keyboard events, without
   assert.equal(state.enter.before.send.disabled, false)
   assert.equal(state.enter.before.focused, true)
   assert.deepEqual(state.enter.events, [])
+  assert.deepEqual(state.dispatch.map(entry => entry.type), ['keyDown', 'keyUp'])
+  assert.ok(state.dispatch.every(entry => typeof entry.sent === 'number' && entry.acknowledged >= entry.sent))
   assert.equal(keys.length, 2)
 })
 

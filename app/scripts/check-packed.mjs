@@ -482,7 +482,8 @@ async function chat(cdp) {
       draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
     }
   })()`
-  const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, tail: document.body.innerText.slice(-300) })`)
+  const dispatch = []
+  const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, dispatch: ${JSON.stringify(dispatch)}, tail: document.body.innerText.slice(-300) })`)
   try {
     // Capture readiness in the existing probe: an extra CDP round trip before Enter can hide a race.
     await until(`(() => {
@@ -502,7 +503,15 @@ async function chat(cdp) {
   } catch (error) {
     throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
-  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  for (const type of ['keyDown', 'keyUp']) {
+    const entry = { type, sent: Date.now() }
+    dispatch.push(entry)
+    await cdp.call('Input.dispatchKeyEvent', {
+      type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
+      ...(type === 'keyDown' ? { text: '\r', unmodifiedText: '\r' } : {}),
+    })
+    entry.acknowledged = Date.now()
+  }
   try {
     await until(`!(${box}?.innerText ?? '').includes('packaged app check')`, 'Enter to send the message', 10_000)
   } catch (error) {
