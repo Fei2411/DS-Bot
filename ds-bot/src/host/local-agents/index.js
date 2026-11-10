@@ -196,7 +196,7 @@ export function install(rt) {
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      }, { kind: 'external-agent', action: args })
+      }, adapter.approvalEvidence(exec.agent.session.id, exec.callId) ?? { kind: 'external-agent', action: args })
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })

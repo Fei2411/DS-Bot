@@ -215,6 +215,13 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (!stillUsed) await live.engine.close?.().catch(() => {})
   }
 
+  // Only driver permission callbacks populate this evidence; MCP/model arguments cannot.
+  approvalEvidence(sessionId, callId) {
+    const live = this.live.get(String(sessionId))
+    if (!live || live.dead || !live.engineSession || live.engineSession.dead) return undefined
+    return live.pending.get(callId)?.approvalEvidence
+  }
+
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
   stopTurn(live, reason) {
     live.state = 'idle'
@@ -550,7 +557,11 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
           const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}), ...(event.evidence ? { evidence: event.evidence } : {}) }, dshCallId: event.id }
-          live.pending.set(event.id, { name: APPROVE_TOOL, resolve: (result) => event.reply(pickAllowOption(event.options, result)) })
+          live.pending.set(event.id, {
+            name: APPROVE_TOOL,
+            approvalEvidence: { kind: 'external-agent', cwd: event.cwd, action: call.args },
+            resolve: (result) => event.reply(pickAllowOption(event.options, result)),
+          })
           for (const chunk of emitCalls([call])) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
           return

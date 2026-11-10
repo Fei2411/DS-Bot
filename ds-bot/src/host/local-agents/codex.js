@@ -100,6 +100,8 @@ export class CodexEngine {
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
           changes: true,
           detail: detailText(params),
+          // Commands can override the thread directory; only the server's resolved cwd counts.
+          cwd: method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval' ? params?.cwd : thread?.cwd,
           options,
         })
       })
@@ -134,6 +136,7 @@ export class CodexEngine {
         // thread/resume takes the same params, plus the thread id. The instructions it
         // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
+        thread.cwd = cwd
         return thread
       } catch {
         thread.threadId = undefined
@@ -141,6 +144,7 @@ export class CodexEngine {
     }
     const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
+    thread.cwd = cwd
     return thread
   }
 

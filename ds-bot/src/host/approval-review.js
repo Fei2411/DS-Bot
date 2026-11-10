@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { splitRef, textOf } from './text.js'
 import { REFERENCE_KIND } from './constants.js'
@@ -80,6 +81,9 @@ export async function reviewApproval(rt, { request, owner, evidence, signal, onM
   if (!evidence) throw new Error('The exact action is unavailable for automatic review')
   if (evidence.kind === 'browser' && evidence.action?.evidenceComplete !== true) {
     throw new Error('The browser action needs more evidence; review it manually')
+  }
+  if (evidence.kind === 'external-agent' && (typeof evidence.cwd !== 'string' || !isAbsolute(evidence.cwd))) {
+    throw new Error('The external runtime working directory is unavailable; review it manually')
   }
   const context = await reviewContext(rt, owner, signal)
   if (!context.some(line => line.source === 'user' && line.text)) throw new Error('No direct user authorization was found in the available context')
