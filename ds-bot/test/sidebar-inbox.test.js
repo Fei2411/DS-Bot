@@ -407,6 +407,7 @@ test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
   assert.equal(byClass(tile[0], 'bt-dot').length, 1, 'the unread dot rides on the tile')
   assert.match(tile[0].props['aria-label'], /Mist/)
   assert.match(tile[0].props['aria-label'], /Main Bot/)
+  assert.ok(hasClass(byClass(tile[0], 'bt-badge-main')[0], 'bt-badge-crown'), 'the tile badge is a crown')
 
   byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: 'Mist' } })
   tree = app.render()
@@ -437,6 +438,25 @@ test('C1b: the rail shows the Main Bot once and has no pin slot', () => {
   const tree = app.render()
   assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'no slot on the rail')
   assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the Main Bot is in the rail list exactly once')
+})
+
+// C1b: the tile sits on the panel itself, so no state may paint a block behind it.
+test('C1b: the Main Bot tile is unfilled in every state and its badge is a crown disc', () => {
+  assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*background:transparent/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile:hover\{background/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\]\{background/)
+  assert.match(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-ava\{[^}]*box-shadow:0 0 0 2px var\(--bt-panel/)
+  assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main\{[^}]*border-radius:50%[^}]*background:var\(--bt-star\)/)
+  assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main path\{fill:var\(--bt-crown-ink\)/)
+
+  // Only the tile wears the crown: the same Bot's rail row keeps the star.
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  viewport.innerWidth = 390
+  const tree = app.render()
+  const row = rows(tree).find(node => node.props['data-bot-id'] === 'main')
+  assert.ok(!hasClass(byClass(row, 'bt-badge-main')[0], 'bt-badge-crown'), 'the rail row keeps the star badge')
+  viewport.innerWidth = 1280
 })
 
 test('C2: rows stop being draggable while a filter is on', () => {

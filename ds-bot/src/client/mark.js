@@ -98,6 +98,12 @@ function MainStar() {
     h('path', { d: 'M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z' }))
 }
 
+// The pinned Main Bot tile wears a crown on a disc; the list rows keep the star.
+function MainCrown() {
+  return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': true },
+    h('path', { d: 'M3.9 11.4h8.2l.4-6.6-2.4 1.6L8 4.2 5.9 6.4 3.5 4.8z' }))
+}
+
 // Marks settle with a short squash when a run finishes.
 function useSettled(state) {
   const prev = useRef(state)
@@ -114,7 +120,7 @@ function useSettled(state) {
   return settled
 }
 
-export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
+export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false, crown = false }) {
   const settled = useSettled(state)
   if (bot === undefined) return h(BotMark, { size })
   const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
@@ -123,7 +129,7 @@ export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,
     badgeKind === 'alert' ? h('span', { className: 'bt-badge bt-badge-alert', 'aria-label': t('Waiting for your answer'), role: 'img' }, '?') : null,
     badgeKind === 'admin' ? h('span', { className: 'bt-badge bt-badge-admin', 'aria-label': t('Admin'), role: 'img' }, h(StarIcon)) : null,
-    badgeKind === 'main' ? h('span', { className: 'bt-badge bt-badge-main', 'aria-label': t('Main Bot'), role: 'img' }, h(MainStar)) : null)
+    badgeKind === 'main' ? h('span', { className: `bt-badge bt-badge-main${crown ? ' bt-badge-crown' : ''}`, 'aria-label': t('Main Bot'), role: 'img' }, h(crown ? MainCrown : MainStar)) : null)
 }
 
 // A group avatar seats its members' characters in the frame: two on a
