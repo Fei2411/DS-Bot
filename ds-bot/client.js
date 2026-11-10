@@ -15030,6 +15030,13 @@ var freshInputAt = (submissions, steeredAt) => Math.max(
   steeredAt ?? 0,
   ...(submissions ?? []).filter((sub) => sub.placement !== "queued").map((sub) => sub.time)
 );
+function ownActivity(doing) {
+  return {
+    key: `own:${doing.switching === true ? "switch" : `${doing.tool ?? ""}|${doing.said ?? doing.note ?? ""}|${doing.target ?? ""}`}`,
+    label: workPhrase(doing),
+    state: doing.switching === true ? "thinking" : toolState(doing.tool ?? "")
+  };
+}
 var mountMissed = false;
 function findHost() {
   const node = document.querySelector("[data-chat-flow] [data-chat-running]") ?? document.querySelector("[data-chat-flow]");
@@ -15125,6 +15132,10 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   const pendingInput = useSession((snapshot) => freshInputAt(snapshot?.pendingSubmissions, steeredAt));
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
+  const own = useWork?.((work) => {
+    const entry = bot === void 0 ? void 0 : work.bots?.[bot.id];
+    return entry?.roomId === void 0 ? entry : void 0;
+  });
   const moveAt = useWork?.((work) => {
     const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
@@ -15138,7 +15149,7 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   const inputRef = (0, import_react33.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
+  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : tool ? tool.label ? { key: `tool:${tool.label}`, label: tool.label, state: tool.state ?? "working" } : own !== void 0 ? ownActivity(own) : { key: "working", pool: PHRASES.working, state: tool.state ?? "working" } : own !== void 0 ? ownActivity(own) : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
   const [shown, setShown] = (0, import_react33.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react33.useRef)("thinking");

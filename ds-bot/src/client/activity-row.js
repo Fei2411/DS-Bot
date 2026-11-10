@@ -1,7 +1,7 @@
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BotMark, RoomAvatar } from './mark.js'
-import { Elapsed, Shimmer, PHRASES } from './cells.js'
+import { BotMark, RoomAvatar, toolState } from './mark.js'
+import { Elapsed, Shimmer, PHRASES, workPhrase } from './cells.js'
 import { noteClientError } from './diagnostics.js'
 import { reducedMotion } from './motion.js'
 import { t } from './i18n.js'
@@ -24,6 +24,17 @@ export const rowVisible = ({ running, streaming, tools, relaying, bot, room }) =
 // send counts as fresh input; a steer the host saw counts from when it landed.
 export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ?? 0,
   ...(submissions ?? []).filter(sub => sub.placement !== 'queued').map(sub => sub.time))
+
+// What a Bot's own turn is doing, from the host's own-turn state — the same entry a
+// group's member row reads. Without it the row falls back to a generic phrase while
+// the turn says what it is on.
+export function ownActivity(doing) {
+  return {
+    key: `own:${doing.switching === true ? 'switch' : `${doing.tool ?? ''}|${doing.said ?? doing.note ?? ''}|${doing.target ?? ''}`}`,
+    label: workPhrase(doing),
+    state: doing.switching === true ? 'thinking' : toolState(doing.tool ?? ''),
+  }
+}
 
 // The shell's running slot can sit under wrappers it adds around the flow, so the
 // search is a descendant one; without the slot the row mounts at the flow's tail.
@@ -117,6 +128,12 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   const pendingInput = useSession(snapshot => freshInputAt(snapshot?.pendingSubmissions, steeredAt))
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
+  // A Bot at work in its own chat: what it is on, for the row to name it. Work in a
+  // group belongs to that group's row, not here.
+  const own = useWork?.((work) => {
+    const entry = bot === undefined ? undefined : work.bots?.[bot.id]
+    return entry?.roomId === undefined ? entry : undefined
+  })
   // The one switch the row names: a working-folder move jumps the chat to a fresh
   // part while a turn is not running, so without it the conversation just empties.
   const moveAt = useWork?.((work) => {
@@ -140,8 +157,11 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     : moveAt !== 0 ? { key: 'move', label: t('Switching working folder'), state: 'thinking' }
       : inputAt > (tool?.at ?? 0)
         ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
-        : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
-          : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
+        : tool ? (tool.label ? { key: `tool:${tool.label}`, label: tool.label, state: tool.state ?? 'working' }
+          : own !== undefined ? ownActivity(own)
+            : { key: 'working', pool: PHRASES.working, state: tool.state ?? 'working' })
+          : own !== undefined ? ownActivity(own)
+            : { key: 'thinking', pool: PHRASES.thinking, state: 'thinking' }
   const [shown, setShown] = useState(null)
   const wantKey = want?.key ?? null
   const markState = useRef('thinking')
