@@ -161,11 +161,10 @@ test('the last preset asked for wins when two group changes overlap', async () =
   assert.equal(releases.length, 2)
   await settle(1) // the later request reaches s1, then s2, before the earlier one does
   await settle(1)
-  await settle(0) // the earlier request applies last and must not win
-  await settle(0)
+  await settle(0) // the superseded request stops before writing or resolving the next member
   await first
   await second
   assert.equal(room.permission, 'danger-full-access')
-  assert.equal(writes.length, 4)
-  assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
+  assert.deepEqual(writes, ['s1=danger-full-access', 's2=danger-full-access'])
+  assert.equal(releases.length, 0)
 })

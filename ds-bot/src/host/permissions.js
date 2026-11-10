@@ -66,6 +66,7 @@ export function install(rt) {
   // tracked: only the newest request may roll the field back, and then to that
   // applied value, never to a value a request had only asked for.
   const requests = new Map()
+  const roomRequests = new WeakMap()
 
   async function setPermission(bot, name) {
     const wanted = checkPreset(name, 'a Bot\'s')
@@ -119,16 +120,20 @@ export function install(rt) {
   async function setRoomPermission(room, name) {
     const wanted = cleanRoomPermission(name) ?? undefined
     if (wanted === room.permission) return false
+    const request = {}
+    roomRequests.set(room, request)
     rt.cancelApprovalReviews?.({ roomId: room.id })
     if (wanted === undefined) delete room.permission
     else room.permission = wanted
     const service = presets()
     if (service === undefined) return true
     for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) {
+      if (roomRequests.get(room) !== request) break
       const bot = rt.botOf(botId)
       if (bot === undefined) continue
       // A member without a preset of its own goes back to the default its Session started on.
-      await setPreset(sessionId, () => room.permission ?? bot.permission ?? service.catalog().defaultPreset, true)
+      await setPreset(sessionId, () => roomRequests.get(room) === request
+        ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, true)
         .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', bot.name, room.name, error))
     }
     return true

@@ -148,6 +148,36 @@ test('a request superseded while its CLI closes cannot apply the old preset', as
   assert.equal(policies.get('b'), 'never')
 })
 
+for (const stage of ['resolve', 'close']) for (const next of [null, 'read-only']) {
+  test('superseded group update stops restarting members after ' + stage + ' before ' + next, async () => {
+    const { rt, bot, room, modes, closed } = setup()
+    const peer = { id: 'c', permission: 'workspace-write' }
+    room.sessions.c = 'g2'
+    rt.botOf = id => id === 'b' ? bot : id === 'c' ? peer : undefined
+    let release
+    let started
+    const holding = new Promise(resolve => { release = resolve })
+    const reached = new Promise(resolve => { started = resolve })
+    const key = stage === 'resolve' ? 'resolveAgent' : 'closeLocalAgentSession'
+    const original = rt[key]
+    let calls = 0
+    rt[key] = async (...args) => {
+      if (++calls === 1) { started(); await holding }
+      return original(...args)
+    }
+    const first = rt.setRoomPermission(room, 'review')
+    await reached
+    await rt.setRoomPermission(room, next)
+    closed.length = 0
+    release()
+    await first
+    assert.deepEqual(closed, stage === 'close' ? ['g'] : [], 'an already-started close may finish; no new close starts')
+    assert.equal(room.permission, next ?? undefined)
+    assert.equal(modes.get('g'), next ?? bot.permission)
+    assert.equal(modes.get('g2'), next ?? peer.permission)
+  })
+}
+
 test('mode changes reopen affected CLI sessions, ordinary turn setup keeps them', async () => {
   const { rt, bot, room, closed } = setup()
   await rt.setPermission(bot, 'review')
