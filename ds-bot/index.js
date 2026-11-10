@@ -21,7 +21,7 @@ import * as timeContext from './src/host/time-context.js'
 import * as tools from './src/host/tools.js'
 import * as chatIndex from './src/host/chat-index.js'
 import * as groups from './src/host/groups.js'
-import * as groupLog from './src/host/group-log.js'
+import * as ledger from './src/host/ledger.js'
 import * as goals from './src/host/goals.js'
 import * as approvals from './src/host/approvals.js'
 import * as extraFolders from './src/host/extra-folders.js'
@@ -60,7 +60,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, groupLog, goals, approvals, extraFolders, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, feed, im, channel, officeSkills, goalSkills, localAgents]
+const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, approvals, extraFolders, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, feed, im, channel, officeSkills, goalSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
