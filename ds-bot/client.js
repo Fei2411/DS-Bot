@@ -379,6 +379,7 @@ var ZH = {
   "Message {name}": "给 {name} 发消息",
   Message: "发消息",
   "Press Enter to steer queued messages": "按 Enter 插话发送排队的消息",
+  "This chat moved to a new session, so the images you attached were not kept.": "对话换到了新的一段，附带的图片没有保留。",
   "Couldn’t steer the queued messages. Try again.": "插话发送失败，请重试。",
   "{n} queued messages": "{n} 条排队消息",
   "Sending…": "发送中…",
@@ -2286,6 +2287,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
     dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
+    showToast: (text) => ui2.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
@@ -2983,7 +2985,8 @@ var STORAGE = {
   agentSessions: "ds-bot:agent-sessions",
   browserWidth: "ds-bot:browser-width",
   sidebar: "ds-bot:sidebar",
-  browsers: "ds-bot.browser.v2"
+  browsers: "ds-bot.browser.v2",
+  drafts: "ds-bot:drafts"
 };
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
@@ -23122,6 +23125,50 @@ var steerQueued = async (session) => {
   }
 };
 
+// src/client/draft-carry.js
+var KEY = STORAGE.drafts;
+var readStoredDrafts = (storage) => {
+  try {
+    const value = JSON.parse(storage?.getItem(KEY) ?? "{}");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+};
+var writeStoredDrafts = (storage, value) => {
+  try {
+    storage?.setItem(KEY, JSON.stringify(value));
+  } catch {
+  }
+};
+var entryOf = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string" && Number.isInteger(value.attachments) && value.attachments >= 0;
+function keepCarriedDraft({ botId, part, currentPart: currentPart2, text, attachments }, storage = globalThis.localStorage) {
+  if (typeof botId !== "string" || botId === "" || typeof part !== "string" || part === "" || part !== currentPart2) return;
+  const value = readStoredDrafts(storage);
+  const before = value[botId];
+  if (text === "" && attachments === 0) {
+    if (before === void 0) return;
+    delete value[botId];
+    writeStoredDrafts(storage, value);
+    return;
+  }
+  if (before?.part === part && before?.text === text && before?.attachments === attachments) return;
+  value[botId] = { part, text, attachments };
+  writeStoredDrafts(storage, value);
+}
+function takeCarriedDraft({ botId, part, currentPart: currentPart2, text }, storage = globalThis.localStorage) {
+  if (typeof botId !== "string" || botId === "" || typeof part !== "string" || part === "") return void 0;
+  const value = readStoredDrafts(storage);
+  const entry = value[botId];
+  if (entry === void 0 || !entryOf(entry)) return void 0;
+  if (entry.part === part || part !== currentPart2) return void 0;
+  if (text.trim() !== "") return void 0;
+  if (entry.text === "" && entry.attachments === 0) return void 0;
+  delete value[botId];
+  writeStoredDrafts(storage, value);
+  return { text: entry.text, attachments: entry.attachments };
+}
+
 // src/client/composer.js
 var import_react50 = require("react");
 var import_react_dom9 = require("react-dom");
@@ -23249,6 +23296,27 @@ function menuIcons(roster) {
 }
 function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster((value) => value);
+  const bot = roster.byId?.[sessionId];
+  const draftText = useInput?.((state) => state.draft) ?? "";
+  const attachmentCount = useInput?.((state) => state.attachmentIds?.length ?? 0) ?? 0;
+  const restored = (0, import_react50.useRef)(false);
+  (0, import_react50.useEffect)(() => {
+    if (restored.current || bot === void 0 || sessionId === void 0 || inputActions === void 0) return;
+    restored.current = true;
+    const carried = takeCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText });
+    if (carried === void 0) return;
+    if (carried.text !== "") {
+      try {
+        inputActions.setDraft(carried.text);
+      } catch {
+      }
+    }
+    if (carried.attachments > 0) actions.showToast?.(t("This chat moved to a new session, so the images you attached were not kept."));
+  }, [bot?.id, sessionId, inputActions]);
+  (0, import_react50.useEffect)(() => {
+    if (bot === void 0 || sessionId === void 0) return;
+    keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText, attachments: attachmentCount });
+  }, [bot?.id, bot?.sessionId, sessionId, draftText, attachmentCount]);
   const [open, setOpen] = (0, import_react50.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react50.useRef)(null);

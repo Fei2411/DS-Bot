@@ -222,6 +222,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
     },
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
+    showToast: text => ui.set(state => ({ ...state, toast: { text, token: Date.now() } })),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === undefined || !Number.isFinite(turn) || !Number.isFinite(time)) return
       turnClock.set((state) => {

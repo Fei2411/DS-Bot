@@ -7,6 +7,7 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
+import { keepCarriedDraft, takeCarriedDraft } from './draft-carry.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -120,6 +121,27 @@ export function menuIcons(roster) {
 // input beside it.
 export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster(value => value)
+  const bot = roster.byId?.[sessionId]
+  const draftText = useInput?.(state => state.draft) ?? ''
+  const attachmentCount = useInput?.(state => state.attachmentIds?.length ?? 0) ?? 0
+  // A draft typed in a part the chat has since left comes along to the current part.
+  // A staged image's preview belongs to the part that ends, so it cannot; say so.
+  const restored = useRef(false)
+  useEffect(() => {
+    if (restored.current || bot === undefined || sessionId === undefined || inputActions === undefined) return
+    restored.current = true
+    const carried = takeCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText })
+    if (carried === undefined) return
+    // The part can end again between the pull and this mount; the shell then refuses.
+    if (carried.text !== '') {
+      try { inputActions.setDraft(carried.text) } catch { /* the newer part has its own shell */ }
+    }
+    if (carried.attachments > 0) actions.showToast?.(t('This chat moved to a new session, so the images you attached were not kept.'))
+  }, [bot?.id, sessionId, inputActions])
+  useEffect(() => {
+    if (bot === undefined || sessionId === undefined) return
+    keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText, attachments: attachmentCount })
+  }, [bot?.id, bot?.sessionId, sessionId, draftText, attachmentCount])
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)
