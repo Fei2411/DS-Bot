@@ -290,6 +290,147 @@ test('with no standard, a failed clear to the default is retried on the next tur
   assert.equal(host.headers.get(host.chatOf(writer.id)), 'research')
 })
 
+for (const missing of ['defaultId', 'acquireScope', 'assemble']) test('an explicit clear moves own and group parts when ' + missing + ' is unavailable', async t => {
+  const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
+  t.after(host.stop)
+  host.presetService.defaultId = 'research'
+  const chief = (await host.call('state')).value.mainBotId
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'custom' })).value
+  const room = (await host.call('create-room', { members: [chief, writer.id], admin: writer.id })).value
+  const cue = { role: 'user', content: [{ type: 'text', text: 'Hello team' }], source: { kind: 'user' } }
+  for (const listener of host.ctx.listeners.get('session/event') ?? []) listener({ id: room.id }, { type: 'user/message', data: cue })
+  const controller = new AbortController()
+  const relay = rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  await until(() => host.state().rooms[room.id]?.sessions?.[writer.id] !== undefined)
+  controller.abort()
+  await relay.catch(() => {})
+  const old = [writer.id, host.state().rooms[room.id].sessions[writer.id]]
+  for (const id of old) host.agentOf(id).status = 'running'
+  if (missing === 'assemble') host.ctx.get('systemPrompt').assemble = undefined
+  else host.presetService[missing] = undefined
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
+  assert.equal(host.chatOf(writer.id), writer.id, 'the running turn finishes first')
+  for (const id of old) host.idle(id)
+  await until(() => old.every(id => host.archived.some(([archived]) => archived === id)))
+  const saved = host.state()
+  const fresh = [saved.bots[writer.id].sessionId, saved.rooms[room.id].sessions[writer.id]]
+  for (const id of fresh) {
+    assert.ok(!old.includes(id))
+    assert.equal(host.headers.get(id), undefined, 'DSH composes its default without an explicit preset')
+    assert.match(host.agentOf(id).calls.map(([, message]) => text(message)).join('\n'), /agent preset changed/)
+  }
+  const count = host.created.length
+  await host.rt.applyBotPreset(host.rt.botOf(writer.id))
+  assert.equal(host.created.length, count, 'the default-composed parts do not keep rolling over')
+})
+
+test('an opaque default clear survives a failed switch and restart', async t => {
+  const presets = [{ id: 'research' }, { id: 'custom' }]
+  const first = start({ presets })
+  first.presetService.defaultId = 'research'
+  await first.call('state')
+  const writer = (await first.call('create-bot', { name: 'Writer', agentPreset: 'custom' })).value
+  first.presetService.defaultId = undefined
+  first.fail.create = 1
+  assert.equal((await first.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
+  await until(() => first.warnings.some(line => line.includes('did not move on to a fresh part')))
+  await until(() => first.state().switching?.[writer.id] === undefined)
+  assert.deepEqual(first.state().bots[writer.id].agentPresetDefaultPending, [writer.id])
+  await first.stop({ keep: true })
+  const second = start({ presets, home: first.home })
+  t.after(second.stop)
+  second.presetService.defaultId = undefined
+  second.headers.set(writer.id, 'custom')
+  await second.call('state')
+  await second.startTurn(writer.id)
+  await until(() => second.archived.some(([id]) => id === writer.id))
+  assert.notEqual(second.chatOf(writer.id), writer.id)
+  assert.equal(second.headers.get(second.chatOf(writer.id)), undefined)
+  assert.equal(second.state().bots[writer.id].agentPresetDefaultPending, undefined)
+  const count = second.created.length
+  await second.rt.applyBotPreset(second.rt.botOf(writer.id))
+  assert.equal(second.created.length, count)
+})
+
+test('an opaque clear arriving during creation follows the new part', async t => {
+  const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
+  t.after(host.stop)
+  host.presetService.defaultId = undefined
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
+  const create = host.ctx.sessionController.create
+  let release
+  let entered
+  const started = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  host.ctx.sessionController.create = async options => {
+    if (options.agentPreset === 'custom') { entered(); await gate }
+    return create(options)
+  }
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: 'custom' })).ok, true)
+  await started
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
+  release()
+  await until(() => host.archived.some(([id]) => id === writer.id))
+  const intermediate = host.chatOf(writer.id)
+  assert.equal(host.headers.get(intermediate), 'custom')
+  await host.startTurn(intermediate)
+  await until(() => host.archived.some(([id]) => id === intermediate))
+  assert.equal(host.headers.get(host.chatOf(writer.id)), undefined)
+  assert.equal(host.state().bots[writer.id].agentPresetDefaultPending, undefined)
+})
+
+test('a preset change keeps failed-turn recovery until the user retries', async t => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'standard' })).value
+  const agent = host.agentOf(writer.id)
+  let reason = { kind: 'error', failure: { code: 'AUTH' } }
+  agent.session.seq = 1
+  agent.session.eventAt = () => ({ type: 'turn/end', data: { reason } })
+  host.rt.botOf(writer.id).blocked = { code: 'AUTH', at: 1 }
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: 'research' })).ok, true)
+  await host.rt.applyBotPreset(host.rt.botOf(writer.id))
+  assert.equal(host.chatOf(writer.id), writer.id)
+  assert.deepEqual([...host.rt.switchJobs()], [], 'a failed request is not replaced by a completed handoff')
+  assert.equal(host.rt.botOf(writer.id).blocked.code, 'AUTH')
+  assert.equal(host.rt.botOf(writer.id).agentPreset, 'research', 'the new choice is saved for recovery')
+  reason = { kind: 'completed' }
+  host.idle(writer.id)
+  await until(() => host.archived.some(([id]) => id === writer.id))
+  assert.equal(host.headers.get(host.chatOf(writer.id)), 'research')
+})
+
+test('a stale preset check preserves a newer opaque clear', async t => {
+  const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
+  t.after(host.stop)
+  host.presetService.defaultId = undefined
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'custom' })).value
+  const acquire = host.presetService.acquireScope
+  let release
+  let entered
+  const started = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  host.presetService.acquireScope = async id => {
+    if (id === 'custom') { entered(); await gate }
+    return acquire(id)
+  }
+  const checking = host.rt.applyBotPreset(host.rt.botOf(writer.id))
+  await started
+  host.agentOf(writer.id).status = 'running'
+  await host.call('update-bot', { id: writer.id, agentPreset: null })
+  release()
+  await checking
+  assert.deepEqual(host.state().bots[writer.id].agentPresetDefaultPending, [writer.id])
+  const exposed = (await host.call('state')).value.bots.find(bot => bot.id === writer.id)
+  assert.equal(exposed.agentPresetDefaultPending, undefined)
+  host.idle(writer.id)
+  await until(() => host.archived.some(([id]) => id === writer.id))
+  assert.equal(host.headers.get(host.chatOf(writer.id)), undefined)
+})
+
 test('a new Bot is made with the preset the user picked and keeps it', async (t) => {
   const host = start()
   t.after(host.stop)

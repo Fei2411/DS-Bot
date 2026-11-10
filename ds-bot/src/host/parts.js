@@ -1149,6 +1149,7 @@ export function install(rt) {
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
+    const presetAtCreation = bot?.agentPreset
     const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir, bot })
     const picked = await freshRoute(bot, session)
     if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
@@ -1189,6 +1190,8 @@ export function install(rt) {
       }
       moveClosedView(agent.id, freshId)
     }
+    // A clear arriving during creation still belongs to the part made with the old pick.
+    finishPresetClear(bot, agent.id, presetAtCreation !== undefined ? freshId : undefined)
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
@@ -1701,6 +1704,13 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor)) }
   }
 
+  function finishPresetClear(bot, sessionId, replacement) {
+    if (!bot?.agentPresetDefaultPending?.includes(sessionId)) return false
+    bot.agentPresetDefaultPending.splice(bot.agentPresetDefaultPending.indexOf(sessionId), 1, ...(replacement === undefined ? [] : [replacement]))
+    if (bot.agentPresetDefaultPending.length === 0) delete bot.agentPresetDefaultPending
+    return true
+  }
+
   // The Sessions a Bot speaks from right now: its own chat and each group it is in.
   const presetSessionsOf = bot => [...new Set([rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
 
@@ -1724,9 +1734,12 @@ export function install(rt) {
   async function followPreset(agent) {
     const place = placeOf(agent.id)
     if (place?.botId === undefined || agent.status !== 'idle' || readOnly() || switches.has(agent.id)) return
+    // Keep the failed turn and its repair controls until the user retries successfully.
+    if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
     if (!await presetMismatch(agent, place.botId)) return
     // Resolving the preset can yield to a new turn or a switch of run mode.
     if (agent.status !== 'idle' || placeOf(agent.id)?.botId !== place.botId
+      || lastTurnEnd(agent)?.data?.reason?.kind === 'error'
       || rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return
     startSwitch(agent, { preset: true })
     return true
@@ -1741,15 +1754,24 @@ export function install(rt) {
     if (bot === undefined) return undefined
     const explicit = typeof bot.agentPreset === 'string' && bot.agentPreset !== ''
     if (!explicit && bot.agentPresetDefault !== true) return undefined
+    const pick = bot.agentPreset
+    const cleared = bot.agentPresetDefault
+    const pending = bot.agentPresetDefaultPending
     const wanted = await rt.botPresetOf?.(bot)
-    if (wanted === undefined) return undefined
+    if (rt.botOf(botId) !== bot || bot.agentPreset !== pick || bot.agentPresetDefault !== cleared
+      || bot.agentPresetDefaultPending !== pending) return undefined
+    // A clear still needs a default-composed part when DSH cannot name that default.
+    if (wanted === undefined) return bot.agentPresetDefaultPending?.includes(agent.id) ? botId : undefined
     if (!wanted.usable) {
       rt.presetProblem?.(bot, wanted.id)
       return undefined
     }
     const presets = ctx.get?.('agentPresets')
     if (typeof presets?.presetForSession !== 'function') return undefined
-    if (presets.presetForSession(agent.session) === wanted.id) return undefined
+    if (presets.presetForSession(agent.session) === wanted.id) {
+      if (finishPresetClear(bot, agent.id)) await rt.save()
+      return undefined
+    }
     return botId
   }
 

@@ -592,9 +592,11 @@ export function install(rt) {
         // The default is now the user's own choice, not an old team's silence: a switch
         // that fails is retried on the next turn instead of leaving the old preset.
         bot.agentPresetDefault = true
+        if (presetBefore !== undefined) bot.agentPresetDefaultPending = [...new Set([rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
       } else {
         bot.agentPreset = presetId
         delete bot.agentPresetDefault
+        delete bot.agentPresetDefaultPending
       }
     }
     if (patch.section !== undefined || patch.sectionId !== undefined) {

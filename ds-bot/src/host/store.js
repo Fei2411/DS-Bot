@@ -148,6 +148,12 @@ export function install(rt) {
         delete bot.agentPresetDefault
         migrated = true
       }
+      if (bot.agentPresetDefaultPending !== undefined && (bot.agentPresetDefault !== true
+        || !Array.isArray(bot.agentPresetDefaultPending)
+        || bot.agentPresetDefaultPending.some(id => typeof id !== 'string' || id === ''))) {
+        delete bot.agentPresetDefaultPending
+        migrated = true
+      }
       // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.
       if (bot.computer !== undefined && (bot.computer === null || typeof bot.computer !== 'object' || Array.isArray(bot.computer))) delete bot.computer
       else if (bot.computer !== undefined && (bot.computer.apps === null || typeof bot.computer.apps !== 'object' || Array.isArray(bot.computer.apps))) delete bot.computer.apps
