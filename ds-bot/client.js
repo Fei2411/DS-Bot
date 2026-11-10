@@ -1429,6 +1429,7 @@ var ZH = {
   "Finish signing in in your browser.": "在浏览器里完成登录。",
   "Open again": "重新打开",
   "Did not come back here?": "登录后没有回到这里？",
+  "Copied to clipboard": "已复制到剪贴板",
   "Paste the code on {host} and authorize.": "在 {host} 粘贴这个码并授权。",
   "Add another": "再添加一个",
   "QQ, 163, 126, Gmail, iCloud, and other IMAP mail": "QQ、163、126、Gmail、iCloud 等 IMAP 邮箱",
@@ -3657,7 +3658,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-form{display:flex;flex-direction:column;gap:16px}
 .bt-set-section{display:flex;flex-direction:column;gap:10px}
-.bt-set-section>h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 -2px;padding:0 4px}
+.bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 -2px;padding:0 4px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:20px}
 .bt-set-card{border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);display:flex;flex-direction:column}
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
@@ -3697,6 +3698,26 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 @media(max-width:700px){.bt-browser-grant{flex-wrap:wrap}.bt-browser-grant-who{flex:1}.bt-browser-grant-meta{order:3;flex:1 0 100%}}
 .bt-set-paste{flex-direction:column;align-items:stretch;gap:8px}
 .bt-chevron{color:var(--bt-ink-3);display:inline-flex;flex:none}
+.bt-la-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-la-sec-head>h3{margin:0}
+.bt-la-row{padding:11px 12px}
+.bt-la-logo{width:32px;height:32px;border-radius:8px}
+.bt-la-copy{gap:3px}
+.bt-la-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.bt-la-name{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-la-ver{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-la-path{font-size:12px;line-height:16px;font-family:var(--bt-mono);color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-la-note{margin-top:2px}
+.bt-la-actions{gap:8px}
+.bt-la-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
+.bt-la-state[data-state=true] .bt-cli-dot{background:var(--bt-green)}
+.bt-set-form{display:flex;flex-direction:column;gap:12px;padding:12px}
+.bt-set-form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bt-set-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-set-field>.bt-input{background:var(--bt-main)}
+.bt-la-code-input{font-family:var(--bt-mono)}
+.bt-set-form-foot{justify-content:flex-end}
+@media(max-width:600px){.bt-set-form-row{grid-template-columns:1fr}}
 
 /* Settings → Connectors. */
 .bt-connector{display:flex;flex-direction:column;gap:10px;padding:12px}
@@ -4088,6 +4109,8 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-settings-scroll{overflow-x:clip}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
+  .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
+  .bt-la-row>.bt-set-copy{width:auto}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
@@ -10025,13 +10048,37 @@ function useLocalAgents(wanted) {
   (0, import_react20.useEffect)(() => {
     if (wanted && view === null) void load("local-agents");
   }, [wanted]);
-  const agents = view === null ? [] : [...view.detected, ...view.custom.map((agent) => ({ route: agent.route, name: agent.name, signedIn: null }))];
+  const agents = view === null ? [] : [...view.detected, ...view.custom.map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
   return { agents, known: view !== null, scanning, refresh: () => load("local-agent-refresh") };
 }
+var shortVersion = (version) => {
+  if (!version) return "";
+  return String(version).replace(/\s*\([^)]*\)\s*$/u, "").replace(/^[a-z][\w-]*\s+(?=v?\d)/iu, "").trim();
+};
+function AgentLogo({ route, name = "", size = 28, className = "bt-cli-logo" }) {
+  const logo = agentAvatar(route)?.image;
+  if (logo) return (0, import_react20.createElement)("img", { className, src: logo, width: size, height: size, alt: "" });
+  return (0, import_react20.createElement)(
+    "span",
+    { className: `${className} bt-cli-mono`, style: { width: size, height: size }, "aria-hidden": true },
+    (name.trim() || "?").slice(0, 2).toUpperCase()
+  );
+}
 var SIGNED_IN = { true: "Signed in", false: "Not signed in", null: "Sign-in unknown" };
+function cliMeta(agent) {
+  if (agent.signedIn === true || agent.signedIn === false || agent.signIn) {
+    return (0, import_react20.createElement)(
+      "span",
+      { className: "bt-cli-meta", "data-state": String(agent.signedIn) },
+      (0, import_react20.createElement)("i", { className: "bt-cli-dot", "aria-hidden": true }),
+      t(SIGNED_IN[agent.signedIn])
+    );
+  }
+  const detail = shortVersion(agent.version) || [agent.command, ...agent.args ?? []].filter(Boolean).join(" ");
+  return detail ? (0, import_react20.createElement)("span", { className: "bt-cli-meta" }, detail) : null;
+}
 function CliCard({ agent, selected, onPick }) {
   const [copied, setCopied] = (0, import_react20.useState)(false);
-  const logo = agentAvatar(agent.route)?.image;
   const copySignIn = () => {
     void navigator.clipboard?.writeText(agent.signIn)?.catch(() => {
     });
@@ -10044,17 +10091,12 @@ function CliCard({ agent, selected, onPick }) {
     (0, import_react20.createElement)(
       "button",
       { type: "button", className: "bt-cli-pick", "aria-pressed": selected, onClick: onPick },
-      logo ? (0, import_react20.createElement)("img", { className: "bt-cli-logo", src: logo, alt: "" }) : (0, import_react20.createElement)(AgentBadge, { engine: agent.route, size: 28 }),
+      (0, import_react20.createElement)(AgentLogo, { route: agent.route, name: agent.name, size: 28 }),
       (0, import_react20.createElement)(
         "span",
         { className: "bt-cli-copy" },
         (0, import_react20.createElement)("span", { className: "bt-cli-name" }, agent.name),
-        (0, import_react20.createElement)(
-          "span",
-          { className: "bt-cli-meta", "data-state": String(agent.signedIn) },
-          (0, import_react20.createElement)("i", { className: "bt-cli-dot", "aria-hidden": true }),
-          t(SIGNED_IN[agent.signedIn])
-        )
+        cliMeta(agent)
       ),
       selected ? (0, import_react20.createElement)("span", { className: "bt-cli-check", "aria-hidden": true }, (0, import_react20.createElement)(CheckIcon)) : null
     ),
@@ -10153,7 +10195,8 @@ var AGENT_CARDS_CSS = `
 .bt-cli[data-selected]{box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-cli-pick{display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:42px;padding:2px 4px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-cli-pick:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-cli-logo{flex:none;width:28px;height:28px;border-radius:8px}
+.bt-cli-logo{flex:none;width:28px;height:28px;border-radius:8px;box-shadow:0 0 0 .5px var(--bt-line-2);object-fit:cover}
+.bt-cli-mono{display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;font-weight:600}
 .bt-cli-copy{display:flex;flex:1;flex-direction:column;min-width:0}
 .bt-cli-name{font-size:13px;line-height:18px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cli-meta{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
@@ -12315,15 +12358,20 @@ function BrowserPanel({ connector, actions, run: run2 }) {
     ) : (0, import_react28.createElement)("button", { type: "button", className: "bt-connector-link bt-connector-aside", onClick: () => setPasting(true) }, t("Did not come back here?"))
   );
 }
+var codeCopies = /* @__PURE__ */ new Map();
+var copyWatchers = /* @__PURE__ */ new Set();
+var copyCode = (code) => navigator.clipboard?.writeText(code).then(() => {
+  codeCopies.set(code, (codeCopies.get(code) ?? 0) + 1);
+  for (const watcher of copyWatchers) watcher();
+}, () => {
+});
+var watchCopies = (watcher) => {
+  copyWatchers.add(watcher);
+  return () => copyWatchers.delete(watcher);
+};
 function DevicePanel({ connector, actions, run: run2, onUseToken }) {
   const { userCode, verificationUri } = connector.pending;
-  const [copied, setCopied] = (0, import_react28.useState)(false);
-  const copy2 = () => {
-    void navigator.clipboard?.writeText(userCode).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    });
-  };
+  const copies = (0, import_react28.useSyncExternalStore)(watchCopies, () => codeCopies.get(userCode) ?? 0);
   return (0, import_react28.createElement)(
     "div",
     { className: "bt-connector-form" },
@@ -12331,7 +12379,12 @@ function DevicePanel({ connector, actions, run: run2, onUseToken }) {
       "div",
       { className: "bt-connector-device" },
       (0, import_react28.createElement)("code", { className: "bt-connector-code" }, userCode),
-      (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: copy2 }, copied ? t("Copied") : t("Copy"))
+      (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void copyCode(userCode) }, t("Copy")),
+      (0, import_react28.createElement)(
+        "span",
+        { className: "bt-connector-copied", role: "status" },
+        copies > 0 ? (0, import_react28.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react28.createElement)(CheckIcon), t("Copied to clipboard")) : null
+      )
     ),
     (0, import_react28.createElement)(
       "div",
@@ -12342,6 +12395,12 @@ function DevicePanel({ connector, actions, run: run2, onUseToken }) {
       (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.connectorCancel(connector.id)) }, t("Cancel"))
     )
   );
+}
+function SignInPanel({ connector, actions, run: run2, onUseToken }) {
+  const kind = connector.pending?.kind;
+  if (kind === "browser") return (0, import_react28.createElement)(BrowserPanel, { connector, actions, run: run2 });
+  if (kind === "device") return (0, import_react28.createElement)(DevicePanel, { connector, actions, run: run2, onUseToken });
+  return null;
 }
 function ClientPanel({ connector, actions, run: run2 }) {
   const [clientId, setClientId] = (0, import_react28.useState)("");
@@ -12386,9 +12445,7 @@ var openSignIn = (win, id, view) => {
   const pending = view?.connectors?.find((entry) => entry.id === id)?.pending;
   if (pending?.kind === "browser") return void win.go(pending.url);
   if (pending?.kind === "device") {
-    void navigator.clipboard?.writeText(pending.userCode).catch(() => {
-    });
-    return void win.go(pending.verificationUri);
+    return void Promise.resolve(copyCode(pending.userCode)).then(() => win.go(pending.verificationUri));
   }
   win.close();
 };
@@ -12452,8 +12509,7 @@ function ConnectorRow({ connector, actions }) {
       { className: "bt-connector-ro" },
       (0, import_react28.createElement)(SwitchRow, { label: t("Read-only"), on: connector.readOnly === true, onChange: (checked) => void run2(actions.connectorSet(connector.id, { readOnly: checked })) })
     ) : null,
-    pending?.kind === "browser" ? (0, import_react28.createElement)(BrowserPanel, { connector, actions, run: run2 }) : null,
-    pending?.kind === "device" ? (0, import_react28.createElement)(DevicePanel, { connector, actions, run: run2, onUseToken: () => setForm("token") }) : null,
+    (0, import_react28.createElement)(SignInPanel, { connector, actions, run: run2, onUseToken: () => setForm("token") }),
     connector.state === "needs-client" && !pending?.kind ? (0, import_react28.createElement)(ClientPanel, { connector, actions, run: run2 }) : null,
     form === "token" ? (0, import_react28.createElement)(TokenPanel, { connector, actions, run: run2, onDone: () => {
       setForm(null);
@@ -13023,7 +13079,10 @@ var CONNECTOR_CSS = `
 .bt-connector-chips .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-connector-chips .bt-secret-seg[aria-pressed=true]{background:var(--bt-active)}
 .bt-connector-ro{padding-left:48px}
-.bt-connector-device{display:flex;align-items:center;gap:10px}
+.bt-connector-device{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.bt-connector-copied:empty{display:none}
+.bt-connector-copied-text{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:16px;color:var(--bt-ink-2);animation:bt-veil-in .2s ease-out}
+.bt-connector-copied-text svg{flex:none;width:13px;height:13px;color:var(--bt-green)}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-rule-wrap{position:relative;display:inline-flex;align-items:center}
@@ -18275,7 +18334,7 @@ function tileStatus(app) {
   if (app.state === "error") return t("Could not connect: {error}", { error: hostText(app.error ?? "") });
   return null;
 }
-function AppTile({ app, actions, onOpen }) {
+function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
   const [busy, setBusy] = (0, import_react40.useState)(false);
   const [error, setError] = (0, import_react40.useState)(null);
   const fresh = useJustConnected(app.state);
@@ -18291,6 +18350,7 @@ function AppTile({ app, actions, onOpen }) {
     const auth = app.auth ?? {};
     if (app.id === "mail" || auth.kind === "key" || auth.kind === "oauth" && auth.token && !auth.client?.id) return onOpen();
     if (auth.kind === "oauth") {
+      onSignIn();
       const win = reserveWindow();
       return void run2(actions.connectorConnect(app.id, {}), (view) => openSignIn(win, app.id, view), () => win.close());
     }
@@ -18305,9 +18365,12 @@ function AppTile({ app, actions, onOpen }) {
     if (app.state === "error") return void run2(actions.connectorRetry(app.id));
     return onOpen();
   };
+  const signIn = showsSignIn ? app.pending?.kind : void 0;
+  const tile = (0, import_react40.useRef)(null);
+  useMorph(tile, signIn ?? "");
   return (0, import_react40.createElement)(
     "div",
-    { className: "bt-app", "data-state": app.state, "data-fresh": fresh ? "" : void 0, "data-error": error ? "" : void 0 },
+    { ref: tile, className: "bt-app", "data-state": app.state, "data-fresh": fresh ? "" : void 0, "data-error": error ? "" : void 0, "data-signing": signIn ? "" : void 0 },
     (0, import_react40.createElement)(
       "button",
       { type: "button", className: "bt-app-main", onClick: onOpen },
@@ -18319,18 +18382,29 @@ function AppTile({ app, actions, onOpen }) {
         status ? (0, import_react40.createElement)("span", { className: "bt-app-status" }, status) : null
       )
     ),
-    (0, import_react40.createElement)(
+    signIn ? null : (0, import_react40.createElement)(
       "button",
       { type: "button", className: ready ? "bt-app-btn bt-app-btn-done" : "bt-app-btn", disabled: busy, onClick: press },
       ready ? (0, import_react40.createElement)(CheckIcon) : null,
       label
-    )
+    ),
+    signIn ? (0, import_react40.createElement)(SignInPanel, { connector: app, actions, run: run2 }) : null
   );
 }
-function Grid({ apps, actions, open }) {
-  return (0, import_react40.createElement)("div", { className: "bt-app-grid" }, apps.map((app) => (0, import_react40.createElement)(AppTile, { key: app.id, app, actions, onOpen: () => open(app.id) })));
+function Grid({ apps, actions, open, place = null, signInPlaces }) {
+  const homePlace = (app) => FEATURED.includes(app.id) ? "featured" : app.category;
+  return (0, import_react40.createElement)("div", { className: "bt-app-grid" }, apps.map((app) => (0, import_react40.createElement)(AppTile, {
+    key: app.id,
+    app,
+    actions,
+    onOpen: () => open(app.id),
+    showsSignIn: place === null || place === (signInPlaces.current[app.id] ?? homePlace(app)),
+    onSignIn: () => {
+      signInPlaces.current[app.id] = place;
+    }
+  })));
 }
-function Section({ title, apps, actions, open, onAll }) {
+function Section({ title, apps, actions, open, onAll, place, signInPlaces }) {
   if (apps.length === 0) return null;
   return (0, import_react40.createElement)(
     "section",
@@ -18341,7 +18415,7 @@ function Section({ title, apps, actions, open, onAll }) {
       (0, import_react40.createElement)("h3", null, title),
       onAll && apps.length > PREVIEW ? (0, import_react40.createElement)("button", { type: "button", className: "bt-app-all", onClick: onAll }, t("See all")) : null
     ),
-    (0, import_react40.createElement)(Grid, { apps: onAll ? apps.slice(0, PREVIEW) : apps, actions, open })
+    (0, import_react40.createElement)(Grid, { apps: onAll ? apps.slice(0, PREVIEW) : apps, actions, open, place, signInPlaces })
   );
 }
 function Subview({ title, onBack, children }) {
@@ -18372,6 +18446,7 @@ function ConnectorsPage({ roster, actions }) {
   const [category, setCategory] = (0, import_react40.useState)("");
   const [view, setView] = (0, import_react40.useState)(null);
   const [error, setError] = (0, import_react40.useState)(null);
+  const signInPlaces = (0, import_react40.useRef)({});
   const run2 = (task, onDone) => Promise.resolve(task).then((value) => {
     setError(null);
     onDone?.(value);
@@ -18448,12 +18523,12 @@ function ConnectorsPage({ roster, actions }) {
   const found = apps.filter((app) => (category === "" || app.category === category) && matches(query.trim(), app.name, app.about ?? ""));
   let body;
   if (searching || category !== "") {
-    body = found.length === 0 ? (0, import_react40.createElement)("p", { className: "bt-app-empty" }, t("Nothing matches")) : (0, import_react40.createElement)(Grid, { apps: found, actions, open });
+    body = found.length === 0 ? (0, import_react40.createElement)("p", { className: "bt-app-empty" }, t("Nothing matches")) : (0, import_react40.createElement)(Grid, { apps: found, actions, open, signInPlaces });
   } else {
     const featured = FEATURED.map((id) => apps.find((app) => app.id === id)).filter(Boolean);
     body = [
-      (0, import_react40.createElement)(Section, { key: "featured", title: t("Recommended"), apps: featured, actions, open }),
-      ...CATEGORIES.map(([id, label]) => (0, import_react40.createElement)(Section, { key: id, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) }))
+      (0, import_react40.createElement)(Section, { key: "featured", place: "featured", signInPlaces, title: t("Recommended"), apps: featured, actions, open }),
+      ...CATEGORIES.map(([id, label]) => (0, import_react40.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) }))
     ];
   }
   return (0, import_react40.createElement)(
@@ -18506,7 +18581,7 @@ var CONNECTORS_PAGE_CSS = `
 .bt-app-section-head h3{margin:0;font-size:14px;line-height:20px;font-weight:600}
 .bt-app-all{border:0;background:none;padding:2px 4px;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer}
 .bt-app-all:hover{color:var(--bt-ink)}
-.bt-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px}
+.bt-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;align-items:start}
 @container (max-width:520px){.bt-app-grid{grid-template-columns:minmax(0,1fr)}}
 .bt-app{position:relative;display:flex;align-items:center;gap:10px;min-height:60px;border-radius:12px}
 .bt-app-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -18529,6 +18604,9 @@ var CONNECTORS_PAGE_CSS = `
 @keyframes bt-app-pop{0%{transform:scale(.86)}55%{transform:scale(1.07)}100%{transform:scale(1)}}
 @keyframes bt-app-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-app-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
+.bt-app[data-signing]{flex-wrap:wrap;padding-bottom:12px}
+.bt-app[data-signing] .bt-app-main{flex-basis:100%;min-height:60px}
+.bt-app[data-signing] .bt-connector-form{flex:1 0 100%;min-width:0}
 .bt-app-empty{margin:24px 0;text-align:center;font-size:13px;color:var(--bt-ink-3)}
 .bt-app-sub{display:flex;flex-direction:column;gap:12px}
 .bt-app-sub-head{display:flex;align-items:center;gap:4px;margin-left:-6px}
@@ -21543,19 +21621,23 @@ function AgentForm({ initial, submit, close }) {
   return (0, import_react46.createElement)(
     "div",
     { className: "bt-set-form" },
-    (0, import_react46.createElement)("label", { className: "bt-set-field" }, (0, import_react46.createElement)("span", null, t("Name")), (0, import_react46.createElement)("input", { className: "bt-input", value: name, onChange: (event) => setName(event.target.value) })),
-    (0, import_react46.createElement)("label", { className: "bt-set-field" }, (0, import_react46.createElement)("span", null, t("Command")), (0, import_react46.createElement)("input", { className: "bt-input", value: command, placeholder: "my-agent", onChange: (event) => setCommand(event.target.value) })),
-    (0, import_react46.createElement)("label", { className: "bt-set-field" }, (0, import_react46.createElement)("span", null, t("Arguments")), (0, import_react46.createElement)("input", { className: "bt-input", value: args, placeholder: "acp", onChange: (event) => setArgs(event.target.value) })),
+    (0, import_react46.createElement)("label", { className: "bt-set-field" }, (0, import_react46.createElement)("span", null, t("Name")), (0, import_react46.createElement)("input", { className: "bt-input", value: name, autoFocus: true, onChange: (event) => setName(event.target.value) })),
+    (0, import_react46.createElement)(
+      "div",
+      { className: "bt-set-form-row" },
+      (0, import_react46.createElement)("label", { className: "bt-set-field" }, (0, import_react46.createElement)("span", null, t("Command")), (0, import_react46.createElement)("input", { className: "bt-input bt-la-code-input", value: command, placeholder: "my-agent", spellCheck: false, onChange: (event) => setCommand(event.target.value) })),
+      (0, import_react46.createElement)("label", { className: "bt-set-field" }, (0, import_react46.createElement)("span", null, t("Arguments")), (0, import_react46.createElement)("input", { className: "bt-input bt-la-code-input", value: args, placeholder: "acp", spellCheck: false, onChange: (event) => setArgs(event.target.value) }))
+    ),
     error ? (0, import_react46.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
     (0, import_react46.createElement)(
       "div",
-      { className: "bt-set-actions" },
-      (0, import_react46.createElement)("button", { type: "button", className: "bt-primary", onClick: save }, t("Save")),
-      (0, import_react46.createElement)("button", { type: "button", className: "bt-soft", onClick: close }, t("Cancel"))
+      { className: "bt-set-actions bt-set-form-foot" },
+      (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: close }, t("Cancel")),
+      (0, import_react46.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: save }, t("Save"))
     )
   );
 }
-function AgentSignInRow({ agent, Row: Row4 }) {
+function AgentSignInRow({ agent }) {
   const [note, setNote] = (0, import_react46.useState)(null);
   const copy2 = () => {
     const done = (copied) => setNote({ copied, command: agent.signIn });
@@ -21570,29 +21652,43 @@ function AgentSignInRow({ agent, Row: Row4 }) {
       done(false);
     }
   };
+  const version = shortVersion(agent.version);
+  const canSignIn = Boolean(agent.signIn) && agent.signedIn !== true;
+  const status = agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : null;
   const message = note === null ? null : (0, import_react46.createElement)("span", {
-    className: note.copied ? "bt-note" : "bt-note bt-danger",
+    className: note.copied ? "bt-note bt-la-note" : "bt-note bt-la-note bt-danger",
     role: note.copied ? "status" : "alert"
   }, note.copied ? t("Sign-in command copied. Run it in a terminal: {command}", { command: note.command }) : t("Could not copy the sign-in command. Run this in a terminal: {command}", { command: note.command }));
   return (0, import_react46.createElement)(
-    Row4,
-    {
-      label: agent.name,
-      hint: [
-        [agent.path, agent.version].filter(Boolean).join(" · "),
-        message === null ? null : (0, import_react46.createElement)("br"),
-        message
-      ]
-    },
+    "div",
+    { className: "bt-set-row bt-la-row" },
+    (0, import_react46.createElement)(AgentLogo, { route: agent.route, name: agent.name, size: 32, className: "bt-cli-logo bt-la-logo" }),
     (0, import_react46.createElement)(
       "div",
-      { className: "bt-set-actions" },
-      agent.signIn ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null,
-      (0, import_react46.createElement)("span", { className: "bt-tag" }, agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : agent.path ? t("Found") : t("Not found"))
-    )
+      { className: "bt-set-copy bt-la-copy" },
+      (0, import_react46.createElement)(
+        "span",
+        { className: "bt-la-head" },
+        (0, import_react46.createElement)("span", { className: "bt-la-name" }, agent.name),
+        version ? (0, import_react46.createElement)("span", { className: "bt-la-ver" }, version) : null
+      ),
+      agent.path ? (0, import_react46.createElement)("span", { className: "bt-la-path" }, agent.path) : null,
+      message
+    ),
+    status !== null || canSignIn ? (0, import_react46.createElement)(
+      "div",
+      { className: "bt-set-control bt-la-actions" },
+      status !== null ? (0, import_react46.createElement)(
+        "span",
+        { className: "bt-la-state", "data-state": String(agent.signedIn) },
+        (0, import_react46.createElement)("i", { className: "bt-cli-dot", "aria-hidden": true }),
+        status
+      ) : null,
+      canSignIn ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null
+    ) : null
   );
 }
-function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
+function LocalAgentsPage({ run: run2, Row: Row4 }) {
   const [view, setView] = (0, import_react46.useState)(null);
   const [editing, setEditing] = (0, import_react46.useState)(null);
   const load = (endpoint) => run2(call(endpoint).then(setView));
@@ -21604,34 +21700,52 @@ function LocalAgentsPage({ run: run2, Section: Section2, Row: Row4 }) {
   if (view.available === false) return (0, import_react46.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot register local agent routes."));
   return [
     (0, import_react46.createElement)(
-      Section2,
-      { key: "found", title: t("Detected agents") },
-      view.detected.length === 0 ? (0, import_react46.createElement)(Row4, { label: t("No agent CLIs found") }) : null,
-      view.detected.map((agent) => (0, import_react46.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 })),
+      "section",
+      { key: "found", className: "bt-set-section" },
       (0, import_react46.createElement)(
-        Row4,
-        { key: "refresh", label: t("Refresh"), hint: t("Scan again for agent CLIs.") },
-        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: refresh }, (0, import_react46.createElement)(CheckIcon))
+        "div",
+        { className: "bt-la-sec-head" },
+        (0, import_react46.createElement)("h3", null, t("Detected agents")),
+        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: refresh }, t("Refresh"))
+      ),
+      (0, import_react46.createElement)(
+        "div",
+        { className: "bt-set-card" },
+        view.detected.length === 0 ? (0, import_react46.createElement)(Row4, { label: t("No agent CLIs found") }) : null,
+        view.detected.map((agent) => (0, import_react46.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 }))
       )
     ),
     (0, import_react46.createElement)(
-      Section2,
-      { key: "custom", title: t("Custom agents") },
-      (0, import_react46.createElement)("p", { className: "bt-set-hint" }, t("ACP-compatible agents, added by command.")),
-      view.custom.map((agent) => editing === agent ? (0, import_react46.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => call("local-agent-update", { id: agent.id, ...payload }).then(() => load("local-agents")) }) : (0, import_react46.createElement)(
-        Row4,
-        { key: agent.id, label: agent.name, hint: [agent.command, ...agent.args ?? []].join(" ") },
-        (0, import_react46.createElement)(
+      "section",
+      { key: "custom", className: "bt-set-section" },
+      (0, import_react46.createElement)(
+        "div",
+        { className: "bt-la-sec-head" },
+        (0, import_react46.createElement)("h3", null, t("Custom agents")),
+        editing === "new" ? null : (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add agent"), onClick: () => setEditing("new") }, (0, import_react46.createElement)(PlusIcon), t("Add agent"))
+      ),
+      (0, import_react46.createElement)(
+        "div",
+        { className: "bt-set-card" },
+        view.custom.length === 0 && editing !== "new" ? (0, import_react46.createElement)("div", { className: "bt-set-row" }, (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("ACP-compatible agents, added by command."))) : null,
+        view.custom.map((agent) => editing === agent ? (0, import_react46.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => call("local-agent-update", { id: agent.id, ...payload }).then(() => load("local-agents")) }) : (0, import_react46.createElement)(
           "div",
-          { className: "bt-set-actions" },
-          (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setEditing(agent) }, (0, import_react46.createElement)(ChevronRightIcon)),
-          (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-danger", "aria-label": t("Remove"), onClick: () => run2(call("local-agent-remove", { id: agent.id })).then(() => load("local-agents")) }, (0, import_react46.createElement)(TrashIcon))
-        )
-      )),
-      editing === "new" ? (0, import_react46.createElement)(AgentForm, { key: "new", close: () => setEditing(null), submit: (payload) => call("local-agent-add", payload).then(() => load("local-agents")) }) : (0, import_react46.createElement)(
-        Row4,
-        { key: "add", label: t("Add agent") },
-        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", "aria-label": t("Add agent"), onClick: () => setEditing("new") }, (0, import_react46.createElement)(PlusIcon))
+          { key: agent.id, className: "bt-set-row bt-la-row" },
+          (0, import_react46.createElement)(AgentLogo, { route: agent.route, name: agent.name, size: 32, className: "bt-cli-logo bt-la-logo" }),
+          (0, import_react46.createElement)(
+            "div",
+            { className: "bt-set-copy bt-la-copy" },
+            (0, import_react46.createElement)("span", { className: "bt-la-head" }, (0, import_react46.createElement)("span", { className: "bt-la-name" }, agent.name)),
+            (0, import_react46.createElement)("span", { className: "bt-la-path" }, [agent.command, ...agent.args ?? []].join(" "))
+          ),
+          (0, import_react46.createElement)(
+            "div",
+            { className: "bt-set-control bt-la-actions" },
+            (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setEditing(agent) }, t("Edit")),
+            (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-danger", "aria-label": t("Remove"), onClick: () => run2(call("local-agent-remove", { id: agent.id })).then(() => load("local-agents")) }, (0, import_react46.createElement)(TrashIcon))
+          )
+        )),
+        editing === "new" ? (0, import_react46.createElement)(AgentForm, { key: "new", close: () => setEditing(null), submit: (payload) => call("local-agent-add", payload).then(() => load("local-agents")) }) : null
       )
     )
   ];

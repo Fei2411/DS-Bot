@@ -1382,6 +1382,7 @@ const ZH = {
   'Finish signing in in your browser.': '在浏览器里完成登录。',
   'Open again': '重新打开',
   'Did not come back here?': '登录后没有回到这里？',
+  'Copied to clipboard': '已复制到剪贴板',
   'Paste the code on {host} and authorize.': '在 {host} 粘贴这个码并授权。',
   'Add another': '再添加一个',
   'QQ, 163, 126, Gmail, iCloud, and other IMAP mail': 'QQ、163、126、Gmail、iCloud 等 IMAP 邮箱',
