@@ -145,9 +145,24 @@ export function install(rt) {
     return path
   }
 
-  // Every Session of a Bot: its own chat and its conversation in each of its groups.
-  const sessionsOfBot = botId => [rt.chatOf(botId), ...Object.values(state.rooms)
-    .filter(room => room.members.includes(botId)).map(room => room.sessions?.[botId])].filter(Boolean)
+  const folderPermissions = (botIds, room) => ({
+    sessions: botIds.map(id => room === undefined ? rt.chatOf(id) : room.sessions?.[id]).filter(Boolean),
+    presets: botIds.map(id => room?.permission ?? rt.botOf(id)?.permission ?? rt.permissionCatalog()?.defaultPreset).filter(Boolean),
+  })
+
+  // Match workDirOf and extraDirsOf: a member's own cwd hides only the Bot's cwd,
+  // while a group cwd hides both the Bot's cwd and its extra folders.
+  const botFolderPermissions = (botId, { extra = false } = {}) => {
+    const permissions = folderPermissions([botId])
+    for (const room of Object.values(state.rooms)) {
+      if (!room.members.includes(botId) || room.workDir !== undefined) continue
+      if (!extra && Object.hasOwn(room.memberDirs ?? {}, botId)) continue
+      const inherited = folderPermissions([botId], room)
+      permissions.sessions.push(...inherited.sessions)
+      permissions.presets.push(...inherited.presets)
+    }
+    return permissions
+  }
 
   // A folder outside the team workspace widens where a Bot may write, so a Bot that
   // sets one for Bots whose writes are bounded by their folder asks the user first.
@@ -161,7 +176,8 @@ export function install(rt) {
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
       const modes = [policy.resolve(), ...agents.map(agent => policy.resolve({ session: agent.session }))].map(entry => entry.mode)
       const service = ctx.get?.('permissionPresets')
-      modes.push(...presets.map(name => service?.resolve(name)?.sandbox))
+      const future = [rt.permissionCatalog()?.defaultPreset, ...presets].filter(Boolean)
+      modes.push(...future.map(name => service?.resolve(name)?.sandbox))
       // An unavailable preset service cannot establish that a future Session is unbounded.
       if (modes.every(mode => mode === 'read-only' || mode === 'danger-full-access')) return
     }
@@ -231,5 +247,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, folderPermissions, botFolderPermissions, approveFolder, folderEndpoint })
 }

@@ -395,9 +395,9 @@ export function install(rt) {
         }
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
-        if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
+        if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, ...rt.botFolderPermissions(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
         const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
-        if (extraDirs !== undefined) await rt.approveExtraDirs(exec, { paths: extraDirs, before: bot.extraDirs, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
+        if (extraDirs !== undefined) await rt.approveExtraDirs(exec, { paths: extraDirs, before: bot.extraDirs, ...rt.botFolderPermissions(bot.id, { extra: true }), who: { en: bot.name, zh: ` ${bot.name} ` } })
         // The photo rides on the Bot's other avatar fields, as the settings page's upload
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
@@ -446,7 +446,7 @@ export function install(rt) {
       // The folder holds only for this group conversation, so only this Session's
       // writes widen; the private-Bot check is the one updateBot would run.
       await rt.checkPrivacyChange(bot, { moving: true, workDir })
-      await rt.approveFolder(exec, { path: workDir, sessions: [exec.agent.id], who: { en: bot.name, zh: ` ${bot.name} ` } })
+      await rt.approveFolder(exec, { path: workDir, ...rt.folderPermissions([bot.id], room), sessions: [exec.agent.id], who: { en: bot.name, zh: ` ${bot.name} ` } })
       const result = await next()
       if (result?.isError !== true) {
         ;(room.memberDirs ??= {})[bot.id] = workDir ?? null
@@ -454,7 +454,7 @@ export function install(rt) {
       }
       return result
     }
-    await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
+    await rt.approveFolder(exec, { path: workDir, ...rt.botFolderPermissions(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
     const result = await next()
     if (result?.isError !== true) await rt.updateBot(bot.id, { workDir: workDir ?? '' }, rt.selfOf(exec.agent?.id))
     return result
@@ -575,10 +575,7 @@ export function install(rt) {
         // A Bot that joins a group with a folder works there from its first turn.
         const joining = add.bots.filter(bot => !room.members.includes(bot.id))
         // Members that have not spoken yet inherit these presets on their first Session.
-        const folderPermissions = members => ({
-          sessions: members.map(id => room.sessions?.[id]).filter(Boolean),
-          presets: members.map(id => room.permission ?? rt.botOf(id)?.permission ?? rt.permissionCatalog()?.defaultPreset).filter(Boolean),
-        })
+        const folderPermissions = members => rt.folderPermissions(members, room)
         if (moving && workDir !== room.workDir) {
           const members = [...room.members, ...joining.map(bot => bot.id)]
           await rt.approveFolder(exec, { path: workDir, ...folderPermissions(members), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
@@ -596,6 +593,22 @@ export function install(rt) {
         if (joining.length > 0 && kept.length > 0) {
           const names = joining.map(bot => bot.name)
           await rt.approveExtraDirs(exec, { paths: kept, ...folderPermissions(joining.map(bot => bot.id)), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+        }
+        // Joining or clearing the group cwd can expose a member's own folders under
+        // the group's preset even when those folders were set under full access.
+        const restoring = moving && room.workDir !== undefined && workDir === undefined
+        if ((moving ? workDir : room.workDir) === undefined) {
+          const inheriting = restoring ? [...room.members.map(id => rt.botOf(id)), ...joining] : joining
+          for (const bot of inheriting) {
+            if (bot === undefined || remove.bots.includes(bot)) continue
+            const permissions = folderPermissions([bot.id])
+            const who = { en: bot.name, zh: ` ${bot.name} ` }
+            const ownDir = restoring ? bot.workDir : rt.workDirOf({ botId: bot.id, roomId: room.id })
+            await rt.approveFolder(exec, { path: ownDir, ...permissions, who })
+            if (!rt.onLocalAgent(bot)) {
+              await rt.approveExtraDirs(exec, { paths: bot.extraDirs ?? [], before: extraDirs ?? room.extraDirs, ...permissions, who })
+            }
+          }
         }
         const { room: next, changes } = await rt.updateRoom(room.id, {
           name: args.name,
