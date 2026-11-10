@@ -13240,26 +13240,39 @@ function installLocale(locale) {
   for (const [langId, dict] of Object.entries(DICTIONARY)) {
     pushOff(locale.register(NAMESPACE, langId, dict));
   }
-  for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
-    for (const [ns, dict] of Object.entries(namespaces ?? {})) {
-      if (locale.dicts instanceof Map && locale.dicts.get(ns)?.has(langId.toLowerCase())) continue;
-      try {
-        pushOff(locale.register(ns, langId, dict));
-      } catch {
-      }
-    }
-  }
-  if (locale.dicts instanceof Map) {
-    for (const [ns, map] of locale.dicts.entries()) {
-      if (ns === NAMESPACE || map.has("zh-tw")) continue;
-      const zhDict = map.get("zh");
-      if (zhDict) {
-        try {
-          pushOff(locale.register(ns, "zh-TW", convertDict(zhDict)));
-        } catch {
+  let syncing = false;
+  let disposed = false;
+  const syncDshNamespaces = () => {
+    if (disposed || syncing || !(locale.dicts instanceof Map)) return;
+    syncing = true;
+    try {
+      for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
+        for (const [ns, dict] of Object.entries(namespaces ?? {})) {
+          const map = locale.dicts.get(ns);
+          if (!map || map.has(langId.toLowerCase())) continue;
+          try {
+            pushOff(locale.register(ns, langId, dict));
+          } catch {
+          }
         }
       }
+      for (const [ns, map] of locale.dicts.entries()) {
+        if (ns === NAMESPACE || map.has("zh-tw")) continue;
+        const zhDict = map.get("zh");
+        if (zhDict) {
+          try {
+            pushOff(locale.register(ns, "zh-TW", convertDict(zhDict)));
+          } catch {
+          }
+        }
+      }
+    } finally {
+      syncing = false;
     }
+  };
+  syncDshNamespaces();
+  if (typeof locale.subscribe === "function") {
+    pushOff(locale.subscribe(syncDshNamespaces));
   }
   const origResolveText = typeof locale.resolveText === "function" ? locale.resolveText.bind(locale) : null;
   if (origResolveText) {
@@ -13275,6 +13288,7 @@ function installLocale(locale) {
     });
   }
   return () => {
+    disposed = true;
     if (service === locale) {
       service = null;
       bound = null;

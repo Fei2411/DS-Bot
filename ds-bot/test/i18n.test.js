@@ -6,24 +6,44 @@ import { DICTIONARY, LANGUAGES, dateLocale, hostText, installLocale, language, t
 function fakeLocale(initial = 'zh') {
   let active = initial
   const dicts = new Map()
+  const listeners = new Set()
   const catalog = [{ id: 'zh', label: '中文', fallback: 'en' }, { id: 'en', label: 'English' }]
+  const publish = () => { for (const fn of listeners) fn() }
   return {
     dicts,
-    setActive: (next) => { active = next },
+    setActive: (next) => { active = next; publish() },
+    subscribe: (fn) => {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
     addLanguage: (def) => {
       catalog.push(def)
+      publish()
       return () => {
         const idx = catalog.indexOf(def)
         if (idx >= 0) catalog.splice(idx, 1)
+        publish()
       }
     },
-    register: (ns, locale, dict) => {
+    register: (ns, localeOrMap, dict) => {
+      const pairs = typeof localeOrMap === 'string' ? [[localeOrMap, dict]] : Object.entries(localeOrMap ?? {})
       if (!dicts.has(ns)) dicts.set(ns, new Map())
-      dicts.get(ns).set(locale, dict)
-      return () => dicts.get(ns)?.delete(locale)
+      const map = dicts.get(ns)
+      for (const [loc] of pairs) {
+        if (map.has(loc.toLowerCase())) throw new Error(`locale namespace "${ns}" already has locale "${loc}"`)
+      }
+      for (const [loc, d] of pairs) {
+        map.set(loc.toLowerCase(), d)
+      }
+      publish()
+      return () => {
+        for (const [loc] of pairs) map.delete(loc.toLowerCase())
+        if (map.size === 0) dicts.delete(ns)
+        publish()
+      }
     },
     bind: ns => (key, params) => {
-      const text = (active !== 'en' ? dicts.get(ns)?.get(active)?.[key] : undefined) ?? key
+      const text = (active !== 'en' ? dicts.get(ns)?.get(active.toLowerCase())?.[key] : undefined) ?? key
       return params ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match)) : text
     },
     getLocale: () => ({ active, locales: catalog }),
@@ -79,6 +99,17 @@ test('copy follows the DSH language across all locales and stays English without
       assert.notEqual(hostText('A Bot named Writer already exists'), 'A Bot named Writer already exists')
       assert.notEqual(hostText('The team needs at least one Main Bot'), 'The team needs at least one Main Bot')
     }
+
+    // Async DSH plugins registering their own namespaces after installLocale must not collide,
+    // and immediately receive missing locale supplements (e.g. ko and zh-TW).
+    assert.equal(mock.dicts.has('open-in-app'), false)
+    mock.register('open-in-app', {
+      zh: { 'open.title': '在 {app} 中打开' },
+      en: { 'open.title': 'Open in {app}' },
+      ja: { 'open.title': '{app} で開く' },
+    })
+    assert.equal(mock.dicts.get('open-in-app')?.get('zh-tw')?.['open.title'], '在 {app} 中打開')
+    assert.equal(mock.dicts.get('open-in-app')?.get('ko')?.['open.title'], '{app}에서 열기')
   } finally {
     off()
   }

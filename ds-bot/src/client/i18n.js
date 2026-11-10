@@ -1746,23 +1746,34 @@ export function installLocale(locale) {
     pushOff(locale.register(NAMESPACE, langId, dict))
   }
 
-  // Register DSH settings/common namespace translations so DSH rows inside Settings match.
-  for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
-    for (const [ns, dict] of Object.entries(namespaces ?? {})) {
-      if (locale.dicts instanceof Map && locale.dicts.get(ns)?.has(langId.toLowerCase())) continue
-      try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+  // Register DSH settings/common namespace translations only after each owning DSH plugin registers its namespace.
+  let syncing = false
+  let disposed = false
+  const syncDshNamespaces = () => {
+    if (disposed || syncing || !(locale.dicts instanceof Map)) return
+    syncing = true
+    try {
+      for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
+        for (const [ns, dict] of Object.entries(namespaces ?? {})) {
+          const map = locale.dicts.get(ns)
+          if (!map || map.has(langId.toLowerCase())) continue
+          try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+        }
+      }
+      for (const [ns, map] of locale.dicts.entries()) {
+        if (ns === NAMESPACE || map.has('zh-tw')) continue
+        const zhDict = map.get('zh')
+        if (zhDict) {
+          try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
+        }
+      }
+    } finally {
+      syncing = false
     }
   }
-
-  // Convert any existing and future DSH `zh` namespace dictionaries into `zh-TW`.
-  if (locale.dicts instanceof Map) {
-    for (const [ns, map] of locale.dicts.entries()) {
-      if (ns === NAMESPACE || map.has('zh-tw')) continue
-      const zhDict = map.get('zh')
-      if (zhDict) {
-        try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
-      }
-    }
+  syncDshNamespaces()
+  if (typeof locale.subscribe === 'function') {
+    pushOff(locale.subscribe(syncDshNamespaces))
   }
 
   const origResolveText = typeof locale.resolveText === 'function' ? locale.resolveText.bind(locale) : null
@@ -1778,6 +1789,7 @@ export function installLocale(locale) {
   }
 
   return () => {
+    disposed = true
     if (service === locale) { service = null; bound = null }
     for (let i = offs.length - 1; i >= 0; i--) offs[i]()
   }
