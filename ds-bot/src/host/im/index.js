@@ -147,15 +147,20 @@ export function install(rt) {
     data.sent[chatKey] = [...kept, { ids, text: body }].slice(-SENT_KEEP)
     scheduleWrite(id)
   }
-  // The text a quoted reply answers: the message this chat sent when exactly one
-  // referenced id names it, else the text the platform kept of that message.
+  // The text a quoted reply answers: the first of its ids that names a message
+  // this chat sent, else the text the platform kept of that message. An id only
+  // ever matches a message this connection actually sent there, so a wrong one
+  // cannot pull in another chat's text.
   const quotedText = async (conn, chatKey, quote) => {
     const ids = (Array.isArray(quote?.ids) ? quote.ids : [])
       .map(value => String(value ?? '').trim()).filter(value => value !== '')
-    if (ids.length === 1) {
+    if (ids.length > 0) {
       const data = await dataOf(conn.id)
-      const found = (data.sent[chatKey] ?? []).find(entry => entry.ids.includes(ids[0]))
-      if (found !== undefined) return found.text
+      const entries = data.sent[chatKey] ?? []
+      for (const id of ids) {
+        const found = entries.find(entry => entry.ids.includes(id))
+        if (found !== undefined) return found.text
+      }
     }
     return typeof quote?.text === 'string' ? quote.text.trim() : ''
   }

@@ -149,7 +149,7 @@ test('send goes through sendmessage with the stored context_token, chunked at th
   assert.ok(messageId.startsWith('ds-bot-'))
 })
 
-test('a quoted reply carries the quoted ids and text; conflicting ids are not guessed at', async (t) => {
+test('a quoted reply carries the ids in protocol order and the text the platform kept', async (t) => {
   const fake = await fakeIlink()
   const messages = []
   fake.replies.updates = {
@@ -172,15 +172,18 @@ test('a quoted reply carries the quoted ids and text; conflicting ids are not gu
         ],
       },
       { from_user_id: 'u1', client_id: 'm3', context_token: 'tok-u1', item_list: [{ type: 1, text_item: { text: '普通消息' } }] },
+      // iLink writes 0 in the field when the message quotes nothing.
+      { from_user_id: 'u1', client_id: 'm4', context_token: 'tok-u1', referenced_msg_id: 0, item_list: [{ type: 1, text_item: { text: '也没有引用' } }] },
     ],
   }
   const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
   t.after(() => { handle.stop(); fake.close() })
-  await until(() => messages.length === 3)
+  await until(() => messages.length === 4)
   assert.deepEqual(messages[0].quote, { ids: ['7505'], text: '项目 A 的报价改好了' })
-  // One quote under several different ids names no single message: only the text.
-  assert.deepEqual(messages[1].quote, { ids: [], text: '另一条' })
+  // The message itself first, then the aliases the same payload repeats.
+  assert.deepEqual(messages[1].quote, { ids: ['a-3', 'a-1', 'a-2'], text: '另一条' })
   assert.equal(messages[2].quote, undefined)
+  assert.equal(messages[3].quote, undefined, 'a zero id is not a quote')
 })
 
 test('send keeps every id the platform names, so a quoted reply can name the message', async (t) => {

@@ -302,17 +302,19 @@ const chunk = (text, limit) => {
   return chunks
 }
 
-// iLink has sent the same id as a string and as a number, and a quoted reply
-// has to match whichever form it comes back in.
+// iLink has sent the same id as a string and as a number, and fills the field
+// with 0 when a message quotes nothing: every form has to end up comparable.
 const addId = (ids, value) => {
   if (value === undefined || value === null) return
   const id = String(value).trim()
-  if (id !== '' && !ids.includes(id)) ids.push(id)
+  if (id === '' || id === '0') return
+  if (!ids.includes(id)) ids.push(id)
 }
 
 // A reply quotes one earlier message. iLink names it at the top level and again
 // inside a ref_msg item, under several fields, and repeats its text when it has
-// it. Two different ids mean the quote is ambiguous: only the text is kept then.
+// it. The ids go in the protocol's order: the first one is the message itself,
+// the rest only ever name the same message, and a caller matches them in turn.
 const quotedOf = (msg) => {
   const ids = []
   let text = ''
@@ -326,17 +328,20 @@ const quotedOf = (msg) => {
     if (text === '') text = String(ref.message_item?.text_item?.text ?? '').trim()
   }
   if (ids.length === 0 && text === '') return undefined
-  return { ids: ids.length === 1 ? ids : [], text }
+  return { ids, text }
 }
 
 // The platform names the message it accepted in one of several places, and a
-// quoted reply can use any of them: keep every name it gives.
+// quoted reply can use any of them: keep every name it gives. A malformed shape
+// is ignored rather than thrown: the message has already been delivered, and a
+// throw from here would read as a failed send and be retried.
 const answerIds = (answer) => {
   const ids = []
   for (const holder of [answer, answer?.msg, answer?.data]) {
     if (holder === null || typeof holder !== 'object') continue
     for (const value of [holder.message_id, holder.msg_id, holder.msgid, holder.client_id]) addId(ids, value)
-    for (const item of Array.isArray(holder) ? holder : holder.item_list ?? []) addId(ids, item?.msg_id)
+    const items = Array.isArray(holder) ? holder : Array.isArray(holder.item_list) ? holder.item_list : []
+    for (const item of items) addId(ids, item?.msg_id)
   }
   return ids
 }

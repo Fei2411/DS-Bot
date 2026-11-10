@@ -250,7 +250,7 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
 })
 
-test('a quote the Bot cannot pin to one message says so instead of guessing', async (t) => {
+test('a quote resolves by its ids, then by the platform text, and says when both are gone', async (t) => {
   const s = await start()
   t.after(s.stop)
   const conn = await add(s)
@@ -262,15 +262,38 @@ test('a quote the Bot cannot pin to one message says so instead of guessing', as
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
   await s.flush()
   const sentId = s.fake.sent.at(-1)?.messageId
-  // Two ids for one quote name no single message: the platform's text is used.
-  await dm(s, 'u1', 'this one', { quote: { ids: [sentId, 'not-this-one'], text: 'Text the platform kept' } })
-  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Text the platform kept\n\nthis one')
-  await dm(s, 'u1', 'that one', { quote: { ids: ['gone'] } })
-  assert.equal(s.prompts[2].content[0].text, 'Replying to an earlier message (its text is not available).\n\nthat one')
+  // Any of the ids may name the message; the first one that does is used.
+  await dm(s, 'u1', 'this one', { quote: { ids: ['not-this-one', sentId] } })
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nthis one')
+  // An id this chat never sent falls back to the text the platform kept.
+  await dm(s, 'u1', 'that one', { quote: { ids: ['gone'], text: 'Text the platform kept' } })
+  assert.equal(s.prompts[2].content[0].text, 'Replying to an earlier message:\n> Text the platform kept\n\nthat one')
+  await dm(s, 'u1', 'the other one', { quote: { ids: ['gone'] } })
+  assert.equal(s.prompts[3].content[0].text, 'Replying to an earlier message (its text is not available).\n\nthe other one')
   // A command is read from the reply alone, never from the quote.
   await dm(s, 'u1', '/stop', { quote: { ids: [sentId] } })
-  assert.equal(s.prompts.length, 3)
+  assert.equal(s.prompts.length, 4)
   assert.equal(s.fake.sent.at(-1).text, 'Nothing is running.')
+})
+
+test('only the last messages sent to a chat are kept for quoting', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  for (let at = 0; at < 21; at += 1) {
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
+  }
+  await s.flush()
+  await delay(1_200)
+  const kept = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent['dm-u1']
+  assert.equal(kept.length, 20)
+  assert.ok(!kept.some(entry => entry.text === 'Report 0'), 'the oldest is dropped')
+  assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
 })
 
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
