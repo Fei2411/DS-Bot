@@ -1782,13 +1782,21 @@ test('a group member\'s dead background child is shown even when the model passe
   assert.equal(shown[0].name, 'Writer')
   assert.match(shown[0].text, /^Export the deck: failed before it finished/, 'the label was lost before the settlement')
 
+  // The label kept past subagent/end is spent once: a later settlement of the same
+  // child id starts without it.
+  host.emit('gb', 'user/message', notice)
+  await until(() => rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed').length === 2)
+  const [firstNotice, reused] = rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed')
+  assert.match(firstNotice.text, /^Export the deck:/)
+  assert.doesNotMatch(reused.text, /Export the deck/, 'the spent label was reused')
+
   // A child that finished makes no such line.
   host.emit('gb', 'user/message', {
     content: [{ type: 'text', text: 'Background subagent sub-2 finished.\nIts closing message:\ndone' }],
     source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-2 finished.', senderSessionId: 'sub-2' },
   })
-  await settle(() => true)
-  assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed').length, 1)
+  await until(() => true)
+  assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed').length, 2)
 })
 
 test('approval keeps a member inside its parallel batch until all results arrive', async t => {

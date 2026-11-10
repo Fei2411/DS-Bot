@@ -825,6 +825,8 @@ export function install(rt) {
             : undefined
           if (typeof source.senderSessionId === 'string') {
             noteSubagentEnd(source.senderSessionId)
+            // The kept label is spent with this settlement; a reused child id starts clean.
+            endedSubagentLabels.delete(source.senderSessionId)
             if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
           }
           if (stoppedSubagentParents.has(id) || (typeof source.senderSessionId === 'string' && stoppedSubagents.has(source.senderSessionId))) {
