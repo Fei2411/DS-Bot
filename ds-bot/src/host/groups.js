@@ -482,6 +482,8 @@ export function install(rt) {
         if (prev.pending.size === 0) {
           batch.done.push(...prev.done)
           batch.results.push(...prev.results)
+          batch.worked ||= prev.worked
+          batch.answered ||= prev.answered
           roomBatches.delete(prev.key)
         }
       }
@@ -499,15 +501,17 @@ export function install(rt) {
     }
   }
 
-  // The batches a call of the round settles into, one for each Bot that called the member
-  // before its turn began: the call's own, or when a later call of the same Bot took the
-  // member over, the newest one of that Bot.
-  const batchesOfSlot = (roomId, slot) => [...new Set((slot.batchKeys ?? [undefined]).map(key => roomBatches.get(key) ?? batchOf(roomId, slot.id, slot.by)).filter(Boolean))]
-  const markSlotWorked = (roomId, slot) => { for (const batch of batchesOfSlot(roomId, slot)) batch.worked = true }
+  // The batch a call of the round settles into: its own, or when a later call of the same
+  // Bot took the member over, the newest one of that Bot.
+  const batchOfSlot = (roomId, slot) => roomBatches.get(slot.batchKey) ?? batchOf(roomId, slot.id, slot.by)
+  const markSlotWorked = (roomId, slot) => {
+    const batch = batchOfSlot(roomId, slot)
+    if (batch !== undefined) batch.worked = true
+  }
 
   // The member's work for one batch is over. A batch whose wake is posted to the group
-  // (`keep`) stays until that post is taken in (closeBatch), because the lines of its
-  // results are only known then.
+  // (`keep`) stays until that post, the last one that names it, is taken in (closeBatch),
+  // because the lines of its results are only known then.
   const leaveBatch = (room, batch, botId, { keep = false } = {}) => {
     if (batchOf(room.id, botId, batch.by) === batch) memberBatch.delete(callKey(room.id, botId, batch.by))
     batch.pending.delete(botId)
@@ -656,21 +660,22 @@ export function install(rt) {
   // (a plain message everyone answers in turn) go ahead of the ordered calls still
   // waiting, in their own order; the others start as soon as their member is free. A
   // member still waiting is called once, with the newest note: an ordered call moves
-  // it up the order, any other call lets it start at once. `by` is the calling member,
-  // if a member called.
+  // it up the order, any other call lets it start at once. A call of another Bot stays
+  // a call of its own, so that Bot is woken for its own work. `by` is the calling
+  // member, if a member called.
   function callIn(round, callees, note, by, { ordered = false } = {}) {
     if (callees.length === 0) return
     round.batches = (round.batches ?? 0) + 1
     const batchKey = registerBatch(round.roomId, by, callees)
     let last
     for (const peer of callees) {
-      const waiting = round.slots.findIndex(slot => slot.id === peer.id && slot.status === 'waiting')
+      const waiting = round.slots.findIndex(slot => slot.id === peer.id && slot.status === 'waiting' && (by === undefined || slot.by === undefined || slot.by === by))
       const moves = waiting === -1 || (ordered && round.slots[waiting].ordered === true)
       const slot = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots[waiting]
       if (moves && waiting !== -1) round.slots.splice(waiting, 1)
       slot.note = note
       slot.batch = round.batches
-      if (batchKey !== undefined) slot.batchKeys = [...(slot.batchKeys ?? []), batchKey]
+      if (batchKey !== undefined) slot.batchKey = batchKey
       if (by === undefined) delete slot.by
       else slot.by = by
       if (!moves) slot.ordered = false
@@ -713,7 +718,7 @@ export function install(rt) {
       round.batches = (round.batches ?? 0) + 1
       round.slots.push({
         id: entry.id, name: entry.name, status: 'waiting', batch: round.batches,
-        ...(batchKey !== undefined ? { batchKeys: [batchKey] } : {}),
+        ...(batchKey !== undefined ? { batchKey } : {}),
         ...(entry.note !== undefined ? { note: entry.note } : {}),
         ...(entry.by !== undefined ? { by: entry.by } : {}),
       })
@@ -903,7 +908,8 @@ export function install(rt) {
     } catch (error) {
       rt.warn('ds-bot: group Session for %s in %s failed: %s', member.name, room.name, error)
       slot.status = 'failed'
-      for (const own of batchesOfSlot(room.id, slot)) leaveBatch(room, own, member.id)
+      const own = batchOfSlot(room.id, slot)
+      if (own !== undefined) leaveBatch(room, own, member.id)
       round.failed.push(member.name)
       const failure = { code: 'SESSION', message: String(error?.message ?? error).slice(0, 300) }
       round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code: failure.code, text: failure.message, time: Date.now() })
@@ -989,7 +995,8 @@ export function install(rt) {
     if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
     // Yielding to work, approval or an unanswered turn keeps the task pending.
     if (['posted', 'passed', 'failed', 'left', 'cancelled'].includes(slot.status)) {
-      for (const batch of batchesOfSlot(room.id, slot)) {
+      const batch = batchOfSlot(room.id, slot)
+      if (batch !== undefined) {
         if (slot.status === 'posted') {
           batch.done.push(member.name)
           batch.results.push(...posted.map(seq => ({ name: member.name, seq })))
@@ -1124,7 +1131,7 @@ export function install(rt) {
           ...(opener.goal === 'draft' || (draftPost !== undefined && admin !== undefined && member.id === admin.id) ? { note: 'the user wants to set a goal for this group' } : {}),
           ...(opener.goal === 'nudge' ? { note: 'goal check' } : {}),
           ...(opener.goal === 'resume' ? { note: 'the user resumed the goal' } : {}),
-          ...(named.includes(member) ? { by: opener.botId, ...(openingBatchKey ? { batchKeys: [openingBatchKey] } : {}) } : {}),
+          ...(named.includes(member) ? { by: opener.botId, ...(openingBatchKey ? { batchKey: openingBatchKey } : {}) } : {}),
           ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
           ...(wake !== undefined && member.id === opener.askedBy ? { finished: wake, ...(named.includes(member) ? {} : { note: finishedNote(wake.names) }) } : {}),
         })),
@@ -1158,7 +1165,7 @@ export function install(rt) {
         round.replies.push({ kind, botId: post.botId, name, color: bot?.color, time: Date.now() })
       }
       if (posts.some(post => post.resumed || post.stopped || post.done)) await rt.save()
-      for (const post of posts) if (post.batch !== undefined) closeBatch(post.batch)
+      for (const post of posts) if (post.batchEnd) closeBatch(post.batch)
       releaseParked(room, round)
       rt.roomProgress.set(exec.callId, round)
       try {
@@ -1381,7 +1388,7 @@ export function install(rt) {
         if (extra.batch !== undefined && line !== '') recordResult(extra.batch, sender.name, room.seq)
       }
       callPost(room, running, sender, text, extra)
-      if (extra.batch !== undefined) closeBatch(extra.batch)
+      if (extra.batchEnd) closeBatch(extra.batch)
       await rt.save()
       return
     }
@@ -1434,7 +1441,7 @@ export function install(rt) {
     }
     // The post names its batch: its line is a result of it, and the wake that closes the
     // batch carries the results.
-    const inBatch = batch === undefined ? {} : { batch: batch.key }
+    const inBatch = batch === undefined ? {} : { batch: batch.key, ...(waitingPeers ? {} : { batchEnd: true }) }
     const post = (body, extra) => postToRoom(room, member, body, { late: true, ...extra, ...inBatch })
       .catch((error) => {
         if (batch !== undefined) closeBatch(batch.key)
@@ -1596,7 +1603,7 @@ export function install(rt) {
     noteFailure(room, member.name, failure)
     await postToRoom(room, member, `Could not finish: its model call failed (${failureLine(failure)}).`, {
       late: true,
-      ...(wakeCaller ? { askedBy: wakeCaller, batch: woken.key } : { quiet: true }),
+      ...(wakeCaller ? { askedBy: wakeCaller, batch: woken.key, batchEnd: true } : { quiet: true }),
       failed: { code, ...(status ? { status } : {}), message },
     }).catch((error) => {
       if (woken !== undefined) closeBatch(woken.key)

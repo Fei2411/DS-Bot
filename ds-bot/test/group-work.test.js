@@ -1976,7 +1976,7 @@ test('a batch wake does not repeat a result that its prompt shows anyway', async
 
 // An answer that came inside the round is a result too, and a long wait lets it leave the
 // room's log (60 lines), which the group's own log still holds.
-async function resultBeforeLongWait(t, filler = 70) {
+async function resultBeforeLongWait(t, filler = 70, result = 'R2-TESTER：测试全过。') {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)
   const first = host.round('c1', host.say('排查一下构建'))
@@ -1989,7 +1989,7 @@ async function resultBeforeLongWait(t, filler = 70) {
   host.begin('gc')
   host.emit('gc', 'tool/call', { callId: 'k2', name: 'pwsh', arguments: '{}' })
   host.emit('gc', 'tool/result', { callId: 'k2' })
-  host.finish('gc', 'R2-TESTER：测试全过。')
+  host.finish('gc', result)
   await settle(() => host.agentOf('ga').calls.length === 1 && rt.roomOf('r1').log.some(line => line.who === 'Tester'))
   t.mock.timers.tick(ROOM_WORK_GRACE_MS)
   await settle(() => first() !== undefined)
@@ -2048,9 +2048,9 @@ test('a batch wake brings the images and files of a result line along', async (t
   host.finish('ga', '[PASS]')
 })
 
-// Two Bots call a member that has a call waiting; its one turn answers both, and both
-// batches settle with it.
-test('a member two Bots called while its turn was still to come answers both with that turn', async (t) => {
+// Three Bots call one member: a call of another Bot stays a call of its own, answered by
+// its own turn, and wakes only the Bot that made it.
+test('a member three Bots called answers each call in a turn of its own and wakes each caller once', async (t) => {
   const host = await start(t, { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } }, undefined, undefined, { d: {} })
   const first = host.round('c1', host.say('@Chief @Tester @Reviewer 各自给 Writer 安排一件事'))
   await settle(() => ['ga', 'gc', 'gd'].every(id => host.agentOf(id).calls.length === 1))
@@ -2063,28 +2063,51 @@ test('a member two Bots called while its turn was still to come answers both wit
   host.finish('gd', '@Writer 做丙')
   await settle(() => rt.roomBatchPending('r1'))
 
-  host.begin('gb')
-  workStep(host, 'gb', 'k1')
-  host.finish('gb', '甲做完了。')
-  await settle(() => host.agentOf('ga').calls.length === 2)
-  assert.equal(wakeNote(host.agentOf('ga').calls[1]), 'Writer finished the work you asked for')
-  host.begin('ga')
-  host.finish('ga', '[PASS]')
-
-  await settle(() => host.agentOf('gb').calls.length === 2)
-  host.begin('gb')
-  workStep(host, 'gb', 'k2')
-  host.finish('gb', '乙和丙都做完了。')
-  await settle(() => host.agentOf('gc').calls.length === 2 && host.agentOf('gd').calls.length === 2)
-  for (const id of ['gc', 'gd']) {
-    assert.equal(wakeNote(host.agentOf(id).calls[1]), 'Writer finished the work you asked for')
-    assert.match(text(host.agentOf(id).calls[1]), /Writer: 乙和丙都做完了。/)
-    host.begin(id)
-    host.finish(id, '[PASS]')
+  const turns = [['ga', '甲', 'Chief'], ['gc', '乙', 'Tester'], ['gd', '丙', 'Reviewer']]
+  for (const [index, [caller, work]] of turns.entries()) {
+    await settle(() => host.agentOf('gb').calls.length === index + 1)
+    assert.equal(host.agentOf('gb').calls[index].source.askedBy, { ga: 'a', gc: 'c', gd: 'd' }[caller])
+    host.begin('gb')
+    workStep(host, 'gb', `k${index}`)
+    host.finish('gb', `${work}做完了。`)
+    await settle(() => host.agentOf(caller).calls.length === 2)
+    assert.equal(wakeNote(host.agentOf(caller).calls[1]), 'Writer finished the work you asked for')
+    assert.match(text(host.agentOf(caller).calls[1]), new RegExp(`Writer: ${work}做完了。`))
+    for (const [other] of turns.slice(index + 1)) assert.equal(host.agentOf(other).calls.length, 1, `${other} is not woken for another call`)
+    host.begin(caller)
+    host.finish(caller, '[PASS]')
   }
   await settle(() => first() !== undefined)
-  assert.equal(host.agentOf('ga').calls.length, 2, 'Chief is woken once')
   assert.equal(rt.roomBatchPending('r1'), false)
+})
+
+// Chief calls Writer and Tester. Tester finishes tool work in the round; Chief calls Writer
+// again, which takes Writer into a batch of its own, and Writer answers with no tool.
+test('a batch that takes over from an emptied one keeps its finished work', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('排查一下构建'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 读构建日志 @Tester 跑全量测试')
+  await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+  host.begin('gb')
+  host.begin('gc')
+  workStep(host, 'gc', 'k2')
+  host.finish('gc', 'R2-TESTER：测试全过。')
+  await settle(() => first() === undefined && rt.roomOf('r1').log.some(line => line.who === 'Tester'))
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 日志里也看看 FOO' }, 'a')
+  host.finish('gb', '没有 FOO。')
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  const wake = host.agentOf('ga').calls[1]
+  assert.equal(wakeNote(wake), 'Tester and Writer finished the work you asked for')
+  assert.match(text(wake), /Tester: R2-TESTER：测试全过。/)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  // The second call still gets its turn.
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.finish('gb', '[PASS]')
+  await settle(() => first() !== undefined)
 })
 
 test('a batch whose last member fails wakes the caller with the results of the others', async (t) => {
@@ -2104,6 +2127,40 @@ test('a batch whose last member fails wakes the caller with the results of the o
   assert.equal(wakeNote(wake), 'Writer finished the work you asked for')
   assert.equal(count(text(wake), 'R1-WRITER'), 1)
   assert.ok(text(wake).includes(RESULTS))
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+})
+
+test('a result posted early is taken in after its batch finished, and the wake still carries it', async (t) => {
+  const { host } = await batchInBackground(t)
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', 'R1-WRITER：日志结论是缺环境变量 FOO。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const early = host.takePost()
+  host.emit('gc', 'tool/result', { callId: 'k2' })
+  host.finish('gc', 'R2-TESTER：测试全过。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const last = host.takePost()
+  // The group Session takes up the early post first, after the batch is already done.
+  const quietRound = host.round('c8', early)
+  await settle(() => quietRound() !== undefined)
+  assert.equal(host.agentOf('ga').calls.length, 1)
+  host.round('c9', last)
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  const wake = host.agentOf('ga').calls[1]
+  assert.equal(wakeNote(wake), 'Writer and Tester finished the work you asked for')
+  assert.equal(count(text(wake), 'R1-WRITER'), 1)
+  assert.equal(count(text(wake), 'R2-TESTER'), 1)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+})
+
+test('a wake reads a long result that left the room\'s log whole', async (t) => {
+  const { host } = await resultBeforeLongWait(t, 70, '长'.repeat(5000))
+  await writerFinishes(host)
+  const prompt = text(host.agentOf('ga').calls[1])
+  assert.ok(prompt.includes(`Tester: ${'长'.repeat(5000)}`))
+  assert.ok(!prompt.includes('was not kept'))
   host.begin('ga')
   host.finish('ga', '[PASS]')
 })
