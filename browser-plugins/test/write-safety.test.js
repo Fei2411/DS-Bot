@@ -95,6 +95,12 @@ async function fixtureServer() {
       html('Filtered', '<p>Filtered</p>')
     } else if (path === '/link') {
       html('Link target', '<p>Link opened</p>')
+    } else if (path === '/cross-download') {
+      const external = 'http://' + request.headers.host.replace('127.0.0.1', 'localhost') + '/download'
+      html('External downloads', '<a href="' + external + '">Download external</a><a href="/download-redirect">Download redirected</a><a download="inline.txt" href="data:text/plain,inline-private-data">Download inline</a>')
+    } else if (path === '/download-redirect') {
+      response.writeHead(302, { location: 'http://' + request.headers.host.replace('127.0.0.1', 'localhost') + '/download' })
+      response.end()
     } else if (path === '/download') {
       response.writeHead(200, {
         'content-type': 'text/plain',
@@ -679,6 +685,39 @@ test('mounted downloads and uploads fall back to the team folder', async t => {
   assert.ok(result.includes(join(team, 'report.txt')))
   assert.match(result, /report\.txt/u)
   assert.equal(await readFile(join(team, 'report.txt'), 'utf8'), 'download contents')
+})
+
+for (const label of ['Download external', 'Download redirected']) test('download evidence identifies the actual source for ' + label, async t => {
+  const { fixture, profileRoot, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('cross-download', fixture.url).href)
+  const actions = []
+  const result = await gateScope.run(action => { actions.push(action); throw new Error('Download source denied') }, () => session.click(findRef(snapshot, label)))
+  const source = new URL('download', fixture.url)
+  source.hostname = 'localhost'
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].host, '127.0.0.1', 'the initiating page remains separate')
+  assert.equal(actions[0].sourceUrl, source.href)
+  assert.equal(actions[0].sourceOrigin, source.origin)
+  assert.equal(actions[0].sourceHost, 'localhost')
+  assert.equal(actions[0].evidenceComplete, true)
+  assert.match(result, /Download source denied/)
+  assert.deepEqual(await readdir(join(profileRoot, 'downloads')).catch(() => []), [])
+})
+
+for (const mode of ['query', 'inline']) test('download evidence with ' + mode + ' data stays manual without exposing it', async t => {
+  const { fixture, profileRoot, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('cross-download', fixture.url).href)
+  const actions = []
+  const result = await gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('Manual source review required')
+  }, () => mode === 'query' ? session.open(new URL('download?token=download-private-data', fixture.url).href) : session.click(findRef(snapshot, 'Download inline')))
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(actions[0].sourceProtocol, mode === 'query' ? 'http:' : 'data:')
+  assert.doesNotMatch(JSON.stringify(actions[0]), /download-private-data|inline-private-data/)
+  assert.match(result, /Manual source review required/)
+  assert.deepEqual(await readdir(join(profileRoot, 'downloads')).catch(() => []), [])
 })
 
 test('opening a direct attachment URL saves the download instead of throwing', async (t) => {

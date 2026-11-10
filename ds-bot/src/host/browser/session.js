@@ -371,8 +371,21 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     let action
     try {
       const pageUrl = new URL(page.url())
-      const url = pageUrl.origin === 'null' ? new URL(download.url()) : pageUrl
-      action = { kind: 'download', label: filename, origin: url.origin, host: url.hostname, directory: await downloadDir(), evidenceComplete: true }
+      const source = new URL(download.url())
+      const webSource = source.protocol === 'https:' || source.protocol === 'http:'
+      const evidenceComplete = webSource && !source.username && !source.password && !source.search && !source.hash
+      // Keep protected URL components and inline payloads out of model evidence.
+      source.username = ''
+      source.password = ''
+      source.search = ''
+      source.hash = ''
+      const url = pageUrl.origin === 'null' ? source : pageUrl
+      action = {
+        kind: 'download', label: filename, origin: url.origin, host: url.hostname,
+        ...(webSource ? { sourceUrl: source.href } : {}),
+        sourceOrigin: source.origin, sourceHost: source.hostname, sourceProtocol: source.protocol,
+        directory: await downloadDir(), evidenceComplete,
+      }
       await authorizeWrite(action, gate)
     } catch (error) {
       await download.cancel().catch(() => {})
