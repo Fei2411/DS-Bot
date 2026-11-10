@@ -1,6 +1,23 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Agent preset": "Agent プリセット",
+  "Agent preset: {preset}": "Agent プリセット: {preset}",
+  "Default (Standard)": "デフォルト（標準）",
+  "Default (DSH default)": "デフォルト（DSH の既定値）",
+  "The standard agent preset": "標準の Agent プリセット",
+  "The default for new tasks in DeepSeek Harness.": "DeepSeek Harness の新しいタスク用の既定プリセット。",
+  "Missing preset": "プリセットが見つかりません",
+  "This preset cannot start.": "このプリセットは起動できません。",
+  "This preset cannot start. Pick another one.": "このプリセットは起動できません。別のものを選んでください。",
+  "This preset cannot start ({reason}). Pick another one.": "このプリセットは起動できません（{reason}）。別のものを選んでください。",
+  "This preset is not in the profile anymore. Pick another one.": "このプリセットは現在のプロファイルにありません。別のものを選んでください。",
+  "The preset list could not be loaded.": "プリセット一覧を読み込めませんでした。",
+  "DS Bot needs the Bot's own prompt, which this preset replaces": "このプリセットは DS Bot に必要な Bot 固有のプロンプトを置き換えます。",
+  "DS Bot could not verify that it keeps the Bot's own prompt": "Bot 固有のプロンプトが維持されることを確認できませんでした。",
+  "Applies from the next conversation segment.": "次の会話セグメントから適用されます。",
+  "The Bot runs on the default agent preset.": "Bot はデフォルトの Agent プリセットで動作します。",
+  "The Bot runs on the {name} agent preset.": "Bot は {name} Agent プリセットで動作します。",
   "Main Bot": "メイン Bot",
   "Working": "実行中",
   "Waiting for your answer": "回答待ち",
@@ -1553,6 +1570,9 @@ export const JA = {
 }
 
 export const HOST_ERRORS_JA = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
+  [/^Only the user can choose the agent preset of (.+)$/, "$1 の Agent プリセットを選択できるのはユーザーだけです"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "モデル $1 は利用できません。利用可能: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 の API キーは DS Bot の外部で設定されているため、ここでは変更できません"],

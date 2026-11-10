@@ -136,6 +136,24 @@ export function install(rt) {
         bot.color = currentColor(bot.color)
         migrated = true
       }
+      // `bot.agentPreset` is a preset id; a corrupt value is dropped so the Bot falls
+      // back to the standard default rather than failing every Session.
+      if (bot.agentPreset !== undefined && (typeof bot.agentPreset !== 'string' || bot.agentPreset.trim() === '')) {
+        delete bot.agentPreset
+        migrated = true
+      }
+      // `bot.agentPresetDefault` marks a pick the user cleared to the default; it only
+      // means anything without an explicit id, and anything but true is corrupt.
+      if (bot.agentPresetDefault !== undefined && (bot.agentPresetDefault !== true || typeof bot.agentPreset === 'string')) {
+        delete bot.agentPresetDefault
+        migrated = true
+      }
+      if (bot.agentPresetDefaultPending !== undefined && (bot.agentPresetDefault !== true
+        || !Array.isArray(bot.agentPresetDefaultPending)
+        || bot.agentPresetDefaultPending.some(id => typeof id !== 'string' || id === ''))) {
+        delete bot.agentPresetDefaultPending
+        migrated = true
+      }
       // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.
       if (bot.computer !== undefined && (bot.computer === null || typeof bot.computer !== 'object' || Array.isArray(bot.computer))) delete bot.computer
       else if (bot.computer !== undefined && (bot.computer.apps === null || typeof bot.computer.apps !== 'object' || Array.isArray(bot.computer.apps))) delete bot.computer.apps

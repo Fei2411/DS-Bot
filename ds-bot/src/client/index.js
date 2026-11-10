@@ -33,6 +33,7 @@ import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
 import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
+import { AGENT_PRESET_CSS } from './agent-preset-menu.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
 import { AGENT_CARDS_CSS } from './agent-cards.js'
 import { AVATAR_LIBRARY_CSS } from './avatar-library.js'
@@ -1045,6 +1046,7 @@ export function apply(ctx) {
     [SIDEBAR_CSS, 'sidebar'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
+    [AGENT_PRESET_CSS, 'agent-presets'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
     [SCHEDULE_CSS, 'schedules'],

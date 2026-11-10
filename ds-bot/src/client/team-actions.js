@@ -104,6 +104,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     // Give up one wait the Bot has on a hand-off that will not come back.
     abandonWork: id => after(call('abandon-work', { id })),
     refreshModels: () => after(call('models')).catch(() => {}),
+    // The Agent presets of the profile: the directory the Agent preset picker shows.
+    presets: () => call('presets'),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
     agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),

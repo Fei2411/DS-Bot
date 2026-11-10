@@ -48,6 +48,7 @@
 | [记忆的四种读法](2026-11-09-memory-layers.md) | 常驻、增量、自动召回、按需；额度、团队常驻层、定期整理、群的持久日志 |
 | [记忆撤销与更改记录](2026-11-01-memory-restore.md) | 记忆窗口「更改记录」列出 `journal.jsonl` 的改动；按记录 id 对单条添加、修改或删除做逆操作撤销 |
 | [Bot 运行配置](2026-10-10-bot-runtime.md) | Agent 预设、每个 Bot 的模型和思考强度、新 Bot 默认模型、工作文件夹、能力（MCP、技能、能力包） |
+| [每个 Bot 的 Agent 预设](2026-11-06-bot-presets.md) | `bot.agentPreset`：默认跟着目录走（可用的 standard，否则 DSH 的默认），用户可给 Bot 显式换兼容的预设；失效即报错不静默回落；换预设后空闲换段生效，没成就在下一轮补；预设不解除 Bot 的 guard 和角色限制 |
 | [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 本地 agent CLI 作为 Bot 的运行方式（英文文档）：运行方式的选择和切换、会话映射、工具桥、审批、记忆、会话管理与徽标 |
 | [头像库](2026-10-23-avatar-library.md) | 可复用的自定义头像库（`bot/avatars/`，按内容去重）与单张容错的批量导入 |
 | [AGENTS.md 维护](2026-10-27-agents-md-upkeep.md) | 从项目工作中审阅持久规则；用户批准后才原子写入 |

@@ -16,8 +16,9 @@
 
 ### Agent 预设
 
-- 只有一个 Bot 预设：DS Bot 的 Bot 内核加 DSH 的标准 harness（`standard`），不改造。
-- 这个预设归 DS Bot 所有：新建的 Bot 会话、群会话和对话分段都显式用 `standard`，**不跟随**用户在 DSH 里设的「新任务默认」。DSH 里没有可用的 `standard` 时，才交给 DSH 决定。
+- 默认的 Bot 预设仍是 DS Bot 的 Bot 内核加 DSH 的标准 harness（`standard`），不改造；用户也可以给某个 Bot 显式换用 profile 里的另一个**兼容**预设（#1039）。
+- 默认预设归 DS Bot 所有：没有显式选择时，新建的 Bot 会话、群会话和对话分段都显式用 `standard`，**不跟随**用户在 DSH 里设的「新任务默认」。DSH 里没有可用的 `standard` 时，才交给 DSH 决定——用注册表自己的默认 id，那个默认也要过兼容检查，已知但不兼容就让新会话建不起来并报错。
+- 用户也可以给一个 Bot 显式换用 profile 提供的另一个预设，选择存在这个 Bot 上（`bot.agentPreset`）。失效的预设是看得见的错误，不静默回落；换预设后私聊和它在群里的成员会话在各自空闲时换段生效，换段没成就在下一轮开始前补上。完整设计见 [每个 Bot 的 Agent 预设](2026-11-06-bot-presets.md)（#1039）。
 - Bot 的工具只挂在 Bot 的作用域里，不出现在普通 DSH 会话中。
 - Bot 的私聊和群会话里拿掉三类 DSH 工具，以及 DSH 为它们写进系统提示的用法说明：提问工具 `ask_user_question`（Bot 用自己的 `ask_user`）；goal 工具（Bot 不跑 goal）；委派工具（`subagent`、`subagent_fork`、`workflow` 等）、子代理控制工具（`send_message`、`interrupt_agent`、`list_agents`）和 Agent Teams 的队友工具（`spawn_teammate`、`wait_agent`、`team_task_*`，连同它的 `team:policy` 说明）。DSH 注册在 Agent 自身作用域里的工具（`subagent` 和 Agent Teams 的工具）拿不掉：DSH 0.2.2 起仍会出现在工具列表里，只靠拒绝挡住调用。万一仍有调用进来，会被拒绝，并提示 Bot 自己做，或把活交给别的 Bot。不是 Bot 的 DSH 会话照旧。
 - 要并行，就让几个 Bot 同时干：`message_bot` 派活，群里 `@` 点名（见 [Bot 之间派活](2026-10-16-bot-handoffs.md)、[群聊](2026-10-07-group-chat.md)）。Bot 不派 DSH 子代理：子代理跑起来用户看不到、停不到，换段时会被连带取消，结论丢失（#463、#788）。
@@ -88,3 +89,4 @@
 - 2026-10-30：`create_bot` 和 `update_bot` 已经能设思考强度，删掉「只能在界面上设」这条过时的限制（#99）。
 - 2026-11-01：Bot 不再派 DSH 子代理：委派工具和子代理控制工具不出现在 Bot 会话里，goal、workflow 的用法说明也从 Bot 的系统提示里去掉（#798）。
 - 2026-11-02：设置 → 通用里可以给新 Bot 指定团队默认模型，建 Bot 表单和未指定模型的 `create_bot` 优先用它（#227，PR #823）。
+- 2026-11-06：每个 Bot 可以显式换一个兼容的 Agent 预设，默认跟着目录走（可用的 standard，否则 DSH 的默认）；详见 [每个 Bot 的 Agent 预设](2026-11-06-bot-presets.md)（#1039）。

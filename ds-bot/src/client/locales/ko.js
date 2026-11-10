@@ -1,6 +1,23 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Agent preset': 'Agent 프리셋',
+  'Agent preset: {preset}': 'Agent 프리셋: {preset}',
+  'Default (Standard)': '기본값 (표준)',
+  'Default (DSH default)': '기본값 (DSH 기본값)',
+  'The standard agent preset': '표준 Agent 프리셋',
+  'The default for new tasks in DeepSeek Harness.': 'DeepSeek Harness의 새 작업에 사용하는 기본 프리셋입니다.',
+  'Missing preset': '프리셋을 찾을 수 없음',
+  'This preset cannot start.': '이 프리셋을 시작할 수 없습니다.',
+  'This preset cannot start. Pick another one.': '이 프리셋을 시작할 수 없습니다. 다른 프리셋을 선택하세요.',
+  'This preset cannot start ({reason}). Pick another one.': '이 프리셋을 시작할 수 없습니다 ({reason}). 다른 프리셋을 선택하세요.',
+  'This preset is not in the profile anymore. Pick another one.': '이 프리셋은 현재 프로필에 없습니다. 다른 프리셋을 선택하세요.',
+  'The preset list could not be loaded.': '프리셋 목록을 불러올 수 없습니다.',
+  'DS Bot needs the Bot\'s own prompt, which this preset replaces': '이 프리셋은 DS Bot에 필요한 Bot 고유의 프롬프트를 대체합니다.',
+  'DS Bot could not verify that it keeps the Bot\'s own prompt': 'Bot 고유의 프롬프트가 유지되는지 확인할 수 없습니다.',
+  'Applies from the next conversation segment.': '다음 대화 구간부터 적용됩니다.',
+  'The Bot runs on the default agent preset.': 'Bot은 기본 Agent 프리셋으로 실행됩니다.',
+  'The Bot runs on the {name} agent preset.': 'Bot은 {name} Agent 프리셋으로 실행됩니다.',
   // Shared
   'Main Bot': '메인 Bot',
   Working: '작업 중',
@@ -1588,6 +1605,9 @@ export const KO = {
 }
 
 export const HOST_ERRORS_KO = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^Only the user can choose the agent preset of (.+)$/, '$1의 Agent 프리셋은 사용자만 선택할 수 있습니다'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, '메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요.'],
   [/^Model (.+) is not available\. Available: (.*)$/, '모델 $1을(를) 사용할 수 없습니다. 사용 가능: $2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, '$1의 API 키는 DS Bot 외부에서 설정되어 여기서 변경할 수 없습니다'],

@@ -63,7 +63,7 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => ({
+    bots: Object.values(state.bots).map(({ segments, kickoff, agentPresetDefault, agentPresetDefaultPending, ...bot }) => ({
       ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
       // `engine` is the Bot's local-agent route, present only on abots.
       ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
@@ -155,7 +155,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models'])
+  const READS = new Set(['state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -238,6 +238,11 @@ export function install(rt) {
         case 'models':
           await rt.catalog({ fresh: true })
           return ok({ modelsKey: modelsKey() })
+        // The Agent presets this profile serves, for the Bot settings picker. A broken
+        // one stays listed with its reason, and so does one whose composition would
+        // replace the Bot's own prompt, so the picker shows it as unusable.
+        case 'presets':
+          return ok({ presets: await rt.agentPresetRows({ fit: true }) })
         case 'efforts':
           return ok(await rt.reasoningOf(String(body.ref ?? '')) ?? { efforts: [] })
         // A Turn's exact thinking time, from the timed stream in its events; `ms`
@@ -323,7 +328,7 @@ export function install(rt) {
         }
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, agentPreset: body.agentPreset, section: body.section, sectionId: body.sectionId })
           return ok(bot)
         }
         case 'update-bot':

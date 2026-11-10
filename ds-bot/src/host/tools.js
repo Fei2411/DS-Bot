@@ -351,7 +351,7 @@ export function install(rt) {
         const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true && rt.isLocalAgentRef?.(entry.ref) !== true).map(entry => entry.ref))
         const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
         const model = args.model || fallback
-        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, section: args.section, createdBy: creator?.id })
+        const bot = await rt.createBot({ name: args.name, role: args.role, instructions: args.instructions, brief: args.brief, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, section: args.section, createdBy: creator?.id })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`
