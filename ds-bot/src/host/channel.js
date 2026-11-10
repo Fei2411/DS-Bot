@@ -158,7 +158,9 @@ export function install(rt) {
   // Updates change the dsh profile, not the team, so a reading host may run them too.
   const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models'])
 
-  async function setPrefs(body) {
+  const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
+
+  async function setPrefs(body, requests) {
     let approvalModel
     if (body.approvalModel !== undefined) {
       const ref = body.approvalModel
@@ -201,10 +203,12 @@ export function install(rt) {
       const ref = body.defaultBotModel
       if (rt.isLocalAgentRef?.(ref) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
       const model = ref === null || ref === '' ? undefined : await rt.resolveModel(ref)
-      // Resolution may yield while new reviews start on the old default.
-      if (!state.prefs.approvalModel) rt.cancelApprovalReviews?.({})
-      if (model) state.prefs.defaultBotModel = model
-      else delete state.prefs.defaultBotModel
+      if (requests.defaultBotModel === modelRequests.defaultBotModel) {
+        // Resolution may yield while new reviews start on the old default.
+        if (!state.prefs.approvalModel) rt.cancelApprovalReviews?.({})
+        if (model) state.prefs.defaultBotModel = model
+        else delete state.prefs.defaultBotModel
+      }
     }
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
@@ -225,7 +229,7 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
-    if (body.approvalModel !== undefined) {
+    if (body.approvalModel !== undefined && requests.approvalModel === modelRequests.approvalModel) {
       rt.cancelApprovalReviews?.({})
       if (approvalModel) state.prefs.approvalModel = approvalModel
       else delete state.prefs.approvalModel
@@ -236,6 +240,10 @@ export function install(rt) {
   const handle = async (endpoint, payload, signal) => {
     try {
       const body = payload ?? {}
+      const requests = {}
+      if (endpoint === 'set-prefs') {
+        for (const key of Object.keys(modelRequests)) if (body[key] !== undefined) requests[key] = ++modelRequests[key]
+      }
       await rt.refresh()
       const readOnly = rt.readOnly()
       if (readOnly !== undefined && !READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
@@ -285,7 +293,7 @@ export function install(rt) {
           return ok(await rt.duplicateBot(body.id))
         case 'set-prefs':
           await rt.load()
-          await setPrefs(body)
+          await setPrefs(body, requests)
           return ok(state.prefs)
         case 'exchange': {
           await rt.load()
