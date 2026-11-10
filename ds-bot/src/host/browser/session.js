@@ -426,11 +426,20 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       }
       const messages = []
       for (const item of batch.items) messages.push(await finishDownload(item, batch.gate))
+      activeDownloads = null
       if (failure && batch.items.length > 0) {
         const snapshot = await snapshotText().catch(() => '')
         return snapshot ? `${snapshot}\n\n${messages.join('\n')}` : messages.join('\n')
       }
       if (failure) throw failure
+      if (typeof result === 'function') {
+        try {
+          result = await result()
+        } catch (error) {
+          if (messages.length === 0) throw error
+          result = String(error?.message ?? error)
+        }
+      }
       return appendDownloadResults(result, messages)
     } finally {
       if (!parent) activeDownloads = null
@@ -518,7 +527,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         await settle()
         if (target.isClosed() || crashedPages.has(target)) throw new Error('the browser page closed or crashed during the action')
         if (target.url().startsWith('chrome-error://')) throw new Error('the browser page navigated to an error page')
-        return await snapshotText()
+        return () => snapshotText().catch(error => unknownResult(action, error, target))
       } catch (error) {
         return unknownResult(action, error, target)
       } finally {
@@ -533,7 +542,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     return captureAction(async () => {
       await perform()
       await settle()
-      return snapshotText()
+      // The observation wait and download approval can change the page and refs.
+      return snapshotText
     }, { target, waitForDownload })
   }
 
@@ -789,6 +799,9 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         return answer ?? 'Script finished without done().'
       } finally {
         finished = true
+        // A helper already running in the host survives the script child.
+        // Drain it before the next call can acquire this Bot's browser.
+        await pending
       }
     },
     async close() {

@@ -36,6 +36,8 @@ async function fixture(t, options = {}) {
         count: async () => 1,
         evaluate: async () => null,
         click: async () => options.click?.(target, later),
+        fill: async () => {},
+        press: async () => options.click?.(target, later),
       }),
       close: async () => { closed = true; target.emit('close') },
     })
@@ -163,6 +165,50 @@ test('parallel script helpers return each action with its own download result', 
   assert.match(results[1], /Downloaded "report-2.csv"/)
   assert.deepEqual(await files(), ['report-1.csv', 'report-2.csv'])
 })
+
+for (const ending of ['done("finished")', 'throw new Error("script failed")']) {
+  test(`a script drains its active helper before returning from ${ending}`, async (t) => {
+    let count = 0
+    const { session, files } = await fixture(t, {
+      click: (page, later) => {
+        const incoming = download({ filename: `report-${++count}.csv` })
+        later(() => page.emit('download', incoming), 250)
+      },
+    })
+    const approvals = []
+    const script = gateScope.run(async action => { approvals.push(['script', action.label]) }, () => session.runScript(`click("e1"); ${ending}`))
+    if (ending.startsWith('throw')) await assert.rejects(script, /script failed/)
+    else assert.equal(await script, 'finished')
+    const next = await gateScope.run(async action => { approvals.push(['next', action.label]) }, () => session.click('e1'))
+    assert.match(next, /Downloaded "report-2.csv"/)
+    assert.deepEqual(approvals, [['script', 'report-1.csv'], ['next', 'report-2.csv']])
+    assert.deepEqual(await files(), ['report-1.csv', 'report-2.csv'])
+  })
+}
+
+test('a finished script does not start helpers queued behind its active helper', async (t) => {
+  let clicks = 0
+  const { session } = await fixture(t, { click: () => { clicks += 1 } })
+  await session.runScript('click("e1"); click("e1"); done("finished")')
+  assert.equal(clicks, 1)
+})
+
+for (const action of ['click', 'submit']) {
+  test(`a delayed ${action} download returns the current page snapshot`, async (t) => {
+    const incoming = download()
+    const { session } = await fixture(t, {
+      click: (page, later) => later(() => {
+        page.ariaSnapshot = async () => '- status "Export ready"'
+        page.emit('download', incoming)
+      }, 250),
+    })
+    const result = await gateScope.run(async () => {}, () => action === 'click'
+      ? session.click('e1')
+      : session.type('e1', 'report', true))
+    assert.match(result, /Export ready/)
+    assert.match(result, /Downloaded "report.csv"/)
+  })
+}
 
 test('downloads arriving during approval stay in the same action and avoid overwrites', async (t) => {
   const first = download()
