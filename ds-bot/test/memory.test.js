@@ -1151,25 +1151,20 @@ test('an auth failure is not retried: only the profile fallback is tried', async
   assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384'])
 })
 
-test('the second budget is capped by the route, and a route at the cap is not retried for room', async (t) => {
-  const capped = await start({ replies: [{ text: '', finish: 'error', failure: { message: 'bad gateway', code: 'SERVER', status: 502 } }, '## ok'], modelMaxTokens: 20_000 })
-  t.after(() => capped.stop())
-  await capped.tool('remember', { text: 'Likes tea' }, 'b2')
-  await capped.call('memory-view', { botId: 'b2', summarize: true })
-  await summarized(capped.call)
-  assert.deepEqual(capped.requests.map(request => request.maxTokens), [16384, 20000])
-
-  // A route whose own limit is 16,384 has no bigger second budget to give; a cut-off
-  // reply is reported instead of asking twice for the same room.
-  const atCap = await start({ replies: [{ text: '## half', finish: 'max-tokens' }], modelMaxTokens: 16_384 })
-  t.after(() => atCap.stop())
-  await atCap.tool('remember', { text: 'Likes tea' }, 'b2')
-  await atCap.call('memory-view', { botId: 'b2', summarize: true })
-  await summarized(atCap.call)
-  const failed = (await atCap.call('memory-view', { botId: 'b2' })).value
-  assert.equal(atCap.requests.length, 1)
-  assert.equal(atCap.requests[0].maxTokens, 16384)
-  assert.match(failed.error, /route's 16384-token output limit/)
+test('an adapter output default leaves room for a larger retry', async (t) => {
+  // pi-ai classifies the gateway's 502 as SERVER without a structured status.
+  const replies = [
+    { text: '', finish: 'error', failure: { code: 'SERVER', message: 'HTTP 502: an empty reply' } },
+    '## ok',
+  ]
+  const { tool, call, requests, stop } = start({ replies, modelMaxTokens: 8_192 })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const done = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(done.summary?.text, '## ok')
+  assert.deepEqual(requests.map(request => request.maxTokens), [8192, 16384])
 })
 
 test('a provider failure on both tries says the provider failed, not that the model thought too long', async (t) => {
@@ -1229,17 +1224,17 @@ test('a summary cut off at both budgets on the Bot\'s model is written by the de
 })
 
 test('a summary that failed on both models is tried again once the Bot has another model', async (t) => {
-  const unavailable = { text: '', finish: 'error', failure: '503 Service Unavailable' }
-  const replies = [new Error('401: Unauthorized'), unavailable, unavailable]
+  const unavailable = { text: '', finish: 'error', failure: { code: 'SERVER', status: 503, message: 'Service Unavailable' } }
+  const replies = [new Error('401: Unauthorized'), unavailable]
   const { tool, call, requests, stop } = start({ replies, models: ['v4', 'flash'], defaultModel: 'flash' })
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
   await summarized(call)
   const failed = (await call('memory-view', { botId: 'b2', summarize: true })).value
-  assert.equal(failed.error, 'deepseek/v4: 401: Unauthorized; deepseek/flash: The provider returned an error: 503 Service Unavailable')
+  assert.equal(failed.error, 'deepseek/v4: 401: Unauthorized; deepseek/flash: The provider returned an error (SERVER 503): Service Unavailable')
   assert.equal(failed.summarizing, false)
-  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384', 'deepseek/flash@32768'])
+  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384'])
 
   assert.equal((await call('update-bot', { id: 'b2', model: 'deepseek/flash' })).ok, true)
   replies.push('## Overview\nYou like tea.')
@@ -1248,7 +1243,7 @@ test('a summary that failed on both models is tried again once the Bot has anoth
   await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
-  assert.deepEqual(routes(requests).slice(3), ['deepseek/flash@16384'])
+  assert.deepEqual(routes(requests).slice(2), ['deepseek/flash@16384'])
 })
 
 test('"ask or update" falls back to the default model when the Bot\'s model fails', async (t) => {

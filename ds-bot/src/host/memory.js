@@ -64,22 +64,9 @@ const MODEL_TIMEOUT_MS = 120_000
 // A thinking model spends several thousand output tokens before its answer starts. On a
 // 13k-token context one spent a 2,048-token budget on reasoning alone and wrote nothing;
 // given 16,384 it wrote the answer. The first try gets that room, the retry gets more,
-// and the route's own output limit caps both.
+// unless the adapter's default starts lower.
 const SUMMARY_MAX_TOKENS = 16_384
 const SUMMARY_RETRY_MAX_TOKENS = 32_768
-// DSH's own list of provider failures a retry can clear: an empty reply behind a
-// gateway, a rate limit, a server error, a timeout, a transport error. AUTH, quota, an
-// invalid request, a missing route or a 404 will answer the same way every time.
-const RETRYABLE_CODES = new Set(['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'])
-const retryableStatus = status => status === 408 || status === 409 || status === 425 || status === 429 || status >= 500
-function retryableFailure(failure) {
-  if (typeof failure?.code === 'string' && failure.code !== '') return RETRYABLE_CODES.has(failure.code)
-  if (Number.isInteger(failure?.status)) return retryableStatus(failure.status)
-  // Older adapters carry only a message that may start with the HTTP status; one with
-  // neither is tried once, because adapters normally classify the permanent failures.
-  const status = /^(\d{3})\b/.exec(String(failure?.message ?? ''))?.[1]
-  return status === undefined || retryableStatus(Number(status))
-}
 function providerFailure(failure) {
   const label = [failure?.code, failure?.status].filter(part => part !== undefined && part !== '').join(' ')
   return new Error(`The provider returned an error${label === '' ? '' : ` (${label})`}: ${failure?.message ?? 'no message'}`)
@@ -1260,12 +1247,11 @@ export function install(rt) {
     // Thinking counts against the same output budget as the answer, so ask for
     // the least the model offers: 'off' when it has one, else its lowest level.
     const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
-    // The route's own output limit wins: asking for more than it allows is pointless.
-    const cap = Number.isInteger(info?.defaultMaxTokens) && info.defaultMaxTokens > 0 ? info.defaultMaxTokens : undefined
-    const first = cap === undefined ? SUMMARY_MAX_TOKENS : Math.min(SUMMARY_MAX_TOKENS, cap)
-    const retry = cap === undefined ? SUMMARY_RETRY_MAX_TOKENS : Math.min(SUMMARY_RETRY_MAX_TOKENS, cap)
-    // A retry only makes sense with more room; at a route's cap there is none to give.
-    const budgets = retry > first ? [first, retry] : [first]
+    // The adapter's default guides the first request. An explicit retry budget
+    // can exceed that default when a thinking model ran out of room.
+    const first = Math.min(info?.defaultMaxTokens ?? SUMMARY_MAX_TOKENS, SUMMARY_MAX_TOKENS)
+    const retry = first < SUMMARY_MAX_TOKENS ? SUMMARY_MAX_TOKENS : SUMMARY_RETRY_MAX_TOKENS
+    const budgets = [first, retry]
     const messages = [{ role: 'user', content: [{ type: 'text', text }] }]
     if (tag !== undefined) rt.tagUsage?.(messages, tag)
     let lastKind = 'stop'
@@ -1286,19 +1272,20 @@ export function install(rt) {
       // A cancelled call is the caller's decision, not a route that may answer again.
       if (finish.kind === 'aborted') throw new Error(finish.failure?.message ?? 'aborted')
       if (finish.kind === 'error') {
-        // A gateway turns an empty reply into an HTTP error (502 in the reported case),
-        // so a retry must happen here too, not only on max-tokens. Auth, quota, an
-        // invalid request and a 404 are not worth another request.
-        if (attempt === budgets.length - 1 || !retryableFailure(finish.failure)) throw providerFailure(finish.failure)
+        const failure = finish.failure
+        // A gateway can report empty output as 502. The pi-ai adapter
+        // classifies 5xx as SERVER without preserving the HTTP status.
+        const mayBeEmpty = failure?.code === 'EMPTY_RESPONSE' || failure?.status === 502
+          || (failure?.code === 'SERVER' && failure.status === undefined)
+        if (attempt !== 0 || !mayBeEmpty) throw providerFailure(failure)
         continue
       }
       const reply = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
       if (finish.kind !== 'max-tokens' && reply !== '') return reply
-      // A cut-off or empty reply is dropped, never used; the next attempt, when the
-      // route allows more room, is the retry.
+      // Drop the incomplete reply and try once with more output room.
       lastKind = finish.kind
     }
-    const where = budgets.length === 1 ? `the route's ${budgets[0]}-token output limit` : `${budgets.join(' and ')} output tokens`
+    const where = `${budgets.join(' and ')} output tokens`
     throw new Error(lastKind === 'max-tokens'
       ? `The model's answer was cut off at ${where}; no complete answer was written`
       : `The model wrote nothing within ${where}; no complete answer was written`)
