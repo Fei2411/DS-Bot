@@ -203,7 +203,12 @@ function createApp({ roster, sessions, unread = {}, status = new Map(), activity
   return { render, calls, actions, props }
 }
 
-const rows = tree => collect(tree).filter(node => node.props?.['data-bot-id'] || node.props?.['data-room-id'] || node.props?.['data-agent-id'])
+// The Main Bot's tile rides the top row, not the list: its slot is left out here so a
+// test's row ids stay the rows of the list itself.
+const rows = (tree) => {
+  const inSlot = new Set(byClass(tree, 'bt-main-slot').flatMap(slot => collect(slot)))
+  return collect(tree).filter(node => !inSlot.has(node) && (node.props?.['data-bot-id'] || node.props?.['data-room-id'] || node.props?.['data-agent-id']))
+}
 const rowIds = tree => rows(tree).map(node => node.props['data-bot-id'] ?? node.props['data-room-id'] ?? node.props['data-agent-id'])
 
 // ---------------------------------------------------------------------------
@@ -261,11 +266,14 @@ test('B: card, title, search, segments, group heads and rows carry the specified
   assert.match(panel, /box-shadow:none/)
   // With the card gone, the round buttons inside need a fill of their own.
   assert.match(rule('.bt-leftcol:not([data-left=rail]) .bt-round'), /background:color-mix\(in srgb,var\(--bt-page/)
+  // The search is bare words on the page: no field, and focus only lifts a faint fill.
   const search = rule('.bt-search')
   assert.match(search, /height:36px/)
   assert.match(search, /border-radius:10px/)
-  assert.match(search, /background:var\(--bt-field/)
+  assert.match(search, /background:transparent/)
   assert.doesNotMatch(search, /(^|;)border:/)
+  assert.match(rule('.bt-search:focus-within'), /background:color-mix\(in srgb,var\(--bt-field/)
+  assert.doesNotMatch(SIDEBAR_CSS, /\.bt-search:focus-within\{[^}]*box-shadow/)
   assert.match(rule('.bt-search-ico svg'), /width:14px/)
   assert.match(rule('.bt-seg'), /border-radius:10px/)
   assert.match(rule('.bt-seg-btn'), /height:32px/)
@@ -384,21 +392,27 @@ test('C2: the segments flatten the list, hide group heads and keep the Agent to 
   assert.ok(rowIds(tree).includes('dsh'), 'All carries the DSH Agent')
 })
 
-test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
+test('C1b: the Main Bot rides the top row and never shows twice', () => {
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions, unread: { main: true } })
   let tree = app.render()
-  const pin = byClass(tree, 'bt-main-pin')
-  assert.equal(pin.length, 1, 'the pin slot is drawn')
-  assert.deepEqual(collect(pin[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
+  const slot = byClass(tree, 'bt-main-slot')
+  assert.equal(slot.length, 1, 'the tile slot is drawn')
+  assert.deepEqual(collect(slot[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
   assert.ok(!collect(byClass(tree, 'bt-list')[0]).some(node => node.props?.['data-bot-id'] === 'main'), 'the Main Bot is out of the scroll box')
-  assert.equal(byClass(tree, 'bt-main-pin-sep').length, 1)
-  // The slot sits between the new-Bot buttons and the search field.
+  // The slot above the list and its rule are gone.
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'no slot above the list')
+  assert.equal(byClass(tree, 'bt-main-pin-sep').length, 0, 'no rule under the slot')
+  // The tile ends the top row, and the search field follows that row.
+  const top = byClass(tree, 'bt-side-top')[0]
+  assert.equal(byClass(top, 'bt-main-slot').length, 1, 'the tile sits inside the top row')
+  const topKids = (top.props.children ?? []).filter(Boolean)
+  assert.ok(hasClass(topKids[topKids.length - 1], 'bt-main-slot'), 'the tile ends the row')
   const slotOrder = collect(byClass(tree, 'bt-side')[0])
-    .filter(node => node.props?.className === 'bt-side-top' || hasClass(node, 'bt-main-pin') || hasClass(node, 'bt-search'))
+    .filter(node => node.props?.className === 'bt-side-top' || hasClass(node, 'bt-search'))
     .map(node => node.props.className)
-  assert.deepEqual(slotOrder, ['bt-side-top', 'bt-main-pin', 'bt-search'])
-  // The slot is a stood-up tile: a 72px mark above a 16px name, and no time or preview.
+  assert.deepEqual(slotOrder, ['bt-side-top', 'bt-search'])
+  // The slot is a stood-up tile: a 72px mark beside a 16px name, and no time or preview.
   const tile = byClass(tree, 'bt-main-tile')
   assert.equal(tile.length, 1, 'the pin draws the tile')
   assert.equal(textOf(byClass(tree, 'bt-main-tile-name')[0]), 'Mist')
@@ -414,14 +428,15 @@ test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
 
   byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: 'Mist' } })
   tree = app.render()
-  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'search hides the pin')
+  assert.deepEqual(byClass(tree, 'bt-main-slot').map(node => node.props['data-hidden']), ['true'], 'search hides the tile but keeps its room')
   assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the search result is the only one')
 
   byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: '' } })
   tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-slot')[0].props['data-hidden'], undefined, 'a cleared search shows the tile again')
   byClass(tree, 'bt-seg-btn').find(node => textOf(node) === 'Bots').props.onClick()
   tree = app.render()
-  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'a filter hides the pin too')
+  assert.deepEqual(byClass(tree, 'bt-main-slot').map(node => node.props['data-hidden']), ['true'], 'a filter hides the tile too')
   assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'and the filtered row still reaches it')
 })
 
@@ -429,17 +444,18 @@ test('C1b: the pin stays on the Main Bot while another Bot chat is open', () => 
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions, retained: 's-designer' })
   const tree = app.render()
-  assert.deepEqual(collect(byClass(tree, 'bt-main-pin')[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
+  assert.deepEqual(collect(byClass(tree, 'bt-main-slot')[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
   const open = rows(tree).filter(node => node.props['aria-current'] === 'page').map(node => node.props['data-bot-id'])
   assert.deepEqual(open, ['designer'], 'the open Bot is the one marked current')
 })
 
-test('C1b: the rail shows the Main Bot once and has no pin slot', () => {
+test('C1b: the rail shows the Main Bot once and has no tile slot', () => {
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions })
   viewport.innerWidth = 390
   const tree = app.render()
-  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'no slot on the rail')
+  assert.equal(byClass(tree, 'bt-main-slot').length, 0, 'no tile slot on the rail')
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'no slot above the list')
   assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the Main Bot is in the rail list exactly once')
 })
 
@@ -459,6 +475,13 @@ test('C1b: the Main Bot tile is unfilled in every state and its badge is a crown
   assert.match(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-name\{[^}]*font-weight:600/)
   assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main\{[^}]*border-radius:50%[^}]*background:var\(--bt-star\)[^}]*box-shadow:0 0 0 2px var\(--bt-main\)/)
   assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main path\{fill:var\(--bt-crown-ink\)/)
+  // The tile rides the top row: no slot of its own above the list and no rule under it.
+  assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*min-height:72px/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-pin\{/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-pin-sep\{/)
+  assert.match(SHELL_CSS, /\.bt-main-slot\[data-hidden=true\]\{visibility:hidden\}/)
+  // With the list rows now sitting on the page, their dot's ring follows the page too.
+  assert.match(SHELL_CSS, /^\.bt-dot\{[^}]*box-shadow:0 0 0 1\.5px var\(--bt-main\)/m)
 
   // Only the tile wears the crown: the same Bot's rail row keeps the star.
   const { roster, sessions } = fixtures()

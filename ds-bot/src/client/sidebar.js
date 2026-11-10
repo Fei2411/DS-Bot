@@ -112,17 +112,17 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
-  // The pinned slot stands the Main Bot up: avatar over its name, with the unread dot
-  // on the avatar where the row's "New" badge would otherwise sit.
+  // The pinned slot stands the Main Bot up on the top row: its name beside a 72px mark,
+  // with the unread dot on the mark where the row's "New" badge would otherwise sit.
   if (pin) {
     return h('button', {
       type: 'button', className: 'bt-main-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, onClick: () => actions.openSession(id), onContextMenu,
     },
+    h('span', { className: 'bt-main-tile-name' }, bot.name),
     h('span', { className: 'bt-main-tile-ava' },
       h(BotAvatar, { bot, size: 72, state, main, crown: true }),
-      !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
-    h('span', { className: 'bt-main-tile-name' }, bot.name))
+      !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null))
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
@@ -880,8 +880,16 @@ export function TeamSidebar(props) {
     h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create new Bot'), title: t('Create new Bot'), onClick: newChat('create') }, h(PersonIcon)),
     h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create group chat'), title: t('Create group chat'), onClick: newChat('group') }, h(PeopleIcon, { size: 17, strokeWidth: 1.6 })),
   ]
+  // The Main Bot rides the top row at the far right. Search and the filters hide it —
+  // the slot keeps its size so the row does not jump when a query starts.
   const top = wideContent
-    ? h('div', { className: 'bt-side-top' }, ...newButtons, h(UpdateButton, { useUpdate: props.useUpdate, actions }))
+    ? h('div', { className: 'bt-side-top' },
+        ...newButtons,
+        h(UpdateButton, { useUpdate: props.useUpdate, actions }),
+        main
+          ? h('div', { className: 'bt-main-slot', 'data-hidden': searching ? 'true' : undefined },
+              h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true }))
+          : null)
     : h('div', { className: 'bt-rail-top' },
         ...newButtons,
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
@@ -946,20 +954,12 @@ export function TeamSidebar(props) {
         fixedGroup(t('Groups'), ungrouped.filter(entry => entry.kind === 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
         fixedGroup(t('Recent'), ungrouped.filter(entry => entry.kind !== 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
       ]
-  // The Main Bot sits in a fixed slot above the scroll box, so it stays put while
-  // the list moves. Search and the filters hide it, or a match would show twice.
-  const mainPin = wideContent && !searching && main
-    ? h(Fragment, { key: 'main-pin' },
-        h('div', { className: 'bt-main-pin' }, h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })),
-        h('div', { className: 'bt-main-pin-sep', 'aria-hidden': true }))
-    : null
   // The foot stands in for the shell's hidden footer: just the account avatar.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
-    mainPin,
     filters,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', {
@@ -1521,8 +1521,10 @@ export const SIDEBAR_CSS = `
 /* A step off the page in either mode, so the buttons stay visible on the flat inbox. */
 .bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
 .bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
-.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:box-shadow .12s ease}
-.bt-search:focus-within{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 45%,transparent)}
+/* No field and no focus ring: the words sit on the page itself, and focus only
+   raises a faint fill. The box stays for its height and its hit area. */
+.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:background-color .12s ease}
+.bt-search:focus-within{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)) 55%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
 .bt-search-ico svg{width:14px;height:14px}
 .bt-search-in{flex:1;min-width:0;height:100%;padding:0;border:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none;appearance:none}

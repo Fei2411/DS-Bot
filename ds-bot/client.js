@@ -3242,7 +3242,9 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
+/* The top row carries the two round buttons and, at its right, the Main Bot tile.
+   18px plus the column's 2px gap puts 20px between this row and the search field. */
+.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-height:72px;padding:6px 0 0 0;margin-bottom:18px}
 .bt-side-top .bt-update{margin-left:auto}
 .bt-side-top .bt-round:not(.bt-update) svg,.bt-rail-top .bt-round:not(.bt-update) svg{width:17px;height:17px;stroke-width:1.6}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
@@ -3256,20 +3258,20 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-track{background:transparent}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
-/* The Main Bot is pinned above the scroll box, so paging the list never carries it away. */
-.bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
-/* The tile stands the Main Bot up on the page itself: a large mark with its name
-   and no plate, ring or block in any state. The open chat is told by the name. */
-.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:12px 6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
+/* The Main Bot is pinned to the top row, so scrolling the list never carries it away. */
+.bt-main-slot{display:flex;flex:none;min-width:0}
+.bt-main-slot[data-hidden=true]{visibility:hidden}
+/* The tile stands the Main Bot up on the page itself: its name beside a large mark,
+   with no plate, ring or block in any state. The open chat is told by the name. */
+.bt-main-tile{display:flex;align-items:center;gap:10px;min-height:72px;padding:0;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;flex:none;min-width:0}
 .bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
 .bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:transparent;transition:filter .12s ease}
 .bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
 .bt-main-tile .bt-badge-main svg{width:10px;height:10px;overflow:visible}
 .bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
 .bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
-.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
+.bt-main-tile-name{max-width:180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
 .bt-main-tile[aria-current=page] .bt-main-tile-name{font-weight:600;color:var(--bt-ink)}
-.bt-main-pin-sep{flex:none;height:1px;margin:6px 8px 2px;background:var(--bt-line)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:hover{background:var(--bt-hover)}
@@ -3330,7 +3332,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
-.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-dot-wait{background:var(--bt-star)}
 .bt-side-foot{display:flex;padding-top:8px}
 
@@ -15442,13 +15444,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
         onClick: () => actions.openSession(id),
         onContextMenu
       },
+      (0, import_react34.createElement)("span", { className: "bt-main-tile-name" }, bot.name),
       (0, import_react34.createElement)(
         "span",
         { className: "bt-main-tile-ava" },
         (0, import_react34.createElement)(BotAvatar, { bot, size: 72, state, main, crown: true }),
         !active && (alert || unread) ? (0, import_react34.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
-      ),
-      (0, import_react34.createElement)("span", { className: "bt-main-tile-name" }, bot.name)
+      )
     );
   }
   return (0, import_react34.createElement)(
@@ -16282,7 +16284,17 @@ function TeamSidebar(props) {
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create new Bot"), title: t("Create new Bot"), onClick: newChat("create") }, (0, import_react34.createElement)(PersonIcon)),
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create group chat"), title: t("Create group chat"), onClick: newChat("group") }, (0, import_react34.createElement)(PeopleIcon, { size: 17, strokeWidth: 1.6 }))
   ];
-  const top = wideContent ? (0, import_react34.createElement)("div", { className: "bt-side-top" }, ...newButtons, (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions })) : (0, import_react34.createElement)(
+  const top = wideContent ? (0, import_react34.createElement)(
+    "div",
+    { className: "bt-side-top" },
+    ...newButtons,
+    (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
+    main ? (0, import_react34.createElement)(
+      "div",
+      { className: "bt-main-slot", "data-hidden": searching ? "true" : void 0 },
+      (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })
+    ) : null
+  ) : (0, import_react34.createElement)(
     "div",
     { className: "bt-rail-top" },
     ...newButtons,
@@ -16356,18 +16368,11 @@ function TeamSidebar(props) {
     fixedGroup(t("Groups"), ungrouped.filter((entry) => entry.kind === "room" && !entry.item.hidden), rowProps, markedUnread, onDragStart),
     fixedGroup(t("Recent"), ungrouped.filter((entry) => entry.kind !== "room" && !entry.item.hidden), rowProps, markedUnread, onDragStart)
   ];
-  const mainPin = wideContent && !searching && main ? (0, import_react34.createElement)(
-    import_react34.Fragment,
-    { key: "main-pin" },
-    (0, import_react34.createElement)("div", { className: "bt-main-pin" }, (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })),
-    (0, import_react34.createElement)("div", { className: "bt-main-pin-sep", "aria-hidden": true })
-  ) : null;
   const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, onNewSection: createNewSection })) : (0, import_react34.createElement)("div", { className: "bt-leftcol-foot bt-leftcol-foot-rail" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }));
   const content = (0, import_react34.createElement)(
     "div",
     { className: wideContent ? "bt-side" : "bt-side bt-rail", onKeyDown: typeToSearch },
     top,
-    mainPin,
     filters,
     wideContent && roster.readOnly ? (0, import_react34.createElement)("div", { className: "bt-hint bt-read-only", role: "status" }, hostText(roster.readOnly)) : null,
     (0, import_react34.createElement)("div", {
@@ -16955,8 +16960,10 @@ var SIDEBAR_CSS = `
 /* A step off the page in either mode, so the buttons stay visible on the flat inbox. */
 .bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
 .bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
-.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:box-shadow .12s ease}
-.bt-search:focus-within{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 45%,transparent)}
+/* No field and no focus ring: the words sit on the page itself, and focus only
+   raises a faint fill. The box stays for its height and its hit area. */
+.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:background-color .12s ease}
+.bt-search:focus-within{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)) 55%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
 .bt-search-ico svg{width:14px;height:14px}
 .bt-search-in{flex:1;min-width:0;height:100%;padding:0;border:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none;appearance:none}

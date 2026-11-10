@@ -118,7 +118,9 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
+/* The top row carries the two round buttons and, at its right, the Main Bot tile.
+   18px plus the column's 2px gap puts 20px between this row and the search field. */
+.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-height:72px;padding:6px 0 0 0;margin-bottom:18px}
 .bt-side-top .bt-update{margin-left:auto}
 .bt-side-top .bt-round:not(.bt-update) svg,.bt-rail-top .bt-round:not(.bt-update) svg{width:17px;height:17px;stroke-width:1.6}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
@@ -132,20 +134,20 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-track{background:transparent}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
-/* The Main Bot is pinned above the scroll box, so paging the list never carries it away. */
-.bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
-/* The tile stands the Main Bot up on the page itself: a large mark with its name
-   and no plate, ring or block in any state. The open chat is told by the name. */
-.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:12px 6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
+/* The Main Bot is pinned to the top row, so scrolling the list never carries it away. */
+.bt-main-slot{display:flex;flex:none;min-width:0}
+.bt-main-slot[data-hidden=true]{visibility:hidden}
+/* The tile stands the Main Bot up on the page itself: its name beside a large mark,
+   with no plate, ring or block in any state. The open chat is told by the name. */
+.bt-main-tile{display:flex;align-items:center;gap:10px;min-height:72px;padding:0;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;flex:none;min-width:0}
 .bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
 .bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:transparent;transition:filter .12s ease}
 .bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
 .bt-main-tile .bt-badge-main svg{width:10px;height:10px;overflow:visible}
 .bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
 .bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
-.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
+.bt-main-tile-name{max-width:180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
 .bt-main-tile[aria-current=page] .bt-main-tile-name{font-weight:600;color:var(--bt-ink)}
-.bt-main-pin-sep{flex:none;height:1px;margin:6px 8px 2px;background:var(--bt-line)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:hover{background:var(--bt-hover)}
@@ -206,7 +208,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
-.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-dot-wait{background:var(--bt-star)}
 .bt-side-foot{display:flex;padding-top:8px}
 
