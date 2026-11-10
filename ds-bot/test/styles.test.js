@@ -190,3 +190,10 @@ test('the flat toolbar does not cover reactions below the message', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
   assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
 })
+
+test('a host nav rule cannot squeeze the settings navigation', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /\.bt-settings-item\{[^}]*white-space:nowrap/)
+  assert.match(css, /@media \(min-width:641px\)\{[\s\S]*?\.bt-settings-layer>\.bt-settings>\.bt-settings-nav\{width:198px;min-width:198px;flex:0 0 198px\}/)
+  assert.match(css, /\.bt-settings-layer>\.bt-settings>\.bt-settings-nav \.bt-settings-item\{white-space:nowrap\}/)
+})
