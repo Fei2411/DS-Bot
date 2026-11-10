@@ -372,6 +372,7 @@ test('own-chat approval races DSH: IM allow resolves and withdraws the card; lat
     () => { seenSignal = undefined; return new Promise(() => {}) },
   )
   await s.flush()
+  assert.equal(s.fake.sent.length, 1, 'ordinary manual approval sends one card')
   const card = s.fake.sent.at(-1)
   assert.match(card.text, /bash/)
   assert.ok(card.buttons.some(button => button.data.endsWith(':allow')))
@@ -384,6 +385,49 @@ test('own-chat approval races DSH: IM allow resolves and withdraws the card; lat
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId}:allow`, messageId: 1 })
   assert.match(s.fake.sent.at(-1).text, /already answered/)
   void seenSignal
+})
+
+test('automatic review updates keep one IM card open until its answer', async t => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  s.rt.botOf('a').permission = 'review'
+  s.rt.state.prefs.approvalModel = 'mock/reviewer'
+  s.rt.eventsBackwards = async function* () { yield { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Create a report.' }] } } }
+  let release
+  const holding = new Promise(resolve => { release = resolve })
+  s.ctx.llm.resolveModelInfo = async () => ({})
+  s.ctx.llm.stream = async function* () {
+    await holding
+    yield { type: 'text-delta', index: 0, text: '{"decision":"manual","reason":"Ask the user."}' }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  const get = s.ctx.get
+  s.ctx.get = name => name === 'approval' ? {
+    request: async request => (await s.fireApprovals(request, () => new Promise(() => {})))[0],
+  } : get(name)
+  const manual = new Promise(resolve => s.rt.onApproval((kind, entry) => {
+    if (kind === 'updated' && entry.review?.status === 'manual') resolve()
+  }))
+  const racing = s.rt.requestActionApproval({ agent: s.agentOf('a'), toolName: 'bash', reason: 'Create report' }, { kind: 'tool', arguments: { command: 'create report' } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1)
+  assert.equal(s.fake.edited.length, 0, 'model selection updates leave the card open')
+  release()
+  await manual
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1, 'manual fallback reuses the same card')
+  assert.equal(s.fake.edited.length, 0)
+  s.rt.answerApproval(s.rt.approvalsView()[0].id, 'reject')
+  assert.equal(await racing, 'rejected')
+  await s.flush()
+  assert.equal(s.fake.edited.length, 1)
+  assert.equal(s.fake.edited[0].messageId, 1)
+  assert.equal(s.fake.edited[0].buttons, undefined)
 })
 
 test('an approval button answers its own card, not the newest one in the chat', async (t) => {

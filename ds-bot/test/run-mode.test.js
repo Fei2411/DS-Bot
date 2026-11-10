@@ -408,6 +408,53 @@ test('a fallback never crosses the line, in either direction', async (t) => {
   assert.equal(await rt.defaultBotModel(), DS)
 })
 
+for (const explicit of [false, true]) test('default model changes invalidate reviews opened during resolution; explicit reviewer=' + explicit, async t => {
+  const { rt, call } = await start(t)
+  if (explicit) rt.state.prefs.approvalModel = 'ds/flash'
+  let release
+  let started
+  const reached = new Promise(resolve => { started = resolve })
+  const holding = new Promise(resolve => { release = resolve })
+  t.after(() => release())
+  rt.resolveModel = async () => { started(); await holding; return 'ds/pro' }
+  let pendingReview = false
+  rt.cancelApprovalReviews = () => { pendingReview = false }
+  const saving = call('set-prefs', { defaultBotModel: 'ds/pro' })
+  await reached
+  pendingReview = true
+  release()
+  assert.equal((await saving).ok, true)
+  assert.equal(rt.state.prefs.defaultBotModel, 'ds/pro')
+  assert.equal(pendingReview, explicit, 'a review opened while resolution waits must follow the committed model choice')
+})
+
+for (const field of ['approvalModel', 'defaultBotModel']) for (const next of ['ds/pro', null]) for (const stage of ['refresh', 'load', 'resolveModel']) {
+  test('model saves keep the newest ' + field + '=' + next + ' while an older request waits in ' + stage, async t => {
+    const { rt, call } = await start(t)
+    let release
+    let entered
+    const reached = new Promise(resolve => { entered = resolve })
+    const holding = new Promise(resolve => { release = resolve })
+    t.after(() => release())
+    const original = rt[stage]
+    let held = false
+    rt[stage] = async (...args) => {
+      if (!held) { held = true; entered(); await holding }
+      return original(...args)
+    }
+    let cancelled = 0
+    rt.cancelApprovalReviews = () => { cancelled++ }
+    const older = call('set-prefs', { [field]: 'ds/flash' })
+    await reached
+    assert.equal((await call('set-prefs', { [field]: next })).ok, true)
+    const settledCancellations = cancelled
+    release()
+    assert.equal((await older).ok, true)
+    assert.equal(rt.state.prefs[field], next ?? undefined)
+    assert.equal(cancelled, settledCancellations, 'the obsolete selection must not invalidate reviews under the newer setting')
+  })
+}
+
 test('a CLI cannot become the team default model', async (t) => {
   const env = await start(t)
   const refused = await env.call('set-prefs', { defaultBotModel: CLI })

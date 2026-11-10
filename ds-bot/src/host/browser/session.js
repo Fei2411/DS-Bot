@@ -43,7 +43,42 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   const parsedUrl = new URL(url)
   const origin = parsedUrl.origin
   const host = parsedUrl.hostname
-  const action = (kind, label) => ({ kind, label: label || 'submit', origin, host })
+  const action = (kind, label, submitter = target) => {
+    const form = formOf(target)
+    const fields = []
+    for (const input of Array.from(form?.elements ?? [])) {
+      const type = String(input.type ?? '').toLowerCase()
+      const name = input.name || input.getAttribute?.('aria-label') || input.id || type
+      if (type === 'password' || /token|secret|password|authorization|api.?key/i.test(name)) {
+        continue
+      }
+      if (type === 'hidden') continue
+      if ((['submit', 'image', 'button', 'reset'].includes(type) && input !== submitter) || input.disabled) continue
+      if (['checkbox', 'radio'].includes(type) && !input.checked) continue
+      const value = type === 'file' ? Array.from(input.files ?? []).map(file => file.name)
+        : input.multiple && input.selectedOptions ? Array.from(input.selectedOptions).map(option => option.value)
+          : input.value
+      fields.push({ name, value })
+    }
+    const actionUrl = submitter?.hasAttribute?.('formaction') ? submitter.getAttribute('formaction') : form?.getAttribute?.('action')
+    const destination = new URL(actionUrl || url, form?.ownerDocument?.baseURI || url)
+    const method = methodOf(form, submitter)
+    const enctype = submitter?.getAttribute?.('formenctype') || form?.enctype || 'application/x-www-form-urlencoded'
+    const targetName = submitter?.getAttribute?.('formtarget') ?? form?.target ?? ''
+    destination.username = ''
+    destination.password = ''
+    destination.search = ''
+    destination.hash = ''
+    parsedUrl.username = ''
+    parsedUrl.password = ''
+    parsedUrl.search = ''
+    parsedUrl.hash = ''
+    return {
+      kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, method, enctype, target: targetName, fields,
+      // Page scripts can replace even native submissions; DOM data cannot bind their effects.
+      evidenceComplete: false,
+    }
+  }
 
   if (mode === 'click') {
     const form = formOf(target)
@@ -72,11 +107,15 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   if (mode !== 'submit') return null
   const form = formOf(target)
   if (!form) return null
-  const submitter = [...form.elements].find(isSubmitter)
+  // Enter activates a focused submit button, otherwise the first submit button
+  // owned by the form in tree order (including external and image controls).
+  const submitter = isSubmitter(target) ? target
+    : [...form.getRootNode().querySelectorAll('button, input')].find(node => formOf(node) === form && isSubmitter(node))
+  if (submitter?.matches(':disabled')) return null
   if (methodOf(form, submitter) !== 'post') return null
   const label = labelOf(submitter)
   const kind = kindOf(label)
-  return kind ? action(kind, label) : null
+  return kind ? action(kind, label, submitter) : null
 }
 
 // playwright-core ships with DS Bot and drives the desktop app's own browser; a
@@ -332,8 +371,21 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     let action
     try {
       const pageUrl = new URL(page.url())
-      const url = pageUrl.origin === 'null' ? new URL(download.url()) : pageUrl
-      action = { kind: 'download', label: filename.slice(0, 80), origin: url.origin, host: url.hostname }
+      const source = new URL(download.url())
+      const webSource = source.protocol === 'https:' || source.protocol === 'http:'
+      const evidenceComplete = webSource && !source.username && !source.password && !source.search && !source.hash
+      // Keep protected URL components and inline payloads out of model evidence.
+      source.username = ''
+      source.password = ''
+      source.search = ''
+      source.hash = ''
+      const url = pageUrl.origin === 'null' ? source : pageUrl
+      action = {
+        kind: 'download', label: filename, origin: url.origin, host: url.hostname,
+        ...(webSource ? { sourceUrl: source.href } : {}),
+        sourceOrigin: source.origin, sourceHost: source.hostname, sourceProtocol: source.protocol,
+        directory: await downloadDir(), evidenceComplete,
+      }
       await authorizeWrite(action, gate)
     } catch (error) {
       await download.cancel().catch(() => {})
@@ -343,7 +395,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
     let path
     try {
-      const directory = await downloadDir()
+      const directory = action.directory
       if (!directory) throw new Error('No download directory is configured.')
       await mkdir(directory, { recursive: true })
       path = await reserveDownloadPath(filename, directory)
@@ -445,8 +497,9 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
   }
 
-  async function performWrite(action, target, perform) {
+  async function performWrite(action, target, perform, inspectAgain) {
     await authorizeWrite(action)
+    if (inspectAgain && JSON.stringify(await inspectAgain()) !== JSON.stringify(action)) throw new Error('The action changed while approval was pending. Inspect it and ask again. Nothing was done.')
     return captureAction(async () => {
       const requests = []
       const pendingRequests = new Map()
@@ -602,7 +655,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         }
         await clearPendingDelete()
       }
-      if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }))
+      if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }), () => locator.evaluate(inspectWriteTarget, { url: target.url(), mode: 'click' }))
       return finishAction(() => locator.click({ timeout: actionTimeout }))
     },
     async type(ref, text, submit = false) {
@@ -619,7 +672,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
           const action = await focusedAction(target)
           const pressEnter = () => locator.press('Enter', { timeout: actionTimeout })
           if (action?.kind === 'payment') throw paymentError(action)
-          if (action) return performWrite(action, target, pressEnter)
+          if (action) return performWrite(action, target, pressEnter, () => focusedAction(target))
           return finishAction(pressEnter, target)
         }
         return finishAction(async () => {}, target)
@@ -641,7 +694,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       if (value.toLowerCase() === 'enter') {
         const action = await focusedAction(target)
         if (action?.kind === 'payment') throw paymentError(action)
-        if (action) return performWrite(action, target, perform)
+        if (action) return performWrite(action, target, perform, () => focusedAction(target))
       }
       return finishAction(perform, target)
     },
@@ -687,7 +740,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       const { target, locator } = await refLocator(ref)
       const url = new URL(target.url())
       const label = labels.join(', ').slice(0, 80) || 'uploaded files'
-      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname })
+      // File selection can send bytes through arbitrary page handlers.
+      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname, files, evidenceComplete: false })
       return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target)
     },
     async scroll(direction) {

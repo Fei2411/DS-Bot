@@ -208,8 +208,10 @@ test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', asyn
   schedule.tasks.set('own', { record: { id: 'own', kind: 'at', title: 'Mine', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w1' }, status: 'active' })
   schedule.tasks.set('chief', { record: { id: 'chief', kind: 'at', title: 'Chief', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'm1' }, status: 'active' })
   schedule.tasks.set('elsewhere', { record: { id: 'elsewhere', kind: 'at', title: 'New', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'new_once' }, status: 'active' })
-  const [gate] = ctx.listeners.get('tools/pre-execute')
-  const check = (name, id, sessionId) => gate({ name, arguments: { id, action: 'delete' }, agent: { id: sessionId } }, async () => ({ kind: 'allow' }))
+  const check = (name, id, sessionId) => {
+    const exec = { name, arguments: { id, action: 'delete' }, agent: { id: sessionId } }
+    return ctx.listeners.get('tools/pre-execute').reduceRight((next, gate) => () => gate(exec, next), async () => ({ kind: 'allow' }))()
+  }
   assert.deepEqual(await check('schedule_edit', 'own', 'w2'), { kind: 'allow' })
   assert.deepEqual(await check('schedule_view', 'own', 'w2'), { kind: 'allow' })
   for (const id of ['chief', 'elsewhere']) {

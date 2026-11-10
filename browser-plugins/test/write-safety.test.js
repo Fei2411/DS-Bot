@@ -40,6 +40,7 @@ function pageHtml() {
 
 async function fixtureServer() {
   const counters = { submit: 0, filter: 0, hang: 0, unlabeled: 0, upload: 0, delete: 0, deleteA: 0, deleteB: 0 }
+  const uploads = []
   const sockets = new Set()
   const server = createServer((request, response) => {
     const path = new URL(request.url ?? '/', `http://${request.headers.host}`).pathname
@@ -49,6 +50,22 @@ async function fixtureServer() {
     }
     if (path === '/') {
       html('Write safety', pageHtml())
+    } else if (path === '/upload-on-change') {
+      html('Immediate upload', `<input type="file" aria-label="Send file" onchange="fetch('/upload', {method:'POST', body:this.files[0]})">`)
+    } else if (path === '/review-form') {
+      html('Review form',
+        '<button form="review" name="audience" value="public" formaction="/submit" formmethod="post" formenctype="text/plain" formtarget="_self">Publish reviewed</button>' +
+        '<form id="review" method="get" action="/unlabeled"><input name="message" aria-label="Review message">' +
+        '<select name="recipients" multiple aria-label="Recipients"><option selected value="alice">Alice</option><option selected value="bob">Bob</option><option value="eve">Eve</option></select><button type="button" onclick="fetch(&quot;/upload&quot;, {method: &quot;POST&quot;, body: &quot;script payload&quot;})">Send scripted</button></form>' +
+        `<button type="button" onclick="document.querySelector('[form=review]').setAttribute('formaction', '/unlabeled')">Change destination</button>` +
+        `<button type="button" onclick="document.querySelector('[form=review]').setAttribute('formmethod', 'get')">Change method</button>`)
+    } else if (path === '/intercept-form') {
+      const mode = new URL(request.url, 'http://localhost').searchParams.get('mode')
+      const handler = mode === 'inline' ? ' onsubmit="replace(event)"' : ''
+      const listen = mode === 'listener' ? "document.querySelector('form').addEventListener('submit', replace)"
+        : mode === 'delegated' ? "document.addEventListener('submit', replace)" : ''
+      html('Intercepted form', '<form method="post" action="/submit"' + handler + '><input name="message" value="nominal payload"><button type="submit">Publish intercepted</button></form>' +
+        '<script>function replace(event) { event.preventDefault(); fetch("/upload", {method: "POST", body: "different payload"}) }; ' + listen + '</script>')
     } else if (path === '/submit' && request.method === 'POST') {
       counters.submit += 1
       request.resume()
@@ -60,7 +77,9 @@ async function fixtureServer() {
     } else if (path === '/upload' && request.method === 'POST') {
       counters.upload += 1
       request.resume()
-      request.on('end', () => html('Uploaded', '<p>Uploaded</p>'))
+      const chunks = []
+      request.on('data', chunk => chunks.push(chunk))
+      request.on('end', () => { uploads.push(Buffer.concat(chunks).toString()); html('Uploaded', '<p>Uploaded</p>') })
     } else if (path === '/delete' && request.method === 'POST') {
       counters.delete += 1
       const item = new URL(request.url ?? '/', `http://${request.headers.host}`).searchParams.get('item')
@@ -78,6 +97,12 @@ async function fixtureServer() {
       html('Filtered', '<p>Filtered</p>')
     } else if (path === '/link') {
       html('Link target', '<p>Link opened</p>')
+    } else if (path === '/cross-download') {
+      const external = 'http://' + request.headers.host.replace('127.0.0.1', 'localhost') + '/download'
+      html('External downloads', '<a href="' + external + '">Download external</a><a href="/download-redirect">Download redirected</a><a download="inline.txt" href="data:text/plain,inline-private-data">Download inline</a>')
+    } else if (path === '/download-redirect') {
+      response.writeHead(302, { location: 'http://' + request.headers.host.replace('127.0.0.1', 'localhost') + '/download' })
+      response.end()
     } else if (path === '/download') {
       response.writeHead(200, {
         'content-type': 'text/plain',
@@ -125,6 +150,7 @@ async function fixtureServer() {
   return {
     url,
     counters,
+    uploads,
     async close() {
       for (const socket of sockets) socket.destroy()
       await new Promise(resolve => server.close(resolve))
@@ -391,6 +417,96 @@ test('type with submit gates POST forms but not GET forms', async (t) => {
   assert.equal(actions.length, 2)
 })
 
+test('a scripted Send button inside a form requires manual approval', async t => {
+  const { fixture, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('review-form', fixture.url).href)
+  const ref = findRef(snapshot, 'Send scripted')
+  const actions = []
+  await assert.rejects(gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('manual approval required')
+  }, () => session.click(ref)), /manual approval required/)
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].kind, 'post')
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(fixture.counters.upload, 0)
+  assert.equal(fixture.counters.submit, 0)
+  await gateScope.run(() => {}, () => session.click(ref))
+  await waitFor(() => fixture.counters.upload === 1)
+  assert.equal(fixture.counters.submit, 0, 'the handler does not submit the surrounding form')
+})
+
+for (const mode of ['inline', 'listener', 'delegated']) test('native submit intercepted by ' + mode + ' script stays manual', async t => {
+  const { fixture, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('intercept-form?mode=' + mode, fixture.url).href)
+  const ref = findRef(snapshot, 'Publish intercepted')
+  const actions = []
+  await assert.rejects(gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('manual approval required')
+  }, () => session.click(ref)), /manual approval required/)
+  assert.equal(actions[0].destination, new URL('submit', fixture.url).href)
+  assert.equal(actions[0].fields.find(field => field.name === 'message').value, 'nominal payload')
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(fixture.counters.submit, 0)
+  assert.equal(fixture.counters.upload, 0)
+  await gateScope.run(() => {}, () => session.click(ref))
+  await waitFor(() => fixture.uploads.length === 1)
+  assert.deepEqual(fixture.uploads, ['different payload'])
+  assert.equal(fixture.counters.submit, 0)
+})
+
+for (const mode of ['type', 'press']) test(mode + ' Enter describes the nominal submitter and recipients for manual approval', async t => {
+  const { fixture, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('review-form', fixture.url).href)
+  const ref = findRef(snapshot, 'Review message')
+  const actions = []
+  if (mode === 'press') await session.type(ref, 'hello')
+  await gateScope.run(action => { actions.push(action) }, () => mode === 'type' ? session.type(ref, 'hello', true) : session.press('Enter'))
+  await waitFor(() => fixture.counters.submit === 1)
+  assert.equal(fixture.counters.unlabeled, 0)
+  assert.equal(actions.length, 1)
+  const action = actions[0]
+  assert.equal(action.destination, new URL('submit', fixture.url).href)
+  assert.equal(action.method, 'post')
+  assert.equal(action.enctype, 'text/plain')
+  assert.equal(action.target, '_self')
+  assert.equal(action.evidenceComplete, false)
+  assert.deepEqual(action.fields.find(field => field.name === 'recipients').value, ['alice', 'bob'])
+  assert.equal(action.fields.find(field => field.name === 'audience').value, 'public')
+})
+
+for (const change of ['recipients', 'destination', 'method']) test('pending form approval rejects changed ' + change, async t => {
+  const { fixture, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('review-form', fixture.url).href)
+  const gate = async action => {
+    assert.equal(action.evidenceComplete, false)
+    if (change === 'recipients') await session.select(findRef(snapshot, 'Recipients'), ['alice', 'eve'])
+    else {
+      await session.click(findRef(snapshot, 'Change ' + change))
+      await session.type(findRef(snapshot, 'Review message'), 'hello')
+    }
+  }
+  await assert.rejects(gateScope.run(gate, () => session.type(findRef(snapshot, 'Review message'), 'hello', true)), /action changed while approval was pending/)
+  assert.equal(fixture.counters.submit, 0)
+  assert.equal(fixture.counters.unlabeled, 0)
+})
+
+test('download execution stays in the reviewed directory when configuration changes', async t => {
+  let destination
+  const { fixture, profileRoot, session } = await setup(t, 1500, { downloadDir: async () => destination })
+  const reviewed = join(profileRoot, 'reviewed')
+  const changed = join(profileRoot, 'changed')
+  destination = reviewed
+  const result = await gateScope.run(action => {
+    assert.equal(action.directory, reviewed)
+    destination = changed
+  }, () => session.open(new URL('download', fixture.url).href))
+  assert.ok(result.includes(join(reviewed, 'report.txt')))
+  assert.equal(await readFile(join(reviewed, 'report.txt'), 'utf8'), 'download contents')
+  await assert.rejects(readdir(changed), { code: 'ENOENT' })
+})
+
 test('unknown POST results block repeats until the page is observed', { timeout: 15_000 }, async (t) => {
   const { fixture, session } = await setup(t, 300)
   const actions = []
@@ -524,6 +640,24 @@ test('uploads are confined to allowed roots and gated before setting files', asy
   assert.equal(fixture.counters.upload, 0)
 })
 
+test('upload handlers receive no files until manual approval', async t => {
+  const { fixture, profileRoot, session } = await setup(t, 1500, root => [root])
+  const file = join(profileRoot, 'private.txt')
+  await writeFile(file, 'private upload payload')
+  const snapshot = await session.open(new URL('upload-on-change', fixture.url).href)
+  const ref = findRef(snapshot, 'Send file')
+  const actions = []
+  await assert.rejects(gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('Manual upload review required')
+  }, () => session.upload(ref, [file])), /Manual upload review required/)
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(fixture.counters.upload, 0)
+  await gateScope.run(() => {}, () => session.upload(ref, [file]))
+  await waitFor(() => fixture.uploads.length === 1)
+  assert.deepEqual(fixture.uploads, ['private upload payload'])
+})
+
 test('standalone uploads without configured roots are refused', async (t) => {
   const { fixture, profileRoot, session } = await setup(t)
   const file = join(profileRoot, 'notes.txt')
@@ -571,6 +705,39 @@ test('mounted downloads and uploads fall back to the team folder', async t => {
   assert.ok(result.includes(join(team, 'report.txt')))
   assert.match(result, /report\.txt/u)
   assert.equal(await readFile(join(team, 'report.txt'), 'utf8'), 'download contents')
+})
+
+for (const label of ['Download external', 'Download redirected']) test('download evidence identifies the actual source for ' + label, async t => {
+  const { fixture, profileRoot, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('cross-download', fixture.url).href)
+  const actions = []
+  const result = await gateScope.run(action => { actions.push(action); throw new Error('Download source denied') }, () => session.click(findRef(snapshot, label)))
+  const source = new URL('download', fixture.url)
+  source.hostname = 'localhost'
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].host, '127.0.0.1', 'the initiating page remains separate')
+  assert.equal(actions[0].sourceUrl, source.href)
+  assert.equal(actions[0].sourceOrigin, source.origin)
+  assert.equal(actions[0].sourceHost, 'localhost')
+  assert.equal(actions[0].evidenceComplete, true)
+  assert.match(result, /Download source denied/)
+  assert.deepEqual(await readdir(join(profileRoot, 'downloads')).catch(() => []), [])
+})
+
+for (const mode of ['query', 'inline']) test('download evidence with ' + mode + ' data stays manual without exposing it', async t => {
+  const { fixture, profileRoot, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('cross-download', fixture.url).href)
+  const actions = []
+  const result = await gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('Manual source review required')
+  }, () => mode === 'query' ? session.open(new URL('download?token=download-private-data', fixture.url).href) : session.click(findRef(snapshot, 'Download inline')))
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(actions[0].sourceProtocol, mode === 'query' ? 'http:' : 'data:')
+  assert.doesNotMatch(JSON.stringify(actions[0]), /download-private-data|inline-private-data/)
+  assert.match(result, /Manual source review required/)
+  assert.deepEqual(await readdir(join(profileRoot, 'downloads')).catch(() => []), [])
 })
 
 test('opening a direct attachment URL saves the download instead of throwing', async (t) => {

@@ -7,6 +7,7 @@ import { Segmented } from './motion.js'
 import { FolderMenu } from './folder-menu.js'
 import { PermissionPicker } from './permission-picker.js'
 import { t } from './i18n.js'
+import { ApprovalSettings } from './approval-settings.js'
 
 export const ROOM_MODES = [
   ['admin', 'Admin leads', 'Plain messages go to the admin, who calls others with @Name.'],
@@ -81,6 +82,7 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) }))),
     h(GroupPermission, { room, catalog: roster.permissions, update }),
+    h(ApprovalSettings, { target: room, group: true, roster, Card }),
     h(Card, { title: t('Members · {count}', { count: members.length }) },
       members.map((member) => {
         const leads = room.admin === member.id
@@ -175,6 +177,5 @@ export const GROUP_SETTINGS_CSS = `
 .bt-gs-add{gap:8px;color:var(--bt-ink-2)}
 .bt-gs-pick{gap:10px;animation:bt-rise .16s ease-out}
 .bt-bs-stack .bt-seg{align-self:stretch}
-.bt-gs-perm .bt-seg button{flex:auto;white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.bt-gs-pick{animation:none}}
 `

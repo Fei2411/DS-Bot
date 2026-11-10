@@ -92,14 +92,14 @@ async function authorizeBrowserAction(rt, exec, botId, action) {
   }
   let outcome
   try {
-    outcome = await approval.request({
+    outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason,
       displayReason,
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'browser', action })
   } catch {
     throw new Error('The approval service was unavailable. Nothing was done.')
   }

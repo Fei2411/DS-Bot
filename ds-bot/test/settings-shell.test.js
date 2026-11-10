@@ -42,7 +42,7 @@ const walk = (node, match, out = []) => {
 }
 const textOf = node => (typeof node === 'string' ? node : Array.isArray(node) ? node.map(textOf).join('') : node?.props ? textOf(node.props.children) : '')
 const roster = { byId: {}, roomsById: {}, bots: [], rooms: [], models: [], prefs: {} }
-const harnessRequire = createRequire(`${plugin}/dev/harness/package.json`)
+const harnessRequire = createRequire(`${process.env.DSH_HARNESS ?? `${plugin}/dev/harness`}/package.json`)
 // The patch files are YAML; DSH's own parser reads them as a profile would.
 const { parse } = harnessRequire('yaml')
 const packageFile = (name, file) => harnessRequire.resolve(`${name}/package.json`).replace(/package\.json$/, file)

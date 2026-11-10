@@ -1059,6 +1059,7 @@ export function install(rt) {
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
+    if (kind !== 'settled') return
     void (async () => {
       for (const conn of Object.values(connections())) {
         await settleCard(conn.id, `a:${data.id}`, data.outcome === 'allowed-once' ? text('allow') : data.outcome === 'rejected' ? text('reject') : text('answered'))

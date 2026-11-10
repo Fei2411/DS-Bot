@@ -90,6 +90,7 @@ export class AcpEngine {
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
         if (id !== undefined) session.toolCalls.set(id, call)
+        if (call.status !== 'pending' && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
         if (known === undefined) session.push({ type: 'activity', text: `▸ ${describeCall(call)}` })
         else if (update.status === 'failed' && known.status !== 'failed') session.push({ type: 'activity', text: `▸ ${describeCall(call)} — failed` })
         break
@@ -118,16 +119,22 @@ export class AcpEngine {
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
+      const evidence = JSON.stringify(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
           if (optionId === null) resolve({ outcome: { outcome: 'cancelled' } })
-          else resolve({ outcome: { outcome: 'selected', optionId } })
+          else {
+            if (options.some(option => option.optionId === optionId && option.kind?.startsWith('allow'))
+              && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
+            resolve({ outcome: { outcome: 'selected', optionId } })
+          }
         }
         session.push({
-          type: 'permission', id, reply,
+          type: 'permission', id, reply, cwd: session.cwd,
           action,
           detail: detailText(call, action),
+          evidence,
           options,
           changes: CHANGE_KINDS.has(call.kind),
         })
@@ -154,6 +161,7 @@ export class AcpEngine {
       reply = await peer.request('session/new', params, { timeout: 60_000 })
     }
     session.acpSessionId = reply?.sessionId ?? resumeId
+    session.cwd = cwd
     // Some agents list nothing on session/load: the session reads what this CLI
     // listed before rather than guessing a mode.
     const listed = this.remember(reply)

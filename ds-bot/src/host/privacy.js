@@ -2,7 +2,7 @@
 // what it sends out waits for the user. DSH does not fence reads, so this closes the
 // tools DS Bot owns and checks the paths that the file tools and the shell are given;
 // a shell can still reach any file the account can (see docs/plans).
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { within } from './folders.js'
 import { unquote } from './text.js'
 
@@ -146,17 +146,17 @@ export function install(rt) {
   const closed = (bot, what) => new Error(`${bot.name} is a private Bot, and other Bots cannot reach its ${what}. Ask the user if ${bot.name} should share something.`)
 
   // What a private Bot sends out is shown to the user first, as the user sees it.
-  async function approve(exec, { en, zh }) {
+  async function approve(exec, { en, zh }, evidence = {}) {
     const approval = ctx.get?.('approval')
     if (approval === undefined || exec.agent?.session === undefined) throw new Error('A private Bot needs the user\'s approval for this, and there is no way to ask for it here, so it was not done.')
-    const outcome = await approval.request({
+    const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent: exec.agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: en,
       displayReason: { en, zh },
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'privacy', arguments: exec.arguments, ...evidence })
     if (outcome === 'allowed-once') return
     throw new Error(outcome === 'rejected' ? 'The user did not allow it, so it was not done.'
       : outcome === 'cancelled' ? 'The approval was cancelled, so it was not done.'
@@ -253,8 +253,17 @@ export function install(rt) {
       if (isPrivate(self) && WRITE_TOOLS.includes(name)) {
         const own = await spellings(rt.botOf(self).workDir)
         const base = folder()
-        const target = await spellings(base === undefined ? path : resolve(base, path))
-        if (!target.every(key => own.some(root => within(key, root)))) await approve(exec, { en: `Let ${rt.botOf(self).name} change ${path}? It is outside its own folder.`, zh: `允许 ${rt.botOf(self).name} 修改 ${path} 吗？它在自己的文件夹之外。` })
+        if (!isAbsolute(path) && (typeof base !== 'string' || !isAbsolute(base))) throw new Error('The file destination cannot be determined, so it was not changed.')
+        const absolute = resolve(base ?? '.', path)
+        const real = await rt.realBeyond(absolute)
+        const target = [fold(absolute), fold(real)]
+        if (!target.every(key => own.some(root => within(key, root)))) {
+          await approve(exec, { en: `Let ${rt.botOf(self).name} change ${absolute}? It is outside its own folder.`, zh: `允许 ${rt.botOf(self).name} 修改 ${absolute} 吗？它在自己的文件夹之外。` }, { cwd: base, path: absolute, resolvedPath: real })
+          const current = resolve(folder() ?? '.', path)
+          if (current !== absolute || await rt.realBeyond(current) !== real || resolve(folder() ?? '.', path) !== absolute) {
+            throw new Error('The file destination changed during approval, so it was not changed.')
+          }
+        }
       }
       return
     }
