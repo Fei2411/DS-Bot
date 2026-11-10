@@ -777,3 +777,153 @@ test('question reply: a native blocking answer arriving during review revokes th
   rt.answerApproval(entry.id, 'reject')
   assert.equal(await result, 'rejected')
 })
+
+function nestedChain(s, root = 'b', depth = 4) {
+  const chain = [root]
+  for (let n = 1; n <= depth; n++) {
+    const id = root + '-nested-' + n
+    s.agents[id] = { id, session: { id, header: { origin: 'subagent', parentSession: chain.at(-1) } } }
+    s.directories[id] = resolve('review-cwd', id)
+    chain.push(id)
+  }
+  return chain
+}
+
+for (const root of ['b', 'g']) for (const target of ['next-step', 'next-turn']) for (const kind of ['user', 'user-question-reply', 'session-reference']) {
+  test('nested lineage: pending ' + kind + ' at every ' + root + ' ancestor in ' + target + ' keeps approval manual', async t => {
+    const s = setup(t)
+    const chain = nestedChain(s, root)
+    for (const ancestor of chain.slice(1, -1)) {
+      const message = kind === 'user-question-reply' ? questionAnswer('Stop.') : { source: { kind }, content: [{ type: 'text', text: 'Stop.' }] }
+      s.insert(ancestor, target, message)
+      const result = s.ask({ sessionId: chain.at(-1), callId: ancestor })
+      const entry = await s.waitManual()
+      assert.equal(s.calls.length, 0)
+      s.rt.answerApproval(entry.id, 'reject')
+      assert.equal(await result, 'rejected')
+      s.agents[ancestor].inbox = { nextStep: [], nextTurn: [] }
+    }
+  })
+}
+
+for (const root of ['b', 'g']) for (const stage of ['model', 'save']) for (const kind of ['reply', 'native-question', 'directory']) {
+  test('nested lineage: intermediate ' + root + ' ' + kind + ' during ' + stage + ' revokes allow', async t => {
+    let release
+    let started
+    const hold = new Promise(resolve => { release = resolve })
+    const reached = new Promise(resolve => { started = resolve })
+    const s = setup(t, stage === 'model' ? { hold } : {})
+    const chain = nestedChain(s, root)
+    const ancestor = chain[2]
+    if (stage === 'save') s.rt.save = () => { started(); return hold }
+    const result = s.ask({ sessionId: chain.at(-1) })
+    if (stage === 'save') await reached
+    else await tick()
+    if (kind === 'reply') {
+      s.insert(ancestor, 'next-turn', questionAnswer('Stop.'))
+      s.agents[ancestor].inbox = { nextStep: [], nextTurn: [] }
+    } else if (kind === 'native-question') {
+      s.listeners.get('tools/result')({ agent: s.agents[ancestor], name: 'ask_user_question', callId: 'q' })
+    } else s.listeners.get('session/event')(s.agents[ancestor].session, { type: 'working-directory/change', data: { cwd: resolve('elsewhere') } })
+    s.rt.save = async () => {}
+    release()
+    const entry = await s.waitManual()
+    s.rt.answerApproval(entry.id, 'reject')
+    assert.equal(await result, 'rejected')
+  })
+}
+
+for (const root of ['b', 'g']) for (const kind of ['reply', 'native-question']) test('nested lineage: consumed ' + kind + ' in ' + root + ' ancestor remains manual', async t => {
+  const s = setup(t)
+  const chain = nestedChain(s, root)
+  const event = kind === 'reply' ? { type: 'user/message', data: questionAnswer('Stop.') }
+    : { type: 'tool/result', data: { message: { content: [{ type: 'text', text: '{"answers":[{"id":"q","custom":"Stop."}]}' }] } } }
+  s.groupEvents.set(chain[2], [event])
+  const result = s.ask({ sessionId: chain.at(-1) })
+  const entry = await s.waitManual()
+  assert.equal(s.calls.length, 0)
+  s.rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+for (const root of ['b', 'g']) for (const depth of [0, 1, 4, 15]) test('nested lineage: clean ' + root + ' chain of depth ' + depth + ' still reviews normally', async t => {
+  const s = setup(t)
+  const chain = nestedChain(s, root, depth)
+  assert.equal(await s.ask({ sessionId: chain.at(-1) }), 'allowed-once')
+  assert.equal(s.calls.length, 1)
+})
+
+for (const boundary of ['fork', 'cycle', 'missing', 'mismatched', 'depth']) test('nested lineage: ' + boundary + ' stops ownership traversal without inheriting Bot approval', async t => {
+  const s = setup(t, { next: async () => 'rejected' })
+  const chain = nestedChain(s, 'b', boundary === 'depth' ? 17 : 4)
+  if (boundary === 'fork') s.agents[chain[2]].session.header.origin = 'user'
+  if (boundary === 'cycle') s.agents[chain[2]].session.header.parentSession = chain[3]
+  if (boundary === 'missing') delete s.agents[chain[2]]
+  let reads = 0
+  const resolveAgent = s.rt.resolveAgent
+  s.rt.resolveAgent = id => {
+    reads++
+    return boundary === 'mismatched' && id === chain[2] ? Promise.resolve(s.agents.b) : resolveAgent(id)
+  }
+  assert.equal(await s.ask({ sessionId: chain.at(-1) }), 'rejected')
+  assert.equal(s.calls.length, 0)
+  assert.equal(s.rt.approvalsView().length, 0)
+  assert.ok(reads <= 32, 'both ownership traversals are bounded')
+})
+
+test('nested lineage: unavailable intermediate during review cannot silently disappear from context', async t => {
+  let release
+  const hold = new Promise(resolve => { release = resolve })
+  const s = setup(t, { hold })
+  const chain = nestedChain(s)
+  const result = s.ask({ sessionId: chain.at(-1) })
+  await tick()
+  delete s.agents[chain[2]]
+  release()
+  const entry = await s.waitManual()
+  assert.equal(entry.lineageSessionIds, undefined, 'the internal ancestry is not a UI field')
+  s.rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+test('nested lineage: cancelling an intermediate cancels its descendant approval', async t => {
+  let release
+  const hold = new Promise(resolve => { release = resolve })
+  const s = setup(t, { hold })
+  const chain = nestedChain(s)
+  const result = s.ask({ sessionId: chain.at(-1) })
+  await tick()
+  s.rt.cancelApprovals(chain[2])
+  assert.equal(await result, 'cancelled')
+  release()
+})
+
+test('nested lineage: sibling input and native question answers do not invalidate this branch', async t => {
+  let release
+  const hold = new Promise(resolve => { release = resolve })
+  const s = setup(t, { hold })
+  const chain = nestedChain(s)
+  const result = s.ask({ sessionId: chain.at(-1) })
+  await tick()
+  s.insert('child', 'next-turn', questionAnswer('A restriction for the sibling branch.'))
+  s.listeners.get('tools/result')({ agent: s.agents.child, name: 'ask_user_question', callId: 'q' })
+  release()
+  assert.equal(await result, 'allowed-once')
+})
+
+test('nested lineage: current group relay remains included and its retired relay is excluded', async t => {
+  let release
+  const hold = new Promise(resolve => { release = resolve })
+  const s = setup(t, { hold })
+  const chain = nestedChain(s, 'g')
+  s.rooms.r.sessionId = 'relay-new'
+  const result = s.ask({ sessionId: chain.at(-1) })
+  await tick()
+  s.insert('relay-current', 'next-turn', questionAnswer('Retired relay input.'))
+  assert.equal(s.rt.approvalsView()[0].review.status, 'reviewing')
+  s.insert('relay-new', 'next-turn', questionAnswer('Stop the current group task.'))
+  release()
+  const entry = await s.waitManual()
+  s.rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})

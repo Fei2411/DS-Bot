@@ -43,7 +43,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, ...entry }) => ({ ...entry, answerable: answer !== undefined })
+  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, ...entry }) => ({ ...entry, answerable: answer !== undefined })
   const changed = entry => emit('updated', view(entry))
 
   // Queued user input is not a user/message until the pending tool yields.
@@ -87,14 +87,15 @@ export function install(rt) {
     const seen = new Set()
     while (current && seen.size < 16) {
       const id = sessionOf(current)
-      if (seen.has(id)) break
+      if (id === undefined || seen.has(id)) break
       seen.add(id)
       const group = rt.groupOwners.get(id)
       const botId = group?.botId ?? rt.chatOwners.get(id)
-      if (botId !== undefined) return { sessionId, ownerSessionId: id, botId, ...(group ? { roomId: group.roomId } : {}) }
+      if (botId !== undefined) return { sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId, ...(group ? { roomId: group.roomId } : {}) }
       const parent = current.session?.header?.parentSession
       if (!parent || current.session.header.origin !== 'subagent') break
       current = await rt.resolveAgent(parent).catch(() => undefined)
+      if (sessionOf(current) !== parent) break
     }
     return undefined
   }
@@ -116,7 +117,7 @@ export function install(rt) {
     const group = rt.groupOwners.get(sessionId)
     const botId = group?.botId ?? rt.chatOwners.get(sessionId)
     const owner = botId !== undefined
-      ? { sessionId, ownerSessionId: sessionId, botId, ...(group ? { roomId: group.roomId } : {}) }
+      ? { sessionId, ownerSessionId: sessionId, lineageSessionIds: [sessionId], botId, ...(group ? { roomId: group.roomId } : {}) }
       : await ownerOf(request.agent)
     if (!owner) return next()
     if (request.signal?.aborted) return 'cancelled'
@@ -133,7 +134,7 @@ export function install(rt) {
     const linked = new AbortController()
     const reviewer = new AbortController()
     const entry = {
-      id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, botId: owner.botId,
+      id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds, botId: owner.botId,
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
@@ -230,7 +231,7 @@ export function install(rt) {
   }
   const cancelApprovals = sessionId => {
     for (const entry of pending.values()) {
-      if (entry.sessionId === sessionId || entry.ownerSessionId === sessionId) entry.answer('cancelled')
+      if (entry.lineageSessionIds.includes(sessionId)) entry.answer('cancelled')
     }
   }
   const cancelApprovalReviews = ({ botId, roomId } = {}) => {

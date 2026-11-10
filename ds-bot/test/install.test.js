@@ -38,7 +38,7 @@ test('approval context reads full group messages through the ledger interface', 
   rt.state.rooms.r = room
   const text = 'Report context. '.repeat(200) + 'Send only to Alice.'
   rt.logRoom(room, { who: 'User', text })
-  rt.resolveAgent = async () => ({ inbox: { nextStep: [], nextTurn: [] } })
+  rt.resolveAgent = async id => ({ session: { id }, inbox: { nextStep: [], nextTurn: [] } })
   rt.eventsBackwards = async function* () { yield { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } } }
   const context = await reviewContext(rt, { roomId: 'r' })
   assert.deepEqual(context, [{ source: 'user', text }])

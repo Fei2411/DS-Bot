@@ -29,7 +29,7 @@ export function reviewSessionIds(rt, owner) {
   const room = owner.roomId === undefined ? undefined : rt.roomOf(owner.roomId)
   // The relay follows the room's current part, independently of member Sessions.
   const relay = room ? rt.sessionOfRoom(room) : undefined
-  return [...new Set([owner.ownerSessionId, owner.sessionId, relay].filter(id => id !== undefined))]
+  return [...new Set([owner.ownerSessionId, ...(owner.lineageSessionIds ?? []), owner.sessionId, relay].filter(id => id !== undefined))]
 }
 
 function questionReplyContext(data) {
@@ -85,6 +85,7 @@ async function sessionContext(rt, sessionId, signal) {
 export async function reviewContext(rt, owner, signal) {
   for (const id of reviewSessionIds(rt, owner)) {
     const agent = await rt.resolveAgent(id)
+    if (agent?.session?.id !== id) throw new Error('An approval context Session is unavailable; review manually')
     const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
     if (pending.some(message => ['user', REFERENCE_KIND, REPLY_KIND].includes(message.source?.kind))) throw new Error('Pending user input needs manual review')
   }
