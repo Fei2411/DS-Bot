@@ -508,7 +508,7 @@ function BlockedCard({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p']
     <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]} accessibilityRole="alert">
       <Text style={[type.settingsRow, { color: p.ink }]}>{failureText(blocked.code, bot.name, provider, blocked.status)}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-        {key ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Providers')} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{blocked.code === 'MISSING_CREDENTIAL' ? t('Enter API key') : t('Enter the key again')}</Text></Pressable> : null}
+        {key ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Settings', { screen: 'Providers', initial: false })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{blocked.code === 'MISSING_CREDENTIAL' ? t('Enter API key') : t('Enter the key again')}</Text></Pressable> : null}
         {topUp ? <Pressable accessibilityRole="button" onPress={() => void Linking.openURL('https://platform.deepseek.com/top_up')} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Top up ↗')}</Text></Pressable> : null}
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BotDetails', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Pick another model')}</Text></Pressable>
       </View>

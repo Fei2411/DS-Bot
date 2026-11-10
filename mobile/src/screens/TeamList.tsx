@@ -39,7 +39,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
 
   const preview = (bot: Bot): string | undefined => {
     const sessionId = bot.sessionId ?? bot.id
-    if (questions[sessionId] !== undefined) return t('Waiting for your answer')
+    if (questions[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return t('Waiting for your answer')
     if (approvals.some(a => a.botId === bot.id)) return t('Waiting for your approval')
     const doing = workBots[bot.id] ?? team?.activity?.[bot.id]
     if (doing !== undefined) return `${workPhrase(doing)}…`

@@ -1,7 +1,7 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
@@ -21,6 +21,7 @@ import { Side } from '../screens/side.tsx'
 import { BotBrowser } from '../screens/manage.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
+import { Sheet, SheetHeader } from './sheet.tsx'
 
 const Stack = createNativeStackNavigator()
 const LAST_KEY = 'dsbot.lastChat'
@@ -50,11 +51,13 @@ function DrawerContent() {
     update()
     return navigation.addListener('state', update)
   }, [navigation])
+  // A chat replaces the one on screen; nothing stays stacked under it. Needs you and
+  // Settings slide up over the chat and go back down to it.
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
     drawer.close()
     if (target.kind === 'needs') navigation.navigate('Needs')
     else if (target.kind === 'settings') navigation.navigate('Settings')
-    else navigation.navigate('Chat', target)
+    else navigation.popTo('Chat', target)
   }
   return (
     <View style={{ flex: 1, backgroundColor: p.sidebar }}>
@@ -174,7 +177,7 @@ function ChatScreenB({ route, navigation }: any) {
   useEffect(() => {
     if (!missing) return
     void SecureStore.deleteItemAsync(LAST_KEY)
-    if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id })
+    if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id })
   }, [missing])
   const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
   if (team === null) return (
@@ -183,35 +186,54 @@ function ChatScreenB({ route, navigation }: any) {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
         <ActivityIndicator color={p.accent} />
         <Text style={[typeScale.caption, { color: p.ink3, textAlign: 'center' }]}>{error ?? t('Connecting…')}</Text>
-        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Computers')} hitSlop={8} style={{ minHeight: 44, justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Settings', { screen: 'Computers', initial: false })} hitSlop={8} style={{ minHeight: 44, justifyContent: 'center' }}>
           <Text style={[typeScale.caption, { color: p.accent }]}>{t('Computers')}</Text>
         </Pressable>
       </View>
     </View>
   )
-  const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.replace('Chat', { kind: 'bot', id: fallback.id }) }
+  const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id }) }
   return <ChatView bot={bot} room={room} header={header} onMissing={onMissing} />
 }
 
-function NeedsScreenB({ navigation }: any) {
-  const { p } = useTheme()
-  const drawer = useDrawer()
+function NeedsSheet({ navigation }: any) {
   return (
-    <View style={{ flex: 1, backgroundColor: p.main }}>
-      <Header title={t('Needs you')} onMenu={() => drawer.open()} />
-      <NeedsYou onOpen={target => navigation.navigate('Chat', target)} />
-    </View>
+    <Sheet>
+      <SheetHeader title={t('Needs you')} right={{ label: t('Done'), onPress: () => navigation.goBack(), strong: true }} />
+      <NeedsYou onOpen={target => navigation.popTo('Chat', target)} />
+    </Sheet>
   )
 }
 
-function SettingsScreenB({ navigation }: any) {
-  const { p } = useTheme()
-  const drawer = useDrawer()
+// Settings is a sheet with its own pages: they open inside it, and Done takes the
+// whole sheet down to the chat underneath.
+const SettingsStack = createNativeStackNavigator()
+function SettingsHome({ navigation }: any) {
   return (
-    <View style={{ flex: 1, backgroundColor: p.main }}>
-      <Header title={t('Settings')} onMenu={() => drawer.open()} />
+    <View style={{ flex: 1 }}>
+      <SheetHeader title={t('Settings')} right={{ label: t('Done'), onPress: () => navigation.getParent()?.goBack(), strong: true }} />
       <Settings navigation={navigation} />
     </View>
+  )
+}
+function SettingsSheet() {
+  const { p } = useTheme()
+  return (
+    <Sheet>
+      <SettingsStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: p.main }, animation: Platform.OS === 'android' ? 'slide_from_right' : 'default' }}>
+        <SettingsStack.Screen name="SettingsHome" component={SettingsHome} />
+        <SettingsStack.Screen name="Computers" component={Computers} />
+        <SettingsStack.Screen name="Secrets" component={Secrets} />
+        <SettingsStack.Screen name="Providers" component={Providers} />
+        <SettingsStack.Screen name="Connectors" component={Connectors} />
+        <SettingsStack.Screen name="Capabilities" component={Capabilities} />
+        <SettingsStack.Screen name="TeamUsage" component={TeamUsage} />
+        <SettingsStack.Screen name="Location" component={Location} />
+        <SettingsStack.Screen name="Updates" component={Updates} />
+        <SettingsStack.Screen name="About" component={About} />
+        <SettingsStack.Screen name="Folder" component={Folder} />
+      </SettingsStack.Navigator>
+    </Sheet>
   )
 }
 
@@ -249,53 +271,41 @@ function NoticeBanner() {
   }, [onFeed])
   if (notice === null) return null
   return (
-    <Pressable accessibilityRole="button" onPress={() => { navigation.navigate('Chat', notice.target); setNotice(null) }}
+    <Pressable accessibilityRole="button" onPress={() => { navigation.popTo('Chat', notice.target); setNotice(null) }}
       style={[{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, zIndex: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: p.card, borderColor: p.accent, borderWidth: 1 }, shadow(2)]}>
       <Text style={[typeScale.small, { color: p.ink }]} numberOfLines={2}>{notice.text}</Text>
     </Pressable>
   )
 }
 
+// The chat is the base. Details of a Bot or group push in from the side, with a
+// back button and the back swipe; Settings, Needs you and the two Create forms slide
+// up as sheets with Done or Cancel.
+const PUSH = Platform.OS === 'android' ? 'slide_from_right' as const : 'default' as const
+const RISE = Platform.OS === 'android' ? 'slide_from_bottom' as const : 'default' as const
 function Inner({ initial }: { initial: ChatTarget | null }) {
   const { p } = useTheme()
   return (
     <View style={{ flex: 1 }}>
     <NoticeBanner />
-    <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+    <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: PUSH, contentStyle: { backgroundColor: p.main } }}>
       <Stack.Screen name="Chat" component={ChatScreenB} initialParams={initial ?? undefined} />
-      <Stack.Screen name="Needs">{(props: any) => <NeedsScreenB {...props} />}</Stack.Screen>
-      <Stack.Screen name="Settings">{(props: any) => <SettingsScreenB {...props} />}</Stack.Screen>
-      {/* Home is only a background color while Chat resolves the first Main Bot. */}
-      <Stack.Screen name="BotDetails">{(props: any) => <BotDetails {...props} />}</Stack.Screen>
-      <Stack.Screen name="BotEdit">{(props: any) => <BotEdit {...props} />}</Stack.Screen>
-      <Stack.Screen name="NewBot">{(props: any) => <NewBot {...props} />}</Stack.Screen>
-      <Stack.Screen name="NewGroup">{(props: any) => <NewGroup {...props} />}</Stack.Screen>
-      <Stack.Screen name="GroupDetails">{(props: any) => <GroupDetails {...props} />}</Stack.Screen>
-      <Stack.Screen name="GroupSettings">{(props: any) => <GroupSettings {...props} />}</Stack.Screen>
-      <Stack.Screen name="Memory">{(props: any) => <Memory {...props} />}</Stack.Screen>
-      <Stack.Screen name="Schedules">{(props: any) => <Schedules {...props} />}</Stack.Screen>
-      <Stack.Screen name="Folder">{(props: any) => <Folder {...props} />}</Stack.Screen>
-      <Stack.Screen name="Usage">{(props: any) => <Usage {...props} />}</Stack.Screen>
-      <Stack.Screen name="Computers">{(props: any) => <Computers {...props} />}</Stack.Screen>
-      <Stack.Screen name="Secrets">{(props: any) => <Secrets {...props} />}</Stack.Screen>
-      <Stack.Screen name="Providers">{(props: any) => <Providers {...props} />}</Stack.Screen>
-      <Stack.Screen name="Connectors">{(props: any) => <Connectors {...props} />}</Stack.Screen>
-      <Stack.Screen name="Capabilities">{(props: any) => <Capabilities {...props} />}</Stack.Screen>
-      <Stack.Screen name="TeamUsage">{(props: any) => <TeamUsage {...props} />}</Stack.Screen>
-      <Stack.Screen name="Location">{(props: any) => <Location {...props} />}</Stack.Screen>
-      <Stack.Screen name="Updates">{(props: any) => <Updates {...props} />}</Stack.Screen>
-      <Stack.Screen name="About">{(props: any) => <About {...props} />}</Stack.Screen>
+      <Stack.Screen name="BotDetails" component={BotDetails} />
+      <Stack.Screen name="BotEdit" component={BotEdit} />
+      <Stack.Screen name="GroupDetails" component={GroupDetails} />
+      <Stack.Screen name="GroupSettings" component={GroupSettings} />
+      <Stack.Screen name="Memory" component={Memory} />
+      <Stack.Screen name="Schedules" component={Schedules} />
+      <Stack.Screen name="Folder" component={Folder} />
+      <Stack.Screen name="Usage" component={Usage} />
       <Stack.Screen name="BotBrowser">{({ route, navigation }: any) => <BotBrowser bot={route.params.bot} navigation={navigation} />}</Stack.Screen>
       <Stack.Screen name="Side">{({ route, navigation }: any) => <Side bot={route.params.bot} sessionId={route.params.sessionId} navigation={navigation} />}</Stack.Screen>
-      <Stack.Screen name="Placeholder">{({ route, navigation }: any) => (
-        <View style={{ flex: 1, backgroundColor: '#f6f8fb' }}>
-          <View style={{ paddingHorizontal: 16, paddingVertical: 14, paddingTop: 60 }}>
-            <Text style={{ fontSize: 16, fontWeight: '500' }}>{String(route.params?.title ?? '')}</Text>
-            <Text style={{ color: '#4f7df3', fontSize: 15, marginTop: 8 }} onPress={() => navigation.goBack()}>{'‹'}</Text>
-          </View>
-        </View>
-      )}</Stack.Screen>
-      <Stack.Screen name="Home">{() => <View style={{ flex: 1, backgroundColor: p.main }} />}</Stack.Screen>
+      <Stack.Group screenOptions={{ presentation: 'modal', animation: RISE }}>
+        <Stack.Screen name="Settings" component={SettingsSheet} />
+        <Stack.Screen name="Needs" component={NeedsSheet} />
+        <Stack.Screen name="NewBot" component={NewBot} />
+        <Stack.Screen name="NewGroup" component={NewGroup} />
+      </Stack.Group>
     </Stack.Navigator>
     </View>
   )

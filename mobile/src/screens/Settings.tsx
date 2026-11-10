@@ -19,6 +19,27 @@ function Row({ label, value, onPress, end }: { label: string; value?: string; on
   return onPress ? <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed ? { backgroundColor: p.hover } : null}>{body}</Pressable> : body
 }
 
+// A choice of a few values, all in view: the iOS segmented control's shape.
+function Choice<T extends string>({ label, options, value, onPick }: { label: string; options: { id: T; label: string }[]; value: T; onPick: (id: T) => void }) {
+  const { p } = useTheme()
+  return (
+    <View style={styles.choice}>
+      <Text style={[typeScale.settingsRow, { color: p.ink }]}>{label}</Text>
+      <View style={[styles.segments, { backgroundColor: p.hover }]} accessibilityRole="radiogroup">
+        {options.map(option => {
+          const on = option.id === value
+          return (
+            <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onPick(option.id)}
+              style={[styles.segment, on && [{ backgroundColor: p.card }, shadow(1)]]}>
+              <Text style={[typeScale.small, { color: on ? p.ink : p.ink2, fontWeight: on ? '600' : '400' }]} numberOfLines={1}>{option.label}</Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    </View>
+  )
+}
+
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   const { p } = useTheme()
   return (
@@ -42,11 +63,11 @@ export function Settings({ navigation }: { navigation?: any }) {
     <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
       <Section label={t('Phone')}>
         <Row label={t('Computers')} value={computer?.name ?? ''} onPress={() => navigation?.navigate('Computers')} />
-        <Row label={t('Appearance')} value={{ light: t('Light'), dark: t('Dark'), system: t('System') }[theme] ?? t('System')}
-          onPress={() => set('theme', theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')} />
-        <Row label={t('Language')} value={{ system: t('Follow system'), zh: '简体中文', en: 'English' }[lang] ?? t('Follow system')}
-          onPress={() => { const next = lang === 'system' ? 'zh' : lang === 'zh' ? 'en' : 'system'; set('lang', next); setLang(next); bump(v => v + 1) }} />
-        <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ true: p.accent }} />} />
+        <Choice label={t('Appearance')} value={theme as 'system' | 'light' | 'dark'} onPick={next => set('theme', next)}
+          options={[{ id: 'system', label: t('System') }, { id: 'light', label: t('Light') }, { id: 'dark', label: t('Dark') }]} />
+        <Choice label={t('Language')} value={lang as 'system' | 'zh' | 'en'} onPick={next => { set('lang', next); setLang(next); bump(v => v + 1) }}
+          options={[{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }]} />
+        <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ true: p.accent }} thumbColor="#ffffff" />} />
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>
@@ -66,4 +87,7 @@ export function Settings({ navigation }: { navigation?: any }) {
 const styles = StyleSheet.create({
   card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden', ...shadow(1) },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 50, gap: 8 },
+  choice: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, gap: 8 },
+  segments: { flexDirection: 'row', borderRadius: 9, padding: 2 },
+  segment: { flex: 1, height: 32, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
 })

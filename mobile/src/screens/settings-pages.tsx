@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
@@ -11,7 +12,8 @@ import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 function Screen({ children }: { children: React.ReactNode }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
-  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: insets.top }}>{children}</View>
+  const inSheet = useInSheet()
+  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>{children}</View>
 }
 function Back({ title, onBack }: { title: string; onBack: () => void }) {
   const { p } = useTheme()
@@ -294,7 +296,6 @@ export function Capabilities({ navigation }: any) {
   const { p } = useTheme()
   const { team, call } = useTeam()
   const [open, setOpen] = useState<string | null>(null)
-  const [armed, setArmed] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ name: string; kind: string; description: string; transport: string; command: string; argsText: string; envText: string; url: string; headersText: string; content: string; items: string[]; originalName?: string } | null>(null)
   const items = team?.capabilities ?? []
@@ -349,9 +350,7 @@ export function Capabilities({ navigation }: any) {
                     <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'flex-end' }}>
                       <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: '', envText: '', url: item.url ?? '', headersText: '', content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
                       {status?.state === 'needs-approval' ? <Pressable onPress={() => void act('capability-approve', { name: item.name })}><Text style={{ color: p.accent }}>{t('Approve')}</Text></Pressable> : null}
-                      {armed === item.name
-                        ? <Pressable onPress={() => { setArmed(null); void act('capability-delete', { name: item.name }) }}><Text style={{ color: p.danger, fontWeight: '600' }}>{t('Tap again to delete')}</Text></Pressable>
-                        : <Pressable onPress={() => setArmed(item.name)}><Text style={{ color: p.ink2 }}>{t('Delete')}</Text></Pressable>}
+                      <Pressable onPress={() => confirmDanger(t('Delete {name}?', { name: item.name }), t('Delete'), () => void act('capability-delete', { name: item.name }))}><Text style={{ color: p.danger }}>{t('Delete')}</Text></Pressable>
                     </View>
                   </View>
                 ) : null}
@@ -484,7 +483,6 @@ export function Updates({ navigation }: any) {
   // diagnostics.report: { facts, entries: [{ time, level, source, text }], total }
   const [diag, setDiag] = useState<{ total?: number; entries?: { text?: string }[] } | null>(null)
   const [log, setLog] = useState<string[] | null>(null)
-  const [armed, setArmed] = useState(false)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const check = () => { setBusy(true); void call('update-check').then(v => { const r = v as { update?: typeof update; dsh?: typeof dsh } | typeof update; setUpdate((r as { update?: typeof update }).update ?? (r as typeof update)); setDsh((r as { dsh?: typeof dsh }).dsh ?? null) }).catch(() => {}).finally(() => setBusy(false)) }
@@ -512,7 +510,7 @@ export function Updates({ navigation }: any) {
     return t('Up to date')
   }
   const loadLog = () => { if (log !== null) { setLog(null); return } void call('diagnostics-log').then(v => setLog(typeof v === 'string' ? v.split('\n') : [])).catch(() => {}) }
-  const clearDiag = () => { if (!armed) { setArmed(true); return } setArmed(false); void call('diagnostics-clear').catch(() => {}) }
+  const clearDiag = () => { void call('diagnostics-clear').catch(() => {}) }
   return (
     <Screen><Back title={t('Updates & diagnostics')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
@@ -540,7 +538,7 @@ export function Updates({ navigation }: any) {
               </Pressable>
             </View>
           ) : null}
-          <Row label={armed ? t('Tap again to delete') : t('Clear diagnostics')} onPress={clearDiag} />
+          <Row label={t('Clear diagnostics')} onPress={() => confirmDanger(t('Clear diagnostics?'), t('Clear'), clearDiag)} />
         </Section>
       </ScrollView>
     </Screen>
@@ -566,8 +564,8 @@ export function About({ navigation }: any) {
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
         </Section>
         <Section label={t('Licenses')}>
-          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => navigation.navigate('Placeholder', { title: t('Licenses') })} />
-          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => navigation.navigate('Placeholder', { title: t('Repository') })} />
+          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot/blob/main/LICENSE')} />
+          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot')} />
         </Section>
       </ScrollView>
     </Screen>

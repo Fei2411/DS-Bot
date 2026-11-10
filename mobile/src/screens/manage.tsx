@@ -5,6 +5,7 @@ import { useCallback, useContext, useEffect, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
@@ -37,8 +38,9 @@ const isMain = (team: TeamState | null, id: string) => mainsOf(team).has(id)
 function Screen({ title, children }: { title: string; children: React.ReactNode }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
+  const inSheet = useInSheet()
   return (
-    <View style={{ flex: 1, backgroundColor: p.main, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>
       {children}
     </View>
   )
@@ -121,27 +123,29 @@ function SwitchRow({ label, hint, on, disabled, onChange }: { label: string; hin
   )
 }
 
+// A choice of a few values, all in view: the same control as the phone's own settings.
 function Segmented({ options, value, onPick }: { options: { id: string; label: string }[]; value: string; onPick: (id: string) => void }) {
   const { p } = useTheme()
   return (
-    <View style={[styles.segRow, { borderColor: p.line }]}>
-      {options.map(option => (
-        <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: option.id === value }} onPress={() => onPick(option.id)}
-          style={[styles.seg, option.id === value ? { backgroundColor: p.accent } : null]}>
-          <Text style={[typeScale.caption, { color: option.id === value ? p.accentInk : p.ink2, fontWeight: '500' }]} numberOfLines={1}>{option.label}</Text>
-        </Pressable>
-      ))}
+    <View style={[styles.segRow, { backgroundColor: p.hover }]} accessibilityRole="radiogroup">
+      {options.map(option => {
+        const on = option.id === value
+        return (
+          <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onPick(option.id)}
+            style={[styles.seg, on && [{ backgroundColor: p.card }, shadow(1)]]}>
+            <Text style={[typeScale.small, { color: on ? p.ink : p.ink2, fontWeight: on ? '600' : '400' }]} numberOfLines={1}>{option.label}</Text>
+          </Pressable>
+        )
+      })}
     </View>
   )
 }
 
 function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm: string; busy?: boolean; onConfirm: () => void }) {
   const { p } = useTheme()
-  const [armed, setArmed] = useState(false)
   return (
-    <Pressable accessibilityRole="button" disabled={busy} onPress={() => { if (armed) { setArmed(false); onConfirm() } else setArmed(true) }} style={styles.row}>
-      <Text style={[typeScale.settingsRow, { color: p.danger, flex: 1 }]}>{armed ? confirm : label}</Text>
-      {armed ? <ChevronRightIcon size={16} color={p.danger} /> : null}
+    <Pressable accessibilityRole="button" disabled={busy} onPress={() => confirmDanger(confirm, label, onConfirm)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.hover }]}>
+      <Text style={[typeScale.settingsRow, { color: p.danger, flex: 1 }]}>{label}</Text>
     </Pressable>
   )
 }
@@ -209,7 +213,7 @@ export function BotDetails({ route, navigation }: any) {
         </View>
         {error ? <Text style={[typeScale.small, { color: p.danger, marginTop: 10 }]}>{error}</Text> : null}
         <DetailTitle text={t('Model')} />
-        <ModelMenu bot={bot} onManage={() => navigation.navigate('Providers')} />
+        <ModelMenu bot={bot} onManage={() => navigation.navigate('Settings', { screen: 'Providers', initial: false })} />
         {permissions?.options && permissions.options.length > 0 ? (
           <>
             <DetailTitle text={t('Permissions')} />
@@ -414,7 +418,7 @@ export function BotEdit({ route, navigation }: any) {
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
-          <View style={{ padding: 12 }}><ModelMenu bot={bot} onManage={() => navigation.navigate('Providers')} /></View>
+          <View style={{ padding: 12 }}><ModelMenu bot={bot} onManage={() => navigation.navigate('Settings', { screen: 'Providers', initial: false })} /></View>
         </Section>
         <Section label={t('Instructions')}>
           <Field label={t('What this Bot does')} value={bot.instructions} multiline placeholder={t('What this Bot is responsible for…')} onSave={instructions => save({ instructions })} />
@@ -432,7 +436,7 @@ export function BotEdit({ route, navigation }: any) {
         <BotCapabilities bot={bot} team={team} run={run} />
         <Section label={t('Bot')}>
           {bot.private === true ? null : <Row label={t('Duplicate')} hint={t('A copy with the same job and model, and fresh memory.')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => open({ kind: 'bot', id: (value as Bot).id }))} />}
-          <DangerRow label={t('Delete Bot')} confirm={t('Tap again to delete this Bot')} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.popTo('Chat'))} />
+          <DangerRow label={t('Delete Bot')} confirm={t('Delete {name}?', { name: bot.name })} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.popTo('Chat'))} />
         </Section>
       </ScrollView>
     </Screen>
@@ -480,15 +484,16 @@ export function NewBot({ navigation }: any) {
     setBusy(false)
   }
   return (
-    <Screen title={t('New Bot')}>
-      <BackRow title={t('Create new Bot')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+    <Sheet>
+      <SheetHeader title={t('Create new Bot')} left={{ label: t('Cancel'), onPress: () => navigation.goBack() }}
+        right={{ label: t('Create'), onPress: () => void create(), disabled: busy || clash, strong: true }} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
         {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
         {/* The Bot as it will look, over its name, as the picks change. */}
         <View style={{ alignItems: 'center', marginTop: 8 }}>
           <Avatar bot={{ id: '', name: finalName, avatar: { shape }, color } as Bot} dark={dark} size={72} ring={p.main} />
         </View>
-        <Section label={t('Profile')}>
+        <Section label={t('Name')}>
           <View style={styles.row}>
             <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={name} onChangeText={setName}
               placeholder={t('New Bot')} placeholderTextColor={p.ink3} autoCapitalize="none" />
@@ -507,14 +512,8 @@ export function NewBot({ navigation }: any) {
           <Text style={[typeScale.caption, { color: p.ink3, marginBottom: 6, marginLeft: 4 }]}>{t('Model')}</Text>
           <ModelPicker current={model} onPick={setModel} />
         </View>
-        <View style={{ paddingHorizontal: 18, marginTop: 24 }}>
-          <Pressable accessibilityRole="button" disabled={busy || clash} onPress={() => void create()}
-            style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: busy || clash ? 0.5 : pressed ? 0.85 : 1 }]}>
-            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create')}</Text>
-          </Pressable>
-        </View>
       </ScrollView>
-    </Screen>
+    </Sheet>
   )
 }
 
@@ -608,31 +607,28 @@ export function GroupSettings({ route, navigation }: any) {
               options={ROOM_MODES.map(([id, label]) => ({ id, label: t(label) }))} />
           </View>
         </Section>
+        {/* Tick to add or remove a member; among members, the admin is marked and
+            another member can take the role. */}
         <Section label={t('Members · {count}', { count: members.size })}>
           {bots.map(bot => {
             const inRoom = members.has(bot.id)
+            const leads = room.admin === bot.id
             return (
-              <Pressable key={bot.id} accessibilityRole="button" onPress={() => update({ members: inRoom ? [...members].filter(id => id !== bot.id) : [...members, bot.id] })} style={styles.row}>
-                <Avatar bot={bot} dark={dark} size={28} ring={p.card} />
-                <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, marginLeft: 10 }]}>{bot.name}</Text>
-                {room.admin === bot.id ? <Text style={[typeScale.small, { color: p.ink3, marginRight: 8 }]}>{t('Admin')}</Text> : null}
-                <View style={[styles.check, { borderColor: inRoom ? p.accent : p.line, backgroundColor: inRoom ? p.accent : 'transparent' }]}>
-                  {inRoom ? <Text style={{ color: p.accentInk, fontSize: 12, fontWeight: '700' }}>✓</Text> : null}
+              <Pressable key={bot.id} accessibilityRole="checkbox" accessibilityState={{ checked: inRoom }} onPress={() => update({ members: inRoom ? [...members].filter(id => id !== bot.id) : [...members, bot.id] })}
+                style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.hover }]}>
+                <Avatar bot={bot} dark={dark} size={32} ring={p.card} />
+                <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, marginLeft: 10 }]} numberOfLines={1}>{bot.name}</Text>
+                {leads ? <Text accessibilityRole="button" onPress={() => update({ admin: null })} suppressHighlighting style={[typeScale.caption, styles.adminTag, { color: p.accent, backgroundColor: p.hover }]}>{t('Admin')}</Text>
+                  : inRoom ? <Text accessibilityRole="button" onPress={() => update({ admin: bot.id })} suppressHighlighting style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 6, paddingVertical: 10 }]}>{t('Make admin')}</Text> : null}
+                <View style={[styles.check, { marginLeft: 8, borderColor: inRoom ? p.accent : p.line2, backgroundColor: inRoom ? p.accent : 'transparent' }]}>
+                  {inRoom ? <CheckIcon size={14} color={p.accentInk} /> : null}
                 </View>
               </Pressable>
             )
           })}
         </Section>
-        <Section label={t('Admin')}>
-          {bots.filter(b => members.has(b.id)).map(bot => (
-            <Pressable key={bot.id} accessibilityRole="button" onPress={() => update({ admin: room.admin === bot.id ? null : bot.id })} style={styles.row}>
-              <Text style={[typeScale.settingsRow, { color: room.admin === bot.id ? p.accent : p.ink, flex: 1 }]}>{bot.name}</Text>
-              {room.admin === bot.id ? <Text style={{ color: p.accent }}>●</Text> : null}
-            </Pressable>
-          ))}
-        </Section>
         <Section label={t('Danger')}>
-          <DangerRow label={t('Delete group')} confirm={t('Tap again to delete this group')} onConfirm={() => void run('delete-room', { id: room.id }, () => navigation.goBack())} />
+          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => navigation.popTo('Chat'))} />
         </Section>
       </ScrollView>
     </Screen>
@@ -657,43 +653,35 @@ export function NewGroup({ navigation }: any) {
     void run('create-room', { members, admin: lead, greet: true }, value => open({ kind: 'room', id: (value as Room).id }))
   }
   return (
-    <Screen title={t('New group')}>
-      <BackRow title={t('Create group chat')} onBack={() => navigation.goBack()} />
+    <Sheet>
+      <SheetHeader title={t('Create group chat')} left={{ label: t('Cancel'), onPress: () => navigation.goBack() }}
+        right={{ label: t('Create'), onPress: create, disabled: !ready, strong: true }} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <Text style={[typeScale.small, { color: p.ink3, marginHorizontal: 18, marginTop: 14 }]}>{t('Pick at least two Bots. The admin leads the group.')}</Text>
         {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {/* One list: tick the members; among them, the admin is marked and another
+            member can take the role. */}
         <Section label={t('Members')}>
           {bots.map(bot => {
             const on = picked.has(bot.id)
+            const leads = on && lead === bot.id
             return (
-              <Pressable key={bot.id} onPress={() => setPicked(prev => { const next = new Set(prev); if (next.has(bot.id)) next.delete(bot.id); else next.add(bot.id); return next })} style={styles.row}>
-                <Avatar bot={bot} dark={dark} size={28} ring={p.card} />
-                <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, marginLeft: 10 }]}>{bot.name}</Text>
-                <View style={[styles.check, { borderColor: on ? p.accent : p.line, backgroundColor: on ? p.accent : 'transparent' }]}>
-                  {on ? <Text style={{ color: p.accentInk, fontSize: 12, fontWeight: '700' }}>✓</Text> : null}
+              <Pressable key={bot.id} accessibilityRole="checkbox" accessibilityState={{ checked: on }}
+                onPress={() => setPicked(prev => { const next = new Set(prev); if (next.has(bot.id)) next.delete(bot.id); else next.add(bot.id); return next })}
+                style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.hover }]}>
+                <Avatar bot={bot} dark={dark} size={32} ring={p.card} />
+                <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, marginLeft: 10 }]} numberOfLines={1}>{bot.name}</Text>
+                {leads ? <Text style={[typeScale.caption, styles.adminTag, { color: p.accent, backgroundColor: p.hover }]}>{t('Admin')}</Text>
+                  : on && picked.size > 1 ? <Text accessibilityRole="button" onPress={() => setAdmin(bot.id)} suppressHighlighting style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 6, paddingVertical: 10 }]}>{t('Make admin')}</Text> : null}
+                <View style={[styles.check, { marginLeft: 8, borderColor: on ? p.accent : p.line2, backgroundColor: on ? p.accent : 'transparent' }]}>
+                  {on ? <CheckIcon size={14} color={p.accentInk} /> : null}
                 </View>
               </Pressable>
             )
           })}
         </Section>
-        <Section label={t('Admin')}>
-          {[...picked].map(id => {
-            const bot = bots.find(b => b.id === id)
-            return bot === undefined ? null : (
-              <Pressable key={id} accessibilityRole="radio" accessibilityState={{ checked: lead === id }} onPress={() => setAdmin(id)} style={styles.row}>
-                <Text style={[typeScale.settingsRow, { color: lead === id ? p.accent : p.ink, flex: 1 }]}>{bot.name}</Text>
-                {lead === id ? <Text style={{ color: p.accent }}>●</Text> : null}
-              </Pressable>
-            )
-          })}
-        </Section>
-        <View style={{ paddingHorizontal: 18, marginTop: 24 }}>
-          <Pressable accessibilityRole="button" disabled={!ready} onPress={create}
-            style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: !ready ? 0.5 : pressed ? 0.85 : 1 }]}>
-            <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Create')}</Text>
-          </Pressable>
-        </View>
       </ScrollView>
-    </Screen>
+    </Sheet>
   )
 }
 
@@ -709,16 +697,12 @@ export function Memory({ route, navigation }: any) {
   const [asking, setAsking] = useState(false)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<string | null>(null)
-  const [armed, setArmed] = useState<number | null>(null)
   const [editor, setEditor] = useState<{ index: number | null; scope: string; topic: string; text: string } | null>(null)
   const owner = route.params?.group === true ? { roomId: id } : { botId: id }
   const load = () => void call('memory-view', owner).then(v => setView(v as typeof view)).catch(() => {})
   useState(() => { load(); return null })
-  const forget = (entry: { scope: string; topic: string | null; text: string }, index: number) => {
-    if (armed !== index) { setArmed(index); return }
-    setArmed(null)
-    void call('memory-forget', { ...owner, scope: entry.scope, topic: entry.topic, text: entry.text }).then(load).catch(() => {})
-  }
+  const forget = (entry: { scope: string; topic: string | null; text: string }) =>
+    confirmDanger(t('Remove from memory'), t('Remove'), () => void call('memory-forget', { ...owner, scope: entry.scope, topic: entry.topic, text: entry.text }).then(load).catch(() => {}), entry.text)
   const saveEditor = () => {
     if (editor === null || !editor.text.trim()) return
     const existing = editor.index !== null ? view?.entries?.[editor.index] : undefined
@@ -750,9 +734,9 @@ export function Memory({ route, navigation }: any) {
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{entry.text}</Text>
                 <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{[entry.added, entry.by ? t('by {name}', { name: entry.by }) : null].filter(Boolean).join(' · ')}</Text>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel={armed === i ? t('Click again to remove') : t('Remove from memory')} onPress={() => forget(entry, i)} hitSlop={8}
+              <Pressable accessibilityRole="button" accessibilityLabel={t('Remove from memory')} onPress={() => forget(entry)} hitSlop={8}
                 style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-                {armed === i ? <Text style={[typeScale.small, { color: p.danger }]}>{t('Remove')}</Text> : <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>}
+                <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
               </Pressable>
             </Pressable>
           ))}
@@ -986,7 +970,6 @@ export function Computers({ navigation }: any) {
   const { online, computer } = useTeam()
   const [list, setList] = useState<StoredComputer[]>([])
   const [prints, setPrints] = useState<Record<string, string>>({})
-  const [armed, setArmed] = useState<string | null>(null)
   useState(() => {
     void listComputers().then(({ computers }) => {
       setList(computers)
@@ -995,7 +978,7 @@ export function Computers({ navigation }: any) {
     return null
   })
   const actions = useContext(ComputersCtx)
-  const forget = (id: string) => { if (armed !== id) { setArmed(id); return } setArmed(null); void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) actions.reload() }) }
+  const forget = (id: string, name: string) => confirmDanger(t('Forget {name}?', { name }), t('Forget'), () => { void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) actions.reload() }) })
   return (
     <Screen title="">
       <BackRow title={t('Computers')} onBack={() => navigation.goBack()} />
@@ -1014,8 +997,8 @@ export function Computers({ navigation }: any) {
                     <Text style={[typeScale.settingsRow, { color: p.accent }]}>{t('Switch')}</Text>
                   </Pressable>
                 )}
-                <Pressable accessibilityRole="button" onPress={() => forget(item.hostDeviceId)} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
-                  <Text style={[typeScale.settingsRow, { color: armed === item.hostDeviceId ? p.danger : p.ink3 }]}>{armed === item.hostDeviceId ? t('Tap again to forget') : t('Forget')}</Text>
+                <Pressable accessibilityRole="button" onPress={() => forget(item.hostDeviceId, item.name || item.server)} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
+                  <Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Forget')}</Text>
                 </Pressable>
               </View>
             )
@@ -1035,7 +1018,6 @@ export function Secrets({ navigation }: any) {
   const { run, error } = useWrite(navigation)
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
-  const [armed, setArmed] = useState<string | null>(null)
   const secrets = (team as { secrets?: { name: string; description?: string; scope?: string | string[] }[] } | null)?.secrets ?? []
   const save = () => { if (!name.trim() || !value) return; const next = value; setValue(''); void run('secret-set', { name: name.trim(), value: next }, () => setName('')) }
   return (
@@ -1050,8 +1032,8 @@ export function Secrets({ navigation }: any) {
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{secret.name}</Text>
                 {secret.scope !== undefined ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{secret.scope === 'all' ? t('All Bots') : (Array.isArray(secret.scope) ? secret.scope : [secret.scope]).map(id => botOf(team, id)?.name ?? id).join(', ')}</Text> : null}
               </View>
-              <Pressable accessibilityRole="button" onPress={() => { if (armed === secret.name) { setArmed(null); void run('secret-delete', { name: secret.name }) } else setArmed(secret.name) }} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
-                <Text style={[typeScale.settingsRow, { color: armed === secret.name ? p.danger : p.ink3 }]}>{armed === secret.name ? t('Tap again to delete') : t('Delete')}</Text>
+              <Pressable accessibilityRole="button" onPress={() => confirmDanger(t('Delete {name}?', { name: secret.name }), t('Delete'), () => void run('secret-delete', { name: secret.name }))} hitSlop={8} style={{ minWidth: 44, alignItems: 'flex-end' }}>
+                <Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Delete')}</Text>
               </Pressable>
             </View>
           ))}
@@ -1084,11 +1066,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
   cell: { width: 52, height: 52, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  segRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.pill, overflow: 'hidden' },
-  seg: { flex: 1, height: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  segRow: { flexDirection: 'row', borderRadius: 9, padding: 2 },
+  seg: { flex: 1, height: 32, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   switch: { width: 46, height: 28, borderRadius: 14, padding: 3, justifyContent: 'center' },
   knob: { width: 22, height: 22, borderRadius: 11 },
-  check: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  check: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  adminTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, overflow: 'hidden' },
   pillBtn: { borderRadius: 20, paddingHorizontal: 18, height: 40, alignItems: 'center', justifyContent: 'center' },
   cta: { height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
