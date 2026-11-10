@@ -18,7 +18,7 @@ import { t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
-import { parseReplies, stackReplies } from '../shared/group-replies.js'
+import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
 import { heldCardKey } from './sources.js'
@@ -970,6 +970,9 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   return null
 }
 
+// A settled round's rows do not change: each is read from the group's book once per page.
+const settledRows = new Map()
+
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = useState({ replies: [], speaking: [] })
   useEffect(() => {
@@ -988,10 +991,30 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     void tick()
     return () => { stop = true; clearTimeout(timer) }
   }, [done, sessionId, callId])
+  // A settled round names where its rows are in the group's book; one from before
+  // the ledger carries them in its result.
+  const resultText = done ? contentText(content) : ''
+  const range = done ? relayRange(resultText) : undefined
+  const rowsKey = range === undefined ? undefined : `${sessionId}:${range.from}:${range.to ?? ''}`
+  const [settled, setSettled] = useState(() => (rowsKey === undefined ? null : settledRows.get(rowsKey) ?? null))
+  useEffect(() => {
+    if (rowsKey === undefined) return undefined
+    const known = settledRows.get(rowsKey)
+    if (known !== undefined) { setSettled(known); return undefined }
+    let stop = false
+    void actions.groupRows(sessionId, range.from, range.to).then((rows) => {
+      // A failed read is not kept, so the next draw asks again.
+      if (Array.isArray(rows) && rows.length > 0) settledRows.set(rowsKey, rows)
+      if (!stop) setSettled(Array.isArray(rows) ? rows : [])
+    })
+    return () => { stop = true }
+  }, [rowsKey])
   let replies = live.replies
   let broken = false
-  if (done) {
-    const parsed = parseReplies(contentText(content))
+  if (range !== undefined) {
+    replies = settled ?? live.replies
+  } else if (done) {
+    const parsed = parseReplies(resultText)
     replies = parsed.replies.length ? parsed.replies : live.replies
     broken = parsed.broken
   }

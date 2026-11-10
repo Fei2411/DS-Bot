@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { withRows } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
@@ -103,7 +104,7 @@ async function start(t, room, services, extraRooms, bots, llm) {
     let result
     const stop = new AbortController()
     t.after(() => stop.abort())
-    void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+    void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then((value) => { result = withRows(rt, sessionId, JSON.parse(value)) })
     const read = () => result
     read.cancel = () => stop.abort()
     return read
@@ -2021,9 +2022,10 @@ test('a batch wake reads a result that left the room\'s log from the group\'s ow
 
 test('a batch wake names the message of a result it cannot read', async (t) => {
   const { host, seq } = await resultBeforeLongWait(t)
-  // Let the writes to the group's log land, then lose that log.
-  for (let i = 0; i < 20; i += 1) await new Promise(resolve => setImmediate(resolve))
-  rmSync(join(host.home, 'group-logs'), { recursive: true, force: true })
+  // Lose the group's book: only the room's own log is left to start it again from.
+  await rt.ledger.flush()
+  rt.ledger.drop('group-r1')
+  await rt.ledger.flush('group-r1')
   await writerFinishes(host)
   const prompt = text(host.agentOf('ga').calls[1])
   assert.match(prompt, new RegExp(`\\[Tester's result, message #${seq}, is not available here; read_group_chat with seq ${seq} reads it\\]`))
