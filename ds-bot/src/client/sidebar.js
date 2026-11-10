@@ -502,6 +502,76 @@ function LeftColumn({ mode, width, onGrip, leaving, children }) {
 // floats by the window buttons. Either way it shows only while the column is
 // hidden — the open column and the rail carry no collapse button; they are
 // dragged and ⌘B toggles them.
+
+// The top row's one "new" entry: a plus whose menu holds the two ways to start
+// something. The menu floats over the list, so nothing below the row moves, and it
+// opens under the button with the two right edges lining up.
+function PlusMenu({ actions, onOpenChange }) {
+  const [open, setOpen] = useState(false)
+  const [box, setBox] = useState(null)
+  const button = useRef(null)
+  const menu = useRef(null)
+  const tick = useViewport()
+  useLayoutEffect(() => {
+    if (!open || !button.current) return
+    const rect = button.current.getBoundingClientRect()
+    const width = 200
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+    const below = viewBottom() - rect.bottom
+    setBox(rect.top > below && below < 160
+      ? { left, width, bottom: viewBottom() - rect.top + 6, '--bt-origin': 'bottom right' }
+      : { left, width, top: rect.bottom + 6, '--bt-origin': 'top right' })
+  }, [open, tick])
+  // A click anywhere but the menu or the button puts it away. The click that opens
+  // it is a press that started before this listener existed, so it cannot close it.
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (event) => {
+      if (menu.current?.contains(event.target) || button.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setOpen(false)
+      button.current?.focus()
+    }
+    const onScroll = (event) => { if (!menu.current?.contains(event.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+  const toggle = () => {
+    if (open) { setOpen(false); return }
+    setBox(null)
+    setOpen(true)
+    onOpenChange?.(true)
+  }
+  // The chat that is picked opens behind a menu that has already gone.
+  const pick = (mode) => () => {
+    setOpen(false)
+    actions.openNewChat(mode)
+  }
+  return h(Fragment, null,
+    h('button', {
+      ref: button, type: 'button', className: 'bt-round bt-round-plus',
+      'aria-label': t('New Bot or group'), title: t('New Bot or group'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle,
+    }, h(PlusIcon)),
+    open ? createPortal(h('div', {
+      ref: menu, className: 'bt-menu bt-plus-menu', role: 'menu', 'aria-label': t('New Bot or group'), style: box ?? undefined,
+    },
+      h('button', { type: 'button', role: 'menuitem', onClick: pick('create') },
+        h(PersonIcon), h('span', { className: 'bt-menu-label' }, t('Create new Bot'))),
+      h('button', { type: 'button', role: 'menuitem', onClick: pick('group') },
+        h(PeopleIcon, { size: 16, strokeWidth: 1.6 }), h('span', { className: 'bt-menu-label' }, t('Create group chat')))), document.body) : null)
+}
+
 function TitleToggle({ hidden, onToggle }) {
   if (typeof document === 'undefined') return null
   const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
@@ -910,11 +980,6 @@ export function TeamSidebar(props) {
       document.removeEventListener('keydown', onKey, true)
     }
   }, [searchOpen])
-  const newChat = (mode) => () => actions.openNewChat(mode)
-  const newButtons = [
-    h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create new Bot'), title: t('Create new Bot'), onClick: newChat('create') }, h(PersonIcon)),
-    h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create group chat'), title: t('Create group chat'), onClick: newChat('group') }, h(PeopleIcon, { size: 17, strokeWidth: 1.6 })),
-  ]
   const openSearch = (event) => {
     const opened = event?.nativeEvent?.timeStamp ?? event?.timeStamp
     searchOpenedAt.current = typeof opened === 'number' ? opened : (globalThis.performance?.now?.() ?? 0)
@@ -945,14 +1010,17 @@ export function TeamSidebar(props) {
     : h('button', {
         type: 'button', className: 'bt-round bt-round-search', 'aria-label': t('Search chats'), title: t('Search chats'), onClick: openSearch,
       }, h(SearchIcon))
+  // One plus holds both ways to start something new; the search field keeps the row's
+  // free width and the plus stays at its right end.
+  const plusMenu = h(PlusMenu, { actions, onOpenChange: (open) => { if (open && searchOpen) closeSearch() } })
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
-        ...newButtons,
         h('div', { className: `bt-top-right${searchOpen ? ' bt-top-right-open' : ''}` },
           h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-          searchField))
+          searchField,
+          plusMenu))
     : h('div', { className: 'bt-rail-top' },
-        ...newButtons,
+        plusMenu,
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))

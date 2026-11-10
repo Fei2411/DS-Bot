@@ -100,9 +100,9 @@ var ZH = {
   "Give up waiting for {name}": "不再等 {name}",
   "Make Main Bot": "设为主机器人",
   "Remove Main Bot role": "取消主机器人",
-  "Create group chat": "创建群组聊天",
-  "Add group chat": "添加群组聊天",
-  "Group chat name": "群组聊天名称",
+  "Create group chat": "创建群组",
+  "Add group chat": "新建群组",
+  "Group chat name": "群组名称",
   "e.g. Website launch": "例如：网站上线",
   "Select Bots": "选择机器人",
   "{count} selected": "{count} 已选",
@@ -116,6 +116,7 @@ var ZH = {
   // Sidebar and account menu
   "Bot list": "机器人列表",
   "Search chats": "搜索会话",
+  "New Bot or group": "新建",
   "Filter chats": "筛选会话",
   "No matches": "没有匹配结果",
   Groups: "群聊",
@@ -15936,6 +15937,95 @@ function LeftColumn({ mode, width, onGrip, leaving, children }) {
     (0, import_react34.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
 }
+function PlusMenu({ actions, onOpenChange }) {
+  const [open, setOpen] = (0, import_react34.useState)(false);
+  const [box, setBox] = (0, import_react34.useState)(null);
+  const button = (0, import_react34.useRef)(null);
+  const menu = (0, import_react34.useRef)(null);
+  const tick = useViewport();
+  (0, import_react34.useLayoutEffect)(() => {
+    if (!open || !button.current) return;
+    const rect = button.current.getBoundingClientRect();
+    const width = 200;
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+    const below = viewBottom() - rect.bottom;
+    setBox(rect.top > below && below < 160 ? { left, width, bottom: viewBottom() - rect.top + 6, "--bt-origin": "bottom right" } : { left, width, top: rect.bottom + 6, "--bt-origin": "top right" });
+  }, [open, tick]);
+  (0, import_react34.useEffect)(() => {
+    if (!open) return void 0;
+    const onDown = (event) => {
+      if (menu.current?.contains(event.target) || button.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return;
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpen(false);
+      button.current?.focus();
+    };
+    const onScroll = (event) => {
+      if (!menu.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setBox(null);
+    setOpen(true);
+    onOpenChange?.(true);
+  };
+  const pick2 = (mode) => () => {
+    setOpen(false);
+    actions.openNewChat(mode);
+  };
+  return (0, import_react34.createElement)(
+    import_react34.Fragment,
+    null,
+    (0, import_react34.createElement)("button", {
+      ref: button,
+      type: "button",
+      className: "bt-round bt-round-plus",
+      "aria-label": t("New Bot or group"),
+      title: t("New Bot or group"),
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      onClick: toggle
+    }, (0, import_react34.createElement)(PlusIcon)),
+    open ? (0, import_react_dom5.createPortal)((0, import_react34.createElement)(
+      "div",
+      {
+        ref: menu,
+        className: "bt-menu bt-plus-menu",
+        role: "menu",
+        "aria-label": t("New Bot or group"),
+        style: box ?? void 0
+      },
+      (0, import_react34.createElement)(
+        "button",
+        { type: "button", role: "menuitem", onClick: pick2("create") },
+        (0, import_react34.createElement)(PersonIcon),
+        (0, import_react34.createElement)("span", { className: "bt-menu-label" }, t("Create new Bot"))
+      ),
+      (0, import_react34.createElement)(
+        "button",
+        { type: "button", role: "menuitem", onClick: pick2("group") },
+        (0, import_react34.createElement)(PeopleIcon, { size: 16, strokeWidth: 1.6 }),
+        (0, import_react34.createElement)("span", { className: "bt-menu-label" }, t("Create group chat"))
+      )
+    ), document.body) : null
+  );
+}
 function TitleToggle({ hidden, onToggle }) {
   if (typeof document === "undefined") return null;
   const titlebar = document.documentElement.hasAttribute("data-windows-titlebar");
@@ -16306,11 +16396,6 @@ function TeamSidebar(props) {
       document.removeEventListener("keydown", onKey, true);
     };
   }, [searchOpen]);
-  const newChat = (mode2) => () => actions.openNewChat(mode2);
-  const newButtons = [
-    (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create new Bot"), title: t("Create new Bot"), onClick: newChat("create") }, (0, import_react34.createElement)(PersonIcon)),
-    (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create group chat"), title: t("Create group chat"), onClick: newChat("group") }, (0, import_react34.createElement)(PeopleIcon, { size: 17, strokeWidth: 1.6 }))
-  ];
   const openSearch = (event) => {
     const opened = event?.nativeEvent?.timeStamp ?? event?.timeStamp;
     searchOpenedAt.current = typeof opened === "number" ? opened : globalThis.performance?.now?.() ?? 0;
@@ -16353,20 +16438,23 @@ function TeamSidebar(props) {
     title: t("Search chats"),
     onClick: openSearch
   }, (0, import_react34.createElement)(SearchIcon));
+  const plusMenu = (0, import_react34.createElement)(PlusMenu, { actions, onOpenChange: (open) => {
+    if (open && searchOpen) closeSearch();
+  } });
   const top = wideContent ? (0, import_react34.createElement)(
     "div",
     { className: "bt-side-top" },
-    ...newButtons,
     (0, import_react34.createElement)(
       "div",
       { className: `bt-top-right${searchOpen ? " bt-top-right-open" : ""}` },
       (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
-      searchField
+      searchField,
+      plusMenu
     )
   ) : (0, import_react34.createElement)(
     "div",
     { className: "bt-rail-top" },
-    ...newButtons,
+    plusMenu,
     (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react34.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })

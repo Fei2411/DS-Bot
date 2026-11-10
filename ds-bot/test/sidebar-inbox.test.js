@@ -805,7 +805,10 @@ test('C5/C6: the Chinese copy of the inbox chrome holds', () => {
   let tree = app.render()
   assert.equal(byClass(tree, 'bt-brand').length, 0, 'no brand on the top row')
   assert.equal(byClass(tree, 'bt-side-title').length, 0, 'no inbox title')
-  assert.deepEqual(byClass(tree, 'bt-round').filter(node => !hasClass(node, 'bt-update')).map(node => node.props['aria-label']), ['新建机器人', '创建群组聊天', '搜索会话'], 'the top row is the new Bot, group chat and search buttons')
+  assert.deepEqual(byClass(tree, 'bt-round').filter(node => !hasClass(node, 'bt-update')).map(node => node.props['aria-label']), ['搜索会话', '新建'], 'the top row is the search button and one plus')
+  assert.equal(t('Add group chat'), '新建群组', 'a group is started, not added')
+  assert.equal(t('Group chat name'), '群组名称')
+  assert.equal(t('Create group chat'), '创建群组', 'the same dialog keeps one name')
   tree = openSearch(app, tree)
   assert.equal(byClass(tree, 'bt-search-in')[0].props.placeholder, '搜索会话')
   assert.deepEqual(byClass(tree, 'bt-seg-btn').map(textOf), ['全部', '机器人', '群聊'], 'the Bot filter reads 机器人')
@@ -815,6 +818,78 @@ test('C5/C6: the Chinese copy of the inbox chrome holds', () => {
     bind: () => key => key,
     getLocale: () => ({ active: 'en-US' }),
   })
+})
+
+// ---------------------------------------------------------------------------
+// H · the plus holds both ways to start something new
+
+test('H1: the plus opens a menu of two entries and each entry opens its dialog', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-plus').length, 1, 'one plus, not two buttons')
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'the menu waits for the press')
+  const plus = byClass(tree, 'bt-round-plus')[0]
+  assert.equal(plus.props['aria-haspopup'], 'menu')
+  assert.equal(plus.props['aria-expanded'], false)
+  assert.equal(plus.props['aria-label'], 'New Bot or group')
+
+  plus.props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-plus')[0].props['aria-expanded'], true)
+  const menu = byClass(tree, 'bt-plus-menu')[0]
+  assert.equal(menu.props.role, 'menu')
+  assert.deepEqual(collect(menu).filter(node => node.type === 'button').map(textOf), ['Create new Bot', 'Create group chat'])
+
+  collect(menu).filter(node => node.type === 'button')[0].props.onClick()
+  tree = app.render()
+  assert.deepEqual(app.calls.find(call => call[0] === 'openNewChat'), ['openNewChat', 'create'])
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'the menu is gone once something starts')
+
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  collect(byClass(tree, 'bt-plus-menu')[0]).filter(node => node.type === 'button')[1].props.onClick()
+  tree = app.render()
+  assert.deepEqual(app.calls.filter(call => call[0] === 'openNewChat').at(-1), ['openNewChat', 'group'])
+})
+
+test('H2: Escape and a press anywhere else put the menu away; pressing the plus again does too', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 1)
+  dispatchDocument('keydown', { key: 'Escape', stopPropagation() {} })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'Escape closes it')
+
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  dispatchDocument('mousedown', { target: {} })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'a press outside closes it')
+  assert.equal(byClass(tree, 'bt-round-plus')[0].props['aria-expanded'], false)
+
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'the plus toggles itself shut')
+})
+
+test('H3: the plus sits at the right end of the row, after the search, and the rail keeps one', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  const row = byClass(tree, 'bt-side-top')[0]
+  const buttons = collect(row).filter(node => hasClass(node, 'bt-round') && !hasClass(node, 'bt-update'))
+  assert.deepEqual(buttons.map(node => classesOf(node).find(name => name === 'bt-round-search' || name === 'bt-round-plus')), ['bt-round-search', 'bt-round-plus'])
+
+  viewport.innerWidth = 390
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-plus').length, 1, 'the rail keeps the plus')
+  assert.equal(byClass(tree, 'bt-round-search').length, 0, 'the rail has no search button')
 })
 
 // SHELL_CSS is bundled with the sidebar; a sanity check keeps the import honest.
