@@ -253,11 +253,14 @@ const rule = (selector) => {
 test('B: card, title, search, segments, group heads and rows carry the specified numbers', () => {
   assert.match(rule('.bt-leftcol:not([data-left=rail])'), /padding:calc\(var\(--bt-lc-clear\) \+ 8px\) 8px 8px/)
   assert.match(rule('.bt-leftcol:not([data-left=rail])'), /background:var\(--bt-page/)
+  // The inbox sits on the page itself: no card fill, rim, radius or shadow.
   const panel = rule('.bt-leftcol:not([data-left=rail])>.bt-side')
-  assert.match(panel, /background:var\(--bt-panel/)
-  assert.match(panel, /border:1px solid var\(--bt-panel-rim/)
-  assert.match(panel, /border-radius:16px/)
-  assert.match(panel, /box-shadow:var\(--bt-panel-shadow/)
+  assert.match(panel, /background:transparent/)
+  assert.match(panel, /border:0/)
+  assert.match(panel, /border-radius:0/)
+  assert.match(panel, /box-shadow:none/)
+  // With the card gone, the round buttons inside need a fill of their own.
+  assert.match(rule('.bt-leftcol:not([data-left=rail]) .bt-round'), /background:var\(--bt-field/)
   const search = rule('.bt-search')
   assert.match(search, /height:36px/)
   assert.match(search, /border-radius:10px/)
@@ -395,13 +398,13 @@ test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
     .filter(node => node.props?.className === 'bt-side-top' || hasClass(node, 'bt-main-pin') || hasClass(node, 'bt-search'))
     .map(node => node.props.className)
   assert.deepEqual(slotOrder, ['bt-side-top', 'bt-main-pin', 'bt-search'])
-  // The slot is a stood-up tile: a 50px avatar above a 15px name, and no time or preview.
+  // The slot is a stood-up tile: a 72px mark above a 16px name, and no time or preview.
   const tile = byClass(tree, 'bt-main-tile')
   assert.equal(tile.length, 1, 'the pin draws the tile')
   assert.equal(textOf(byClass(tree, 'bt-main-tile-name')[0]), 'Mist')
   const mark = byClass(tile[0], 'bt-mark')[0].props.style
-  assert.equal(mark.width, 50, 'a 50px avatar')
-  assert.equal(mark.height, 50, 'a 50px avatar')
+  assert.equal(mark.width, 72, 'a 72px mark')
+  assert.equal(mark.height, 72, 'a 72px mark')
   assert.equal(byClass(tile[0], 'bt-row-time').length, 0, 'no stamp on the tile')
   assert.equal(byClass(tile[0], 'bt-row-preview').length, 0, 'no preview on the tile')
   assert.equal(byClass(tile[0], 'bt-dot').length, 1, 'the unread dot rides on the tile')
@@ -440,13 +443,21 @@ test('C1b: the rail shows the Main Bot once and has no pin slot', () => {
   assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the Main Bot is in the rail list exactly once')
 })
 
-// C1b: the tile sits on the panel itself, so no state may paint a block behind it.
+// C1b: the tile sits on the page itself, so no state may paint a block or ring.
 test('C1b: the Main Bot tile is unfilled in every state and its badge is a crown disc', () => {
   assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*background:transparent/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile:hover\{background/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\]\{background/)
-  assert.match(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-ava\{[^}]*box-shadow:0 0 0 2px var\(--bt-panel/)
-  assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main\{[^}]*border-radius:50%[^}]*background:var\(--bt-star\)/)
+  // A large bare mark: no plate behind it and no ring in any state.
+  const ava = SHELL_CSS.match(/^\.bt-main-tile-ava\{[^}]*\}/m)[0]
+  assert.match(ava, /width:72px/)
+  assert.match(ava, /height:72px/)
+  assert.match(ava, /background:transparent/)
+  assert.doesNotMatch(ava, /box-shadow/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-ava\{[^}]*box-shadow/)
+  // The open chat is told by the name alone.
+  assert.match(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-name\{[^}]*font-weight:600/)
+  assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main\{[^}]*border-radius:50%[^}]*background:var\(--bt-star\)[^}]*box-shadow:0 0 0 2px var\(--bt-main\)/)
   assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main path\{fill:var\(--bt-crown-ink\)/)
 
   // Only the tile wears the crown: the same Bot's rail row keeps the star.

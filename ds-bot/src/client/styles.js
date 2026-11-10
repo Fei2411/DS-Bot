@@ -134,17 +134,17 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
 /* The Main Bot is pinned above the scroll box, so paging the list never carries it away. */
 .bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
-/* The tile sits on the panel itself, so it carries no fill of its own in any
-   state: hover lifts the avatar, and the open chat rings it. */
-.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;min-height:102px;padding:8px 6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
+/* The tile stands the Main Bot up on the page itself: a large mark with its name
+   and no plate, ring or block in any state. The open chat is told by the name. */
+.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:12px 6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
 .bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
-.bt-main-tile[aria-current=page] .bt-main-tile-ava{box-shadow:0 0 0 2px var(--bt-panel,var(--bt-card)),0 0 0 3.5px var(--bt-accent)}
-.bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:50px;height:50px;border-radius:50%;background:var(--bt-ava-tint,var(--bt-hover));transition:filter .12s ease}
-.bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-panel,var(--bt-card))}
-.bt-main-tile .bt-badge-main svg{width:8px;height:8px;overflow:visible}
+.bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:transparent;transition:filter .12s ease}
+.bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
+.bt-main-tile .bt-badge-main svg{width:10px;height:10px;overflow:visible}
 .bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
-.bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-panel,var(--bt-card))}
-.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;line-height:20px;font-weight:500}
+.bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
+.bt-main-tile[aria-current=page] .bt-main-tile-name{font-weight:600;color:var(--bt-ink)}
 .bt-main-pin-sep{flex:none;height:1px;margin:6px 8px 2px;background:var(--bt-line)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}

@@ -101,7 +101,7 @@ function MainStar() {
 // The pinned Main Bot tile wears a crown on a disc; the list rows keep the star.
 function MainCrown() {
   return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': true },
-    h('path', { d: 'M3.9 11.4h8.2l.4-6.6-2.4 1.6L8 4.2 5.9 6.4 3.5 4.8z' }))
+    h('path', { d: 'M1.6 11.4V5.4l2.9 2.2L8 4.2l3.5 3.4 2.9-2.2v6z' }))
 }
 
 // Marks settle with a short squash when a run finishes.

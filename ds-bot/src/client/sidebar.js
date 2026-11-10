@@ -119,8 +119,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       type: 'button', className: 'bt-main-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h('span', { className: 'bt-main-tile-ava', style: avatarTint(bot) },
-      h(BotAvatar, { bot, size: 50, state, main, crown: true }),
+    h('span', { className: 'bt-main-tile-ava' },
+      h(BotAvatar, { bot, size: 72, state, main, crown: true }),
       !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
     h('span', { className: 'bt-main-tile-name' }, bot.name))
   }
@@ -1513,10 +1513,13 @@ export const SIDEBAR_CSS = `
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
 @media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
 
-/* The inbox: a white card floating on the page, with the title, an inline search,
-   the All/Bots/Chats filter, the list, and the status and account rows at the foot. */
-.bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar))}
-.bt-leftcol:not([data-left=rail])>.bt-side{background:var(--bt-panel,var(--bt-card));border:1px solid var(--bt-panel-rim,var(--bt-line));border-radius:16px;box-shadow:var(--bt-panel-shadow,none);padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
+/* The inbox: the page itself, with the title, an inline search, the All/Bots/Chats
+   filter, the list, and the status and account rows at the foot. It carries no card
+   of its own, so the buttons inside need a fill the page does not already give them. */
+.bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar));box-shadow:inset -1px 0 0 var(--bt-line)}
+.bt-leftcol:not([data-left=rail])>.bt-side{background:transparent;border:0;border-radius:0;box-shadow:none;padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
+.bt-leftcol:not([data-left=rail]) .bt-round{background:var(--bt-field,var(--bt-hover))}
+.bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)),var(--bt-ink) 8%)}
 .bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:box-shadow .12s ease}
 .bt-search:focus-within{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 45%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
