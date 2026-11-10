@@ -2263,6 +2263,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     exchangeText: (id) => call2("exchange-text", { id }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
+    groupRows: (roomId, from, to) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to } }).catch(() => []),
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -13128,6 +13129,14 @@ var stepReasoning = (step) => reasoningText(step).split("\n").filter((line) => !
 var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => line.slice(ACTIVITY.length).trim()).filter(Boolean);
 
 // src/shared/group-replies.js
+function relayRange(text) {
+  try {
+    const value = JSON.parse(text);
+    if (Number.isInteger(value?.from)) return { from: value.from, ...Number.isInteger(value.to) ? { to: value.to } : {} };
+  } catch {
+  }
+  return void 0;
+}
 var RELAY_LIST = /"replies"\s*:\s*\[/;
 var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
 function parseReplies(text) {
@@ -14823,10 +14832,25 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       clearTimeout(timer);
     };
   }, [done, sessionId, callId]);
+  const resultText = done ? contentText(content) : "";
+  const range = done ? relayRange(resultText) : void 0;
+  const [settled, setSettled] = (0, import_react32.useState)(null);
+  (0, import_react32.useEffect)(() => {
+    if (range === void 0) return void 0;
+    let stop = false;
+    void actions.groupRows(sessionId, range.from, range.to).then((rows2) => {
+      if (!stop) setSettled(Array.isArray(rows2) ? rows2 : []);
+    });
+    return () => {
+      stop = true;
+    };
+  }, [sessionId, range?.from, range?.to]);
   let replies = live.replies;
   let broken = false;
-  if (done) {
-    const parsed = parseReplies(contentText(content));
+  if (range !== void 0) {
+    replies = settled ?? live.replies;
+  } else if (done) {
+    const parsed = parseReplies(resultText);
     replies = parsed.replies.length ? parsed.replies : live.replies;
     broken = parsed.broken;
   }

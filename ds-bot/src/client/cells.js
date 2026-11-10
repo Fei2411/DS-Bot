@@ -18,7 +18,7 @@ import { t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
-import { parseReplies, stackReplies } from '../shared/group-replies.js'
+import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
 import { heldCardKey } from './sources.js'
@@ -988,10 +988,23 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     void tick()
     return () => { stop = true; clearTimeout(timer) }
   }, [done, sessionId, callId])
+  // A settled round names where its rows are in the group's book; one from before
+  // the ledger carries them in its result.
+  const resultText = done ? contentText(content) : ''
+  const range = done ? relayRange(resultText) : undefined
+  const [settled, setSettled] = useState(null)
+  useEffect(() => {
+    if (range === undefined) return undefined
+    let stop = false
+    void actions.groupRows(sessionId, range.from, range.to).then((rows) => { if (!stop) setSettled(Array.isArray(rows) ? rows : []) })
+    return () => { stop = true }
+  }, [sessionId, range?.from, range?.to])
   let replies = live.replies
   let broken = false
-  if (done) {
-    const parsed = parseReplies(contentText(content))
+  if (range !== undefined) {
+    replies = settled ?? live.replies
+  } else if (done) {
+    const parsed = parseReplies(resultText)
     replies = parsed.replies.length ? parsed.replies : live.replies
     broken = parsed.broken
   }

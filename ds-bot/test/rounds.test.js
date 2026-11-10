@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { withRows } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { ROOM_IDLE_RELAY_LIMIT } from '../src/host/constants.js'
 import { isIdleRelayText, lineText } from '../src/host/groups.js'
@@ -93,6 +94,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
   })
   const relay = (roomId, callId, signal = new AbortController().signal) => rt.teamTools.find(d => d.name === 'group_relay')
     .execute({}, { agent: { id: roomId, inbox: inboxOf(roomId) }, callId, signal })
+    .then(value => JSON.stringify(withRows(rt, roomId, JSON.parse(value))))
   // The Bot's answer to its group turn: a delivery source plus the reply text.
   const answer = async (sessionId, exchangeId, text, turn) => {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
@@ -512,7 +514,7 @@ test('a member deleted while its group Session is made is left out, and the Sess
 })
 
 // #206: state.json is written whole on every save, so a long group line keeps its start
-// there and its whole text in a file of its own. Members still read it whole.
+// there; the group's book has it whole. Members still read it whole.
 test('a long group line keeps its start in state.json, and members and read_group_chat read it whole', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
@@ -531,7 +533,7 @@ test('a long group line keeps its start in state.json, and members and read_grou
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).rooms[room.id].log.find(line => line.length !== undefined)
   assert.equal(saved.text.length, 2000)
   assert.equal(saved.length, long.length)
-  assert.equal(readFileSync(join(home, 'group-lines', room.id, `${saved.seq}.txt`), 'utf8'), long)
+  assert.equal(rt.ledger.record(`group-${room.id}`, saved.seq).text, long)
   const read = rt.teamTools.find(d => d.name === 'read_group_chat')
   const exec = { agent: { id: first.sessionId } }
   assert.match(await read.execute({ group: 'R1' }, exec), new RegExp(`cut; ${long.length} characters in all; read_group_chat with seq ${saved.seq} reads it whole`))
@@ -547,14 +549,14 @@ test('a long group line keeps its start in state.json, and members and read_grou
   kept.seq += fillers.length
   writeFileSync(file, JSON.stringify(onDisk))
 
-  // After a restart the whole line is read back from its file.
+  // After a restart the whole line is read back from the group's book.
   const again = start({ home })
   t.after(() => again.stop({ keep: true }))
   await again.call('state', {})
   const whole = await again.rt.teamTools.find(d => d.name === 'read_group_chat').execute({ group: 'R1', seq: saved.seq }, exec)
   assert.ok(whole.endsWith(long))
 
-  // The file goes with the line once the log moves past it, and with the group.
+  // The book keeps the line once the log moves past it, and goes with the group.
   await again.emit(room.id, again.userMessage('Next'))
   const next = again.relay(room.id, 'relay-2')
   const one = await turnFor(again.sent)
@@ -562,14 +564,16 @@ test('a long group line keeps its start in state.json, and members and read_grou
   const two = await turnFor(again.sent, one)
   await again.answer(two.sessionId, two.message.source.exchangeId, 'Two.', 4)
   await next
-  await waitFor(() => (existsSync(join(home, 'group-lines', room.id, `${saved.seq}.txt`)) ? undefined : true))
-  assert.equal(existsSync(join(home, 'group-lines', room.id, `${saved.seq}.txt`)), false)
+  assert.equal(again.rt.state.rooms[room.id].log.some(entry => entry.seq === saved.seq), false)
+  assert.ok((await again.rt.teamTools.find(d => d.name === 'read_group_chat').execute({ group: 'R1', seq: saved.seq }, exec)).endsWith(long))
+  const book = join(home, 'ledger', `group-${room.id}.jsonl`)
+  assert.equal(existsSync(book), true)
   await again.call('delete-room', { id: room.id })
-  await waitFor(() => (existsSync(join(home, 'group-lines', room.id)) ? undefined : true))
-  assert.equal(existsSync(join(home, 'group-lines', room.id)), false)
+  await waitFor(() => (existsSync(book) ? undefined : true))
+  assert.equal(existsSync(book), false)
 })
 
-test('a group line longer than a member reads is cut in its prompt, with its length, and its file keeps only that', async (t) => {
+test('a group line longer than a member reads is cut in its prompt, with its length, and its book keeps it whole', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
@@ -584,7 +588,8 @@ test('a group line longer than a member reads is cut in its prompt, with its len
   await answer(second.sessionId, second.message.source.exchangeId, 'Ok.', 2)
   await running
   const line = rt.state.rooms[room.id].log.find(entry => entry.length === 25_000)
-  assert.equal(readFileSync(join(home, 'group-lines', room.id, `${line.seq}.txt`), 'utf8').length, 20_000)
+  assert.equal(rt.ledger.record(`group-${room.id}`, line.seq).text.length, 25_000)
+  assert.equal(existsSync(join(home, 'group-lines')), false)
 })
 
 // 公开#176: a PDF the user sent in a group reached neither the log nor any member, so
