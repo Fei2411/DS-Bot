@@ -7,7 +7,10 @@
 // that user's context_token, ~1800-char text chunks. Typing uses the
 // getconfig ticket. Voice items arrive with a transcript; images download
 // from the CDN and decrypt with their AES key. A refused send is permanent
-// with the platform's reason. Protocol ported from dsh-im (MIT, see NOTICE).
+// with the platform's reason. A quoted reply names the message it answers and
+// usually repeats its text; both are passed on as `quote`, and the ids a send
+// comes back with are kept so a later quote can name that message.
+// Protocol ported from dsh-im (MIT, see NOTICE).
 import { createDecipheriv, randomBytes } from 'node:crypto'
 
 const QR_BASE = 'https://ilinkai.weixin.qq.com/'
@@ -144,6 +147,7 @@ export default {
         sender: { id: userId, name: userId },
         text: texts.join('\n').trim(), images, files,
         mentioned: false, messageId: String(msg.client_id ?? msg.message_id ?? ''),
+        quote: quotedOf(msg),
       })
     }
 
@@ -243,6 +247,7 @@ export default {
         const chunks = chunk(String(text ?? ''), TEXT_LIMIT)
         const contextToken = contextTokens()[chat.key]
         let messageId
+        const ids = []
         for (const chunkText of chunks) {
           const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
           const answer = await request(env, base(env, fields), fields.token, 'sendmessage', {
@@ -257,8 +262,10 @@ export default {
             throw fail(`WeChat refused the reply (${answer.errmsg ?? answer.ret})`, { permanent: true })
           }
           messageId = clientId
+          addId(ids, clientId)
+          for (const id of answerIds(answer)) addId(ids, id)
         }
-        return { messageId }
+        return { messageId, ids }
       },
       typing: async (chat) => {
         const answer = await request(env, base(env, fields), fields.token, 'getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)
@@ -293,6 +300,45 @@ const chunk = (text, limit) => {
     rest = rest.slice(at).replace(/^\s+/, '')
   }
   return chunks
+}
+
+// iLink has sent the same id as a string and as a number, and a quoted reply
+// has to match whichever form it comes back in.
+const addId = (ids, value) => {
+  if (value === undefined || value === null) return
+  const id = String(value).trim()
+  if (id !== '' && !ids.includes(id)) ids.push(id)
+}
+
+// A reply quotes one earlier message. iLink names it at the top level and again
+// inside a ref_msg item, under several fields, and repeats its text when it has
+// it. Two different ids mean the quote is ambiguous: only the text is kept then.
+const quotedOf = (msg) => {
+  const ids = []
+  let text = ''
+  addId(ids, msg.referenced_msg_id)
+  for (const item of msg.item_list ?? []) {
+    const ref = item?.ref_msg
+    if (ref === undefined || ref === null) continue
+    addId(ids, ref.message_item?.msg_id)
+    addId(ids, ref.msg_id)
+    addId(ids, ref.referenced_msg_id)
+    if (text === '') text = String(ref.message_item?.text_item?.text ?? '').trim()
+  }
+  if (ids.length === 0 && text === '') return undefined
+  return { ids: ids.length === 1 ? ids : [], text }
+}
+
+// The platform names the message it accepted in one of several places, and a
+// quoted reply can use any of them: keep every name it gives.
+const answerIds = (answer) => {
+  const ids = []
+  for (const holder of [answer, answer?.msg, answer?.data]) {
+    if (holder === null || typeof holder !== 'object') continue
+    for (const value of [holder.message_id, holder.msg_id, holder.msgid, holder.client_id]) addId(ids, value)
+    for (const item of Array.isArray(holder) ? holder : holder.item_list ?? []) addId(ids, item?.msg_id)
+  }
+  return ids
 }
 
 // iLink only carries getupdates for an opened session: before msg/notifystart

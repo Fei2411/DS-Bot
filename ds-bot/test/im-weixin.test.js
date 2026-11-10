@@ -149,6 +149,54 @@ test('send goes through sendmessage with the stored context_token, chunked at th
   assert.ok(messageId.startsWith('ds-bot-'))
 })
 
+test('a quoted reply carries the quoted ids and text; conflicting ids are not guessed at', async (t) => {
+  const fake = await fakeIlink()
+  const messages = []
+  fake.replies.updates = {
+    ret: 0, get_updates_buf: 'c1',
+    msgs: [
+      {
+        from_user_id: 'u1', client_id: 'm1', context_token: 'tok-u1',
+        // iLink has sent this id as a number and as a string.
+        referenced_msg_id: 7505,
+        item_list: [
+          { type: 1, text_item: { text: '按这个走' } },
+          { type: 3, ref_msg: { msg_id: '7505', referenced_msg_id: '7505', message_item: { msg_id: '7505', text_item: { text: '项目 A 的报价改好了' } } } },
+        ],
+      },
+      {
+        from_user_id: 'u1', client_id: 'm2', context_token: 'tok-u1',
+        item_list: [
+          { type: 1, text_item: { text: '这条呢' } },
+          { type: 3, ref_msg: { msg_id: 'a-1', referenced_msg_id: 'a-2', message_item: { msg_id: 'a-3', text_item: { text: '另一条' } } } },
+        ],
+      },
+      { from_user_id: 'u1', client_id: 'm3', context_token: 'tok-u1', item_list: [{ type: 1, text_item: { text: '普通消息' } }] },
+    ],
+  }
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 3)
+  assert.deepEqual(messages[0].quote, { ids: ['7505'], text: '项目 A 的报价改好了' })
+  // One quote under several different ids names no single message: only the text.
+  assert.deepEqual(messages[1].quote, { ids: [], text: '另一条' })
+  assert.equal(messages[2].quote, undefined)
+})
+
+test('send keeps every id the platform names, so a quoted reply can name the message', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = { cursor: 'c1', contextTokens: { u1: 'tok-u1' } }
+  fake.replies.updates = { ret: 0, msgs: [], get_updates_buf: 'c1' }
+  fake.replies['/ilink/bot/sendmessage'] = { ret: 0, message_id: 'p-0', msg: { msg_id: 'p-1', item_list: [{ msg_id: 'p-2' }] } }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
+  const sent = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'done' })
+  assert.match(sent.messageId, /^ds-bot-/)
+  assert.match(sent.ids[0], /^ds-bot-/, 'the local client id is the fallback')
+  assert.deepEqual(sent.ids.slice(1), ['p-0', 'p-1', 'p-2'])
+})
+
 test('a refused send is permanent, and the auth header carries the token', async (t) => {
   const fake = await fakeIlink()
   const runtime = { cursor: 'c1' }
