@@ -346,9 +346,11 @@ export function install(rt) {
   // Lines from before the round's opening message are kept apart from this round, so
   // an earlier round (an old count-off, say) never reads as part of the current one.
   // `files` are the files of the lines shown, which go to the member with the prompt.
-  // `results` are the lines of the work a batch woke the member for (finishedLines); the
-  // ones the prompt does not show anyway come after the earlier lines.
-  function roomPrompt(room, member, round, slot, results = []) {
+  // `finished` is what a batch woke the member for (finishedLines): its result lines, the
+  // ones the prompt does not show anyway coming after the earlier lines, and the members
+  // that finished without a closing message.
+  function roomPrompt(room, member, round, slot, finished = { results: [], quiet: [] }) {
+    const { results, quiet } = finished
     const peers = room.members.filter(id => id !== member.id).map(rt.botOf).filter(Boolean)
       .map(bot => `${bot.name}${rt.isAdminOf(room, bot.id) ? ' (admin)' : ''}`)
     const leads = rt.isAdminOf(room, member.id)
@@ -374,6 +376,7 @@ export function install(rt) {
       owed.length ? `Results of the work you asked for that the lines here leave out (oldest first):\n${owed.map(result => (result.line
         ? transcript([result.line], memberText(room))
         : `[${result.name}'s result, message #${result.seq}, is not available here; read_group_chat with seq ${result.seq} reads it]`)).join('\n')}` : '',
+      quiet.length ? `Finished without a closing message: ${quiet.join(' and ')}. What they said while they worked is their result; read_group_chat reads it.` : '',
       current.length
         ? `This round so far${spokeThisRound ? ', since your last message' : ', starting with the new message'} (oldest first):\n${transcript(current, memberText(room))}`
         : 'Nothing new in this round since your last message.',
@@ -389,10 +392,13 @@ export function install(rt) {
   // The result lines a wake carries, oldest first, one per seq. A line that left the room's
   // log is read from the group's own log.
   async function finishedLines(room, slot) {
-    if (slot.finished === undefined) return []
+    if (slot.finished === undefined) return { results: [], quiet: [] }
     const results = [...new Map(slot.finished.results.map(result => [result.seq, result])).values()].sort((a, b) => a.seq - b.seq)
     const inLog = new Map(room.log.map(line => [line.seq, line]))
-    return Promise.all(results.map(async ({ name, seq }) => ({ name, seq, line: inLog.get(seq) ?? await rt.groupLine(room.id, seq).catch(() => undefined) })))
+    return {
+      results: await Promise.all(results.map(async ({ name, seq }) => ({ name, seq, line: inLog.get(seq) ?? await rt.groupLine(room.id, seq).catch(() => undefined) }))),
+      quiet: [...new Set(slot.finished.names)].filter(name => !results.some(result => result.name === name)),
+    }
   }
 
   // Where a turn stands in its round: its place in the order when members take turns,
@@ -508,6 +514,11 @@ export function install(rt) {
     const batch = batchOfSlot(roomId, slot)
     if (batch !== undefined) batch.worked = true
   }
+
+  // The batch the turn with trigger `info` answers. The call names who asked; a turn that
+  // names nobody (not a call of the group) answers the oldest batch the member is in.
+  const batchOfTurn = (roomId, botId, info) => (info?.askedBy !== undefined ? batchOf(roomId, botId, info.askedBy) : undefined)
+    ?? (info?.role !== 'room' ? batchesOf(roomId, botId)[0] : undefined)
 
   // The member's work for one batch is over. A batch whose wake is posted to the group
   // (`keep`) stays until that post, the last one that names it, is taken in (closeBatch),
@@ -646,7 +657,14 @@ export function install(rt) {
   const QUICK_TOOLS = new Set(TEAM_TOOLS)
   rt.workRoomTurn = (sessionId, tool) => {
     if (QUICK_TOOLS.has(tool)) return
-    for (const waiter of waitersOf(sessionId)) waiter.work()
+    const waiters = waitersOf(sessionId)
+    for (const waiter of waiters) waiter.work()
+    // A member that gave up its place in the round (it waits for an approval, or the round
+    // moved on) still works for the call its turn answers.
+    const owner = rt.groupOwners.get(sessionId)
+    if (waiters.length > 0 || owner === undefined) return
+    const batch = batchOfTurn(owner.roomId, owner.botId, rt.live.get(sessionId)?.info)
+    if (batch !== undefined) batch.worked = true
   }
   // The group Session's inbox changed: a running round looks for the user's messages
   // once DSH has finished the change.
@@ -1422,9 +1440,7 @@ export function install(rt) {
       }
       return
     }
-    // The call this turn answers names who asked. A turn that names nobody (not a call
-    // of the group) settles the oldest batch the member is in.
-    const batch = (info.askedBy !== undefined ? batchOf(room.id, member.id, info.askedBy) : undefined) ?? (info.role !== 'room' ? batchesOf(room.id, member.id)[0] : undefined)
+    const batch = batchOfTurn(room.id, member.id, info)
     const askedBy = info.role === 'room' ? info.askedBy : (info.askedBy ?? batch?.by)
     // The admin asked for this result: its goal task is reported at once, even
     // while the other members of the batch still work.
