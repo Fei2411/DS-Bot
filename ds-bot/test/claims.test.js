@@ -22,6 +22,14 @@ test('local file references are the marked links and code paths, never URLs or b
   ])
 })
 
+test('slash commands and URL paths are not files, and a folder reference is not checked', () => {
+  const text = 'Run `/goal` to set the goal, then `/compact` to shrink the context. The endpoint is `/api/bot`. Output lands in `./out/`.'
+  assert.deepEqual(fileRefs(text), [])
+  assert.deepEqual(missingFileRefs(text, '/definitely/not/a/folder'), [])
+  // A markdown link is a deliberate file reference, so it keeps the wider rule.
+  assert.deepEqual(fileRefs('[notes](/tmp/notes)'), ['/tmp/notes'])
+})
+
 test('a reference is missing only when the path is not on disk', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'ds-bot-claims-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))

@@ -20,15 +20,25 @@ const CODE_SPAN = /`([^`\n]{1,300})`/g
 const PLAIN_PATH = /(?:^|[\s(（:：,，])((?:~|\.{1,2})?\/[^\s，。；、()（）<>"'`]+|[a-z]:\\[^\s，。；、()（）<>"'`]+)/gi
 const GLOB = /[*?[\]{}]/
 const TRAILING = /[),.;:!?]+$/
+const EXTENSION = /\.[a-z0-9]{1,8}$/i
 
-const isPathLike = (text) => {
-  if (text === '' || text.startsWith('#') || text.startsWith('//')) return false
-  if (text === '~' || text.startsWith('~/') || isAbsolute(text) || WINDOWS_ABSOLUTE.test(text) || UNC.test(text)) return true
+// A markdown link names a file on purpose, so any local shape counts. A path in code or
+// plain text is weaker evidence: `/goal` and `/compact` are slash commands, `/api/bot`
+// is a URL path, and a folder may be named by anything. Those count only with a file
+// extension, and a reference that ends in `/` is a folder, which is not checked.
+const isPathLike = (text, loose) => {
+  if (text === '' || text.startsWith('#') || text.startsWith('//') || text.endsWith('/')) return false
+  const explicit = text === '~' || text.startsWith('~/') || isAbsolute(text) || WINDOWS_ABSOLUTE.test(text) || UNC.test(text)
+  const relative = text.startsWith('./') || text.startsWith('../')
+  // A Windows drive's `C:` also looks like a URL scheme, so an explicit path is
+  // decided before the scheme check.
+  if (explicit) return loose || EXTENSION.test(text)
   if (SCHEME.test(text)) return false
-  if (text.startsWith('./') || text.startsWith('../')) return true
-  // A bare file name says nothing about which folder, so only a path with a directory
-  // and an extension is checked.
-  return text.includes('/') && /\.[a-z0-9]{1,8}$/i.test(text)
+  if (!loose) {
+    if (!EXTENSION.test(text)) return false
+    return relative || text.includes('/')
+  }
+  return relative || (text.includes('/') && EXTENSION.test(text))
 }
 
 const expandHome = (path) => (path === '~' ? homedir() : path.startsWith('~/') ? resolve(homedir(), path.slice(2)) : path)
@@ -39,19 +49,19 @@ export function fileRefs(text) {
   if (typeof text !== 'string' || text === '') return []
   const found = []
   const seen = new Set()
-  const add = (raw) => {
+  const add = (raw, loose) => {
     let path = raw.trim()
     if (path.startsWith('<') && path.endsWith('>')) path = path.slice(1, -1)
     path = path.replace(TRAILING, '')
-    if (!isPathLike(path) || GLOB.test(path)) return
+    if (!isPathLike(path, loose) || GLOB.test(path)) return
     const key = path.replace(/\\/g, '/')
     if (seen.has(key)) return
     seen.add(key)
     found.push(path)
   }
-  for (const match of text.matchAll(MARKDOWN_LINK)) add(match[1])
-  for (const match of text.matchAll(CODE_SPAN)) add(match[1])
-  for (const match of text.matchAll(PLAIN_PATH)) add(match[1])
+  for (const match of text.matchAll(MARKDOWN_LINK)) add(match[1], true)
+  for (const match of text.matchAll(CODE_SPAN)) add(match[1], false)
+  for (const match of text.matchAll(PLAIN_PATH)) add(match[1], false)
   return found
 }
 

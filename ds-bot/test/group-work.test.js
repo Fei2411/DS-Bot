@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -2274,4 +2274,41 @@ test('work that did run and a file that exists carry no marker (#977)', async (t
   const reply = first().replies.find(row => row.name === 'Writer')
   assert.equal(reply.claims, undefined)
   assert.equal(host.agentOf('gb').calls.length, 1)
+})
+
+// #977 review: the check must use the Session's own folder, the one its header reports
+// or DS Bot gave it. A group's folder outranks the member's own, and neither is the team
+// folder the old code fell back to.
+test('a relative file is checked in the group folder (#977)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-room-'))
+  const group = join(root, 'group')
+  const member = join(root, 'member')
+  mkdirSync(join(group, 'out'), { recursive: true })
+  mkdirSync(member, { recursive: true })
+  writeFileSync(join(group, 'out', 'report.pptx'), 'x')
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const host = await start(t, { workDir: group }, {}, {}, { b: { workDir: member } })
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '报告已导出到 ./out/report.pptx。')
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.equal(reply.claims, undefined)
+})
+
+test('a relative file is checked in the member\'s own folder (#977)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-member-'))
+  const member = join(root, 'member')
+  mkdirSync(join(member, 'out'), { recursive: true })
+  writeFileSync(join(member, 'out', 'report.pptx'), 'x')
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const host = await start(t, {}, {}, {}, { b: { workDir: member } })
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '报告已导出到 ./out/report.pptx。')
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.equal(reply.claims, undefined)
 })

@@ -623,12 +623,14 @@ export function install(rt) {
 
   // What a final reply claims, checked against the computer. Only final replies are
   // checked: a step line says what is under way, not what came of it.
-  const claimsOf = (sessionId, text, worked) => claimsFor({
+  // A Session's own folder is where it really writes, and it is only known from the
+  // Session object (its header), never from its id.
+  const claimsOf = (session, text, worked) => session === undefined ? undefined : claimsFor({
     text,
-    base: rt.sessionFolder?.(sessionId),
+    base: rt.sessionFolder?.(session),
     worked,
-    subagents: rt.hasSubagents?.(sessionId) === true,
-    runningJobs: rt.runningJobs?.(sessionId)?.length ?? 0,
+    subagents: rt.hasSubagents?.(session.id) === true,
+    runningJobs: rt.runningJobs?.(session.id)?.length ?? 0,
   })
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
@@ -1042,7 +1044,7 @@ export function install(rt) {
       say(room, { who: member.name, botId: member.id, kind: 'working' })
     } else if (subRunning) {
       if (final !== undefined) {
-        postInRound(room, member, final, Date.now() - startedAt, claimsOf(session.id, final, true))
+        postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, true))
         callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
       }
       slot.status = 'working'
@@ -1051,7 +1053,7 @@ export function install(rt) {
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined) {
-        posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(session.id, final, worked)))
+        posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, worked)))
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
@@ -1517,7 +1519,8 @@ export function install(rt) {
       if (batch !== undefined) closeBatch(batch.key)
       return
     }
-    const claims = done || text === '' ? undefined : claimsOf(sessionId, text, toolCount > 0)
+    const session = await rt.resolveAgent?.(sessionId).then(agent => agent?.session, () => undefined).catch(() => undefined)
+    const claims = done || text === '' ? undefined : claimsOf(session, text, toolCount > 0)
     await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}), ...(claims === undefined ? {} : { claims }) })
   }
   rt.lateRoomReply = lateRoomReply
