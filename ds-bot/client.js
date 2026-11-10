@@ -37750,7 +37750,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           (0, import_react59.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true }),
           modelOf(bot, roster) ? null : (0, import_react59.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
-        bot.engine ? (0, import_react59.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }) : null,
+        (0, import_react59.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }),
         (0, import_react59.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
         (0, import_react59.createElement)(BotConnectors, { key: "connectors", bot, roster, actions, run: run2 }),
         (0, import_react59.createElement)(
