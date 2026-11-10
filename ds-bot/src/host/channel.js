@@ -180,12 +180,15 @@ export function install(rt) {
       else throw invalid('Flat text width must be a whole percent from 50 to 100')
     }
     if (body.defaultBotModel !== undefined) {
-      if (!state.prefs.approvalModel) rt.cancelApprovalReviews?.({})
       // The model new Bots start on when a create names none. It resolves now, so the
       // saved ref is one the catalog served at save time; a create still re-checks it.
-      if (body.defaultBotModel === null || body.defaultBotModel === '') delete state.prefs.defaultBotModel
-      else if (rt.isLocalAgentRef?.(body.defaultBotModel) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
-      else state.prefs.defaultBotModel = await rt.resolveModel(body.defaultBotModel)
+      const ref = body.defaultBotModel
+      if (rt.isLocalAgentRef?.(ref) === true) throw invalid('A local agent cannot be the default model: a new Bot chooses to run on one when it is created')
+      const model = ref === null || ref === '' ? undefined : await rt.resolveModel(ref)
+      // Resolution may yield while new reviews start on the old default.
+      if (!state.prefs.approvalModel) rt.cancelApprovalReviews?.({})
+      if (model) state.prefs.defaultBotModel = model
+      else delete state.prefs.defaultBotModel
     }
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
