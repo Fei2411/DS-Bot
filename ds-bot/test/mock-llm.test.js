@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -35,8 +35,9 @@ function fold(messages, out) {
   )
 }
 
-async function startMock(t) {
+async function startMock(t, prepare = () => {}) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-mock-'))
+  prepare(home)
   const mock = spawn(process.execPath, [MOCK], {
     env: { ...process.env, MOCK_PORT: '0', MOCK_LOG: join(home, 'mock.jsonl'), MOCK_DELAY_MS: '5', MOCK_JITTER_MS: '0' },
   })
@@ -91,4 +92,29 @@ test('a Bot message hands work on with 转告 and takes its time with 慢慢做'
   assert.equal(slow.text, '给 Writer 的回复：做完了，用了 1 秒。')
   const back = await call(url, [{ role: 'user', content: '[Reply from Coder · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back]\n做完了' }], tools)
   assert.deepEqual([back.text, back.tools], ['Coder 交回了，我把结果交给 Chief。', []])
+})
+
+test('the handoff marker holds only the slow reply until the smoke test releases it', { timeout: 15_000 }, async (t) => {
+  let hold
+  let log
+  const url = await startMock(t, home => {
+    hold = join(home, 'hold-handoff')
+    log = join(home, 'mock.jsonl')
+    writeFileSync(hold, '')
+  })
+  let finished = false
+  const pending = call(url, [{ role: 'user', content: '[Message from Writer]\n慢慢做 0' }])
+    .then(value => { finished = true; return value })
+  try {
+    const deadline = Date.now() + 10_000
+    while (!existsSync(log) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.ok(existsSync(log), 'the mock received the slow request')
+    assert.match(readFileSync(log, 'utf8'), /慢慢做 0/)
+    const other = await call(url, [{ role: 'user', content: '你好' }])
+    assert.match(other.text, /收到：你好/)
+    assert.equal(finished, false, 'other requests finish while the child is held')
+  } finally {
+    rmSync(hold, { force: true })
+  }
+  assert.equal((await pending).text, '给 Writer 的回复：做完了，用了 0 秒。')
 })

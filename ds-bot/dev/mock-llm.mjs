@@ -56,8 +56,8 @@
 // POST /api/web_search is an Ollama-shaped search API for the searchApis config.
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
-import { appendFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PORT = Number(process.env.MOCK_PORT ?? 8765)
@@ -465,7 +465,7 @@ function decide(body) {
   }
   if ((match = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]\n(?:转告\s*(\S+?)\s*[:：]\s*([\s\S]+)|慢慢做\s*(\d+))/.exec(userText))) {
     if (match[2] && tools.has('message_bot')) return [tool('message_bot', { to: match[2], message: match[3].trim() })]
-    if (match[4]) return Object.assign([text(`给 ${match[1]} 的回复：做完了，用了 ${match[4]} 秒。`)], { delay: Number(match[4]) * 1000 })
+    if (match[4]) return Object.assign([text(`给 ${match[1]} 的回复：做完了，用了 ${match[4]} 秒。`)], { delay: Number(match[4]) * 1000, holdHandoff: true })
   }
   if ((match = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText))) {
     return [text(`给 ${match[1]} 的回复：\n- 先做：把现有材料理一遍\n- 需要用户提供：目标和截止时间（尚未聊过）\n- 节奏：确认后每天同步一次`)]
@@ -769,6 +769,11 @@ const server = createServer((req, res) => {
       return
     }
     setTimeout(async () => {
+      // The smoke test releases the child only after it observes the parent's wait.
+      while (out.holdHandoff && existsSync(join(dirname(LOG), 'hold-handoff')) && !res.destroyed) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      if (res.destroyed) return
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       sse(res, { type: 'message_start', message: { id: `mock-${id}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [], usage: { input_tokens: tokens - cached, output_tokens: 0, cache_read_input_tokens: cached } } })
       let index = 0
