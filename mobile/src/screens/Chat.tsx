@@ -18,6 +18,9 @@ import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
 const POLL_MS = 15_000
+// Room between the composer and an open keyboard; the composer's own bottom margin
+// is the safe area, which the keyboard covers.
+const KEYBOARD_GAP = 6
 
 interface ChatPage { sessionId?: string; items: ChatItem[]; cursor: unknown }
 interface Row { item: ChatItem; key: string; stamp?: string }
@@ -313,7 +316,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const empty = page !== null && rows.length === 0
   return (
     <PhotoViewerCtx.Provider value={setPhotos}>
-    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={-insets.bottom} style={[styles.screen, { backgroundColor: p.main }]}>
+    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={KEYBOARD_GAP - insets.bottom} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
       {room !== undefined && (room as { goal?: Goal }).goal ? <GoalBar goal={(room as { goal?: Goal }).goal!} p={p} /> : null}
       <View style={styles.list} onLayout={event => { setChatWidth(event.nativeEvent.layout.width - 24); setChatHeight(event.nativeEvent.layout.height) }}>
