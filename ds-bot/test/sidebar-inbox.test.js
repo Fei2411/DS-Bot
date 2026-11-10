@@ -69,6 +69,17 @@ const module = { exports: {} }
 const styleNode = () => ({ dataset: {}, textContent: '', sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {}, cssText: '' } }] } })
 const documentElement = { hasAttribute: () => false, dataset: { platform: 'darwin' }, style: { setProperty() {}, removeProperty() {} } }
 const viewport = { innerWidth: 1280, innerHeight: 880 }
+// Document listeners are kept, so a test can replay the real click sequence that
+// opens the search instead of only calling the button's handler.
+const documentListeners = new Map()
+const documentListenerSet = (type) => {
+  if (!documentListeners.has(type)) documentListeners.set(type, new Set())
+  return documentListeners.get(type)
+}
+const dispatchDocument = (type, event) => {
+  for (const listener of documentListeners.get(type) ?? []) listener(event)
+}
+class SandboxElement { closest() { return null } }
 const sandbox = {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
@@ -76,9 +87,11 @@ const sandbox = {
   document: {
     documentElement, body: { appendChild() {} }, head: { appendChild() {} }, createElement: styleNode,
     querySelector: () => null, querySelectorAll: () => [],
-    addEventListener() {}, removeEventListener() {}, activeElement: null,
+    addEventListener: (type, listener) => documentListenerSet(type).add(listener),
+    removeEventListener: (type, listener) => { documentListeners.get(type)?.delete(listener) },
+    activeElement: null,
   },
-  Element: class Element {},
+  Element: SandboxElement,
   console,
   navigator: { userAgent: '' },
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -163,6 +176,7 @@ function createApp({ roster, sessions, unread = {}, status = new Map(), activity
   // A fresh component tree: hook state, refs and the window width belong to this app.
   stateStore.clear()
   refStore.clear()
+  documentListeners.clear()
   viewport.innerWidth = 1280
   const calls = []
   const actions = {}
@@ -375,6 +389,37 @@ test('C1: Enter hands the words to the command palette, Escape puts the field aw
   assert.equal(byClass(tree, 'bt-round-search').length, 1, 'the button is back')
   assert.ok(byClass(tree, 'bt-sec').length > 0)
   assert.ok(byClass(tree, 'bt-main-pin').length > 0, 'the Main Bot tile is back with it')
+})
+
+test('C1: the click that opens the field does not reach the click-outside listener', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  const openedAt = 5000
+  byClass(tree, 'bt-round-search')[0].props.onClick({ nativeEvent: { timeStamp: openedAt } })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 1, 'the field is open')
+  // The opening click goes on to the document, where the effect has just put its
+  // listener: it is the same click, so it must not count as a click outside.
+  dispatchDocument('click', { target: new SandboxElement(), timeStamp: openedAt })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 1, 'the opening click leaves it open')
+
+  dispatchDocument('click', { target: new SandboxElement(), timeStamp: openedAt + 40 })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 0, 'a later click outside closes it')
+})
+
+test('C1: Escape puts the field away even when the field never took the focus', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  tree = openSearch(app, tree)
+  assert.equal(byClass(tree, 'bt-search-in').length, 1)
+  dispatchDocument('keydown', { key: 'Escape', preventDefault() {} })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 0, 'Escape closes the field')
+  assert.equal(byClass(tree, 'bt-round-search').length, 1, 'the button is back')
 })
 
 // ---------------------------------------------------------------------------

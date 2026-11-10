@@ -550,6 +550,8 @@ export function TeamSidebar(props) {
   // The search keeps to a button in the top row until it is asked for.
   const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef(null)
+  // When the field was opened, so the click that opened it cannot also put it away.
+  const searchOpenedAt = useRef(0)
   const mode = drag?.left ?? layout.left
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
@@ -885,22 +887,37 @@ export function TeamSidebar(props) {
   // A click anywhere but the field puts it away, and the words go with it: a filter
   // left running behind a closed box would keep the list short for no visible reason.
   // It waits for the click itself, so a result row has already opened before it goes.
+  // The click that opens the field reaches this listener too, because the effect runs
+  // while that click is still being dispatched: it is the one click to let through.
   useEffect(() => {
     if (!searchOpen) return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && event.target.closest('.bt-search')) return
+      if (event.timeStamp <= searchOpenedAt.current) return
+      setSearchOpen(false)
+      setQuery('')
+    }
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return
+      if (document.querySelector('[aria-modal="true"]')) return
       setSearchOpen(false)
       setQuery('')
     }
     document.addEventListener('click', onDown)
-    return () => document.removeEventListener('click', onDown)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('click', onDown)
+      document.removeEventListener('keydown', onKey, true)
+    }
   }, [searchOpen])
   const newChat = (mode) => () => actions.openNewChat(mode)
   const newButtons = [
     h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create new Bot'), title: t('Create new Bot'), onClick: newChat('create') }, h(PersonIcon)),
     h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create group chat'), title: t('Create group chat'), onClick: newChat('group') }, h(PeopleIcon, { size: 17, strokeWidth: 1.6 })),
   ]
-  const openSearch = () => {
+  const openSearch = (event) => {
+    const opened = event?.nativeEvent?.timeStamp ?? event?.timeStamp
+    searchOpenedAt.current = typeof opened === 'number' ? opened : (globalThis.performance?.now?.() ?? 0)
     setSearchOpen(true)
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => searchRef.current?.focus())
     else searchRef.current?.focus()

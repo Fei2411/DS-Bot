@@ -15979,6 +15979,7 @@ function TeamSidebar(props) {
   const [tab, setTab] = (0, import_react34.useState)("all");
   const [searchOpen, setSearchOpen] = (0, import_react34.useState)(false);
   const searchRef = (0, import_react34.useRef)(null);
+  const searchOpenedAt = (0, import_react34.useRef)(0);
   const mode = drag?.left ?? layout.left;
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
   const shown = held ?? mode;
@@ -16288,18 +16289,31 @@ function TeamSidebar(props) {
     if (!searchOpen) return void 0;
     const onDown = (event) => {
       if (event.target instanceof Element && event.target.closest(".bt-search")) return;
+      if (event.timeStamp <= searchOpenedAt.current) return;
+      setSearchOpen(false);
+      setQuery("");
+    };
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector('[aria-modal="true"]')) return;
       setSearchOpen(false);
       setQuery("");
     };
     document.addEventListener("click", onDown);
-    return () => document.removeEventListener("click", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("click", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
   }, [searchOpen]);
   const newChat = (mode2) => () => actions.openNewChat(mode2);
   const newButtons = [
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create new Bot"), title: t("Create new Bot"), onClick: newChat("create") }, (0, import_react34.createElement)(PersonIcon)),
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create group chat"), title: t("Create group chat"), onClick: newChat("group") }, (0, import_react34.createElement)(PeopleIcon, { size: 17, strokeWidth: 1.6 }))
   ];
-  const openSearch = () => {
+  const openSearch = (event) => {
+    const opened = event?.nativeEvent?.timeStamp ?? event?.timeStamp;
+    searchOpenedAt.current = typeof opened === "number" ? opened : globalThis.performance?.now?.() ?? 0;
     setSearchOpen(true);
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => searchRef.current?.focus());
     else searchRef.current?.focus();
