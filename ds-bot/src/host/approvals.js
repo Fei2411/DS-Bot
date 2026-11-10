@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
-import { reviewApproval, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { reviewApproval, reviewContext, REVIEW_TIMEOUT_MS } from './approval-review.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
 const sessionOf = agent => agent?.session?.id ?? agent?.id
@@ -51,7 +51,7 @@ export function install(rt) {
       const botId = group?.botId ?? rt.chatOwners.get(id)
       if (botId !== undefined) return { sessionId, ownerSessionId: id, botId, ...(group ? { roomId: group.roomId } : {}) }
       const parent = current.session?.header?.parentSession
-      if (!parent) break
+      if (!parent || current.session.header.origin !== 'subagent') break
       current = await rt.resolveAgent(parent).catch(() => undefined)
     }
     return undefined
@@ -64,7 +64,7 @@ export function install(rt) {
       tool: entry.tool, at: Date.now(), outcome: decision.decision, reason: clean(decision.reason),
       ...(entry.review?.model ? { model: entry.review.model } : {}),
     }
-    rt.state.approvalReviews = [...(rt.state.approvalReviews ?? []), item].slice(-100)
+    rt.state.approvalReviews = [...(rt.state.approvalReviews ?? []).filter(previous => previous.id !== item.id), item].slice(-100)
     await rt.save()
   }
 
@@ -121,12 +121,12 @@ export function install(rt) {
         if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
         changed(entry)
         rt.yieldRoomTurn?.(owner.ownerSessionId)
-        // Hidden child/group sessions use DS Bot's card. Only a direct own chat
-        // races the host card; an unavailable host card leaves ours answerable.
-        if (owner.roomId !== undefined || owner.ownerSessionId !== owner.sessionId) return
+        // Group sessions have DS Bot's member card. Own-chat children still need
+        // the host path, since their Bot may have no group approval controls.
+        if (owner.roomId !== undefined) return
         request.signal = linked.signal
         Promise.resolve().then(next).then(outcome => {
-          if (outcome !== 'unavailable') complete(outcome)
+          if (outcome !== 'unavailable' || owner.ownerSessionId !== owner.sessionId) complete(outcome)
         }, error => { if (settle('cancelled')) reject(error) })
       }
       entry.answer = complete
@@ -149,6 +149,9 @@ export function install(rt) {
         if (!pending.has(id)) return
         if (reviewer.signal.aborted || !enabled(owner)) return manual('Automatic review settings changed')
         await record(entry, decision)
+        if (JSON.stringify(await reviewContext(rt, owner, reviewer.signal)) !== JSON.stringify(decision.context)) {
+          throw new Error('The conversation changed while saving the review')
+        }
         if (!pending.has(id)) return
         if (reviewer.signal.aborted || !enabled(owner)) return manual('Automatic review settings changed')
         if (decision.decision === 'manual') manual(decision.reason)

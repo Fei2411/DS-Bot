@@ -10,7 +10,7 @@ function setup(t, options = {}) {
   const dispose = []
   const bots = { b: { id: 'b', permission: options.enabled !== false ? 'review' : 'workspace-write' } }
   const rooms = { r: { id: 'r', permission: 'review' } }
-  const agents = { b: { id: 'b', session: { id: 'b', header: {} } }, g: { id: 'g', session: { id: 'g', header: {} } }, child: { id: 'child', session: { id: 'child', header: { parentSession: 'b' } } } }
+  const agents = { b: { id: 'b', session: { id: 'b', header: {} } }, g: { id: 'g', session: { id: 'g', header: {} } }, child: { id: 'child', session: { id: 'child', header: { parentSession: 'b', origin: 'subagent' } } } }
   const calls = []
   const events = options.events ?? [user('Create the requested report in the project.')]
   const rt = {
@@ -41,13 +41,13 @@ function setup(t, options = {}) {
     const agent = agents[sessionId]
     if (capture) await listeners.get('tools/pre-execute')({ agent, callId, name: 'bash', arguments: { command } }, async () => ({ kind: 'allow' }))
     const request = { agent, callId, toolName: 'bash', reason: 'Requires approval', signal }
-    return evidence ? rt.requestActionApproval(request, evidence) : listeners.get('approval/request')(request, () => new Promise(() => {}))
+    return evidence ? rt.requestActionApproval(request, evidence) : listeners.get('approval/request')(request, options.next ?? (() => new Promise(() => {})))
   }
   const waitManual = async () => {
     for (let n = 0; n < 50; n++) { if (rt.approvalsView()[0]?.review?.status === 'manual') return rt.approvalsView()[0]; await tick() }
     assert.fail('manual fallback did not open')
   }
-  return { rt, ask, calls, bots, rooms, events, waitManual }
+  return { rt, ask, calls, bots, rooms, events, waitManual, agents }
 }
 
 test('strict review JSON accepts only known decisions and a reason', () => {
@@ -139,6 +139,54 @@ test('child approval is owned by its parent Bot and uses the parent user context
   const { rt, ask } = setup(t)
   assert.equal(await ask({ sessionId: 'child' }), 'allowed-once')
   assert.equal(rt.approvalReviewsView()[0].botId, 'b')
+})
+
+test('user forks and subagents below a fork keep their own authorization', async t => {
+  const { rt, ask, calls, agents } = setup(t, { next: async () => 'rejected' })
+  agents.fork = { id: 'fork', session: { id: 'fork', header: { parentSession: 'b', origin: 'user' } } }
+  agents.child.session.header.parentSession = 'fork'
+  assert.equal(await ask({ sessionId: 'fork' }), 'rejected')
+  assert.equal(await ask({ sessionId: 'child' }), 'rejected')
+  assert.equal(calls.length, 0)
+  assert.equal(rt.approvalsView().length, 0)
+})
+
+for (const options of [
+  { enabled: false }, { reply: '{"decision":"manual","reason":"Ask the user."}' },
+  { error: true }, { hold: new Promise(() => {}), timeout: true },
+]) test('own-chat child manual fallback preserves the host answerer: ' + JSON.stringify(options), async t => {
+  if (options.timeout) t.mock.timers.enable({ apis: ['setTimeout'] })
+  let hostCalls = 0
+  const { ask } = setup(t, { ...options, next: async () => { hostCalls++; return 'rejected' } })
+  const result = ask({ sessionId: 'child' })
+  if (options.timeout) { await tick(); t.mock.timers.tick(30_001) }
+  assert.equal(await result, 'rejected')
+  assert.equal(hostCalls, 1)
+})
+
+test('own-chat child with no host answerer fails closed instead of waiting forever', async t => {
+  const { ask, rt } = setup(t, { enabled: false, next: async () => 'unavailable' })
+  assert.equal(await ask({ sessionId: 'child' }), 'unavailable')
+  assert.equal(rt.approvalsView().length, 0)
+})
+
+for (const sessionId of ['b', 'g']) test('new restrictions during audit persistence invalidate ' + sessionId + ' review', async t => {
+  const { rt, ask, events, waitManual } = setup(t)
+  let release
+  let started
+  const saving = new Promise(resolve => { started = resolve })
+  rt.save = () => { started(); return new Promise(resolve => { release = resolve }) }
+  const result = ask({ sessionId })
+  await saving
+  events.push(user('Stop. Do not write the report.'))
+  rt.recentGroupLines = async () => [{ who: 'User', text: 'Stop. Do not write the report.' }]
+  rt.save = async () => {}
+  release()
+  const entry = await waitManual()
+  assert.equal(rt.approvalReviewsView().length, 1)
+  assert.equal(rt.approvalReviewsView().at(-1).outcome, 'manual')
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
 })
 
 test('group context distinguishes direct user posts and Bot messages', async t => {

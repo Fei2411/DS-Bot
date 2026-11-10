@@ -149,7 +149,7 @@ export function install(rt) {
       const bot = rt.botOf(group?.botId ?? rt.chatOwners?.get(id))
       if (bot) { owner = { id, bot, room: group && rt.roomOf(group.roomId) }; break }
       const parent = current.session?.header?.parentSession
-      current = parent ? await rt.resolveAgent(parent).catch(() => undefined) : undefined
+      current = parent && current.session.header.origin === 'subagent' ? await rt.resolveAgent(parent).catch(() => undefined) : undefined
     }
     if (!owner) return
     const wanted = owner.room?.permission ?? owner.bot.permission

@@ -72,5 +72,5 @@ export async function reviewApproval(rt, { request, owner, evidence, signal, onM
   if (signal.aborted) throw new Error('Approval review was cancelled')
   if (assembler.finish?.kind !== 'stop') throw new Error('The approval model did not finish its review')
   if (JSON.stringify(await reviewContext(rt, owner, signal)) !== JSON.stringify(context)) throw new Error('The conversation changed during review')
-  return parseReview(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join(''))
+  return { ...parseReview(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('')), context }
 }

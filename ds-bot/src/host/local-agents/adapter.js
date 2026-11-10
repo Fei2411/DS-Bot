@@ -543,7 +543,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'permission': {
           // The preset answers what it already decides, also on an agent with no
           // matching mode of its own: full access allows, read-only refuses a change.
-          const answer = this.deps.reviewFor?.(live.sessionId) ? undefined : presetAnswer(this.deps.presetFor(live.sessionId), event)
+          const preset = this.deps.presetFor(live.sessionId)
+          const answer = this.deps.reviewFor?.(live.sessionId) && preset !== 'read-only' ? undefined : presetAnswer(preset, event)
           if (answer !== undefined) { event.reply(answer); break }
           yield* closeBlocks()
           live.state = 'suspended'

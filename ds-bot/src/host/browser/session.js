@@ -43,7 +43,7 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   const parsedUrl = new URL(url)
   const origin = parsedUrl.origin
   const host = parsedUrl.hostname
-  const action = (kind, label) => {
+  const action = (kind, label, submitter = target) => {
     const form = formOf(target)
     const fields = []
     let protectedField = false
@@ -55,11 +55,19 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
         continue
       }
       if (type === 'hidden') { if (input.value) protectedField = true; continue }
-      if (['submit', 'button', 'reset'].includes(type) || input.disabled) continue
+      if ((['submit', 'image', 'button', 'reset'].includes(type) && input !== submitter) || input.disabled) continue
       if (['checkbox', 'radio'].includes(type) && !input.checked) continue
-      fields.push({ name, value: type === 'file' ? Array.from(input.files ?? []).map(file => file.name) : input.value })
+      const value = type === 'file' ? Array.from(input.files ?? []).map(file => file.name)
+        : input.multiple && input.selectedOptions ? Array.from(input.selectedOptions).map(option => option.value)
+          : input.value
+      fields.push({ name, value })
     }
-    const destination = new URL(target?.getAttribute?.('formaction') || form?.getAttribute?.('action') || url, url)
+    const actionUrl = submitter?.hasAttribute?.('formaction') ? submitter.getAttribute('formaction') : form?.getAttribute?.('action')
+    const destination = new URL(actionUrl || url, form?.ownerDocument?.baseURI || url)
+    const method = methodOf(form, submitter)
+    const enctype = submitter?.getAttribute?.('formenctype') || form?.enctype || 'application/x-www-form-urlencoded'
+    const targetName = submitter?.getAttribute?.('formtarget') ?? form?.target ?? ''
+    if (submitter?.type === 'image') protectedField = true
     if (destination.username || destination.password || destination.search) protectedField = true
     destination.username = ''
     destination.password = ''
@@ -70,7 +78,7 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
     parsedUrl.search = ''
     parsedUrl.hash = ''
     return {
-      kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, fields,
+      kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, method, enctype, target: targetName, fields,
       evidenceComplete: kind === 'post' && !!form && fields.length > 0 && !protectedField,
     }
   }
@@ -102,11 +110,15 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   if (mode !== 'submit') return null
   const form = formOf(target)
   if (!form) return null
-  const submitter = [...form.elements].find(isSubmitter)
+  // Enter activates a focused submit button, otherwise the first submit button
+  // owned by the form in tree order (including external and image controls).
+  const submitter = isSubmitter(target) ? target
+    : [...form.getRootNode().querySelectorAll('button, input')].find(node => formOf(node) === form && isSubmitter(node))
+  if (submitter?.matches(':disabled')) return null
   if (methodOf(form, submitter) !== 'post') return null
   const label = labelOf(submitter)
   const kind = kindOf(label)
-  return kind ? action(kind, label) : null
+  return kind ? action(kind, label, submitter) : null
 }
 
 // playwright-core ships with DS Bot and drives the desktop app's own browser; a
@@ -373,7 +385,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
     let path
     try {
-      const directory = await downloadDir()
+      const directory = action.directory
       if (!directory) throw new Error('No download directory is configured.')
       await mkdir(directory, { recursive: true })
       path = await reserveDownloadPath(filename, directory)

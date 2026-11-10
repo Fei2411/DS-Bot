@@ -84,6 +84,7 @@ test('children inherit review, keep read-only boundaries and cap full access', a
   for (const mode of ['read-only', 'danger-full-access']) {
     const child = await rt.resolveAgent(mode)
     child.session.header.parentSession = 'b'
+    child.session.header.origin = 'subagent'
     modes.set(child.id, mode)
     await rt.applyReviewPolicy(child)
     assert.equal(policies.get(child.id), 'ask')
@@ -95,6 +96,23 @@ test('children inherit review, keep read-only boundaries and cap full access', a
   assert.equal(policies.get(child.id), 'never')
   assert.equal(modes.get(child.id), 'read-only')
   assert.equal(rt.state.approvalPolicies[child.id], undefined)
+})
+
+test('user forks and their children never inherit Bot review policy', async () => {
+  const { rt, bot, policies, modes } = setup()
+  await rt.setPermission(bot, 'review')
+  const fork = await rt.resolveAgent('fork')
+  fork.session.header = { parentSession: 'b', origin: 'user' }
+  const child = await rt.resolveAgent('fork-child')
+  child.session.header = { parentSession: 'fork', origin: 'subagent' }
+  for (const agent of [fork, child]) {
+    policies.set(agent.id, 'never')
+    modes.set(agent.id, 'read-only')
+    await rt.applyReviewPolicy(agent)
+    assert.equal(policies.get(agent.id), 'never')
+    assert.equal(modes.get(agent.id), 'read-only')
+    assert.equal(rt.state.approvalPolicies?.[agent.id], undefined)
+  }
 })
 
 test('a late resolution cannot put review back after a newer mode', async () => {

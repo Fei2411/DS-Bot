@@ -25,7 +25,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -42,6 +42,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: () => preset,
+    reviewFor: () => review,
     cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
@@ -260,6 +261,18 @@ test('acp: full access allows and read-only refuses a change without a card', as
   const refused = await collect(readOnly.stream(options('s1', [user('m1', 'ask-permission')])))
   assert.equal(refused.calls.length, 0)
   assert.match(refused.text, /denied/)
+})
+
+test('model review preserves read-only denials and suppresses full-access preset grants', async t => {
+  for (const preset of ['read-only', 'danger-full-access']) {
+    const adapter = makeAdapter({ preset, review: true, acpArgs: ['--cursor-modes'] })
+    t.after(() => adapter.dispose())
+    const result = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
+    if (preset === 'read-only') {
+      assert.equal(result.calls.length, 0)
+      assert.match(result.text, /denied/)
+    } else assert.equal(result.calls[0]?.name, 'approve_agent_action')
+  }
 })
 
 test('devin: a call to the dsbot server is allowed once without asking; other servers still ask', async (t) => {
