@@ -1,12 +1,35 @@
 import { randomUUID } from 'node:crypto'
+import { isAbsolute, sep } from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
-import { REFERENCE_KIND } from './constants.js'
+import { REFERENCE_KIND, REPLY_KIND } from './constants.js'
 import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
 const sessionOf = agent => agent?.session?.id ?? agent?.id
 const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
+
+async function nativeEvidence(ctx, exec) {
+  const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
+  if (!['bash', 'pwsh'].includes(exec.name) || !exec.agent?.session) return evidence
+  const directories = ctx.get?.('workingDirectory')
+  const shell = ctx.get?.('shell')
+  const fs = ctx.get?.('fs')
+  if (!directories?.ensure || !shell?.resolve || !fs?.resolve || !fs?.processPath || !fs?.stat) return evidence
+  const sessionCwd = await directories.ensure(exec.agent, exec.signal)
+  if (typeof sessionCwd !== 'string' || !isAbsolute(sessionCwd)) return evidence
+  const args = evidence.arguments
+  if (args.workdir !== undefined && typeof args.workdir !== 'string') return evidence
+  // Match the native tools' relative override, then let the execution backend resolve it.
+  const workdir = args.workdir === undefined ? sessionCwd : isAbsolute(args.workdir) ? args.workdir : `${sessionCwd}${sep}${args.workdir}`
+  const spec = shell.resolve({ command: args.command, workdir })
+  if (typeof spec.workdir !== 'string' || !isAbsolute(spec.workdir)) return evidence
+  const target = await fs.resolve(spec.workdir, { signal: exec.signal })
+  if ((await fs.stat(target, exec.signal))?.type !== 'directory') return evidence
+  const cwd = fs.processPath(target)
+  if (typeof cwd !== 'string' || !isAbsolute(cwd)) return evidence
+  return { ...evidence, sessionCwd, workdir: spec.workdir, cwd }
+}
 
 export function install(rt) {
   const { ctx } = rt
@@ -25,7 +48,8 @@ export function install(rt) {
 
   // Queued user input is not a user/message until the pending tool yields.
   ctx.on('session/event', (session, event) => {
-    if (event.type !== 'agent/inbox/spliced' || !event.data?.inserted?.some(message => ['user', REFERENCE_KIND].includes(message.source?.kind))) return
+    const input = event.type === 'agent/inbox/spliced' && event.data?.inserted?.some(message => ['user', REFERENCE_KIND, REPLY_KIND].includes(message.source?.kind))
+    if (!input && event.type !== 'working-directory/change') return
     for (const entry of pending.values()) {
       if (reviewSessionIds(rt, entry).includes(session.id)) entry.cancelReview()
     }
@@ -33,15 +57,24 @@ export function install(rt) {
 
   // Capture immutable tool arguments before any pre-execute policy asks. Result
   // events release both successful and rejected calls, including PTC sub-calls.
-  ctx.on('tools/pre-execute', (exec, next) => {
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const owner = await ownerOf(exec.agent)
+    if (!owner || !enabled(owner)) return next()
     if (exec.callId !== undefined) {
       const key = keyOf(exec.agent, exec.callId)
-      executions.set(key, { tool: exec.name, arguments: exec.arguments })
+      const readEvidence = () => nativeEvidence(ctx, exec)
+      const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
+      executions.set(key, { evidence, readEvidence })
       if (executions.size > 1000) executions.delete(executions.keys().next().value)
     }
     return next()
   }, { prepend: true })
-  ctx.on('tools/result', exec => { executions.delete(keyOf(exec.agent, exec.callId)) })
+  ctx.on('tools/result', exec => {
+    executions.delete(keyOf(exec.agent, exec.callId))
+    if (exec.name === 'ask_user_question') {
+      for (const entry of pending.values()) if (reviewSessionIds(rt, entry).includes(sessionOf(exec.agent))) entry.cancelReview()
+    }
+  })
 
   // Async-local evidence belongs to one request, even when a script makes several
   // concurrent requests with the same outer call id. The host API stays unchanged.
@@ -88,7 +121,13 @@ export function install(rt) {
     if (!owner) return next()
     if (request.signal?.aborted) return 'cancelled'
     const captured = executions.get(keyOf(request.agent, request.callId))
-    const evidence = explicit ?? (captured?.tool === request.toolName ? { kind: 'tool', ...captured } : undefined)
+    const execution = captured?.evidence.tool === request.toolName ? captured.evidence : undefined
+    const nativeShell = ['bash', 'pwsh'].includes(request.toolName)
+    // Privacy guards can ask before the shell itself; their payload still needs its execution scope.
+    const evidence = explicit && nativeShell ? { ...explicit, execution } : explicit ?? execution
+    const validateEvidence = execution && nativeShell ? async () => {
+      if (JSON.stringify(await captured.readEvidence()) !== JSON.stringify(execution)) throw new Error('The native execution directory or arguments changed')
+    } : undefined
     const id = randomUUID()
     const original = request.signal
     const linked = new AbortController()
@@ -153,7 +192,7 @@ export function install(rt) {
         timer = setTimeout(() => reviewer.abort(), REVIEW_TIMEOUT_MS)
       })
       void Promise.race([reviewApproval(rt, {
-        request, owner, evidence, signal: reviewer.signal,
+        request, owner, evidence, validateEvidence, signal: reviewer.signal,
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
         if (!pending.has(id)) return
@@ -167,6 +206,7 @@ export function install(rt) {
         if (JSON.stringify(await reviewContext(rt, owner, reviewer.signal)) !== JSON.stringify(decision.context)) {
           throw new Error('The conversation changed while saving the review')
         }
+        await validateEvidence?.()
         if (!pending.has(id)) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         complete(OUTCOMES[decision.decision], true)
