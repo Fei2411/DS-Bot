@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its running checks. A run on main or dev finishes, and
+# of the pushes that wait for it only the newest runs next: a cancelled run never saves the
+# download caches that every pull request restores from dev, and running one at a time keeps the
+# Docker image of an earlier commit from being pushed after a later one.
 concurrency:
   group: test-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
