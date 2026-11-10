@@ -391,6 +391,15 @@ export function install(rt) {
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
         }
+        // The user ticks a shared to-do in the group's details; members read and change
+        // the same list with the group_todo tool.
+        case 'room-todo': {
+          await rt.load()
+          const room = rt.roomOf(String(body.roomId ?? ''))
+          if (room === undefined) return fail('Unknown group chat', 'room/not-found')
+          const item = await rt.setRoomTodoDone(room.id, String(body.id ?? ''), typeof body.done === 'boolean' ? body.done : undefined)
+          return ok({ item, todos: room.todos ?? [] })
+        }
         case 'folders':
         case 'folder-pick':
         case 'folder-list':

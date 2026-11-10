@@ -8,7 +8,7 @@ import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm } from './bot-settings.js'
-import { GroupSettingsForm, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
+import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
@@ -161,6 +161,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
     room.notice
       ? h(About, { key: 'notice', title: 'Notice', text: room.notice })
       : h('button', { key: 'notice', type: 'button', className: 'bt-more', onClick: openSettings }, t('Add a notice in group settings')),
+    h(GroupTodos, { key: 'todos', room, actions }),
     h('div', { key: 'members' },
       h('div', { className: 'bt-members-head' },
         h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),

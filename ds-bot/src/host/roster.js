@@ -2,7 +2,7 @@
 // the first Main Bot of a new team.
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
+import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -822,6 +822,44 @@ export function install(rt) {
     if (failed !== undefined) throw failed
   }
 
+  // The shared to-do list of a group lives on the room, so every member reads the same
+  // list and deleting the group deletes it with the rest of the room.
+  async function addRoomTodo(id, text, by) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const clean = String(text ?? '').replace(/\s+/g, ' ').trim()
+    if (clean === '') throw new Error('Write the to-do first.')
+    if (clean.length > ROOM_TODO_TEXT_MAX) throw new Error(`Keep a to-do under ${ROOM_TODO_TEXT_MAX} characters.`)
+    const todos = room.todos ??= []
+    if (todos.length >= ROOM_TODO_MAX) throw new Error(`The shared to-do list is full (${ROOM_TODO_MAX}).`)
+    const item = { id: randomUUID(), text: clean, done: false, createdAt: Date.now(), ...(by ? { createdBy: by } : {}) }
+    todos.push(item)
+    await rt.save()
+    return item
+  }
+
+  // Without `done` the item flips; ticking twice is not an error, so two members can
+  // act on the same row without a race.
+  async function setRoomTodoDone(id, todoId, done, by) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const item = (room.todos ?? []).find(entry => entry.id === todoId)
+    if (item === undefined) throw new Error('That to-do is no longer on the list.')
+    const next = done === undefined ? item.done !== true : done === true
+    if (item.done !== next) {
+      item.done = next
+      if (next) {
+        item.doneAt = Date.now()
+        if (by) item.doneBy = by
+      } else {
+        delete item.doneAt
+        delete item.doneBy
+      }
+      await rt.save()
+    }
+    return item
+  }
+
   // The first Main Bot is the sidebar tile. `replace` gives a Main Bot's place to
   // another Bot in one step, so the team never has none; `primary` moves a Bot to the
   // front and keeps the others.
@@ -943,6 +981,7 @@ export function install(rt) {
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
+    addRoomTodo, setRoomTodoDone,
     setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
   })
 }
