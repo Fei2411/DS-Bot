@@ -178,7 +178,7 @@ for (const stage of ['resolve', 'close']) for (const next of [null, 'read-only']
   })
 }
 
-for (const inheritAgain of [false, true]) test('Bot update respects a newer group override; inherited again=' + inheritAgain, async () => {
+for (const heldSession of ['b', 'g']) for (const inheritAgain of [false, true]) test('Bot update respects a newer group override at ' + heldSession + '; inherited again=' + inheritAgain, async () => {
   const { rt, bot, room, modes, closed } = setup()
   const original = rt.resolveAgent
   let release
@@ -186,7 +186,7 @@ for (const inheritAgain of [false, true]) test('Bot update respects a newer grou
   const reached = new Promise(resolve => { started = resolve })
   let held = false
   rt.resolveAgent = async id => {
-    if (id === 'g' && !held) {
+    if (id === heldSession && !held) {
       held = true
       started()
       await new Promise(resolve => { release = resolve })
@@ -200,8 +200,38 @@ for (const inheritAgain of [false, true]) test('Bot update respects a newer grou
   closed.length = 0
   release()
   await first
-  assert.deepEqual(closed, [], 'the Bot request must not close the CLI restarted by a newer group save')
+  assert.deepEqual(closed, heldSession === 'b' ? ['b'] : [], 'the Bot request must not close the CLI restarted by a newer group save')
   assert.equal(modes.get('g'), inheritAgain ? 'workspace-write' : 'read-only')
+})
+
+for (const heldSession of ['g0', 'g']) test('inherited group update respects a newer Bot update while resolving ' + heldSession, async () => {
+  const { rt, bot, room, modes, closed } = setup()
+  const peer = { id: 'c', permission: 'workspace-write' }
+  room.sessions = { c: 'g0', b: 'g' }
+  room.permission = 'review'
+  rt.botOf = id => id === 'b' ? bot : id === 'c' ? peer : undefined
+  const original = rt.resolveAgent
+  let release
+  let started
+  const reached = new Promise(resolve => { started = resolve })
+  let held = false
+  rt.resolveAgent = async id => {
+    if (id === heldSession && !held) {
+      held = true
+      started()
+      await new Promise(resolve => { release = resolve })
+    }
+    return original(id)
+  }
+  const first = rt.setRoomPermission(room, null)
+  await reached
+  await rt.setPermission(bot, 'read-only')
+  closed.length = 0
+  release()
+  await first
+  assert.deepEqual(closed.filter(id => id === 'g'), [], 'the group request leaves the newly resumed member alone')
+  assert.equal(modes.get('g'), 'read-only')
+  assert.equal(modes.get('g0'), 'workspace-write')
 })
 
 test('mode changes reopen affected CLI sessions, ordinary turn setup keeps them', async () => {

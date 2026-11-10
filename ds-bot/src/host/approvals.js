@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
+import { REFERENCE_KIND } from './constants.js'
 import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
@@ -24,7 +25,7 @@ export function install(rt) {
 
   // Queued user input is not a user/message until the pending tool yields.
   ctx.on('session/event', (session, event) => {
-    if (event.type !== 'agent/inbox/spliced' || !event.data?.inserted?.some(message => message.source?.kind === 'user')) return
+    if (event.type !== 'agent/inbox/spliced' || !event.data?.inserted?.some(message => ['user', REFERENCE_KIND].includes(message.source?.kind))) return
     for (const entry of pending.values()) {
       if (reviewSessionIds(rt, entry).includes(session.id)) entry.cancelReview()
     }

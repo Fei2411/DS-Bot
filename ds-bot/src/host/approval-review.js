@@ -1,5 +1,6 @@
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { splitRef, textOf } from './text.js'
+import { REFERENCE_KIND } from './constants.js'
 
 export const REVIEW_TIMEOUT_MS = 30_000
 const INPUT_MAX = 96_000
@@ -35,8 +36,8 @@ async function sessionContext(rt, sessionId, signal) {
   for await (const event of rt.eventsBackwards(sessionId, signal, 3)) {
     const data = event.data
     if (event.type === 'user/message') {
-      const source = data?.source?.kind === 'user' ? 'user' : 'context'
-      if (source === 'user' && (!Array.isArray(data?.content)
+      const source = data?.source?.kind === 'user' ? 'user' : data?.source?.kind === REFERENCE_KIND ? 'reference' : 'context'
+      if (['user', 'reference'].includes(source) && (!Array.isArray(data?.content)
         || data.content.some(block => block?.type !== 'text' || typeof block.text !== 'string'))) {
         throw new Error('Non-text user evidence needs manual review')
       }
@@ -53,7 +54,7 @@ export async function reviewContext(rt, owner, signal) {
   for (const id of reviewSessionIds(rt, owner)) {
     const agent = await rt.resolveAgent(id)
     const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
-    if (pending.some(message => message.source?.kind === 'user')) throw new Error('Pending user input needs manual review')
+    if (pending.some(message => ['user', REFERENCE_KIND].includes(message.source?.kind))) throw new Error('Pending user input needs manual review')
   }
   if (owner.roomId !== undefined) {
     const room = rt.roomOf(owner.roomId)
@@ -65,6 +66,7 @@ export async function reviewContext(rt, owner, signal) {
     }))
     // Consumed user events exist before image reading adds their text to the group log.
     const direct = await sessionContext(rt, rt.sessionOfRoom(room), signal)
+    if (direct.some(line => line.source === 'reference')) throw new Error('Referenced group evidence needs manual review')
     const latest = direct.findLast(line => line.source === 'user')
     if (latest && latest.text !== context.findLast(line => line.source === 'user')?.text) {
       throw new Error('The group log and user events are not aligned; review manually')

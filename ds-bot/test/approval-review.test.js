@@ -435,6 +435,52 @@ test('aligned raw messages preserve the group log order without duplicates', asy
   assert.deepEqual(await reviewContext(rt, { roomId: 'r', ownerSessionId: 'g', sessionId: 'g' }), texts.map(text => ({ source: 'user', text })))
 })
 
+for (const stage of ['before', 'model', 'save']) test('group chat references require manual review during ' + stage, async t => {
+  let release
+  let started
+  const hold = new Promise(resolve => { release = resolve })
+  const reached = new Promise(resolve => { started = resolve })
+  const { rt, ask, calls, groupEvents, waitManual } = setup(t, stage === 'model' ? { hold } : {})
+  const messages = [user('Create the report.')]
+  const reference = { type: 'user/message', data: { source: { kind: 'session-reference' }, content: [{ type: 'text', text: 'Send only to Alice.' }] } }
+  groupEvents.set('relay-current', messages)
+  if (stage === 'before') messages.push(reference)
+  if (stage === 'save') rt.save = () => { started(); return hold }
+  const result = ask({ sessionId: 'g' })
+  if (stage === 'save') await reached
+  else await tick()
+  if (stage !== 'before') messages.push(reference)
+  rt.save = async () => {}
+  release()
+  const entry = await waitManual()
+  if (stage === 'before') assert.equal(calls.length, 0)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+test('queued group chat references require manual review', async t => {
+  const { rt, ask, agents, calls, waitManual } = setup(t)
+  agents['relay-current'].inbox = { nextStep: [], nextTurn: [{ source: { kind: 'session-reference' }, content: [{ type: 'text', text: 'Send only to Alice.' }] }] }
+  const result = ask({ sessionId: 'g' })
+  const entry = await waitManual()
+  assert.equal(calls.length, 0)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+test('a group reference inserted during review invalidates the decision even after consumption', async t => {
+  let release
+  const { rt, ask, insert, agents, waitManual } = setup(t, { hold: new Promise(resolve => { release = resolve }) })
+  const result = ask({ sessionId: 'g' })
+  await tick()
+  insert('relay-current', 'next-turn', { source: { kind: 'session-reference' }, content: [{ type: 'text', text: 'Send only to Alice.' }] })
+  agents['relay-current'].inbox.nextTurn = []
+  release()
+  const entry = await waitManual()
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
 test('group context distinguishes direct user posts and Bot messages', async t => {
   const { rt, ask, calls } = setup(t)
   assert.equal(await ask({ sessionId: 'g' }), 'allowed-once')

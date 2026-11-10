@@ -73,6 +73,7 @@ export function install(rt) {
     const request = requests.get(bot.id) ?? { seq: 0, applied: bot.permission }
     const mine = ++request.seq
     requests.set(bot.id, request)
+    const groupRequests = new Map(rt.groupSessionsOf(bot.id).map(id => [id, roomRequests.get(roomOfSession(id))]))
     // The preset is written before its first await: a request still being applied
     // then reads the one asked for last.
     rt.cancelApprovalReviews?.({ botId: bot.id })
@@ -85,7 +86,7 @@ export function install(rt) {
     // newer request exists, so a superseded request writes no more Sessions — every
     // Session the Bot has ends at the value the newest request actually applied.
     const applyTo = (sessionId, room = roomOfSession(sessionId)) => {
-      const groupRequest = room && roomRequests.get(room)
+      const groupRequest = groupRequests.get(sessionId)
       return setPreset(sessionId, () => request.seq === mine
         && (!room || (!room.permission && roomRequests.get(room) === groupRequest)) ? bot.permission : undefined, true)
     }
@@ -130,12 +131,14 @@ export function install(rt) {
     else room.permission = wanted
     const service = presets()
     if (service === undefined) return true
-    for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) {
+    const members = Object.entries(room.sessions ?? {}).map(([id, sessionId]) => ({ id, sessionId, seq: requests.get(id)?.seq }))
+    for (const { id: botId, sessionId, seq } of members) {
       if (roomRequests.get(room) !== request) break
       const bot = rt.botOf(botId)
       if (bot === undefined) continue
       // A member without a preset of its own goes back to the default its Session started on.
       await setPreset(sessionId, () => roomRequests.get(room) === request
+        && (room.permission !== undefined || requests.get(botId)?.seq === seq)
         ? room.permission ?? bot.permission ?? service.catalog().defaultPreset : undefined, true)
         .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', bot.name, room.name, error))
     }
