@@ -412,6 +412,8 @@ test('changing the pick moves the Bot\'s own chat and its group Session to fresh
   host.idle(memberBefore)
   await until(() => host.chatOf(writer.id) !== ownBefore)
   await until(() => host.state().rooms[room.id].sessions[writer.id] !== memberBefore)
+  // New ids are saved before handoff delivery and archiving finish.
+  await until(() => [ownBefore, memberBefore].every(id => host.state().switching?.[id] === undefined))
 
   const saved = host.state()
   assert.equal(saved.bots[writer.id].agentPreset, 'research')
