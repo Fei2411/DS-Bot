@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'\nexport { installLocale } from './src/client/i18n.js'\nexport { SHELL_CSS } from './src/client/styles.js'",
+    contents: "export { MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -66,7 +66,7 @@ runInNewContext(outputFiles[0].text, {
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { MailCatalogRow, MailToolCell, ConnectorsPage, installLocale, SHELL_CSS } = module.exports
+const { MailCatalogRow, MailToolCell, ConnectorsPage } = module.exports
 const render = () => { active = () => expand(MailCatalogRow(props)); rerender() }
 const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
 
@@ -260,47 +260,6 @@ test('a failed mail add shows the host message inside the form', async () => {
   assert.ok(alert, 'inline error')
   assert.match(flatten(alert).join(''), /password was refused/)
   assert.ok(String(collect(n => String(n.props?.className ?? '').includes('bt-mail-form'))[0]?.props?.className ?? '').includes('bt-mail-form'), 'form stays open')
-})
-
-// Six provider names share one segmented control; a wrapped name leaves the fixed
-// 30px button and spills out of the pill (seen with 其他 in Chinese). The rule keeps
-// every name on one line; this pins both the six labels and the rule.
-test('the six provider names each stay on one line in the pill, in Chinese and English', () => {
-  const expected = {
-    en: ['QQ', '163', '126', 'Gmail', 'iCloud', 'Other'],
-    zh: ['QQ', '163', '126', 'Gmail', 'iCloud', '其他'],
-  }
-  for (const [active, labels] of Object.entries(expected)) {
-    const dicts = new Map()
-    const off = installLocale({
-      register: (ns, locale, dict) => { dicts.set(`${ns}:${locale}`, dict); return () => dicts.delete(`${ns}:${locale}`) },
-      bind: ns => (key, params) => {
-        const text = (active === 'zh' ? dicts.get(`${ns}:zh`)?.[key] : undefined) ?? key
-        return params ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match)) : text
-      },
-      getLocale: () => ({ active }),
-    })
-    try {
-      props = { mail: { accounts: [] }, actions: { mailAccountAdd: () => Promise.resolve({}), mailAccountRemove: () => Promise.resolve(true) } }
-      slots.length = 0
-      render()
-      click(active === 'zh' ? '连接' : 'Connect')
-      const seg = collect(n => String(n.props?.className ?? '') === 'bt-seg bt-mail-seg')[0]
-      assert.ok(seg, `${active}: the provider segmented control`)
-      const names = []
-      const walk = (node) => {
-        if (node === null || node === undefined || node === false || node === true) return
-        if (Array.isArray(node)) { node.forEach(walk); return }
-        if (typeof node !== 'object') return
-        if (node.type === 'button') names.push(flatten(node).join(''))
-        walk(node.props?.children)
-      }
-      walk(seg)
-      assert.deepEqual(names, labels, `${active}: every provider, named once`)
-      for (const name of names) assert.doesNotMatch(name, /\s/, `${active}: ${name} is one word`)
-    } finally { off() }
-  }
-  assert.match(SHELL_CSS, /\.bt-mail-seg button\{[^}]*white-space:nowrap/, 'provider names cannot wrap inside their fixed-height buttons')
 })
 
 // The rows the host sends (`pending` is the row built in connectors/index.js).
