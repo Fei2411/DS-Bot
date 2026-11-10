@@ -574,23 +574,28 @@ export function install(rt) {
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         // A Bot that joins a group with a folder works there from its first turn.
         const joining = add.bots.filter(bot => !room.members.includes(bot.id))
+        // Members that have not spoken yet inherit these presets on their first Session.
+        const folderPermissions = members => ({
+          sessions: members.map(id => room.sessions?.[id]).filter(Boolean),
+          presets: members.map(id => room.permission ?? rt.botOf(id)?.permission ?? rt.permissionCatalog()?.defaultPreset).filter(Boolean),
+        })
         if (moving && workDir !== room.workDir) {
           const members = [...room.members, ...joining.map(bot => bot.id)]
-          await rt.approveFolder(exec, { path: workDir, sessions: members.map(id => room.sessions?.[id]).filter(Boolean), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
+          await rt.approveFolder(exec, { path: workDir, ...folderPermissions(members), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
         } else if (joining.length > 0) {
           const names = joining.map(bot => bot.name)
-          await rt.approveFolder(exec, { path: room.workDir, sessions: joining.map(bot => room.sessions?.[bot.id]).filter(Boolean), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+          await rt.approveFolder(exec, { path: room.workDir, ...folderPermissions(joining.map(bot => bot.id)), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
         }
         const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
         if (extraDirs !== undefined) {
           const members = [...room.members, ...joining.map(bot => bot.id)]
-          await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, sessions: members.map(id => room.sessions?.[id]).filter(Boolean), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
+          await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, ...folderPermissions(members), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
         }
         // A Bot that joins also gets the group's extra folders it keeps, so it asks for those too.
         const kept = (extraDirs ?? room.extraDirs ?? []).filter(path => (room.extraDirs ?? []).includes(path))
         if (joining.length > 0 && kept.length > 0) {
           const names = joining.map(bot => bot.name)
-          await rt.approveExtraDirs(exec, { paths: kept, sessions: joining.map(bot => room.sessions?.[bot.id]).filter(Boolean), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+          await rt.approveExtraDirs(exec, { paths: kept, ...folderPermissions(joining.map(bot => bot.id)), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
         }
         const { room: next, changes } = await rt.updateRoom(room.id, {
           name: args.name,

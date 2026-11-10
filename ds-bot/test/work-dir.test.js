@@ -1539,6 +1539,72 @@ test('a Bot that joins a group with extra folders needs the user\'s approval to 
   assert.equal(requests.length, 2)
 })
 
+test('group folder grants check permissions before member Sessions exist', async (t) => {
+  for (const mode of ['danger-full-access', 'read-only']) {
+    for (const source of ['group', 'member']) {
+      for (const change of ['extra_dirs', 'work_dir', 'join']) {
+        await t.test(`${mode}, ${source} preset, ${change}`, async (t) => {
+          const { requests, services } = approvalServices('rejected', { mode })
+          const permissionPresets = {
+            catalog: () => ({ options: [], defaultPreset: mode }),
+            resolve: name => ({ sandbox: name === 'bounded' ? 'workspace-write' : name, approval: 'ask' }),
+            set: () => {},
+          }
+          const saved = structuredClone(TEAM)
+          saved.rooms.r1.sessions = {}
+          saved.rooms.r1.admin = 'a'
+          if (source === 'group') saved.rooms.r1.permission = 'bounded'
+          else saved.bots.b.permission = 'bounded'
+          if (change === 'join') saved.rooms.r1.members = ['a']
+          const env = await start({ services: { ...services, permissionPresets }, team: saved })
+          t.after(env.stop)
+          if (change === 'join') await env.call('update-room', { id: 'r1', extraDirs: [env.project] })
+          const before = env.state().rooms.r1
+          const patch = change === 'join' ? { add_members: ['Writer'] } : { [change]: change === 'extra_dirs' ? [env.project] : env.project }
+          assert.equal(await env.tool('update_group', { group: 'Ops', ...patch }, 'a'), `Could not update "Ops": ${notAllowed(env.project)}`)
+          assert.equal(requests.length, 1)
+          assert.deepEqual(env.state().rooms.r1, before)
+          assert.equal(env.created.length, 0)
+        })
+      }
+    }
+  }
+})
+
+test('group folder grants follow the group preset before the member preset', async (t) => {
+  for (const mode of ['read-only', 'danger-full-access']) {
+    await t.test(mode, async (t) => {
+      const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+      const permissionPresets = {
+        catalog: () => ({ options: [], defaultPreset: 'danger-full-access' }),
+        resolve: name => ({ sandbox: name === 'bounded' ? 'workspace-write' : name, approval: 'ask' }),
+        set: () => {},
+      }
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.sessions = {}
+      saved.rooms.r1.permission = mode
+      saved.bots.b.permission = 'bounded'
+      const env = await start({ services: { ...services, permissionPresets }, team: saved })
+      t.after(env.stop)
+      assert.match(await env.tool('update_group', { group: 'Ops', extra_dirs: [env.project] }, 'a'), /^Updated "Ops"/)
+      assert.equal(requests.length, 0)
+      assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project])
+    })
+  }
+})
+
+test('an unavailable preset service still asks before a group folder grant', async (t) => {
+  const { requests, services } = approvalServices('allowed-once', { mode: 'danger-full-access' })
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.sessions = {}
+  saved.rooms.r1.permission = 'bounded'
+  const env = await start({ services, team: saved })
+  t.after(env.stop)
+  assert.match(await env.tool('update_group', { group: 'Ops', extra_dirs: [env.project] }, 'a'), /^Updated "Ops"/)
+  assert.equal(requests.length, 1)
+  assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project])
+})
+
 test('joining with an unchanged extra folder list still asks for approval', async (t) => {
   const { requests, services } = approvalServices('rejected')
   const env = await start({ services })

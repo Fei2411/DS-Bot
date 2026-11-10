@@ -151,16 +151,19 @@ export function install(rt) {
 
   // A folder outside the team workspace widens where a Bot may write, so a Bot that
   // sets one for Bots whose writes are bounded by their folder asks the user first.
-  // `sessions` are the Sessions that would work there; the default policy counts too,
-  // since the Sessions made there later start under it. Throws when it is not allowed.
-  async function approveFolder(exec, { path, sessions = [], who }) {
+  // Existing Sessions and the presets their future replacements inherit both count.
+  // The default policy also covers callers that have no preset.
+  async function approveFolder(exec, { path, sessions = [], presets = [], who }) {
     const team = await realTeam()
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
     if (policy !== undefined) {
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
       const modes = [policy.resolve(), ...agents.map(agent => policy.resolve({ session: agent.session }))].map(entry => entry.mode)
-      if (!modes.includes('workspace-write')) return
+      const service = ctx.get?.('permissionPresets')
+      modes.push(...presets.map(name => service?.resolve(name)?.sandbox))
+      // An unavailable preset service cannot establish that a future Session is unbounded.
+      if (modes.every(mode => mode === 'read-only' || mode === 'danger-full-access')) return
     }
     // With no policy service a Session's bounds cannot be checked, so a folder outside
     // the workspace asks like a bounded one would; when nobody can be asked it throws.

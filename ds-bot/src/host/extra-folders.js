@@ -69,9 +69,9 @@ export function install(rt) {
   }
 
   // A Bot that adds folders asks for each new one, as it does for a working folder.
-  async function approveExtraDirs(exec, { paths, before = [], sessions, who }) {
+  async function approveExtraDirs(exec, { paths, before = [], sessions, presets, who }) {
     for (const path of paths) {
-      if (!before.includes(path)) await rt.approveFolder(exec, { path, sessions, who })
+      if (!before.includes(path)) await rt.approveFolder(exec, { path, sessions, presets, who })
     }
   }
 
