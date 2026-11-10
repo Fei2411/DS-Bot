@@ -40,6 +40,7 @@ const MODE_PARAM = {
   description: '"everyone": every member answers a plain message in turn, admin first. "admin" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.',
 }
 const WORK_DIR_PARAM = { type: 'string', description: 'Full path of the folder to work in, where commands and file tools start. Only when the user asks for it' }
+const EXTRA_DIRS_PARAM = { type: 'array', items: { type: 'string' }, description: 'Full paths of more folders to work in besides the working folder, such as other projects; the file tools change files there without asking again. Replaces the list; an empty list removes them. Only when the user asks for it' }
 const SECTION_PARAM = { type: 'string', description: 'Sidebar section name to group Bots and group chats that work on the same project together; creates the section if it does not exist' }
 const AVATAR_PARAM = {
   type: 'string',
@@ -68,6 +69,7 @@ export function install(rt) {
       room.mode === 'admin' && room.admin ? 'plain messages go to the admin first' : 'every member replies in turn',
       room.notice ? `notice: ${room.notice.split('\n')[0].slice(0, 100)}` : '',
       room.workDir ? `members work in ${room.workDir} here` : '',
+      room.extraDirs?.length ? `members also work in ${room.extraDirs.join(', ')} here` : '',
       room.permission ? `members work with the ${room.permission} permissions here` : '',
       room.goal !== undefined ? `goal: "${room.goal.title}" (${room.goal.status}${room.goal.status === 'active' || room.goal.status === 'paused' ? `, stage ${Math.min(room.goal.current + 1, room.goal.stages.length)}/${room.goal.stages.length}` : ''})` : '',
     ].filter(Boolean)
@@ -89,7 +91,7 @@ export function install(rt) {
         if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
         const model = bot.appliedModel ?? bot.model
         const section = sectionNameOf(bot.sectionId)
-        const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+        const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', bot.extraDirs?.length ? `also works in ${bot.extraDirs.join(', ')}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
         const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
         return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
@@ -361,7 +363,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'update_bot',
-    description: 'Change a Bot\'s name, role, color, profile picture, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
+    description: 'Change a Bot\'s name, role, color, profile picture, model, thinking level, working folder, extra folders, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
     parameters: {
       bot: { type: 'string', description: 'Current name of the Bot to change; leave out to change yourself' },
       name: { type: 'string', description: 'New name' },
@@ -372,6 +374,7 @@ export function install(rt) {
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id. It stays on what it runs on: only the user moves a Bot between DS Bot models and a local agent CLI, or between two CLIs, in its settings.' },
       effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_bot_models shows; an empty string returns to the model\'s default' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
+      extra_dirs: EXTRA_DIRS_PARAM,
       section: { ...SECTION_PARAM, description: `${SECTION_PARAM.description}; an empty string removes the Bot from its section (Main Bot only)` },
     },
     output,
@@ -393,14 +396,17 @@ export function install(rt) {
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
+        const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
+        if (extraDirs !== undefined) await rt.approveExtraDirs(exec, { paths: extraDirs, before: bot.extraDirs, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
         // The photo rides on the Bot's other avatar fields, as the settings page's upload
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
         const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(section === undefined ? {} : { section }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self, exec.agent?.id)
-        if (!moving) return `Updated ${next.name}.`
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(section === undefined ? {} : { section }), ...(moving ? { workDir: workDir ?? '' } : {}), ...(extraDirs === undefined ? {} : { extraDirs }) }, self, exec.agent?.id)
+        const extras = extraDirs === undefined ? '' : extraDirs.length === 0 ? (bot.id === caller.id ? ' You have no extra folders now.' : ' It has no extra folders now.') : ` ${bot.id === caller.id ? 'You' : 'It'} also work${bot.id === caller.id ? '' : 's'} in ${extraDirs.join(', ')}.`
+        if (!moving) return `Updated ${next.name}.${extras}`
         const folder = workDir ?? 'the team workspace'
-        return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
+        return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.${extras}` : `Updated ${next.name}. It now works in ${folder}.${extras}`
       } catch (error) {
         return `Could not update the Bot: ${error.message}`
       }
@@ -410,7 +416,8 @@ export function install(rt) {
   // DSH's working_directory changes a Session's folder in place, and the next part starts in
   // the Bot's working folder again. A Bot that changes to a folder outside its working folder
   // sets its working folder instead, with update_bot's checks, and goes on in a fresh part
-  // there; a folder inside it only moves this Session there. In a group without a folder of
+  // there; a folder inside it, or inside one of its extra folders, only moves this Session
+  // there. In a group without a folder of
   // its own the change holds only for that conversation: the Bot's folder, its other groups
   // and its own chat keep theirs (folders.js memberDirs).
   ctx.on('tools/execute', async (exec, next) => {
@@ -425,6 +432,10 @@ export function install(rt) {
     const home = rt.workDirOf({ botId: bot.id, roomId: room?.id }) ?? rt.teamFolder()
     const target = await rt.folderAt(rt.sessionFolder(session), cd)
     if (target === undefined || !(await rt.isFolder(target)) || home === undefined || within(target, await rt.real(home))) return next()
+    // An extra folder is one the Bot already works in, so only this Session moves there.
+    for (const dir of rt.extraDirsOf({ botId: bot.id, roomId: room?.id })) {
+      if (within(target, await rt.real(dir))) return next()
+    }
     if (room?.workDir) throw new Error(`Every member of "${room.name}" works in ${room.workDir} here, so you stay inside it. The user or a Main Bot can change the group's folder.`)
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) throw new Error(`Your working folder cannot change now: ${readOnly}`)
@@ -534,6 +545,7 @@ export function install(rt) {
       admin: { type: 'string', description: 'Member to make the admin; "none" leaves the group without one (Main Bots only)' },
       mode: MODE_PARAM,
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)` },
+      extra_dirs: { ...EXTRA_DIRS_PARAM, description: `${EXTRA_DIRS_PARAM.description}. Every member also works there in this group (Main Bots only)` },
       section: { ...SECTION_PARAM, description: `${SECTION_PARAM.description}; an empty string removes the group from its section (Main Bots only)` },
     },
     output,
@@ -544,7 +556,7 @@ export function install(rt) {
       const { room, error } = pickRoom(args.group, self)
       if (error) return error
       const moving = typeof args.work_dir === 'string'
-      if (moving && !rt.isMain(self)) return `Only a Main Bot can set the folder of "${room.name}".`
+      if ((moving || args.extra_dirs !== undefined) && !rt.isMain(self)) return `Only a Main Bot can set the folder of "${room.name}".`
       if (args.section !== undefined && !rt.isMain(self)) return `Only a Main Bot can move "${room.name}" between sidebar sections.`
       const add = resolveBots(args.add_members)
       const remove = resolveBots(args.remove_members)
@@ -569,6 +581,11 @@ export function install(rt) {
           const names = joining.map(bot => bot.name)
           await rt.approveFolder(exec, { path: room.workDir, sessions: joining.map(bot => room.sessions?.[bot.id]).filter(Boolean), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
         }
+        const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
+        if (extraDirs !== undefined) {
+          const members = [...room.members, ...joining.map(bot => bot.id)]
+          await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, sessions: members.map(id => room.sessions?.[id]).filter(Boolean), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
+        }
         const { room: next, changes } = await rt.updateRoom(room.id, {
           name: args.name,
           notice: args.notice,
@@ -578,6 +595,7 @@ export function install(rt) {
           remove: remove.bots.map(bot => bot.id),
           ...(args.section === undefined ? {} : { section: args.section }),
           ...(moving ? { workDir: workDir ?? '' } : {}),
+          ...(extraDirs === undefined ? {} : { extraDirs }),
         }, self)
         return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
       } catch (failure) {

@@ -319,24 +319,30 @@ export function install(rt) {
   // private Bot's folder is no other Bot's, no group's and not the team workspace —
   // a member's own pick in a group counts as that member's folder — because DSH
   // cannot be told which files of a shared folder to hide.
-  async function checkChange(bot, { flag, moving, workDir }) {
+  // `extraDirs` is the new list of extra folders, or undefined when it stays.
+  async function checkChange(bot, { flag, moving, workDir, extraDirs }) {
     const makes = flag === undefined ? bot.private === true : flag
     const dir = moving ? workDir : bot.workDir
+    const extras = extraDirs ?? bot.extraDirs ?? []
     if (!makes) {
-      const clash = moving && dir !== undefined ? await privateClash(dir, { except: bot.id }) : undefined
-      if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${bot.name} cannot work there`)
+      const asked = [...(moving && dir !== undefined ? [dir] : []), ...(extraDirs ?? [])]
+      for (const path of asked) {
+        const clash = await privateClash(path, { except: bot.id })
+        if (clash) throw new Error(`${path} is in or around the folder of ${clash.name}, a private Bot, so ${bot.name} cannot work there`)
+      }
       return
     }
     if (rt.isMain(bot.id)) throw new Error(`${bot.name} is a Main Bot, so it cannot be private`)
     if (dir === undefined) throw new Error(`${bot.name} needs a folder of its own to be private`)
+    if (extras.length > 0) throw new Error(`${bot.name} works in extra folders, and a private Bot works in its own folder only. Remove its extra folders first`)
     if (Object.values(state.rooms).some(room => room.members.includes(bot.id))) throw new Error(`${bot.name} is in a group chat, where every member reads what is said. Remove it from its groups first`)
     const clash = await privateClash(dir, { except: bot.id })
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${bot.name} cannot work there`)
     const keys = await spellings(dir)
     const others = [
       ['the team workspace', teamFolder()],
-      ...Object.values(state.bots).filter(other => other.id !== bot.id && other.workDir).map(other => [`the folder of ${other.name}`, other.workDir]),
-      ...Object.values(state.rooms).filter(room => room.workDir).map(room => [`the folder of "${room.name}"`, room.workDir]),
+      ...Object.values(state.bots).filter(other => other.id !== bot.id).flatMap(other => [other.workDir, ...(other.extraDirs ?? [])].filter(Boolean).map(path => [`the folder of ${other.name}`, path])),
+      ...Object.values(state.rooms).flatMap(room => [room.workDir, ...(room.extraDirs ?? [])].filter(Boolean).map(path => [`the folder of "${room.name}"`, path])),
       ...Object.values(state.rooms).flatMap(room => Object.entries(room.memberDirs ?? {})
         .filter(([member, dir]) => room.members.includes(member) && dir !== null)
         .map(([member, dir]) => [`the folder of ${rt.botOf(member)?.name ?? 'a member'} in "${room.name}"`, dir])),

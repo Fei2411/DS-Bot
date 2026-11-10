@@ -200,7 +200,9 @@ export function install(rt) {
           if (workspace.path !== team) known.set(workspace.path, workspace.title)
         }
         for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
-          if (entry.workDir && !known.has(entry.workDir)) known.set(entry.workDir, basename(entry.workDir) || entry.workDir)
+          for (const dir of [entry.workDir, ...(entry.extraDirs ?? [])]) {
+            if (dir && !known.has(dir)) known.set(dir, basename(dir) || dir)
+          }
         }
         const present = await Promise.all([...known].map(async ([path, title]) => (await isFolder(path) ? { path, title } : undefined)))
         const kind = picker()?.kind
@@ -226,5 +228,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
 }

@@ -183,7 +183,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, extraDirs, copyOf, pickModel = false, section, sectionId }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -198,6 +198,11 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
+    const extras = extraDirs === undefined ? [] : await rt.cleanExtraDirs(extraDirs)
+    for (const path of extras) {
+      const found = await rt.privateClash(path)
+      if (found) throw new Error(`${path} is in or around the folder of ${found.name}, a private Bot, so ${cleanName} cannot work there`)
+    }
     if (!main && (section !== undefined || sectionId !== undefined)) resolveSectionInput({ section, sectionId }, { allowCreate: false })
     const id = await createSession(cleanName, { dir })
     try {
@@ -212,6 +217,7 @@ export function install(rt) {
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
+        ...(extras.length > 0 ? { extraDirs: extras } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
@@ -338,6 +344,7 @@ export function install(rt) {
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
+    const extraDirs = (await Promise.all((bot.extraDirs ?? []).map(async dir => (await rt.isFolder(dir) ? dir : undefined)))).filter(Boolean)
     // No await from here to createBot's check, so two copies at once get different names.
     return createBot({
       name: freshName(`${bot.name} copy`),
@@ -350,6 +357,7 @@ export function install(rt) {
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
       workDir,
+      extraDirs,
       sectionId: bot.sectionId,
       copyOf: bot.id,
     })
@@ -375,8 +383,9 @@ export function install(rt) {
     // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const extraDirs = patch.extraDirs === undefined ? undefined : await rt.cleanExtraDirs(patch.extraDirs ?? [])
     const flag = patch.private === undefined ? undefined : patch.private === true
-    await rt.checkPrivacyChange(bot, { flag, moving, workDir })
+    await rt.checkPrivacyChange(bot, { flag, moving, workDir, extraDirs })
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
@@ -454,6 +463,11 @@ export function install(rt) {
     if (moving) {
       if (workDir === undefined) delete bot.workDir
       else bot.workDir = workDir
+    }
+    // A Session keeps its folder, so new extra folders hold from the Bot's next step on.
+    if (extraDirs !== undefined) {
+      if (extraDirs.length === 0) delete bot.extraDirs
+      else bot.extraDirs = extraDirs
     }
     await rt.save()
     // The system prompt reads the live profile every turn, but a Session with
@@ -702,7 +716,7 @@ export function install(rt) {
     }
     if (patch.mode !== undefined && !ROOM_MODES.includes(patch.mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)
-    if (patch.workDir !== undefined && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
+    if ((patch.workDir !== undefined || patch.extraDirs !== undefined) && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
     if ((patch.section !== undefined || patch.sectionId !== undefined) && byAdmin) {
       throw new Error(`Only the user or a Main Bot can move "${room.name}" between sidebar sections`)
     }
@@ -725,8 +739,11 @@ export function install(rt) {
     planRoomChange(asked, patch, actorId)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
-    const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
-    if (clash) throw new Error(`${workDir} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
+    const extraDirs = patch.extraDirs === undefined ? undefined : await rt.cleanExtraDirs(patch.extraDirs ?? [])
+    for (const path of [...(workDir === undefined ? [] : [workDir]), ...(extraDirs ?? [])]) {
+      const clash = await rt.privateClash(path)
+      if (clash) throw new Error(`${path} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
+    }
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
@@ -766,6 +783,11 @@ export function install(rt) {
       delete room.memberDirs
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
       void rt.followFolder({ roomId: room.id })
+    }
+    if (extraDirs !== undefined && extraDirs.join('\n') !== (room.extraDirs ?? []).join('\n')) {
+      if (extraDirs.length === 0) delete room.extraDirs
+      else room.extraDirs = extraDirs
+      changes.push(extraDirs.length > 0 ? `every member also works in ${extraDirs.join(', ')} here` : 'removed the extra folders')
     }
     const before = room.name
     if (name !== undefined) {

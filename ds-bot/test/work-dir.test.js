@@ -1304,3 +1304,139 @@ test('a group Session that cannot be opened still saves the folder', async (t) =
   assert.equal(env.state().rooms.r1.id, 'r1')
   assert.equal((await env.call('state', {})).ok, true)
 })
+
+// Extra folders (#1297). The file tools' escalations run through the hooks as DSH chains
+// them: tools/execute in registration order, approval/request prepended, so the last
+// registered answers first.
+const chain = (listeners, last) => listeners.reduceRight((next, listener) => arg => listener(arg, () => next(arg)), last)
+const writeCall = ({ ctx, agentOf }, sessionId, { name = 'write', args, reason = 'escalate sandbox to danger-full-access: extra folder' } = {}) => {
+  const exec = { name, arguments: { ...args, sandbox_permissions: 'danger-full-access', justification: 'extra folder' }, callId: `call-${name}`, agent: agentOf(sessionId) }
+  const ask = chain([...ctx.listeners.get('approval/request')].reverse(), request => ctx.get('approval').request(request))
+  return chain(ctx.listeners.get('tools/execute'), () => ask({ agent: exec.agent, toolName: name, callId: exec.callId, reason }))(exec)
+}
+// A group Session's approval waits for an answer in the group: this one gives it.
+const groupAsks = async (call) => {
+  const outcome = call()
+  await until(() => rt.approvalsView().length === 1)
+  rt.answerApproval(rt.approvalsView()[0].id, 'reject')
+  return outcome
+}
+
+test('a Bot keeps a list of extra folders, saved as real paths', async (t) => {
+  const { call, state, dsh, root, project, team, stop } = await start()
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+  const saved = await call('update-bot', { id: 'b', extraDirs: [project, `"${project}/"`, other, team] })
+  assert.deepEqual(saved.value.extraDirs, [project, other, team])
+  assert.deepEqual(state().bots.b.extraDirs, [project, other, team])
+  // Its own chat stays where it was: a new extra folder needs no fresh part.
+  assert.equal(state().bots.b.workDir, undefined)
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: [dsh] })).error?.message, `${dsh} holds DeepSeek Harness data, so Bots cannot work there`)
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: ['project'] })).error?.message, 'Give the full path of the folder, not project')
+  const many = Array.from({ length: 9 }, (_, index) => join(root, `p${index}`))
+  for (const dir of many) mkdirSync(dir)
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: many })).error?.message, 'A Bot or a group can have at most 8 extra folders')
+  assert.deepEqual(state().bots.b.extraDirs, [project, other, team])
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: [] })).value.extraDirs, undefined)
+  assert.equal(state().bots.b.extraDirs, undefined)
+})
+
+test('a file tool writes in an extra folder without asking the user', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  const { call, root, project } = team
+  await call('update-bot', { id: 'b', extraDirs: [project] })
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(project, 'notes.md'), content: 'x' } }), 'allowed-once')
+  assert.equal(await writeCall(team, 'b', { name: 'edit', args: { file_path: join(project, 'deep', 'a.md'), old_string: 'a', new_string: 'b' } }), 'allowed-once')
+  // A patch may change the Session's own folder and the extra folder together.
+  const patch = `*** Begin Patch\n*** Add File: here.md\n+x\n*** Update File: ${join(project, 'notes.md')}\n*** Move to: ${join(project, 'moved.md')}\n*** End Patch`
+  assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input: patch } }), 'allowed-once')
+  assert.equal(requests.length, 0)
+  // Anywhere else, and for any shell command, the user still decides.
+  mkdirSync(join(root, 'elsewhere'))
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(root, 'elsewhere', 'x.md'), content: 'x' } }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { args: { file_path: `${project}/../elsewhere/x.md`, content: 'x' } }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input: `*** Begin Patch\n*** Add File: ${join(project, 'a.md')}\n+x\n*** Add File: ${join(root, 'elsewhere', 'b.md')}\n+x\n*** End Patch` } }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { name: 'bash', args: { command: `echo x > ${join(project, 'x.md')}` } }), 'rejected')
+  // The Main Bot has no extra folders.
+  assert.equal(await writeCall(team, 'a', { args: { file_path: join(project, 'x.md'), content: 'x' } }), 'rejected')
+  assert.equal(requests.length, 5)
+})
+
+test('a read-only Session does not write in its extra folders', async (t) => {
+  const { requests, services } = approvalServices('rejected', { mode: 'read-only' })
+  const team = await start({ services })
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  const reason = 'escalate sandbox to workspace-write: extra folder'
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(team.project, 'x.md'), content: 'x' }, reason }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(team.project, 'x.md'), content: 'x' } }), 'rejected')
+  assert.equal(requests.length, 2)
+})
+
+test('in a group, members add the group\'s extra folders to their own, unless the group has a folder', async (t) => {
+  const { services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  const { call, root, project } = team
+  const shared = join(root, 'shared')
+  mkdirSync(shared)
+  await call('update-bot', { id: 'b', extraDirs: [project] })
+  assert.deepEqual((await call('update-room', { id: 'r1', extraDirs: [shared] })).value.changes, [`every member also works in ${shared} here`])
+  assert.equal(await writeCall(team, 'gb', { args: { file_path: join(project, 'x.md'), content: 'x' } }), 'allowed-once')
+  assert.equal(await writeCall(team, 'gb', { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'allowed-once')
+  // The Bot's own chat does not get the group's.
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'rejected')
+  // With a folder of its own, the group holds its members to its folders.
+  const away = join(root, 'away')
+  mkdirSync(away)
+  await call('update-room', { id: 'r1', workDir: away })
+  assert.equal(await groupAsks(() => writeCall(team, 'gb', { args: { file_path: join(project, 'x.md'), content: 'x' } })), 'rejected')
+  assert.equal(await writeCall(team, 'gb', { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'allowed-once')
+  assert.deepEqual((await call('update-room', { id: 'r1', extraDirs: [] })).value.changes, ['removed the extra folders'])
+})
+
+test('a Bot sets its extra folders with the user\'s approval, and its prompt lists them', async (t) => {
+  const { requests, services } = approvalServices('allowed-once')
+  const { tool, state, ctx, project, root, stop } = await start({ services })
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+  assert.equal(await tool('update_bot', { extra_dirs: [project, other] }, 'b'), `Updated Writer. You also work in ${project}, ${other}.`)
+  assert.equal(requests.length, 2)
+  // A folder it already had is not asked about again.
+  assert.equal(await tool('update_bot', { extra_dirs: [project] }, 'b'), `Updated Writer. You also work in ${project}.`)
+  assert.equal(requests.length, 2)
+  const section = ctx.sections.get('bot-extra-folders')
+  const text = section.text({ agent: { id: 'b' } })
+  assert.ok(text.startsWith('## Your extra folders\n'), text)
+  assert.ok(text.includes(`\n- ${project}\n`), text)
+  assert.equal(section.text({ agent: { id: 'a' } }), '')
+  // Only a Main Bot sets a group's.
+  assert.equal(await tool('update_group', { group: 'Ops', extra_dirs: [other] }, 'b'), 'Only a Main Bot can set the folder of "Ops".')
+  assert.equal(await tool('update_group', { group: 'Ops', extra_dirs: [other] }, 'a'), `Updated "Ops": every member also works in ${other} here.`)
+  assert.deepEqual(state().rooms.r1.extraDirs, [other])
+  assert.equal(await tool('update_bot', { extra_dirs: [] }, 'b'), 'Updated Writer. You have no extra folders now.')
+})
+
+test('working_directory into an extra folder only moves the conversation', async (t) => {
+  const team = await start()
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  const exec = { name: 'working_directory', arguments: { cd: team.project }, callId: 'cd', agent: team.agentOf('b') }
+  assert.deepEqual(await chain(team.ctx.listeners.get('tools/execute'), async () => ({ ok: true }))(exec), { ok: true })
+  assert.equal(team.state().bots.b.workDir, undefined)
+  assert.deepEqual(team.state().bots.b.extraDirs, [team.project])
+})
+
+test('a private Bot works in its own folder only', async (t) => {
+  const { call, state, project, root, stop } = await start()
+  t.after(stop)
+  const own = join(root, 'own')
+  mkdirSync(own)
+  await call('update-bot', { id: 'b', workDir: own, extraDirs: [project] })
+  assert.equal((await call('update-bot', { id: 'b', private: true })).error?.message, 'Writer works in extra folders, and a private Bot works in its own folder only. Remove its extra folders first')
+  assert.equal(state().bots.b.private, undefined)
+})

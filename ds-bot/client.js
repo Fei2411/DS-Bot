@@ -1373,6 +1373,13 @@ var ZH = {
   "Pick when it runs": "选择什么时候运行",
   "No such task": "没有这个任务",
   "Working folder": "工作文件夹",
+  "Extra folders": "额外工作文件夹",
+  "Remove its extra folders first.": "请先移除它的额外工作文件夹。",
+  "Add folder": "添加文件夹",
+  "Add an extra folder": "添加一个额外工作文件夹",
+  "Remove {folder}": "移除 {folder}",
+  "The Bot also reads and changes files here, without asking you each time.": "Bot 也会读写这些文件夹里的文件，不再逐次问你。",
+  "Every member also reads and changes files here, without asking you each time.": "每个成员也会读写这些文件夹里的文件，不再逐次问你。",
   "Working folder: {folder}": "工作文件夹：{folder}",
   Folder: "文件夹",
   Folders: "文件夹",
@@ -1585,6 +1592,8 @@ var HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so (.+) cannot work there$/, "$1 在隐私 Bot「$2」的文件夹内或外层，$3 不能在这里工作"],
   [/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/, "$1 在隐私 Bot「$2」的文件夹内或外层，群聊不能在这里工作"],
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, "$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区"],
+  [/^A Bot or a group can have at most (\d+) extra folders$/, "一个 Bot 或群聊最多有 $1 个额外工作文件夹"],
+  [/^(.+) works in extra folders, and a private Bot works in its own folder only\. Remove its extra folders first$/, "$1 有额外工作文件夹，隐私 Bot 只能在自己的文件夹里工作。请先移除额外工作文件夹"],
   // Memory changes the memory panel asked for; the whole message is matched.
   [/^This looks like a key, token, or password[\s\S]*$/, "看起来像密钥、令牌或密码，记忆不会保存这类内容"],
   [/^An entry holds at most (\d+) characters; this one has (\d+)\.[\s\S]*$/, "一条记忆最多 $1 个字符，这条有 $2 个"],
@@ -10221,7 +10230,7 @@ var import_react21 = require("react");
 var import_react_dom2 = require("react-dom");
 var folderName = (path2) => String(path2).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || String(path2);
 var Tick = ({ on }) => (0, import_react21.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, on ? (0, import_react21.createElement)(CheckIcon) : null);
-function FolderMenu({ value, group = false, team = false, actions, run: run2, onPick, wide = false, disabled = false }) {
+function FolderMenu({ value, group = false, team = false, adding = false, actions, run: run2, onPick, wide = false, disabled = false }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
   const [info, setInfo] = (0, import_react21.useState)(null);
   const [view, setView] = (0, import_react21.useState)("list");
@@ -10263,7 +10272,7 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
   const listView = (0, import_react21.createElement)(
     "div",
     { key: "list", className: "bt-folder-view" },
-    team ? null : (0, import_react21.createElement)(
+    team || adding ? null : (0, import_react21.createElement)(
       "button",
       { type: "button", role: "menuitemradio", "aria-checked": !value, title: group ? void 0 : info?.team ?? void 0, onClick: () => choose("") },
       (0, import_react21.createElement)("span", { className: "bt-menu-label" }, fallback),
@@ -10335,7 +10344,7 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
         "data-wide": wide || void 0,
         "aria-haspopup": "menu",
         "aria-expanded": isOpen,
-        "aria-label": team ? t("Team workspace: {folder}", { folder: value ?? "" }) : t("Working folder: {folder}", { folder: value ?? fallback }),
+        "aria-label": adding ? t("Add an extra folder") : team ? t("Team workspace: {folder}", { folder: value ?? "" }) : t("Working folder: {folder}", { folder: value ?? fallback }),
         title: value,
         onClick: toggle,
         disabled
@@ -10343,17 +10352,52 @@ function FolderMenu({ value, group = false, team = false, actions, run: run2, on
       (0, import_react21.createElement)(
         "span",
         { className: "bt-model-copy" },
-        (0, import_react21.createElement)("span", { className: "bt-model-name" }, value ? folderName(value) : fallback),
+        (0, import_react21.createElement)("span", { className: "bt-model-name" }, adding ? t("Add folder") : value ? folderName(value) : fallback),
         value ? (0, import_react21.createElement)("span", { className: "bt-model-provider" }, value) : null
       ),
       (0, import_react21.createElement)(Caret)
     ),
     shownPlace ? (0, import_react_dom2.createPortal)((0, import_react21.createElement)(
       "div",
-      { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": team ? t("Team workspace") : t("Working folder"), style: shownPlace, "data-leaving": leaving || void 0 },
+      { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": adding ? t("Extra folders") : team ? t("Team workspace") : t("Working folder"), style: shownPlace, "data-leaving": leaving || void 0 },
       shownView,
       problem ? (0, import_react21.createElement)("div", { className: "bt-folder-error", role: "alert" }, problem) : null
     ), document.body) : null
+  );
+}
+function ExtraFolders({ value = [], group = false, actions, run: run2, onSave, disabled = false }) {
+  return (0, import_react21.createElement)(
+    import_react21.Fragment,
+    null,
+    value.map((path2) => (0, import_react21.createElement)(
+      "div",
+      { key: path2, className: "bt-set-row bt-bs-row" },
+      (0, import_react21.createElement)(
+        "span",
+        { className: "bt-set-copy", title: path2 },
+        (0, import_react21.createElement)("span", { className: "bt-bs-label" }, folderName(path2)),
+        (0, import_react21.createElement)("span", { className: "bt-set-hint bt-folder-path" }, path2)
+      ),
+      (0, import_react21.createElement)("button", {
+        type: "button",
+        className: "bt-x",
+        disabled,
+        "aria-label": t("Remove {folder}", { folder: path2 }),
+        title: t("Remove"),
+        onClick: () => onSave(value.filter((entry) => entry !== path2))
+      }, "×")
+    )),
+    (0, import_react21.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-row" },
+      (0, import_react21.createElement)(
+        "span",
+        { className: "bt-set-copy" },
+        (0, import_react21.createElement)("span", { className: "bt-bs-label" }, t("Extra folders")),
+        (0, import_react21.createElement)("span", { className: "bt-set-hint" }, group ? t("Every member also reads and changes files here, without asking you each time.") : t("The Bot also reads and changes files here, without asking you each time."))
+      ),
+      (0, import_react21.createElement)(FolderMenu, { adding: true, actions, run: run2, disabled, onPick: (path2) => value.includes(path2) ? void 0 : onSave([...value, path2]) })
+    )
   );
 }
 var FOLDER_CSS = `
@@ -11956,7 +12000,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const isTile = roster.mainBotId === bot.id;
   const inGroup = (roster.rooms ?? []).some((room2) => room2.members?.includes(bot.id));
   const privateHint = t("Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.");
-  const privacyHint = bot.private === true ? privateHint : isMainBot ? t("A Main Bot cannot be private.") : inGroup ? t("Leave its group chats before making it private.") : !bot.workDir ? t("Choose a working folder of its own first.") : privateHint;
+  const privacyHint = bot.private === true ? privateHint : isMainBot ? t("A Main Bot cannot be private.") : inGroup ? t("Leave its group chats before making it private.") : !bot.workDir ? t("Choose a working folder of its own first.") : bot.extraDirs?.length ? t("Remove its extra folders first.") : privateHint;
   const save = (patch) => run2(actions.updateBot(bot.id, patch));
   const duplicate = () => run2(actions.duplicateBot(bot.id).then((copy2) => actions.openSession(copy2.id)));
   const remove = () => {
@@ -12015,7 +12059,9 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         { className: "bt-set-row bt-bs-row" },
         (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)("span", { className: "bt-bs-label" }, t("Folder"))),
         (0, import_react26.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, onPick: (workDir) => save({ workDir }) })
-      )
+      ),
+      // A private Bot works in its own folder only.
+      bot.private === true ? null : (0, import_react26.createElement)(ExtraFolders, { value: bot.extraDirs, actions, run: run2, onSave: (extraDirs) => save({ extraDirs }) })
     ),
     (0, import_react26.createElement)(
       Card2,
@@ -12024,7 +12070,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         label: t("Private"),
         hint: privacyHint,
         on: bot.private === true,
-        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
+        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0),
         onChange: (value) => save({ private: value })
       })
     ),
@@ -16935,7 +16981,8 @@ function GroupSettingsForm({ room: room2, roster, actions, run: run2, onDeleted 
         { className: "bt-set-row bt-bs-row" },
         (0, import_react36.createElement)("span", { className: "bt-set-copy" }, (0, import_react36.createElement)("span", { className: "bt-bs-label" }, t("Folder"))),
         (0, import_react36.createElement)(FolderMenu, { value: room2.workDir, group: true, actions, run: run2, onPick: (workDir) => update({ workDir }) })
-      )
+      ),
+      (0, import_react36.createElement)(ExtraFolders, { value: room2.extraDirs, group: true, actions, run: run2, onSave: (extraDirs) => update({ extraDirs }) })
     ),
     (0, import_react36.createElement)(GroupPermission, { room: room2, catalog: roster.permissions, update }),
     (0, import_react36.createElement)(

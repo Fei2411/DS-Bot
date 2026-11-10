@@ -98,8 +98,9 @@ async function start({ platform = 'telegram', adapter, seed } = {}) {
       if (listener.length >= 2) listener({ id: sessionId }, { type, data, time: Date.now() })
     }
   }
-  const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? [])
-    .map(listener => listener(request, next)))
+  // As DSH's waterfall runs them: every listener is prepended, so the last one goes first.
+  const fireApprovals = (request, next) => [...(ctx.listeners.get('approval/request') ?? [])]
+    .reduce((rest, listener) => () => listener(request, rest), next)().then(outcome => [outcome])
   const stop = async () => {
     adapters[platform] = real
     await ctx.dispose()
