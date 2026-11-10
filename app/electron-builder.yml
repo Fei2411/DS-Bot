@@ -44,6 +44,18 @@ npmRebuild: false
 # So the binaries come from npm as it installed them; a build for another architecture stops.
 beforePack: ./scripts/before-pack.mjs
 win:
+  # The Cua Driver SDK finds its DLL from where its own module lies and hands that path to
+  # Windows' loader, which cannot open a file inside the asar, unpacked or not (#1025). Out here
+  # the SDK and the @ubjs runtime it imports are plain files, and the computer-use provider's
+  # import goes up from app.asar/node_modules to resources/node_modules and finds them.
+  files:
+    - '!node_modules/@trycua{,/**/*}'
+    - '!node_modules/@ubjs{,/**/*}'
+  extraResources:
+    - from: node_modules/@trycua
+      to: node_modules/@trycua
+    - from: node_modules/@ubjs
+      to: node_modules/@ubjs
   target:
     - target: nsis
       arch: [x64]

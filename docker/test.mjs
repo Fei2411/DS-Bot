@@ -143,8 +143,10 @@ JS
     'run', '--detach', '--rm', '--name', server, '--network', 'none', ...mounts(),
     '-e', 'PUID=1234', '-e', 'PGID=1235', '-e', 'DSH_TELEMETRY_DISABLED=1', image,
   ])
+  const address = docker(['exec', server, 'sh', '-c', 'hostname -i 2>/dev/null || echo 127.0.0.1']).stdout.trim().split(/\s+/)[0]
+  assert.ok(address, 'the container must have an address for the default DSH bind')
   const probe = `
-    const response = await fetch('http://127.0.0.1:3080/');
+    const response = await fetch('http://${address}:3080/');
     if (![200, 401].includes(response.status)) throw new Error('Unexpected HTTP status: ' + response.status);
   `
   const deadline = Date.now() + 45_000

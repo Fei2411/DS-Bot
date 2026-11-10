@@ -494,7 +494,7 @@ function apply(next) {
   if ((next.lang ?? 'zh') !== lang || !applied) { lang = next.lang ?? 'zh'; renderStatic() }
   const motion = next.motion ?? 'normal'
   if (root.dataset.motion !== motion) root.dataset.motion = motion
-  // macOS and Linux draw a system title bar, so the page has no band of its own.
+  // Linux draws a system title bar, so the page has no band of its own.
   if (next.frame === 'system') root.dataset.frame = 'system'
   else delete root.dataset.frame
   root.dataset.view = next.view

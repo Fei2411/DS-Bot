@@ -36,10 +36,10 @@ async function boot({ approval } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   const adapter = makeAdapter()
-  ctx.llm.registerAdapter(['acp-fake'], adapter)
+  ctx.llm.registerAdapter(['local-acp-fake'], adapter)
   if (approval !== undefined) ctx.provide('approval', approval)
   await mountAgentLoopTestHarness(ctx)
-  const agent = await ctx.agentLoop.create(SessionId('s1'), { provider: 'acp-fake', model: 'default' })
+  const agent = await ctx.agentLoop.create(SessionId('s1'), { provider: 'local-acp-fake', model: 'default' })
   return { ctx, agent, adapter }
 }
 

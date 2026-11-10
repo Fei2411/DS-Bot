@@ -83,9 +83,13 @@ export function ClosedView({ title, closed }) {
 // mirroring the question dock.
 export function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster(value => value.views?.[sessionId])
+  const closed = useRoster(value => value.closedViews?.[sessionId])
   const drawn = useCards?.(state => state[sessionId]?.[view?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('view', view?.id)] > 0) === true
-  if (view === undefined || (view.callId && drawn && !held)) return null
+  // A dock card has no call row to stay at, so its closed form stays in the dock,
+  // read-only, until a new card takes its place.
+  if (view === undefined) return closed === undefined ? null : h('div', { className: 'bt-q-dock' }, h(SettledQuestion, { question: { question: closed.title || t('View') }, closed: closed.closed }))
+  if (view.callId && drawn && !held) return null
   return h(PendingView, { sessionId, view, actions, inline: false })
 }
 

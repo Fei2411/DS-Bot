@@ -156,11 +156,44 @@ test('the goal entry is only offered to a group whose admin is a member and whos
   assert.equal(canSetGoal({ ...room, goal: running({ status: 'stopped' }) }, roster), true)
 })
 
-const renderHeader = (roster, ui = {}, work = {}, actions = {}) => HeaderPill({
-  sessionId: 'r1',
+const renderHeader = (roster, ui = {}, work = {}, actions = {}, sessionId = 'r1') => HeaderPill({
+  sessionId,
   useRoster: hook(roster), useSessions: hook({ byId: {} }), useSessionStatus: hook(new Map()),
   useSession: hook({}), useActivity: hook({}), useMemoryNews: hook({}), useTurnClock: hook({}),
   useUi: hook(ui), useLive: hook({}), useWork: hook(work), actions,
+})
+
+// A group whose own Session moved to a new part: `room.id` stays the first Session's
+// id while `room.sessionId` is the fresh part, and both find the room (sources.js).
+const movedTeam = (goalValue) => {
+  const roster = team(goalValue)
+  const room = { ...roster.roomsById.r1, sessionId: 'r1-part2' }
+  return { ...roster, roomsById: { r1: room, 'r1-part2': room } }
+}
+
+test('a group whose Session moved still opens the goal draft keyed by the room', () => {
+  const node = renderHeader(movedTeam(), { goalCompose: 'r1', goalOpen: 'r1' }, {}, {}, 'r1-part2')
+  const island = find(node, 'bt-island')
+  assert.ok(island)
+  assert.equal(island.props['data-goal'], 'compose')
+  assert.ok(find(island, 'bt-goal-input'))
+})
+
+test('a group whose Session moved opens an existing goal panel keyed by the room', () => {
+  const node = renderHeader(movedTeam(running()), { goalOpen: 'r1' }, {}, {}, 'r1-part2')
+  assert.ok(find(node, 'bt-goal-panel'))
+})
+
+test('goal state opened for one group does not open another group after a move', () => {
+  const roster = movedTeam(running())
+  const other = { id: 'r2', sessionId: 'r2', name: 'Design', members: ['a', 'b'], admin: 'a', goal: running({ id: 'g2' }) }
+  roster.roomsById.r2 = other
+  const moved = renderHeader(roster, { goalOpen: 'r1' }, {}, {}, 'r1-part2')
+  assert.ok(find(moved, 'bt-goal-panel'))
+  const elsewhere = renderHeader(roster, { goalOpen: 'r1', goalCompose: 'r1' }, {}, {}, 'r2')
+  // r2 has a goal of its own, so the closed island is there; r1's panel and draft are not.
+  assert.equal(find(elsewhere, 'bt-goal-panel'), null)
+  assert.equal(find(elsewhere, 'bt-goal-input'), null)
 })
 
 test('a group without a goal renders today\'s pill with no island', () => {

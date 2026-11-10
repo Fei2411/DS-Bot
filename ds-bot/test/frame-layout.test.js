@@ -78,7 +78,7 @@ test('a hidden column takes no room, and a panel shows or covers beside nothing'
   const layout = at(1000, 280, { pref: 'hidden', panel: details() })
   assert.deepEqual({ left: layout.left, panel: layout.panel, room: layout.room }, { left: 'hidden', panel: 'shown', room: 1000 })
   assert.equal(at(600, 280, { pref: 'hidden', panel: details() }).panel, 'folded')
-  assert.deepEqual(at(600, 280, { pref: 'hidden', panel: details(true) }), { left: 'hidden', panel: 'overlay', room: 600 })
+  assert.deepEqual(at(600, 280, { pref: 'hidden', panel: details(true) }), { left: 'hidden', panel: 'overlay', column: 0, room: 600 })
 })
 
 test('the switch hides the column and brings back the one it hid', () => {
@@ -192,4 +192,26 @@ test('openers keep a yield already given', () => {
   assert.equal(ui.getSnapshot().panelYield, true)
   actions.setPanelView('side')
   assert.equal(ui.getSnapshot().panelYield, true)
+})
+
+// New chat, Bot exchanges and voice mode start at the left column's edge, whichever
+// form the column has; the shell's own sidebar plays no part.
+test('the left column reports the edge the full-height panes start at', () => {
+  assert.equal(at(809, 280).column, 280)
+  assert.equal(at(600, 280, { pref: 'rail' }).column, RAIL_WIDTH)
+  assert.equal(at(600, 280, { drawer: true }).column, RAIL_WIDTH)
+  assert.equal(at(1400, 280, { pref: 'hidden' }).column, 0)
+  assert.equal(at(1400, 340).room, 1400 - at(1400, 340).column)
+})
+
+test('a panel that takes the column\'s room moves the edge to the rail', () => {
+  assert.equal(at(809, 280, { panel: details(true) }).column, RAIL_WIDTH)
+})
+
+test('opening new chat closes the floating drawer', () => {
+  const { ui, actions } = bench(false)
+  ui.set(state => ({ ...state, leftDrawer: true }))
+  actions.openNewChat('new')
+  assert.equal(ui.getSnapshot().newChat, 'new')
+  assert.equal(ui.getSnapshot().leftDrawer, false)
 })

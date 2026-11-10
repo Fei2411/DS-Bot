@@ -3,7 +3,6 @@ import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
-import { AgentBadge } from './agent-badge.js'
 import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
@@ -196,6 +195,33 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
   ]
 }
 
+// A local agent Bot's sessions: the current one first, then the earlier ones,
+// newest first. Each row names when it started and how it was last titled.
+function AgentSessions({ bot, part, run, useSessions }) {
+  const ids = [part, ...(bot.parts ?? []).filter(id => id !== part).slice().reverse()]
+  const rows = useSessions(list => ids.map(id => list.byId?.[id]), rowsEqual)
+  const total = ids.length
+  return h('div', { className: 'bt-drawer-model' },
+    h('div', { className: 'bt-agent-sessions-head' },
+      h('div', { className: 'bt-section-title' }, t('Sessions')),
+      h('button', { type: 'button', className: 'bt-agent-sessions-new', onClick: () => run(call('bot-new-part', { botId: bot.id })) }, h(PlusIcon), t('New session'))),
+    h('div', { className: 'bt-agent-sessions' }, ids.map((id, index) => {
+      const row = rows[index]
+      const current = index === 0
+      const when = row?.updatedAt ?? row?.createdAt
+      const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
+      return h('button', {
+        key: id, type: 'button', disabled: current,
+        className: `bt-agent-session${current ? ' is-current' : ''}`,
+        title: current ? t('Current session') : t('Open this earlier session'),
+        onClick: current ? undefined : () => run(call('bot-open-part', { botId: bot.id, sessionId: id })),
+      },
+        h('span', { className: 'bt-agent-session-name' }, label),
+        h('span', { className: 'bt-agent-session-meta' }, current ? t('Current') : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
+    })))
+}
+const rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt)
+
 export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer }) {
   const owner = roster.byId[sessionId]
   const part = owner ? currentPart(owner) : sessionId
@@ -299,11 +325,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h('div', { className: 'bt-section-title' }, t('Model')),
           h(ModelMenu, { bot, roster, actions, run, wide: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
-          bot.engine ? h('div', { className: 'bt-kv' }, h('span', null, t('Agent')), h(AgentBadge, { engine: bot.engine })) : null),
-        bot.engine ? h('div', { key: 'sessions', className: 'bt-drawer-model' },
-          h('div', { className: 'bt-section-title' }, t('Sessions')),
-          [h('button', { key: 'new', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(call('bot-new-part', { botId: bot.id })) }, t('New session')),
-            ...(bot.parts ?? []).slice().reverse().map((part, index) => h('button', { key: part, type: 'button', className: 'bt-soft bt-soft-sm', title: t('Open this earlier session'), onClick: () => run(call('bot-open-part', { botId: bot.id, sessionId: part })) }, t('Session {number}', { number: (bot.parts ?? []).length - index })))]) : null,
+        ),
+        bot.engine ? h(AgentSessions, { key: 'sessions', bot, part, run, useSessions }) : null,
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h(BotConnectors, { key: 'connectors', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },

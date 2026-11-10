@@ -306,7 +306,7 @@ test('the change log keeps what each change replaced, and the id that tells it a
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await tool('remember', { text: 'Likes green tea', replace: 'Likes tea' }, 'b2')
   const [added, replaced] = journal()
-  assert.deepEqual(Object.keys(added).sort(), ['actor', 'actorName', 'after', 'file', 'id', 'op', 'scope', 'time'])
+  assert.deepEqual(Object.keys(added).sort(), ['actor', 'actorName', 'after', 'file', 'id', 'op', 'scope', 'session', 'time'])
   assert.equal(replaced.before, added.after)
   assert.notEqual(replaced.id, added.id)
 })

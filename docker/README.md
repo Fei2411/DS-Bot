@@ -3,6 +3,8 @@
 This directory deploys DS Bot as a Docker image: a `dsh web` server (DeepSeek
 Harness) with the `ds-bot` plugin installed, ready for a NAS or any always-on
 box. The container is the sandbox boundary — see [Permissions](#permissions).
+For local source development with frontend rebuilds and host restarts, see
+[the development Compose setup](README.dev.md).
 
 ## Requirements
 
@@ -42,8 +44,11 @@ http://172.x.x.x:3080/?token=…)`. Take the token from it and open
 `http://<NAS IP>:13080/?token=…` once in your browser: the token sets a signed
 cookie (valid 30 days, bound to that authority), after which
 `http://<NAS IP>:13080/` opens the UI directly. The printed port is the container's;
-use the host port from `ports:` when opening it. The first time the team opens,
-DS Bot creates a Main Bot called Chief.
+use the host port from `ports:` when opening it. The token is a fresh
+process credential on every start. It exchanges itself for a signed cookie
+(valid 30 days), whose key persists in `/data`, so later restarts keep the
+browser logged in. Bookmark the root URL without `?token=…`. The first time
+the team opens, DS Bot creates a Main Bot called Chief.
 
 An alternative for users who prefer `.env` is still available in `docker/`:
 
@@ -72,15 +77,15 @@ so file ownership stays right.
 
 ## Network
 
-`dsh web` binds only loopback or all interfaces (`0.0.0.0`) — never a concrete
-LAN address — and its `--host` flag refuses `0.0.0.0`, so the entrypoint writes
-a config overlay that binds all interfaces. Inside a container the publish rule
-is the real boundary, and the trust fence below still applies. The UI checks
-the `Host` header of every `/api` request: loopback is always trusted, and
-every other name or IP you open it at must be listed in `DSH_TRUSTED_HOST`
-(no port — a bare entry trusts it on any port), or the API answers 403.
-`DSH_HOST=127.0.0.1` narrows the bind to loopback (e.g. a reverse proxy in the
-same network namespace); published ports then no longer reach it.
+On dsh 0.2.2, the entrypoint passes one concrete address to `--host`.
+The default `DSH_HOST=0.0.0.0` selects the container's own address. Inside a
+container the publish rule is the real boundary, and the trust fence below
+still applies. The UI checks the `Host` header of every `/api` request:
+loopback is always trusted, and every other name or IP you open it at must be
+listed in `DSH_TRUSTED_HOST` (no port — a bare entry trusts it on any port),
+or the API answers 403. `DSH_HOST=127.0.0.1` narrows the bind to loopback
+(e.g. a reverse proxy in the same network namespace); published ports then no
+longer reach it.
 
 Alternatives:
 
@@ -110,7 +115,7 @@ see `docker/.env.example` for its full list. The main variables are:
 | `DEEPSEEK_BASE_URL` | Override the endpoint (Anthropic-Messages-compatible) |
 | `DSH_TRUSTED_HOST` | Comma-separated host names / IPs the UI answers to |
 | `DSH_PORT` | Alternative `.env` deployment's host port (default 3080); edit `ports` directly in the root Compose file |
-| `DSH_HOST` | Bind address: `0.0.0.0` (default) or `127.0.0.1`; only relevant with `network_mode: host` |
+| `DSH_HOST` | Bind address: `0.0.0.0` selects the container address (default); `127.0.0.1` selects loopback; a concrete host address is useful with `network_mode: host` |
 | `DSH_LISTEN_PORT` | Listen port inside the container (default 3080); only relevant with `network_mode: host` |
 | `PUID` / `PGID` | User/group the server runs as and new files belong to |
 | `DSH_TELEMETRY_DISABLED` | `1` turns off dsh's anonymous telemetry |
@@ -181,9 +186,10 @@ The packed plugin stays at `/opt/ds-bot/ds-bot.tgz` for later dependency
 installs. `/tmp/ds-bot.tgz` links to it for profiles created by older images.
 A manual dependency install can therefore pick up the plugin bundled in the
 current image; restarting alone does not update the persisted profile.
-The image is built and tested with dsh `0.2.0-rc.2`, the version
-DS Bot is verified with; a `DSH_VERSION` build arg exists, but other releases
-are untested and newer ones change how the server binds.
+The image is built and tested with dsh `0.2.2-rc.1`, the version
+DS Bot is verified with. The entrypoint translates the default wildcard setting
+to the concrete container address this release requires. A `DSH_VERSION` build
+arg exists, but other releases are untested.
 
 ## Prebuilt image
 
