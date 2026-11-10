@@ -472,17 +472,33 @@ async function chat(cdp) {
     while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
     return node?.querySelector('button[aria-busy]') ?? null
   })()`
-  const composerState = () => evaluate(`(() => {
+  const snapshot = `(() => {
     const el = ${box}
     const button = ${send}
-    return JSON.stringify({
+    return {
+      at: performance.now(), focused: document.hasFocus(), visibility: document.visibilityState,
       active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      editorComposing: el?.hasAttribute('data-composer-composing') ?? false, popup: document.querySelector('[role=listbox]') !== null,
       draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
-      tail: document.body.innerText.slice(-300),
-    })
-  })()`)
+    }
+  })()`
+  const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, tail: document.body.innerText.slice(-300) })`)
   try {
-    await until(`(() => { const button = ${send}; return button !== null && !button.disabled })()`, 'the send button', 30_000)
+    // Capture readiness in the existing probe: an extra CDP round trip before Enter can hide a race.
+    await until(`(() => {
+      const button = ${send}
+      if (button === null || button.disabled) return false
+      const trace = window.__packedEnter = { before: ${snapshot}, events: [] }
+      for (const type of ['keydown', 'keyup']) window.addEventListener(type, event => {
+        const entry = { ...${snapshot}, type, key: event.key, code: event.code, keyCode: event.keyCode,
+          target: event.target?.tagName ?? null, composing: event.isComposing, repeat: event.repeat,
+          shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey }
+        trace.events.push(entry)
+        // A later task sees preventDefault from every capture and bubble handler.
+        setTimeout(() => { entry.prevented = event.defaultPrevented }, 0)
+      }, { capture: true, once: true })
+      return true
+    })()`, 'the send button', 30_000)
   } catch (error) {
     throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
