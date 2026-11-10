@@ -860,6 +860,9 @@ var JA = {
   "Today {time}": "今日 {time}",
   "Yesterday {time}": "昨日 {time}",
   "Ran for {duration}": "実行時間 {duration}",
+  "Nothing is running": "実行中のタスクはありません",
+  "This reply says work is going on, but no tool, background job or subagent is running.": "この返信は作業中と述べていますが、ツール、バックグラウンドジョブ、サブエージェントは動いていません。",
+  "File not found: {path}": "ファイルが見つかりません：{path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · キャッシュヒット {hit}%",
   "1 turn": "1 ターン",
   "{count} turns": "{count} ターン",
@@ -3138,6 +3141,9 @@ var KO = {
   "Today {time}": "오늘 {time}",
   "Yesterday {time}": "어제 {time}",
   "Ran for {duration}": "{duration} 동안 실행됨",
+  "Nothing is running": "실행 중인 작업 없음",
+  "This reply says work is going on, but no tool, background job or subagent is running.": "이 답변은 작업 중이라고 하지만 실행 중인 도구, 백그라운드 작업 또는 하위 에이전트가 없습니다.",
+  "File not found: {path}": "파일을 찾을 수 없음: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · 캐시 적중 {hit}%",
   "1 turn": "1턴",
   "{count} turns": "{count}턴",
@@ -5433,6 +5439,9 @@ var ES = {
   "Today {time}": "Hoy {time}",
   "Yesterday {time}": "Ayer {time}",
   "Ran for {duration}": "Duración: {duration}",
+  "Nothing is running": "No se está ejecutando nada",
+  "This reply says work is going on, but no tool, background job or subagent is running.": "Esta respuesta dice que hay trabajo en curso, pero no se está ejecutando ninguna herramienta, tarea en segundo plano ni subagente.",
+  "File not found: {path}": "No se encuentra el archivo: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Acierto de caché {hit}%",
   "1 turn": "1 turno",
   "{count} turns": "{count} turnos",
@@ -7700,6 +7709,9 @@ var FR = {
   "Today {time}": "Aujourd’hui {time}",
   "Yesterday {time}": "Hier {time}",
   "Ran for {duration}": "Exécuté pendant {duration}",
+  "Nothing is running": "Rien ne tourne",
+  "This reply says work is going on, but no tool, background job or subagent is running.": "Cette réponse annonce un travail en cours, mais aucun outil, tâche en arrière-plan ou sous-agent ne tourne.",
+  "File not found: {path}": "Fichier introuvable : {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Cache {hit} %",
   "1 turn": "1 tour",
   "{count} turns": "{count} tours",
@@ -9978,6 +9990,9 @@ var DE = {
   "Today {time}": "Heute {time}",
   "Yesterday {time}": "Gestern {time}",
   "Ran for {duration}": "Laufzeit {duration}",
+  "Nothing is running": "Es läuft nichts",
+  "This reply says work is going on, but no tool, background job or subagent is running.": "Diese Antwort sagt, dass Arbeit läuft, aber kein Werkzeug, Hintergrundjob oder Subagent läuft.",
+  "File not found: {path}": "Datei nicht gefunden: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Cache-Treffer {hit}%",
   "1 turn": "1 Durchgang",
   "{count} turns": "{count} Durchgänge",
@@ -17930,7 +17945,7 @@ var COMPUTER_CSS = `
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
 `;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/ui.js
+// node_modules/deep-view/src/react/ui.js
 var import_react12 = require("react");
 var FallbackMarkdown = ({ text }) => (0, import_react12.createElement)("span", null, String(text ?? ""));
 var ViewUi = (0, import_react12.createContext)({ t: (key) => key, Markdown: FallbackMarkdown });
@@ -17997,7 +18012,7 @@ function useOptionKeys2(count, onPick, ownRef) {
   return count > 0 && listening <= 1;
 }
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/core/formula.js
+// node_modules/deep-view/src/core/formula.js
 var FUNCTIONS = {
   min: { args: [1, Infinity], run: (...values) => Math.min(...values.map(num)) },
   max: { args: [1, Infinity], run: (...values) => Math.max(...values.map(num)) },
@@ -18278,7 +18293,7 @@ function evaluate(tree, lookup) {
   }
 }
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/core/views.js
+// node_modules/deep-view/src/core/views.js
 var LAYOUT = ["stack", "row"];
 var DISPLAY = ["text", "metric", "table", "chart", "progress", "callout", "sources", "html"];
 var INPUT_TYPES = ["slider", "choice", "toggle", "number"];
@@ -18910,7 +18925,7 @@ function validateForm(node, values) {
   return { fields };
 }
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/chart.js
+// node_modules/deep-view/src/react/chart.js
 var import_react13 = require("react");
 var PALETTE = ["var(--dv-accent)", "var(--dv-ink-tangerine)", "var(--dv-ink-green)", "var(--dv-ink-violet)", "var(--dv-ink-sky)", "var(--dv-ink-rose)", "var(--dv-ink-yellow)", "var(--dv-ink-cyan)", "var(--dv-ink-magenta)"];
 var colorAt = (index) => PALETTE[index % PALETTE.length];
@@ -19349,7 +19364,7 @@ var CHART_CSS = `
 @media (prefers-reduced-motion:reduce){.dv-chart-mark,.dv-chart-dot{transition:none}.dv-chart-tip{animation:none}}
 `;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/frame.js
+// node_modules/deep-view/src/react/frame.js
 var import_react14 = require("react");
 var THEME_VARS = [
   ["--view-ink", "--bt-ink", "--dv-ink"],
@@ -19431,7 +19446,7 @@ var HTML_CSS = `
 .dv-view-frame-stopped{margin:0;font-size:13px;line-height:18px;color:var(--dv-ink-2)}
 `;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/card.js
+// node_modules/deep-view/src/react/card.js
 var import_react15 = require("react");
 var mdLabels = (ui2) => ({ code: { copyLabel: ui2.t("Copy"), copiedLabel: ui2.t("Copied") }, footnotes: ui2.t("Footnotes") });
 var TONES2 = ["good", "warn", "bad"];
@@ -20173,7 +20188,7 @@ ${CHART_CSS}
 ${HTML_CSS}
 `;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/styles.js
+// node_modules/deep-view/src/react/styles.js
 var THEME_CSS = `
 body{
 --dv-ink:var(--dsw-alias-label-primary);
@@ -20271,10 +20286,10 @@ button.dv-q-opt:active{background:var(--dv-active)}
 @media (prefers-reduced-motion:reduce){.dv-q,.dv-view-bare,.dv-q-submit,.dv-menu,.dv-q-check{animation:none}}
 `;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/index.js
+// node_modules/deep-view/src/react/index.js
 var DEEP_VIEW_CSS = THEME_CSS + QUESTION_CSS + WIDGET_CSS;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/core/reply.js
+// node_modules/deep-view/src/core/reply.js
 var REPLY_KIND = "user-question-reply";
 var REPLY_SOURCE_KIND = "deep-view-reply";
 function viewCardText(args) {
@@ -30254,7 +30269,7 @@ var CONNECTORS_PAGE_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-app[data-fresh]::after,.bt-app[data-fresh] .bt-app-icon,.bt-app[data-fresh] .bt-app-btn-done{animation:none}}
 `;
 
-// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/qrcode-generator/dist/qrcode.mjs
+// node_modules/qrcode-generator/dist/qrcode.mjs
 var qrcode = function(typeNumber, errorCorrectionLevel) {
   const PAD0 = 236;
   const PAD1 = 17;
