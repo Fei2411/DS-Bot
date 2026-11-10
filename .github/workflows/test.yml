@@ -96,6 +96,7 @@ jobs:
         run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run typecheck
+      - run: npm test
 
   link:
     name: Phone link and Relay Server

@@ -2,7 +2,6 @@
   "expo": {
     "name": "DS Bot",
     "slug": "dsbot",
-    "version": "0.1.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -34,6 +33,7 @@
           "recordAudioAndroid": false
         }
       ],
+      "./plugins/android-release-signing.js",
       [
         "expo-build-properties",
         {
