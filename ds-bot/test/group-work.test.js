@@ -1773,3 +1773,121 @@ test('stopping a group before its callee starts clears the pending batch', async
   await settle(() => first() !== undefined)
   assert.equal(rt.roomBatchPending('r1'), false)
 })
+
+// A member that two Bots call is in both batches: each finished piece of work wakes
+// the Bot that asked for it, and only for that piece of work.
+const wakeNote = message => text(message).match(/^\[Group chat "Ops" · ([^\]]*)\]/)?.[1]
+const workStep = (host, sessionId, callId) => {
+  host.emit(sessionId, 'tool/call', { callId, name: 'edit', arguments: '{}' })
+  host.emit(sessionId, 'tool/result', { callId })
+}
+
+test('a member two Bots called wakes each of them for its own call when it finishes in the round', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief @Tester 各自给 Writer 安排一件事'))
+  await settle(() => host.agentOf('ga').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 把首页标题改成春季上新')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '@Writer 顺便把测试跑一遍')
+  await settle(() => host.agentOf('gb').calls.length === 1 && rt.roomBatchPending('r1'))
+  assert.equal(host.agentOf('gb').calls.length, 1, 'the second call waits for the first')
+
+  host.begin('gb')
+  workStep(host, 'gb', 'k1')
+  host.finish('gb', '标题改好了，换成了「春季上新」。')
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  assert.equal(wakeNote(host.agentOf('ga').calls[1]), 'Writer finished the work you asked for')
+  assert.equal(host.agentOf('gc').calls.length, 1, 'Tester is not woken for Chief\'s call')
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  assert.equal(wakeNote(host.agentOf('gb').calls[1]), 'Tester mentioned you')
+  host.begin('gb')
+  workStep(host, 'gb', 'k2')
+  host.finish('gb', '测试跑完，全过。')
+  await settle(() => host.agentOf('gc').calls.length === 2)
+  assert.equal(wakeNote(host.agentOf('gc').calls[1]), 'Writer finished the work you asked for')
+  assert.match(text(host.agentOf('gc').calls[1]), /Writer: 测试跑完，全过。/)
+  assert.equal(host.agentOf('ga').calls.length, 2, 'Chief is not woken for Tester\'s call')
+  host.begin('gc')
+  host.finish('gc', '[PASS]')
+  await settle(() => first() !== undefined)
+  assert.equal(rt.roomBatchPending('r1'), false)
+})
+
+// Chief calls Writer and Tester together; Tester, at work in the background, calls Writer
+// as well. Writer's result for Chief waits for Tester, and Writer's result for Tester wakes
+// Tester, once.
+test('a member two Bots called wakes each of them for its own call when it finishes after the round went on', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('c1', host.say('排查一下构建'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 读构建日志 @Tester 跑全量测试')
+  await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gc').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'read', arguments: '{}' })
+  host.begin('gc')
+  host.emit('gc', 'tool/call', { callId: 'k2', name: 'pwsh', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+
+  // Tester calls Writer for a log of its own while Writer reads the build log.
+  step(host, 'gc', '@Writer 也帮我查一下磁盘空间', 'p1')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const call = host.round('c2', host.takePost())
+  await settle(() => call() !== undefined)
+  assert.deepEqual(kinds(call()).filter(([kind]) => kind === 'working'), [['working', 'Writer']])
+  const inbox = host.agentOf('gb').inbox
+  const correction = inbox.nextStep[0]
+  assert.equal(correction.source.askedBy, 'c')
+  inbox.remove(correction.id)
+  host.emit('gb', 'user/message', { content: correction.content, source: correction.source })
+
+  // Writer's result for Chief waits for Tester, who is still at work.
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', 'R1：日志里缺环境变量 FOO。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const early = host.takePost()
+  assert.deepEqual([early.source.late, early.source.quiet], [true, true])
+  const quietRound = host.round('c3', early)
+  await settle(() => quietRound() !== undefined)
+  assert.equal(host.agentOf('ga').calls.length, 1, 'Chief is not woken before Tester is done')
+
+  host.emit('gc', 'tool/result', { callId: 'k2' })
+  host.emit('gc', 'tool/result', { callId: 'p1' })
+  host.finish('gc', 'R2：测试全过。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const last = host.takePost()
+  assert.deepEqual([last.source.askedBy, last.source.quiet], ['a', undefined])
+  const wake = host.round('c4', last)
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  assert.match(text(host.agentOf('ga').calls[1]), /Writer: R1：日志里缺环境变量 FOO。/)
+  assert.match(text(host.agentOf('ga').calls[1]), /Tester: R2：测试全过。/)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => wake() !== undefined)
+  assert.equal(host.agentOf('gc').calls.length, 1, 'Tester is not woken for Chief\'s call')
+
+  // The turn that answers Tester's call is Writer's second, and wakes Tester.
+  await settle(() => inbox.nextTurn.length === 1)
+  const deferred = host.begin('gb')
+  assert.equal(deferred.source.askedBy, 'c')
+  workStep(host, 'gb', 'k3')
+  host.finish('gb', 'R3：磁盘还剩 40G。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const own = host.takePost()
+  assert.deepEqual([own.source.askedBy, own.source.quiet], ['c', undefined])
+  const third = host.round('c5', own)
+  await settle(() => host.agentOf('gc').calls.length === 2)
+  assert.match(text(host.agentOf('gc').calls[1]), /Writer: R3：磁盘还剩 40G。/)
+  assert.equal(host.agentOf('ga').calls.length, 2, 'Chief is not woken for Tester\'s call')
+  host.begin('gc')
+  host.finish('gc', '[PASS]')
+  await settle(() => third() !== undefined)
+  assert.equal(rt.roomBatchPending('r1'), false)
+})
