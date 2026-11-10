@@ -24,6 +24,7 @@ export const CAPABILITIES = [
   'chat',
   'room-chat',
   'send',
+  'send-images',
   'feed',
   'feed-room',
   'notices',
@@ -352,9 +353,8 @@ export function install(rt) {
           if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
             const key = String(block.attachment.attachmentId)
             if (body.preview === true && previews.get(key)) return shown(key)
-            const chunks = []
-            for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) chunks.push(chunk)
-            const bytes = Buffer.concat(chunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c)))
+            // An image block's ref names no file: DSH reads it as an image, not a file.
+            const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
             const mime = mediaOf(block.attachment) ?? 'image/png'
             const { width, height } = block.attachment
             if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
