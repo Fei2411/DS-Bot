@@ -80,6 +80,9 @@ test('extra folders are listed under the working folder and saved as one list', 
   const privacy = tree.find(node => node.props?.label === 'Private')
   assert.equal(privacy.props.disabled, true)
   assert.equal(privacy.props.hint, 'Remove its extra folders first.')
+  // A local agent owns its file permissions and has no extra-folder controls.
+  const local = settings({ ...bot, workDir: '/work', engine: 'local-codex', extraDirs: ['/site'] })
+  assert.equal(local.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
   // A private Bot has no list to edit.
   const closed = settings({ ...bot, workDir: '/work', private: true })
   assert.equal(closed.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)

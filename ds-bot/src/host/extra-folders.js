@@ -4,7 +4,7 @@
 // change that lands in the Session's folder or one of its extra folders, DS Bot answers
 // the approval itself. The paths of a shell command cannot be read reliably, so a shell
 // command still asks the user.
-import { resolve } from 'node:path'
+import { parsePatch } from '@deepseek-ai/dsh-fs-patch'
 import { within } from './folders.js'
 import { unquote } from './text.js'
 
@@ -12,7 +12,6 @@ export const MAX_EXTRA_DIRS = 8
 
 // The file tools that change files, and how each names what it changes.
 const PATH_ARGS = { write: 'file_path', edit: 'file_path' }
-const PATCH_PATH = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm
 // The reason dsh-sandbox gives an escalation, up to the model's justification.
 const ESCALATION = 'escalate sandbox to danger-full-access:'
 
@@ -21,7 +20,14 @@ const targetsOf = (name, args) => {
     const path = args?.[PATH_ARGS[name]]
     return typeof path === 'string' && path.trim() !== '' ? [path] : []
   }
-  if (name === 'apply_patch' && typeof args?.input === 'string') return [...args.input.matchAll(PATCH_PATH)].map(match => match[1].trim())
+  if (name === 'apply_patch' && typeof args?.input === 'string') {
+    // Match DSH's syntax exactly: indented headers can name more files too.
+    try {
+      return parsePatch(args.input).flatMap(operation => operation.moveTo === undefined ? [operation.path] : [operation.path, operation.moveTo])
+    } catch {
+      return []
+    }
+  }
   return []
 }
 
@@ -90,12 +96,14 @@ export function install(rt) {
     const extras = extraDirsOfSession(sessionId)
     const policy = ctx.get?.('sandboxPolicy')?.resolve?.({ session: call.session })
     const base = rt.sessionFolder(call.session)
-    if (extras.length === 0 || policy?.mode !== 'workspace-write' || base === undefined) return false
+    const fs = ctx.get?.('fs')
+    if (extras.length === 0 || policy?.mode !== 'workspace-write' || base === undefined || fs === undefined) return false
     const dirs = [policy.workspaceRoot ?? call.session?.header?.cwd, ...extras].filter(Boolean)
     const roots = (await Promise.all(dirs.map(async dir => (await rt.isFolder(dir) ? rt.real(dir) : undefined)))).filter(Boolean)
     for (const target of call.targets) {
-      const path = await rt.realBeyond(resolve(base, target))
-      if (!roots.some(root => within(path, root)) || await rt.guarded(path)) return false
+      // Resolve as the file tool does, including ~ and physical symlink/.. traversal.
+      const path = fs.processPath(await fs.resolve(target, { cwd: base }))
+      if (fs.processPathFromHostPath(path) !== path || !roots.some(root => within(path, root)) || await rt.guarded(path)) return false
     }
     return true
   }

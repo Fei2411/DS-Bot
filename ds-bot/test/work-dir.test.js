@@ -5,6 +5,9 @@ import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
+import { parsePatch } from '@deepseek-ai/dsh-fs-patch'
+import { Context } from '@deepseek-ai/cordis'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createRuntime } from '../index.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 import { dshHomeOf } from '../src/host/folders.js'
@@ -49,7 +52,9 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
-  const ctx = fakeContext({ services })
+  const fsHost = new Context()
+  await fsHost.plugin(LocalFileSystem, { cwd: team })
+  const ctx = fakeContext({ services: { fs: fsHost.get('fs'), ...services } })
   const created = []
   const archived = []
   const cwds = new Map()
@@ -125,6 +130,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
   const stop = async () => {
     // The writes still running finish before their folder goes.
     await ctx.dispose()
+    await fsHost.fiber.dispose()
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
@@ -1351,7 +1357,7 @@ test('a file tool writes in an extra folder without asking the user', async (t) 
   assert.equal(await writeCall(team, 'b', { args: { file_path: join(project, 'notes.md'), content: 'x' } }), 'allowed-once')
   assert.equal(await writeCall(team, 'b', { name: 'edit', args: { file_path: join(project, 'deep', 'a.md'), old_string: 'a', new_string: 'b' } }), 'allowed-once')
   // A patch may change the Session's own folder and the extra folder together.
-  const patch = `*** Begin Patch\n*** Add File: here.md\n+x\n*** Update File: ${join(project, 'notes.md')}\n*** Move to: ${join(project, 'moved.md')}\n*** End Patch`
+  const patch = `*** Begin Patch\n*** Add File: here.md\n+x\n*** Update File: ${join(project, 'notes.md')}\n*** Move to: ${join(project, 'moved.md')}\n@@\n-a\n+b\n*** End Patch`
   assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input: patch } }), 'allowed-once')
   assert.equal(requests.length, 0)
   // Anywhere else, and for any shell command, the user still decides.
@@ -1363,6 +1369,63 @@ test('a file tool writes in an extra folder without asking the user', async (t) 
   // The Main Bot has no extra folders.
   assert.equal(await writeCall(team, 'a', { args: { file_path: join(project, 'x.md'), content: 'x' } }), 'rejected')
   assert.equal(requests.length, 5)
+})
+
+test('patch approvals inspect indented headers and move destinations as DSH parses them', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  const outside = join(team.root, 'elsewhere', 'x.md')
+  const inside = join(team.project, 'x.md')
+  const cases = [
+    `*** Add File: ${inside}\n+x\n  *** Add File: ${outside}\n+x`,
+    `*** Add File: ${inside}\n+x\n\t*** Delete File: ${outside}`,
+    `*** Add File: ${inside}\n+x\n  *** Update File: ${outside}\n@@\n-a\n+b`,
+    `*** Update File: ${inside}\n*** Move to: ${outside}\n@@\n-a\n+b`,
+  ]
+  for (const body of cases) {
+    const input = `*** Begin Patch\n${body}\n*** End Patch`
+    assert.ok(parsePatch(input).some(operation => operation.path === outside || operation.moveTo === outside))
+    assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input } }), 'rejected')
+  }
+  assert.equal(requests.length, cases.length)
+  const input = `*** Begin Patch\n  *** Add File: ${inside}\n+x\n*** End Patch`
+  assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input } }), 'allowed-once')
+})
+
+test('home-prefixed file targets are checked in the filesystem execution path', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-bot', { id: 'b', extraDirs: [env.project] })
+  const paths = ['~/ds-bot-extra-folder-check.txt']
+  if (process.platform === 'win32') paths.push('~\\ds-bot-extra-folder-check.txt')
+  for (const file_path of paths) {
+    const fs = env.ctx.get('fs')
+    const target = await fs.resolve(file_path, { cwd: env.team })
+    assert.equal(fs.processPath(target), join(homedir(), 'ds-bot-extra-folder-check.txt'))
+    assert.equal(await writeCall(env, 'b', { args: { file_path, content: 'x' } }), 'rejected')
+    assert.equal(await writeCall(env, 'b', { name: 'edit', args: { file_path, old_string: 'a', new_string: 'b' } }), 'rejected')
+    const input = `*** Begin Patch\n*** Add File: ${file_path}\n+x\n*** End Patch`
+    assert.equal(await writeCall(env, 'b', { name: 'apply_patch', args: { input } }), 'rejected')
+  }
+  assert.equal(requests.length, paths.length * 3)
+})
+
+test('physical parent traversal through a symlink is checked outside the workspace', { skip: process.platform === 'win32' }, async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-bot', { id: 'b', extraDirs: [env.project] })
+  const outside = join(env.root, 'outside')
+  mkdirSync(join(outside, 'nested'), { recursive: true })
+  symlinkSync(join(outside, 'nested'), join(env.team, 'escape'), 'dir')
+  const file_path = 'escape/../x.md'
+  const fs = env.ctx.get('fs')
+  assert.equal(fs.processPath(await fs.resolve(file_path, { cwd: env.team })), join(outside, 'x.md'))
+  assert.equal(await writeCall(env, 'b', { args: { file_path, content: 'x' } }), 'rejected')
+  assert.equal(requests.length, 1)
 })
 
 test('a read-only Session does not write in its extra folders', async (t) => {
@@ -1443,6 +1506,36 @@ test('a Bot that joins a group with extra folders needs the user\'s approval to 
   assert.equal(requests.length, 2)
 })
 
+test('joining with an unchanged extra folder list still asks for approval', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-room', { id: 'r1', extraDirs: [env.project] })
+  await env.call('create-bot', { name: 'Coder' })
+  assert.equal(await env.tool('update_group', { group: 'Ops', add_members: ['Coder'], extra_dirs: [env.project] }, 'a'), `Could not update "Ops": ${notAllowed(env.project)}`)
+  assert.deepEqual(env.state().rooms.r1.members, ['a', 'b'])
+  assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project])
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].reason, `Let Coder work in ${env.project}? Files there can then be changed.`)
+})
+
+test('joining with kept and new extra folders asks once for each grant', async (t) => {
+  const { requests, services } = approvalServices('allowed-once')
+  const env = await start({ services })
+  t.after(env.stop)
+  const other = join(env.root, 'other')
+  mkdirSync(other)
+  await env.call('update-room', { id: 'r1', extraDirs: [env.project] })
+  const coder = (await env.call('create-bot', { name: 'Coder' })).value
+  assert.match(await env.tool('update_group', { group: 'Ops', add_members: ['Coder'], extra_dirs: [env.project, other] }, 'a'), /^Updated "Ops"/)
+  assert.ok(env.state().rooms.r1.members.includes(coder.id))
+  assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project, other])
+  assert.deepEqual(requests.map(request => request.reason), [
+    `Let every member of "Ops" work in ${other}? Files there can then be changed.`,
+    `Let Coder work in ${env.project}? Files there can then be changed.`,
+  ])
+})
+
 test('working_directory into an extra folder only moves the conversation', async (t) => {
   const team = await start()
   t.after(team.stop)
@@ -1471,6 +1564,10 @@ test('a Bot on a local agent has no extra folders', async (t) => {
   rt.engineOfBot = bot => (bot?.id === 'b' ? 'codex' : 'model')
   // The CLI changes files itself, so nothing is approved on its behalf and the prompt is silent.
   assert.equal(team.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'b' } }), '')
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(team.project, 'x.md'), content: 'x' } }), 'rejected')
+  await team.call('update-room', { id: 'r1', extraDirs: [team.project] })
+  assert.equal(team.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'gb' } }), '')
+  assert.equal(await groupAsks(() => writeCall(team, 'gb', { args: { file_path: join(team.project, 'x.md'), content: 'x' } })), 'rejected')
   assert.equal((await team.call('update-bot', { id: 'b', extraDirs: [team.project] })).error?.message, 'Writer runs on a local agent, which keeps its own file permissions, so it has no extra folders')
   assert.equal((await team.call('update-bot', { id: 'b', extraDirs: [] })).ok, true)
   assert.equal(team.state().bots.b.extraDirs, undefined)
