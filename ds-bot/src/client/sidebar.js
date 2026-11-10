@@ -1518,8 +1518,9 @@ export const SIDEBAR_CSS = `
    of its own, so the buttons inside need a fill the page does not already give them. */
 .bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar));box-shadow:inset -1px 0 0 var(--bt-line)}
 .bt-leftcol:not([data-left=rail])>.bt-side{background:transparent;border:0;border-radius:0;box-shadow:none;padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
-.bt-leftcol:not([data-left=rail]) .bt-round{background:var(--bt-field,var(--bt-hover))}
-.bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)),var(--bt-ink) 8%)}
+/* A step off the page in either mode, so the buttons stay visible on the flat inbox. */
+.bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
+.bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
 .bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:box-shadow .12s ease}
 .bt-search:focus-within{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 45%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}

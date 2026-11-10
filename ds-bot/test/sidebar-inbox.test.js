@@ -260,7 +260,7 @@ test('B: card, title, search, segments, group heads and rows carry the specified
   assert.match(panel, /border-radius:0/)
   assert.match(panel, /box-shadow:none/)
   // With the card gone, the round buttons inside need a fill of their own.
-  assert.match(rule('.bt-leftcol:not([data-left=rail]) .bt-round'), /background:var\(--bt-field/)
+  assert.match(rule('.bt-leftcol:not([data-left=rail]) .bt-round'), /background:color-mix\(in srgb,var\(--bt-page/)
   const search = rule('.bt-search')
   assert.match(search, /height:36px/)
   assert.match(search, /border-radius:10px/)
