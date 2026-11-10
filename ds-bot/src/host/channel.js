@@ -7,6 +7,9 @@ import { handoffReply, questionReply, viewReply } from './parts.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
+const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const STAGED_MS = 30 * 60_000
+
 const LANGUAGES = { zh: 'Chinese (简体中文)', en: 'English' }
 const RUN_STATS = ['sessionStats', 'tokenUsage', 'contextPressure']
 
@@ -33,6 +36,8 @@ export function install(rt) {
   let uiLocale
   rt.uiLanguage = () => (uiLocale === undefined ? undefined : LANGUAGES[uiLocale.split('-')[0].toLowerCase()] ?? uiLocale)
 
+  // Photos staged by `stage-image`, kept until the message that names them is sent.
+  const staged = new Map()
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -564,11 +569,33 @@ export function install(rt) {
           await rt.save()
           return ok(true)
         }
+        // A photo for the next `send`, one per call: a phone's link carries a few MB per
+        // message, so photos travel one by one and the message names them.
+        case 'stage-image': {
+          const mediaType = String(body.mediaType ?? '')
+          const data = typeof body.data === 'string' ? body.data : ''
+          if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
+          const now = Date.now()
+          for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
+          const id = randomUUID()
+          staged.set(id, { mediaType, data, at: now })
+          return ok({ id })
+        }
         case 'send': {
           const text = String(body.text ?? '').trim()
-          if (text === '' || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          const ids = Array.isArray(body.images) ? body.images.map(String) : []
+          if ((text === '' && ids.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          const images = ids.map(id => staged.get(id))
+          if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
           await rt.load()
-          await rt.sendUser({ sessionId: body.sessionId, content: [{ type: 'text', text }] })
+          await rt.sendUser({
+            sessionId: body.sessionId,
+            content: [
+              ...(text === '' ? [] : [{ type: 'text', text }]),
+              ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
+            ],
+          })
+          for (const id of ids) staged.delete(id)
           return ok(true)
         }
         case 'btw-delete': {

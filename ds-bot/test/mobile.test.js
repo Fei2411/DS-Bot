@@ -349,6 +349,30 @@ test('stop-chat ends a Bot own-chat turn, and answers false when nothing runs', 
   await stop()
 })
 
+test('a phone stages photos one by one, then send puts them in one message with the text', async () => {
+  const { call, sent, stop } = start()
+  const { chief } = await team(call)
+  const pixel = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64')
+  assert.deepEqual(await call('stage-image', { mediaType: 'text/html', data: pixel }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a photo DS Bot can send', details: {} } })
+  const first = (await call('stage-image', { mediaType: 'image/jpeg', data: pixel })).value.id
+  const second = (await call('stage-image', { mediaType: 'image/png', data: pixel })).value.id
+  const before = sent.length
+  assert.equal((await call('send', { sessionId: chief, text: 'look', images: [first, second] })).value, true)
+  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined).prompt
+  assert.deepEqual(prompt.content, [
+    { type: 'text', text: 'look' },
+    { type: 'image', mediaType: 'image/jpeg', data: pixel },
+    { type: 'image', mediaType: 'image/png', data: pixel },
+  ])
+  // A photo goes once: sending the same ids again is refused, and photos alone are a message.
+  assert.equal((await call('send', { sessionId: chief, text: '', images: [first] })).error.code, 'bot/stale')
+  const third = (await call('stage-image', { mediaType: 'image/jpeg', data: pixel })).value.id
+  assert.equal((await call('send', { sessionId: chief, text: '', images: [third] })).ok, true)
+  assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'image', mediaType: 'image/jpeg', data: pixel }])
+  assert.equal((await call('hello', {})).value.capabilities.includes('send-images'), true)
+  await stop()
+})
+
 test('chat with steps folds the turn tool calls into a steps row after its last text', async () => {
   const { call, history, stop } = start()
   const { chief } = await team(call)
@@ -374,7 +398,7 @@ test('chat items carry imageRefs and image returns bytes for an owned session on
   const { ctx, call, history, stop } = start()
   const { chief } = await team(call)
   const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
-  const file = await ctx.get('attachments').saveFile({ data: Buffer.from('PNG bytes'), name: 'shot.png' })
+  const file = await ctx.get('attachments').saveImage({ data: Buffer.from('PNG bytes'), mediaType: 'image/png', width: 4, height: 4 })
   history[sessionId] = [
     { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'look' }, { type: 'image', attachment: file }] } },
   ]
@@ -400,8 +424,8 @@ test('image with preview sends a small JPEG of a large photo, and the original w
   for (let at = 0; at < pixels.length; at += 1) pixels[at] = (at * 7919) % 251
   const photo = jpeg.encode({ data: pixels, width, height }, 90).data
   const small = jpeg.encode({ data: Buffer.alloc(8 * 8 * 4, 200), width: 8, height: 8 }, 90).data
-  const big = await ctx.get('attachments').saveFile({ data: photo, name: 'photo.jpg', mediaType: 'image/jpeg', width, height })
-  const tiny = await ctx.get('attachments').saveFile({ data: small, name: 'tiny.jpg', mediaType: 'image/jpeg', width: 8, height: 8 })
+  const big = await ctx.get('attachments').saveImage({ data: photo, mediaType: 'image/jpeg', width, height })
+  const tiny = await ctx.get('attachments').saveImage({ data: small, mediaType: 'image/jpeg', width: 8, height: 8 })
   history[sessionId] = [
     { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: big }, { type: 'image', attachment: tiny }] } },
   ]
