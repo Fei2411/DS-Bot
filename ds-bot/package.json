@@ -50,10 +50,14 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-fs-patch": "*",
     "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-web": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-fs-patch": { "optional": true }
   },
   "dsh": {
     "client": {

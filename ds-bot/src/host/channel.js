@@ -385,6 +385,7 @@ export function install(rt) {
             add: Array.isArray(body.add) ? body.add : undefined,
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
+            extraDirs: body.extraDirs,
             permission: body.permission,
             section: body.section,
             sectionId: body.sectionId,

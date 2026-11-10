@@ -4,7 +4,7 @@ import { PlusIcon, ChevronRightIcon } from './icons.js'
 import { AdminStar, BotAvatar, BotMark, RoomAvatar } from './mark.js'
 import { Card, Row, InlineText, SwitchRow } from './bot-settings.js'
 import { Segmented } from './motion.js'
-import { FolderMenu } from './folder-menu.js'
+import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { PermissionPicker } from './permission-picker.js'
 import { t } from './i18n.js'
 
@@ -79,7 +79,8 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) }))),
+        h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) })),
+      h(ExtraFolders, { value: room.extraDirs, group: true, actions, run, onSave: extraDirs => update({ extraDirs }) })),
     h(GroupPermission, { room, catalog: roster.permissions, update }),
     h(Card, { title: t('Members · {count}', { count: members.length }) },
       members.map((member) => {

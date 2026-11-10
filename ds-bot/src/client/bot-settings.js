@@ -6,7 +6,7 @@ import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { RunModeCard } from './agent-cards.js'
-import { FolderMenu } from './folder-menu.js'
+import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { BotComputerCard } from './computer.js'
@@ -192,7 +192,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const isTile = roster.mainBotId === bot.id
   const inGroup = (roster.rooms ?? []).some(room => room.members?.includes(bot.id))
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
-  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
+  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
@@ -219,13 +219,15 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
+        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
+      // A private Bot works in its own folder only; a local agent keeps its own file permissions.
+      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
         hint: privacyHint,
         on: bot.private === true,
-        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
+        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0),
         onChange: value => save({ private: value }),
       })),
     h(Card, { title: t('Instructions') },
