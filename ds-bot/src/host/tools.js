@@ -586,6 +586,12 @@ export function install(rt) {
           const members = [...room.members, ...joining.map(bot => bot.id)]
           await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, sessions: members.map(id => room.sessions?.[id]).filter(Boolean), who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
         }
+        // A Bot that joins also gets the group's extra folders it keeps, so it asks for those too.
+        const kept = (extraDirs ?? room.extraDirs ?? []).filter(path => (room.extraDirs ?? []).includes(path))
+        if (joining.length > 0 && kept.length > 0) {
+          const names = joining.map(bot => bot.name)
+          await rt.approveExtraDirs(exec, { paths: kept, sessions: joining.map(bot => room.sessions?.[bot.id]).filter(Boolean), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+        }
         const { room: next, changes } = await rt.updateRoom(room.id, {
           name: args.name,
           notice: args.notice,

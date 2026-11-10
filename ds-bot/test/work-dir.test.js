@@ -1421,6 +1421,28 @@ test('a Bot sets its extra folders with the user\'s approval, and its prompt lis
   assert.equal(await tool('update_bot', { extra_dirs: [] }, 'b'), 'Updated Writer. You have no extra folders now.')
 })
 
+test('a Bot that joins a group with extra folders needs the user\'s approval to work there', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const { call, tool, project, root, state, stop } = await start({ services })
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+  assert.equal((await call('update-room', { id: 'r1', extraDirs: [project] })).ok, true)
+  assert.equal((await call('create-bot', { name: 'Coder' })).ok, true)
+  // The group admin may add members, and the group has no folder of its own to ask about.
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Coder'] }, 'b'), `Could not update "Ops": ${notAllowed(project)}`)
+  assert.deepEqual(state().rooms.r1.members, ['a', 'b'])
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].reason, `Let Coder work in ${project}? Files there can then be changed.`)
+  // A folder set in the same change is asked about once, for every member.
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Coder'], extra_dirs: [other] }, 'a'), `Could not update "Ops": ${notAllowed(other)}`)
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].reason, `Let every member of "Ops" work in ${other}? Files there can then be changed.`)
+  // Members already there are not asked again.
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Writer'], notice: 'Ship it' }, 'a'), 'Updated "Ops": updated the notice.')
+  assert.equal(requests.length, 2)
+})
+
 test('working_directory into an extra folder only moves the conversation', async (t) => {
   const team = await start()
   t.after(team.stop)
