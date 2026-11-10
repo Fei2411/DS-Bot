@@ -47,6 +47,19 @@ export function keepCarriedDraft({ botId, part, currentPart, text, attachments }
 }
 
 /**
+ * Forget a Bot's carried draft, so text of a deleted Bot does not stay in storage.
+ * @param {string} botId
+ * @param {Storage} [storage]
+ */
+export function dropCarriedDraft(botId, storage = globalThis.localStorage) {
+  if (typeof botId !== 'string' || botId === '') return
+  const value = readStoredDrafts(storage)
+  if (value[botId] === undefined) return
+  delete value[botId]
+  writeStoredDrafts(storage, value)
+}
+
+/**
  * The draft a Bot's current part takes back when it opens and has none of its own.
  * Taking removes it, so it is carried once. A part that is not the Bot's current part
  * (an earlier part the user opened from the details panel) takes nothing.

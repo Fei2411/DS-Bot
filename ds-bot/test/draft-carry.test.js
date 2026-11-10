@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { keepCarriedDraft, takeCarriedDraft } from '../src/client/draft-carry.js'
+import { dropCarriedDraft, keepCarriedDraft, takeCarriedDraft } from '../src/client/draft-carry.js'
 
 const storage = () => {
   const values = new Map()
@@ -55,4 +55,17 @@ test('unreadable storage is no draft, and writing still works', () => {
   assert.equal(takeCarriedDraft({ botId: 'b2', part: 'p2', currentPart: 'p2', text: '' }, broken), undefined)
   const absent = { getItem: () => null, setItem: () => {} }
   assert.equal(takeCarriedDraft({ botId: 'b2', part: 'p2', currentPart: 'p2', text: '' }, absent), undefined)
+})
+
+test('a deleted Bot leaves no carried draft behind', () => {
+  const fake = storage()
+  keepCarriedDraft({ botId: 'b2', part: 'p1', currentPart: 'p1', text: 'writer draft', attachments: 0 }, fake)
+  keepCarriedDraft({ botId: 'b3', part: 'p1', currentPart: 'p1', text: 'coder draft', attachments: 0 }, fake)
+  dropCarriedDraft('b2', fake)
+  assert.equal(takeCarriedDraft({ botId: 'b2', part: 'p2', currentPart: 'p2', text: '' }, fake), undefined)
+  assert.deepEqual(takeCarriedDraft({ botId: 'b3', part: 'p2', currentPart: 'p2', text: '' }, fake), { text: 'coder draft', attachments: 0 })
+  // Dropping one that has no draft, or no id, changes nothing.
+  dropCarriedDraft('b9', fake)
+  dropCarriedDraft('', fake)
+  assert.deepEqual(takeCarriedDraft({ botId: 'b3', part: 'p3', currentPart: 'p3', text: '' }, fake), undefined)
 })
