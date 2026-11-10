@@ -52,8 +52,8 @@ const ZH = {
   ', ': '、',
   You: '你',
   you: '你',
-  Bot: 'Bot',
-  'a Bot': '一个 Bot',
+  Bot: '机器人',
+  'a Bot': '一个机器人',
   'a group chat': '一个群聊',
   ' and ': '、',
   and: '和',
@@ -378,8 +378,8 @@ const ZH = {
   New: '新',
 
   // New chat
-  'Create new Bot': '新建 Bot',
-  'Create new Bot “{name}”': '新建 Bot「{name}」',
+  'Create new Bot': '新建机器人',
+  'Create new Bot “{name}”': '新建机器人「{name}」',
   'Add to group chat': '加入群聊',
   'Message Bot': '给 Bot 发消息',
   'To:': '发给：',
@@ -619,7 +619,7 @@ const ZH = {
 
   // Settings dialog
   General: '通用',
-  Bots: 'Bot',
+  Bots: '机器人',
   'Group chats': '群聊',
   Secrets: '密钥',
   Appearance: '外观',

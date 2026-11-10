@@ -89,8 +89,8 @@ var ZH = {
   ", ": "、",
   You: "你",
   you: "你",
-  Bot: "Bot",
-  "a Bot": "一个 Bot",
+  Bot: "机器人",
+  "a Bot": "一个机器人",
   "a group chat": "一个群聊",
   " and ": "、",
   and: "和",
@@ -412,8 +412,8 @@ var ZH = {
   "Dismiss new messages": "关闭新消息提示",
   New: "新",
   // New chat
-  "Create new Bot": "新建 Bot",
-  "Create new Bot “{name}”": "新建 Bot「{name}」",
+  "Create new Bot": "新建机器人",
+  "Create new Bot “{name}”": "新建机器人「{name}」",
   "Add to group chat": "加入群聊",
   "Message Bot": "给 Bot 发消息",
   "To:": "发给：",
@@ -679,7 +679,7 @@ var ZH = {
   Moonlight: "月光",
   // Settings dialog
   General: "通用",
-  Bots: "Bot",
+  Bots: "机器人",
   "Group chats": "群聊",
   Secrets: "密钥",
   Appearance: "外观",
@@ -3242,10 +3242,12 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-/* The top row carries the two round buttons and, at its right, the Main Bot tile.
-   18px plus the column's 2px gap puts 20px between this row and the search field. */
-.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;min-height:72px;padding:6px 0 0 0;margin-bottom:18px}
-.bt-side-top .bt-update{margin-left:auto}
+/* The top row carries the two round buttons at its left and, at its right, the
+   update button and the search button. */
+.bt-side-top{display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
+/* The search keeps to the right edge; opening it lets the field take the row. */
+.bt-top-right{display:flex;align-items:center;gap:8px;margin-left:auto;min-width:0}
+.bt-top-right-open{flex:1}
 .bt-side-top .bt-round:not(.bt-update) svg,.bt-rail-top .bt-round:not(.bt-update) svg{width:17px;height:17px;stroke-width:1.6}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
 .bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
@@ -3258,19 +3260,18 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-track{background:transparent}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
-/* The Main Bot is pinned to the top row, so scrolling the list never carries it away. */
-.bt-main-slot{display:flex;flex:none;min-width:0}
-.bt-main-slot[data-hidden=true]{visibility:hidden}
-/* The tile stands the Main Bot up on the page itself: its name beside a large mark,
-   with no plate, ring or block in any state. The open chat is told by the name. */
-.bt-main-tile{display:flex;align-items:center;gap:10px;min-height:72px;padding:0;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;flex:none;min-width:0}
+/* The Main Bot is pinned above the scroll box, so paging the list never carries it away. */
+.bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
+/* The tile stands the Main Bot up on the page itself: a large mark with its name
+   and no plate, ring or block in any state. The open chat is told by the name. */
+.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:12px 6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
 .bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
 .bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:transparent;transition:filter .12s ease}
 .bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
 .bt-main-tile .bt-badge-main svg{width:10px;height:10px;overflow:visible}
 .bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
 .bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
-.bt-main-tile-name{max-width:180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
+.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
 .bt-main-tile[aria-current=page] .bt-main-tile-name{font-weight:600;color:var(--bt-ink)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
@@ -15444,13 +15445,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
         onClick: () => actions.openSession(id),
         onContextMenu
       },
-      (0, import_react34.createElement)("span", { className: "bt-main-tile-name" }, bot.name),
       (0, import_react34.createElement)(
         "span",
         { className: "bt-main-tile-ava" },
         (0, import_react34.createElement)(BotAvatar, { bot, size: 72, state, main, crown: true }),
         !active && (alert || unread) ? (0, import_react34.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
-      )
+      ),
+      (0, import_react34.createElement)("span", { className: "bt-main-tile-name" }, bot.name)
     );
   }
   return (0, import_react34.createElement)(
@@ -15976,6 +15977,7 @@ function TeamSidebar(props) {
   const [drag, setDrag] = (0, import_react34.useState)(null);
   const [query, setQuery] = (0, import_react34.useState)("");
   const [tab, setTab] = (0, import_react34.useState)("all");
+  const [searchOpen, setSearchOpen] = (0, import_react34.useState)(false);
   const searchRef = (0, import_react34.useRef)(null);
   const mode = drag?.left ?? layout.left;
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
@@ -16028,17 +16030,19 @@ function TeamSidebar(props) {
     }
     return JSON.stringify(text);
   });
+  const tileShown = wideContent && Boolean(main) && query.trim() === "";
   const found = (0, import_react34.useMemo)(() => {
     if (!searching) return [];
     const text = searchText === "" ? {} : JSON.parse(searchText);
     const needle = query.trim().toLowerCase();
     return allEntries.filter((entry) => {
+      if (tileShown && entry.kind === "bot" && entry.item.id === roster.mainBotId) return false;
       if (entry.item.hidden && !(entry.kind === "bot" && isMainOf(roster, entry.item.id))) return false;
       if (tab === "bots" && entry.kind !== "bot") return false;
       if (tab === "chats" && entry.kind !== "room") return false;
       return needle === "" || (text[entry.item.id] ?? "").toLowerCase().includes(needle);
     });
-  }, [searching, allEntries, tab, query, searchText]);
+  }, [searching, tileShown, allEntries, tab, query, searchText, roster.mainBotId]);
   const glideKey = (0, import_react34.useMemo)(
     () => `${sections.map((s) => `${s.id}:${s.collapsed ? 1 : 0}`).join(",")}|${order.map((entry) => `${entry.item.id}:${entry.item.sectionId ?? ""}`).join(",")}|${searching ? `${tab}:${query}:${found.map((entry) => entry.item.id).join(",")}` : ""}`,
     [sections, order, searching, tab, query, found]
@@ -16261,6 +16265,7 @@ function TeamSidebar(props) {
       return;
     }
     setQuery(event.key);
+    setSearchOpen(true);
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => searchRef.current?.focus());
     else searchRef.current?.focus();
   };
@@ -16279,21 +16284,71 @@ function TeamSidebar(props) {
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, []);
+  (0, import_react34.useEffect)(() => {
+    if (!searchOpen) return void 0;
+    const onDown = (event) => {
+      if (event.target instanceof Element && event.target.closest(".bt-search")) return;
+      setSearchOpen(false);
+      setQuery("");
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [searchOpen]);
   const newChat = (mode2) => () => actions.openNewChat(mode2);
   const newButtons = [
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create new Bot"), title: t("Create new Bot"), onClick: newChat("create") }, (0, import_react34.createElement)(PersonIcon)),
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create group chat"), title: t("Create group chat"), onClick: newChat("group") }, (0, import_react34.createElement)(PeopleIcon, { size: 17, strokeWidth: 1.6 }))
   ];
+  const openSearch = () => {
+    setSearchOpen(true);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => searchRef.current?.focus());
+    else searchRef.current?.focus();
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    searchRef.current?.blur?.();
+  };
+  const searchField = searchOpen ? (0, import_react34.createElement)(
+    "div",
+    { className: "bt-search" },
+    (0, import_react34.createElement)("span", { className: "bt-search-ico", "aria-hidden": true }, (0, import_react34.createElement)(SearchIcon)),
+    (0, import_react34.createElement)("input", {
+      ref: searchRef,
+      type: "search",
+      className: "bt-search-in",
+      value: query,
+      placeholder: t("Search chats"),
+      "aria-label": t("Search chats"),
+      onChange: (event) => setQuery(event.currentTarget.value),
+      onKeyDown: (event) => {
+        if (event.nativeEvent?.isComposing) return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          actions.openPalette(query.trim());
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          closeSearch();
+        }
+      }
+    })
+  ) : (0, import_react34.createElement)("button", {
+    type: "button",
+    className: "bt-round bt-round-search",
+    "aria-label": t("Search chats"),
+    title: t("Search chats"),
+    onClick: openSearch
+  }, (0, import_react34.createElement)(SearchIcon));
   const top = wideContent ? (0, import_react34.createElement)(
     "div",
     { className: "bt-side-top" },
     ...newButtons,
-    (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
-    main ? (0, import_react34.createElement)(
+    (0, import_react34.createElement)(
       "div",
-      { className: "bt-main-slot", "data-hidden": searching ? "true" : void 0 },
-      (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })
-    ) : null
+      { className: `bt-top-right${searchOpen ? " bt-top-right-open" : ""}` },
+      (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
+      searchField
+    )
   ) : (0, import_react34.createElement)(
     "div",
     { className: "bt-rail-top" },
@@ -16304,44 +16359,15 @@ function TeamSidebar(props) {
   );
   const chatsTab = dateLocale() === "zh-CN" ? t("Group chats") : t("Chats");
   const filters = wideContent ? (0, import_react34.createElement)(
-    import_react34.Fragment,
-    null,
-    (0, import_react34.createElement)(
-      "div",
-      { className: "bt-search" },
-      (0, import_react34.createElement)("span", { className: "bt-search-ico", "aria-hidden": true }, (0, import_react34.createElement)(SearchIcon)),
-      (0, import_react34.createElement)("input", {
-        ref: searchRef,
-        type: "search",
-        className: "bt-search-in",
-        value: query,
-        placeholder: t("Search chats"),
-        "aria-label": t("Search chats"),
-        onChange: (event) => setQuery(event.currentTarget.value),
-        onKeyDown: (event) => {
-          if (event.nativeEvent?.isComposing) return;
-          if (event.key === "Enter") {
-            event.preventDefault();
-            actions.openPalette(query.trim());
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            if (query !== "") setQuery("");
-            else event.currentTarget.blur();
-          }
-        }
-      })
-    ),
-    (0, import_react34.createElement)(
-      "div",
-      { className: "bt-seg", role: "group", "aria-label": t("Filter chats") },
-      [["all", t("All")], ["bots", t("Bots")], ["chats", chatsTab]].map(([id, label]) => (0, import_react34.createElement)("button", {
-        key: id,
-        type: "button",
-        className: "bt-seg-btn",
-        "aria-pressed": tab === id,
-        onClick: () => setTab(id)
-      }, label))
-    )
+    "div",
+    { className: "bt-seg", role: "group", "aria-label": t("Filter chats") },
+    [["all", t("All")], ["bots", t("Bots")], ["chats", chatsTab]].map(([id, label]) => (0, import_react34.createElement)("button", {
+      key: id,
+      type: "button",
+      className: "bt-seg-btn",
+      "aria-pressed": tab === id,
+      onClick: () => setTab(id)
+    }, label))
   ) : null;
   const rows2 = searching ? found.length > 0 ? found.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, void 0)) : (0, import_react34.createElement)("div", { className: "bt-empty", role: "status" }, t("No matches")) : [
     wideContent && !main && !roster.ready ? (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
@@ -16368,11 +16394,13 @@ function TeamSidebar(props) {
     fixedGroup(t("Groups"), ungrouped.filter((entry) => entry.kind === "room" && !entry.item.hidden), rowProps, markedUnread, onDragStart),
     fixedGroup(t("Recent"), ungrouped.filter((entry) => entry.kind !== "room" && !entry.item.hidden), rowProps, markedUnread, onDragStart)
   ];
+  const mainPin = tileShown ? (0, import_react34.createElement)("div", { className: "bt-main-pin" }, (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })) : null;
   const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, onNewSection: createNewSection })) : (0, import_react34.createElement)("div", { className: "bt-leftcol-foot bt-leftcol-foot-rail" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }));
   const content = (0, import_react34.createElement)(
     "div",
     { className: wideContent ? "bt-side" : "bt-side bt-rail", onKeyDown: typeToSearch },
     top,
+    mainPin,
     filters,
     wideContent && roster.readOnly ? (0, import_react34.createElement)("div", { className: "bt-hint bt-read-only", role: "status" }, hostText(roster.readOnly)) : null,
     (0, import_react34.createElement)("div", {
@@ -16961,8 +16989,8 @@ var SIDEBAR_CSS = `
 .bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
 .bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
 /* No field and no focus ring: the words sit on the page itself, and focus only
-   raises a faint fill. The box stays for its height and its hit area. */
-.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:background-color .12s ease}
+   raises a faint fill. Opened, it takes the top row's free width. */
+.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:1 1 auto;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
 .bt-search:focus-within{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)) 55%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
 .bt-search-ico svg{width:14px;height:14px}

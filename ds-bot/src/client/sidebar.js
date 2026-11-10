@@ -112,17 +112,17 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
-  // The pinned slot stands the Main Bot up on the top row: its name beside a 72px mark,
-  // with the unread dot on the mark where the row's "New" badge would otherwise sit.
+  // The pinned slot stands the Main Bot up: avatar over its name, with the unread dot
+  // on the avatar where the row's "New" badge would otherwise sit.
   if (pin) {
     return h('button', {
       type: 'button', className: 'bt-main-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h('span', { className: 'bt-main-tile-name' }, bot.name),
     h('span', { className: 'bt-main-tile-ava' },
       h(BotAvatar, { bot, size: 72, state, main, crown: true }),
-      !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null))
+      !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
+    h('span', { className: 'bt-main-tile-name' }, bot.name))
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
@@ -547,6 +547,8 @@ export function TeamSidebar(props) {
   // The inline search and the All/Bots/Chats filter share the list's one view.
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState('all')
+  // The search keeps to a button in the top row until it is asked for.
+  const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef(null)
   const mode = drag?.left ?? layout.left
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
@@ -606,17 +608,21 @@ export function TeamSidebar(props) {
     }
     return JSON.stringify(text)
   })
+  // The standing tile already shows the Main Bot, so the filtered rows leave it out;
+  // a text search drops the tile and its own row in the results answers instead.
+  const tileShown = wideContent && Boolean(main) && query.trim() === ''
   const found = useMemo(() => {
     if (!searching) return []
     const text = searchText === '' ? {} : JSON.parse(searchText)
     const needle = query.trim().toLowerCase()
     return allEntries.filter((entry) => {
+      if (tileShown && entry.kind === 'bot' && entry.item.id === roster.mainBotId) return false
       if (entry.item.hidden && !(entry.kind === 'bot' && isMainOf(roster, entry.item.id))) return false
       if (tab === 'bots' && entry.kind !== 'bot') return false
       if (tab === 'chats' && entry.kind !== 'room') return false
       return needle === '' || (text[entry.item.id] ?? '').toLowerCase().includes(needle)
     })
-  }, [searching, allEntries, tab, query, searchText])
+  }, [searching, tileShown, allEntries, tab, query, searchText, roster.mainBotId])
   const glideKey = useMemo(
     () => `${sections.map(s => `${s.id}:${s.collapsed ? 1 : 0}`).join(',')}|${order.map(entry => `${entry.item.id}:${entry.item.sectionId ?? ''}`).join(',')}|${searching ? `${tab}:${query}:${found.map(entry => entry.item.id).join(',')}` : ''}`,
     [sections, order, searching, tab, query, found],
@@ -852,6 +858,7 @@ export function TeamSidebar(props) {
     event.preventDefault()
     if (!wideContent) { actions.openPalette(event.key); return }
     setQuery(event.key)
+    setSearchOpen(true)
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => searchRef.current?.focus())
     else searchRef.current?.focus()
   }
@@ -875,21 +882,57 @@ export function TeamSidebar(props) {
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
   }, [])
+  // A click anywhere but the field puts it away, and the words go with it: a filter
+  // left running behind a closed box would keep the list short for no visible reason.
+  useEffect(() => {
+    if (!searchOpen) return undefined
+    const onDown = (event) => {
+      if (event.target instanceof Element && event.target.closest('.bt-search')) return
+      setSearchOpen(false)
+      setQuery('')
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [searchOpen])
   const newChat = (mode) => () => actions.openNewChat(mode)
   const newButtons = [
     h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create new Bot'), title: t('Create new Bot'), onClick: newChat('create') }, h(PersonIcon)),
     h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Create group chat'), title: t('Create group chat'), onClick: newChat('group') }, h(PeopleIcon, { size: 17, strokeWidth: 1.6 })),
   ]
-  // The Main Bot rides the top row at the far right. Search and the filters hide it —
-  // the slot keeps its size so the row does not jump when a query starts.
+  const openSearch = () => {
+    setSearchOpen(true)
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => searchRef.current?.focus())
+    else searchRef.current?.focus()
+  }
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setQuery('')
+    searchRef.current?.blur?.()
+  }
+  // The search lives in the top row as a button until it is opened; then the field
+  // takes the row's free width, so nothing above the list changes height.
+  const searchField = searchOpen
+    ? h('div', { className: 'bt-search' },
+        h('span', { className: 'bt-search-ico', 'aria-hidden': true }, h(SearchIcon)),
+        h('input', {
+          ref: searchRef, type: 'search', className: 'bt-search-in', value: query,
+          placeholder: t('Search chats'), 'aria-label': t('Search chats'),
+          onChange: event => setQuery(event.currentTarget.value),
+          onKeyDown: (event) => {
+            if (event.nativeEvent?.isComposing) return
+            if (event.key === 'Enter') { event.preventDefault(); actions.openPalette(query.trim()) }
+            else if (event.key === 'Escape') { event.preventDefault(); closeSearch() }
+          },
+        }))
+    : h('button', {
+        type: 'button', className: 'bt-round bt-round-search', 'aria-label': t('Search chats'), title: t('Search chats'), onClick: openSearch,
+      }, h(SearchIcon))
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
         ...newButtons,
-        h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-        main
-          ? h('div', { className: 'bt-main-slot', 'data-hidden': searching ? 'true' : undefined },
-              h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true }))
-          : null)
+        h('div', { className: `bt-top-right${searchOpen ? ' bt-top-right-open' : ''}` },
+          h(UpdateButton, { useUpdate: props.useUpdate, actions }),
+          searchField))
     : h('div', { className: 'bt-rail-top' },
         ...newButtons,
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
@@ -901,27 +944,10 @@ export function TeamSidebar(props) {
   // The inline field filters what is already here; Enter hands the same words to the
   // command palette, and the shell's own ⌘K still opens it.
   const filters = wideContent
-    ? h(Fragment, null,
-        h('div', { className: 'bt-search' },
-          h('span', { className: 'bt-search-ico', 'aria-hidden': true }, h(SearchIcon)),
-          h('input', {
-            ref: searchRef, type: 'search', className: 'bt-search-in', value: query,
-            placeholder: t('Search chats'), 'aria-label': t('Search chats'),
-            onChange: event => setQuery(event.currentTarget.value),
-            onKeyDown: (event) => {
-              if (event.nativeEvent?.isComposing) return
-              if (event.key === 'Enter') { event.preventDefault(); actions.openPalette(query.trim()) }
-              else if (event.key === 'Escape') {
-                event.preventDefault()
-                if (query !== '') setQuery('')
-                else event.currentTarget.blur()
-              }
-            },
-          })),
-        h('div', { className: 'bt-seg', role: 'group', 'aria-label': t('Filter chats') },
-          [['all', t('All')], ['bots', t('Bots')], ['chats', chatsTab]].map(([id, label]) => h('button', {
-            key: id, type: 'button', className: 'bt-seg-btn', 'aria-pressed': tab === id, onClick: () => setTab(id),
-          }, label))))
+    ? h('div', { className: 'bt-seg', role: 'group', 'aria-label': t('Filter chats') },
+        [['all', t('All')], ['bots', t('Bots')], ['chats', chatsTab]].map(([id, label]) => h('button', {
+          key: id, type: 'button', className: 'bt-seg-btn', 'aria-pressed': tab === id, onClick: () => setTab(id),
+        }, label)))
     : null
   const rows = searching
     ? (found.length > 0
@@ -954,12 +980,18 @@ export function TeamSidebar(props) {
         fixedGroup(t('Groups'), ungrouped.filter(entry => entry.kind === 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
         fixedGroup(t('Recent'), ungrouped.filter(entry => entry.kind !== 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
       ]
+  // The Main Bot sits in a fixed slot above the scroll box, so it stays put while
+  // the list moves. A text search drops the tile; its row in the results answers.
+  const mainPin = tileShown
+    ? h('div', { className: 'bt-main-pin' }, h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true }))
+    : null
   // The foot stands in for the shell's hidden footer: just the account avatar.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
+    mainPin,
     filters,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', {
@@ -1522,8 +1554,8 @@ export const SIDEBAR_CSS = `
 .bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
 .bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
 /* No field and no focus ring: the words sit on the page itself, and focus only
-   raises a faint fill. The box stays for its height and its hit area. */
-.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:background-color .12s ease}
+   raises a faint fill. Opened, it takes the top row's free width. */
+.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:1 1 auto;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
 .bt-search:focus-within{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)) 55%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
 .bt-search-ico svg{width:14px;height:14px}
