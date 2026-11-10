@@ -12,7 +12,7 @@ import { promisesWork } from '../src/host/turns.js'
 let rt
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
-const seed = (room = {}, extraRooms = {}, bots = {}) => ({
+const seed = (room = {}, extraRooms = {}, bots = {}, top = {}) => ({
   version: 1,
   mainBotIds: ['a'],
   bots: {
@@ -28,11 +28,12 @@ const seed = (room = {}, extraRooms = {}, bots = {}) => ({
   questions: {},
   prefs: {},
   revision: 0,
+  ...top,
 })
 
-async function start(t, room, services, extraRooms, bots, llm) {
+async function start(t, room, services, extraRooms, bots, llm, top) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots)))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots, top)))
   const selected = []
   const ctx = fakeContext({ services })
   const agents = new Map()
@@ -2239,4 +2240,50 @@ test('a batch wake says which member finished with no closing message of its own
   assert.ok(!text(wake).includes('Finished without a closing message: Writer and'))
   host.begin('ga')
   host.finish('ga', '[PASS]')
+})
+
+// A batch is saved with the team, so who still owes whom survives a restart.
+test('a call batch is saved with the team while its member works', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief 安排一下'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 整理文档')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  await rt.save()
+  const saved = Object.values(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).roomBatches)
+  assert.deepEqual(saved.map(batch => [batch.roomId, batch.by, batch.pending, batch.worked]), [['r1', 'a', ['b'], true]])
+  host.finish('gb', '文档好了')
+})
+
+// After a restart, a member that does not pick its work up again never answers: the batch
+// settles without it, and the Bot that asked is woken once with the result that came.
+test('after a restart a batch whose last member is gone wakes the caller with the results it has', async (t) => {
+  const log = [{ seq: 1, who: 'User', text: '@Chief 安排' }, { seq: 2, who: 'Chief', botId: 'a', text: '@Writer @Tester 各做一半' }, { seq: 3, who: 'Tester', botId: 'c', text: 'TESTER-RESULT：测试全过。' }]
+  const batch = { key: 'k-batch', roomId: 'r1', by: 'a', pending: ['b'], done: ['Tester'], results: [{ name: 'Tester', seq: 3 }], worked: true, answered: false, at: 1 }
+  const host = await start(t, { log, seq: 3, shown: 3 }, undefined, undefined, undefined, undefined, { roomBatches: { 'k-batch': batch } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.role, post.source.done, post.source.askedBy, post.source.batch], ['post', true, 'a', 'k-batch'])
+  host.round('c1', post)
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  const wake = text(host.agentOf('ga').calls[0])
+  assert.match(wake, /Tester finished the work you asked for/)
+  assert.match(wake, /TESTER-RESULT/)
+  assert.equal(host.agentOf('gb').calls.length, 0)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => Object.keys(rt.state.roomBatches).length === 0)
+})
+
+test('after a restart a batch nobody finished is dropped without waking anyone', async (t) => {
+  const batch = { key: 'k-none', roomId: 'r1', by: 'a', pending: ['b', 'c'], done: [], results: [], worked: false, answered: false, at: 1 }
+  const host = await start(t, undefined, undefined, undefined, undefined, undefined, { roomBatches: { 'k-none': batch } })
+  await settle(() => Object.keys(rt.state.roomBatches).length === 0)
+  assert.equal(host.agentOf('r1').calls.length, 0)
 })

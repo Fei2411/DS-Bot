@@ -193,6 +193,11 @@ export function install(rt) {
     }
     if (state.works === null || typeof state.works !== 'object' || Array.isArray(state.works)) state.works = {}
     if (state.requests === null || typeof state.requests !== 'object' || Array.isArray(state.requests)) state.requests = {}
+    // Group call batches (groups.js); a batch that is not whole is dropped.
+    if (state.roomBatches === null || typeof state.roomBatches !== 'object' || Array.isArray(state.roomBatches)) state.roomBatches = {}
+    for (const [key, batch] of Object.entries(state.roomBatches)) {
+      if (!Array.isArray(batch?.pending) || !Array.isArray(batch.done) || !Array.isArray(batch.results) || batch.key !== key) delete state.roomBatches[key]
+    }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
     if (state.closedViews === null || typeof state.closedViews !== 'object' || Array.isArray(state.closedViews)) state.closedViews = {}
