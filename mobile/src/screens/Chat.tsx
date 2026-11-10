@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -46,6 +46,19 @@ function keepPage(key: string, entry: { page: ChatPage; older: ChatItem[]; curso
   pages.delete(key)
   pages.set(key, entry)
   if (pages.size > PAGES_KEPT) pages.delete(pages.keys().next().value as string)
+}
+
+// A chat read started before the chat is on screen: on launch the last chat is asked
+// for while the team state is still on its way, and the chat takes that answer.
+const reads = new Map<string, Promise<ChatPage>>()
+const readChat = (call: (endpoint: string, payload?: unknown) => Promise<unknown>, room: boolean, id: string) =>
+  (room ? call('room-chat', { roomId: id, steps: true }) : call('chat', { botId: id, steps: true })) as Promise<ChatPage>
+export function prefetchChat(call: (endpoint: string, payload?: unknown) => Promise<unknown>, computerId: string, target: { kind: 'bot' | 'room'; id: string }) {
+  const key = `${computerId}:${target.kind}:${target.id}`
+  if (pages.has(key) || reads.has(key)) return
+  const read = readChat(call, target.kind === 'room', target.id)
+  reads.set(key, read)
+  read.catch(() => {}).finally(() => { if (reads.get(key) === read) setTimeout(() => reads.delete(key), 5000) })
 }
 
 // Messages the phone sent that the chat has not shown back yet, per chat. They live
@@ -101,9 +114,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     if (reading.current) { again.current = true; return }
     reading.current = true
     try {
-      const next = (room !== undefined
-        ? await call('room-chat', { roomId: room.id, steps: true })
-        : await call('chat', { botId: id, steps: true })) as ChatPage
+      const early = reads.get(chatKey)
+      reads.delete(chatKey)
+      const next = await (early ?? readChat(call, room !== undefined, id))
       if (generation.current === gen) {
         setPage(prev => prev !== null && prev.sessionId === next.sessionId ? { ...next, items: keepSame(prev.items, next.items) } : next)
         if (cursor.current === undefined) cursor.current = next.cursor
@@ -120,7 +133,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       // The latest refresh, not this closure's: the chat may have changed meanwhile.
       if (again.current) { again.current = false; void latest.current(generation.current) }
     }
-  }, [call, id])
+  }, [call, id, chatKey])
   const latest = useRef(refresh)
   latest.current = refresh
 
@@ -197,7 +210,12 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   }
   const { onFeed, online } = useTeam()
   useEffect(() => { markSeen(id) }, [id])
-  useEffect(() => { if (online) void refresh(generation.current) }, [online, refresh])
+  // Back online after a drop: read what was missed. Not on mount, which reads already.
+  const wasOnline = useRef(online)
+  useEffect(() => {
+    if (online && !wasOnline.current) void refresh(generation.current)
+    wasOnline.current = online
+  }, [online, refresh])
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
@@ -295,7 +313,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const empty = page !== null && rows.length === 0
   return (
     <PhotoViewerCtx.Provider value={setPhotos}>
-    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? -insets.bottom : 0} style={[styles.screen, { backgroundColor: p.main }]}>
+    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={-insets.bottom} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
       {room !== undefined && (room as { goal?: Goal }).goal ? <GoalBar goal={(room as { goal?: Goal }).goal!} p={p} /> : null}
       <View style={styles.list} onLayout={event => { setChatWidth(event.nativeEvent.layout.width - 24); setChatHeight(event.nativeEvent.layout.height) }}>

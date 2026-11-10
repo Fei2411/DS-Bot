@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useState } from 'react'
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
@@ -34,10 +34,11 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
   const [photos, setPhotos] = useState<Photo[]>([])
   const [preparing, setPreparing] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
-  // iOS: float above the home indicator. The matching negative
-  // keyboardVerticalOffset in ChatView keeps the card hugging the keyboard.
+  // Float above the home indicator (iOS) or the gesture bar (Android, drawn edge to
+  // edge). The matching negative keyboardVerticalOffset in ChatView keeps the card
+  // hugging the keyboard.
   const insets = useSafeAreaInsets()
-  const bottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 10) : 10
+  const bottom = Math.max(insets.bottom, 10)
   const draft = text.trim()
   const ready = (draft !== '' || photos.length > 0) && !preparing
   // The message shows in the chat at once; the composer is free for the next one.

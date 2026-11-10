@@ -28,6 +28,8 @@ export function rejected(error: unknown): boolean {
 export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   const [team, setTeam] = useState<TeamState | null>(null)
   const [online, setOnline] = useState(false)
+  // The encrypted link is up (calls can go), before the handshake says the computer is current.
+  const [linked, setLinked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hello, setHello] = useState<Hello | null>(null)
   const clientRef = useRef<RpcClient | undefined>(undefined)
@@ -146,12 +148,16 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const client = await openLink(computer, identity)
         if (stopped) { void client.close(); return }
         clientRef.current = client
-        // The handshake before anything else: its api is null when the computer's
-        // DS Bot is too old for this app.
+        setLinked(true)
+        // The handshake: its api is null when the computer's DS Bot is too old for
+        // this app. The team read goes out with it, not after it: each is a round
+        // trip through the relay.
+        void poll()
         const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
           setError(t('Update DS Bot on the computer to use this phone.'))
+          setLinked(false)
           void client.close()
           later(() => void connect(), RETRY_MS)
           return
@@ -170,10 +176,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         client.onClose(() => {
           clientRef.current = undefined
           setOnline(false)
+          setLinked(false)
           clearTimeout(timer)
           later(() => void connect(), RETRY_MS)
         })
-        void poll()
       } catch (failure) {
         setError(errorText(failure))
         if (rejected(failure)) setTeam(null)
@@ -190,7 +196,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     return () => { stopped = true; clearTimeout(timer); foreground.remove(); void clientRef.current?.close(); clientRef.current = undefined }
   }, [computer, identity, apply])
 
-  return { team, online, error, call, clientRef, hello, onFeed }
+  return { team, online, linked, error, call, clientRef, hello, onFeed }
 }
 
 export function errorText(error: unknown): string {

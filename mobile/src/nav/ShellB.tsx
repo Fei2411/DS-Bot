@@ -11,7 +11,7 @@ import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
-import { ChatView } from '../screens/Chat.tsx'
+import { ChatView, prefetchChat } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
@@ -156,10 +156,12 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
 }
 
 function ChatScreenB({ route, navigation }: any) {
-  const { team, error } = useTeam()
+  const { team, error, linked, call, computer } = useTeam()
   const { p, dark } = useTheme()
   const drawer = useDrawer()
   const params = route.params as ChatTarget | undefined
+  // On launch the saved chat is read while the team state is still on its way.
+  useEffect(() => { if (linked === true && team === null && params !== undefined) prefetchChat(call, computer?.hostDeviceId ?? '', params) }, [linked, team === null])
   useEffect(() => { if (params) void SecureStore.setItemAsync(LAST_KEY, JSON.stringify(params)) }, [params])
   const fallback = team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0]
   const kind = params?.kind ?? 'bot'

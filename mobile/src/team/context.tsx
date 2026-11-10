@@ -11,6 +11,7 @@ export const DEMO = process.env.EXPO_PUBLIC_DSB_DEMO === '1'
 export interface TeamCtx {
   team: TeamState | null
   online: boolean
+  linked?: boolean
   error: string | null
   call: (endpoint: string, payload?: unknown) => Promise<unknown>
   computer: SavedComputer | null
@@ -23,7 +24,7 @@ export const useTeam = () => useContext(Ctx)
 
 export function TeamProvider({ computer, identity, children }: { computer: SavedComputer; identity: PhoneIdentity; children: ReactNode }) {
   const link = useTeamLink(computer, identity)
-  const value = useMemo<TeamCtx>(() => ({ team: link.team, online: link.online, error: link.error, call: link.call, computer, hello: link.hello, onFeed: link.onFeed }), [link.team, link.online, link.error, link.call, link.hello, link.onFeed, computer])
+  const value = useMemo<TeamCtx>(() => ({ team: link.team, online: link.online, linked: link.linked, error: link.error, call: link.call, computer, hello: link.hello, onFeed: link.onFeed }), [link.team, link.online, link.linked, link.error, link.call, link.hello, link.onFeed, computer])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
