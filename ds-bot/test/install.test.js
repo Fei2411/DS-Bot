@@ -207,10 +207,11 @@ const TEAM = {
   questions: {},
 }
 
-test('in the Desktop profile read_browser is the last tool and reads through the window', async (t) => {
+test('in the Desktop profile read_browser is mounted, followed by the default browser tools', async (t) => {
   const { ctx, call, stop } = start(TEAM, { services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
-  assert.equal(rt.teamTools.at(-1).name, 'read_browser')
+  assert.ok(rt.teamTools.some(d => d.name === 'read_browser'))
+  assert.ok(rt.teamTools.some(d => d.name === 'browser_click'), 'the desktop default refs plugin is mounted')
   assert.ok(ctx.calls.indexOf('effect ds-bot: browser channel') < ctx.calls.indexOf('effect ds-bot: api route'))
   const read = args => rt.teamTools.find(d => d.name === 'read_browser').execute(args, { agent: { id: 'b2' } })
 
@@ -251,16 +252,19 @@ test('the desktop app has read_browser too; DSH Web does not', (t) => {
   const app = start(TEAM, { services: { profileContext: { name: 'ds-bot' } } })
   t.after(app.stop)
   assert.ok(app.rt.teamTools.some(d => d.name === 'read_browser'))
+  assert.ok(app.rt.teamTools.some(d => d.name === 'browser_click'), 'the desktop app mounts the refs plugin by default')
   delete process.env.DS_BOT_APP
   const web = start(TEAM, { services: { profileContext: { name: 'web' } } })
   t.after(web.stop)
   assert.ok(!web.rt.teamTools.some(d => d.name === 'read_browser'))
+  assert.ok(!web.rt.teamTools.some(d => d.name === 'browser_click'))
 })
 
 test('config.browser turns Bot browsers off even in the Desktop profile', (t) => {
   const { stop } = start(TEAM, { config: { browser: false }, services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
   assert.ok(!rt.teamTools.some(d => d.name === 'read_browser'))
+  assert.ok(!rt.teamTools.some(d => d.name === 'browser_click'), 'and the default browser plugin stays off')
 })
 
 test('a custom agent keeps the local agents adapter live after install', async (t) => {

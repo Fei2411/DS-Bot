@@ -482,3 +482,18 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })
+
+test('a tool added to the team after a Session was scoped joins its next step', async (t) => {
+  // A plugin mounted later (the browser plugin when it is first enabled) pushes
+  // its tools into the team catalog. A Bot Session that is already running keeps
+  // its scope, so the step's assemble must add the new names to that step's list.
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  assert.equal(scopedNames(host, 'a').includes('browser_click'), false)
+  rt.teamTools.push({ name: 'browser_click', description: 'Click', parameters: {}, execute: async () => 'ok' })
+  const assembled = await assemble(host, host.agentOf('a'), { tools: [{ name: 'read' }], sections: [] })
+  assert.ok(scopedNames(host, 'a').includes('browser_click'), 'the new tool is scoped onto the live Agent')
+  assert.ok(assembled.tools.some(tool => tool.name === 'browser_click'), "the step's tool list carries it")
+})

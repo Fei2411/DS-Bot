@@ -287,6 +287,39 @@ test('no browser plugin is mounted unless one is selected for the team', (t) => 
   assert.equal(rt.teamTools.some(d => d.name === 'browser_task'), false)
 })
 
+test('the Desktop profile mounts the refs plugin when the team names none', (t) => {
+  const { ctx, stop } = start({}, { services: { profileContext: { name: 'desktop' } } })
+  t.after(stop)
+  assert.ok(ctx.calls.includes('effect ds-bot: browser plugin'))
+  for (const name of ['browser_open', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_select', 'browser_tabs']) {
+    assert.ok(rt.teamTools.some(d => d.name === name), `${name} is mounted`)
+  }
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_exec'), false, 'the refs default does not mount script')
+})
+
+test('the desktop app mounts the refs plugin by default through DS_BOT_APP', (t) => {
+  const previous = process.env.DS_BOT_APP
+  process.env.DS_BOT_APP = '1'
+  t.after(() => { if (previous === undefined) delete process.env.DS_BOT_APP; else process.env.DS_BOT_APP = previous })
+  const { stop } = start({})
+  t.after(stop)
+  assert.ok(rt.teamTools.some(d => d.name === 'browser_click'))
+})
+
+test('config.browser: false keeps the default plugin off in the Desktop profile', (t) => {
+  const { ctx, stop } = start({ browser: false }, { services: { profileContext: { name: 'desktop' } } })
+  t.after(stop)
+  assert.equal(ctx.calls.includes('effect ds-bot: browser plugin'), false)
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_click'), false)
+})
+
+test('a named browserPlugin still wins over the desktop default', (t) => {
+  const { stop } = start({ browserPlugin: 'script' }, { services: { profileContext: { name: 'desktop' } } })
+  t.after(stop)
+  assert.ok(rt.teamTools.some(d => d.name === 'browser_exec'))
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_click'), false)
+})
+
 test('user browser controls are not exposed as Bot tools', (t) => {
   const { stop } = start({ browser: true, browserPlugin: 'refs' })
   t.after(stop)
