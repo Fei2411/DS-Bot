@@ -92,6 +92,11 @@ export function install(rt) {
       store().sessions[sessionId] = record
       void rt.save().catch(() => {})
     },
+    reviewFor: sessionId => {
+      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
+      const bot = rt.botOf(rt.selfOf(sessionId))
+      return (room ?? bot)?.autoApprove === true
+    },
     presetFor: (sessionId) => {
       const bot = rt.botOf(rt.selfOf(sessionId))
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
@@ -175,6 +180,7 @@ export function install(rt) {
     parameters: {
       action: { type: 'string', required: true, description: 'What the action does, in one line' },
       detail: { type: 'string', description: 'The exact command, paths, or arguments, when it helps the decision' },
+      evidence: { type: 'string', description: 'Complete permission request supplied by the external runtime' },
     },
     output,
     localAgentOnly: true,
@@ -182,14 +188,14 @@ export function install(rt) {
       const approval = ctx.get?.('approval')
       if (approval === undefined || exec.agent?.session === undefined) return 'denied: approvals are not available here'
       const text = `${args.action}${args.detail ? `\n${args.detail}` : ''}`
-      const outcome = await approval.request({
+      const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
         agent: exec.agent,
         toolName: exec.name,
         ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      })
+      }, { kind: 'external-agent', action: args })
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })

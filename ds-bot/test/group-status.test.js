@@ -311,3 +311,13 @@ test('an approval asked inside a PTC program shows what that call does', async (
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.tool, 'pwsh')
 })
+
+test('Bots cannot change approval switches and an invalid approval model leaves preferences unchanged', async t => {
+  const host = await start()
+  t.after(host.stop)
+  await assert.rejects(host.rt.updateBot('a', { autoApprove: true }, 'a'), /Only the user/)
+  await assert.rejects(host.rt.updateRoom('r1', { autoApprove: true }, 'a'), /Only the user/)
+  const result = await host.call('set-prefs', { approvalModel: 'local-codex-cli/default' })
+  assert.equal(result.ok, false)
+  assert.equal(host.rt.state.prefs.approvalModel, undefined)
+})

@@ -358,6 +358,8 @@ export function install(rt) {
   async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if ((patch.autoApprove !== undefined || patch.permission !== undefined) && actorId !== undefined) throw new Error('Only the user can change approval and sandbox settings')
+    if (patch.autoApprove !== undefined && typeof patch.autoApprove !== 'boolean') throw new Error('Automatic approval must be true or false')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
@@ -439,6 +441,7 @@ export function install(rt) {
       modelChanged = true
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
+    if (patch.autoApprove !== undefined) await rt.setAutoApprove(bot, patch.autoApprove)
     if (browserGrants !== undefined) {
       if (browserGrants === null) delete bot.browserGrants
       else bot.browserGrants = browserGrants
@@ -711,6 +714,8 @@ export function install(rt) {
     }
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
+    if (patch.autoApprove !== undefined && actorId !== undefined) throw new Error('Only the user can change automatic approval')
+    if (patch.autoApprove !== undefined && typeof patch.autoApprove !== 'boolean') throw new Error('Automatic approval must be true or false')
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
@@ -781,6 +786,7 @@ export function install(rt) {
     if (permission !== undefined && await rt.setRoomPermission(room, permission)) {
       changes.push(permission ? `every member now works with the ${permission} permissions here` : 'every member uses its own permissions again')
     }
+    if (patch.autoApprove !== undefined) await rt.setAutoApprove(room, patch.autoApprove, true)
     if (room.name !== before) {
       changes.push(`renamed it "${room.name}"`)
       await retitleRoom(room)

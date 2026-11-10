@@ -149,14 +149,14 @@ export function install(rt) {
   async function approve(exec, { en, zh }) {
     const approval = ctx.get?.('approval')
     if (approval === undefined || exec.agent?.session === undefined) throw new Error('A private Bot needs the user\'s approval for this, and there is no way to ask for it here, so it was not done.')
-    const outcome = await approval.request({
+    const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent: exec.agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: en,
       displayReason: { en, zh },
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'privacy', arguments: exec.arguments })
     if (outcome === 'allowed-once') return
     throw new Error(outcome === 'rejected' ? 'The user did not allow it, so it was not done.'
       : outcome === 'cancelled' ? 'The approval was cancelled, so it was not done.'

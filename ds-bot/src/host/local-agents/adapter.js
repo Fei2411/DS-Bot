@@ -347,6 +347,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         resumeId: live.cliSessionId,
         mode,
         preset,
+        review: this.deps.reviewFor?.(sessionId) === true,
         model: options.model,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
@@ -542,12 +543,12 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'permission': {
           // The preset answers what it already decides, also on an agent with no
           // matching mode of its own: full access allows, read-only refuses a change.
-          const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
+          const answer = this.deps.reviewFor?.(live.sessionId) ? undefined : presetAnswer(this.deps.presetFor(live.sessionId), event)
           if (answer !== undefined) { event.reply(answer); break }
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
-          const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}) }, dshCallId: event.id }
+          const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}), ...(event.evidence ? { evidence: event.evidence } : {}) }, dshCallId: event.id }
           live.pending.set(event.id, { name: APPROVE_TOOL, resolve: (result) => event.reply(pickAllowOption(event.options, result)) })
           for (const chunk of emitCalls([call])) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
@@ -595,7 +596,7 @@ function pickAllowOption(options, result) {
   let decision
   try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
   if (decision !== 'allow') return null
-  return optionOf(options, 'allow') ?? null
+  return (options ?? []).find(entry => entry.kind === 'allow_once')?.optionId ?? null
 }
 
 // The agent's one-time option of a kind ('allow' or 'reject'), else any of it.

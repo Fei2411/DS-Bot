@@ -43,7 +43,37 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   const parsedUrl = new URL(url)
   const origin = parsedUrl.origin
   const host = parsedUrl.hostname
-  const action = (kind, label) => ({ kind, label: label || 'submit', origin, host })
+  const action = (kind, label) => {
+    const form = formOf(target)
+    const fields = []
+    let protectedField = false
+    for (const input of Array.from(form?.elements ?? [])) {
+      const type = String(input.type ?? '').toLowerCase()
+      const name = input.name || input.getAttribute?.('aria-label') || input.id || type
+      if (type === 'password' || /token|secret|password|authorization|api.?key/i.test(name)) {
+        if (input.value) protectedField = true
+        continue
+      }
+      if (type === 'hidden') { if (input.value) protectedField = true; continue }
+      if (['submit', 'button', 'reset'].includes(type) || input.disabled) continue
+      if (['checkbox', 'radio'].includes(type) && !input.checked) continue
+      fields.push({ name, value: type === 'file' ? Array.from(input.files ?? []).map(file => file.name) : input.value })
+    }
+    const destination = new URL(target?.getAttribute?.('formaction') || form?.getAttribute?.('action') || url, url)
+    if (destination.username || destination.password || destination.search) protectedField = true
+    destination.username = ''
+    destination.password = ''
+    destination.search = ''
+    destination.hash = ''
+    parsedUrl.username = ''
+    parsedUrl.password = ''
+    parsedUrl.search = ''
+    parsedUrl.hash = ''
+    return {
+      kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, fields,
+      evidenceComplete: kind === 'post' && !!form && fields.length > 0 && !protectedField,
+    }
+  }
 
   if (mode === 'click') {
     const form = formOf(target)
@@ -333,7 +363,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     try {
       const pageUrl = new URL(page.url())
       const url = pageUrl.origin === 'null' ? new URL(download.url()) : pageUrl
-      action = { kind: 'download', label: filename.slice(0, 80), origin: url.origin, host: url.hostname }
+      action = { kind: 'download', label: filename, origin: url.origin, host: url.hostname, directory: await downloadDir(), evidenceComplete: true }
       await authorizeWrite(action, gate)
     } catch (error) {
       await download.cancel().catch(() => {})
@@ -445,8 +475,9 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
   }
 
-  async function performWrite(action, target, perform) {
+  async function performWrite(action, target, perform, inspectAgain) {
     await authorizeWrite(action)
+    if (inspectAgain && JSON.stringify(await inspectAgain()) !== JSON.stringify(action)) throw new Error('The action changed while approval was pending. Inspect it and ask again. Nothing was done.')
     return captureAction(async () => {
       const requests = []
       const pendingRequests = new Map()
@@ -602,7 +633,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         }
         await clearPendingDelete()
       }
-      if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }))
+      if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }), () => locator.evaluate(inspectWriteTarget, { url: target.url(), mode: 'click' }))
       return finishAction(() => locator.click({ timeout: actionTimeout }))
     },
     async type(ref, text, submit = false) {
@@ -619,7 +650,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
           const action = await focusedAction(target)
           const pressEnter = () => locator.press('Enter', { timeout: actionTimeout })
           if (action?.kind === 'payment') throw paymentError(action)
-          if (action) return performWrite(action, target, pressEnter)
+          if (action) return performWrite(action, target, pressEnter, () => focusedAction(target))
           return finishAction(pressEnter, target)
         }
         return finishAction(async () => {}, target)
@@ -641,7 +672,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       if (value.toLowerCase() === 'enter') {
         const action = await focusedAction(target)
         if (action?.kind === 'payment') throw paymentError(action)
-        if (action) return performWrite(action, target, perform)
+        if (action) return performWrite(action, target, perform, () => focusedAction(target))
       }
       return finishAction(perform, target)
     },
@@ -687,7 +718,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       const { target, locator } = await refLocator(ref)
       const url = new URL(target.url())
       const label = labels.join(', ').slice(0, 80) || 'uploaded files'
-      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname })
+      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname, files, evidenceComplete: true })
       return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target)
     },
     async scroll(direction) {

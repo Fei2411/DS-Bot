@@ -22,10 +22,15 @@ export function install(rt) {
 
   // `name` may be a function: it is read once the agent resolves, so a change asked
   // for while the resolve ran wins over the one still being applied.
-  async function setPreset(sessionId, name) {
+  async function setPreset(sessionId, name, target) {
     const agent = await rt.resolveAgent(sessionId)
     const wanted = typeof name === 'function' ? name() : name
-    if (wanted) presets().set(agent.session, wanted)
+    if (wanted) {
+      presets().set(agent.session, wanted)
+      const saved = rt.state?.approvalPolicies
+      if (saved && Object.hasOwn(saved, sessionId)) saved[sessionId] = ctx.get('approval').effectivePolicy(agent.session)
+      await applyAutoApproval(agent, target)
+    }
     return wanted
   }
 
@@ -34,8 +39,10 @@ export function install(rt) {
   // Returns the preset it set, or undefined when it set none.
   async function applyPermission(bot, sessionId, room = roomOfSession(sessionId)) {
     const name = () => room?.permission ?? bot.permission
-    if (presets() === undefined || !name()) return
-    return setPreset(sessionId, name)
+    if (presets() !== undefined && name()) return setPreset(sessionId, name, room ?? bot)
+    if ((room ?? bot).autoApprove === true || rt.state?.approvalPolicies?.[sessionId] !== undefined) {
+      await applyAutoApproval(await rt.resolveAgent(sessionId), room ?? bot)
+    }
   }
 
   function checkPreset(name, whose) {
@@ -113,5 +120,58 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { permissionCatalog, applyPermission, setPermission, cleanRoomPermission, setRoomPermission })
+  const changes = new WeakMap()
+  async function applyAutoApproval(agent, known) {
+    const approval = ctx.get?.('approval')
+    if (!approval || !rt.state) return
+    const sessionId = agent.session?.id ?? agent.id
+    let target = known
+    let current = agent
+    const seen = new Set()
+    while (!target && current && seen.size < 16) {
+      const id = current.session?.id ?? current.id
+      if (seen.has(id)) break
+      seen.add(id)
+      const group = rt.groupOwners.get(id)
+      target = group ? rt.roomOf(group.roomId) : rt.botOf(rt.chatOwners?.get(id))
+      if (target) break
+      const parent = current.session?.header?.parentSession
+      current = parent ? await rt.resolveAgent(parent).catch(() => undefined) : undefined
+    }
+    if (!target) return
+    const saved = rt.state.approvalPolicies ??= {}
+    if (target.autoApprove === true) {
+      if (!Object.hasOwn(saved, sessionId)) saved[sessionId] = approval.effectivePolicy(agent.session)
+      approval.setPolicy(agent, 'ask')
+    } else if (Object.hasOwn(saved, sessionId)) {
+      approval.setPolicy(agent, saved[sessionId])
+      delete saved[sessionId]
+    }
+  }
+  ctx.on?.('tools/pre-execute', async (exec, next) => {
+    await applyAutoApproval(exec.agent)
+    return next()
+  }, { prepend: true })
+
+  function setAutoApprove(target, value, group = false) {
+    if (typeof value !== 'boolean') throw new Error('Automatic approval must be true or false')
+    if (!ctx.get?.('approval')?.setPolicy) throw new Error('Approval review is unavailable in this DeepSeek Harness')
+    const before = changes.get(target) ?? Promise.resolve()
+    const run = before.catch(() => {}).then(async () => {
+      const previous = target.autoApprove
+      rt.cancelApprovalReviews?.(group ? { roomId: target.id } : { botId: target.id })
+      target.autoApprove = value
+      const ids = group ? Object.values(target.sessions ?? {}) : [rt.chatOf(target.id)]
+      try {
+        for (const id of ids) await applyAutoApproval(await rt.resolveAgent(id), target)
+      } catch (error) {
+        target.autoApprove = previous
+        for (const id of ids) await applyAutoApproval(await rt.resolveAgent(id), target).catch(() => {})
+        throw error
+      }
+    })
+    changes.set(target, run)
+    return run.finally(() => { if (changes.get(target) === run) changes.delete(target) })
+  }
+  Object.assign(rt, { permissionCatalog, applyPermission, setPermission, cleanRoomPermission, setRoomPermission, applyAutoApproval, setAutoApprove })
 }

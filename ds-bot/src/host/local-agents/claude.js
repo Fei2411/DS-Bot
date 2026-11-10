@@ -189,7 +189,7 @@ class ClaudeSession {
               response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny' } },
             }),
             action: `Run ${tool}`,
-            detail: JSON.stringify(request.input ?? {}).slice(0, 4_000),
+            detail: JSON.stringify(request),
             changes: !READ_TOOLS.has(tool),
             options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }, { optionId: 'deny', kind: 'reject_once', name: 'Deny' }],
           })

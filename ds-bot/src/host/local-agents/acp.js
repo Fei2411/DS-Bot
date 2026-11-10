@@ -118,6 +118,7 @@ export class AcpEngine {
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
+      const evidence = JSON.stringify(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
@@ -128,6 +129,7 @@ export class AcpEngine {
           type: 'permission', id, reply,
           action,
           detail: detailText(call, action),
+          evidence,
           options,
           changes: CHANGE_KINDS.has(call.kind),
         })

@@ -92,7 +92,7 @@ export class CodexEngine {
   onRequest(method, params) {
     if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval' || method === 'execCommandApproval' || method === 'patchApproval') {
       const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
-      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' || decision === 'acceptForSession' ? 'allow_once' : 'reject_once', name: decision }))
+      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' ? 'allow_once' : decision === 'acceptForSession' ? 'allow_always' : 'reject_once', name: decision }))
       return new Promise((resolve) => {
         const reply = (decision) => resolve({ decision: decision ?? 'decline' })
         thread?.push({
@@ -114,7 +114,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model, review }) {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
@@ -126,7 +126,7 @@ export class CodexEngine {
     const params = {
       cwd,
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' && !review ? 'never' : 'on-request' } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
@@ -216,4 +216,4 @@ const activityOf = item => {
         : (item.title ?? item.type)
   return String(kind).split('\n')[0].slice(0, 120)
 }
-const detailText = params => [params?.command, params?.reason, JSON.stringify(params?.changes ?? params?.patch ?? '')].filter(Boolean).join('\n').slice(0, 4_000)
+const detailText = params => JSON.stringify(params ?? {})

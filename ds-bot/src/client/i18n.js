@@ -5,6 +5,16 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Approvals': '审批',
+  'Approval model': '审批模型',
+  'Review for me': '替我审批',
+  'Follow team default': '跟随团队默认模型',
+  'Reviews pending approval requests; uncertain decisions come back to you.': '审核待批准的操作；无法确定时交回给你。',
+  'Recent approval reviews': '最近的代审记录',
+  'Approved once': '已允许一次',
+  'Rejected': '已拒绝',
+  'Manual review': '人工审批',
+  'Reviewing this action…': '正在审核此操作…',
   // Shared
   'Main Bot': '主 Bot',
   Working: '进行中',

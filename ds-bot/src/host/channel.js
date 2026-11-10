@@ -89,6 +89,7 @@ export function install(rt) {
     permissions: rt.permissionCatalog?.() ?? null,
     modelsKey: modelsKey(),
     prefs: state.prefs,
+    approvalReviews: rt.approvalReviewsView?.() ?? [],
     // Whether a Desktop window should serve Bot browser reads (see browser.js).
     browser: rt.browserEnabled,
     // False when config.memory turns memory off: no Memory row or panel.
@@ -142,6 +143,13 @@ export function install(rt) {
   const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models'])
 
   async function setPrefs(body) {
+    let approvalModel
+    if (body.approvalModel !== undefined) {
+      const ref = body.approvalModel
+      if (ref !== null && typeof ref !== 'string') throw invalid('Choose an approval model')
+      if (rt.isLocalAgentRef?.(ref)) throw invalid('Choose a model API for approval review')
+      approvalModel = ref ? await rt.resolveModel(ref) : undefined
+    }
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -172,6 +180,7 @@ export function install(rt) {
       else throw invalid('Flat text width must be a whole percent from 50 to 100')
     }
     if (body.defaultBotModel !== undefined) {
+      if (!state.prefs.approvalModel) rt.cancelApprovalReviews?.({})
       // The model new Bots start on when a create names none. It resolves now, so the
       // saved ref is one the catalog served at save time; a create still re-checks it.
       if (body.defaultBotModel === null || body.defaultBotModel === '') delete state.prefs.defaultBotModel
@@ -196,6 +205,11 @@ export function install(rt) {
       const sizes = Object.entries(body.memoryLimits ?? {}).filter(([scope, size]) => MEMORY_LIMIT_SCOPES.has(scope) && Number.isInteger(size) && size >= MEMORY_LIMIT_MIN && size <= MEMORY_LIMIT_MAX)
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
+    }
+    if (body.approvalModel !== undefined) {
+      rt.cancelApprovalReviews?.({})
+      if (approvalModel) state.prefs.approvalModel = approvalModel
+      else delete state.prefs.approvalModel
     }
     return rt.save()
   }

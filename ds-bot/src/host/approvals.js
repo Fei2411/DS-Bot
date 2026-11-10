@@ -1,116 +1,189 @@
-// Approvals. A member's group Session is hidden, so DSH's approval card never shows
-// there and the turn would wait forever: DS Bot answers those requests itself, from
-// the group chat. A Bot's own chat keeps DSH's card, but DS Bot can answer those too
-// (IM chats, the phone app): the request is raced — whichever side answers first wins,
-// and the other card withdraws.
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { cleanText } from './diagnostics.js'
+import { reviewApproval, REVIEW_TIMEOUT_MS } from './approval-review.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
+const sessionOf = agent => agent?.session?.id ?? agent?.id
+const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
 
 export function install(rt) {
   const { ctx } = rt
-  /** @type {Map<string, {id:string, sessionId:string, botId:string, roomId?:string, tool:string, reason:string, detail:{text?:string, code?:string}, at:number, answer?:(outcome:string)=>void}>} */
   const pending = new Map()
+  const executions = new Map()
+  const actionScope = new AsyncLocalStorage()
   const approvalListeners = new Set()
-  const onApproval = (listener) => {
-    approvalListeners.add(listener)
-    return () => approvalListeners.delete(listener)
-  }
+  const clean = text => cleanText(text, { redact: rt.redactSecrets }).slice(0, 1000)
   const emit = (kind, data) => {
     for (const listener of approvalListeners) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
+  const view = ({ answer, cancelReview, ...entry }) => ({ ...entry, answerable: answer !== undefined })
+  const changed = entry => emit('open', view(entry))
 
-  // Ahead of DSH's own answerer, which would hold a hidden Session's request unseen.
-  ctx.on('approval/request', (request, next) => {
-    const sessionId = request.agent?.session?.id ?? request.agent?.id
-    const owner = sessionId === undefined ? undefined : rt.groupOwners.get(sessionId)
-    const botId = owner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
-    if (botId === undefined) return next()
+  // Capture immutable tool arguments before any pre-execute policy asks. Result
+  // events release both successful and rejected calls, including PTC sub-calls.
+  ctx.on('tools/pre-execute', (exec, next) => {
+    if (exec.callId !== undefined) {
+      const key = keyOf(exec.agent, exec.callId)
+      executions.set(key, { tool: exec.name, arguments: exec.arguments })
+      if (executions.size > 1000) executions.delete(executions.keys().next().value)
+    }
+    return next()
+  }, { prepend: true })
+  ctx.on('tools/result', exec => { executions.delete(keyOf(exec.agent, exec.callId)) })
+
+  // Async-local evidence belongs to one request, even when a script makes several
+  // concurrent requests with the same outer call id. The host API stays unchanged.
+  const requestActionApproval = (request, evidence) => actionScope.run(evidence,
+    () => ctx.get('approval').request(request))
+
+  async function ownerOf(agent) {
+    const sessionId = sessionOf(agent)
+    let current = agent
+    const seen = new Set()
+    while (current && seen.size < 16) {
+      const id = sessionOf(current)
+      if (seen.has(id)) break
+      seen.add(id)
+      const group = rt.groupOwners.get(id)
+      const botId = group?.botId ?? rt.chatOwners.get(id)
+      if (botId !== undefined) return { sessionId, ownerSessionId: id, botId, ...(group ? { roomId: group.roomId } : {}) }
+      const parent = current.session?.header?.parentSession
+      if (!parent) break
+      current = await rt.resolveAgent(parent).catch(() => undefined)
+    }
+    return undefined
+  }
+  const enabled = owner => (owner.roomId !== undefined ? rt.roomOf(owner.roomId) : rt.botOf(owner.botId))?.autoApprove === true
+
+  async function record(entry, decision) {
+    const item = {
+      id: entry.id, botId: entry.botId, ...(entry.roomId ? { roomId: entry.roomId } : {}),
+      tool: entry.tool, at: Date.now(), outcome: decision.decision, reason: clean(decision.reason),
+      ...(entry.review?.model ? { model: entry.review.model } : {}),
+    }
+    rt.state.approvalReviews = [...(rt.state.approvalReviews ?? []), item].slice(-100)
+    await rt.save()
+  }
+
+  ctx.on('approval/request', async (request, next) => {
+    const explicit = actionScope.getStore()
+    const sessionId = sessionOf(request.agent)
+    const group = rt.groupOwners.get(sessionId)
+    const botId = group?.botId ?? rt.chatOwners.get(sessionId)
+    const owner = botId !== undefined
+      ? { sessionId, ownerSessionId: sessionId, botId, ...(group ? { roomId: group.roomId } : {}) }
+      : await ownerOf(request.agent)
+    if (!owner) return next()
+    if (request.signal?.aborted) return 'cancelled'
+    const captured = executions.get(keyOf(request.agent, request.callId))
+    const evidence = explicit ?? (captured?.tool === request.toolName ? { kind: 'tool', ...captured } : undefined)
     const id = randomUUID()
+    const original = request.signal
+    const linked = new AbortController()
+    const reviewer = new AbortController()
     const entry = {
-      id,
-      sessionId,
-      botId,
-      ...(owner ? { roomId: owner.roomId } : {}),
-      tool: String(request.toolName ?? ''),
-      reason: String(request.reason ?? '').slice(0, 500),
-      detail: rt.callDetail?.(sessionId, request.callId) ?? {},
-      at: Date.now(),
+      id, sessionId: owner.sessionId, botId: owner.botId,
+      ...(owner.roomId ? { roomId: owner.roomId } : {}),
+      tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
+      detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
-    pending.set(id, entry)
-    rt.noteApproval?.(sessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
-    emit('open', { ...entry, answerable: true })
-    const settle = (outcome) => {
-      if (!pending.has(id)) return false
-      pending.delete(id)
-      rt.noteApproval?.(sessionId, undefined)
-      emit('settled', { id, outcome })
-      return true
-    }
-    if (owner === undefined) {
-      // An own-chat approval races DSH's card. The card sees `linked`, our own
-      // AbortSignal: answering here resolves the request, then withdraws the card;
-      // an answer there settles `next()` first and is adopted. An abort of the
-      // original signal cancels either way.
-      const original = request.signal
-      const linked = new AbortController()
-      request.signal = linked.signal
-      return new Promise((resolve, reject) => {
-        const complete = (outcome) => {
-          if (!settle(outcome)) return
-          resolve(outcome)
-          linked.abort()
-          if (request.signal === linked.signal) request.signal = original
+    const automatic = enabled(owner)
+    if (automatic) entry.review = { status: 'reviewing' }
+    return new Promise((resolve, reject) => {
+      let manualStarted = false
+      let timer
+      const abort = () => complete('cancelled')
+      const settle = (outcome, reviewed = false) => {
+        if (!pending.has(id)) return false
+        pending.delete(id)
+        const logged = rt.state?.approvalReviews?.find(item => item.id === id)
+        if (!reviewed && logged && ['allow', 'reject'].includes(logged.outcome)) {
+          logged.outcome = 'cancelled'
+          logged.reason = 'The model decision was withdrawn before it took effect.'
+          void rt.save().catch(() => {})
         }
-        entry.answer = complete
-        if (original?.aborted) entry.answer('cancelled')
-        else original?.addEventListener('abort', () => entry.answer('cancelled'), { once: true })
-        Promise.resolve(next()).then(
-          (outcome) => {
-            if (!pending.has(id)) return
-            complete(outcome)
-          },
-          // DSH's answerer threw: close the entry and give the caller the error
-          // the way the pre-race code did, instead of hanging forever.
-          (error) => {
-            if (!settle('cancelled')) return
-            reject(error)
-            linked.abort()
-            if (request.signal === linked.signal) request.signal = original
-          },
-        )
-      })
-    }
-    rt.yieldRoomTurn?.(sessionId)
-    return new Promise((resolve) => {
-      entry.answer = (outcome) => {
-        if (!settle(outcome)) return
-        resolve(outcome)
+        clearTimeout(timer)
+        original?.removeEventListener('abort', abort)
+        reviewer.abort()
+        linked.abort()
+        if (request.signal === linked.signal) request.signal = original
+        rt.noteApproval?.(owner.ownerSessionId, undefined)
+        emit('settled', { id, outcome })
+        return true
       }
-      if (request.signal?.aborted) entry.answer('cancelled')
-      request.signal?.addEventListener('abort', () => entry.answer('cancelled'), { once: true })
+      const complete = (outcome, reviewed = false) => { if (settle(outcome, reviewed)) resolve(outcome) }
+      const manual = reason => {
+        if (!pending.has(id) || manualStarted) return
+        manualStarted = true
+        if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
+        changed(entry)
+        rt.yieldRoomTurn?.(owner.ownerSessionId)
+        // Hidden child/group sessions use DS Bot's card. Only a direct own chat
+        // races the host card; an unavailable host card leaves ours answerable.
+        if (owner.roomId !== undefined || owner.ownerSessionId !== owner.sessionId) return
+        request.signal = linked.signal
+        Promise.resolve().then(next).then(outcome => {
+          if (outcome !== 'unavailable') complete(outcome)
+        }, error => { if (settle('cancelled')) reject(error) })
+      }
+      entry.answer = complete
+      entry.cancelReview = () => reviewer.abort()
+      pending.set(id, entry)
+      rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
+      original?.addEventListener('abort', abort, { once: true })
+      changed(entry)
+      if (original?.aborted) return complete('cancelled')
+      if (!automatic) return manual()
+      const timeout = new Promise((_, fail) => {
+        const interrupted = () => fail(new Error('Automatic review stopped; review this action manually'))
+        reviewer.signal.addEventListener('abort', interrupted, { once: true })
+        timer = setTimeout(() => reviewer.abort(), REVIEW_TIMEOUT_MS)
+      })
+      void Promise.race([reviewApproval(rt, {
+        request, owner, evidence, signal: reviewer.signal,
+        onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
+      }), timeout]).then(async decision => {
+        if (!pending.has(id)) return
+        if (reviewer.signal.aborted || !enabled(owner)) return manual('Automatic review settings changed')
+        await record(entry, decision)
+        if (!pending.has(id)) return
+        if (reviewer.signal.aborted || !enabled(owner)) return manual('Automatic review settings changed')
+        if (decision.decision === 'manual') manual(decision.reason)
+        else complete(OUTCOMES[decision.decision], true)
+      }).catch(async () => {
+        if (!pending.has(id)) return
+        const reason = 'Automatic review could not decide. Review this action manually.'
+        try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
+        manual(reason)
+      }).finally(() => clearTimeout(timer))
     })
   }, { prepend: true })
 
-  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => ({ ...entry, answerable: answer !== undefined }))
+  const approvalsView = () => [...pending.values()].map(view)
+  const approvalReviewsView = () => rt.state.approvalReviews ?? []
   const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
-
   function answerApproval(id, choice) {
     const entry = pending.get(String(id ?? ''))
-    if (entry?.answer === undefined) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
-    const outcome = OUTCOMES[choice]
-    if (outcome === undefined) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
-    entry.answer(outcome)
+    if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+    if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
+    entry.answer(OUTCOMES[choice])
   }
-
-  // A group Session that leaves its group has no card left to answer from.
-  const cancelApprovals = (sessionId) => {
+  const cancelApprovals = sessionId => {
+    for (const entry of pending.values()) if (entry.sessionId === sessionId) entry.answer('cancelled')
+  }
+  const cancelApprovalReviews = ({ botId, roomId } = {}) => {
     for (const entry of pending.values()) {
-      if (entry.sessionId === sessionId) entry.answer?.('cancelled')
+      if (roomId !== undefined ? entry.roomId === roomId : botId === undefined || (entry.botId === botId && entry.roomId === undefined)) entry.cancelReview()
     }
   }
-
-  Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals, onApproval })
+  ctx.effect?.(() => () => {
+    for (const entry of pending.values()) entry.answer('cancelled')
+    executions.clear()
+    actionScope.disable()
+  }, 'ds-bot: approval review')
+  const onApproval = listener => { approvalListeners.add(listener); return () => approvalListeners.delete(listener) }
+  Object.assign(rt, { approvalsView, approvalReviewsView, waitsForApproval, answerApproval, cancelApprovals, cancelApprovalReviews, onApproval, requestActionApproval })
 }
