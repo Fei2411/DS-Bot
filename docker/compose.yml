@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
-        DSH_VERSION: ${DSH_VERSION:-0.2.0-rc.2}
+        DSH_VERSION: ${DSH_VERSION:-0.2.2-rc.1}
     image: ds-bot:local
     ports:
       - "${DSH_PORT:-3080}:3080"

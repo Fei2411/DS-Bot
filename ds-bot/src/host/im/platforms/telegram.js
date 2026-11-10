@@ -1,10 +1,10 @@
 // Telegram Bot API adapter: getUpdates long polling in, sendMessage out. Parts of the
 // protocol mapping follow dsh-im (MIT, © 2026 xmanrui — see NOTICE).
 import { chunkTelegram } from '../format.js'
+import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4096
 const POLL_TIMEOUT = 50
-const BACKOFF_MAX_MS = 30_000
 const UPDATES = ['message', 'callback_query']
 
 const reason = (error) => {
@@ -152,25 +152,25 @@ export default {
       }
     }
 
-    let delay = 0
+    let attempt = 0
+    let ready = false
+    // The first getMe is part of the poll loop: a network failure there is a retry,
+    // not the end of the connection (#1119). A refused token stops instead.
     const poll = async () => {
-      let me
-      try {
-        me = await getMe()
-      } catch (error) {
-        if (error.stopped) return
-        handlers.onStatus({ state: 'error', error: reason(error) })
-        return
-      }
-      handlers.onStatus({ state: 'ready', account: { id: String(me.id), name: selfName || String(me.id) } })
       while (!stopped) {
         try {
+          if (!ready) {
+            const me = await getMe()
+            ready = true
+            attempt = 0
+            handlers.onStatus({ state: 'ready', account: { id: String(me.id), name: selfName || String(me.id) } })
+          }
           const updates = await call('getUpdates', { offset: env.runtime.get().offset ?? 0, timeout: POLL_TIMEOUT, allowed_updates: UPDATES }, { timeout: (POLL_TIMEOUT + 15) * 1000 })
           for (const update of Array.isArray(updates) ? updates : []) {
             if (typeof update.update_id === 'number') env.runtime.set({ offset: update.update_id + 1 })
             await onUpdate(update).catch(error => env.log?.warn?.('ds-bot im: telegram update failed: %s', reason(error)))
           }
-          delay = 0
+          attempt = 0
           handlers.onStatus({ state: 'ready' })
         } catch (error) {
           if (error.stopped || stopped) return
@@ -178,9 +178,16 @@ export default {
             handlers.onStatus({ state: 'error', error: 'A webhook or another program uses this bot' })
             return
           }
-          handlers.onStatus({ state: 'error', error: reason(error) })
-          delay = error.retryAfter !== undefined ? error.retryAfter * 1000 : Math.min(Math.max(1000, delay * 2 || 1000), BACKOFF_MAX_MS)
-          await new Promise(done => setTimeout(done, delay).unref?.())
+          // A refused token will not fix itself; a network failure is retried at the
+          // preset's retry_after, or after a growing wait.
+          if (error?.permanent === true) {
+            handlers.onStatus({ state: 'error', error: reason(error) })
+            return
+          }
+          handlers.onStatus({ state: 'retrying', error: reason(error) })
+          const wait = error.retryAfter !== undefined ? Math.max(0, Number(error.retryAfter)) * 1000 : retryDelay(attempt)
+          attempt += 1
+          await retryWait(wait)
         }
       }
     }

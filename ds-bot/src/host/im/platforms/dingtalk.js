@@ -6,6 +6,7 @@
 // numbers choices. Wire details ported from dingtalk-stream (MIT, see
 // NOTICE).
 import { chunkMarkdown } from '../format.js'
+import { retryDelay, retryWait } from './retry.js'
 
 const GATEWAY = 'https://api.dingtalk.com'
 const OAPI = 'https://oapi.dingtalk.com'
@@ -104,6 +105,7 @@ export default {
       })
     }
 
+    let openFailures = 0
     const open = async () => {
       const gen = generation
       let url
@@ -117,15 +119,40 @@ export default {
             subscriptions: [{ type: 'CALLBACK', topic: '/v1.0/im/bot/messages/get' }],
           }),
         })
+        if (!response.ok && !(response.status >= 500 || response.status === 429)) {
+          throw Object.assign(new Error(`DingTalk answered ${response.status}`), { permanent: true })
+        }
         const body = await response.json().catch(() => ({}))
-        if (body.endpoint === undefined) throw new Error(String(body.message ?? body.error ?? 'DingTalk refused the connection'))
+        if (body.endpoint === undefined) {
+          const error = new Error(String(body.message ?? body.error ?? 'DingTalk refused the connection'))
+          // A 200 that names no endpoint is the platform refusing the app.
+          error.permanent = response.ok
+          throw error
+        }
         url = `${body.endpoint}?ticket=${body.ticket}`
+        openFailures = 0
       } catch (error) {
-        handlers.onStatus({ state: 'error', error: error.message })
+        if (stopped || generation !== gen) return
+        if (error?.permanent === true) {
+          handlers.onStatus({ state: 'error', error: error.message })
+          return
+        }
+        // The handshake is retried, also when this is the first one: a connection
+        // started before the network is up is not over (#1119).
+        handlers.onStatus({ state: 'retrying', error: error.message })
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+        reconnectTimer.unref?.()
+        openFailures += 1
         return
       }
       try { socket = new env.WebSocket(url) } catch (error) {
-        handlers.onStatus({ state: 'error', error: `DingTalk could not open a socket: ${error?.message ?? error}` })
+        if (stopped || generation !== gen) return
+        handlers.onStatus({ state: 'retrying', error: `DingTalk could not open a socket: ${error?.message ?? error}` })
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+        reconnectTimer.unref?.()
+        openFailures += 1
         return
       }
       socket.addEventListener('message', (event) => {
@@ -143,7 +170,7 @@ export default {
           void onCallback(headers, String(packet.data ?? '{}')).catch(error => env.log?.warn?.('ds-bot im: dingtalk message failed: %s', error?.message ?? error))
         }
       })
-      socket.addEventListener('open', () => handlers.onStatus({ state: 'ready' }))
+      socket.addEventListener('open', () => { openFailures = 0; handlers.onStatus({ state: 'ready' }) })
       socket.addEventListener('close', () => {
         if (stopped || generation !== gen) return
         handlers.onStatus({ state: 'connecting' })
@@ -154,14 +181,26 @@ export default {
     }
 
     handlers.onStatus({ state: 'connecting' })
+    // The access token is fetched until it arrives: a connection started before the
+    // network is up must connect once it is (#1119).
     void (async () => {
-      try {
-        const got = await appToken(fields, env)
-        token = got.accessToken
-        tokenExpiresAt = got.expiresAt
-      } catch (error) {
-        handlers.onStatus({ state: 'error', error: error.message })
-        return
+      let attempt = 0
+      while (!stopped) {
+        try {
+          const got = await appToken(fields, env)
+          token = got.accessToken
+          tokenExpiresAt = got.expiresAt
+          break
+        } catch (error) {
+          if (stopped) return
+          if (error?.permanent === true) {
+            handlers.onStatus({ state: 'error', error: error.message })
+            return
+          }
+          handlers.onStatus({ state: 'retrying', error: error.message })
+          await retryWait(retryDelay(attempt))
+          attempt += 1
+        }
       }
       if (!stopped) await open()
     })()
@@ -185,7 +224,10 @@ async function appToken(fields, env) {
   const response = await env.fetch(url)
   const body = await response.json().catch(() => ({}))
   if (body.errcode !== 0 || body.access_token === undefined) {
-    throw Object.assign(new Error(String(body.errmsg ?? 'DingTalk refused these credentials')), { permanent: true })
+    const error = new Error(String(body.errmsg ?? 'DingTalk refused these credentials'))
+    // A 5xx or a 429 is the service, not the credentials: retry those.
+    error.permanent = !(response.status >= 500 || response.status === 429)
+    throw error
   }
   return { accessToken: body.access_token, expiresAt: Date.now() + Math.max(60, Number(body.expires_in ?? 7200) - 300) * 1000 }
 }

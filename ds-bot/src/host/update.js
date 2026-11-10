@@ -215,6 +215,9 @@ export function install(rt) {
     }
     status.latest = found.version
     target = newer(found.version, status.current) ? found : null
+    // The note that reported the last update is a one-time message; a newer
+    // release found later in the same run still offers itself.
+    if (target !== null && status.phase === 'updated') status.phase = 'idle'
   }
 
   /** Ask where the package came from for its newest version; a fresh check ignores the last answer. */

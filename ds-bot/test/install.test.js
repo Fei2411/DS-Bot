@@ -48,6 +48,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on subagent/end',
     'on tools/result',
     'on session/event',
+    'effect ds-bot: lost hand-offs',
     'on tools/execute',
     'effect ds-bot: identity section',
     'prompt bot-identity 640',
@@ -62,6 +63,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: chat index',
     'effect ds-bot: group step lines',
     'on llm/stream',
+    'effect ds-bot: group log',
     'on approval/request (prepend)',
     'on agent/inbox/discarded',
     'on session/event',
@@ -72,13 +74,17 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/pre-step',
     'on agent/status',
     'effect ds-bot: memory review',
+    'effect ds-bot: memory tidy',
     'effect ds-bot: Bot compaction',
     'on agent/created',
+    'effect ds-bot: wake parts that wait for their run mode',
     'on agent/pre-step (prepend)',
     'on system-prompt/assemble (prepend)',
     'on agent/request-error (prepend)',
     'on agent/request-error (prepend)',
     'effect ds-bot: hand on input kept in earlier parts',
+    'on workspace/session-stop',
+    'on workspace/session-activity',
     'on agent/status',
     'on llm/stream',
     'on session/event',
@@ -266,7 +272,49 @@ test('a custom agent keeps the local agents adapter live after install', async (
   const { ctx, stop, rt } = start({ version: 1, localAgents: { custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }], sessions: {} } })
   t.after(stop)
   await rt.load()
-  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('acp-a1'))
+  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('local-acp-a1'))
   assert.ok(entry, 'the custom route is registered')
   assert.equal(entry.adapter.disposed, false, 'the adapter survives install')
+})
+
+// Local-agent routes have their own prefix (#1059): a Bot on DSH's own OpenCode
+// provider stays there, and DS Bot never registers a name another provider has.
+test('a Bot on DSH\'s opencode provider is not taken for a local agent', async (t) => {
+  const bot = { id: 'b1', name: 'Zen', model: 'opencode/glm-5', appliedModel: 'opencode/glm-5' }
+  const { ctx, stop, rt } = start({ version: 1, bots: { b1: bot }, localAgents: { custom: [], sessions: {} } })
+  t.after(stop)
+  await rt.load()
+  assert.equal(rt.state.bots.b1.model, 'opencode/glm-5')
+  assert.equal(rt.isLocalAgentRef('opencode/glm-5'), false)
+  const routes = (ctx.adapters ?? []).flatMap(entry => entry.routes)
+  assert.ok(!routes.includes('opencode'), 'DS Bot does not register the name DSH\'s provider uses')
+})
+
+test('a Bot saved on an old local-agent route moves to the prefixed one', async (t) => {
+  const state = {
+    version: 1,
+    bots: {
+      b1: { id: 'b1', name: 'Codex', model: 'codex-cli/gpt-6.1-sol', appliedModel: 'codex-cli/gpt-6.1-sol' },
+      b2: { id: 'b2', name: 'OC', sessionId: 's-oc', model: 'opencode/grok-code' },
+      b3: { id: 'b3', name: 'Mine', model: 'acp-a1/default' },
+    },
+    localAgents: {
+      custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }],
+      sessions: { b1: { route: 'codex-cli', cliSessionId: 't1' }, 's-oc': { route: 'opencode', cliSessionId: 'oc1' } },
+    },
+  }
+  const { ctx, stop, rt } = start(state)
+  t.after(stop)
+  await rt.load()
+  const bots = rt.state.bots
+  assert.equal(bots.b1.model, 'local-codex-cli/gpt-6.1-sol')
+  assert.equal(bots.b1.appliedModel, undefined, 'the Sessions are selected again on the new route')
+  // The opencode CLI served this Bot's Session, so its old ref meant the CLI.
+  assert.equal(bots.b2.model, 'local-opencode/grok-code')
+  assert.equal(bots.b3.model, 'local-acp-a1/default')
+  assert.equal(rt.state.localAgents.sessions.b1.route, 'local-codex-cli')
+  assert.equal(rt.state.localAgents.sessions['s-oc'].route, 'local-opencode')
+  const routes = (ctx.adapters ?? []).flatMap(entry => entry.routes)
+  for (const route of ['local-codex-cli', 'local-opencode', 'local-acp-a1']) assert.ok(routes.includes(route), route)
+  assert.ok(!routes.some(route => ['codex-cli', 'opencode', 'acp-a1'].includes(route)))
 })
