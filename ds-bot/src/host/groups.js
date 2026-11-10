@@ -240,8 +240,11 @@ export function install(rt) {
     room.seen ??= {}
     if (!reconciled.has(room)) {
       reconciled.add(room)
-      const last = rt.ledger.lastSeq(bookOf(room.id))
-      if (last > room.seq) room.seq = last
+      const ahead = rt.ledger.after(bookOf(room.id), room.seq)
+      if (ahead.length > 0) {
+        room.seq = Math.max(room.seq, ...ahead.map(record => record.seq))
+        room.log = [...room.log, ...ahead.filter(memberLine).map(record => cutLine(record))].slice(-ROOM_LOG_MAX)
+      }
     }
     room.shown ??= room.seq
   }

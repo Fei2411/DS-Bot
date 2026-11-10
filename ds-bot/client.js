@@ -14808,6 +14808,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   }
   return null;
 }
+var settledRows = /* @__PURE__ */ new Map();
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = (0, import_react32.useState)({ replies: [], speaking: [] });
   (0, import_react32.useEffect)(() => {
@@ -14834,17 +14835,24 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }, [done, sessionId, callId]);
   const resultText = done ? contentText(content) : "";
   const range = done ? relayRange(resultText) : void 0;
-  const [settled, setSettled] = (0, import_react32.useState)(null);
+  const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}`;
+  const [settled, setSettled] = (0, import_react32.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
   (0, import_react32.useEffect)(() => {
-    if (range === void 0) return void 0;
+    if (rowsKey === void 0) return void 0;
+    const known = settledRows.get(rowsKey);
+    if (known !== void 0) {
+      setSettled(known);
+      return void 0;
+    }
     let stop = false;
     void actions.groupRows(sessionId, range.from, range.to).then((rows2) => {
+      if (Array.isArray(rows2) && rows2.length > 0) settledRows.set(rowsKey, rows2);
       if (!stop) setSettled(Array.isArray(rows2) ? rows2 : []);
     });
     return () => {
       stop = true;
     };
-  }, [sessionId, range?.from, range?.to]);
+  }, [rowsKey]);
   let replies = live.replies;
   let broken = false;
   if (range !== void 0) {
