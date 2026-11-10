@@ -296,6 +296,33 @@ test('only the last messages sent to a chat are kept for quoting', async (t) => 
   assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
 })
 
+test('removing a chat drops the messages kept for quoting it', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  // The runtime file is written on a delay, so wait for the write, not a fixed time.
+  const sentOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent } catch { return undefined }
+  }
+  const until = async (check) => {
+    for (let at = 0; at < 80; at += 1) {
+      if (check(sentOf())) return true
+      await delay(50)
+    }
+    return false
+  }
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  assert.ok(await until(sent => sent?.['dm-u1']?.length > 0), 'the sent message is kept')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', remove: true })
+  assert.ok(await until(sent => sent !== undefined && sent['dm-u1'] === undefined), 'the removed chat leaves nothing behind')
+})
+
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
   const s = await start()
   t.after(s.stop)
