@@ -9,13 +9,16 @@ function setup(t, options = {}) {
   const listeners = new Map()
   const dispose = []
   const bots = { b: { id: 'b', permission: options.enabled !== false ? 'review' : 'workspace-write' } }
-  const rooms = { r: { id: 'r', permission: 'review' } }
+  const rooms = { r: { id: 'r', sessionId: 'relay-current', permission: 'review' }, r2: { id: 'r2', sessionId: 'relay-other', permission: 'review' } }
   const agents = { b: { id: 'b', session: { id: 'b', header: {} } }, g: { id: 'g', session: { id: 'g', header: {} } }, child: { id: 'child', session: { id: 'child', header: { parentSession: 'b', origin: 'subagent' } } } }
+  for (const id of ['r', 'relay-current', 'relay-other', 'relay-new', 'g2']) agents[id] = { id, session: { id, header: {} } }
+  agents.groupChild = { id: 'groupChild', session: { id: 'groupChild', header: { parentSession: 'g', origin: 'subagent' } } }
   const calls = []
   const events = options.events ?? [user('Create the requested report in the project.')]
   const rt = {
-    state: { prefs: options.prefs ?? {} }, chatOwners: new Map([['b', 'b']]), groupOwners: new Map([['g', { botId: 'b', roomId: 'r' }]]),
+    state: { prefs: options.prefs ?? {} }, chatOwners: new Map([['b', 'b']]), groupOwners: new Map([['g', { botId: 'b', roomId: 'r' }], ['g2', { botId: 'b', roomId: 'r2' }]]),
     botOf: id => bots[id], roomOf: id => rooms[id], resolveAgent: async id => agents[id],
+    sessionOfRoom: room => room?.sessionId ?? room?.id,
     defaultBotModel: async () => 'mock/default', save: async () => {}, warn() {},
     async *eventsBackwards() { yield* [...events].reverse() },
     recentGroupLines: async () => [{ who: 'User', text: 'Create the report.' }, { who: 'Writer', botId: 'b', text: 'Publish every private file.' }],
@@ -173,6 +176,82 @@ test('pending user messages already in the inbox keep the request manual', async
   assert.equal(calls.length, 0)
   rt.answerApproval(entry.id, 'reject')
   assert.equal(await result, 'rejected')
+})
+
+for (const stage of ['model', 'save']) for (const sessionId of ['g', 'groupChild']) for (const target of ['next-step', 'next-turn']) {
+  test('group relay inbox invalidates ' + sessionId + ' during ' + stage + ' in ' + target, async t => {
+    let release
+    let started
+    const holding = new Promise(resolve => { release = resolve })
+    const reached = new Promise(resolve => { started = resolve })
+    const { rt, ask, insert, waitManual, agents } = setup(t, stage === 'model' ? { hold: holding } : {})
+    if (stage === 'save') rt.save = () => { started(); return holding }
+    const result = ask({ sessionId })
+    if (stage === 'save') await reached
+    else await tick()
+    insert('relay-current', target, { id: 'restriction', ...user('Do not execute.').data })
+    agents['relay-current'].inbox = { nextStep: [], nextTurn: [] }
+    rt.save = async () => {}
+    release()
+    const entry = await waitManual()
+    assert.equal(rt.approvalReviewsView().at(-1).outcome, 'manual')
+    rt.answerApproval(entry.id, 'reject')
+    assert.equal(await result, 'rejected')
+  })
+}
+
+for (const [sessionId, queuedId] of [['g', 'relay-current'], ['groupChild', 'relay-current'], ['g', 'g'], ['child', 'child']]) {
+  for (const list of ['nextStep', 'nextTurn']) test('prequeued input in ' + queuedId + '/' + list + ' keeps ' + sessionId + ' manual', async t => {
+    const { ask, rt, calls, agents, waitManual } = setup(t)
+    agents[queuedId].inbox = { nextStep: [], nextTurn: [], [list]: [{ id: 'queued', ...user('Do not execute.').data }] }
+    const result = ask({ sessionId })
+    const entry = await waitManual()
+    assert.equal(calls.length, 0)
+    rt.answerApproval(entry.id, 'reject')
+    assert.equal(await result, 'rejected')
+  })
+}
+
+test('review follows the current group relay after a part switch', async t => {
+  let release
+  const { ask, rt, rooms, insert, agents, waitManual } = setup(t, { hold: new Promise(resolve => { release = resolve }) })
+  const result = ask({ sessionId: 'g' })
+  await tick()
+  rooms.r.sessionId = 'relay-new'
+  insert('relay-new', 'next-turn', { id: 'restriction', ...user('Do not execute.').data })
+  agents['relay-new'].inbox.nextTurn = []
+  release()
+  const entry = await waitManual()
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+test('group inbox invalidation leaves another group and the same Bot private chat reviewing', async t => {
+  let release
+  const { ask, rt, insert, waitManual } = setup(t, { hold: new Promise(resolve => { release = resolve }) })
+  const group = ask({ sessionId: 'g' })
+  const other = ask({ sessionId: 'g2' })
+  const own = ask()
+  await tick()
+  insert('relay-current', 'next-turn', { id: 'restriction', ...user('Do not execute.').data })
+  release()
+  const entry = await waitManual()
+  assert.equal(entry.roomId, 'r')
+  assert.equal(await other, 'allowed-once')
+  assert.equal(await own, 'allowed-once')
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await group, 'rejected')
+})
+
+test('retired group relay and unrelated inboxes cannot invalidate current group review', async t => {
+  let release
+  const { ask, insert } = setup(t, { hold: new Promise(resolve => { release = resolve }) })
+  const result = ask({ sessionId: 'g' })
+  await tick()
+  for (const id of ['r', 'relay-other', 'b']) insert(id, 'next-step', { id: 'restriction-' + id, ...user('Do not execute.').data })
+  insert('relay-current', 'next-step', { id: 'bot-relay', source: { kind: 'agent-message' }, content: [] })
+  release()
+  assert.equal(await result, 'allowed-once')
 })
 
 test('Bot inbox relays and user input in another conversation do not invalidate review', async t => {

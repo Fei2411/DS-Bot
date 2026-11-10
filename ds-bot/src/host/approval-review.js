@@ -23,7 +23,19 @@ export function parseReview(text) {
   return { decision: value.decision, reason: value.reason.trim() }
 }
 
+export function reviewSessionIds(rt, owner) {
+  const room = owner.roomId === undefined ? undefined : rt.roomOf(owner.roomId)
+  // The relay follows the room's current part, independently of member Sessions.
+  const relay = room ? rt.sessionOfRoom(room) : undefined
+  return [...new Set([owner.ownerSessionId, owner.sessionId, relay].filter(id => id !== undefined))]
+}
+
 export async function reviewContext(rt, owner, signal) {
+  for (const id of reviewSessionIds(rt, owner)) {
+    const agent = await rt.resolveAgent(id)
+    const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
+    if (pending.some(message => message.source?.kind === 'user')) throw new Error('Pending user input needs manual review')
+  }
   if (owner.roomId !== undefined) {
     const lines = (await rt.recentGroupLines(owner.roomId)).slice(-24)
     if (lines.some(line => line.length > (line.text?.length ?? 0))) throw new Error('Some group messages are incomplete')
@@ -41,9 +53,6 @@ export async function reviewContext(rt, owner, signal) {
     }
     if (lines.length === 24) break
   }
-  const agent = await rt.resolveAgent(owner.ownerSessionId)
-  const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
-  if (pending.some(message => message.source?.kind === 'user')) throw new Error('Pending user input needs manual review')
   return lines.reverse()
 }
 

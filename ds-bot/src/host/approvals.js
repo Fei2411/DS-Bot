@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
-import { reviewApproval, reviewContext, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
 const sessionOf = agent => agent?.session?.id ?? agent?.id
@@ -26,7 +26,7 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'agent/inbox/spliced' || !event.data?.inserted?.some(message => message.source?.kind === 'user')) return
     for (const entry of pending.values()) {
-      if (session.id === entry.ownerSessionId || session.id === entry.sessionId) entry.cancelReview()
+      if (reviewSessionIds(rt, entry).includes(session.id)) entry.cancelReview()
     }
   })
 
