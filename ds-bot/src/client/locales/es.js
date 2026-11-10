@@ -253,6 +253,8 @@ export const ES = {
   "This host has no plugin manager.": "Este host no tiene un administrador de complementos.",
   "Install": "Instalar",
   "Not available here": "No disponible aquí",
+  "Managed by the installation. It cannot be switched here.": "La instalación lo gestiona. Aquí no se puede cambiar.",
+  "This plugin cannot be used here.": "Este complemento no se puede usar aquí.",
   'This DSH cannot register local agent routes.': 'Este DSH no puede registrar rutas de agentes locales.',
   'Detected agents': 'Agentes detectados',
   Refresh: 'Actualizar',

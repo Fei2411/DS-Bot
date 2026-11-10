@@ -263,6 +263,8 @@ const ZH = {
   'This host has no plugin manager.': '这个宿主没有插件管理器。',
   'Install': '安装',
   'Not available here': '这里不可用',
+  'Managed by the installation. It cannot be switched here.': '由安装管理，不能在应用内开关',
+  'This plugin cannot be used here.': '这个插件在这里无法使用',
   'This DSH cannot register local agent routes.': '这个 DSH 不能注册本地 Agent 路由。',
   'Detected agents': '已检测到的 Agent',
   Refresh: '刷新',

@@ -253,6 +253,8 @@ export const DE = {
   'This host has no plugin manager.': 'Dieser Host hat keinen Plugin-Manager.',
   'Install': 'Installieren',
   'Not available here': 'Hier nicht verfügbar',
+  'Managed by the installation. It cannot be switched here.': 'Von der Installation verwaltet. Hier lässt er sich nicht umschalten.',
+  'This plugin cannot be used here.': 'Dieses Plugin kann hier nicht verwendet werden.',
   'This DSH cannot register local agent routes.': 'Dieses DSH kann keine Routen für lokale Agenten registrieren.',
   'Detected agents': 'Erkannte Agenten',
   Refresh: 'Aktualisieren',

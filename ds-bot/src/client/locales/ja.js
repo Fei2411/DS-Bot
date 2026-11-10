@@ -247,6 +247,8 @@ export const JA = {
   "This host has no plugin manager.": "このホストにはプラグインマネージャーがありません。",
   "Install": "インストール",
   "Not available here": "ここでは利用できません",
+  "Managed by the installation. It cannot be switched here.": "インストール側で管理されています。ここでは切り替えできません",
+  "This plugin cannot be used here.": "このプラグインはここでは使用できません",
   "This DSH cannot register local agent routes.": "この DSH ではローカルエージェントのルートを登録できません。",
   "Detected agents": "検出されたエージェント",
   "Refresh": "更新",

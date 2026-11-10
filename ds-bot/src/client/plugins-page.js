@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useState } from 'react'
 import { CheckIcon } from './icons.js'
 import { call } from './api.js'
 import { t } from './i18n.js'
+import { pluginStatusText } from './plugin-status.js'
 
 // The engine's plugin manager: the profile's plugin packages and the official catalog.
 // A switch saves the profile patch through the host; a host with no plugin manager says
@@ -15,7 +16,8 @@ export function PluginsPage({ run, Section, Row, Switch }) {
   const update = endpoint => payload => run(call(endpoint, payload).then(setView))
   const setBundle = update('plugin-bundle')
   const install = update('plugin-install')
-  const hintOf = row => [row.description, row.problem, row.readOnlyReason, row.version === null ? undefined : `v${row.version}`].filter(Boolean).join(' · ') || undefined
+  // Status codes are words of the engine; the hint says them in the user's language.
+  const hintOf = row => [row.description, row.problem == null ? undefined : pluginStatusText(row.problem), row.readOnlyReason == null ? undefined : pluginStatusText(row.readOnlyReason), row.version === null ? undefined : `v${row.version}`].filter(Boolean).join(' · ') || undefined
   const toggle = bundle => h(Switch, {
     on: bundle.enabled, label: bundle.title, disabled: !bundle.selectable,
     onChange: enabled => setBundle({ name: bundle.name, enabled }),

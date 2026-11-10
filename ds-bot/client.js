@@ -369,6 +369,8 @@ var JA = {
   "This host has no plugin manager.": "このホストにはプラグインマネージャーがありません。",
   "Install": "インストール",
   "Not available here": "ここでは利用できません",
+  "Managed by the installation. It cannot be switched here.": "インストール側で管理されています。ここでは切り替えできません",
+  "This plugin cannot be used here.": "このプラグインはここでは使用できません",
   "This DSH cannot register local agent routes.": "この DSH ではローカルエージェントのルートを登録できません。",
   "Detected agents": "検出されたエージェント",
   "Refresh": "更新",
@@ -2632,6 +2634,8 @@ var KO = {
   "This host has no plugin manager.": "이 호스트에는 플러그인 관리자가 없습니다.",
   "Install": "설치",
   "Not available here": "여기에서는 사용할 수 없습니다",
+  "Managed by the installation. It cannot be switched here.": "설치에서 관리합니다. 여기에서는 켜고 끌 수 없습니다",
+  "This plugin cannot be used here.": "이 플러그인은 여기에서 사용할 수 없습니다",
   "This DSH cannot register local agent routes.": "이 DSH에서는 로컬 Agent 경로를 등록할 수 없습니다.",
   "Detected agents": "감지된 Agent",
   Refresh: "새로고침",
@@ -4935,6 +4939,8 @@ var ES = {
   "This host has no plugin manager.": "Este host no tiene un administrador de complementos.",
   "Install": "Instalar",
   "Not available here": "No disponible aquí",
+  "Managed by the installation. It cannot be switched here.": "La instalación lo gestiona. Aquí no se puede cambiar.",
+  "This plugin cannot be used here.": "Este complemento no se puede usar aquí.",
   "This DSH cannot register local agent routes.": "Este DSH no puede registrar rutas de agentes locales.",
   "Detected agents": "Agentes detectados",
   Refresh: "Actualizar",
@@ -7233,6 +7239,8 @@ var FR = {
   "This host has no plugin manager.": "Cet hôte n'a pas de gestionnaire de plugins.",
   "Install": "Installer",
   "Not available here": "Non disponible ici",
+  "Managed by the installation. It cannot be switched here.": "Géré par l’installation. Impossible de le modifier ici.",
+  "This plugin cannot be used here.": "Ce plugin ne peut pas être utilisé ici.",
   "This DSH cannot register local agent routes.": "Ce DSH ne peut pas enregistrer de routes d’agent local.",
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",
@@ -9496,6 +9504,8 @@ var DE = {
   "This host has no plugin manager.": "Dieser Host hat keinen Plugin-Manager.",
   "Install": "Installieren",
   "Not available here": "Hier nicht verfügbar",
+  "Managed by the installation. It cannot be switched here.": "Von der Installation verwaltet. Hier lässt er sich nicht umschalten.",
+  "This plugin cannot be used here.": "Dieses Plugin kann hier nicht verwendet werden.",
   "This DSH cannot register local agent routes.": "Dieses DSH kann keine Routen für lokale Agenten registrieren.",
   "Detected agents": "Erkannte Agenten",
   Refresh: "Aktualisieren",
@@ -11800,6 +11810,8 @@ var ZH = {
   "This host has no plugin manager.": "这个宿主没有插件管理器。",
   "Install": "安装",
   "Not available here": "这里不可用",
+  "Managed by the installation. It cannot be switched here.": "由安装管理，不能在应用内开关",
+  "This plugin cannot be used here.": "这个插件在这里无法使用",
   "This DSH cannot register local agent routes.": "这个 DSH 不能注册本地 Agent 路由。",
   "Detected agents": "已检测到的 Agent",
   Refresh: "刷新",
@@ -32464,6 +32476,12 @@ var IM_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank,.bt-im-qr{animation:none}}
 `;
 
+// src/client/plugin-status.js
+var READ_ONLY = "management-required";
+function pluginStatusText(code) {
+  return String(code) === READ_ONLY ? t("Managed by the installation. It cannot be switched here.") : t("This plugin cannot be used here.");
+}
+
 // src/client/plugins-page.js
 var import_react42 = require("react");
 function PluginsPage({ run: run2, Section: Section2, Row: Row4, Switch: Switch2 }) {
@@ -32477,7 +32495,7 @@ function PluginsPage({ run: run2, Section: Section2, Row: Row4, Switch: Switch2 
   const update = (endpoint) => (payload) => run2(call(endpoint, payload).then(setView));
   const setBundle = update("plugin-bundle");
   const install = update("plugin-install");
-  const hintOf = (row) => [row.description, row.problem, row.readOnlyReason, row.version === null ? void 0 : `v${row.version}`].filter(Boolean).join(" · ") || void 0;
+  const hintOf = (row) => [row.description, row.problem == null ? void 0 : pluginStatusText(row.problem), row.readOnlyReason == null ? void 0 : pluginStatusText(row.readOnlyReason), row.version === null ? void 0 : `v${row.version}`].filter(Boolean).join(" · ") || void 0;
   const toggle = (bundle) => (0, import_react42.createElement)(Switch2, {
     on: bundle.enabled,
     label: bundle.title,

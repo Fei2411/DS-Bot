@@ -253,6 +253,8 @@ export const KO = {
   'This host has no plugin manager.': '이 호스트에는 플러그인 관리자가 없습니다.',
   'Install': '설치',
   'Not available here': '여기에서는 사용할 수 없습니다',
+  'Managed by the installation. It cannot be switched here.': '설치에서 관리합니다. 여기에서는 켜고 끌 수 없습니다',
+  'This plugin cannot be used here.': '이 플러그인은 여기에서 사용할 수 없습니다',
   'This DSH cannot register local agent routes.': '이 DSH에서는 로컬 Agent 경로를 등록할 수 없습니다.',
   'Detected agents': '감지된 Agent',
   Refresh: '새로고침',

@@ -247,6 +247,8 @@ export const FR = {
   "This host has no plugin manager.": "Cet hôte n'a pas de gestionnaire de plugins.",
   "Install": "Installer",
   "Not available here": "Non disponible ici",
+  "Managed by the installation. It cannot be switched here.": "Géré par l’installation. Impossible de le modifier ici.",
+  "This plugin cannot be used here.": "Ce plugin ne peut pas être utilisé ici.",
   "This DSH cannot register local agent routes.": "Ce DSH ne peut pas enregistrer de routes d’agent local.",
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",
