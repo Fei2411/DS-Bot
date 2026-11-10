@@ -28869,6 +28869,26 @@ function listedOpener({ list, open, refresh, current }) {
   };
 }
 
+// src/client/agent-new.js
+function agentSessionToReuse({ draft, draftRow, latest, latestRow }) {
+  if (draft !== void 0) {
+    if (draftRow === void 0) return draft;
+    if (draftRow.blank === true) return draft;
+    return void 0;
+  }
+  return latest !== void 0 && latestRow?.blank === true ? latest : void 0;
+}
+function singleFlight(map, key, run2) {
+  const running = map.get(key);
+  if (running !== void 0) return running;
+  const call2 = Promise.resolve().then(run2);
+  const tracked = call2.finally(() => {
+    if (map.get(key) === tracked) map.delete(key);
+  });
+  map.set(key, tracked);
+  return tracked;
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -28900,6 +28920,8 @@ function apply(ctx) {
     agentSessionCache = /* @__PURE__ */ new Set();
   }
   const pendingAdopt = /* @__PURE__ */ new Map();
+  const agentDraft = /* @__PURE__ */ new Map();
+  const agentNewInFlight = /* @__PURE__ */ new Map();
   const isAgentSessionId = (id) => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id);
   const agentOfSession = (id) => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id);
   const workspaces = ctx.get("workspaces");
@@ -29011,6 +29033,11 @@ function apply(ctx) {
     const listed = ctx.sessions.list.getSnapshot().byId ?? {};
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== void 0 || listed[id] === void 0) pendingAdopt.delete(id);
+    }
+    for (const [agentId, sessionId] of agentDraft) {
+      const row = listed[sessionId];
+      const owned = (value.agents ?? []).some((agent) => agent.id === agentId && (agent.sessions ?? []).includes(sessionId));
+      if (!owned || row !== void 0 && row.blank !== true) agentDraft.delete(agentId);
     }
     for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
@@ -29310,21 +29337,33 @@ function apply(ctx) {
       if (agent === void 0) return;
       const list = ctx.sessions.list.getSnapshot();
       const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0));
+      const draft = agentDraft.get(agentId);
+      if (draft !== void 0 && (list.byId[draft] === void 0 || list.byId[draft].blank === true)) return actions.openAgentSession(draft);
       if (recent.length === 0) return actions.newAgentSession(agentId);
       actions.openAgentSession(recent[0]);
     },
     newAgentSession: async (agentId) => {
       const agent = roster.getSnapshot().agentsById[agentId];
       if (agent === void 0) return;
-      const list = ctx.sessions.list.getSnapshot();
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0));
-      if (recent.length > 0 && list.byId[recent[0]]?.blank === true) {
-        actions.openAgentSession(recent[0]);
-        return recent[0];
-      }
-      const { sessionId } = await after(call("agent-session", { agentId, workspaceId: workspaceOf(recent[0]) }));
-      actions.openAgentSession(sessionId);
-      return sessionId;
+      return singleFlight(agentNewInFlight, agentId, async () => {
+        const list = ctx.sessions.list.getSnapshot();
+        const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0));
+        const draft = agentDraft.get(agentId);
+        const reuse = agentSessionToReuse({
+          draft,
+          draftRow: draft === void 0 ? void 0 : list.byId[draft],
+          latest: recent[0],
+          latestRow: recent[0] === void 0 ? void 0 : list.byId[recent[0]]
+        });
+        if (reuse !== void 0) {
+          actions.openAgentSession(reuse);
+          return reuse;
+        }
+        const { sessionId } = await after(call("agent-session", { agentId, workspaceId: workspaceOf(recent[0]) }));
+        agentDraft.set(agentId, sessionId);
+        actions.openAgentSession(sessionId);
+        return sessionId;
+      });
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call("agent-archive", { agentId, sessionId }));
