@@ -1440,3 +1440,16 @@ test('a private Bot works in its own folder only', async (t) => {
   assert.equal((await call('update-bot', { id: 'b', private: true })).error?.message, 'Writer works in extra folders, and a private Bot works in its own folder only. Remove its extra folders first')
   assert.equal(state().bots.b.private, undefined)
 })
+
+test('a Bot on a local agent has no extra folders', async (t) => {
+  const { services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  rt.engineOfBot = bot => (bot?.id === 'b' ? 'codex' : 'model')
+  // The CLI changes files itself, so nothing is approved on its behalf and the prompt is silent.
+  assert.equal(team.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'b' } }), '')
+  assert.equal((await team.call('update-bot', { id: 'b', extraDirs: [team.project] })).error?.message, 'Writer runs on a local agent, which keeps its own file permissions, so it has no extra folders')
+  assert.equal((await team.call('update-bot', { id: 'b', extraDirs: [] })).ok, true)
+  assert.equal(team.state().bots.b.extraDirs, undefined)
+})

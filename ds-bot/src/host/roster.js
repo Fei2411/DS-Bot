@@ -395,6 +395,8 @@ export function install(rt) {
     const engineBefore = rt.engineOf === undefined ? undefined : rt.engineOfBot(bot) ?? 'model'
     if (modelRef === null && engineBefore !== undefined && engineBefore !== 'model') throw new Error(`${bot.name} runs on a local agent and keeps a model of it`)
     const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
+    const toLocalAgent = engineChanged ? rt.engineOf(modelRef) !== 'model' : rt.onLocalAgent(bot)
+    if (toLocalAgent && extraDirs?.length > 0) throw new Error(`${bot.name} runs on a local agent, which keeps its own file permissions, so it has no extra folders`)
     if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
     if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
     // A new level resolves against the model the Bot will run on: the new one, the
@@ -442,6 +444,8 @@ export function install(rt) {
       else bot.model = modelRef
       modelChanged = true
     }
+    // Extra folders cannot apply on a local agent, so a move there drops them.
+    if (engineChanged && toLocalAgent) delete bot.extraDirs
     if (patch.effort !== undefined) {
       if (effortId === null) delete bot.effort
       else bot.effort = effortId

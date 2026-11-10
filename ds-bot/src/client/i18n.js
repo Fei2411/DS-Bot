@@ -1550,6 +1550,7 @@ const HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/, '$1 在隐私 Bot「$2」的文件夹内或外层，群聊不能在这里工作'],
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, '$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区'],
   [/^A Bot or a group can have at most (\d+) extra folders$/, '一个 Bot 或群聊最多有 $1 个额外工作文件夹'],
+  [/^(.+) runs on a local agent, which keeps its own file permissions, so it has no extra folders$/, '$1 运行在本地 Agent 上，文件权限由它自己管理，没有额外工作文件夹'],
   [/^(.+) works in extra folders, and a private Bot works in its own folder only\. Remove its extra folders first$/, '$1 有额外工作文件夹，隐私 Bot 只能在自己的文件夹里工作。请先移除额外工作文件夹'],
   // Memory changes the memory panel asked for; the whole message is matched.
   [/^This looks like a key, token, or password[\s\S]*$/, '看起来像密钥、令牌或密码，记忆不会保存这类内容'],

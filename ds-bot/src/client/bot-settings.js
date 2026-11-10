@@ -220,8 +220,8 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
-      // A private Bot works in its own folder only.
-      bot.private === true ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
+      // A private Bot works in its own folder only; a local agent keeps its own file permissions.
+      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),

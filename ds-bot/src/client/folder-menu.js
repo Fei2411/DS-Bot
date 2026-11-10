@@ -97,10 +97,15 @@ export function FolderMenu({ value, group = false, team = false, adding = false,
 }
 
 // The folders a Bot, or every member of a group, works in besides its working folder:
-// one row each with a remove button, then a menu that adds one. `onSave` gets the
+// a row with the menu that adds one, then one row each with a remove button. `onSave` gets the
 // whole new list.
 export function ExtraFolders({ value = [], group = false, actions, run, onSave, disabled = false }) {
   return h(Fragment, null,
+    h('div', { className: 'bt-set-row bt-bs-row' },
+      h('span', { className: 'bt-set-copy' },
+        h('span', { className: 'bt-bs-label' }, t('Extra folders')),
+        h('span', { className: 'bt-set-hint' }, group ? t('Every member also reads and changes files here, without asking you each time.') : t('The Bot also reads and changes files here, without asking you each time.'))),
+      h(FolderMenu, { adding: true, actions, run, disabled, onPick: path => (value.includes(path) ? undefined : onSave([...value, path])) })),
     value.map(path => h('div', { key: path, className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy', title: path },
         h('span', { className: 'bt-bs-label' }, folderName(path)),
@@ -109,12 +114,7 @@ export function ExtraFolders({ value = [], group = false, actions, run, onSave, 
         type: 'button', className: 'bt-x', disabled,
         'aria-label': t('Remove {folder}', { folder: path }), title: t('Remove'),
         onClick: () => onSave(value.filter(entry => entry !== path)),
-      }, '×'))),
-    h('div', { className: 'bt-set-row bt-bs-row' },
-      h('span', { className: 'bt-set-copy' },
-        h('span', { className: 'bt-bs-label' }, t('Extra folders')),
-        h('span', { className: 'bt-set-hint' }, group ? t('Every member also reads and changes files here, without asking you each time.') : t('The Bot also reads and changes files here, without asking you each time.'))),
-      h(FolderMenu, { adding: true, actions, run, disabled, onPick: path => (value.includes(path) ? undefined : onSave([...value, path])) })))
+      }, '×'))))
 }
 
 export const FOLDER_CSS = `

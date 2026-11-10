@@ -35,10 +35,13 @@ export function install(rt) {
     const own = room?.workDir !== undefined ? [] : rt.botOf(botId)?.extraDirs ?? []
     return [...new Set([...own, ...(room?.extraDirs ?? [])])]
   }
+  // A Bot on a local agent CLI changes files through the CLI, which keeps its own
+  // permissions and never asks DSH to escalate, so extra folders do nothing there.
+  const onLocalAgent = bot => !['model', undefined].includes(rt.engineOfBot?.(bot))
   // A group's own Session only relays and has none.
   const extraDirsOfSession = (sessionId) => {
     const botId = sessionId === undefined ? undefined : rt.selfOf(sessionId)
-    if (botId === undefined) return []
+    if (botId === undefined || onLocalAgent(rt.botOf(botId))) return []
     return extraDirsOf({ botId, roomId: rt.groupOwners.get(sessionId)?.roomId })
   }
 
@@ -124,5 +127,5 @@ export function install(rt) {
     text: context => sectionFor(context?.agent?.id),
   }), 'ds-bot: extra folders section')
 
-  Object.assign(rt, { extraDirsOf, extraDirsOfSession, cleanExtraDirs, approveExtraDirs })
+  Object.assign(rt, { extraDirsOf, extraDirsOfSession, cleanExtraDirs, approveExtraDirs, onLocalAgent })
 }

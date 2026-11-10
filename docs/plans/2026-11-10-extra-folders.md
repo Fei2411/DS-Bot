@@ -39,6 +39,10 @@ DSH 的 `workspace-write` 把写入限制在 Session 自己的文件夹（Sessio
 - 系统提示词里有一节「Your extra folders」，列出这个 Session 的额外工作文件夹，说明用文件工具写入、带 `sandbox_permissions` 重试的做法。没有额外工作文件夹的 Session 没有这一节。
 - `list_bots` 显示每个 Bot 和群的额外工作文件夹。
 
+### 本地 Agent Bot
+
+- 运行在本地 Agent CLI（Codex、Claude 等）上的 Bot 由 CLI 自己改文件、管文件权限，不走 DSH 的沙箱升级，DS Bot 的自动批准在那里用不上。所以这类 Bot 没有额外工作文件夹：设置页不显示列表，`update_bot` 拒绝设置；Bot 改到本地 Agent 时清空列表；在群里，本地 Agent 成员也不用群的额外工作文件夹。
+
 ### 隐私 Bot
 
 - 隐私 Bot 只在自己的文件夹里工作：有额外工作文件夹的 Bot 要先移除它们，才能设为隐私 Bot；隐私 Bot 的设置页也就不显示这份列表。
@@ -58,3 +62,5 @@ DSH 的 `workspace-write` 把写入限制在 Session 自己的文件夹（Sessio
 - 文件面板显示 Session 自己的文件夹；额外工作文件夹里的文件用完整路径打开。
 
 ## 变更
+
+- 2026-11-10：本地 Agent Bot 不用额外工作文件夹（PR #1298 评审意见）。
