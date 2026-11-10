@@ -28,6 +28,7 @@ import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
+import { searchGroupBook } from './group-search.js'
 import { failureLine } from './turns.js'
 import { parseBook } from './ledger.js'
 
@@ -324,9 +325,12 @@ export function install(rt) {
     if (room !== undefined) ensureRoomLog(room)
     return rt.ledger.range(bookOf(roomId), from, to).filter(record => record.session !== true).map(rowOf).filter(Boolean)
   }
+  // A sequence of words over everything said in the group, newest first, with each
+  // hit's neighbours: the chat draws the message in its context from this.
+  const groupSearch = (roomId, query) => searchGroupBook(rt.ledger.records(bookOf(roomId)), query)
 
   Object.assign(rt, {
-    keepGroupLine, dropGroupLines, groupRows,
+    keepGroupLine, dropGroupLines, groupRows, groupSearch,
     logRoom: (room, line) => say(room, line),
     onRoomLine: (listener) => {
       roomLineListeners.add(listener)

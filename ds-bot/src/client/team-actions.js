@@ -25,6 +25,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
+    // Searching one group's own history, from its header.
+    openGroupSearch: (roomId) => { if (roomId) ui.set(state => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null })) },
+    closeGroupSearch: (token) => { ui.set(state => (state.groupSearch && (token === undefined || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state)) },
     openExchange: (a, b) => { if (a && b) ui.set(state => ({ ...state, exchange: [a, b] })) },
     openVoice: (id) => { if (id) ui.set(state => ({ ...state, voice: id, menu: null })) },
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },

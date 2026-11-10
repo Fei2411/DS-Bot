@@ -745,6 +745,20 @@ const ZH = {
   'No results': '没有结果',
   'Try a Bot name or words from a message': '试试 Bot 名字或消息里的词',
 
+  // Group history search
+  'Search this group': '搜索这个群',
+  'Search this group’s messages': '搜索这个群的消息',
+  'Search messages in {name}': '在 {name} 里搜索消息',
+  'Type at least two characters': '至少输入两个字',
+  'No messages found': '没有找到消息',
+  'Try a different word': '换个词试试',
+  'Searching…': '搜索中…',
+  'Back to results': '返回结果',
+  'Around this message': '这条消息的前后',
+  '1 match': '1 条结果',
+  '{count} matches': '{count} 条结果',
+  'Showing the {count} newest': '只显示最新 {count} 条',
+
   // Bot exchange
   'Bot exchange': 'Bot 间对话',
   'Bot exchange transcript': 'Bot 间对话记录',
