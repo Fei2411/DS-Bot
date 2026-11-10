@@ -1080,6 +1080,35 @@ test('update_bot sets, keeps and clears the thinking level', async (t) => {
   assert.equal((await current()).effort, undefined)
 })
 
+test('update_bot sets, keeps and clears the reply style', async (t) => {
+  const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], reasoning: TOOL_REASONING })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  await until(() => sent.some(entry => entry.sessionId === writer.id))
+  const schema = rt.teamTools.find(d => d.name === 'update_bot').parameters
+  assert.equal(schema.properties.reply_style?.type, 'string')
+  assert.match(schema.properties.reply_style.description, /concise/)
+  const tool = args => rt.teamTools.find(d => d.name === 'update_bot').execute({ bot: 'Writer', ...args }, { agent: { id: chief } })
+  const current = async () => (await call('state', {})).value.bots.find(bot => bot.id === writer.id)
+
+  // No field means the prompt's default (concise), so nothing is written for it.
+  assert.equal((await current()).replyStyle, undefined)
+  assert.equal(await tool({ reply_style: 'detailed' }), 'Updated Writer.')
+  assert.equal((await current()).replyStyle, 'detailed')
+  assert.equal(await tool({ instructions: 'Be brief' }), 'Updated Writer.')
+  assert.equal((await current()).replyStyle, 'detailed')
+  assert.equal(await tool({ reply_style: 'concise' }), 'Updated Writer.')
+  assert.equal((await current()).replyStyle, 'concise')
+
+  // An unknown style is refused and leaves the Bot as it was; the settings route can
+  // also clear the field, which returns the Bot to the prompt's default.
+  assert.match(await tool({ reply_style: 'verbose' }), /Reply style is one of/)
+  assert.equal((await current()).replyStyle, 'concise')
+  await rt.updateBot(writer.id, { replyStyle: '' }, chief)
+  assert.equal((await current()).replyStyle, undefined)
+})
+
 test('update_bot checks a level against the model it names, and a failure changes nothing', async (t) => {
   const reasoning = {
     ...TOOL_REASONING,

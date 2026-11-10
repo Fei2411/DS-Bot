@@ -37,6 +37,13 @@ const MAIN_RULES = [
   '- The team can have more than one Main Bot; list_bots marks them. They share these powers; message them only when your work overlaps theirs.',
 ].join('\n')
 
+const REPLY_STYLE_TEXT = {
+  concise: '- Keep it short: the conclusion first, in a few sentences. Add reasoning and evidence only when the user asks. In a group chat, a scheduled task or an IM chat, say nothing when nothing changed.',
+  standard: '- Put the conclusion first, then the reasoning and the evidence. Keep it to about one screen unless the user asks for more.',
+  detailed: '- Put the conclusion first, then the full reasoning, the commands and the evidence.',
+}
+const replyStyleText = bot => REPLY_STYLE_TEXT[bot?.replyStyle] ?? REPLY_STYLE_TEXT.concise
+
 export function install(rt) {
   const { ctx } = rt
 
@@ -49,6 +56,7 @@ export function install(rt) {
         '# Your identity',
         `You are ${bot.name}, a Bot on the user's team in DS Bot.${bot.role ? ` Your role: ${bot.role}.` : ''}`,
         bot.instructions ? `\n${bot.instructions}` : '',
+        `\n${replyStyleText(bot)}`,
         '',
         rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
       ].join('\n')

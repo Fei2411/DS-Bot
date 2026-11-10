@@ -44,3 +44,32 @@ test('the group relay and non-Bot sessions do not get progress instructions', (t
   assert.doesNotMatch(prompt('room'), /progress|milestone/)
   assert.equal(prompt('outside'), '')
 })
+
+test('a Bot without a reply style gets the concise one', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  for (const id of ['main', 'worker']) {
+    assert.match(prompt(id), /Keep it short: the conclusion first/)
+    assert.doesNotMatch(prompt(id), /the full reasoning, the commands and the evidence/)
+  }
+})
+
+test('a Bot that chose a style gets that one', (t) => {
+  const ctx = fakeContext()
+  const bots = new Map([
+    ['main', { name: 'Chief', replyStyle: 'detailed' }],
+    ['worker', { name: 'Dev', replyStyle: 'standard' }],
+  ])
+  install({
+    ctx,
+    selfOf: id => id,
+    botOf: id => bots.get(id),
+    roomOf: () => undefined,
+    isMain: id => id === 'main',
+  })
+  t.after(() => ctx.dispose())
+  const prompt = id => ctx.sections.get('bot-identity').text({ agent: { id } })
+  assert.match(prompt('main'), /the full reasoning, the commands and the evidence/)
+  assert.match(prompt('worker'), /Keep it to about one screen/)
+  assert.doesNotMatch(prompt('main'), /Keep it short: the conclusion first/)
+})

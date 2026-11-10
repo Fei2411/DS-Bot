@@ -361,6 +361,9 @@ export function install(rt) {
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
+    if (patch.replyStyle !== undefined && patch.replyStyle !== null && patch.replyStyle !== '' && !['concise', 'standard', 'detailed'].includes(patch.replyStyle)) {
+      throw new Error('Reply style is one of concise, standard or detailed')
+    }
     if (patch.private !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can make ${bot.name} private or open`)
     }
@@ -414,6 +417,10 @@ export function install(rt) {
     }
     const roleBefore = bot.role
     const instructionsBefore = bot.instructions
+    if (patch.replyStyle !== undefined) {
+      if (patch.replyStyle === null || patch.replyStyle === '') delete bot.replyStyle
+      else bot.replyStyle = patch.replyStyle
+    }
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
     let modelChanged = false

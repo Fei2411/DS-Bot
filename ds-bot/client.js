@@ -550,6 +550,12 @@ var ZH = {
   "Optional. Shown under the name.": "可选，显示在名字下方。",
   "Research, admin…": "研究、行政…",
   "What this Bot does": "这个 Bot 做什么",
+  "Reply style": "回复风格",
+  "How much this Bot writes": "这个 Bot 写多少",
+  "Concise keeps answers short and stays quiet when nothing changed.": "精简：回答短，没有变化时不说话。",
+  "Concise": "精简",
+  "Standard": "标准",
+  "Detailed": "详细",
   "Its job on the team. Part of the Bot's system prompt.": "它在团队里的分工，会写进 Bot 的系统提示词。",
   "A copy with the same job and model, and fresh memory.": "复制分工和模型，记忆从零开始。",
   "Delete {name}?": "删除 {name}？",
@@ -12032,6 +12038,24 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         Row,
         { label: t("What this Bot does"), hint: t("Its job on the team. Part of the Bot's system prompt."), stack: true },
         (0, import_react26.createElement)(InlineText, { label: t("Instructions"), value: bot.instructions, multiline: true, placeholder: t("What this Bot is responsible for…"), onSave: (instructions) => save({ instructions }) })
+      )
+    ),
+    (0, import_react26.createElement)(
+      Card2,
+      { title: t("Reply style") },
+      (0, import_react26.createElement)(
+        Row,
+        { label: t("How much this Bot writes"), hint: t("Concise keeps answers short and stays quiet when nothing changed."), stack: true },
+        (0, import_react26.createElement)(
+          Segmented,
+          { label: t("Reply style"), value: bot.replyStyle ?? "concise" },
+          [["concise", t("Concise")], ["standard", t("Standard")], ["detailed", t("Detailed")]].map(([id, label]) => (0, import_react26.createElement)("button", {
+            key: id,
+            type: "button",
+            "aria-pressed": (bot.replyStyle ?? "concise") === id,
+            onClick: () => save({ replyStyle: id })
+          }, label))
+        )
       )
     ),
     (0, import_react26.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2, SwitchRow }),
