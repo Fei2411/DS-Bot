@@ -59,7 +59,7 @@ export async function reviewContext(rt, owner, signal) {
   if (owner.roomId !== undefined) {
     const room = rt.roomOf(owner.roomId)
     if (!room) throw new Error('The group context is unavailable')
-    const lines = (await rt.recentGroupLines(owner.roomId)).slice(-24)
+    const lines = (await rt.groupLinesAfter(owner.roomId)).slice(-24)
     if (lines.some(line => line.length > (line.text?.length ?? 0))) throw new Error('Some group messages are incomplete')
     const context = lines.filter(line => typeof line.text === 'string' && line.text).map(line => ({
       source: line.botId ? 'bot' : line.kind === 'user' || line.who === 'User' ? 'user' : 'context', text: line.text,
