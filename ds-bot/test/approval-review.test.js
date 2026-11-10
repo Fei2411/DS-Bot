@@ -404,6 +404,32 @@ test('incomplete browser evidence goes to the user', async t => {
   await result
 })
 
+for (const stage of ['manual', 'model', 'save']) test('dropping a group owner cancels its child approvals during ' + stage, async t => {
+  let release
+  const hold = new Promise(resolve => { release = resolve })
+  const { rt, ask, waitManual } = setup(t, stage === 'model' ? { hold } : { reply: '{"decision":"manual","reason":"Ask the user."}' })
+  if (stage === 'save') rt.save = () => hold
+  const parent = ask({ sessionId: 'g' })
+  const child = ask({ sessionId: 'groupChild' })
+  const other = ask({ sessionId: 'g2' })
+  const own = ask()
+  if (stage === 'manual') await waitManual()
+  await tick()
+  assert.equal(rt.approvalsView().length, 4)
+  rt.groupOwners.delete('g')
+  rt.cancelApprovals('g')
+  assert.deepEqual(rt.approvalsView().map(entry => entry.sessionId).sort(), ['b', 'g2'])
+  assert.equal(await parent, 'cancelled')
+  assert.equal(await child, 'cancelled')
+  rt.save = async () => {}
+  release()
+  await tick()
+  assert.ok(rt.approvalsView().every(entry => ['b', 'g2'].includes(entry.sessionId)))
+  for (const entry of rt.approvalsView()) rt.answerApproval(entry.id, 'reject')
+  assert.equal(await other, stage === 'model' ? 'allowed-once' : 'rejected')
+  assert.equal(await own, stage === 'model' ? 'allowed-once' : 'rejected')
+})
+
 test('manual rejection during audit persistence withdraws the model decision', async t => {
   const { rt, ask } = setup(t)
   let release

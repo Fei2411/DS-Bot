@@ -183,7 +183,9 @@ export function install(rt) {
     entry.answer(OUTCOMES[choice])
   }
   const cancelApprovals = sessionId => {
-    for (const entry of pending.values()) if (entry.sessionId === sessionId) entry.answer('cancelled')
+    for (const entry of pending.values()) {
+      if (entry.sessionId === sessionId || entry.ownerSessionId === sessionId) entry.answer('cancelled')
+    }
   }
   const cancelApprovalReviews = ({ botId, roomId } = {}) => {
     for (const entry of pending.values()) {
