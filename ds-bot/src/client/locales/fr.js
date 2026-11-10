@@ -239,6 +239,9 @@ export const FR = {
   "The privacy rules of a private Bot do not cover the tools of a local agent.": "Les règles de confidentialité d’un Bot privé ne couvrent pas les outils d’un agent local.",
   "Change and start a new part": "Modifier et démarrer une nouvelle partie",
   "Local agents": "Agents locaux",
+  // Add-provider form
+  "Still needed: {fields}": "Encore nécessaire : {fields}",
+  "At least one model": "Au moins un modèle",
   "This DSH cannot register local agent routes.": "Ce DSH ne peut pas enregistrer de routes d’agent local.",
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",

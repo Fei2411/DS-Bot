@@ -245,6 +245,9 @@ export const DE = {
   'Change and start a new part': 'Ändern und neuen Abschnitt starten',
   // Local agents page
   'Local agents': 'Lokale Agenten',
+  // Add-provider form
+  'Still needed: {fields}': 'Noch nötig: {fields}',
+  'At least one model': 'Mindestens ein Modell',
   'This DSH cannot register local agent routes.': 'Dieses DSH kann keine Routen für lokale Agenten registrieren.',
   'Detected agents': 'Erkannte Agenten',
   Refresh: 'Aktualisieren',

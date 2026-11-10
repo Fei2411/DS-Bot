@@ -6,6 +6,7 @@ import { CheckIcon, ChevronRightIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
+import { providerFormMissing } from './provider-form.js'
 
 const PROTOCOL_NAMES = { 'openai-completions': 'OpenAI Chat Completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic Messages' }
 // Anthropic's SDK appends /v1/messages itself; the OpenAI ones take the /v1 root.
@@ -130,7 +131,14 @@ function CustomForm({ view, apply, actions, onDone }) {
   const set = (field, value) => setDraft(current => ({ ...current, [field]: value }))
   const typed = draft.typed.split(/[\s,]+/).map(id => id.trim()).filter(Boolean)
   const models = [...(found ?? []).filter(model => picked.includes(model.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
-  const ready = draft.provider.trim() !== '' && draft.baseURL.trim() !== '' && models.length > 0
+  // The Add button says what it still needs: a disabled button with no reason read as a
+  // broken form when the provider id above was the only missing field.
+  const missing = providerFormMissing(draft, models)
+  const ready = missing.length === 0
+  const missingHint = ready ? null : h('div', { className: 'bt-set-hint bt-provider-missing', role: 'status' },
+    t('Still needed: {fields}', {
+      fields: missing.map(field => field === 'provider' ? t('Provider ID') : field === 'endpoint' ? t('Endpoint') : t('At least one model')).join(t(', ')),
+    }))
   const fetchModels = () => {
     setAsking(true)
     void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => { setFound(list); setPicked([]) }))
@@ -163,6 +171,7 @@ function CustomForm({ view, apply, actions, onDone }) {
         key: model.id, type: 'button', className: 'bt-secret-bot', 'aria-pressed': picked.includes(model.id), title: model.name && model.name !== model.id ? model.name : undefined, onClick: () => toggle(model.id),
       }, h('code', null, model.id), picked.includes(model.id) ? h(CheckIcon) : null))) : null,
       input('typed', t('Model ids'), t('Model ids, separated by commas'))),
+    missingHint,
     h(FormActions, { onCancel: onDone, onAdd: add, ready }))
 }
 
@@ -192,6 +201,7 @@ export const PROVIDERS_CSS = `
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-provider-missing{color:var(--bt-danger)}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}

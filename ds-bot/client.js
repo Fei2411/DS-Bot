@@ -361,6 +361,9 @@ var JA = {
   "The privacy rules of a private Bot do not cover the tools of a local agent.": "プライベート Bot のプライバシー規則は、ローカルエージェント独自のツールには適用されません。",
   "Change and start a new part": "変更して新しいパートを開始",
   "Local agents": "ローカルエージェント",
+  // Add-provider form
+  "Still needed: {fields}": "まだ必要: {fields}",
+  "At least one model": "モデルを1つ以上",
   "This DSH cannot register local agent routes.": "この DSH ではローカルエージェントのルートを登録できません。",
   "Detected agents": "検出されたエージェント",
   "Refresh": "更新",
@@ -2616,6 +2619,9 @@ var KO = {
   "Change and start a new part": "변경 후 새 구간 시작",
   // Local agents page
   "Local agents": "로컬 Agent",
+  // Add-provider form
+  "Still needed: {fields}": "아직 필요: {fields}",
+  "At least one model": "모델 하나 이상",
   "This DSH cannot register local agent routes.": "이 DSH에서는 로컬 Agent 경로를 등록할 수 없습니다.",
   "Detected agents": "감지된 Agent",
   Refresh: "새로고침",
@@ -4911,6 +4917,9 @@ var ES = {
   "Change and start a new part": "Cambiar e iniciar nueva sección",
   // Local agents page
   "Local agents": "Agentes locales",
+  // Add-provider form
+  "Still needed: {fields}": "Falta: {fields}",
+  "At least one model": "Al menos un modelo",
   "This DSH cannot register local agent routes.": "Este DSH no puede registrar rutas de agentes locales.",
   "Detected agents": "Agentes detectados",
   Refresh: "Actualizar",
@@ -7201,6 +7210,9 @@ var FR = {
   "The privacy rules of a private Bot do not cover the tools of a local agent.": "Les règles de confidentialité d’un Bot privé ne couvrent pas les outils d’un agent local.",
   "Change and start a new part": "Modifier et démarrer une nouvelle partie",
   "Local agents": "Agents locaux",
+  // Add-provider form
+  "Still needed: {fields}": "Encore nécessaire : {fields}",
+  "At least one model": "Au moins un modèle",
   "This DSH cannot register local agent routes.": "Ce DSH ne peut pas enregistrer de routes d’agent local.",
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",
@@ -9456,6 +9468,9 @@ var DE = {
   "Change and start a new part": "Ändern und neuen Abschnitt starten",
   // Local agents page
   "Local agents": "Lokale Agenten",
+  // Add-provider form
+  "Still needed: {fields}": "Noch nötig: {fields}",
+  "At least one model": "Mindestens ein Modell",
   "This DSH cannot register local agent routes.": "Dieses DSH kann keine Routen für lokale Agenten registrieren.",
   "Detected agents": "Erkannte Agenten",
   Refresh: "Aktualisieren",
@@ -11752,6 +11767,9 @@ var ZH = {
   "Change and start a new part": "更换并开新的一段",
   // Local agents page
   "Local agents": "本地 Agent",
+  // Add-provider form
+  "Still needed: {fields}": "还差：{fields}",
+  "At least one model": "至少一个模型",
   "This DSH cannot register local agent routes.": "这个 DSH 不能注册本地 Agent 路由。",
   "Detected agents": "已检测到的 Agent",
   Refresh: "刷新",
@@ -32934,6 +32952,15 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 @media (prefers-reduced-motion:reduce){.bt-star:hover .bt-star-icon,.bt-star-count{animation:none}}
 `;
 
+// src/client/provider-form.js
+function providerFormMissing(draft, models) {
+  const missing = [];
+  if (String(draft?.provider ?? "").trim() === "") missing.push("provider");
+  if (String(draft?.baseURL ?? "").trim() === "") missing.push("endpoint");
+  if ((models ?? []).length === 0) missing.push("model");
+  return missing;
+}
+
 // src/client/providers-page.js
 var import_react45 = require("react");
 var PROTOCOL_NAMES = { "openai-completions": "OpenAI Chat Completions", "openai-responses": "OpenAI Responses", "anthropic-messages": "Anthropic Messages" };
@@ -33121,7 +33148,15 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const set = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
   const typed = draft.typed.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean);
   const models = [...(found ?? []).filter((model) => picked.includes(model.id)), ...typed.filter((id) => !picked.includes(id)).map((id) => ({ id }))];
-  const ready = draft.provider.trim() !== "" && draft.baseURL.trim() !== "" && models.length > 0;
+  const missing = providerFormMissing(draft, models);
+  const ready = missing.length === 0;
+  const missingHint = ready ? null : (0, import_react45.createElement)(
+    "div",
+    { className: "bt-set-hint bt-provider-missing", role: "status" },
+    t("Still needed: {fields}", {
+      fields: missing.map((field) => field === "provider" ? t("Provider ID") : field === "endpoint" ? t("Endpoint") : t("At least one model")).join(t(", "))
+    })
+  );
   const fetchModels = () => {
     setAsking(true);
     void apply2(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
@@ -33185,6 +33220,7 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
       }, (0, import_react45.createElement)("code", null, model.id), picked.includes(model.id) ? (0, import_react45.createElement)(CheckIcon) : null))) : null,
       input("typed", t("Model ids"), t("Model ids, separated by commas"))
     ),
+    missingHint,
     (0, import_react45.createElement)(FormActions, { onCancel: onDone, onAdd: add, ready })
   );
 }
@@ -33216,6 +33252,7 @@ var PROVIDERS_CSS = `
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-provider-missing{color:var(--bt-danger)}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
