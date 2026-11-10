@@ -29,7 +29,7 @@ export function install(rt) {
   // for while the resolve ran wins over the one still being applied.
   async function setPreset(sessionId, name, restartCli = false) {
     const agent = await rt.resolveAgent(sessionId)
-    if (restartCli) await rt.closeLocalAgentSession?.(sessionId, 'the permission mode changed')
+    if (restartCli && (typeof name === 'function' ? name() : name)) await rt.closeLocalAgentSession?.(sessionId, 'the permission mode changed')
     const wanted = typeof name === 'function' ? name() : name
     if (wanted) {
       if (wanted === 'review') {

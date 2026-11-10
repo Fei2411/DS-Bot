@@ -46,15 +46,13 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   const action = (kind, label, submitter = target) => {
     const form = formOf(target)
     const fields = []
-    let protectedField = false
     for (const input of Array.from(form?.elements ?? [])) {
       const type = String(input.type ?? '').toLowerCase()
       const name = input.name || input.getAttribute?.('aria-label') || input.id || type
       if (type === 'password' || /token|secret|password|authorization|api.?key/i.test(name)) {
-        if (input.value) protectedField = true
         continue
       }
-      if (type === 'hidden') { if (input.value) protectedField = true; continue }
+      if (type === 'hidden') continue
       if ((['submit', 'image', 'button', 'reset'].includes(type) && input !== submitter) || input.disabled) continue
       if (['checkbox', 'radio'].includes(type) && !input.checked) continue
       const value = type === 'file' ? Array.from(input.files ?? []).map(file => file.name)
@@ -67,8 +65,6 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
     const method = methodOf(form, submitter)
     const enctype = submitter?.getAttribute?.('formenctype') || form?.enctype || 'application/x-www-form-urlencoded'
     const targetName = submitter?.getAttribute?.('formtarget') ?? form?.target ?? ''
-    if (submitter?.type === 'image') protectedField = true
-    if (destination.username || destination.password || destination.search) protectedField = true
     destination.username = ''
     destination.password = ''
     destination.search = ''
@@ -79,7 +75,8 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
     parsedUrl.hash = ''
     return {
       kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, method, enctype, target: targetName, fields,
-      evidenceComplete: kind === 'post' && !!form && isSubmitter(submitter) && fields.length > 0 && !protectedField,
+      // Page scripts can replace even native submissions; DOM data cannot bind their effects.
+      evidenceComplete: false,
     }
   }
 

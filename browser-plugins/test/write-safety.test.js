@@ -40,6 +40,7 @@ function pageHtml() {
 
 async function fixtureServer() {
   const counters = { submit: 0, filter: 0, hang: 0, unlabeled: 0, upload: 0, delete: 0, deleteA: 0, deleteB: 0 }
+  const uploads = []
   const sockets = new Set()
   const server = createServer((request, response) => {
     const path = new URL(request.url ?? '/', `http://${request.headers.host}`).pathname
@@ -56,6 +57,13 @@ async function fixtureServer() {
         '<select name="recipients" multiple aria-label="Recipients"><option selected value="alice">Alice</option><option selected value="bob">Bob</option><option value="eve">Eve</option></select><button type="button" onclick="fetch(&quot;/upload&quot;, {method: &quot;POST&quot;, body: &quot;script payload&quot;})">Send scripted</button></form>' +
         `<button type="button" onclick="document.querySelector('[form=review]').setAttribute('formaction', '/unlabeled')">Change destination</button>` +
         `<button type="button" onclick="document.querySelector('[form=review]').setAttribute('formmethod', 'get')">Change method</button>`)
+    } else if (path === '/intercept-form') {
+      const mode = new URL(request.url, 'http://localhost').searchParams.get('mode')
+      const handler = mode === 'inline' ? ' onsubmit="replace(event)"' : ''
+      const listen = mode === 'listener' ? "document.querySelector('form').addEventListener('submit', replace)"
+        : mode === 'delegated' ? "document.addEventListener('submit', replace)" : ''
+      html('Intercepted form', '<form method="post" action="/submit"' + handler + '><input name="message" value="nominal payload"><button type="submit">Publish intercepted</button></form>' +
+        '<script>function replace(event) { event.preventDefault(); fetch("/upload", {method: "POST", body: "different payload"}) }; ' + listen + '</script>')
     } else if (path === '/submit' && request.method === 'POST') {
       counters.submit += 1
       request.resume()
@@ -67,7 +75,9 @@ async function fixtureServer() {
     } else if (path === '/upload' && request.method === 'POST') {
       counters.upload += 1
       request.resume()
-      request.on('end', () => html('Uploaded', '<p>Uploaded</p>'))
+      const chunks = []
+      request.on('data', chunk => chunks.push(chunk))
+      request.on('end', () => { uploads.push(Buffer.concat(chunks).toString()); html('Uploaded', '<p>Uploaded</p>') })
     } else if (path === '/delete' && request.method === 'POST') {
       counters.delete += 1
       const item = new URL(request.url ?? '/', `http://${request.headers.host}`).searchParams.get('item')
@@ -132,6 +142,7 @@ async function fixtureServer() {
   return {
     url,
     counters,
+    uploads,
     async close() {
       for (const socket of sockets) socket.destroy()
       await new Promise(resolve => server.close(resolve))
@@ -417,7 +428,27 @@ test('a scripted Send button inside a form requires manual approval', async t =>
   assert.equal(fixture.counters.submit, 0, 'the handler does not submit the surrounding form')
 })
 
-for (const mode of ['type', 'press']) test(mode + ' Enter reviews the actual default submitter and every recipient', async t => {
+for (const mode of ['inline', 'listener', 'delegated']) test('native submit intercepted by ' + mode + ' script stays manual', async t => {
+  const { fixture, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('intercept-form?mode=' + mode, fixture.url).href)
+  const ref = findRef(snapshot, 'Publish intercepted')
+  const actions = []
+  await assert.rejects(gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('manual approval required')
+  }, () => session.click(ref)), /manual approval required/)
+  assert.equal(actions[0].destination, new URL('submit', fixture.url).href)
+  assert.equal(actions[0].fields.find(field => field.name === 'message').value, 'nominal payload')
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(fixture.counters.submit, 0)
+  assert.equal(fixture.counters.upload, 0)
+  await gateScope.run(() => {}, () => session.click(ref))
+  await waitFor(() => fixture.uploads.length === 1)
+  assert.deepEqual(fixture.uploads, ['different payload'])
+  assert.equal(fixture.counters.submit, 0)
+})
+
+for (const mode of ['type', 'press']) test(mode + ' Enter describes the nominal submitter and recipients for manual approval', async t => {
   const { fixture, session } = await setup(t, 1500)
   const snapshot = await session.open(new URL('review-form', fixture.url).href)
   const ref = findRef(snapshot, 'Review message')
@@ -432,7 +463,7 @@ for (const mode of ['type', 'press']) test(mode + ' Enter reviews the actual def
   assert.equal(action.method, 'post')
   assert.equal(action.enctype, 'text/plain')
   assert.equal(action.target, '_self')
-  assert.equal(action.evidenceComplete, true)
+  assert.equal(action.evidenceComplete, false)
   assert.deepEqual(action.fields.find(field => field.name === 'recipients').value, ['alice', 'bob'])
   assert.equal(action.fields.find(field => field.name === 'audience').value, 'public')
 })
@@ -441,7 +472,7 @@ for (const change of ['recipients', 'destination', 'method']) test('pending form
   const { fixture, session } = await setup(t, 1500)
   const snapshot = await session.open(new URL('review-form', fixture.url).href)
   const gate = async action => {
-    assert.equal(action.evidenceComplete, true)
+    assert.equal(action.evidenceComplete, false)
     if (change === 'recipients') await session.select(findRef(snapshot, 'Recipients'), ['alice', 'eve'])
     else {
       await session.click(findRef(snapshot, 'Change ' + change))

@@ -115,16 +115,35 @@ test('user forks and their children never inherit Bot review policy', async () =
   }
 })
 
-test('a late resolution cannot put review back after a newer mode', async () => {
-  const { rt, bot, policies, modes } = setup()
+test('a late resolution cannot stop a resumed CLI or apply an older mode', async () => {
+  const { rt, bot, policies, modes, closed } = setup()
   const resolve = rt.resolveAgent
   let release
   rt.resolveAgent = async id => { if (!release) await new Promise(done => { release = done }); return resolve(id) }
   const first = rt.setPermission(bot, 'review')
   await rt.setPermission(bot, 'danger-full-access')
+  closed.length = 0
   release()
   await first
+  assert.deepEqual(closed, [], 'the superseded request leaves the newly resumed CLI alone')
   assert.equal(bot.permission, 'danger-full-access')
+  assert.equal(modes.get('b'), 'danger-full-access')
+  assert.equal(policies.get('b'), 'never')
+})
+
+test('a request superseded while its CLI closes cannot apply the old preset', async () => {
+  const { rt, bot, policies, modes } = setup()
+  let release
+  let started
+  const reached = new Promise(resolve => { started = resolve })
+  const holding = new Promise(resolve => { release = resolve })
+  let calls = 0
+  rt.closeLocalAgentSession = async () => { if (++calls === 1) { started(); await holding } }
+  const first = rt.setPermission(bot, 'review')
+  await reached
+  await rt.setPermission(bot, 'danger-full-access')
+  release()
+  await first
   assert.equal(modes.get('b'), 'danger-full-access')
   assert.equal(policies.get('b'), 'never')
 })
