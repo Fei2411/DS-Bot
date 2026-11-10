@@ -113,13 +113,16 @@ async function authorizeBrowserAction(rt, exec, botId, action) {
 
 export function install(rt) {
   const injected = rt.config.browserPluginApi
+  // config.browser: false turns the Bot's whole browser off, and it wins over a
+  // named plugin and over the desktop app's default alike.
+  if (rt.config.browser === false) return
   // The desktop app's Browser settings promise clicking and filling in, and it
   // drives its own panel through the app's relay, so the interactive plugin is
   // on there by default, as read_browser already is. dsh Desktop and dsh Web
   // keep mounting nothing unless the team names a plugin (a Playwright browser
-  // must be installed there). config.browser: false keeps both halves off.
+  // must be installed there).
   const app = process.env.DS_BOT_APP === '1'
-  const name = rt.config.browserPlugin ?? (rt.config.browser !== false && app ? 'refs' : undefined)
+  const name = rt.config.browserPlugin ?? (app ? 'refs' : undefined)
   if (!name && !injected) return
   const plugin = injected ?? browserPlugins[name]
   if (!plugin) throw new Error(`Unknown browser plugin "${name}". Choose ${NAMES.join(', ')}.`)

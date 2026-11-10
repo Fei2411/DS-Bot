@@ -317,6 +317,20 @@ test('config.browser: false keeps the default plugin off in the desktop app', (t
   assert.equal(rt.teamTools.some(d => d.name === 'browser_click'), false)
 })
 
+test('config.browser: false keeps an explicitly named plugin off too', (t) => {
+  const { ctx, stop } = start({ browser: false, browserPlugin: 'refs' })
+  t.after(stop)
+  assert.equal(ctx.calls.includes('effect ds-bot: browser plugin'), false)
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_click'), false)
+})
+
+test('config.browser: false keeps an injected plugin API off too', (t) => {
+  const { ctx, stop } = start({ browser: false, browserPluginApi: browserWriter().plugin })
+  t.after(stop)
+  assert.equal(ctx.calls.includes('effect ds-bot: browser plugin'), false)
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_write'), false)
+})
+
 test('a named browserPlugin still wins over the desktop app default', (t) => {
   const previous = process.env.DS_BOT_APP
   process.env.DS_BOT_APP = '1'
