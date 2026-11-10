@@ -1,28 +1,36 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as Haptics from 'expo-haptics'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
-import { useTheme } from '../ui/tokens.ts'
+import { shadow, useTheme } from '../ui/tokens.ts'
+import { Avatar, RoomAvatar } from '../ui/marks.tsx'
+import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
-import { Composer } from './chat/composer.tsx'
-import { Actions, Item, itemKey, type ChatItem } from './chat/items.tsx'
+import { Composer, type Photo } from './chat/composer.tsx'
+import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type ImageRef } from './chat/items.tsx'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
 const POLL_MS = 15_000
 
+interface ChatPage { sessionId?: string; items: ChatItem[]; cursor: unknown }
+interface Row { item: ChatItem; key: string; stamp?: string }
+
 // A refreshed page reuses the item objects that did not change, so the memoized
 // rows keep their identity and only new or changed rows render again.
 function keepSame(prev: ChatItem[], next: ChatItem[]): ChatItem[] {
-  const known = new Map(prev.map((item, index) => [itemKey(item, index), item]))
+  const prevKeys = keysOf(prev)
+  const known = new Map(prev.map((item, index) => [prevKeys[index], item]))
+  const nextKeys = keysOf(next)
   let same = prev.length === next.length
   const merged = next.map((item, index) => {
-    const old = known.get(itemKey(item, index))
+    const old = known.get(nextKeys[index])
     if (old !== undefined && JSON.stringify(old) === JSON.stringify(item)) { if (prev[index] !== old) same = false; return old }
     same = false
     return item
@@ -30,31 +38,59 @@ function keepSame(prev: ChatItem[], next: ChatItem[]): ChatItem[] {
   return same ? prev : merged
 }
 
-interface ChatPage { sessionId: string; items: ChatItem[]; cursor: unknown }
+// The last page of each chat opened in this run, so going back to a chat shows it at
+// once and the read only brings what changed. Kept in memory only.
+const pages = new Map<string, { page: ChatPage; older: ChatItem[]; cursor: unknown }>()
+const PAGES_KEPT = 16
+function keepPage(key: string, entry: { page: ChatPage; older: ChatItem[]; cursor: unknown }) {
+  pages.delete(key)
+  pages.set(key, entry)
+  if (pages.size > PAGES_KEPT) pages.delete(pages.keys().next().value as string)
+}
 
-// The shared chat body for both shells: inverted list, older pages on top,
-// pending dock and composer. `header` is the shell's own (back row or pill).
+// Messages the phone sent that the chat has not shown back yet, per chat. They live
+// outside the screen so a send keeps going, and stays visible, across chat switches.
+interface Outgoing { item: ChatItem; photos: Photo[]; sessionId: string; known?: Set<string> }
+const outbox = new Map<string, Outgoing[]>()
+const outboxListeners = new Set<() => void>()
+const EMPTY: Outgoing[] = []
+const outboxOf = (key: string) => outbox.get(key) ?? EMPTY
+function setOutbox(key: string, update: (list: Outgoing[]) => Outgoing[]) {
+  const next = update(outboxOf(key))
+  if (next.length === 0) outbox.delete(key); else outbox.set(key, next)
+  for (const listener of outboxListeners) listener()
+}
+const subscribeOutbox = (listener: () => void) => { outboxListeners.add(listener); return () => { outboxListeners.delete(listener) } }
+
+// The same message as the phone sent: the text the computer keeps (trimmed) and as many photos.
+const sameMessage = (item: ChatItem, sent: ChatItem) =>
+  item.kind === 'user' && (item.text ?? '').trim() === (sent.text ?? '').trim()
+  && (item.imageRefs?.length ?? item.images ?? 0) === (sent.localImages?.length ?? 0)
+
+// The shared chat body for both shells: an inverted list (newest at the bottom, older
+// pages load as it scrolls up), the pending dock and the composer. `header` is the
+// shell's own (back row or pill).
 export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
-  const { team, call } = useTeam()
+  const { team, call, computer, hello } = useTeam()
   const { p, dark } = useTheme()
   const insets = useSafeAreaInsets()
   const id = bot?.id ?? room?.id ?? ''
-  const [page, setPage] = useState<ChatPage | null>(null)
-  const [older, setOlder] = useState<ChatItem[]>([])
-  const cursor = useRef<unknown>(undefined)
+  const chatKey = `${computer?.hostDeviceId ?? ''}:${room !== undefined ? 'room' : 'bot'}:${id}`
+  const cached = pages.get(chatKey)
+  const [page, setPage] = useState<ChatPage | null>(cached?.page ?? null)
+  const [older, setOlder] = useState<ChatItem[]>(cached?.older ?? [])
+  const cursor = useRef<unknown>(cached?.cursor)
   const [gone, setGone] = useState(false)
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
-  const [error, setError] = useState<string | null>(null)
-  // A failed load clears itself on the next good one; a failed send stays until the next send.
+  // A failed load clears itself on the next good one.
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [loaded, setLoaded] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [awayFromLatest, setAwayFromLatest] = useState(false)
   // Each poll loop owns a generation number; a chat switch bumps it so stale
   // loops and in-flight refreshes stop writing instead of fighting the new chat.
   const generation = useRef(0)
-  const scroller = useRef<{ scrollToEnd: (o: { animated: boolean }) => void } | null>(null)
+  const list = useRef<FlatList<Row>>(null)
   const loading = useRef(false)
-  const atBottom = useRef(true)
-  const seen = useRef(0)
 
   // One chat read at a time, like the team state: a burst of messages becomes one
   // read now and at most one more after it.
@@ -68,7 +104,11 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       const next = (room !== undefined
         ? await call('room-chat', { roomId: room.id, steps: true })
         : await call('chat', { botId: id, steps: true })) as ChatPage
-      if (generation.current === gen) { setPage(prev => prev !== null && prev.sessionId === next.sessionId ? { ...next, items: keepSame(prev.items, next.items) } : next); setLoadError(null) }
+      if (generation.current === gen) {
+        setPage(prev => prev !== null && prev.sessionId === next.sessionId ? { ...next, items: keepSame(prev.items, next.items) } : next)
+        if (cursor.current === undefined) cursor.current = next.cursor
+        setLoadError(null)
+      }
     } catch (failure) {
       if (generation.current !== gen) return
       const code = (failure as { code?: string })?.code
@@ -86,23 +126,28 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
 
   useEffect(() => {
     const gen = ++generation.current
-    setPage(null); setOlder([]); cursor.current = undefined; setGone(false); setLoaded(false)
+    const kept = pages.get(chatKey)
+    setPage(kept?.page ?? null); setOlder(kept?.older ?? []); cursor.current = kept?.cursor; setGone(false)
+    setAwayFromLatest(false)
+    let timer: ReturnType<typeof setTimeout> | undefined
     const loop = async () => {
       await refresh(gen)
-      if (generation.current === gen) setTimeout(() => void loop(), POLL_MS)
+      if (generation.current === gen) timer = setTimeout(() => void loop(), POLL_MS)
     }
     void loop()
-    return () => { if (generation.current === gen) generation.current += 1 }
-  }, [refresh])
+    return () => { clearTimeout(timer); if (generation.current === gen) generation.current += 1 }
+  }, [refresh, chatKey])
 
-  // cursor lives in a ref: onScroll can fire again before the setState from
-  // the previous load commits, and a stale closure would re-request the same
-  // page forever at the top.
+  // What this chat shows is kept for the next visit.
+  useEffect(() => { if (page !== null) keepPage(chatKey, { page, older, cursor: cursor.current }) }, [page, older, chatKey])
+
+  // The page before the oldest one shown. cursor lives in a ref: the list can ask
+  // again before the state from the previous load commits.
   const loadMore = useCallback(async () => {
     if (cursor.current == null || id === '' || loading.current) return
     const gen = generation.current
     loading.current = true
-    atBottom.current = false
+    setLoadingOlder(true)
     try {
       const next = (room !== undefined
         ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true })
@@ -111,10 +156,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       cursor.current = next.cursor
       setOlder(prev => [...next.items, ...prev])
     } catch { /* keep the page we have */ }
-    finally { loading.current = false }
+    finally { loading.current = false; setLoadingOlder(false) }
   }, [call, id])
-
-  useEffect(() => { if (page !== null) cursor.current = page.cursor }, [page?.sessionId])
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? id
   const question: Question | undefined = team?.questions?.[sessionId]
@@ -137,6 +180,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [readerText, setReaderText] = useState<string | null>(null)
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<{ sessionId: string; refs: ImageRef[]; index: number } | null>(null)
   const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string
@@ -144,7 +188,6 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       setReaderText(typeof read === 'string' ? read : read?.text ?? '')
     }, (failure: { code?: string; message?: string }) => setFileError(failure?.message ?? t('This file cannot be read here')))
   }, [call])
-  const onLongPress = setMenuText
   // One stable toggle per steps row, so a memoized row is not redrawn for a new closure.
   const toggles = useRef(new Map<string, () => void>())
   const toggleOf = (key: string) => {
@@ -173,81 +216,163 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const botMax = chatWidth === 0 ? 0 : Math.min(chatWidth * width / 100, chatWidth - 40)
   const userMax = chatWidth * width / 100
 
-  const send = async (text: string) => {
+  // Sending: the message shows at once and the composer clears; photos travel one
+  // by one, then the message names them. It stays until the chat shows it back.
+  const pending = useSyncExternalStore(subscribeOutbox, () => outboxOf(chatKey))
+  const deliver = useCallback(async (key: string, entry: Outgoing) => {
+    const localId = entry.item.localId!
+    const mark = (local: ChatItem['local'], known?: Set<string>) => setOutbox(key, list => list.map(o => o.item.localId === localId ? { ...o, item: { ...o.item, local }, known: known ?? o.known } : o))
+    mark('sending')
     try {
-      await call('send', { sessionId, text })
-      setError(null); void refresh(generation.current)
-    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
+      const images: string[] = []
+      for (const photo of entry.photos) images.push(((await call('stage-image', { mediaType: photo.mediaType, data: photo.data })) as { id: string }).id)
+      await call('send', { sessionId: entry.sessionId, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}) })
+      // What the chat already holds, so only a new row of the same text counts as this one.
+      const kept = pages.get(key)
+      const all = [...(kept?.older ?? []), ...(kept?.page.items ?? [])]
+      const keys = keysOf(all)
+      mark('sending', new Set(all.map((item, index) => keys[index])))
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      if (key === latestKey.current) void latest.current(generation.current)
+    } catch (failure) {
+      mark('failed')
+      if (key === latestKey.current) setLoadError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }, [call])
+  const latestKey = useRef(chatKey)
+  latestKey.current = chatKey
+  const send = async (text: string, photos: Photo[]) => {
+    const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const entry: Outgoing = { item: { kind: 'user', text, local: 'sending', localId, time: Date.now(), ...(photos.length > 0 ? { localImages: photos.map(photo => photo.uri) } : {}) }, photos, sessionId }
+    setOutbox(chatKey, list => [...list, entry])
+    // Once the new row is laid out, bring the latest messages into view.
+    setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60)
+    void deliver(chatKey, entry)
   }
+  const retry = useCallback((localId: string, discard?: boolean) => {
+    const entry = outboxOf(chatKey).find(o => o.item.localId === localId)
+    if (entry === undefined) return
+    if (discard === true) { setOutbox(chatKey, list => list.filter(o => o !== entry)); return }
+    setLoadError(null)
+    void deliver(chatKey, entry)
+  }, [chatKey, deliver])
   const stop = () => {
     if (room !== undefined) void call('stop-room-work', { roomId: room.id }).catch(() => {})
     else if (bot !== undefined) void call('stop-chat', { botId: bot.id }).catch(() => {})
   }
 
-  // Inverted list: index 0 sits at the bottom, so newest items come first.
-  // Chronological order (oldest first); the list starts scrolled to the newest item.
+  // Chronological rows (oldest first) with stable keys and the desktop's time stamps.
   const items = useMemo(() => [...older, ...(page?.items ?? [])], [page, older])
-  const botsById = useMemo(() => new Map((team?.bots ?? []).map(entry => [entry.id, entry])), [team?.bots])
+  // A sent message leaves the outbox once the chat shows a new row with its text.
+  useEffect(() => {
+    if (pending.length === 0) return
+    const keys = keysOf(items)
+    const shown = pending.filter(o => o.known !== undefined && items.some((item, index) => !o.known!.has(keys[index]) && sameMessage(item, o.item)))
+    if (shown.length > 0) setOutbox(chatKey, list => list.filter(o => !shown.includes(o)))
+  }, [items, pending, chatKey])
+  const rows = useMemo<Row[]>(() => {
+    const all = [...items, ...pending.map(o => o.item)]
+    const keys = keysOf(all)
+    // Inverted list: index 0 sits at the bottom, so the newest row comes first.
+    return all.map((item, index) => ({ item, key: keys[index], stamp: room !== undefined || item.local !== undefined ? undefined : stampOf(all, index) })).reverse()
+  }, [items, pending, room !== undefined])
+  // Group rows show each member's name, color and mark; a team refresh that changes
+  // none of these keeps the same map, so the rows are not drawn again.
+  const memberKey = JSON.stringify((team?.bots ?? []).map(entry => [entry.id, entry.name, entry.color, entry.avatar?.shape, entry.avatar?.imageRef ?? entry.avatar?.image?.length]))
+  const botsById = useMemo(() => new Map((team?.bots ?? []).map(entry => [entry.id, entry])), [memberKey])
   const canStop = room !== undefined ? roomWork.length > 0 : running
+  const inRoom = room !== undefined
+  const admin = room?.admin
 
+  const renderRow = useCallback<ListRenderItem<Row>>(({ item: row }) => {
+    const { item } = row
+    const skey = item.kind === 'steps' ? row.key : row.key
+    return <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
+      item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
+      onLongPress={setMenuText} onOpenFile={openFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
+
+  const empty = page !== null && rows.length === 0
   return (
+    <PhotoViewerCtx.Provider value={setPhotos}>
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? -insets.bottom : 0} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
       {room !== undefined && (room as { goal?: Goal }).goal ? <GoalBar goal={(room as { goal?: Goal }).goal!} p={p} /> : null}
-      {gone
-        ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
-        : page === null && loadError !== null
-          ? <View style={{ alignItems: 'center', marginTop: 24 }}>
-              <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{loadError}</Text>
-              <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setLoadError(null); void refresh(generation.current) }}>{t('Retry')}</Text>
-            </View>
-        : page === null
-          ? <ActivityIndicator style={styles.loading} color={p.accent} />
-          : <ScrollView
-              ref={scroller as never}
-              style={styles.list}
-              contentContainerStyle={styles.listContent}
-              keyboardShouldPersistTaps="handled"
-              onLayout={event => setChatWidth(event.nativeEvent.layout.width)}
-              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-              onContentSizeChange={() => {
-                if (!loaded) { setLoaded(true); scroller.current?.scrollToEnd({ animated: false }); return }
-                // Follow new messages only while pinned near the bottom.
-                if (items.length > seen.current && atBottom.current) scroller.current?.scrollToEnd({ animated: true })
-                seen.current = items.length
-              }}
-              onScroll={event => {
-                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-                atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80
-                if (contentOffset.y < 120) void loadMore()
-              }}
-              scrollEventThrottle={100}>
-              {items.map((item, index) => { const key = itemKey(item, index); const skey = item.kind === 'steps' ? `steps-${item.turn ?? index}` : key; return <Item key={key} stamp={room !== undefined ? undefined : stampOf(items, index)} author={room !== undefined && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={room !== undefined && item.botId !== undefined && item.botId === room.admin} item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={room !== undefined} sessionId={sessionId} onLongPress={onLongPress} onOpenFile={openFile} open={openSteps[skey]} onToggle={toggleOf(skey)} /> })}
-              <Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={room !== undefined} />
-              {items.length === 0 ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{t('No messages yet')}</Text> : null}
-            </ScrollView>}
+      <View style={styles.list} onLayout={event => { setChatWidth(event.nativeEvent.layout.width - 24); setChatHeight(event.nativeEvent.layout.height) }}>
+        {gone
+          ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
+          : page === null && loadError !== null
+            ? <View style={{ alignItems: 'center', marginTop: 24 }}>
+                <Text style={[type.caption, { color: p.ink3, textAlign: 'center' }]}>{loadError}</Text>
+                <Text accessibilityRole="button" style={[type.caption, { color: p.accent, marginTop: 8 }]} onPress={() => { setLoadError(null); void refresh(generation.current) }}>{t('Retry')}</Text>
+              </View>
+          : page === null || chatWidth <= 0
+            ? <ActivityIndicator style={styles.loading} color={p.accent} />
+            : <FlatList
+                ref={list}
+                inverted
+                data={rows}
+                keyExtractor={row => row.key}
+                renderItem={renderRow}
+                extraData={openSteps}
+                contentContainerStyle={styles.listContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                initialNumToRender={14}
+                maxToRenderPerBatch={10}
+                windowSize={11}
+                onEndReached={() => void loadMore()}
+                onEndReachedThreshold={0.6}
+                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
+                onScroll={event => { const away = event.nativeEvent.contentOffset.y > 600; if (away !== awayFromLatest) setAwayFromLatest(away) }}
+                scrollEventThrottle={100}
+                ListHeaderComponent={<Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={inRoom} />}
+                ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ marginVertical: 12 }} color={p.ink3} /> : undefined}
+              />}
+        {empty && !gone ? <EmptyChat bot={bot} room={room} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
+        {awayFromLatest ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')} onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
+            style={[styles.toLatest, { backgroundColor: p.card, borderColor: p.line2 }, shadow(2)]}>
+            <ArrowDownIcon size={18} color={p.ink2} />
+          </Pressable>
+        ) : null}
+      </View>
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
       <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
-      {error ?? (page !== null ? loadError : null) ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{error ?? loadError}</Text> : null}
-      <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} onSend={send} onStop={stop} p={p} />
+      {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
+      <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />
-      <Modal visible={readerText !== null} animationType="fade" onRequestClose={() => setReaderText(null)}>
+      <Modal visible={readerText !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setReaderText(null)}>
         <View style={[styles.reader, { backgroundColor: p.main }]}>
-          <ScrollView contentContainerStyle={{ padding: 20, paddingTop: insets.top + 20, paddingBottom: 80 }}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 24, paddingBottom: 100 }}>
             {readerTitle !== null ? <Text style={[type.caption, { color: p.ink3, marginBottom: 10 }]}>{readerTitle}</Text> : null}
-            <Text selectable style={[type.bubble, { color: p.ink, fontFamily: readerTitle?.match(/\.(md|markdown)$/i) ? undefined : 'monospace' }]}>{readerText ?? ''}</Text>
+            <Text selectable style={[type.bubble, { color: p.ink, fontFamily: readerTitle === null || readerTitle.match(/\.(md|markdown|txt)$/i) ? undefined : 'monospace' }]}>{readerText ?? ''}</Text>
           </ScrollView>
-          <Pressable accessibilityRole="button" onPress={() => setReaderText(null)} style={[styles.readerClose, { backgroundColor: p.card, borderColor: p.line }]}>
+          <Pressable accessibilityRole="button" onPress={() => setReaderText(null)} style={[styles.readerClose, { backgroundColor: p.card, borderColor: p.line, bottom: insets.bottom + 16 }]}>
             <Text style={[type.settingsRow, { color: p.accent }]}>{t('Done')}</Text>
           </Pressable>
         </View>
       </Modal>
+      <PhotoViewer open={photos} onClose={() => setPhotos(null)} />
     </KeyboardAvoidingView>
+    </PhotoViewerCtx.Provider>
+  )
+}
+
+// A chat with nothing in it yet: who it is with, large, where the messages will be.
+function EmptyChat({ bot, room, bots, p, dark }: { bot?: Bot; room?: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean }) {
+  return (
+    <View pointerEvents="none" style={styles.empty}>
+      {bot !== undefined ? <Avatar bot={bot} dark={dark} size={64} ring={p.main} /> : room !== undefined ? <RoomAvatar room={room} bots={bots} dark={dark} size={64} ring={p.main} /> : null}
+      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 12 }]} numberOfLines={1}>{bot?.name ?? room?.name ?? ''}</Text>
+      {bot?.role ? <Text style={[type.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={1}>{bot.role}</Text> : null}
+      <Text style={[type.caption, { color: p.ink3, marginTop: 10 }]}>{t('No messages yet')}</Text>
+    </View>
   )
 }
 
@@ -384,7 +509,8 @@ function Streaming({ sessionId, p, flat, maxWidth, inRoom }: { sessionId: string
       if (data.phase === 'start') attempts.set(data.attemptId, '')
       else if (typeof data.text === 'string') attempts.set(data.attemptId, (attempts.get(data.attemptId) ?? '') + data.text)
       else if (data.phase === 'end') attempts.delete(data.attemptId)
-      setText([...attempts.values()].join(''))
+      // Each attempt is its own reply part; the saved message shows them as separate bubbles.
+      setText([...attempts.values()].filter(part => part !== '').join('\n\n'))
     })
   }, [onFeed, sessionId])
   return text === '' ? null : <Item item={{ kind: 'bot', text }} p={p} flat={flat} maxWidth={maxWidth} inRoom={inRoom} sessionId={sessionId} />
@@ -396,7 +522,9 @@ const styles = StyleSheet.create({
   loading: { flex: 1 },
   list: { flex: 1 },
   listContent: { paddingVertical: 8, paddingHorizontal: 12 },
-  reader: { flex: 1, paddingTop: 60 },
+  reader: { flex: 1 },
+  empty: { position: 'absolute', left: 24, right: 24, top: '28%', alignItems: 'center' },
+  toLatest: { position: 'absolute', right: 14, bottom: 10, width: 38, height: 38, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   goal: { marginHorizontal: 12, marginBottom: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   blocked: { marginHorizontal: 12, marginBottom: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
   fix: { minHeight: 40, borderRadius: 20, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },

@@ -141,6 +141,58 @@ export function EffortBar({ reasoning, current, onPick }: { reasoning: Reasoning
   )
 }
 
+// Every model under its provider, the default one marked.
+function ModelGroups({ models, current, fallback, onPick }: { models: Model[]; current?: string; fallback?: string; onPick: (ref: string) => void }) {
+  const { p } = useTheme()
+  return (
+    <ScrollView style={{ maxHeight: 420 }}>
+      {groupModels(models).map(([provider, list]) => (
+        <View key={provider}>
+          <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>{provider}</Text>
+          {list.map(item => (
+            <Pressable key={item.ref} accessibilityRole="radio" accessibilityState={{ checked: item.ref === current }}
+              onPress={() => onPick(item.ref)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.hover }]}>
+              <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{item.name}</Text>
+              {item.ref === fallback ? <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Default')}</Text> : null}
+              {item.ref === current ? <CheckIcon color={p.accent} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ))}
+    </ScrollView>
+  )
+}
+
+// A model picker for a Bot that does not exist yet (Create new Bot): the same trigger
+// and sheet as a Bot's model menu, without the thinking level.
+export function ModelPicker({ current, onPick }: { current?: string; onPick: (ref: string) => void }) {
+  const { p } = useTheme()
+  const { team } = useTeam()
+  const [open, setOpen] = useState(false)
+  const insets = useSafeAreaInsets()
+  const models = (team?.models ?? []) as Model[]
+  const model = models.find(item => item.ref === current)
+  return (
+    <>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('Model')} onPress={() => setOpen(true)}
+        style={[styles.trigger, { backgroundColor: p.card, borderColor: p.line }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{model?.name ?? t('Choose a model')}</Text>
+          {model ? <Text style={[typeScale.caption, { color: p.ink3 }]} numberOfLines={1}>{model.providerName ?? model.ref.split('/')[0]}</Text> : null}
+        </View>
+        <Text style={{ color: p.ink3, fontSize: 12 }}>⌄</Text>
+      </Pressable>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.scrim} onPress={() => setOpen(false)} accessibilityLabel={t('Close')} />
+        <View style={[styles.sheet, { backgroundColor: p.card, paddingBottom: insets.bottom + 8 }]}>
+          <View style={[styles.grab, { backgroundColor: p.line }]} />
+          <ModelGroups models={models} current={current} fallback={team?.defaultModel} onPick={ref => { onPick(ref); setOpen(false) }} />
+        </View>
+      </Modal>
+    </>
+  )
+}
+
 // The trigger shows the model name over its provider and thinking level, as on the desktop.
 export function ModelMenu({ bot, onManage }: { bot: Bot; onManage: () => void }) {
   const { p } = useTheme()
@@ -171,21 +223,7 @@ export function ModelMenu({ bot, onManage }: { bot: Bot; onManage: () => void })
         <Pressable style={styles.scrim} onPress={() => setOpen(false)} accessibilityLabel={t('Close')} />
         <View style={[styles.sheet, { backgroundColor: p.card, paddingBottom: insets.bottom + 8 }]}>
           <View style={[styles.grab, { backgroundColor: p.line }]} />
-          <ScrollView style={{ maxHeight: 420 }}>
-            {groupModels(models).map(([provider, list]) => (
-              <View key={provider}>
-                <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }]}>{provider}</Text>
-                {list.map(item => (
-                  <Pressable key={item.ref} accessibilityRole="radio" accessibilityState={{ checked: item.ref === model?.ref }}
-                    onPress={() => { if (item.ref !== bot.model) save({ model: item.ref }) }} style={styles.row}>
-                    <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{item.name}</Text>
-                    {item.ref === team?.defaultModel ? <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Default')}</Text> : null}
-                    {item.ref === model?.ref ? <CheckIcon color={p.accent} /> : null}
-                  </Pressable>
-                ))}
-              </View>
-            ))}
-          </ScrollView>
+          <ModelGroups models={models} current={model?.ref} fallback={team?.defaultModel} onPick={ref => { if (ref !== bot.model) save({ model: ref }) }} />
           {model && (reasoning?.efforts?.length ?? 0) > 0 ? (
             <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, marginTop: 6 }}>
               <EffortBar reasoning={reasoning} current={reasoning?.efforts?.some(e => e.id === bot.effort) ? bot.effort : undefined} onPick={effort => save({ effort: effort ?? null })} />

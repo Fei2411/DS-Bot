@@ -38,6 +38,11 @@ export function ArrowUpIcon({ size = 16, color }: IconProps) {
   return h(Svg, { width: size, height: size, viewBox: '0 0 20 20' },
     h(Path, { d: 'M10 16V4M5 9l5-5 5 5', stroke: use(color, p.accentInk), strokeWidth: 1.8, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' }))
 }
+export function ArrowDownIcon({ size = 16, color }: IconProps) {
+  const { p } = useTheme()
+  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20' },
+    h(Path, { d: 'M10 4v12M5 11l5 5 5-5', stroke: use(color, p.ink2), strokeWidth: 1.6, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' }))
+}
 export function GearIcon({ size = 20, color }: IconProps) {
   const { p } = useTheme()
   const c = use(color, p.ink2)

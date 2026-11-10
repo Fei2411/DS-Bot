@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Linking, Modal, PanResponder, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Linking, PanResponder, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { INKS } from '../../../../ds-bot/src/client/inks.js'
@@ -105,9 +105,12 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
       )
     }
     case 'table': {
+      // Columns are { key, label }; a cell may be a formula, shown as its value.
       const columns = val(n.columns), rows = val(n.rows)
       if (!Array.isArray(columns) || !Array.isArray(rows)) return <Placeholder p={p} />
-      return <DataTable columns={columns.map(String)} rows={rows as unknown[][]} p={p} />
+      const label = (column: unknown) => column !== null && typeof column === 'object' ? String(val((column as { label?: unknown }).label) ?? (column as { key?: unknown }).key ?? '') : String(column)
+      const cell = (value: unknown) => { const out = val(value); return out === undefined ? '…' : typeof out === 'number' ? show(out) : String(out ?? '') }
+      return <DataTable columns={columns.map(label)} rows={rows.map(row => Array.isArray(row) ? row.map(cell) : [])} p={p} />
     }
     case 'chart': {
       const categories = val(n.categories), series = val(n.series)
@@ -365,17 +368,16 @@ function Chart({ kind, categories, series, unit, caption, p }: { kind: string; c
             <Text style={[type.caption, { color: p.ink2 }]}>{s.name}</Text>
           </Pressable>
         ))}
-        <Pressable accessibilityRole="button" onPress={() => setMenu(true)} style={{ marginLeft: 'auto', padding: 4 }}><Text style={{ color: p.ink3, fontSize: 18 }}>…</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => setMenu(on => !on)} style={{ marginLeft: 'auto', padding: 4 }}><Text style={{ color: p.ink3, fontSize: 18 }}>…</Text></Pressable>
       </View>
       {caption ? <Text style={[type.caption, { color: p.ink3, marginTop: 2 }]}>{caption}</Text> : null}
-      <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
-        <Pressable style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} onPress={() => setMenu(false)}>
-          <View style={{ backgroundColor: p.card, borderRadius: 12, borderWidth: 1, borderColor: p.line, minWidth: 180 }}>
-            <Pressable onPress={() => { setAsTable(true); setMenu(false) }} style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink }]}>{t('View as table')}</Text></Pressable>
-            <Pressable onPress={() => { void Clipboard.setStringAsync([table.columns.join(','), ...table.body.map(r => r.map(v => v ?? '').join(','))].join('\n')); setMenu(false) }} style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink }]}>{t('Copy data (CSV)')}</Text></Pressable>
-          </View>
-        </Pressable>
-      </Modal>
+      {/* Inline, not a modal: a chart can sit in a chat row, where a modal takes no touches. */}
+      {menu ? (
+        <View style={{ flexDirection: 'row', gap: 16, marginTop: 6 }}>
+          <Text accessibilityRole="button" style={[type.small, { color: p.accent }]} onPress={() => { setAsTable(true); setMenu(false) }}>{t('View as table')}</Text>
+          <Text accessibilityRole="button" style={[type.small, { color: p.accent }]} onPress={() => { void Clipboard.setStringAsync([table.columns.join(','), ...table.body.map(r => r.map(v => v ?? '').join(','))].join('\n')); setMenu(false) }}>{t('Copy data (CSV)')}</Text>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -398,17 +400,27 @@ function Donut({ rows, pinned, p }: { rows: { name: string; values: number[]; co
   )
 }
 
+// Columns share the card's width; a table too wide for it scrolls sideways.
 function DataTable({ columns, rows, p }: { columns: string[]; rows: unknown[][]; p: Palette }) {
+  const [width, setWidth] = useState(0)
+  const cellWidth = Math.max(88, columns.length === 0 ? 0 : Math.floor(width / columns.length))
+  const cellStyle = { width: cellWidth, paddingHorizontal: 8, paddingVertical: 7 }
   return (
-    <View style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item }}>
-      <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>
-        {columns.map((c, i) => <Text key={i} style={[type.caption, { color: p.ink2, minWidth: 72, padding: 6 }]}>{c}</Text>)}
-      </View>
-      {rows.map((row, ri) => (
-        <View key={ri} style={{ flexDirection: 'row', borderTopWidth: ri === 0 ? 0 : 1, borderTopColor: p.line }}>
-          {columns.map((_, ci) => <Text key={ci} style={[type.caption, { color: p.ink, minWidth: 72, padding: 6 }]}>{String(row[ci] ?? '')}</Text>)}
-        </View>
-      ))}
+    <View onLayout={event => setWidth(event.nativeEvent.layout.width - 2)} style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item, overflow: 'hidden' }}>
+      {width === 0 ? null : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+          <View>
+            <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>
+              {columns.map((c, i) => <Text key={i} style={[type.caption, cellStyle, { color: p.ink2, fontWeight: '500' }]}>{c}</Text>)}
+            </View>
+            {rows.map((row, ri) => (
+              <View key={ri} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: p.line }}>
+                {columns.map((_, ci) => <Text key={ci} style={[type.small, cellStyle, { color: p.ink }]}>{String(row[ci] ?? '')}</Text>)}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      )}
     </View>
   )
 }
@@ -425,7 +437,6 @@ const styles = StyleSheet.create({
   choice: { flex: 1, borderRadius: radius.pill, paddingVertical: 10 },
   field: { borderRadius: radius.input, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
   stepper: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  menuRow: { paddingVertical: 12, paddingHorizontal: 16 },
   chartTouch: { position: 'absolute', top: 0, left: 0, right: 0, height: '100%', flexDirection: 'row' },
   dismiss: { alignSelf: 'center', paddingVertical: 4 },
 })

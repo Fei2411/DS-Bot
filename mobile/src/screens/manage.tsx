@@ -13,10 +13,10 @@ import { useTeam } from '../team/context.tsx'
 import { t, timeLabel } from '../ui/i18n.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
-import { radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
+import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
 import { capabilityStatusText } from './settings-pages.tsx'
-import { ModelMenu } from './model-menu.tsx'
+import { ModelMenu, ModelPicker } from './model-menu.tsx'
 
 export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
@@ -147,17 +147,6 @@ function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm
 }
 
 type Model = NonNullable<TeamState['models']>[number]
-
-function ModelPicks({ models, current, fallback, onPick }: { models: Model[]; current?: string; fallback?: string; onPick: (ref: string) => void }) {
-  const { p } = useTheme()
-  return models.map(item => (
-    <Pressable key={item.ref} accessibilityRole="radio" accessibilityState={{ checked: item.ref === current }} onPress={() => onPick(item.ref)} style={[styles.menuRow, styles.pickRow]}>
-      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{item.name}</Text>
-      {item.ref === fallback ? <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Default')}</Text> : null}
-      {item.ref === current ? <CheckIcon color={p.accent} /> : null}
-    </Pressable>
-  ))
-}
 
 function useWrite(navigation: any) {
   const { call } = useTeam()
@@ -413,27 +402,12 @@ export function BotEdit({ route, navigation }: any) {
           <Field label={t('Label')} value={bot.role} placeholder={t('Research, admin…')} onSave={role => save({ role })} />
         </Section>
         <Section label={t('Character shape')}>
-          <View style={styles.grid}>
-            {SHAPES.map(id => (
-              <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: shape === id }} onPress={() => save({ avatar: { ...bot.avatar, shape: id } })}
-                style={[styles.cell, shape === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
-                <Avatar bot={{ ...bot, avatar: { ...bot.avatar, shape: id }, color } as Bot} dark={dark} size={40} ring={p.card} />
-                {shape === id ? <View style={[styles.tick, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontSize: 10, fontWeight: '700' }}>✓</Text></View> : null}
-              </Pressable>
-            ))}
-          </View>
+          <PickGrid columns={5} ids={SHAPES} picked={shape} onPick={id => save({ avatar: { ...bot.avatar, shape: id } })}
+            draw={(id, size) => <Avatar bot={{ ...bot, avatar: { ...bot.avatar, shape: id }, color } as Bot} dark={dark} size={size * 0.72} ring={p.card} />} />
         </Section>
         <Section label={t('Character color')}>
-          <View style={styles.grid}>
-            {COLORS.map(id => (
-              <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: color === id }} onPress={() => save({ color: id })}
-                style={[styles.cell, color === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
-                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: COLOR_PAINT[id] ?? p.accent, alignItems: 'center', justifyContent: 'center' }}>
-                  {color === id ? <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>✓</Text> : null}
-                </View>
-              </Pressable>
-            ))}
-          </View>
+          <PickGrid columns={6} ids={COLORS} picked={color} onPick={id => save({ color: id })}
+            draw={(id, size) => <View style={{ width: size * 0.52, height: size * 0.52, borderRadius: size, backgroundColor: COLOR_PAINT[id] ?? inkColor(id, dark) }} />} />
         </Section>
         <Section label={t('Photo')}>
           <Row label={t('Upload photo')} onPress={() => { void pickPhoto().then(image => { if (image !== null) save({ avatar: { ...bot.avatar, image } }) }) }} />
@@ -467,8 +441,26 @@ export function BotEdit({ route, navigation }: any) {
 
 // ------------------------------------------------------------ Create Bot
 
-export function NewBot({ navigation }: any) {
+// Square choices in even columns that fill the card's width.
+function PickGrid({ columns, ids, picked, onPick, draw }: { columns: number; ids: string[]; picked: string; onPick: (id: string) => void; draw: (id: string, size: number) => React.ReactNode }) {
   const { p } = useTheme()
+  const [width, setWidth] = useState(0)
+  const gap = 8
+  const size = width === 0 ? 0 : Math.floor((width - gap * (columns - 1)) / columns)
+  return (
+    <View onLayout={event => setWidth(event.nativeEvent.layout.width - 24)} style={[styles.grid, { gap }]}>
+      {size > 0 ? ids.map(id => (
+        <Pressable key={id} accessibilityRole="radio" accessibilityState={{ checked: picked === id }} onPress={() => onPick(id)}
+          style={[styles.cell, { width: size, height: size }, picked === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
+          {draw(id, size)}
+        </Pressable>
+      )) : null}
+    </View>
+  )
+}
+
+export function NewBot({ navigation }: any) {
+  const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
   const [name, setName] = useState('')
@@ -492,24 +484,10 @@ export function NewBot({ navigation }: any) {
       <BackRow title={t('Create new Bot')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
-        <Section label={t('Character shape')}>
-          <View style={styles.grid}>
-            {SHAPES.map(id => (
-              <Pressable key={id} onPress={() => setShape(id)} style={[styles.cell, shape === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
-                <Avatar bot={{ id: '', name: finalName, avatar: { shape: id }, color } as Bot} dark={false} size={40} ring={p.card} />
-              </Pressable>
-            ))}
-          </View>
-        </Section>
-        <Section label={t('Character color')}>
-          <View style={styles.grid}>
-            {COLORS.map(id => (
-              <Pressable key={id} onPress={() => setColor(id)} style={[styles.cell, color === id ? { borderColor: p.accent, borderWidth: 2 } : { borderColor: p.line }]}>
-                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: COLOR_PAINT[id] ?? p.accent }} />
-              </Pressable>
-            ))}
-          </View>
-        </Section>
+        {/* The Bot as it will look, over its name, as the picks change. */}
+        <View style={{ alignItems: 'center', marginTop: 8 }}>
+          <Avatar bot={{ id: '', name: finalName, avatar: { shape }, color } as Bot} dark={dark} size={72} ring={p.main} />
+        </View>
         <Section label={t('Profile')}>
           <View style={styles.row}>
             <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={name} onChangeText={setName}
@@ -517,10 +495,18 @@ export function NewBot({ navigation }: any) {
           </View>
           {clash ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 16, paddingBottom: 10 }]}>{t('Another Bot has this name.')}</Text> : null}
         </Section>
-        <Section label={t('Model')}>
-          <ModelPicks models={models} current={model} fallback={team?.defaultModel} onPick={setModel} />
-          {models.length === 0 ? <Row label={t('Model')} value="—" disabled /> : null}
+        <Section label={t('Character shape')}>
+          <PickGrid columns={5} ids={SHAPES} picked={shape} onPick={setShape}
+            draw={(id, size) => <Avatar bot={{ id: '', name: finalName, avatar: { shape: id }, color } as Bot} dark={dark} size={size * 0.72} ring={p.card} />} />
         </Section>
+        <Section label={t('Character color')}>
+          <PickGrid columns={6} ids={COLORS} picked={color} onPick={setColor}
+            draw={(id, size) => <View style={{ width: size * 0.52, height: size * 0.52, borderRadius: size, backgroundColor: COLOR_PAINT[id] ?? inkColor(id, dark) }} />} />
+        </Section>
+        <View style={{ marginHorizontal: 14, marginTop: 18 }}>
+          <Text style={[typeScale.caption, { color: p.ink3, marginBottom: 6, marginLeft: 4 }]}>{t('Model')}</Text>
+          <ModelPicker current={model} onPick={setModel} />
+        </View>
         <View style={{ paddingHorizontal: 18, marginTop: 24 }}>
           <Pressable accessibilityRole="button" disabled={busy || clash} onPress={() => void create()}
             style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: busy || clash ? 0.5 : pressed ? 0.85 : 1 }]}>
@@ -649,23 +635,6 @@ export function GroupSettings({ route, navigation }: any) {
           <DangerRow label={t('Delete group')} confirm={t('Tap again to delete this group')} onConfirm={() => void run('delete-room', { id: room.id }, () => navigation.goBack())} />
         </Section>
       </ScrollView>
-    </Screen>
-  )
-}
-
-// ------------------------------------------------------------ New sheet
-
-export function NewMenu({ navigation }: any) {
-  const { p } = useTheme()
-  return (
-    <Screen title="">
-      <BackRow title={t('New')} onBack={() => navigation.goBack()} />
-      <View style={{ marginTop: 18 }}>
-        <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Row label={t('Create new Bot')} onPress={() => navigation.navigate('NewBot')} />
-          <Row label={t('Create group chat')} onPress={() => navigation.navigate('NewGroup')} />
-        </View>
-      </View>
     </Screen>
   )
 }

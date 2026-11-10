@@ -1,7 +1,7 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Dimensions, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
@@ -10,12 +10,12 @@ import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
-import { GearIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
+import { GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
 import { ChatView } from '../screens/Chat.tsx'
 import { NeedsYou } from '../screens/NeedsYou.tsx'
 import { Settings } from '../screens/Settings.tsx'
 import { TeamList, type ChatTarget } from '../screens/TeamList.tsx'
-import { BotDetails, BotEdit, NewBot, NewMenu, NewGroup, GroupDetails, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
+import { BotDetails, BotEdit, NewBot, NewGroup, GroupDetails, GroupSettings, Memory, Schedules, Folder, Usage, Computers, Secrets } from '../screens/manage.tsx'
 import { Providers, Connectors, Capabilities, TeamUsage, Location, Updates, About } from '../screens/settings-pages.tsx'
 import { Side } from '../screens/side.tsx'
 import { BotBrowser } from '../screens/manage.tsx'
@@ -36,6 +36,8 @@ function DrawerContent() {
   const pending = pendingCountOf(team)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
+  const [newOpen, setNewOpen] = useState(false)
+  const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.close(); navigation.navigate(screen) }
   // The chat on screen is marked in the list, as the desktop marks its open chat. The
   // drawer sits outside the navigator, so it follows the container's own state.
   const [current, setCurrent] = useState<string | undefined>(undefined)
@@ -62,7 +64,7 @@ function DrawerContent() {
         <Pressable accessibilityRole="button" accessibilityLabel={t('Search')} onPress={() => setSearching(on => !on)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <SearchIcon size={16} color={p.ink2} />
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('New')} onPress={() => { drawer.close(); navigation.navigate('NewMenu') }} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('New')} onPress={() => setNewOpen(true)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <PlusIcon size={16} color={p.ink2} />
         </Pressable>
       </View>
@@ -83,6 +85,21 @@ function DrawerContent() {
       <View style={{ flex: 1 }}>
         <TeamList onOpen={open} query={searching ? query : ''} current={current} />
       </View>
+      <Modal visible={newOpen} transparent animationType="fade" onRequestClose={() => setNewOpen(false)}>
+        <Pressable style={styles.sheetScrim} onPress={() => setNewOpen(false)} accessibilityLabel={t('Close')}>
+          <View style={[styles.newSheet, { backgroundColor: p.card, borderColor: p.line, marginBottom: insets.bottom + 12 }, shadow(3)]}>
+            <Pressable accessibilityRole="button" onPress={() => create('NewBot')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
+              <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PlusIcon size={18} color={p.ink} /></View>
+              <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create new Bot')}</Text>
+            </Pressable>
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: p.line, marginLeft: 64 }} />
+            <Pressable accessibilityRole="button" onPress={() => create('NewGroup')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
+              <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PeopleIcon size={18} color={p.ink} /></View>
+              <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create group chat')}</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
       <View style={[styles.foot, { paddingBottom: insets.bottom + 8 }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <GearIcon size={18} color={p.ink2} />
@@ -104,24 +121,36 @@ function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<type
 
 function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots?: Bot[]; onMenu: () => void; onPill?: () => void; onSide?: () => void }) {
   const { p } = useTheme()
-  const { team } = useTeam()
+  const { team, online } = useTeam()
   const pending = pendingCountOf(team) > 0
   const insets = useSafeAreaInsets()
+  // The link dropped after the team loaded: the screen keeps what it shows and says so.
+  const reconnecting = team !== null && !online
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 4, paddingBottom: 8, paddingHorizontal: 10, backgroundColor: p.main }}>
+    <View style={{ backgroundColor: p.main }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 4, paddingBottom: 8, paddingHorizontal: 10 }}>
       <Pressable accessibilityRole="button" accessibilityLabel={t('Open team list')} onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <SidebarIcon size={20} color={p.ink2} />
         {pending ? <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent }} /> : null}
       </Pressable>
       {/* A long group name ends in an ellipsis inside the pill instead of pushing past the side buttons. */}
       <View style={{ flex: 1, alignItems: 'center', minWidth: 0 }}>
-        {title === '' ? null : onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill} style={{ maxWidth: '100%' }}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
+        {title === '' ? null
+          : bot === undefined && room === undefined ? <Text style={[typeScale.headerTitle, { color: p.ink }]} numberOfLines={1}>{title}</Text>
+            : onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill} style={{ maxWidth: '100%' }}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
       </View>
       {onSide !== undefined ? (
         <Pressable accessibilityRole="button" accessibilityLabel={t('Side chat')} onPress={onSide} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           <SideIcon size={20} color={p.ink2} />
         </Pressable>
       ) : <View style={{ width: 44 }} />}
+    </View>
+    {reconnecting ? (
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 6 }} accessibilityRole="alert">
+        <ActivityIndicator size="small" color={p.ink3} />
+        <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Reconnecting…')}</Text>
+      </View>
+    ) : null}
     </View>
   )
 }
@@ -238,7 +267,6 @@ function Inner({ initial }: { initial: ChatTarget | null }) {
       <Stack.Screen name="BotDetails">{(props: any) => <BotDetails {...props} />}</Stack.Screen>
       <Stack.Screen name="BotEdit">{(props: any) => <BotEdit {...props} />}</Stack.Screen>
       <Stack.Screen name="NewBot">{(props: any) => <NewBot {...props} />}</Stack.Screen>
-      <Stack.Screen name="NewMenu">{(props: any) => <NewMenu {...props} />}</Stack.Screen>
       <Stack.Screen name="NewGroup">{(props: any) => <NewGroup {...props} />}</Stack.Screen>
       <Stack.Screen name="GroupDetails">{(props: any) => <GroupDetails {...props} />}</Stack.Screen>
       <Stack.Screen name="GroupSettings">{(props: any) => <GroupSettings {...props} />}</Stack.Screen>
@@ -311,5 +339,9 @@ const styles = StyleSheet.create({
   round: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 8, borderRadius: 10, paddingHorizontal: 10, height: 36 },
   you: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, height: 44 },
+  sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-end' },
+  newSheet: { marginHorizontal: 12, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  newRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 14 },
+  newIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   pill: { flexDirection: 'row', alignItems: 'center', height: 40, borderRadius: 20, paddingHorizontal: 14, borderWidth: 0.5, maxWidth: '100%', ...shadow(1) },
 })
