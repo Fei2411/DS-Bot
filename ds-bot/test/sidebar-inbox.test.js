@@ -467,13 +467,13 @@ test('C1b: the Main Bot stands above the list and never shows twice', () => {
     .filter(node => node.props?.className === 'bt-side-top' || hasClass(node, 'bt-main-pin') || hasClass(node, 'bt-seg'))
     .map(node => node.props.className)
   assert.deepEqual(order, ['bt-side-top', 'bt-main-pin', 'bt-seg'], 'top row, the tile, then the filters')
-  // The slot is a stood-up tile: a 72px mark over a 16px name, and no time or preview.
+  // The slot is a stood-up tile: an 84px mark over a 16px name, and no time or preview.
   const tile = byClass(tree, 'bt-main-tile')
   assert.equal(tile.length, 1, 'the pin draws the tile')
   assert.equal(textOf(byClass(tree, 'bt-main-tile-name')[0]), 'Mist')
   const mark = byClass(tile[0], 'bt-mark')[0].props.style
-  assert.equal(mark.width, 72, 'a 72px mark')
-  assert.equal(mark.height, 72, 'a 72px mark')
+  assert.equal(mark.width, 84, 'an 84px mark')
+  assert.equal(mark.height, 84, 'an 84px mark')
   assert.equal(byClass(tile[0], 'bt-row-time').length, 0, 'no stamp on the tile')
   assert.equal(byClass(tile[0], 'bt-row-preview').length, 0, 'no preview on the tile')
   assert.equal(byClass(tile[0], 'bt-dot').length, 1, 'the unread dot rides on the tile')
@@ -522,8 +522,8 @@ test('C1b: the Main Bot tile is unfilled in every state and its badge is a crown
   assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\]\{background/)
   // A large bare mark: no plate behind it and no ring in any state.
   const ava = SHELL_CSS.match(/^\.bt-main-tile-ava\{[^}]*\}/m)[0]
-  assert.match(ava, /width:72px/)
-  assert.match(ava, /height:72px/)
+  assert.match(ava, /width:84px/)
+  assert.match(ava, /height:84px/)
   assert.match(ava, /background:transparent/)
   assert.doesNotMatch(ava, /box-shadow/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-ava\{[^}]*box-shadow/)
@@ -533,6 +533,8 @@ test('C1b: the Main Bot tile is unfilled in every state and its badge is a crown
   assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main path\{fill:var\(--bt-crown-ink\)/)
   // The tile stands in its own slot above the list, with no rule under it.
   assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*min-height:130px/)
+  // 6+84+10+24+6 = 130: the larger mark must not grow the slot.
+  assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*padding:6px/)
   assert.match(SHELL_CSS, /^\.bt-main-pin\{/m)
   assert.doesNotMatch(SHELL_CSS, /\.bt-main-pin-sep\{/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-main-slot/)

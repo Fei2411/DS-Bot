@@ -140,11 +140,11 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
 /* The tile stands the Main Bot up on the page itself: a large mark with its name
    and no plate, ring or block in any state. The open chat is told by the name. */
-.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:12px 6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
+.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
 .bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
-.bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:transparent;transition:filter .12s ease}
-.bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
-.bt-main-tile .bt-badge-main svg{width:10px;height:10px;overflow:visible}
+.bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;background:transparent;transition:filter .12s ease}
+.bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:18px;height:18px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
+.bt-main-tile .bt-badge-main svg{width:11px;height:11px;overflow:visible}
 .bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
 .bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}

@@ -120,7 +120,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       'data-bot-id': id, onClick: () => actions.openSession(id), onContextMenu,
     },
     h('span', { className: 'bt-main-tile-ava' },
-      h(BotAvatar, { bot, size: 72, state, main, crown: true }),
+      h(BotAvatar, { bot, size: 84, state, main, crown: true }),
       !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
     h('span', { className: 'bt-main-tile-name' }, bot.name))
   }
