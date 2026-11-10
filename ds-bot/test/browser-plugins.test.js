@@ -201,6 +201,52 @@ test('concurrent first browser calls share opening and relay connection', async 
   await cleanup?.()
 })
 
+test('browser calls for one Bot keep their approval scopes in order while other Bots can proceed', async () => {
+  const tools = new Map()
+  const started = []
+  const approved = []
+  let releaseFirst
+  const firstPending = new Promise(resolve => { releaseFirst = resolve })
+  mountBrowserPlugin({
+    effect() {},
+    tools: { register(tool) { tools.set(tool.name, tool) } },
+  }, {
+    toolDefs: [{
+      name: 'browser_download',
+      needsBrowser: true,
+      async execute({ label }) {
+        started.push(label)
+        if (label === 'first') await firstPending
+        await gateScope.getStore()({ kind: 'download', label })
+        return label
+      },
+    }],
+    defineTool: value => value,
+    keyOf: async exec => exec.botId,
+    profileRoot: '/profiles',
+    headless: true,
+    openSession: async () => ({ close: async () => {} }),
+    authorize: async (exec, botId, action) => approved.push([exec.callId, botId, action.label]),
+  })
+  const execute = (botId, label) => tools.get('browser_download').execute({ label }, { botId, callId: label })
+  const first = execute('b1', 'first')
+  const second = execute('b1', 'second')
+  const other = execute('b2', 'other')
+  await new Promise(resolve => setImmediate(resolve))
+  try {
+    assert.deepEqual(started, ['first', 'other'])
+    assert.equal(await other, 'other')
+  } finally {
+    releaseFirst()
+    await Promise.all([first, second, other])
+  }
+  assert.deepEqual(approved, [
+    ['other', 'b2', 'other'],
+    ['first', 'b1', 'first'],
+    ['second', 'b1', 'second'],
+  ])
+})
+
 test('user takeover while opening closes the session once it resolves', async () => {
   const tools = new Map()
   let cleanup
@@ -239,7 +285,7 @@ test('user takeover while opening closes the session once it resolves', async ()
   hold = { by: 'user' }
   publishHold('b2', hold)
   releaseOpen({ close: async () => { closeCalls += 1; resolveClosed() } })
-  await opening
+  await assert.rejects(opening, /The user has taken over this browser/)
   await closed
   assert.equal(closeCalls, 1)
   await cleanup?.()
