@@ -79,7 +79,7 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
     parsedUrl.hash = ''
     return {
       kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, method, enctype, target: targetName, fields,
-      evidenceComplete: kind === 'post' && !!form && fields.length > 0 && !protectedField,
+      evidenceComplete: kind === 'post' && !!form && isSubmitter(submitter) && fields.length > 0 && !protectedField,
     }
   }
 

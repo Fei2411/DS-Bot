@@ -41,6 +41,9 @@ export async function reviewContext(rt, owner, signal) {
     }
     if (lines.length === 24) break
   }
+  const agent = await rt.resolveAgent(owner.ownerSessionId)
+  const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
+  if (pending.some(message => message.source?.kind === 'user')) throw new Error('Pending user input needs manual review')
   return lines.reverse()
 }
 

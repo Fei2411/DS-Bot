@@ -53,7 +53,7 @@ async function fixtureServer() {
       html('Review form',
         '<button form="review" name="audience" value="public" formaction="/submit" formmethod="post" formenctype="text/plain" formtarget="_self">Publish reviewed</button>' +
         '<form id="review" method="get" action="/unlabeled"><input name="message" aria-label="Review message">' +
-        '<select name="recipients" multiple aria-label="Recipients"><option selected value="alice">Alice</option><option selected value="bob">Bob</option><option value="eve">Eve</option></select></form>' +
+        '<select name="recipients" multiple aria-label="Recipients"><option selected value="alice">Alice</option><option selected value="bob">Bob</option><option value="eve">Eve</option></select><button type="button" onclick="fetch(&quot;/upload&quot;, {method: &quot;POST&quot;, body: &quot;script payload&quot;})">Send scripted</button></form>' +
         `<button type="button" onclick="document.querySelector('[form=review]').setAttribute('formaction', '/unlabeled')">Change destination</button>` +
         `<button type="button" onclick="document.querySelector('[form=review]').setAttribute('formmethod', 'get')">Change method</button>`)
     } else if (path === '/submit' && request.method === 'POST') {
@@ -396,6 +396,25 @@ test('type with submit gates POST forms but not GET forms', async (t) => {
   await gateScope.run(gate, () => session.type(findRef(snapshot, 'Filter query'), 'lamp', true))
   await waitFor(() => fixture.counters.filter === 1)
   assert.equal(actions.length, 2)
+})
+
+test('a scripted Send button inside a form requires manual approval', async t => {
+  const { fixture, session } = await setup(t, 1500)
+  const snapshot = await session.open(new URL('review-form', fixture.url).href)
+  const ref = findRef(snapshot, 'Send scripted')
+  const actions = []
+  await assert.rejects(gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('manual approval required')
+  }, () => session.click(ref)), /manual approval required/)
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].kind, 'post')
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(fixture.counters.upload, 0)
+  assert.equal(fixture.counters.submit, 0)
+  await gateScope.run(() => {}, () => session.click(ref))
+  await waitFor(() => fixture.counters.upload === 1)
+  assert.equal(fixture.counters.submit, 0, 'the handler does not submit the surrounding form')
 })
 
 for (const mode of ['type', 'press']) test(mode + ' Enter reviews the actual default submitter and every recipient', async t => {

@@ -19,8 +19,16 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ...entry }) => ({ ...entry, answerable: answer !== undefined })
-  const changed = entry => emit('open', view(entry))
+  const view = ({ answer, cancelReview, ownerSessionId, ...entry }) => ({ ...entry, answerable: answer !== undefined })
+  const changed = entry => emit('updated', view(entry))
+
+  // Queued user input is not a user/message until the pending tool yields.
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'agent/inbox/spliced' || !event.data?.inserted?.some(message => message.source?.kind === 'user')) return
+    for (const entry of pending.values()) {
+      if (session.id === entry.ownerSessionId || session.id === entry.sessionId) entry.cancelReview()
+    }
+  })
 
   // Capture immutable tool arguments before any pre-execute policy asks. Result
   // events release both successful and rejected calls, including PTC sub-calls.
@@ -85,7 +93,7 @@ export function install(rt) {
     const linked = new AbortController()
     const reviewer = new AbortController()
     const entry = {
-      id, sessionId: owner.sessionId, botId: owner.botId,
+      id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, botId: owner.botId,
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
@@ -134,7 +142,7 @@ export function install(rt) {
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
       original?.addEventListener('abort', abort, { once: true })
-      changed(entry)
+      emit('open', view(entry))
       if (original?.aborted) return complete('cancelled')
       if (!automatic) return manual()
       const timeout = new Promise((_, fail) => {
@@ -147,13 +155,13 @@ export function install(rt) {
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
         if (!pending.has(id)) return
-        if (reviewer.signal.aborted || !enabled(owner)) return manual('Automatic review settings changed')
+        if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         await record(entry, decision)
         if (JSON.stringify(await reviewContext(rt, owner, reviewer.signal)) !== JSON.stringify(decision.context)) {
           throw new Error('The conversation changed while saving the review')
         }
         if (!pending.has(id)) return
-        if (reviewer.signal.aborted || !enabled(owner)) return manual('Automatic review settings changed')
+        if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         if (decision.decision === 'manual') manual(decision.reason)
         else complete(OUTCOMES[decision.decision], true)
       }).catch(async () => {

@@ -47,7 +47,13 @@ function setup(t, options = {}) {
     for (let n = 0; n < 50; n++) { if (rt.approvalsView()[0]?.review?.status === 'manual') return rt.approvalsView()[0]; await tick() }
     assert.fail('manual fallback did not open')
   }
-  return { rt, ask, calls, bots, rooms, events, waitManual, agents }
+  const insert = (sessionId, target, message) => {
+    const agent = agents[sessionId]
+    agent.inbox ??= { nextStep: [], nextTurn: [] }
+    agent.inbox[target === 'next-step' ? 'nextStep' : 'nextTurn'].push(message)
+    listeners.get('session/event')?.(agent.session, { type: 'agent/inbox/spliced', data: { target, start: 0, inserted: [message] } })
+  }
+  return { rt, ask, calls, bots, rooms, events, waitManual, agents, insert }
 }
 
 test('strict review JSON accepts only known decisions and a reason', () => {
@@ -133,6 +139,66 @@ test('new user restriction during review prevents a late approval', async t => {
   const entry = await waitManual()
   rt.answerApproval(entry.id, 'reject')
   assert.equal(await result, 'rejected')
+})
+
+for (const stage of ['model', 'save']) for (const sessionId of ['b', 'child']) for (const target of ['next-step', 'next-turn']) {
+  test('user inbox insertion invalidates ' + sessionId + ' during ' + stage + ' in ' + target, async t => {
+    let release
+    let started
+    const holding = new Promise(resolve => { release = resolve })
+    const reached = new Promise(resolve => { started = resolve })
+    const { rt, ask, insert, waitManual, agents } = setup(t, stage === 'model' ? { hold: holding } : {})
+    if (stage === 'save') rt.save = () => { started(); return holding }
+    const result = ask({ sessionId })
+    if (stage === 'save') await reached
+    else await tick()
+    insert('b', target, { id: 'restriction', ...user('Do not execute.').data })
+    // Even removing the queued item cannot revive a decision already invalidated.
+    agents.b.inbox.nextStep = []
+    agents.b.inbox.nextTurn = []
+    rt.save = async () => {}
+    release()
+    const entry = await waitManual()
+    assert.equal(rt.approvalReviewsView().at(-1).outcome, 'manual')
+    rt.answerApproval(entry.id, 'reject')
+    assert.equal(await result, 'rejected')
+  })
+}
+
+test('pending user messages already in the inbox keep the request manual', async t => {
+  const { ask, rt, calls, agents, waitManual } = setup(t)
+  agents.b.inbox = { nextStep: [{ id: 'queued', ...user('Do not execute.').data }], nextTurn: [] }
+  const result = ask()
+  const entry = await waitManual()
+  assert.equal(calls.length, 0)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+test('Bot inbox relays and user input in another conversation do not invalidate review', async t => {
+  let release
+  const { ask, insert } = setup(t, { hold: new Promise(resolve => { release = resolve }) })
+  const result = ask()
+  await tick()
+  insert('b', 'next-step', { id: 'relay', source: { kind: 'agent-message' }, content: [] })
+  insert('g', 'next-step', { id: 'other-user', ...user('Do not execute.').data })
+  release()
+  assert.equal(await result, 'allowed-once')
+})
+
+for (const automatic of [false, true]) test('approval emits one open, status updates and one settlement: review=' + automatic, async t => {
+  const { ask, rt, waitManual } = setup(t, { enabled: automatic, reply: '{"decision":"manual","reason":"Ask the user."}' })
+  const notices = []
+  rt.onApproval((kind, data) => notices.push({ kind, data }))
+  const result = ask()
+  if (automatic) await waitManual()
+  else await tick()
+  assert.equal(notices.filter(notice => notice.kind === 'open').length, 1)
+  assert.ok(notices.some(notice => notice.kind === 'updated'))
+  assert.equal(notices.some(notice => notice.kind === 'settled'), false)
+  rt.answerApproval(rt.approvalsView()[0].id, 'reject')
+  assert.equal(await result, 'rejected')
+  assert.equal(notices.filter(notice => notice.kind === 'settled').length, 1)
 })
 
 test('child approval is owned by its parent Bot and uses the parent user context', async t => {
