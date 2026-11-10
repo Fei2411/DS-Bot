@@ -1186,14 +1186,12 @@ test('a paused group parks every member an @all called, in a new round', async (
   await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R3', message: '@all 待命' }, { agent: { id: rt.chatOf(chief) } })
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
-  const held = relay(room.id, 'relay-1')
-  await settle()
+  await relay(room.id, 'relay-1')
   assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'a paused room opens no round')
   assert.deepEqual((state().paused ?? []).map(entry => [entry.name, entry.note, entry.idle]), [
     ['Writer', 'Chief called everyone', true],
     ['Tester', 'Chief called everyone', true],
   ], 'every member @all called waits for the user')
-  await held
 
   // The user's message brings them back.
   sent.length = 0
