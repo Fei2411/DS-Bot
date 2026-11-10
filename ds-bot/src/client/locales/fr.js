@@ -1,6 +1,23 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Agent preset": "Préréglage Agent",
+  "Agent preset: {preset}": "Préréglage Agent : {preset}",
+  "Default (Standard)": "Par défaut (standard)",
+  "Default (DSH default)": "Par défaut (DSH)",
+  "The standard agent preset": "Le préréglage Agent standard",
+  "The default for new tasks in DeepSeek Harness.": "Le préréglage par défaut des nouvelles tâches dans DeepSeek Harness.",
+  "Missing preset": "Préréglage introuvable",
+  "This preset cannot start.": "Ce préréglage ne peut pas démarrer.",
+  "This preset cannot start. Pick another one.": "Ce préréglage ne peut pas démarrer. Choisissez-en un autre.",
+  "This preset cannot start ({reason}). Pick another one.": "Ce préréglage ne peut pas démarrer ({reason}). Choisissez-en un autre.",
+  "This preset is not in the profile anymore. Pick another one.": "Ce préréglage ne figure plus dans le profil. Choisissez-en un autre.",
+  "The preset list could not be loaded.": "Impossible de charger la liste des préréglages.",
+  "DS Bot needs the Bot's own prompt, which this preset replaces": "Ce préréglage remplace le prompt propre au Bot dont DS Bot a besoin.",
+  "DS Bot could not verify that it keeps the Bot's own prompt": "DS Bot n’a pas pu vérifier que le prompt propre au Bot est conservé.",
+  "Applies from the next conversation segment.": "S’applique à partir du prochain segment de conversation.",
+  "The Bot runs on the default agent preset.": "Le Bot utilise le préréglage Agent par défaut.",
+  "The Bot runs on the {name} agent preset.": "Le Bot utilise le préréglage Agent {name}.",
   "Main Bot": "Bot principal",
   "Working": "En cours",
   "Waiting for your answer": "Attend votre réponse",
@@ -1553,6 +1570,9 @@ export const FR = {
 }
 
 export const HOST_ERRORS_FR = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas fonctionner : $2. Choisissez-en un autre dans les paramètres du Bot."],
+  [/^Only the user can choose the agent preset of (.+)$/, "Seul l’utilisateur peut choisir le préréglage Agent de $1"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
   [/^Model (.+) is not available\. Available: (.*)$/, "Le modèle $1 n’est pas disponible. Disponibles : $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "La clé API de $1 est définie hors de DS Bot et ne peut pas être modifiée ici"],
