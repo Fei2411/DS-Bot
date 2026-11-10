@@ -1,6 +1,6 @@
 # Bot 浏览器插件
 
-团队只选一个后端，每个 Bot 一份 Chromium profile。不配时，桌面里的 `read_browser` 保持只读。
+团队只选一个后端，每个 Bot 一份 Chromium profile。不配时，dsh Desktop 里的 `read_browser` 保持只读；DS Bot 桌面应用默认挂 `refs`（用 `browser: false` 关掉）。
 
 | 目录 | 插件 | Bot 怎么用 |
 |---|---|---|

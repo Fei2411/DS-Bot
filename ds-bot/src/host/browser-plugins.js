@@ -113,12 +113,13 @@ async function authorizeBrowserAction(rt, exec, botId, action) {
 
 export function install(rt) {
   const injected = rt.config.browserPluginApi
-  // The desktop apps show the Bot's browser panel and their Browser settings
-  // promise clicking and filling in, so there the interactive plugin is on by
-  // default, as read_browser already is. Elsewhere nothing is mounted unless the
-  // team names a plugin. config.browser: false keeps both halves off.
-  const desktop = rt.ctx.get?.('profileContext')?.name === 'desktop' || process.env.DS_BOT_APP === '1'
-  const name = rt.config.browserPlugin ?? (rt.config.browser !== false && desktop ? 'refs' : undefined)
+  // The desktop app's Browser settings promise clicking and filling in, and it
+  // drives its own panel through the app's relay, so the interactive plugin is
+  // on there by default, as read_browser already is. dsh Desktop and dsh Web
+  // keep mounting nothing unless the team names a plugin (a Playwright browser
+  // must be installed there). config.browser: false keeps both halves off.
+  const app = process.env.DS_BOT_APP === '1'
+  const name = rt.config.browserPlugin ?? (rt.config.browser !== false && app ? 'refs' : undefined)
   if (!name && !injected) return
   const plugin = injected ?? browserPlugins[name]
   if (!plugin) throw new Error(`Unknown browser plugin "${name}". Choose ${NAMES.join(', ')}.`)

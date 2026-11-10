@@ -207,11 +207,10 @@ const TEAM = {
   questions: {},
 }
 
-test('in the Desktop profile read_browser is mounted, followed by the default browser tools', async (t) => {
+test('in the Desktop profile read_browser is the last tool and reads through the window', async (t) => {
   const { ctx, call, stop } = start(TEAM, { services: { profileContext: { name: 'desktop' } } })
   t.after(stop)
-  assert.ok(rt.teamTools.some(d => d.name === 'read_browser'))
-  assert.ok(rt.teamTools.some(d => d.name === 'browser_click'), 'the desktop default refs plugin is mounted')
+  assert.equal(rt.teamTools.at(-1).name, 'read_browser')
   assert.ok(ctx.calls.indexOf('effect ds-bot: browser channel') < ctx.calls.indexOf('effect ds-bot: api route'))
   const read = args => rt.teamTools.find(d => d.name === 'read_browser').execute(args, { agent: { id: 'b2' } })
 

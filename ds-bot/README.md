@@ -69,7 +69,7 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     home: /path/to/bot-data         # where the team is saved; default $DSH_HOME/bot
     checkRatio: 0.8                 # share of the model's usable window where the steward decides
     browser: true                   # force the Bot browser on or off; default on in Desktop and the desktop app only
-    browserPlugin: refs             # interactive browser plugin: refs, script or task; default refs in Desktop and the desktop app
+    browserPlugin: refs             # interactive browser plugin: refs, script or task; default refs in the desktop app
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
@@ -155,7 +155,7 @@ In dsh Desktop and the desktop app, each Bot has its own browser panel in the ri
   - It never reads the values of password, credit card (`autocomplete="cc-*"`) or one-time code fields.
   - Limits: 400,000 characters, 150,000 nodes, 5,000 rows per table, 3,000 links and controls, 1.5 seconds. A cut result says so.
   - It cannot read cross-origin iframes (one line with the address), closed shadow roots, canvas content (online editors, maps), or text in CSS `::before` / `::after`. On pages that render on demand, only the rendered part is read.
-  - Without a browser plugin, `read_browser` is read-only. The Desktop profile and the desktop app mount `refs` (see [`browser-plugins/`](../browser-plugins/)) when the team names no other plugin, so Bots can open, inspect and interact with pages in their own profile (`bot/browser-profiles/<botId>/`); a profile can pick `script` or `task` with `browserPlugin`, and `browser: false` turns the Bot's browser off. In the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
+  - Without a browser plugin, `read_browser` is read-only. The desktop app mounts `refs` (see [`browser-plugins/`](../browser-plugins/)) when the team names no other plugin, so there Bots can open, inspect and interact with pages in their own profile (`bot/browser-profiles/<botId>/`), share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over. dsh Desktop keeps the interactive plugin opt-in: name `refs`, `script` or `task` with `browserPlugin` and install a Playwright Chromium. `browser: false` turns the Bot's browser off everywhere.
 - **Addresses**: http and https only. localhost and LAN addresses are allowed; cloud metadata addresses (such as `169.254.x.x`) and dsh's own ports are not.
 - The browser panel and the details drawer share the right column; opening one closes the other. Switching chats switches the panel to that Bot. Deleting a Bot clears its browser and saved address.
 - **Cookie import (desktop app only)**: the import button in the browser bar previews the cookies of a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`) or of an installed Chromium/Firefox profile, then writes them into the Bot's partition. A source browser closes for a moment so its cookie store can be copied, and it reopens with its tabs. Sign-in that lives outside cookies (localStorage, passkeys) does not come along.
