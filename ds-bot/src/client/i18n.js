@@ -204,7 +204,7 @@ const ZH = {
   'GitHub addresses must start with https://': 'GitHub 地址必须以 https:// 开头',
   'This DSH cannot load connectors': '这个 DSH 不能加载连接器',
   'No such connector': '没有这个连接器',
-  'Classic': '经典',
+  'Switch to classic': '切换到经典',
   'Classic Agent mode': '经典 Agent 模式',
   'Bot mode': 'Bot 模式',
   'Switch': '切换',

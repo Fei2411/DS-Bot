@@ -240,7 +240,7 @@ var ZH = {
   "GitHub addresses must start with https://": "GitHub 地址必须以 https:// 开头",
   "This DSH cannot load connectors": "这个 DSH 不能加载连接器",
   "No such connector": "没有这个连接器",
-  "Classic": "经典",
+  "Switch to classic": "切换到经典",
   "Classic Agent mode": "经典 Agent 模式",
   "Bot mode": "Bot 模式",
   "Switch": "切换",
@@ -16625,9 +16625,9 @@ function BotReturn({ wide, useSurface, useRoster, actions }) {
 function ClassicReturn({ wide, actions }) {
   return (0, import_react34.createElement)(
     "button",
-    { type: "button", className: "bt-classic", "aria-label": t("Classic Agent mode"), title: t("Classic Agent mode"), onClick: () => actions.setSurface("agent") },
+    { type: "button", className: "bt-classic", "aria-label": t("Switch to classic"), title: t("Switch to classic"), onClick: () => actions.setSurface("agent") },
     (0, import_react34.createElement)(SwitchIcon),
-    wide ? (0, import_react34.createElement)("span", { className: "bt-classic-name" }, t("Classic")) : null
+    wide ? (0, import_react34.createElement)("span", { className: "bt-classic-name" }, t("Switch to classic")) : null
   );
 }
 var RETURN_CSS = `
@@ -16642,9 +16642,9 @@ var RETURN_CSS = `
 .bt-classic{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease,transform .12s ease}
 .bt-classic:hover{background:var(--bt-hover)}
 .bt-classic:active{transform:scale(.96)}
-.bt-classic svg{flex:none;width:17px;height:17px}
+.bt-classic svg{flex:none;width:16px;height:16px}
 .bt-classic-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-leftcol-foot-rail .bt-classic{width:36px;padding:0;border-radius:50%}
+.bt-leftcol-foot-rail .bt-classic{width:36px;padding:0;border-radius:50%;corner-shape:round}
 `;
 function BrandMark({ size = 24 }) {
   return (0, import_react34.createElement)("span", { className: "bt-brand-whale" }, (0, import_react34.createElement)(BotMark, { look: MAIN_LOOK, size }));

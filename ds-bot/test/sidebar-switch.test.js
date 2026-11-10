@@ -635,8 +635,8 @@ for (const pref of ['open', 'rail']) {
     assert.ok(seat, 'the footer carries the switch beside the account')
     const button = seat.type(seat.props)
     assert.equal(button.props.className, 'bt-classic')
-    assert.equal(button.props['aria-label'], 'Classic Agent mode')
-    assert.equal(button.props.title, 'Classic Agent mode')
+    assert.equal(button.props['aria-label'], 'Switch to classic')
+    assert.equal(button.props.title, 'Switch to classic')
     button.props.onClick()
     assert.deepEqual(calls, ['agent'])
     // The rail has no room for the name: it keeps the icon and the accessible label.
@@ -644,10 +644,10 @@ for (const pref of ['open', 'rail']) {
     if (pref === 'open') {
       assert.equal(name.type, 'span')
       assert.equal(name.props.className, 'bt-classic-name')
-      assert.deepEqual(name.props.children, ['Classic'])
+      assert.deepEqual(name.props.children, ['Switch to classic'])
     } else assert.equal(name, null)
     assert.match(RETURN_CSS, /\.bt-classic\{/)
-    assert.match(RETURN_CSS, /\.bt-leftcol-foot-rail \.bt-classic\{width:36px;padding:0;border-radius:50%\}/)
+    assert.match(RETURN_CSS, /\.bt-leftcol-foot-rail \.bt-classic\{width:36px;padding:0;border-radius:50%;corner-shape:round\}/)
   })
 }
 
