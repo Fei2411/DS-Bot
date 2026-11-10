@@ -27,12 +27,12 @@ test('the start window is centred on the work area under the cursor', () => {
 
 test('the team window is centred on the start window and stays inside the work area', () => {
   const start = centred(startSize(AREA), AREA)
-  assert.deepEqual(mainRect(start, AREA), { x: 300, y: 90, ...MAIN_SIZE })
+  assert.deepEqual(mainRect(start, AREA), { x: 420, y: 160, ...MAIN_SIZE })
   // Dragged to the top left corner: the team window keeps to the work area.
   assert.deepEqual(mainRect({ x: 10, y: 5, width: 720, height: 540 }, AREA), { x: 0, y: 0, ...MAIN_SIZE })
-  assert.deepEqual(mainRect({ x: 1190, y: 495, width: 720, height: 540 }, AREA), { x: 600, y: 180, ...MAIN_SIZE })
+  assert.deepEqual(mainRect({ x: 1190, y: 495, width: 720, height: 540 }, AREA), { x: 840, y: 320, ...MAIN_SIZE })
   // A laptop's work area smaller than the team window: it fills the work area.
-  assert.deepEqual(mainRect({ x: 323, y: 94, width: 720, height: 540 }, { x: 0, y: 0, width: 1366, height: 728 }), { x: 23, y: 0, width: 1320, height: 728 })
+  assert.deepEqual(mainRect({ x: 323, y: 94, width: 720, height: 540 }, { x: 0, y: 0, width: 1366, height: 728 }), { x: 143, y: 4, ...MAIN_SIZE })
   assert.deepEqual(clampInto({ x: -50, y: 900, width: 2000, height: 300 }, AREA), { x: 0, y: 740, width: 1920, height: 300 })
 })
 

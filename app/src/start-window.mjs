@@ -15,7 +15,9 @@ export const START_SIZE = { width: 720, height: 540 }
 export const SHORT_START_SIZE = { width: 720, height: 500 }
 // Work areas lower than this get the short start window.
 const SHORT_WORK_AREA = 588
-export const MAIN_SIZE = { width: 1320, height: 860 }
+// A comfortable window, not a desktop-filling one: the sidebar plus a chat column. Anyone who
+// wants more can drag it; the start window grows into this size at the hand-off.
+export const MAIN_SIZE = { width: 1080, height: 720 }
 export const PHASES = ['data', 'engine', 'team']
 // A start that copies a team from DSH gets a stage of its own for the copy once the copy runs
 // (§6): the ring has three arcs while the import card asks, and goes back to three when the copy

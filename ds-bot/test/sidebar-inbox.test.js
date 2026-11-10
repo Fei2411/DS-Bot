@@ -69,6 +69,17 @@ const module = { exports: {} }
 const styleNode = () => ({ dataset: {}, textContent: '', sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {}, cssText: '' } }] } })
 const documentElement = { hasAttribute: () => false, dataset: { platform: 'darwin' }, style: { setProperty() {}, removeProperty() {} } }
 const viewport = { innerWidth: 1280, innerHeight: 880 }
+// Document listeners are kept, so a test can replay the real click sequence that
+// opens the search instead of only calling the button's handler.
+const documentListeners = new Map()
+const documentListenerSet = (type) => {
+  if (!documentListeners.has(type)) documentListeners.set(type, new Set())
+  return documentListeners.get(type)
+}
+const dispatchDocument = (type, event) => {
+  for (const listener of documentListeners.get(type) ?? []) listener(event)
+}
+class SandboxElement { closest() { return null } }
 const sandbox = {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
@@ -76,9 +87,11 @@ const sandbox = {
   document: {
     documentElement, body: { appendChild() {} }, head: { appendChild() {} }, createElement: styleNode,
     querySelector: () => null, querySelectorAll: () => [],
-    addEventListener() {}, removeEventListener() {}, activeElement: null,
+    addEventListener: (type, listener) => documentListenerSet(type).add(listener),
+    removeEventListener: (type, listener) => { documentListeners.get(type)?.delete(listener) },
+    activeElement: null,
   },
-  Element: class Element {},
+  Element: SandboxElement,
   console,
   navigator: { userAgent: '' },
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -159,10 +172,11 @@ function fixtures() {
   return { roster, sessions }
 }
 
-function createApp({ roster, sessions, unread = {}, status = new Map(), activity = {}, renameSection, settings = {} } = {}) {
+function createApp({ roster, sessions, unread = {}, status = new Map(), activity = {}, renameSection, settings = {}, retained = '' } = {}) {
   // A fresh component tree: hook state, refs and the window width belong to this app.
   stateStore.clear()
   refStore.clear()
+  documentListeners.clear()
   viewport.innerWidth = 1280
   const calls = []
   const actions = {}
@@ -180,7 +194,7 @@ function createApp({ roster, sessions, unread = {}, status = new Map(), activity
     useSessions: pick => pick(sessions),
     useUpdate: () => ({}),
     useSessionStatus: pick => pick(status),
-    useSessionRetainInfo: (_id, pick) => pick({ retainedBy: { mainView: 0 } }),
+    useSessionRetainInfo: (sessionId, pick) => pick({ retainedBy: { mainView: sessionId === retained ? 1 : 0 } }),
     useActivity: pick => pick(activity),
     useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
   }
@@ -203,7 +217,17 @@ function createApp({ roster, sessions, unread = {}, status = new Map(), activity
   return { render, calls, actions, props }
 }
 
-const rows = tree => collect(tree).filter(node => node.props?.['data-bot-id'] || node.props?.['data-room-id'] || node.props?.['data-agent-id'])
+// The Main Bot's tile stands in its own slot above the list, not in it: that slot is
+// left out here so a test's row ids stay the rows of the list itself.
+const rows = (tree) => {
+  const inSlot = new Set(byClass(tree, 'bt-main-pin').flatMap(slot => collect(slot)))
+  return collect(tree).filter(node => !inSlot.has(node) && (node.props?.['data-bot-id'] || node.props?.['data-room-id'] || node.props?.['data-agent-id']))
+}
+// The search is a button in the top row until it is opened; most tests want the field.
+const openSearch = (app, tree) => {
+  byClass(tree, 'bt-round-search')[0].props.onClick()
+  return app.render()
+}
 const rowIds = tree => rows(tree).map(node => node.props['data-bot-id'] ?? node.props['data-room-id'] ?? node.props['data-agent-id'])
 
 // ---------------------------------------------------------------------------
@@ -253,16 +277,22 @@ const rule = (selector) => {
 test('B: card, title, search, segments, group heads and rows carry the specified numbers', () => {
   assert.match(rule('.bt-leftcol:not([data-left=rail])'), /padding:calc\(var\(--bt-lc-clear\) \+ 8px\) 8px 8px/)
   assert.match(rule('.bt-leftcol:not([data-left=rail])'), /background:var\(--bt-page/)
+  // The inbox sits on the page itself: no card fill, rim, radius or shadow.
   const panel = rule('.bt-leftcol:not([data-left=rail])>.bt-side')
-  assert.match(panel, /background:var\(--bt-panel/)
-  assert.match(panel, /border:1px solid var\(--bt-panel-rim/)
-  assert.match(panel, /border-radius:16px/)
-  assert.match(panel, /box-shadow:var\(--bt-panel-shadow/)
+  assert.match(panel, /background:transparent/)
+  assert.match(panel, /border:0/)
+  assert.match(panel, /border-radius:0/)
+  assert.match(panel, /box-shadow:none/)
+  // With the card gone, the round buttons inside need a fill of their own.
+  assert.match(rule('.bt-leftcol:not([data-left=rail]) .bt-round'), /background:color-mix\(in srgb,var\(--bt-page/)
+  // The search is bare words on the page: no field, and focus only lifts a faint fill.
   const search = rule('.bt-search')
   assert.match(search, /height:36px/)
   assert.match(search, /border-radius:10px/)
-  assert.match(search, /background:var\(--bt-field/)
+  assert.match(search, /background:transparent/)
   assert.doesNotMatch(search, /(^|;)border:/)
+  assert.match(rule('.bt-search:focus-within'), /background:color-mix\(in srgb,var\(--bt-field/)
+  assert.doesNotMatch(SIDEBAR_CSS, /\.bt-search:focus-within\{[^}]*box-shadow/)
   assert.match(rule('.bt-search-ico svg'), /width:14px/)
   assert.match(rule('.bt-seg'), /border-radius:10px/)
   assert.match(rule('.bt-seg-btn'), /height:32px/)
@@ -315,6 +345,8 @@ test('C1: typing filters bots, groups and previews, and clearing restores the gr
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions })
   let tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 0, 'the field waits behind its button')
+  tree = openSearch(app, tree)
   assert.equal(byClass(tree, 'bt-search-in').length, 1)
   assert.ok(byClass(tree, 'bt-sec').length > 0, 'grouped list first')
 
@@ -339,10 +371,11 @@ test('C1: typing filters bots, groups and previews, and clearing restores the gr
   assert.ok(byClass(tree, 'bt-fixed-head').length > 0)
 })
 
-test('C1: Enter hands the words to the command palette, Escape clears them', () => {
+test('C1: Enter hands the words to the command palette, Escape puts the field away', () => {
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions })
   let tree = app.render()
+  tree = openSearch(app, tree)
   byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: '  设计  ' } })
   tree = app.render()
   let prevented = false
@@ -352,8 +385,41 @@ test('C1: Enter hands the words to the command palette, Escape clears them', () 
 
   byClass(tree, 'bt-search-in')[0].props.onKeyDown({ key: 'Escape', nativeEvent: {}, preventDefault: () => {}, currentTarget: { blur() {} } })
   tree = app.render()
-  assert.equal(byClass(tree, 'bt-search-in')[0].props.value, '')
+  assert.equal(byClass(tree, 'bt-search-in').length, 0, 'Escape closes the field')
+  assert.equal(byClass(tree, 'bt-round-search').length, 1, 'the button is back')
   assert.ok(byClass(tree, 'bt-sec').length > 0)
+  assert.ok(byClass(tree, 'bt-main-pin').length > 0, 'the Main Bot tile is back with it')
+})
+
+test('C1: the click that opens the field does not reach the click-outside listener', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  const openedAt = 5000
+  byClass(tree, 'bt-round-search')[0].props.onClick({ nativeEvent: { timeStamp: openedAt } })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 1, 'the field is open')
+  // The opening click goes on to the document, where the effect has just put its
+  // listener: it is the same click, so it must not count as a click outside.
+  dispatchDocument('click', { target: new SandboxElement(), timeStamp: openedAt })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 1, 'the opening click leaves it open')
+
+  dispatchDocument('click', { target: new SandboxElement(), timeStamp: openedAt + 40 })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 0, 'a later click outside closes it')
+})
+
+test('C1: Escape puts the field away even when the field never took the focus', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  tree = openSearch(app, tree)
+  assert.equal(byClass(tree, 'bt-search-in').length, 1)
+  dispatchDocument('keydown', { key: 'Escape', preventDefault() {} })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-search-in').length, 0, 'Escape closes the field')
+  assert.equal(byClass(tree, 'bt-round-search').length, 1, 'the button is back')
 })
 
 // ---------------------------------------------------------------------------
@@ -368,7 +434,9 @@ test('C2: the segments flatten the list, hide group heads and keep the Agent to 
 
   segment('Bots').props.onClick()
   tree = app.render()
-  assert.deepEqual(rowIds(tree).sort(), ['designer', 'main', 'writer'].sort())
+  // The standing tile shows the Main Bot, so its row stays out of the list.
+  assert.deepEqual(rowIds(tree).sort(), ['designer', 'writer'].sort())
+  assert.equal(byClass(tree, 'bt-main-pin').length, 1, 'the tile stays put while the list is filtered')
   assert.equal(byClass(tree, 'bt-sec').length, 0)
   assert.equal(byClass(tree, 'bt-fixed-head').length, 0)
 
@@ -379,6 +447,111 @@ test('C2: the segments flatten the list, hide group heads and keep the Agent to 
   byClass(tree, 'bt-seg-btn').find(node => textOf(node) === 'All').props.onClick()
   tree = app.render()
   assert.ok(rowIds(tree).includes('dsh'), 'All carries the DSH Agent')
+})
+
+test('C1b: the Main Bot stands above the list and never shows twice', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions, unread: { main: true } })
+  let tree = app.render()
+  const pin = byClass(tree, 'bt-main-pin')
+  assert.equal(pin.length, 1, 'the tile slot is drawn')
+  assert.deepEqual(collect(pin[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
+  assert.ok(!collect(byClass(tree, 'bt-list')[0]).some(node => node.props?.['data-bot-id'] === 'main'), 'the Main Bot is out of the scroll box')
+  // The rule that used to sit under the slot is gone.
+  assert.equal(byClass(tree, 'bt-main-pin-sep').length, 0, 'no rule under the slot')
+  // The tile is not on the top row: the top row ends with the search button.
+  const top = byClass(tree, 'bt-side-top')[0]
+  assert.equal(byClass(top, 'bt-main-tile').length, 0, 'the top row keeps the round buttons')
+  assert.equal(byClass(top, 'bt-round-search').length, 1, 'the search button ends the row')
+  const order = collect(byClass(tree, 'bt-side')[0])
+    .filter(node => node.props?.className === 'bt-side-top' || hasClass(node, 'bt-main-pin') || hasClass(node, 'bt-seg'))
+    .map(node => node.props.className)
+  assert.deepEqual(order, ['bt-side-top', 'bt-main-pin', 'bt-seg'], 'top row, the tile, then the filters')
+  // The slot is a stood-up tile: an 84px mark over a 16px name, and no time or preview.
+  const tile = byClass(tree, 'bt-main-tile')
+  assert.equal(tile.length, 1, 'the pin draws the tile')
+  assert.equal(textOf(byClass(tree, 'bt-main-tile-name')[0]), 'Mist')
+  const mark = byClass(tile[0], 'bt-mark')[0].props.style
+  assert.equal(mark.width, 84, 'an 84px mark')
+  assert.equal(mark.height, 84, 'an 84px mark')
+  assert.equal(byClass(tile[0], 'bt-row-time').length, 0, 'no stamp on the tile')
+  assert.equal(byClass(tile[0], 'bt-row-preview').length, 0, 'no preview on the tile')
+  assert.equal(byClass(tile[0], 'bt-dot').length, 1, 'the unread dot rides on the tile')
+  assert.match(tile[0].props['aria-label'], /Mist/)
+  assert.match(tile[0].props['aria-label'], /Main Bot/)
+  assert.ok(hasClass(byClass(tile[0], 'bt-badge-main')[0], 'bt-badge-crown'), 'the tile badge is a crown')
+
+  tree = openSearch(app, tree)
+  byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: 'Mist' } })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'a text search drops the tile')
+  assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the search result is the only one')
+
+  byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: '' } })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-pin').length, 1, 'a cleared search shows the tile again')
+  byClass(tree, 'bt-seg-btn').find(node => textOf(node) === 'Bots').props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-pin').length, 1, 'a filter keeps the tile: it is the Main Bot\'s only row')
+  assert.deepEqual(rowIds(tree).filter(id => id === 'main'), [], 'and the list leaves its row out')
+})
+
+test('C1b: the pin stays on the Main Bot while another Bot chat is open', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions, retained: 's-designer' })
+  const tree = app.render()
+  assert.deepEqual(collect(byClass(tree, 'bt-main-pin')[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
+  const open = rows(tree).filter(node => node.props['aria-current'] === 'page').map(node => node.props['data-bot-id'])
+  assert.deepEqual(open, ['designer'], 'the open Bot is the one marked current')
+})
+
+test('C1b: the rail shows the Main Bot once and has no tile slot', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  viewport.innerWidth = 390
+  const tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-tile').length, 0, 'no tile on the rail')
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'no slot above the list')
+  assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the Main Bot is in the rail list exactly once')
+})
+
+// C1b: the tile sits on the page itself, so no state may paint a block or ring.
+test('C1b: the Main Bot tile is unfilled in every state and its badge is a crown disc', () => {
+  assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*background:transparent/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile:hover\{background/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\]\{background/)
+  // A large bare mark: no plate behind it and no ring in any state.
+  const ava = SHELL_CSS.match(/^\.bt-main-tile-ava\{[^}]*\}/m)[0]
+  assert.match(ava, /width:84px/)
+  assert.match(ava, /height:84px/)
+  assert.match(ava, /background:transparent/)
+  assert.doesNotMatch(ava, /box-shadow/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-ava\{[^}]*box-shadow/)
+  // The open chat is told by the name alone.
+  assert.match(SHELL_CSS, /\.bt-main-tile\[aria-current=page\] \.bt-main-tile-name\{[^}]*font-weight:600/)
+  assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main\{[^}]*border-radius:50%[^}]*background:var\(--bt-star\)[^}]*box-shadow:0 0 0 2px var\(--bt-main\)/)
+  assert.match(SHELL_CSS, /\.bt-main-tile \.bt-badge-main path\{fill:var\(--bt-crown-ink\)/)
+  // The tile stands in its own slot above the list, with no rule under it.
+  assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*min-height:130px/)
+  // 6+84+10+24+6 = 130: the larger mark must not grow the slot.
+  assert.match(SHELL_CSS, /\.bt-main-tile\{[^}]*padding:6px/)
+  assert.match(SHELL_CSS, /^\.bt-main-pin\{/m)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-pin-sep\{/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-main-slot/)
+  // The search is a button on the top row until it is opened.
+  assert.match(SHELL_CSS, /\.bt-top-right\{[^}]*margin-left:auto/)
+  assert.match(SIDEBAR_CSS, /\.bt-search\{[^}]*flex:1 1 auto/)
+  // With the list rows now sitting on the page, their dot's ring follows the page too.
+  assert.match(SHELL_CSS, /^\.bt-dot\{[^}]*box-shadow:0 0 0 1\.5px var\(--bt-main\)/m)
+
+  // Only the tile wears the crown: the same Bot's rail row keeps the star.
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  viewport.innerWidth = 390
+  const tree = app.render()
+  const row = rows(tree).find(node => node.props['data-bot-id'] === 'main')
+  assert.ok(!hasClass(byClass(row, 'bt-badge-main')[0], 'bt-badge-crown'), 'the rail row keeps the star badge')
+  viewport.innerWidth = 1280
 })
 
 test('C2: rows stop being draggable while a filter is on', () => {
@@ -496,6 +669,7 @@ test('D: the rail hides the search and the segments, shows everything, and keeps
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions })
   let tree = app.render()
+  tree = openSearch(app, tree)
   byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: '设计' } })
   tree = app.render()
   assert.deepEqual(rowIds(tree).sort(), ['designer', 'room-design'].sort())
@@ -539,7 +713,8 @@ test('E: the dark theme carries the full token set with readable ink', () => {
 
 test('F: the field, the segments, the list and the gear expose their roles and labels', () => {
   const { roster, sessions } = fixtures()
-  const tree = createApp({ roster, sessions }).render()
+  const app = createApp({ roster, sessions })
+  const tree = openSearch(app, app.render())
   const input = byClass(tree, 'bt-search-in')[0]
   assert.equal(input.props.type, 'search')
   assert.equal(input.props['aria-label'], 'Search chats')
@@ -626,17 +801,102 @@ test('C5/C6: the Chinese copy of the inbox chrome holds', () => {
     getLocale: () => ({ active: 'zh-CN' }),
   })
   const { roster, sessions } = fixtures()
-  const tree = createApp({ roster, sessions, settings: { account: { view: { name: '千寻' } } } }).render()
+  const app = createApp({ roster, sessions, settings: { account: { view: { name: '千寻' } } } })
+  let tree = app.render()
   assert.equal(byClass(tree, 'bt-brand').length, 0, 'no brand on the top row')
   assert.equal(byClass(tree, 'bt-side-title').length, 0, 'no inbox title')
-  assert.deepEqual(byClass(tree, 'bt-round').filter(node => !hasClass(node, 'bt-update')).map(node => node.props['aria-label']), ['新建 Bot', '创建群组聊天'], 'the top row is the new Bot and group chat buttons')
+  assert.deepEqual(byClass(tree, 'bt-round').filter(node => !hasClass(node, 'bt-update')).map(node => node.props['aria-label']), ['搜索会话', '新建'], 'the top row is the search button and one plus')
+  assert.equal(t('Add group chat'), '新建群组', 'a group is started, not added')
+  assert.equal(t('Group chat name'), '群组名称')
+  assert.equal(t('Create group chat'), '创建群组', 'the same dialog keeps one name')
+  tree = openSearch(app, tree)
   assert.equal(byClass(tree, 'bt-search-in')[0].props.placeholder, '搜索会话')
-  assert.deepEqual(byClass(tree, 'bt-fixed-title').map(textOf), ['群聊', '最近'])
+  assert.deepEqual(byClass(tree, 'bt-seg-btn').map(textOf), ['全部', '机器人', '群组'], 'the groups filter reads 群组')
+  assert.deepEqual(byClass(tree, 'bt-fixed-title').map(textOf), ['群组', '最近'])
   installLocale({
     register: () => () => {},
     bind: () => key => key,
     getLocale: () => ({ active: 'en-US' }),
   })
+})
+
+// ---------------------------------------------------------------------------
+// H · the plus holds both ways to start something new
+
+test('H1: the plus opens a menu of two entries and each entry opens its dialog', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-plus').length, 1, 'one plus, not two buttons')
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'the menu waits for the press')
+  const plus = byClass(tree, 'bt-round-plus')[0]
+  assert.equal(plus.props['aria-haspopup'], 'menu')
+  assert.equal(plus.props['aria-expanded'], false)
+  assert.equal(plus.props['aria-label'], 'New Bot or group')
+
+  plus.props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-plus')[0].props['aria-expanded'], true)
+  const menu = byClass(tree, 'bt-plus-menu')[0]
+  assert.equal(menu.props.role, 'menu')
+  const entries = collect(menu).filter(node => node.type === 'button')
+  assert.deepEqual(entries.map(textOf), ['Create new Bot', 'New group chat'])
+  // One person, two people: the shape count tells the two icons apart.
+  assert.deepEqual(entries.map(entry => collect(entry).filter(node => node.type === 'svg').map(svg => collect(svg).map(node => node.type))),
+    [[['svg', 'circle', 'path']], [['svg', 'circle', 'path', 'path']]], 'each entry carries its own icon')
+
+  collect(menu).filter(node => node.type === 'button')[0].props.onClick()
+  tree = app.render()
+  assert.deepEqual(app.calls.find(call => call[0] === 'openNewChat'), ['openNewChat', 'create'])
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'the menu is gone once something starts')
+
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  collect(byClass(tree, 'bt-plus-menu')[0]).filter(node => node.type === 'button')[1].props.onClick()
+  tree = app.render()
+  assert.deepEqual(app.calls.filter(call => call[0] === 'openNewChat').at(-1), ['openNewChat', 'group'])
+})
+
+test('H2: Escape and a press anywhere else put the menu away; pressing the plus again does too', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 1)
+  dispatchDocument('keydown', { key: 'Escape', stopPropagation() {} })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'Escape closes it')
+
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  dispatchDocument('mousedown', { target: {} })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'a press outside closes it')
+  assert.equal(byClass(tree, 'bt-round-plus')[0].props['aria-expanded'], false)
+
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  byClass(tree, 'bt-round-plus')[0].props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-plus-menu').length, 0, 'the plus toggles itself shut')
+})
+
+test('H3: the plus sits at the right end of the row, after the search, and the rail keeps one', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  const row = byClass(tree, 'bt-side-top')[0]
+  const buttons = collect(row).filter(node => hasClass(node, 'bt-round') && !hasClass(node, 'bt-update'))
+  assert.deepEqual(buttons.map(node => classesOf(node).find(name => name === 'bt-round-search' || name === 'bt-round-plus')), ['bt-round-search', 'bt-round-plus'])
+
+  viewport.innerWidth = 390
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-plus').length, 1, 'the rail keeps the plus')
+  assert.equal(byClass(tree, 'bt-round-search').length, 0, 'the rail has no search button')
+  viewport.innerWidth = 1280
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-search').length, 1, 'a wide window gets both buttons back')
 })
 
 // SHELL_CSS is bundled with the sidebar; a sanity check keeps the import honest.

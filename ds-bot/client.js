@@ -43,7 +43,7 @@ module.exports = __toCommonJS(index_exports);
 var NAMESPACE = "ds-bot";
 var ZH = {
   // Shared
-  "Main Bot": "主 Bot",
+  "Main Bot": "主机器人",
   Working: "进行中",
   "Waiting for your answer": "等你回答",
   "Waiting for {names}": "等 {names} 交回",
@@ -67,7 +67,7 @@ var ZH = {
   "Expand sidebar": "展开侧边栏",
   "Resize sidebar": "调整侧边栏宽度",
   "Animation": "动画",
-  "Bot animation": "Bot 动画",
+  "Bot animation": "机器人动画",
   "Quiet": "安静",
   "Normal": "正常",
   "Lively": "活泼",
@@ -89,40 +89,42 @@ var ZH = {
   ", ": "、",
   You: "你",
   you: "你",
-  Bot: "Bot",
-  "a Bot": "一个 Bot",
+  Bot: "机器人",
+  "a Bot": "一个机器人",
   "a group chat": "一个群聊",
   " and ": "、",
   and: "和",
   "{count} members": "{count} 位成员",
   "Loading…": "加载中…",
-  "Edit Bot": "编辑 Bot",
+  "Edit Bot": "编辑机器人",
   "Give up waiting for {name}": "不再等 {name}",
-  "Make Main Bot": "设为主 Bot",
-  "Remove Main Bot role": "取消主 Bot",
-  "Create group chat": "创建群组聊天",
-  "Add group chat": "添加群组聊天",
-  "Group chat name": "群组聊天名称",
+  "Make Main Bot": "设为主机器人",
+  "Remove Main Bot role": "取消主机器人",
+  "Create group chat": "创建群组",
+  "Add group chat": "新建群组",
+  "New group chat": "新建群组",
+  "Group chat name": "群组名称",
   "e.g. Website launch": "例如：网站上线",
-  "Select Bots": "选择 Bot",
+  "Select Bots": "选择机器人",
   "{count} selected": "{count} 已选",
-  "Choose at least 2 Bots (the admin counts)": "至少选择 2 个 Bot（含管理员）",
+  "Choose at least 2 Bots (the admin counts)": "至少选择 2 个机器人（含管理员）",
   "Choose at least 1 more member": "还需至少 1 位成员",
   "Delete group": "删除群聊",
   "Open {name}'s chat": "打开 {name} 的对话",
-  "New Bot": "新 Bot",
-  "New Bots": "新 Bot",
+  "New Bot": "新机器人",
+  "New Bots": "新机器人",
   "Default model": "默认模型",
   // Sidebar and account menu
-  "Bot list": "Bot 列表",
+  "Bot list": "机器人列表",
   "Search chats": "搜索会话",
+  "New Bot or group": "新建",
   "Filter chats": "筛选会话",
   "No matches": "没有匹配结果",
-  Groups: "群聊",
+  Groups: "群组",
   Recent: "最近",
-  "Setting up your Main Bot…": "正在设置你的主 Bot…",
-  "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
-  "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
+  "Setting up your Main Bot…": "正在设置你的主机器人…",
+  "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "机器人团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
+  "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "机器人团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
   "Automation tasks": "自动化任务",
   Connectors: "连接器",
   "Search connectors": "搜索连接器",
@@ -157,7 +159,7 @@ var ZH = {
   "In Telegram, open @BotFather and send /newbot.": "在 Telegram 里打开 @BotFather，发送 /newbot。",
   "Give the bot a name and a username.": "给机器人起名字和用户名。",
   "Paste the token that BotFather sends.": "把 BotFather 发来的 token 粘贴到下面。",
-  "Choose the Bot that answers.": "选好由哪个 Bot 回复。",
+  "Choose the Bot that answers.": "选好由哪个机器人回复。",
   "Scan the code with WeChat on your phone and confirm.": "用手机微信扫码并确认。",
   "Create a custom app in the developer console and add the bot capability.": "在开发者后台创建企业自建应用，添加「机器人」能力。",
   "Grant the permissions to read and send messages.": "开通读取和发送消息的权限。",
@@ -171,7 +173,7 @@ var ZH = {
   "Create a bot on the QQ Open Platform.": "在 QQ 开放平台创建机器人。",
   "Paste the App ID and App Secret from the development settings.": "从开发设置里复制 App ID 和 App Secret 粘贴到下面。",
   "Until the bot is published, add your QQ account to its sandbox.": "机器人上线前，先把你的 QQ 号加进沙箱。",
-  "Create an application in the Developer Portal and open Bot.": "在 Developer Portal 创建应用，打开 Bot 页。",
+  "Create an application in the Developer Portal and open Bot.": "在 Developer Portal 创建应用，打开机器人页。",
   "Turn on Message Content Intent, then reset and copy the token.": "打开 Message Content Intent，再重置并复制 token。",
   "Invite the bot to your server with the bot scope.": "用 bot 权限范围把机器人邀请进你的服务器。",
   "Create an app and turn on Socket Mode.": "创建应用，打开 Socket Mode。",
@@ -236,7 +238,7 @@ var ZH = {
   "Scanned — confirm on the phone": "已扫码，请在手机上确认",
   "Code expired": "二维码已过期",
   "Could not connect: {error}": "连接失败：{error}",
-  "Bot mode could not be set up here: {error}": "这里无法启用 Bot 模式：{error}",
+  "Bot mode could not be set up here: {error}": "这里无法启用机器人模式：{error}",
   "Connected as {account}": "已连接：{account}",
   Connected: "已连接",
   Disconnect: "断开",
@@ -252,7 +254,7 @@ var ZH = {
   "This DSH cannot load connectors": "这个 DSH 不能加载连接器",
   "No such connector": "没有这个连接器",
   "Classic Agent mode": "经典 Agent 模式",
-  "Bot mode": "Bot 模式",
+  "Bot mode": "机器人模式",
   "Switch": "切换",
   "{model} is not available anymore. Pick another model for me.": "{model} 已经不可用了。给我换一个模型吧。",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "你好，我是 {name}。我还没有可用的模型。你想怎么配置？",
@@ -292,7 +294,7 @@ var ZH = {
   "Earlier messages stay readable. Its memory and instructions stay the same.": "之前的内容还能查看，记忆和指令不变。",
   "Its shared MCP servers and skills do not reach a local agent.": "挂给它的共享 MCP 和技能到不了本地 Agent。",
   "{agent} is not signed in. Sign in first, or its turns fail.": "{agent} 还没登录。先登录，否则它的回复会失败。",
-  "The privacy rules of a private Bot do not cover the tools of a local agent.": "私有 Bot 的隐私规则管不到本地 Agent 自己的工具。",
+  "The privacy rules of a private Bot do not cover the tools of a local agent.": "私有机器人的隐私规则管不到本地 Agent 自己的工具。",
   "Change and start a new part": "更换并开新的一段",
   // Local agents page
   "Local agents": "本地 Agent",
@@ -320,7 +322,7 @@ var ZH = {
   "Current": "当前",
   "This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.": "这个 key 来自 DS Bot 之外（例如环境变量），这里改不了。",
   "and {count} more": "还有 {count} 个",
-  "Remove {name}? Bots on its models need another model.": "删除 {name}？用它的模型的 Bot 要换一个模型。",
+  "Remove {name}? Bots on its models need another model.": "删除 {name}？用它的模型的机器人要换一个模型。",
   "Remove provider": "删除服务商",
   "Replace the API key": "更换 API key",
   "API key": "API key",
@@ -369,7 +371,7 @@ var ZH = {
   "This turn failed.": "这一轮运行失败了。",
   "The model service": "模型服务",
   "DeepSeek account": "DeepSeek 账号",
-  "This Bot": "这个 Bot",
+  "This Bot": "这个机器人",
   "Enter API key": "填入 API Key",
   "Enter the key again": "重新填 Key",
   "Sign in with a DeepSeek account": "用 DeepSeek 账号登录",
@@ -412,25 +414,25 @@ var ZH = {
   "Dismiss new messages": "关闭新消息提示",
   New: "新",
   // New chat
-  "Create new Bot": "新建 Bot",
-  "Create new Bot “{name}”": "新建 Bot「{name}」",
+  "Create new Bot": "新建机器人",
+  "Create new Bot “{name}”": "新建机器人「{name}」",
   "Add to group chat": "加入群聊",
-  "Message Bot": "给 Bot 发消息",
+  "Message Bot": "给机器人发消息",
   "To:": "发给：",
   "Remove {name}": "移除 {name}",
   Recipient: "收件人",
   Recipients: "收件人",
-  "Search Bots…": "搜索 Bot…",
+  "Search Bots…": "搜索机器人…",
   "Start a chat with…": "和谁聊…",
   "Close new chat": "关闭新对话",
-  "No Bots match": "没有匹配的 Bot",
-  "Type a name to create a Bot": "输入名字来新建 Bot",
+  "No Bots match": "没有匹配的机器人",
+  "Type a name to create a Bot": "输入名字来新建机器人",
   "Send message": "发送",
   // Details drawer
   Details: "详情",
   Browser: "浏览器",
   "Browser access": "浏览器权限",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Bot 可以自由浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：Bot 会把页面交给你。",
+  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "机器人可以自由浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：机器人会把页面交给你。",
   "Allowed actions": "已允许的操作",
   "Nothing allowed yet.": "还没有允许的操作。",
   "All sites": "所有网站",
@@ -474,16 +476,16 @@ var ZH = {
   "Copied conversation": "已复制对话",
   "Share conversation": "分享对话",
   "Copy conversation as Markdown": "把对话复制为 Markdown",
-  "This conversation is not part of your Bot team.": "这个对话不属于你的 Bot 团队。",
+  "This conversation is not part of your Bot team.": "这个对话不属于你的机器人团队。",
   "Admin {name}": "管理员 {name}",
   "No admin": "无管理员",
-  "Bot name": "Bot 名字",
+  "Bot name": "机器人名字",
   "Group name": "群名",
   "Name after members": "按成员命名",
   "Rename {name}": "重命名 {name}",
   Rename: "重命名",
-  "Add instructions in Bot settings": "在 Bot 设置里添加说明",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。",
+  "Add instructions in Bot settings": "在机器人设置里添加说明",
+  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "还没有定时任务。要添加，在对话里告诉机器人做什么、什么时候做。",
   "The browser is in DSH Desktop and the DS Bot app.": "浏览器在 DSH 桌面版和 DS Bot 应用里。",
   "New tab": "新标签页",
   "Close tab": "关闭标签页",
@@ -497,11 +499,11 @@ var ZH = {
   "cookies.txt, JSON, storageState": "cookies.txt、JSON、storageState",
   "Copy of its cookies": "复制它的 cookie",
   "No browsers found": "没有找到浏览器",
-  "The Bot controls this browser": "Bot 正在控制此浏览器",
-  "The Bot is waiting for you": "Bot 正在等待你",
+  "The Bot controls this browser": "机器人正在控制此浏览器",
+  "The Bot is waiting for you": "机器人正在等待你",
   "waits for the computer": "等你停手",
   "You control this browser": "你正在控制此浏览器",
-  "The Bot handed this browser to you: {reason}": "Bot 已将此浏览器交给你：{reason}",
+  "The Bot handed this browser to you: {reason}": "机器人已将此浏览器交给你：{reason}",
   "Take over": "接管",
   "Give back": "交还",
   "Sign-in needed": "需要登录",
@@ -548,25 +550,25 @@ var ZH = {
   Replace: "替换",
   "Browse files": "选择文件",
   "Remove photo": "移除照片",
-  "Edit Bot avatar": "编辑 Bot 形象",
+  "Edit Bot avatar": "编辑机器人形象",
   Name: "名字",
   Instructions: "说明",
-  "What this Bot is responsible for…": "这个 Bot 负责什么…",
-  "Pick the model this Bot runs on.": "选择这个 Bot 使用的模型。",
+  "What this Bot is responsible for…": "这个机器人负责什么…",
+  "Pick the model this Bot runs on.": "选择这个机器人使用的模型。",
   "This model is not available now. Pick another one.": "这个模型现在不可用，请换一个。",
-  "Every message of this Bot runs on it.": "这个 Bot 的每条消息都用它。",
+  "Every message of this Bot runs on it.": "这个机器人的每条消息都用它。",
   "Applies from the next message.": "从下一条消息开始生效。",
   Profile: "资料",
   Label: "标签",
   "Optional. Shown under the name.": "可选，显示在名字下方。",
   "Research, admin…": "研究、行政…",
-  "What this Bot does": "这个 Bot 做什么",
-  "Its job on the team. Part of the Bot's system prompt.": "它在团队里的分工，会写进 Bot 的系统提示词。",
+  "What this Bot does": "这个机器人做什么",
+  "Its job on the team. Part of the Bot's system prompt.": "它在团队里的分工，会写进机器人的系统提示词。",
   "A copy with the same job and model, and fresh memory.": "复制分工和模型，记忆从零开始。",
   "Delete {name}?": "删除 {name}？",
-  "Delete Bot": "删除 Bot",
+  "Delete Bot": "删除机器人",
   "Click again to delete. Its chats are archived.": "再点一次删除，它的对话会归档。",
-  "Removes the Bot from the team.": "把这个 Bot 从团队里移除。",
+  "Removes the Bot from the team.": "把这个机器人从团队里移除。",
   "Pick a model and {name} can start.": "选好模型，{name} 就能开始工作。",
   "Permissions": "权限",
   "Read only": "仅可查看",
@@ -574,9 +576,9 @@ var ZH = {
   "Full access": "完全权限",
   "Same for every member": "全员统一",
   "Replaces each member's own permissions in this group.": "在这个群里代替各成员自己的权限。",
-  "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "这是唯一的主 Bot。要把主 Bot 交给别的 Bot，请到「Bot」页的主 Bot 里换。",
+  "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "这是唯一的主机器人。要把主机器人交给别的机器人，请到「机器人」页的主机器人里换。",
   Change: "更换",
-  "Can create and change Bots, and runs every group chat.": "可以创建和修改 Bot，并管理所有群聊。",
+  "Can create and change Bots, and runs every group chat.": "可以创建和修改机器人，并管理所有群聊。",
   Sidebar: "侧栏",
   "Kept above the other chats.": "排在其他对话上面。",
   "Search still finds it.": "仍然可以搜索到。",
@@ -599,20 +601,20 @@ var ZH = {
   // Group chat settings
   "Leave it empty to name the group after its members.": "留空就按成员命名。",
   "Every member reads it before speaking in this group.": "每位成员在这个群里发言前都会读到。",
-  "Add a Bot first: a group chat needs at least two.": "请先添加一个 Bot：群聊至少要两个。",
+  "Add a Bot first: a group chat needs at least two.": "请先添加一个机器人：群聊至少要两个。",
   "Click again to delete. Its history is archived.": "再点一次删除，聊天记录会归档。",
   "Removes the group chat. Its members stay on the team.": "删除这个群聊，成员仍留在团队里。",
   "Add a notice in group settings": "在群设置里添加群公告",
   // Create Bot
-  "Create Bot": "创建 Bot",
+  "Create Bot": "创建机器人",
   Look: "形象",
   Shuffle: "随机",
   "Replace photo": "更换照片",
   "Upload photo": "上传照片",
-  "A Bot named {name} already exists": "已经有叫 {name} 的 Bot 了",
-  "The Bot runs on this model. You can change it later in its details.": "Bot 会使用这个模型。以后可以在详情里修改。",
-  "Pick a model here, or the Bot asks for one in its chat.": "在这里选一个模型，或者之后由 Bot 在聊天里问你。",
-  "Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later.": "请先在 DeepSeek Harness 里添加服务商和模型，或者稍后在 Bot 的对话里选择。",
+  "A Bot named {name} already exists": "已经有叫 {name} 的机器人了",
+  "The Bot runs on this model. You can change it later in its details.": "机器人会使用这个模型。以后可以在详情里修改。",
+  "Pick a model here, or the Bot asks for one in its chat.": "在这里选一个模型，或者之后由机器人在聊天里问你。",
+  "Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later.": "请先在 DeepSeek Harness 里添加服务商和模型，或者稍后在机器人的对话里选择。",
   "Creating…": "创建中…",
   Create: "创建",
   // Model menu
@@ -679,7 +681,7 @@ var ZH = {
   Moonlight: "月光",
   // Settings dialog
   General: "通用",
-  Bots: "Bot",
+  Bots: "机器人",
   "Group chats": "群聊",
   Secrets: "密钥",
   Appearance: "外观",
@@ -698,18 +700,18 @@ var ZH = {
   "Enter sends message": "回车发送消息",
   "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
-  "Bot memory size": "Bot 记忆容量",
+  "Bot memory size": "机器人记忆容量",
   "Team memory size": "团队记忆容量",
-  "Bots · {count}": "Bot · {count}",
-  "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
-  "Choose a Bot…": "选择一个 Bot…",
-  "Also a Main Bot.": "也是主 Bot。",
+  "Bots · {count}": "机器人 · {count}",
+  "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个机器人就会把主机器人交给它，{name} 随之不再是主机器人。",
+  "Choose a Bot…": "选择一个机器人…",
+  "Also a Main Bot.": "也是主机器人。",
   "Move to first": "移到最前",
-  "Add a Main Bot": "添加主 Bot",
-  "Main Bots can create and change Bots, and run every group chat.": "主 Bot 可以创建和修改 Bot，并管理所有群聊。",
+  "Add a Main Bot": "添加主机器人",
+  "Main Bots can create and change Bots, and run every group chat.": "主机器人可以创建和修改机器人，并管理所有群聊。",
   "Group chats · {count}": "群聊 · {count}",
   "No group chats yet.": "还没有群聊。",
-  "A group chat lets several Bots work on one thing with you.": "在群聊里，几个 Bot 和你一起做一件事。",
+  "A group chat lets several Bots work on one thing with you.": "在群聊里，几个机器人和你一起做一件事。",
   "Back to group chats": "返回群聊列表",
   "DS Bot settings": "DS Bot 设置",
   "Settings pages": "设置页面",
@@ -752,14 +754,14 @@ var ZH = {
   Service: "服务",
   Page: "页面",
   Unknown: "未解析",
-  "Back to Bots": "返回 Bot 列表",
+  "Back to Bots": "返回机器人列表",
   "Close settings": "关闭设置",
   // Context menu
   Unpin: "取消置顶",
   Pin: "置顶",
   Pinned: "已置顶",
   "Mark as Unread": "标为未读",
-  "Rename Bot": "重命名 Bot",
+  "Rename Bot": "重命名机器人",
   "Group settings": "群设置",
   "Rename group": "重命名群聊",
   "Copy conversation ID": "复制对话 ID",
@@ -800,14 +802,14 @@ var ZH = {
   // Command palette
   Messages: "消息",
   Commands: "命令",
-  "Search Bots, chats and messages": "搜索 Bot、对话和消息",
+  "Search Bots, chats and messages": "搜索机器人、对话和消息",
   "Clear search": "清除搜索",
   Results: "结果",
   "No results": "没有结果",
-  "Try a Bot name or words from a message": "试试 Bot 名字或消息里的词",
+  "Try a Bot name or words from a message": "试试机器人名字或消息里的词",
   // Bot exchange
-  "Bot exchange": "Bot 间对话",
-  "Bot exchange transcript": "Bot 间对话记录",
+  "Bot exchange": "机器人间对话",
+  "Bot exchange transcript": "机器人间对话记录",
   "No messages yet": "还没有消息",
   "Close Chat": "关闭",
   "Show all · {count} characters": "显示全部 · {count} 字",
@@ -872,9 +874,9 @@ var ZH = {
   "Posting in the group": "在群里发言",
   "Checking the keys": "查看密钥",
   "Asking {name}": "询问 {name}",
-  "Asking another Bot": "询问其他 Bot",
+  "Asking another Bot": "询问其他机器人",
   "Stopping {name}": "叫停 {name}",
-  "Stopping another Bot": "叫停其他 Bot",
+  "Stopping another Bot": "叫停其他机器人",
   "Creating {name}": "创建 {name}",
   "Updating {name}": "更新 {name}",
   "Checking the team": "查看团队",
@@ -886,7 +888,7 @@ var ZH = {
   "{name} didn't answer in time": "{name} 没有及时回应",
   "{name} did not answer or call anyone; call a member with @Name": "{name} 没有回答，也没有叫谁；用 @名字 叫一个成员来回答",
   "The group replies could not be shown": "群里的回复显示不出来",
-  "Paused after {count} Bot relays. Waiting: {names}": "Bot 之间已接力 {count} 次，先停下了。还在等：{names}",
+  "Paused after {count} Bot relays. Waiting: {names}": "机器人之间已接力 {count} 次，先停下了。还在等：{names}",
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} 来回 {count} 次没有进展，先停下了。你发言后继续",
   "{name} paused for your approval": "{name} 停下来等你批准",
   "{name} started on it": "{name} 开始做了",
@@ -898,7 +900,7 @@ var ZH = {
   "Profile updated": "资料已更新",
   "Asked to make the tool call it wrote as text": "工具调用被写成了文字，已让它重新调用",
   "Went on after the failed turn": "上一轮失败后，已让它接着做",
-  "A Bot": "一个 Bot",
+  "A Bot": "一个机器人",
   "{name} is waiting for your approval": "{name} 等你批准",
   "{first} and {second} are waiting for your approval": "{first}、{second} 等你批准",
   "{first}, {second} and {count} more are waiting for your approval": "{first}、{second} 等 {total} 个等你批准",
@@ -990,10 +992,10 @@ var ZH = {
   "Copy data": "复制数据",
   "Download image": "下载图片",
   "This view tried to open a page and was stopped.": "这个视图想打开一个网页，已被拦下。",
-  "Send to Bot": "发给 Bot",
+  "Send to Bot": "发给机器人",
   // Secrets
-  "All Bots": "所有 Bot",
-  "No Bot": "没有 Bot",
+  "All Bots": "所有机器人",
+  "No Bot": "没有机器人",
   "Paste or type the key": "粘贴或输入密钥",
   "Only {name}": "只给 {name}",
   "Who may use it": "谁可以用",
@@ -1019,30 +1021,30 @@ var ZH = {
   "{bot} is using {name}": "{bot} 正在使用 {name}",
   "{bot} could not ask for a key: this window can only view the team": "{bot} 没能要密钥：这个窗口只能查看团队",
   "a saved key": "一个已保存的密钥",
-  "Chosen Bots": "指定的 Bot",
+  "Chosen Bots": "指定的机器人",
   "Who may use {name}": "谁可以用 {name}",
   "Save access": "保存权限",
   "Replace the value": "替换值",
   "New value of {name}": "{name} 的新值",
-  "Replaced. Bots get the new value from their next command.": "已替换。Bot 从下一条命令开始拿到新值。",
-  "a deleted Bot": "一个已删除的 Bot",
+  "Replaced. Bots get the new value from their next command.": "已替换。机器人从下一条命令开始拿到新值。",
+  "a deleted Bot": "一个已删除的机器人",
   "Asked by {name}": "由 {name} 请求",
   "added {time}": "添加于 {time}",
   "last used {time}": "上次使用 {time}",
   "not used yet": "还没用过",
-  "Delete {name}? Bots lose it at once.": "删除 {name}？Bot 会立刻失去它。",
+  "Delete {name}? Bots lose it at once.": "删除 {name}？机器人会立刻失去它。",
   Keep: "保留",
   "Key name": "密钥名",
   "NAME, e.g. GITHUB_TOKEN": "名字，例如 GITHUB_TOKEN",
   "What it is for": "用途",
   Value: "值",
-  "New keys are for all Bots; narrow it down afterwards.": "新密钥默认所有 Bot 可用，之后可以收窄。",
+  "New keys are for all Bots; narrow it down afterwards.": "新密钥默认所有机器人可用，之后可以收窄。",
   "Save key": "保存密钥",
-  "Keys your Bots asked for. Bots never see the values: they use them as ": "你的 Bot 请求过的密钥。Bot 永远看不到值：它们在 shell 里通过 ",
+  "Keys your Bots asked for. Bots never see the values: they use them as ": "你的机器人请求过的密钥。机器人永远看不到值：它们在 shell 里通过 ",
   " in their shell, and every value is replaced by ": " 使用，而且发给模型之前，每个值都会被替换成 ",
   " before anything goes to a model.": "。",
   "Secrets · {count}": "密钥 · {count}",
-  "No keys yet. When a Bot needs one, it shows a card in its chat.": "还没有密钥。Bot 需要时，会在对话里弹出一张卡片。",
+  "No keys yet. When a Bot needs one, it shows a card in its chat.": "还没有密钥。机器人需要时，会在对话里弹出一张卡片。",
   "Add a key": "添加密钥",
   // Memory
   Memory: "记忆",
@@ -1070,11 +1072,11 @@ var ZH = {
   "The summary is out of date: {reason}": "摘要不是最新的：{reason}",
   "The summary could not be written: {reason}": "摘要没能生成：{reason}",
   "{name} has not saved anything yet": "{name} 还没有记住任何内容",
-  "Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or in its chat.": "Bot 会记住长期的偏好、做过的决定，以及你让它记住的事。可以在下面告诉 {name}，也可以在对话里说。",
+  "Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or in its chat.": "机器人会记住长期的偏好、做过的决定，以及你让它记住的事。可以在下面告诉 {name}，也可以在对话里说。",
   "Nothing is saved for this group yet": "这个群还没有记住任何内容",
   "A group keeps the decisions, rules, and facts its work needs, for its members to read here. Tell it below, or in the group.": "群会记住工作需要的决定、规则和事实，只有群成员在这个群里会读。可以在下面告诉它，也可以在群里说。",
   "Team memory": "团队记忆",
-  "Every Bot reads it": "所有 Bot 都会读",
+  "Every Bot reads it": "所有机器人都会读",
   "Group memory": "群记忆",
   "Only its members read it": "只有群成员会读",
   "MEMORY.md, which every conversation reads": "MEMORY.md，每次对话都会读",
@@ -1129,7 +1131,7 @@ var ZH = {
   "Search or enter address": "搜索或输入网址",
   "This page didn’t load": "页面没有加载出来",
   "Try again": "重试",
-  "Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.": "在这里打开网页，{name} 就能和你一起读。登录状态和 cookie 只属于 {name}，其他 Bot 看不到。",
+  "Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.": "在这里打开网页，{name} 就能和你一起读。登录状态和 cookie 只属于 {name}，其他机器人看不到。",
   "Only http and https addresses open here.": "这里只能打开 http 和 https 地址。",
   "The page crashed.": "页面崩溃了。",
   "The browser blocked the new window.": "浏览器拦截了新窗口。",
@@ -1174,7 +1176,7 @@ var ZH = {
   Output: "输出",
   Input: "输入",
   "Cache hit": "缓存命中",
-  "Deleted Bot": "已删除的 Bot",
+  "Deleted Bot": "已删除的机器人",
   Deleted: "已删除",
   "Deleted group chat": "已删除的群聊",
   "Group chat": "群聊",
@@ -1211,7 +1213,7 @@ var ZH = {
   Light: "少",
   Heavy: "多",
   "Unknown model": "未知模型",
-  "More Bots": "其余 Bot",
+  "More Bots": "其余机器人",
   "More models": "其余模型",
   "Reading your chats…": "正在读取聊天记录…",
   "No usage yet.": "还没有用量。",
@@ -1223,7 +1225,7 @@ var ZH = {
   "Time range": "时间范围",
   "All usage": "全部用量",
   "Group usage by": "用量分组",
-  "By Bot": "按 Bot",
+  "By Bot": "按机器人",
   "By model": "按模型",
   "Still reading older chats; totals may grow.": "还在读取较早的聊天记录，数字可能还会变大。",
   Custom: "自定义",
@@ -1370,10 +1372,10 @@ var ZH = {
   "No scheduled tasks yet.": "还没有定时任务。",
   "No scheduled tasks yet. Add one": "还没有定时任务，去添加",
   "Automation tasks are off in DSH": "DSH 的「自动化任务」没有打开",
-  "No such Bot": "没有这个 Bot",
-  "No such Bot or group chat": "没有这个 Bot 或群聊",
+  "No such Bot": "没有这个机器人",
+  "No such Bot or group chat": "没有这个机器人或群聊",
   "Give the task a name": "给任务起个名字",
-  "Say what the Bot should do": "写下 Bot 要做什么",
+  "Say what the Bot should do": "写下机器人要做什么",
   "Pick a date and time": "选一个日期和时间",
   "Pick a time in the future": "选一个将来的时间",
   "Pick a time of day": "选一个时间",
@@ -1387,22 +1389,22 @@ var ZH = {
   Folders: "文件夹",
   Privacy: "隐私",
   Private: "隐私",
-  "Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.": "其他 Bot 不能读取它的文件夹、记忆或对话；它分享给其他 Bot 的内容需要你批准。",
-  "A Main Bot cannot be private.": "主 Bot 不能设为隐私 Bot。",
-  "Leave its group chats before making it private.": "先退出所有群聊，才能设为隐私 Bot。",
+  "Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.": "其他机器人不能读取它的文件夹、记忆或对话；它分享给其他机器人的内容需要你批准。",
+  "A Main Bot cannot be private.": "主机器人不能设为隐私机器人。",
+  "Leave its group chats before making it private.": "先退出所有群聊，才能设为隐私机器人。",
   "Choose a working folder of its own first.": "先选择一个独立的工作文件夹。",
-  "A private Bot cannot be a Main Bot.": "隐私 Bot 不能设为主 Bot。",
+  "A private Bot cannot be a Main Bot.": "隐私机器人不能设为主机器人。",
   "Closed after deletion · {count}": "删除后仍受保护 · {count}",
   "Remove protection": "解除保护",
-  "Click again to remove. Other Bots can then read its folder, memory and chats.": "再点一次解除。其他 Bot 之后可以读取它的文件夹、记忆和对话。",
-  "Nothing kept closed for this Bot": "这个 Bot 没有保留的保护",
+  "Click again to remove. Other Bots can then read its folder, memory and chats.": "再点一次解除。其他机器人之后可以读取它的文件夹、记忆和对话。",
+  "Nothing kept closed for this Bot": "这个机器人没有保留的保护",
   "Team workspace": "总工作区",
   "Team workspace: {folder}": "总工作区：{folder}",
-  "Where Bots without a folder of their own work.": "没有单独设置文件夹的 Bot 在这里工作。",
+  "Where Bots without a folder of their own work.": "没有单独设置文件夹的机器人在这里工作。",
   Locations: "位置",
   "Data location": "数据位置",
   "Change…": "更改…",
-  "Each Bot's own folder": "各 Bot 自己的文件夹",
+  "Each Bot's own folder": "各机器人自己的文件夹",
   "Choose a folder…": "选择文件夹…",
   "Browse folders…": "浏览文件夹…",
   "Enter a path…": "输入路径…",
@@ -1536,7 +1538,7 @@ var ZH = {
   "Discard": "丢弃",
   "Discarded": "已丢弃",
   "Allow recipient": "允许收件人",
-  "Allow this Bot to send directly": "允许此 Bot 直接发送",
+  "Allow this Bot to send directly": "允许此机器人直接发送",
   "Manage rules": "管理规则",
   "Sending rules": "发信规则",
   "From": "发件人",
@@ -1558,20 +1560,20 @@ var HOST_ERRORS = [
   [/^The protocol must be one of (.+)$/, "协议只能是 $1"],
   [/^(.+) is not set up$/, "$1 还没有设置"],
   [/^(.+) comes with this setup and cannot be removed$/, "$1 是这个配置自带的，不能删除"],
-  [/^A Bot named (.+) already exists$/, "已经有叫 $1 的 Bot 了"],
+  [/^A Bot named (.+) already exists$/, "已经有叫 $1 的机器人了"],
   [/^Name (.*) is not available$/, "名字 $1 不可用"],
-  [/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/, "「$1」在群里表示所有人，不能用作 Bot 名字"],
-  [/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/, "「$1」在对话里表示用户本人，不能用作 Bot 名字"],
+  [/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/, "「$1」在群里表示所有人，不能用作机器人名字"],
+  [/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/, "「$1」在对话里表示用户本人，不能用作机器人名字"],
   [/^Another group chat is already called "(.+)"$/, "已经有叫「$1」的群聊了"],
   [/^Another section is already called "(.+)"$/, "已经有叫「$1」的分组了"],
   [/^Enter a section name$/, "请输入分组名称"],
-  [/^A group chat holds at most (\d+) Bots$/, "一个群聊最多 $1 个 Bot"],
+  [/^A group chat holds at most (\d+) Bots$/, "一个群聊最多 $1 个机器人"],
   [/^Reply mode must be one of (.+)$/, "回复模式只能是 $1"],
-  [/^Only the user, a Main Bot, or the admin of "(.+)" can change it$/, "只有你、主 Bot 或「$1」的管理员可以修改"],
+  [/^Only the user, a Main Bot, or the admin of "(.+)" can change it$/, "只有你、主机器人或「$1」的管理员可以修改"],
   [/^A key must have at least (\d+) characters$/, "密钥至少 $1 个字符"],
   [/^A key can have at most (\d+) characters$/, "密钥最多 $1 个字符"],
   [/^(.+) is not saved yet$/, "$1 还没有保存"],
-  [/^The Bot team in (.+) is open in another dsh \((.+)\)\. This window shows the team but cannot change it; close the other one and reload\.$/, "$1 里的 Bot 团队已在另一个 dsh 中打开（$2）。这个窗口只能查看，不能修改；关掉另一个后刷新。"],
+  [/^The Bot team in (.+) is open in another dsh \((.+)\)\. This window shows the team but cannot change it; close the other one and reload\.$/, "$1 里的机器人团队已在另一个 dsh 中打开（$2）。这个窗口只能查看，不能修改；关掉另一个后刷新。"],
   [/^HTTP (\d+)$/, "请求失败（HTTP $1）"],
   [/^GitHub answered (\d+)$/, "GitHub 返回了 $1"],
   [/^Keep the name under (\d+) characters$/, "名字不能超过 $1 个字"],
@@ -1581,18 +1583,18 @@ var HOST_ERRORS = [
   [/^The avatar image is too large: .+$/, "头像图片太大了"],
   [/^There is no folder at (.+)$/, "找不到文件夹 $1"],
   [/^(.+) is a file, not a folder$/, "$1 是文件，不是文件夹"],
-  [/^(.+) holds DeepSeek Harness data, so Bots cannot work there$/, "$1 里有 DeepSeek Harness 的数据，Bot 不能在这里工作"],
-  [/^(.+) needs a folder of its own to be private$/, "$1 需要有自己的工作文件夹，才能设为隐私 Bot"],
-  [/^(.+) is a Main Bot, so it cannot be private$/, "$1 是主 Bot，不能设为隐私 Bot"],
+  [/^(.+) holds DeepSeek Harness data, so Bots cannot work there$/, "$1 里有 DeepSeek Harness 的数据，机器人不能在这里工作"],
+  [/^(.+) needs a folder of its own to be private$/, "$1 需要有自己的工作文件夹，才能设为隐私机器人"],
+  [/^(.+) is a Main Bot, so it cannot be private$/, "$1 是主机器人，不能设为隐私机器人"],
   [/^(.+) is in a group chat, where every member reads what is said\. Remove it from its groups first$/, "$1 还在群聊里，群成员都能看到群里的内容。请先把它移出群聊"],
-  [/^(.+) is private, so it cannot be a Main Bot$/, "$1 是隐私 Bot，不能设为主 Bot"],
-  [/^(.+) is private, so it cannot be copied$/, "$1 是隐私 Bot，不能复制"],
-  [/^(.+) is a private Bot and cannot be in a group chat: what is said in a group is read by every member$/, "$1 是隐私 Bot，不能加入群聊：群成员都能看到群里的内容"],
-  [/^(.+) is in or around the team workspace, so (.+) cannot be private there\. Give it a folder of its own$/, "$1 与总工作区重叠，$2 不能在这里设为隐私 Bot。请给它一个独立文件夹"],
-  [/^(.+) is in or around the folder of (.+), so (.+) cannot be private there\. Give it a folder of its own$/, "$1 与「$2」的文件夹重叠，$3 不能在这里设为隐私 Bot。请给它一个独立文件夹"],
-  [/^(.+) is in or around the folder of (.+), a private Bot, so (.+) cannot work there$/, "$1 在隐私 Bot「$2」的文件夹内或外层，$3 不能在这里工作"],
-  [/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/, "$1 在隐私 Bot「$2」的文件夹内或外层，群聊不能在这里工作"],
-  [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, "$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区"],
+  [/^(.+) is private, so it cannot be a Main Bot$/, "$1 是隐私机器人，不能设为主机器人"],
+  [/^(.+) is private, so it cannot be copied$/, "$1 是隐私机器人，不能复制"],
+  [/^(.+) is a private Bot and cannot be in a group chat: what is said in a group is read by every member$/, "$1 是隐私机器人，不能加入群聊：群成员都能看到群里的内容"],
+  [/^(.+) is in or around the team workspace, so (.+) cannot be private there\. Give it a folder of its own$/, "$1 与总工作区重叠，$2 不能在这里设为隐私机器人。请给它一个独立文件夹"],
+  [/^(.+) is in or around the folder of (.+), so (.+) cannot be private there\. Give it a folder of its own$/, "$1 与「$2」的文件夹重叠，$3 不能在这里设为隐私机器人。请给它一个独立文件夹"],
+  [/^(.+) is in or around the folder of (.+), a private Bot, so (.+) cannot work there$/, "$1 在隐私机器人「$2」的文件夹内或外层，$3 不能在这里工作"],
+  [/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/, "$1 在隐私机器人「$2」的文件夹内或外层，群聊不能在这里工作"],
+  [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, "$1 在隐私机器人「$2」的文件夹内或外层，不能作为总工作区"],
   // Memory changes the memory panel asked for; the whole message is matched.
   [/^This looks like a key, token, or password[\s\S]*$/, "看起来像密钥、令牌或密码，记忆不会保存这类内容"],
   [/^An entry holds at most (\d+) characters; this one has (\d+)\.[\s\S]*$/, "一条记忆最多 $1 个字符，这条有 $2 个"],
@@ -1602,31 +1604,31 @@ var HOST_ERRORS = [
   [/^There is no entry (.+)\.$/, "没有第 $1 条"],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, "找不到「$1」这条记忆"],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, "「$1」对应了 $2 条记忆，请说得更具体"],
-  [/^Memory cannot change now: [\s\S]*$/, "现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"]
+  [/^Memory cannot change now: [\s\S]*$/, "现在不能修改记忆：另一个 dsh 正在使用这个机器人团队"]
 ];
 var HOST_ZH = {
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
   "Avatar image is too large": "头像图片太大了",
-  "A Bot needs a name": "Bot 需要一个名字",
-  "A Bot name cannot contain @, ` or a line break": "Bot 名字里不能有 @、` 或换行",
-  "Unknown Bot": "找不到这个 Bot",
+  "A Bot needs a name": "机器人需要一个名字",
+  "A Bot name cannot contain @, ` or a line break": "机器人名字里不能有 @、` 或换行",
+  "Unknown Bot": "找不到这个机器人",
   "Unknown conversation": "找不到这个对话",
-  "A group chat needs at least two Bots": "群聊至少要两个 Bot",
+  "A group chat needs at least two Bots": "群聊至少要两个机器人",
   "The admin must be a member of the group": "管理员必须是群成员",
   "Unknown group chat": "找不到这个群聊",
-  "No Bot is left in this group chat": "这个群聊里已经没有 Bot 了",
+  "No Bot is left in this group chat": "这个群聊里已经没有机器人了",
   "That group chat has been deleted": "这个群聊已经删除了",
   "Hand the admin role to another member instead of leaving the group without one": "请把管理员交给其他成员，不要让群聊没有管理员",
   "Hand the admin role to another member before leaving the group": "离开群聊前，请先把管理员交给其他成员",
-  "The team needs at least one Main Bot": "团队至少要有一个主 Bot",
-  "Only a Main Bot can be replaced": "只能替换主 Bot",
-  "A Main Bot cannot be deleted; remove its Main Bot role first": "主 Bot 不能删除，请先取消它的主 Bot 身份",
+  "The team needs at least one Main Bot": "团队至少要有一个主机器人",
+  "Only a Main Bot can be replaced": "只能替换主机器人",
+  "A Main Bot cannot be deleted; remove its Main Bot role first": "主机器人不能删除，请先取消它的主机器人身份",
   "Unknown theme": "未知主题",
   "Accent must be a #rrggbb color": "强调色必须是 #rrggbb 格式",
   "Type the key first": "请先输入密钥",
-  "Choose every Bot or a list of Bots": "请选择所有 Bot 或指定的 Bot",
+  "Choose every Bot or a list of Bots": "请选择所有机器人或指定的机器人",
   "This request is gone": "这个请求已经不存在了",
   "This request was already answered": "这个请求已经处理过了",
   "A name uses capitals, digits, and underscores, and starts with a letter": "名字只能用大写字母、数字和下划线，并以字母开头",
@@ -1638,14 +1640,14 @@ var HOST_ZH = {
   "Write the entry to save.": "请写下要保存的内容。",
   "This DeepSeek Harness has no folder chooser": "这个 DeepSeek Harness 没有文件夹选择窗口",
   "This DeepSeek Harness cannot list folders": "这个 DeepSeek Harness 不能列出文件夹",
-  "Side chat is only available in a Bot's private chat.": "侧边对话只在 Bot 的私聊里可用。",
+  "Side chat is only available in a Bot's private chat.": "侧边对话只在机器人的私聊里可用。",
   "Write a question.": "写上问题。",
   "Write a question after /side.": "在 /side 后面写上问题。",
   "/side does not take attachments.": "/side 不能带附件。",
   "Wait for the answer, or cancel it.": "等它答完，或者先取消。",
   "This side chat is no longer here.": "这个侧边对话已经不在了。",
   "This side question is no longer here.": "这个侧边提问已经不在了。",
-  "This Bot has not called a model yet. Send a normal message first.": "这个 Bot 还没有调用过模型，请先正常发一条消息。",
+  "This Bot has not called a model yet. Send a normal message first.": "这个机器人还没有调用过模型，请先正常发一条消息。",
   "DS Bot restarted before this answer finished.": "DS Bot 在回答完成前重启了。",
   "The model called a tool again after being told not to, so this aside was not answered.": "模型在被要求不要调用工具之后又调用了工具，所以这次没有回答。",
   "The model wrote nothing.": "模型没有写任何内容。",
@@ -1658,7 +1660,7 @@ var HOST_ZH = {
   "Computer use": "电脑操控",
   "Computer": "电脑",
   "Control": "操控",
-  "Let Bots use the computer": "允许 Bot 使用电脑",
+  "Let Bots use the computer": "允许机器人使用电脑",
   "Using the computer": "在用电脑",
   "Off": "关",
   "View only": "只看",
@@ -1673,7 +1675,7 @@ var HOST_ZH = {
   "Install it in this DSH": "在这个 DSH 里安装",
   "Run {command}, then restart DSH.": "运行 {command}，然后重启 DSH。",
   "Copy command": "复制命令",
-  "Bots get no computer tools until the provider is ready.": "提供方就绪之前，Bot 拿不到电脑工具。",
+  "Bots get no computer tools until the provider is ready.": "提供方就绪之前，机器人拿不到电脑工具。",
   "Another computer-use provider is running": "另一个电脑操控提供方正在运行",
   "Computer use is not available on this platform": "此平台不支持电脑操控",
   "Accessibility": "辅助功能",
@@ -3138,11 +3140,11 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 
 // src/client/styles.js
 var SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-reply:#95EC69;--bt-reply-ink:#000000;--bt-reply-ink-2:rgba(0,0,0,.62);--bt-reply-ink-3:rgba(0,0,0,.4);--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-crown-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-reply:#ffffff;--bt-reply-ink:#141414;--bt-reply-ink-2:rgba(20,20,20,.72);--bt-reply-ink-3:rgba(20,20,20,.6);--bt-reply-line:rgba(20,20,20,.08);--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice){corner-shape:round}
-body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
+body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-reply:#262626;--bt-reply-ink:#f2f2f2;--bt-reply-ink-2:rgba(242,242,242,.72);--bt-reply-ink-3:rgba(242,242,242,.62);--bt-reply-line:rgba(255,255,255,.06);--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join("")}
 .bt-mark{display:inline-block;flex:none;position:relative;line-height:0}
@@ -3242,8 +3244,12 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
+/* The top row carries the two round buttons at its left and, at its right, the
+   update button and the search button. */
 .bt-side-top{display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
-.bt-side-top .bt-update{margin-left:auto}
+/* The search keeps to the right edge; opening it lets the field take the row. */
+.bt-top-right{display:flex;align-items:center;gap:8px;margin-left:auto;min-width:0}
+.bt-top-right-open{flex:1}
 .bt-side-top .bt-round:not(.bt-update) svg,.bt-rail-top .bt-round:not(.bt-update) svg{width:17px;height:17px;stroke-width:1.6}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
 .bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
@@ -3256,6 +3262,19 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-track{background:transparent}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
+/* The Main Bot is pinned above the scroll box, so paging the list never carries it away. */
+.bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
+/* The tile stands the Main Bot up on the page itself: a large mark with its name
+   and no plate, ring or block in any state. The open chat is told by the name. */
+.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
+.bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
+.bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;background:transparent;transition:filter .12s ease}
+.bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:18px;height:18px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
+.bt-main-tile .bt-badge-main svg{width:11px;height:11px;overflow:visible}
+.bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
+.bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
+.bt-main-tile[aria-current=page] .bt-main-tile-name{font-weight:600;color:var(--bt-ink)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:hover{background:var(--bt-hover)}
@@ -3316,7 +3335,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
-.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-dot-wait{background:var(--bt-star)}
 .bt-side-foot{display:flex;padding-top:8px}
 
@@ -3347,7 +3366,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 /* The width settings: the share of the column a bubble may take, and the flat text. */
 body{--bt-msg-w:.9;--bt-flat-w:1}
 .bt-astack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:0}
-.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-reply);color:var(--bt-reply-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
+.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-reply);color:var(--bt-reply-ink);border:1px solid var(--bt-reply-line);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-msg:not(:first-child)>.bt-msg-line>.bt-bubble{border-start-start-radius:6px}
 .bt-msg:not(:last-child)>.bt-msg-line>.bt-bubble{border-end-start-radius:6px}
 .bt-bubble [class*="_markdown"]>*+*{margin-top:10px}
@@ -3357,9 +3376,9 @@ body{--bt-msg-w:.9;--bt-flat-w:1}
 .bt-bubble ul,.bt-bubble ol{margin:4px 0;padding-left:20px}
 .bt-bubble [class*="_markdown"] li+li{margin-top:6px}
 .bt-bubble [class*="_markdown"] li::marker{color:var(--bt-ink-2)}
-/* The reply bubble is green in both themes, so its secondary text cannot follow the
-   theme inks: on a dark theme they would be near-white on green. Scoping to the
-   bubble, and to layouts that draw one, keeps the flat text on the theme inks. */
+/* The reply bubble carries its own inks, so its secondary text cannot follow the
+   theme inks: they are mixed against the bubble surface, not the page. Scoping to
+   the bubble, and to layouts that draw one, keeps the flat text on the theme inks. */
 body:not([data-bt-layout=flat]) .bt-bubble [class*="_markdown"] li::marker{color:var(--bt-reply-ink-2)}
 body:not([data-bt-layout=flat]) .bt-bubble .bt-fold-note,body:not([data-bt-layout=flat]) .bt-bubble .bt-fold .bt-more{color:var(--bt-reply-ink-3)}
 body:not([data-bt-layout=flat]) .bt-bubble .bt-fold .bt-more:hover{color:var(--bt-reply-ink)}
@@ -3855,7 +3874,7 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
    (the whole of it unless set). The toolbar floats over the message's bottom right. */
 body[data-bt-layout=flat] .bt-astack{align-items:stretch;gap:10px}
 body[data-bt-layout=flat] .bt-msg,body[data-bt-layout=flat] .bt-astack[data-lead]>.bt-msg{align-items:stretch;max-width:calc(var(--bt-flat-w) * 100%)}
-body[data-bt-layout=flat] .bt-bubble{background:none;padding:0;border-radius:0;color:var(--bt-ink)}
+body[data-bt-layout=flat] .bt-bubble{background:none;padding:0;border:0;border-radius:0;color:var(--bt-ink)}
 body[data-bt-layout=flat] .bt-tools{bottom:-14px;right:0;left:auto;margin-left:0;transform:none;padding:2px;border-radius:999px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
 /* With reactions below, the toolbar stays inside the message row instead of
    covering their top edge when the hover shows it. */
@@ -3951,7 +3970,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:1px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink);padding:0 8px;font:inherit;font-size:13px;outline:none}
 :is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+:is(.bt-row,.bt-tile,.bt-main-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
@@ -4692,6 +4711,13 @@ function MainStar() {
     (0, import_react2.createElement)("path", { d: "M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z" })
   );
 }
+function MainCrown() {
+  return (0, import_react2.createElement)(
+    "svg",
+    { viewBox: "0 0 16 16", "aria-hidden": true },
+    (0, import_react2.createElement)("path", { d: "M1.6 11.4V5.4l2.9 2.2L8 4.2l3.5 3.4 2.9-2.2v6z" })
+  );
+}
 function useSettled(state) {
   const prev = (0, import_react2.useRef)(state);
   const [settled, setSettled] = (0, import_react2.useState)(false);
@@ -4709,7 +4735,7 @@ function useSettled(state) {
   }, [state]);
   return settled;
 }
-function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
+function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false, crown = false }) {
   const settled = useSettled(state);
   if (bot === void 0) return (0, import_react2.createElement)(BotMark, { size });
   const badgeKind = !badge ? null : state === "alert" ? "alert" : state !== "idle" && state !== "waiting" ? "working" : admin ? "admin" : main ? "main" : null;
@@ -4720,7 +4746,7 @@ function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live 
     badgeKind === "working" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-working", "aria-label": t("Working"), role: "img" }) : null,
     badgeKind === "alert" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-alert", "aria-label": t("Waiting for your answer"), role: "img" }, "?") : null,
     badgeKind === "admin" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-admin", "aria-label": t("Admin"), role: "img" }, (0, import_react2.createElement)(StarIcon)) : null,
-    badgeKind === "main" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-main", "aria-label": t("Main Bot"), role: "img" }, (0, import_react2.createElement)(MainStar)) : null
+    badgeKind === "main" ? (0, import_react2.createElement)("span", { className: `bt-badge bt-badge-main${crown ? " bt-badge-crown" : ""}`, "aria-label": t("Main Bot"), role: "img" }, (0, import_react2.createElement)(crown ? MainCrown : MainStar)) : null
   );
 }
 function clusterSeats(count, frame) {
@@ -15380,7 +15406,7 @@ function avatarTint(bot) {
   const color = lookOf(bot).color;
   return bot?.avatar?.image ? void 0 : { "--bt-ava-tint": `color-mix(in srgb, ${inkFill(color)} 15%, transparent)` };
 }
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart, pin }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns?.[part]));
@@ -15409,6 +15435,27 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   };
   const pinned = bot.pinned === true && !tile;
   const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
+  if (pin) {
+    return (0, import_react34.createElement)(
+      "button",
+      {
+        type: "button",
+        className: "bt-main-tile",
+        "aria-label": label,
+        "aria-current": active ? "page" : void 0,
+        "data-bot-id": id,
+        onClick: () => actions.openSession(id),
+        onContextMenu
+      },
+      (0, import_react34.createElement)(
+        "span",
+        { className: "bt-main-tile-ava" },
+        (0, import_react34.createElement)(BotAvatar, { bot, size: 84, state, main, crown: true }),
+        !active && (alert || unread) ? (0, import_react34.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
+      ),
+      (0, import_react34.createElement)("span", { className: "bt-main-tile-name" }, bot.name)
+    );
+  }
   return (0, import_react34.createElement)(
     "button",
     {
@@ -15891,6 +15938,95 @@ function LeftColumn({ mode, width, onGrip, leaving, children }) {
     (0, import_react34.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
 }
+function PlusMenu({ actions, onOpenChange }) {
+  const [open, setOpen] = (0, import_react34.useState)(false);
+  const [box, setBox] = (0, import_react34.useState)(null);
+  const button = (0, import_react34.useRef)(null);
+  const menu = (0, import_react34.useRef)(null);
+  const tick = useViewport();
+  (0, import_react34.useLayoutEffect)(() => {
+    if (!open || !button.current) return;
+    const rect = button.current.getBoundingClientRect();
+    const width = 200;
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+    const below = viewBottom() - rect.bottom;
+    setBox(rect.top > below && below < 160 ? { left, width, bottom: viewBottom() - rect.top + 6, "--bt-origin": "bottom right" } : { left, width, top: rect.bottom + 6, "--bt-origin": "top right" });
+  }, [open, tick]);
+  (0, import_react34.useEffect)(() => {
+    if (!open) return void 0;
+    const onDown = (event) => {
+      if (menu.current?.contains(event.target) || button.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return;
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpen(false);
+      button.current?.focus();
+    };
+    const onScroll = (event) => {
+      if (!menu.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setBox(null);
+    setOpen(true);
+    onOpenChange?.(true);
+  };
+  const pick2 = (mode) => () => {
+    setOpen(false);
+    actions.openNewChat(mode);
+  };
+  return (0, import_react34.createElement)(
+    import_react34.Fragment,
+    null,
+    (0, import_react34.createElement)("button", {
+      ref: button,
+      type: "button",
+      className: "bt-round bt-round-plus",
+      "aria-label": t("New Bot or group"),
+      title: t("New Bot or group"),
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      onClick: toggle
+    }, (0, import_react34.createElement)(PlusIcon)),
+    open ? (0, import_react_dom5.createPortal)((0, import_react34.createElement)(
+      "div",
+      {
+        ref: menu,
+        className: "bt-menu bt-plus-menu",
+        role: "menu",
+        "aria-label": t("New Bot or group"),
+        style: box ?? void 0
+      },
+      (0, import_react34.createElement)(
+        "button",
+        { type: "button", role: "menuitem", onClick: pick2("create") },
+        (0, import_react34.createElement)(PersonIcon),
+        (0, import_react34.createElement)("span", { className: "bt-menu-label" }, t("Create new Bot"))
+      ),
+      (0, import_react34.createElement)(
+        "button",
+        { type: "button", role: "menuitem", onClick: pick2("group") },
+        (0, import_react34.createElement)(PeopleIcon, { size: 16, strokeWidth: 1.6 }),
+        (0, import_react34.createElement)("span", { className: "bt-menu-label" }, t("New group chat"))
+      )
+    ), document.body) : null
+  );
+}
 function TitleToggle({ hidden, onToggle }) {
   if (typeof document === "undefined") return null;
   const titlebar = document.documentElement.hasAttribute("data-windows-titlebar");
@@ -15932,7 +16068,9 @@ function TeamSidebar(props) {
   const [drag, setDrag] = (0, import_react34.useState)(null);
   const [query, setQuery] = (0, import_react34.useState)("");
   const [tab, setTab] = (0, import_react34.useState)("all");
+  const [searchOpen, setSearchOpen] = (0, import_react34.useState)(false);
   const searchRef = (0, import_react34.useRef)(null);
+  const searchOpenedAt = (0, import_react34.useRef)(0);
   const mode = drag?.left ?? layout.left;
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
   const shown = held ?? mode;
@@ -15984,17 +16122,19 @@ function TeamSidebar(props) {
     }
     return JSON.stringify(text);
   });
+  const tileShown = wideContent && Boolean(main) && query.trim() === "";
   const found = (0, import_react34.useMemo)(() => {
     if (!searching) return [];
     const text = searchText === "" ? {} : JSON.parse(searchText);
     const needle = query.trim().toLowerCase();
     return allEntries.filter((entry) => {
+      if (tileShown && entry.kind === "bot" && entry.item.id === roster.mainBotId) return false;
       if (entry.item.hidden && !(entry.kind === "bot" && isMainOf(roster, entry.item.id))) return false;
       if (tab === "bots" && entry.kind !== "bot") return false;
       if (tab === "chats" && entry.kind !== "room") return false;
       return needle === "" || (text[entry.item.id] ?? "").toLowerCase().includes(needle);
     });
-  }, [searching, allEntries, tab, query, searchText]);
+  }, [searching, tileShown, allEntries, tab, query, searchText, roster.mainBotId]);
   const glideKey = (0, import_react34.useMemo)(
     () => `${sections.map((s) => `${s.id}:${s.collapsed ? 1 : 0}`).join(",")}|${order.map((entry) => `${entry.item.id}:${entry.item.sectionId ?? ""}`).join(",")}|${searching ? `${tab}:${query}:${found.map((entry) => entry.item.id).join(",")}` : ""}`,
     [sections, order, searching, tab, query, found]
@@ -16217,6 +16357,7 @@ function TeamSidebar(props) {
       return;
     }
     setQuery(event.key);
+    setSearchOpen(true);
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => searchRef.current?.focus());
     else searchRef.current?.focus();
   };
@@ -16235,62 +16376,104 @@ function TeamSidebar(props) {
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, []);
-  const newChat = (mode2) => () => actions.openNewChat(mode2);
-  const newButtons = [
-    (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create new Bot"), title: t("Create new Bot"), onClick: newChat("create") }, (0, import_react34.createElement)(PersonIcon)),
-    (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Create group chat"), title: t("Create group chat"), onClick: newChat("group") }, (0, import_react34.createElement)(PeopleIcon, { size: 17, strokeWidth: 1.6 }))
-  ];
-  const top = wideContent ? (0, import_react34.createElement)("div", { className: "bt-side-top" }, ...newButtons, (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions })) : (0, import_react34.createElement)(
+  (0, import_react34.useEffect)(() => {
+    if (!searchOpen) return void 0;
+    const onDown = (event) => {
+      if (event.target instanceof Element && event.target.closest(".bt-search")) return;
+      if (event.timeStamp <= searchOpenedAt.current) return;
+      setSearchOpen(false);
+      setQuery("");
+    };
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      setSearchOpen(false);
+      setQuery("");
+    };
+    document.addEventListener("click", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("click", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [searchOpen]);
+  const openSearch = (event) => {
+    const opened = event?.nativeEvent?.timeStamp ?? event?.timeStamp;
+    searchOpenedAt.current = typeof opened === "number" ? opened : globalThis.performance?.now?.() ?? 0;
+    setSearchOpen(true);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => searchRef.current?.focus());
+    else searchRef.current?.focus();
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    searchRef.current?.blur?.();
+  };
+  const searchField = searchOpen ? (0, import_react34.createElement)(
+    "div",
+    { className: "bt-search" },
+    (0, import_react34.createElement)("span", { className: "bt-search-ico", "aria-hidden": true }, (0, import_react34.createElement)(SearchIcon)),
+    (0, import_react34.createElement)("input", {
+      ref: searchRef,
+      type: "search",
+      className: "bt-search-in",
+      value: query,
+      placeholder: t("Search chats"),
+      "aria-label": t("Search chats"),
+      onChange: (event) => setQuery(event.currentTarget.value),
+      onKeyDown: (event) => {
+        if (event.nativeEvent?.isComposing) return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          actions.openPalette(query.trim());
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          closeSearch();
+        }
+      }
+    })
+  ) : (0, import_react34.createElement)("button", {
+    type: "button",
+    className: "bt-round bt-round-search",
+    "aria-label": t("Search chats"),
+    title: t("Search chats"),
+    onClick: openSearch
+  }, (0, import_react34.createElement)(SearchIcon));
+  const plusMenu = (0, import_react34.createElement)(PlusMenu, { actions, onOpenChange: (open) => {
+    if (open && searchOpen) closeSearch();
+  } });
+  const top = wideContent ? (0, import_react34.createElement)(
+    "div",
+    { className: "bt-side-top" },
+    (0, import_react34.createElement)(
+      "div",
+      { className: `bt-top-right${searchOpen ? " bt-top-right-open" : ""}` },
+      (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
+      searchField,
+      plusMenu
+    )
+  ) : (0, import_react34.createElement)(
     "div",
     { className: "bt-rail-top" },
-    ...newButtons,
+    plusMenu,
     (0, import_react34.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react34.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const chatsTab = dateLocale() === "zh-CN" ? t("Group chats") : t("Chats");
+  const chatsTab = dateLocale() === "zh-CN" ? t("Groups") : t("Chats");
   const filters = wideContent ? (0, import_react34.createElement)(
-    import_react34.Fragment,
-    null,
-    (0, import_react34.createElement)(
-      "div",
-      { className: "bt-search" },
-      (0, import_react34.createElement)("span", { className: "bt-search-ico", "aria-hidden": true }, (0, import_react34.createElement)(SearchIcon)),
-      (0, import_react34.createElement)("input", {
-        ref: searchRef,
-        type: "search",
-        className: "bt-search-in",
-        value: query,
-        placeholder: t("Search chats"),
-        "aria-label": t("Search chats"),
-        onChange: (event) => setQuery(event.currentTarget.value),
-        onKeyDown: (event) => {
-          if (event.nativeEvent?.isComposing) return;
-          if (event.key === "Enter") {
-            event.preventDefault();
-            actions.openPalette(query.trim());
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            if (query !== "") setQuery("");
-            else event.currentTarget.blur();
-          }
-        }
-      })
-    ),
-    (0, import_react34.createElement)(
-      "div",
-      { className: "bt-seg", role: "group", "aria-label": t("Filter chats") },
-      [["all", t("All")], ["bots", t("Bots")], ["chats", chatsTab]].map(([id, label]) => (0, import_react34.createElement)("button", {
-        key: id,
-        type: "button",
-        className: "bt-seg-btn",
-        "aria-pressed": tab === id,
-        onClick: () => setTab(id)
-      }, label))
-    )
+    "div",
+    { className: "bt-seg", role: "group", "aria-label": t("Filter chats") },
+    [["all", t("All")], ["bots", t("Bots")], ["chats", chatsTab]].map(([id, label]) => (0, import_react34.createElement)("button", {
+      key: id,
+      type: "button",
+      className: "bt-seg-btn",
+      "aria-pressed": tab === id,
+      onClick: () => setTab(id)
+    }, label))
   ) : null;
   const rows2 = searching ? found.length > 0 ? found.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, void 0)) : (0, import_react34.createElement)("div", { className: "bt-empty", role: "status" }, t("No matches")) : [
-    wideContent ? main ? (0, import_react34.createElement)(BotRow, { key: main.id, ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
+    wideContent && !main && !roster.ready ? (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")) : null,
     sections.length > 0 ? (0, import_react34.createElement)("div", {
       key: "__ungrouped__",
       className: "bt-sec-ungrouped",
@@ -16314,11 +16497,13 @@ function TeamSidebar(props) {
     fixedGroup(t("Groups"), ungrouped.filter((entry) => entry.kind === "room" && !entry.item.hidden), rowProps, markedUnread, onDragStart),
     fixedGroup(t("Recent"), ungrouped.filter((entry) => entry.kind !== "room" && !entry.item.hidden), rowProps, markedUnread, onDragStart)
   ];
+  const mainPin = tileShown ? (0, import_react34.createElement)("div", { className: "bt-main-pin" }, (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })) : null;
   const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, onNewSection: createNewSection })) : (0, import_react34.createElement)("div", { className: "bt-leftcol-foot bt-leftcol-foot-rail" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }));
   const content = (0, import_react34.createElement)(
     "div",
     { className: wideContent ? "bt-side" : "bt-side bt-rail", onKeyDown: typeToSearch },
     top,
+    mainPin,
     filters,
     wideContent && roster.readOnly ? (0, import_react34.createElement)("div", { className: "bt-hint bt-read-only", role: "status" }, hostText(roster.readOnly)) : null,
     (0, import_react34.createElement)("div", {
@@ -16898,12 +17083,18 @@ var SIDEBAR_CSS = `
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
 @media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
 
-/* The inbox: a white card floating on the page, with the title, an inline search,
-   the All/Bots/Chats filter, the list, and the status and account rows at the foot. */
-.bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar))}
-.bt-leftcol:not([data-left=rail])>.bt-side{background:var(--bt-panel,var(--bt-card));border:1px solid var(--bt-panel-rim,var(--bt-line));border-radius:16px;box-shadow:var(--bt-panel-shadow,none);padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
-.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:var(--bt-field,var(--bt-hover));color:var(--bt-ink-3);flex:none;box-sizing:border-box;transition:box-shadow .12s ease}
-.bt-search:focus-within{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--bt-accent) 45%,transparent)}
+/* The inbox: the page itself, with the title, an inline search, the All/Bots/Chats
+   filter, the list, and the status and account rows at the foot. It carries no card
+   of its own, so the buttons inside need a fill the page does not already give them. */
+.bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar));box-shadow:inset -1px 0 0 var(--bt-line)}
+.bt-leftcol:not([data-left=rail])>.bt-side{background:transparent;border:0;border-radius:0;box-shadow:none;padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
+/* A step off the page in either mode, so the buttons stay visible on the flat inbox. */
+.bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
+.bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
+/* No field and no focus ring: the words sit on the page itself, and focus only
+   raises a faint fill. Opened, it takes the top row's free width. */
+.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:1 1 auto;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
+.bt-search:focus-within{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)) 55%,transparent)}
 .bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
 .bt-search-ico svg{width:14px;height:14px}
 .bt-search-in{flex:1;min-width:0;height:100%;padding:0;border:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none;appearance:none}
