@@ -16291,8 +16291,8 @@ function TeamSidebar(props) {
       setSearchOpen(false);
       setQuery("");
     };
-    document.addEventListener("pointerdown", onDown, true);
-    return () => document.removeEventListener("pointerdown", onDown, true);
+    document.addEventListener("click", onDown);
+    return () => document.removeEventListener("click", onDown);
   }, [searchOpen]);
   const newChat = (mode2) => () => actions.openNewChat(mode2);
   const newButtons = [

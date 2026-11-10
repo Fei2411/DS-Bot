@@ -884,6 +884,7 @@ export function TeamSidebar(props) {
   }, [])
   // A click anywhere but the field puts it away, and the words go with it: a filter
   // left running behind a closed box would keep the list short for no visible reason.
+  // It waits for the click itself, so a result row has already opened before it goes.
   useEffect(() => {
     if (!searchOpen) return undefined
     const onDown = (event) => {
@@ -891,8 +892,8 @@ export function TeamSidebar(props) {
       setSearchOpen(false)
       setQuery('')
     }
-    document.addEventListener('pointerdown', onDown, true)
-    return () => document.removeEventListener('pointerdown', onDown, true)
+    document.addEventListener('click', onDown)
+    return () => document.removeEventListener('click', onDown)
   }, [searchOpen])
   const newChat = (mode) => () => actions.openNewChat(mode)
   const newButtons = [
