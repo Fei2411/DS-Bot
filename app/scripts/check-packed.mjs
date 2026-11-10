@@ -342,9 +342,11 @@ async function browserClose(port) {
 function devtools(url, problems) {
   const socket = new WebSocket(url)
   const pending = new Map()
+  const listeners = new Set()
   let next = 1
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data))
+    for (const listener of listeners) listener(message.method, message.params)
     if (message.method === 'Runtime.exceptionThrown') problems.push(`exception: ${message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text}`)
     if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') problems.push(`console.error: ${message.params.args.map(arg => arg.value ?? arg.description).join(' ')}`)
     if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') problems.push(`log: ${message.params.entry.text} ${message.params.entry.url ?? ''}`)
@@ -358,17 +360,93 @@ function devtools(url, problems) {
     socket.addEventListener('open', done, { once: true })
     socket.addEventListener('error', reject, { once: true })
   })
-  const call = (method, params = {}) => new Promise((done, reject) => {
+  const call = (method, params = {}, timeout = 30_000) => new Promise((done, reject) => {
     const id = next++
     const timer = setTimeout(() => {
       pending.delete(id)
       reject(new Error(`the window did not answer ${method}`))
-    }, 30_000)
+    }, timeout)
     const settle = action => (value) => { clearTimeout(timer); action(value) }
     pending.set(id, { resolve: settle(done), reject: settle(reject) })
     socket.send(JSON.stringify({ id, method, params }))
   })
-  return { opened, call, close: () => { socket.close() } }
+  const onEvent = (listener) => { listeners.add(listener); return () => { listeners.delete(listener) } }
+  return { opened, call, onEvent, close: () => { socket.close() } }
+}
+
+async function startInputTrace(cdp) {
+  const trace = { status: 'recording', total: 0, truncated: false, events: [] }
+  const names = new Set([
+    'RenderWidgetHostImpl::ForwardKeyboardEvent', 'WebContentsImpl::IgnoreInputEvents',
+    'WebContentsImpl::OnIgnoredUIEvent', 'InputRouterImpl::FilterAndSendWebInputEvent',
+    'WebFrameWidgetImpl::HandleInputEvent', 'InputRouterImpl::KeyboardEventHandled',
+  ])
+  const keys = new Set(['KeyDown', 'RawKeyDown', 'KeyUp', 'Char'])
+  let complete
+  const completed = new Promise(done => { complete = done })
+  const off = cdp.onEvent((method, params) => {
+    if (method === 'Tracing.tracingComplete') {
+      trace.dataLossOccurred = params?.dataLossOccurred === true
+      complete()
+    }
+    if (method !== 'Tracing.dataCollected') return
+    for (const event of params?.value ?? []) {
+      if (!names.has(event.name)) continue
+      if (typeof event.args?.type === 'string' && !keys.has(event.args.type)) continue
+      trace.total++
+      if (trace.events.length === 120) { trace.truncated = true; continue }
+      const entry = { name: event.name }
+      for (const field of ['ts', 'pid', 'tid']) if (Number.isFinite(event[field])) entry[field] = event[field]
+      if (typeof event.ph === 'string' && event.ph.length === 1) entry.ph = event.ph
+      if (keys.has(event.args?.type)) entry.type = event.args.type
+      if (['CONSUMED', 'NOT_CONSUMED', 'NO_CONSUMER_EXISTS', 'IGNORED', 'UNKNOWN'].includes(event.args?.ack)) entry.ack = event.args.ack
+      trace.events.push(entry)
+    }
+  })
+  try {
+    await cdp.call('Tracing.start', { categories: 'input,content,latencyInfo', transferMode: 'ReportEvents' }, 5000)
+  } catch {
+    off()
+    trace.status = 'start-failed'
+    return async () => trace
+  }
+  return async () => {
+    let timer
+    const timeout = new Promise(done => { timer = setTimeout(() => { done('end-timeout') }, 5000) })
+    try {
+      // tracingComplete can arrive before the command's reply; wait for both.
+      trace.status = await Promise.race([
+        Promise.all([cdp.call('Tracing.end', {}, 5000), completed]).then(() => 'complete'), timeout,
+      ])
+    } catch {
+      trace.status = 'end-failed'
+    } finally {
+      clearTimeout(timer)
+      off()
+    }
+    return trace
+  }
+}
+
+async function checkChat(cdp, target, windowState) {
+  const stopTrace = await startInputTrace(cdp)
+  const error = await chat(cdp).then(() => undefined, failure => failure)
+  console.log(`check-packed: input trace ${JSON.stringify(await stopTrace())}`)
+  if (error) {
+    const state = { target: { id: target.id, type: target.type }, frame: null, windows: null }
+    try {
+      const { frameTree } = await cdp.call('Page.getFrameTree', {}, 5000)
+      state.frame = frameTree.frame.id
+    } catch { state.frame = 'unavailable' }
+    try {
+      state.windows = await windowState(`BrowserWindow.getAllWindows().map(window => ({
+        id: window.id, enabled: window.isEnabled(), focused: window.isFocused(), visible: window.isVisible(),
+        webContents: { id: window.webContents.id, focused: window.webContents.isFocused(), rendererPID: window.webContents.getOSProcessId() },
+      }))`, 5000)
+    } catch { state.windows = 'unavailable' }
+    console.log(`check-packed: input target ${JSON.stringify(state)}`)
+  }
+  return error
 }
 
 // material.css and macos.css style DSH's own page, which can change with a DSH upgrade; every
@@ -585,19 +663,20 @@ try {
   const app = spawn(packedApp, [`--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
   children.push(app)
   const exited = new Promise((done) => { app.once('exit', (code, signal) => { done({ code, signal }) }) })
-  const cdp = devtools((await appPage(port, Date.now() + 120_000)).webSocketDebuggerUrl, problems)
+  const target = await appPage(port, Date.now() + 120_000)
+  const cdp = devtools(target.webSocketDebuggerUrl, problems)
   await cdp.opened
   const main = devtools((await appPage(mainPort, Date.now() + 30_000, true)).webSocketDebuggerUrl, problems)
   await main.opened
-  const windowState = async expression => {
+  const windowState = async (expression, timeout = 30_000) => {
     const answer = await main.call('Runtime.evaluate', {
       expression: `(() => { const { BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
       returnByValue: true, awaitPromise: true,
-    })
+    }, timeout)
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
   }
-  const chatError = await chat(cdp).then(() => undefined, error => error)
+  const chatError = await checkChat(cdp, target, windowState)
   if (shotFile) {
     const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })
     writeFileSync(resolve(shotFile), Buffer.from(data, 'base64'))
