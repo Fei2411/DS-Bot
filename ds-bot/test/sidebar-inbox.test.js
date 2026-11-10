@@ -381,6 +381,29 @@ test('C2: the segments flatten the list, hide group heads and keep the Agent to 
   assert.ok(rowIds(tree).includes('dsh'), 'All carries the DSH Agent')
 })
 
+test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  let tree = app.render()
+  const pin = byClass(tree, 'bt-main-pin')
+  assert.equal(pin.length, 1, 'the pin slot is drawn')
+  assert.deepEqual(collect(pin[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
+  assert.ok(!collect(byClass(tree, 'bt-list')[0]).some(node => node.props?.['data-bot-id'] === 'main'), 'the Main Bot is out of the scroll box')
+  assert.equal(byClass(tree, 'bt-main-pin-sep').length, 1)
+
+  byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: 'Mist' } })
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'search hides the pin')
+  assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the search result is the only one')
+
+  byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: '' } })
+  tree = app.render()
+  byClass(tree, 'bt-seg-btn').find(node => textOf(node) === 'Bots').props.onClick()
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'a filter hides the pin too')
+  assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'and the filtered row still reaches it')
+})
+
 test('C2: rows stop being draggable while a filter is on', () => {
   const { roster, sessions } = fixtures()
   const app = createApp({ roster, sessions })

@@ -908,7 +908,7 @@ export function TeamSidebar(props) {
         ? found.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, undefined))
         : h('div', { className: 'bt-empty', role: 'status' }, t('No matches')))
     : [
-        wideContent ? (main ? h(BotRow, { key: main.id, ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…'))) : null,
+        wideContent && !main && !roster.ready ? h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')) : null,
         sections.length > 0
           ? h('div', {
               key: '__ungrouped__',
@@ -934,12 +934,20 @@ export function TeamSidebar(props) {
         fixedGroup(t('Groups'), ungrouped.filter(entry => entry.kind === 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
         fixedGroup(t('Recent'), ungrouped.filter(entry => entry.kind !== 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
       ]
+  // The Main Bot sits in a fixed slot above the scroll box, so it stays put while
+  // the list moves. Search and the filters hide it, or a match would show twice.
+  const mainPin = wideContent && !searching && main
+    ? h(Fragment, { key: 'main-pin' },
+        h('div', { className: 'bt-main-pin' }, h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true })),
+        h('div', { className: 'bt-main-pin-sep', 'aria-hidden': true }))
+    : null
   // The foot stands in for the shell's hidden footer: just the account avatar.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
+    mainPin,
     filters,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', {
