@@ -316,6 +316,8 @@ export const ES = {
   'The model service failed.': 'El servicio de modelos falló.',
   'DeepSeek Harness stopped before this turn finished.': 'DeepSeek Harness se detuvo antes de que terminara este turno.',
   'This turn failed.': 'Este turno falló.',
+  "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.": 'El límite de salida del modelo supera su ventana de contexto, así que no se puede enviar nada. Aumenta la ventana de contexto o reduce el límite de salida.',
+  'Open model settings': 'Abrir ajustes del modelo',
   'The model service': 'El servicio de modelos',
   'DeepSeek account': 'Cuenta de DeepSeek',
   'This Bot': 'Este Bot',
@@ -1250,6 +1252,7 @@ export const ES = {
   'The model service failed': 'El servicio de modelos falló',
   'The model took too long to answer': 'El modelo tardó demasiado en responder',
   'Could not reach the model service': 'No se pudo conectar con el servicio de modelos',
+  "The model's output limit is above its context window": 'El límite de salida del modelo supera su ventana de contexto',
   'Its group conversation could not open': 'No se pudo abrir su conversación grupal',
   'Its group conversation could not open, so it starts a new one next time': 'No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez',
   // The composer's +

@@ -412,6 +412,17 @@ test('Copy puts the technical details on the clipboard in English', async () => 
   assert.deepEqual(copied, ['Code: SERVER\nMessage: upstream 503'])
 })
 
+test('a model whose output limit cannot fit its context window points at the model settings, not a retry', () => {
+  const side = cell({ code: 'MODEL_SWITCH_COMPACTION_FAILED', message: 'compaction-basic: deepseek-official/deepseek-flash reserves 256000 completion tokens of its 20480-token context window' })
+  const tree = side.render()
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.")
+  const buttons = side.buttons(tree)
+  assert.deepEqual(labels(buttons), ['Open model settings'])
+  assert.equal(buttons.some(entry => entry.label === 'Retry'), false)
+  buttons[0].node.props.onClick()
+  assert.deepEqual(side.calls, [['openModels']])
+})
+
 test('the copy and fix tables go by code alone', () => {
   assert.equal(failureText('QUOTA', { provider: 'X', status: 429 }), 'X is out of balance or quota (429).')
   assert.equal(failureText('INVALID_CREDENTIAL', {}), 'This API key is not in the right format.')
@@ -423,6 +434,9 @@ test('the copy and fix tables go by code alone', () => {
   assert.equal(retryShown('AUTH', { code: 'AUTH' }), false)
   assert.equal(retryShown('AUTH', undefined), true)
   assert.equal(retryShown('QUOTA', { code: 'QUOTA' }), true)
+  assert.deepEqual(Array.from(fixesFor('MODEL_SWITCH_COMPACTION_FAILED', {})), ['model-settings'])
+  assert.equal(retryShown('MODEL_SWITCH_COMPACTION_FAILED', undefined), false)
+  assert.equal(failureText('MODEL_SWITCH_COMPACTION_FAILED', {}), "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.")
 })
 
 // The words a Chinese interface may still show in English (design note, 用词).
@@ -447,7 +461,7 @@ test('in a Chinese interface every repair card state reads in Chinese, outside T
     return shown(node.props?.children)
   }
   try {
-    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'OTHER']
+    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'OTHER']
     const account = { status: 'credential-stored', links: { topUpUrl: 'https://platform.example/top_up' }, attempt: null }
     for (const code of codes) {
       for (const blocked of [undefined, { code, status: 401, requestId: 'req-1', provider: 'deepseek-official', at: 1 }]) {

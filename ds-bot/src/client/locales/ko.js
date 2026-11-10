@@ -316,6 +316,8 @@ export const KO = {
   'The model service failed.': '모델 서비스 오류가 발생했습니다.',
   'DeepSeek Harness stopped before this turn finished.': '이번 차례가 끝나기 전에 DeepSeek Harness가 중지되었습니다.',
   'This turn failed.': '이번 차례 실행에 실패했습니다.',
+  "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.": '모델의 출력 한도가 컨텍스트 윈도우보다 커서 아무것도 보낼 수 없습니다. 컨텍스트 윈도우를 늘리거나 출력 한도를 줄이세요.',
+  'Open model settings': '모델 설정 열기',
   'The model service': '모델 서비스',
   'DeepSeek account': 'DeepSeek 계정',
   'This Bot': '이 Bot',
@@ -1250,6 +1252,7 @@ export const KO = {
   'The model service failed': '모델 서비스 오류',
   'The model took too long to answer': '모델 응답 시간이 초과되었습니다',
   'Could not reach the model service': '모델 서비스에 연결할 수 없습니다',
+  "The model's output limit is above its context window": '모델의 출력 한도가 컨텍스트 윈도우보다 큽니다',
   'Its group conversation could not open': '그룹 대화 세션을 열 수 없습니다',
   'Its group conversation could not open, so it starts a new one next time': '그룹 대화 세션을 열 수 없어 다음번에 새 세션을 시작합니다',
   // The composer's +
