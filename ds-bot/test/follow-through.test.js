@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { withRows } from './relay-rows.js'
 import { setTimeout as realDelay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -134,7 +135,7 @@ async function openRoomTurn(t, host) {
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = withRows(rt, 'r1', JSON.parse(value)) })
   await settle(() => host.agentOf('gb').calls.length === 1)
   run(host, 'gb', 1, host.agentOf('gb').calls[0])
   return () => result
@@ -163,7 +164,7 @@ test('a group turn cut off by a restart is picked up once, and the group is told
 
   // The group shows the event, and the admin reads it on its next turn.
   second.emit('r1', 'user/message', { content: post.content, source: post.source })
-  const relay = JSON.parse(await second.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
+  const relay = withRows(rt, 'r1', JSON.parse(await second.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal })))
   assert.deepEqual(relay.replies.map(reply => [reply.kind, reply.name]), [['resumed', 'Writer']])
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(state.rooms.r1.log.at(-1).kind, 'resumed')

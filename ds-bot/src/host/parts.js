@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
-import { parseReplies, stackReplies } from '../shared/group-replies.js'
+import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
@@ -1592,7 +1592,10 @@ export function install(rt) {
         // read the way the live chat reads a settled call (shared/group-replies.js).
         const message = event.data?.message
         if (!relayCalls.has(message?.toolCallId)) continue
-        const { replies } = parseReplies(textOf(message?.content))
+        const text = textOf(message?.content)
+        const range = relayRange(text)
+        const room = range === undefined ? undefined : rt.roomOf(partId) ?? rt.roomOf(rt.pastOwners.get(partId)?.roomId)
+        const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to)
         for (const { reply, texts, time, duration } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
