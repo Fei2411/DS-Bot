@@ -12274,6 +12274,9 @@ var ZH = {
   "Today {time}": "今天 {time}",
   "Yesterday {time}": "昨天 {time}",
   "Ran for {duration}": "本次用时 {duration}",
+  "Nothing is running": "没有任务在运行",
+  "This reply says work is going on, but no tool, background job or subagent is running.": "这条回复说还在处理，但没有工具、后台任务或子代理在跑。",
+  "File not found: {path}": "文件不存在：{path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · 缓存命中 {hit}%",
   "1 turn": "1 轮",
   "{count} turns": "{count} 轮",
@@ -14921,6 +14924,9 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-group-name:has(>.bt-lead){display:flex;align-items:center;margin:0 0 2px;font-size:13px;line-height:22px;font-weight:600;color:var(--bt-ink)}
 .bt-group-name>.bt-lead{margin:0 8px 0 0}
 .bt-group-time,.bt-group-took{margin-left:6px;font-size:11px;line-height:16px;font-weight:400;color:var(--bt-ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-claim{margin-left:28px;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+.bt-claim-file{color:var(--bt-danger)}
+.bt-claim-inProgress{color:var(--bt-ink-2)}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -17924,7 +17930,7 @@ var COMPUTER_CSS = `
 .bt-cstep-shot-open img{max-height:280px;max-width:480px}
 `;
 
-// node_modules/deep-view/src/react/ui.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/ui.js
 var import_react12 = require("react");
 var FallbackMarkdown = ({ text }) => (0, import_react12.createElement)("span", null, String(text ?? ""));
 var ViewUi = (0, import_react12.createContext)({ t: (key) => key, Markdown: FallbackMarkdown });
@@ -17991,7 +17997,7 @@ function useOptionKeys2(count, onPick, ownRef) {
   return count > 0 && listening <= 1;
 }
 
-// node_modules/deep-view/src/core/formula.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/core/formula.js
 var FUNCTIONS = {
   min: { args: [1, Infinity], run: (...values) => Math.min(...values.map(num)) },
   max: { args: [1, Infinity], run: (...values) => Math.max(...values.map(num)) },
@@ -18272,7 +18278,7 @@ function evaluate(tree, lookup) {
   }
 }
 
-// node_modules/deep-view/src/core/views.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/core/views.js
 var LAYOUT = ["stack", "row"];
 var DISPLAY = ["text", "metric", "table", "chart", "progress", "callout", "sources", "html"];
 var INPUT_TYPES = ["slider", "choice", "toggle", "number"];
@@ -18904,7 +18910,7 @@ function validateForm(node, values) {
   return { fields };
 }
 
-// node_modules/deep-view/src/react/chart.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/chart.js
 var import_react13 = require("react");
 var PALETTE = ["var(--dv-accent)", "var(--dv-ink-tangerine)", "var(--dv-ink-green)", "var(--dv-ink-violet)", "var(--dv-ink-sky)", "var(--dv-ink-rose)", "var(--dv-ink-yellow)", "var(--dv-ink-cyan)", "var(--dv-ink-magenta)"];
 var colorAt = (index) => PALETTE[index % PALETTE.length];
@@ -19343,7 +19349,7 @@ var CHART_CSS = `
 @media (prefers-reduced-motion:reduce){.dv-chart-mark,.dv-chart-dot{transition:none}.dv-chart-tip{animation:none}}
 `;
 
-// node_modules/deep-view/src/react/frame.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/frame.js
 var import_react14 = require("react");
 var THEME_VARS = [
   ["--view-ink", "--bt-ink", "--dv-ink"],
@@ -19425,7 +19431,7 @@ var HTML_CSS = `
 .dv-view-frame-stopped{margin:0;font-size:13px;line-height:18px;color:var(--dv-ink-2)}
 `;
 
-// node_modules/deep-view/src/react/card.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/card.js
 var import_react15 = require("react");
 var mdLabels = (ui2) => ({ code: { copyLabel: ui2.t("Copy"), copiedLabel: ui2.t("Copied") }, footnotes: ui2.t("Footnotes") });
 var TONES2 = ["good", "warn", "bad"];
@@ -20167,7 +20173,7 @@ ${CHART_CSS}
 ${HTML_CSS}
 `;
 
-// node_modules/deep-view/src/react/styles.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/styles.js
 var THEME_CSS = `
 body{
 --dv-ink:var(--dsw-alias-label-primary);
@@ -20265,10 +20271,10 @@ button.dv-q-opt:active{background:var(--dv-active)}
 @media (prefers-reduced-motion:reduce){.dv-q,.dv-view-bare,.dv-q-submit,.dv-menu,.dv-q-check{animation:none}}
 `;
 
-// node_modules/deep-view/src/react/index.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/react/index.js
 var DEEP_VIEW_CSS = THEME_CSS + QUESTION_CSS + WIDGET_CSS;
 
-// node_modules/deep-view/src/core/reply.js
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/deep-view/src/core/reply.js
 var REPLY_KIND = "user-question-reply";
 var REPLY_SOURCE_KIND = "deep-view-reply";
 function viewCardText(args) {
@@ -25815,7 +25821,20 @@ function scheduleGroupChains(flow) {
     if (flow.isConnected !== false) syncGroupChains(flow);
   });
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole, time, duration }) {
+function claimLines(claims) {
+  if (claims === void 0 || claims === null) return [];
+  const lines = [];
+  if (claims.inProgress === true) {
+    lines.push({
+      kind: "inProgress",
+      text: t("Nothing is running"),
+      detail: t("This reply says work is going on, but no tool, background job or subagent is running.")
+    });
+  }
+  for (const path2 of claims.missingFiles ?? []) lines.push({ kind: "file", text: t("File not found: {path}", { path: path2 }) });
+  return lines;
+}
+function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole, time, duration, claims }) {
   const ref = (0, import_react32.useRef)(null);
   (0, import_react32.useLayoutEffect)(() => {
     const el = ref.current;
@@ -25844,7 +25863,8 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react32.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole }),
+    claimLines(claims).map((line) => (0, import_react32.createElement)("div", { key: line.kind + line.text, className: `bt-claim bt-claim-${line.kind}`, role: "status", title: line.detail ?? void 0 }, line.text))
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -26068,6 +26088,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
         time: row.time,
         duration: row.duration,
+        claims: row.claims,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
       });
     }
@@ -26479,7 +26500,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           goalEventText(reply)
         );
       }
-      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
+      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims: reply.claims });
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id];
@@ -30233,7 +30254,7 @@ var CONNECTORS_PAGE_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-app[data-fresh]::after,.bt-app[data-fresh] .bt-app-icon,.bt-app[data-fresh] .bt-app-btn-done{animation:none}}
 `;
 
-// node_modules/qrcode-generator/dist/qrcode.mjs
+// ../../../DS Bot/DeepSeek-Bot/ds-bot/node_modules/qrcode-generator/dist/qrcode.mjs
 var qrcode = function(typeNumber, errorCorrectionLevel) {
   const PAD0 = 236;
   const PAD1 = 17;

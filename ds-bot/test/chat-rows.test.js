@@ -27,7 +27,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   },
   queueMicrotask,
 })
-const { ChatRows, ThinkingRow, syncGroupChains } = module.exports
+const { ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
@@ -129,4 +129,18 @@ test('consecutive group messages from the same Bot chain together, and cards or 
   assert.equal(m3.dataset.chainPrev, undefined)
   assert.equal(m3.dataset.chainNext, undefined)
   assert.equal(m4.dataset.chainPrev, undefined)
+})
+
+test('a final reply with a missing file and no work running draws both markers', () => {
+  const claims = { inProgress: true, missingFiles: ['./out/report.pptx'] }
+  assert.deepEqual([...claimLines(claims)].map(line => String(line.text)), ['Nothing is running', 'File not found: ./out/report.pptx'])
+  assert.equal(claimLines(undefined).length, 0)
+  const tree = GroupMessage({
+    bot: { id: 'b', name: 'Writer' }, text: '正在导出，稍后汇报。', room: { id: 'r1' }, roster: { prefs: {} }, actions: { openSession() {} }, claims,
+  })
+  const markers = tree.children.filter(child => String(child?.props?.className ?? '').startsWith('bt-claim'))
+  assert.deepEqual([...markers].map(child => [String(child.props.className), [...child.children].join('')]), [
+    ['bt-claim bt-claim-inProgress', 'Nothing is running'],
+    ['bt-claim bt-claim-file', 'File not found: ./out/report.pptx'],
+  ])
 })

@@ -17,6 +17,7 @@
 // turn keeps running in its group Session, and what it ends with is posted to the group,
 // where the member that asked for it answers.
 import { randomUUID } from 'node:crypto'
+import { claimsFor } from './claims.js'
 import { readFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
@@ -300,7 +301,7 @@ export function install(rt) {
     const time = record.time
     if (record.kind === undefined) {
       if (record.botId === undefined) return { kind: 'user', text: record.text, time, ...(record.via ? { via: record.via } : {}) }
-      return { ...who, text: record.text, time, ...(record.duration === undefined ? {} : { duration: record.duration }) }
+      return { ...who, text: record.text, time, ...(record.duration === undefined ? {} : { duration: record.duration }), ...(record.claims === undefined ? {} : { claims: record.claims }) }
     }
     if (record.kind === 'lookup') return { kind: 'lookup', ...who, text: record.text, time }
     if (record.kind !== 'notice') return { kind: record.kind, ...who, time }
@@ -614,11 +615,21 @@ export function install(rt) {
   }
 
   // A member's message in the round, for the members after it and the user.
-  const postInRound = (room, member, text, duration) => {
-    say(room, { who: member.name, botId: member.id, text, ...(duration === undefined ? {} : { duration }) })
+  const postInRound = (room, member, text, duration, claims) => {
+    say(room, { who: member.name, botId: member.id, text, ...(duration === undefined ? {} : { duration }), ...(claims === undefined ? {} : { claims }) })
     void rt.save().catch(() => {})
     return room.seq
   }
+
+  // What a final reply claims, checked against the computer. Only final replies are
+  // checked: a step line says what is under way, not what came of it.
+  const claimsOf = (sessionId, text, worked) => claimsFor({
+    text,
+    base: rt.sessionFolder?.(sessionId),
+    worked,
+    subagents: rt.hasSubagents?.(sessionId) === true,
+    runningJobs: rt.runningJobs?.(sessionId)?.length ?? 0,
+  })
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
   // model call failed, `{ missed }` when it went quiet for too long, `{ approval }` when
@@ -1031,7 +1042,7 @@ export function install(rt) {
       say(room, { who: member.name, botId: member.id, kind: 'working' })
     } else if (subRunning) {
       if (final !== undefined) {
-        postInRound(room, member, final, Date.now() - startedAt)
+        postInRound(room, member, final, Date.now() - startedAt, claimsOf(session.id, final, true))
         callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
       }
       slot.status = 'working'
@@ -1040,7 +1051,7 @@ export function install(rt) {
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined) {
-        posted.push(postInRound(room, member, final, Date.now() - startedAt))
+        posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(session.id, final, worked)))
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
@@ -1436,7 +1447,7 @@ export function install(rt) {
         say(room, { who: sender.name, botId: sender.id, kind, text: '' })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        say(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}) })
+        say(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}), ...(extra.claims === undefined ? {} : { claims: extra.claims }) })
         if (extra.batch !== undefined && line !== '') recordResult(extra.batch, sender.name, room.seq)
       }
       callPost(room, running, sender, text, extra)
@@ -1458,7 +1469,7 @@ export function install(rt) {
   // it names answer. When multiple members were called in one batch, each result posts
   // as soon as it is ready, and the caller is woken once when the last member in the
   // batch finishes.
-  async function lateRoomReply(sessionId, info, reply, { shown = false } = {}) {
+  async function lateRoomReply(sessionId, info, reply, { shown = false, toolCount = 0 } = {}) {
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)
@@ -1506,7 +1517,8 @@ export function install(rt) {
       if (batch !== undefined) closeBatch(batch.key)
       return
     }
-    await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })
+    const claims = done || text === '' ? undefined : claimsOf(sessionId, text, toolCount > 0)
+    await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}), ...(claims === undefined ? {} : { claims }) })
   }
   rt.lateRoomReply = lateRoomReply
 

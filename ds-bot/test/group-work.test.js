@@ -2240,3 +2240,38 @@ test('a batch wake says which member finished with no closing message of its own
   host.begin('ga')
   host.finish('ga', '[PASS]')
 })
+
+// #977: a final reply that announces work while no tool, job or subagent runs is marked
+// for the reader, and a local file it names is checked. Nothing is retried or reworded.
+test('a reply announcing work with nothing running is marked, with its missing file (#977)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  const missing = join(tmpdir(), `ds-bot-977-${process.pid}-${Date.now()}`, 'report.pptx')
+  const long = `正在导出报告到 ${missing}，稍后汇报。${'背景：这一页要沿用上一版的样式和图表。'.repeat(12)}`
+  host.finish('gb', long)
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.deepEqual(reply.claims, { missingFiles: [missing], inProgress: true })
+  assert.equal(host.agentOf('gb').calls.length, 1, 'nothing is retried')
+})
+
+// A member that started real work is not marked, and a file that exists is not named.
+test('work that did run and a file that exists carry no marker (#977)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-file-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const done = join(root, 'report.pptx')
+  writeFileSync(done, 'x')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', `正在导出报告到 ${done}，稍后汇报。`)
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.equal(reply.claims, undefined)
+  assert.equal(host.agentOf('gb').calls.length, 1)
+})
