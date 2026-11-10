@@ -4,7 +4,7 @@ import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
@@ -799,12 +799,14 @@ export function TeamSidebar(props) {
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // the rail the new-chat button above it. The way back to the classic Agent page
+  // sits beside the account, as that page's own way into the team sits in its footer.
+  const classicReturn = actions.setSurface ? h(ClassicReturn, { wide: wideContent, actions }) : null
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), classicReturn)
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h(AccountLauncher, { seat: false, actions }))
+        h(AccountLauncher, { seat: false, actions }), classicReturn)
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -1226,6 +1228,14 @@ export function BotReturn({ wide, useSurface, useRoster, actions }) {
     wide ? h('span', { className: 'bt-return-name' }, t('DS Bot')) : null)
 }
 
+// Bot mode's mirror of BotReturn: the same switch in the Bot column's own footer,
+// so both surfaces carry the way across in the same corner.
+export function ClassicReturn({ wide, actions }) {
+  return h('button', { type: 'button', className: 'bt-classic', 'aria-label': t('Classic Agent mode'), title: t('Classic Agent mode'), onClick: () => actions.setSurface('agent') },
+    h(SwitchIcon),
+    wide ? h('span', { className: 'bt-classic-name' }, t('Classic')) : null)
+}
+
 // Agent mode has none of the shell-group styles, so the return button carries its own.
 export const RETURN_CSS = `
 .bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
@@ -1236,6 +1246,12 @@ export const RETURN_CSS = `
 /* Shell styles carry --bt-ink-deepseek and Agent mode withdraws them; pin it here. */
 .bt-return .bt-mark{--bt-ink-deepseek:#4D6BFE}
 .bt-return-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-classic{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease,transform .12s ease}
+.bt-classic:hover{background:var(--bt-hover)}
+.bt-classic:active{transform:scale(.96)}
+.bt-classic svg{flex:none;width:17px;height:17px}
+.bt-classic-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-leftcol-foot-rail .bt-classic{width:36px;padding:0;border-radius:50%}
 `
 
 export function BrandMark({ size = 24 }) {
