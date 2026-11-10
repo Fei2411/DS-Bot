@@ -1,6 +1,7 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Opening…": "開いています…",
   "Main Bot": "メイン Bot",
   "Working": "実行中",
   "Waiting for your answer": "回答待ち",

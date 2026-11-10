@@ -1,6 +1,7 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Opening…': 'Wird geöffnet…',
   // Shared
   'Main Bot': 'Haupt-Bot',
   Working: 'Arbeitet',

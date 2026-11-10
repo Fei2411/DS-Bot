@@ -1,6 +1,7 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'Opening…': 'Abriendo…',
   // Shared
   'Main Bot': 'Bot principal',
   Working: 'En curso',
