@@ -27,6 +27,21 @@ test('a build that fails on its own is not retried', () => {
   assert.equal(gatewayFailure('  • building        target=zip arch=x64 file=dist-pack/DS-Bot-0.3.504-mac-x64.zip'), undefined)
 })
 
+test('only the error that ended the build counts, not an attempt retried before it', () => {
+  // prepare-runtime.mjs warns for each attempt it retries, then the build ends on the last answer.
+  const url = 'https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-apple-darwin-install_only_stripped.tar.gz'
+  const output = [
+    `primary runtime download: attempt 1/4 failed: Error: primary runtime download: 504 ${url}; retrying in 5000 ms`,
+    `primary runtime download: attempt 2/4 failed, giving up: Error: primary runtime download: 404 ${url}`,
+    `  ⨯ primary runtime download: 404 ${url}  failed`,
+  ].join('\n')
+  assert.equal(gatewayFailure(output), undefined)
+  // Retried 504s that end on a 504 still count.
+  assert.match(gatewayFailure(output.replace(/404/gu, '504')), /^⨯ primary runtime download: 504 /u)
+  // A warning alone, without the error that ended the build, does not.
+  assert.equal(gatewayFailure(output.split('\n')[0]), undefined)
+})
+
 /**
  * A runner that plays back the given results.
  * @param {{ code: number | null, signal?: NodeJS.Signals | null, output?: string }[]} results - One per run.
