@@ -7,6 +7,9 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
+import jpeg from 'jpeg-js'
+import { PNG } from 'pngjs'
+import { shrink } from '../src/host/preview-worker.js'
 
 // A team with no model: Sessions are made in memory, a group round runs on answers
 // played back through the session/event listeners, and `history` holds the events
@@ -385,6 +388,46 @@ test('chat items carry imageRefs and image returns bytes for an owned session on
   assert.equal(refused.ok, false)
   assert.equal(refused.error.code, 'bot/not-found')
   await stop()
+})
+
+test('image with preview sends a small JPEG of a large photo, and the original without it', async () => {
+  const { ctx, call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const width = 1600
+  const height = 1200
+  const pixels = Buffer.alloc(width * height * 4)
+  for (let at = 0; at < pixels.length; at += 1) pixels[at] = (at * 7919) % 251
+  const photo = jpeg.encode({ data: pixels, width, height }, 90).data
+  const small = jpeg.encode({ data: Buffer.alloc(8 * 8 * 4, 200), width: 8, height: 8 }, 90).data
+  const big = await ctx.get('attachments').saveFile({ data: photo, name: 'photo.jpg', mediaType: 'image/jpeg', width, height })
+  const tiny = await ctx.get('attachments').saveFile({ data: small, name: 'tiny.jpg', mediaType: 'image/jpeg', width: 8, height: 8 })
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: big }, { type: 'image', attachment: tiny }] } },
+  ]
+  for (let round = 0; round < 2; round += 1) {
+    const preview = (await call('image', { sessionId, attachmentId: big.attachmentId, preview: true })).value
+    assert.equal(preview.mime, 'image/jpeg')
+    assert.equal(preview.preview, true)
+    const decoded = jpeg.decode(Buffer.from(preview.data, 'base64'))
+    assert.deepEqual([decoded.width, decoded.height], [512, 384])
+    assert.ok(Buffer.from(preview.data, 'base64').length < photo.length / 4)
+  }
+  const whole = (await call('image', { sessionId, attachmentId: big.attachmentId })).value
+  assert.equal(Buffer.compare(Buffer.from(whole.data, 'base64'), photo), 0)
+  const kept = (await call('image', { sessionId, attachmentId: tiny.attachmentId, preview: true })).value
+  assert.equal(kept.preview, undefined)
+  assert.equal(kept.mime, 'image/jpeg')
+  assert.equal(Buffer.compare(Buffer.from(kept.data, 'base64'), small), 0)
+  await stop()
+})
+
+test('a preview puts transparent pixels over white', () => {
+  const png = new PNG({ width: 600, height: 300 })
+  png.data.fill(0)
+  const preview = jpeg.decode(shrink(PNG.sync.write(png), 'image/png', 512, 90))
+  assert.deepEqual([preview.width, preview.height], [512, 256])
+  assert.ok(preview.data[0] > 240 && preview.data[1] > 240 && preview.data[2] > 240)
 })
 
 test('state rows carry lastAt and preview from the Bot own chat', async () => {

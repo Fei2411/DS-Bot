@@ -46,8 +46,12 @@ export interface ChatItem {
 
 export const itemKey = (item: ChatItem, index: number) => `${item.kind}-${item.seq ?? item.time ?? index}-${index}`
 
-// Session data URIs, kept only in memory so nothing touches disk.
+// Session data URIs, kept only in memory so nothing touches disk. The chat shows
+// previews; an original is fetched when its photo is opened, and only the last few stay.
 const imageCache = new Map<string, string>()
+const originals = new Map<string, string>()
+const ORIGINALS_KEPT = 6
+const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?? 'image/png'};base64,${(value as { data?: string })?.data ?? ''}`
 
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
@@ -213,6 +217,7 @@ const type = typeScale
 function ImageGrid({ refs, sessionId, p }: { refs: ImageRef[]; sessionId: string; p: Palette }) {
   const [viewing, setViewing] = useState(-1)
   const states = useImages(sessionId, refs)
+  const whole = useOriginal(sessionId, viewing >= 0 ? refs[viewing] : undefined)
   const width = Dimensions.get('window').width
   const gap = 6
   return (
@@ -237,11 +242,15 @@ function ImageGrid({ refs, sessionId, p }: { refs: ImageRef[]; sessionId: string
         <View style={styles.viewer}>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}
             maximumZoomScale={3} minimumZoomScale={1}
-            contentOffset={{ x: Math.max(0, viewing) * width, y: 0 }}>
-            {refs.map((ref, index) => (
-              <Image key={ref.attachmentId} source={states[index].uri !== undefined ? { uri: states[index].uri } : undefined}
-                style={{ width, flex: 1 }} resizeMode="contain" accessibilityLabel={ref.name ?? t('Image')} />
-            ))}
+            contentOffset={{ x: Math.max(0, viewing) * width, y: 0 }}
+            onMomentumScrollEnd={event => setViewing(Math.round(event.nativeEvent.contentOffset.x / width))}>
+            {refs.map((ref, index) => {
+              const uri = (index === viewing ? whole : undefined) ?? states[index].uri
+              return (
+                <Image key={ref.attachmentId} source={uri !== undefined ? { uri } : undefined}
+                  style={{ width, flex: 1 }} resizeMode="contain" accessibilityLabel={ref.name ?? t('Image')} />
+              )
+            })}
           </ScrollView>
           <Pressable accessibilityRole="button" onPress={() => setViewing(-1)} style={styles.viewerClose}>
             <Text style={[typeScale.settingsRow, { color: '#fff' }]}>{t('Done')}</Text>
@@ -264,9 +273,9 @@ function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
     refs.forEach((ref, index) => {
       const cacheKey = `${sessionId}:${ref.attachmentId}`
       if (imageCache.has(cacheKey)) return
-      call('image', { sessionId, attachmentId: ref.attachmentId })
+      call('image', { sessionId, attachmentId: ref.attachmentId, preview: true })
         .then(value => {
-          const uri = `data:${(value as { mime?: string })?.mime ?? 'image/png'};base64,${(value as { data?: string })?.data ?? ''}`
+          const uri = dataUri(value)
           imageCache.set(cacheKey, uri)
           if (live) setStates(prev => prev.map((state, i) => i === index ? { uri } : state))
         })
@@ -275,6 +284,30 @@ function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
     return () => { live = false }
   }, [key])
   return states
+}
+
+// The original of the photo open in the viewer; the preview shows until it arrives.
+function useOriginal(sessionId: string, ref: ImageRef | undefined): string | undefined {
+  const { call } = useTeam()
+  const key = ref === undefined ? undefined : `${sessionId}:${ref.attachmentId}`
+  const [uri, setUri] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    if (key === undefined || ref === undefined) { setUri(undefined); return }
+    const kept = originals.get(key)
+    setUri(kept)
+    if (kept !== undefined) return
+    let live = true
+    call('image', { sessionId, attachmentId: ref.attachmentId })
+      .then(value => {
+        const next = dataUri(value)
+        originals.set(key, next)
+        while (originals.size > ORIGINALS_KEPT) originals.delete(originals.keys().next().value as string)
+        if (live) setUri(next)
+      })
+      .catch(() => {})
+    return () => { live = false }
+  }, [key])
+  return uri
 }
 
 // The bottom sheet a long-press opens: copy the source text or read it in a

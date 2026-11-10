@@ -41,7 +41,7 @@
 ### 私聊
 
 - `chat`、`send`、feed 的 `message` 和 `stream` 照旧（见 `feed.js`）。`chat` 的用户消息同样带 `images` / `imageRefs`。
-- `image`：`{ sessionId, attachmentId }` → `{ mime, data }`，`data` 是图片字节的 base64。`sessionId` 只认团队的会话（Bot 自己的私聊段、群的会话、换段留下的旧段），其它回 `bot/not-found`；附件不在会话里也是 `bot/not-found`。需要 `images` 能力。
+- `image`：`{ sessionId, attachmentId }` → `{ mime, data }`，`data` 是图片字节的 base64。`sessionId` 只认团队的会话（Bot 自己的私聊段、群的会话、换段留下的旧段），其它回 `bot/not-found`；附件不在会话里也是 `bot/not-found`。需要 `images` 能力。加 `preview: true` 时，长边超过 512 像素、文件超过 100 KB 的 JPEG 和 PNG 换成长边 512 的 JPEG 预览，回 `{ mime: 'image/jpeg', data, preview: true }`；其它照旧回原图。聊天里用预览，点开再取原图。需要 `image-preview` 能力。
 
 ### Bot 浏览器
 

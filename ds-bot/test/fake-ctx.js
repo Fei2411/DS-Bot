@@ -4,8 +4,9 @@ export function fakeAttachments() {
   const files = new Map()
   return {
     files,
-    async saveFile({ data, name }) {
-      const ref = { attachmentId: `sha256:${files.size + 1}`, name, bytes: data.length }
+    // An image's ref carries what DSH reads from its bytes: mediaType, width, height.
+    async saveFile({ data, name, mediaType, width, height }) {
+      const ref = { attachmentId: `sha256:${files.size + 1}`, name, bytes: data.length, ...(mediaType ? { mediaType, width, height } : {}) }
       files.set(ref.attachmentId, data)
       return ref
     },

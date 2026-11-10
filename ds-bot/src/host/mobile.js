@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
 
@@ -38,6 +39,7 @@ export const CAPABILITIES = [
   'chat-steps',
   'link-feed',
   'images',
+  'image-preview',
   'write-state',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
@@ -45,6 +47,8 @@ export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'ap
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
 const NOTICES_KEPT = 200
+// Chat photo previews kept in memory, about 50 KB each.
+const PREVIEWS_KEPT = 200
 const NOTICE_TEXT_MAX = 300
 const ROOM_PAGE = 60
 // A round's events come in bursts; one `room` feed event covers each burst.
@@ -57,6 +61,8 @@ const noticeText = (text) => {
   const line = flat(text)
   return line.length > NOTICE_TEXT_MAX ? `${line.slice(0, NOTICE_TEXT_MAX)}…` : line
 }
+// DSH names an image's type `mediaType`; older records said `mime`.
+const mediaOf = attachment => attachment?.mediaType ?? attachment?.mime ?? attachment?.mimeType
 export const avatarRef = image => createHash('sha256').update(image).digest('hex').slice(0, 16)
 
 // The prompts of a due scheduled task, as DSH frames them for the model.
@@ -101,7 +107,7 @@ export function roomItems(events) {
       const content = Array.isArray(event.data?.content) ? event.data.content : []
       if (source?.kind === 'user') {
         const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
-        const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: block.attachment.mime ?? block.attachment.mimeType, name: block.attachment.name }))
+        const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: mediaOf(block.attachment), name: block.attachment.name }))
         items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
@@ -314,6 +320,19 @@ export function install(rt) {
     return { botId: bot.id, day: totals(within(24)), week: totals(within(24 * 7)), month: totals(month), models, scanning: view.scanning }
   }
 
+  // Previews by attachment id, least recently used first; null for a photo sent whole.
+  const previews = new Map()
+  const keep = (key, small) => {
+    previews.delete(key)
+    previews.set(key, small)
+    while (previews.size > PREVIEWS_KEPT) previews.delete(previews.keys().next().value)
+  }
+  const shown = (key) => {
+    const small = previews.get(key)
+    keep(key, small)
+    return { mime: 'image/jpeg', data: small.toString('base64'), preview: true }
+  }
+
   async function image(body) {
     const sessionId = String(body.sessionId ?? '')
     const owned = rt.chatOwners.get(sessionId) !== undefined || rt.roomOf(sessionId) !== undefined || rt.pastOwners.get(sessionId) !== undefined
@@ -331,9 +350,20 @@ export function install(rt) {
         const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
         for (const block of content) {
           if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
+            const key = String(block.attachment.attachmentId)
+            if (body.preview === true && previews.get(key)) return shown(key)
             const chunks = []
             for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) chunks.push(chunk)
-            return { mime: block.attachment.mime ?? block.attachment.mimeType ?? 'image/png', data: Buffer.concat(chunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c))).toString('base64') }
+            const bytes = Buffer.concat(chunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c)))
+            const mime = mediaOf(block.attachment) ?? 'image/png'
+            const { width, height } = block.attachment
+            if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
+              // A photo that cannot be shrunk is sent as it is, and remembered as such.
+              const small = await previewImage(bytes, mime).catch(() => null)
+              keep(key, small)
+              if (small !== null) return shown(key)
+            }
+            return { mime, data: bytes.toString('base64') }
           }
         }
       }
