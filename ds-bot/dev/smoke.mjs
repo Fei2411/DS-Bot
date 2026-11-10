@@ -349,13 +349,19 @@ await step('exchange log between Chief and Writer', () => api('exchange', { a: c
 // Writer hands Chief's work on to Coder and waits, and the team view shows it; Coder's
 // result goes up to Chief with Writer's answer.
 await step('Writer waits for the work it handed on, then answers with it', async () => {
-  await send(chief().id, '转告 Writer: 转告 Coder: 慢慢做 3')
-  const writer = botNamed('Writer').id
-  for (const deadline = Date.now() + STEP_TIMEOUT_MS; Date.now() < deadline; await sleep(200)) {
-    const { activity = {}, work = {} } = await api('state')
-    if (activity[writer] === 'waiting') return work.waiting?.[writer]
+  const hold = join(HOME, 'hold-handoff')
+  writeFileSync(hold, '')
+  try {
+    await send(chief().id, '转告 Writer: 转告 Coder: 慢慢做 0')
+    const writer = botNamed('Writer').id
+    for (const deadline = Date.now() + STEP_TIMEOUT_MS; Date.now() < deadline; await sleep(200)) {
+      const { activity = {}, work = {} } = await api('state')
+      if (activity[writer] === 'waiting') return work.waiting?.[writer]
+    }
+    return undefined
+  } finally {
+    rmSync(hold, { force: true })
   }
-  return undefined
 }, (waiting, calls) => expect(waiting?.bots?.includes(botNamed('Coder').id) && waiting.for.includes(chief().id), `Writer did not show that it waits for Coder (${JSON.stringify(waiting)})`)
   ?? expect(saidText(calls, /^Coder 交回了，我把结果交给 Chief/), 'Writer did not go on when Coder answered')
   ?? expect(state().exchanges.some(entry => entry.role === 'reply' && entry.from === botNamed('Writer').id && entry.text.includes('[Handed back to Writer for this work]')), 'Chief did not get Coder\'s result with Writer\'s answer'))
