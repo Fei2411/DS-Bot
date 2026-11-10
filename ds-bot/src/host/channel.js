@@ -7,7 +7,19 @@ import { handoffReply, questionReply, viewReply } from './parts.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
-const LANGUAGES = { zh: 'Chinese (简体中文)', en: 'English' }
+const LANGUAGES = {
+  zh: 'Chinese (简体中文)',
+  'zh-tw': 'Traditional Chinese (繁體中文)',
+  'zh-hk': 'Traditional Chinese (繁體中文)',
+  'zh-mo': 'Traditional Chinese (繁體中文)',
+  'zh-hant': 'Traditional Chinese (繁體中文)',
+  en: 'English',
+  ja: 'Japanese (日本語)',
+  ko: 'Korean (한국어)',
+  es: 'Spanish (Español)',
+  fr: 'French (Français)',
+  de: 'German (Deutsch)',
+}
 const RUN_STATS = ['sessionStats', 'tokenUsage', 'contextPressure']
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
@@ -31,7 +43,11 @@ export function install(rt) {
 
   // The DSH interface language of the last browser that asked for the team.
   let uiLocale
-  rt.uiLanguage = () => (uiLocale === undefined ? undefined : LANGUAGES[uiLocale.split('-')[0].toLowerCase()] ?? uiLocale)
+  rt.uiLanguage = () => {
+    if (uiLocale === undefined) return undefined
+    const lower = uiLocale.toLowerCase()
+    return LANGUAGES[lower] ?? LANGUAGES[lower.split('-')[0]] ?? uiLocale
+  }
 
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
