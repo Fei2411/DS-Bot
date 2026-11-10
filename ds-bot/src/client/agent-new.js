@@ -19,10 +19,18 @@ export function agentSessionToReuse({ draft, draftRow, latest, latestRow }) {
     // Missing from the list, or still blank: it is the new conversation the user wants.
     if (draftRow === undefined) return draft
     if (draftRow.blank === true) return draft
-    // It has content now: a real conversation, not the one a new click starts.
-    return undefined
+    // A shell that counts a Session's own bootstrap events as content never calls an
+    // untouched one blank. A Session with no title has had no turn yet, so it is still
+    // the conversation a new click starts (#1225).
+    return sessionTitled(draftRow) ? undefined : draft
   }
   return latest !== undefined && latestRow?.blank === true ? latest : undefined
+}
+
+// Whether the shell has named the Session, which it does once the first turn runs.
+const sessionTitled = row => {
+  const title = row?.displayTitle ?? row?.title
+  return typeof title === 'string' && title.trim() !== ''
 }
 
 /**

@@ -229,7 +229,8 @@ export function apply(ctx) {
     for (const [agentId, sessionId] of agentDraft) {
       const row = listed[sessionId]
       const owned = (value.agents ?? []).some(agent => agent.id === agentId && (agent.sessions ?? []).includes(sessionId))
-      if (!owned || (row !== undefined && row.blank !== true)) agentDraft.delete(agentId)
+      const titled = typeof (row?.displayTitle ?? row?.title) === 'string' && (row.displayTitle ?? row.title).trim() !== ''
+      if (!owned || (row !== undefined && row.blank !== true && titled)) agentDraft.delete(agentId)
     }
     for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
       if (refreshed.has(id)) continue
@@ -514,10 +515,16 @@ export function apply(ctx) {
       if (agent === undefined) return
       const list = ctx.sessions.list.getSnapshot()
       const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))
+      // The card opens the newest conversation: a draft of this window only counts while
+      // no other Session was touched after it (another conversation makes that newest).
       const draft = agentDraft.get(agentId)
-      if (draft !== undefined && (list.byId[draft] === undefined || list.byId[draft].blank === true)) return actions.openAgentSession(draft)
+      const newest = recent[0]
+      if (draft !== undefined && (newest === undefined || newest === draft)) {
+        const row = list.byId[draft]
+        if (row === undefined || row.blank === true || !String(row.displayTitle ?? row.title ?? '').trim()) return actions.openAgentSession(draft)
+      }
       if (recent.length === 0) return actions.newAgentSession(agentId)
-      actions.openAgentSession(recent[0])
+      actions.openAgentSession(newest)
     },
     newAgentSession: async (agentId) => {
       const agent = roster.getSnapshot().agentsById[agentId]

@@ -11,7 +11,12 @@ test('a new-session click reuses the Session this window just created', () => {
   // The list has it, and it is still untouched.
   assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: true } }), 's-new')
   // The user wrote in it: it is a conversation now, so a new click starts a real one.
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false } }), undefined)
+  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false, displayTitle: 'Fix the build' } }), undefined)
+  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false, title: 'Fix the build' } }), undefined)
+  // A shell that counts a Session's own bootstrap events as content never calls it blank;
+  // without a turn there is no title, so the draft is still the conversation to open.
+  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false } }), 's-new')
+  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false, displayTitle: '   ' } }), 's-new')
   // Nothing created by this window: the Agent's latest blank Session still counts.
   assert.equal(agentSessionToReuse({ latest: 's-last', latestRow: { blank: true } }), 's-last')
   assert.equal(agentSessionToReuse({ latest: 's-last', latestRow: { blank: false } }), undefined)

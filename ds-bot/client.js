@@ -28874,10 +28874,14 @@ function agentSessionToReuse({ draft, draftRow, latest, latestRow }) {
   if (draft !== void 0) {
     if (draftRow === void 0) return draft;
     if (draftRow.blank === true) return draft;
-    return void 0;
+    return sessionTitled(draftRow) ? void 0 : draft;
   }
   return latest !== void 0 && latestRow?.blank === true ? latest : void 0;
 }
+var sessionTitled = (row) => {
+  const title = row?.displayTitle ?? row?.title;
+  return typeof title === "string" && title.trim() !== "";
+};
 function singleFlight(map, key, run2) {
   const running = map.get(key);
   if (running !== void 0) return running;
@@ -29037,7 +29041,8 @@ function apply(ctx) {
     for (const [agentId, sessionId] of agentDraft) {
       const row = listed[sessionId];
       const owned = (value.agents ?? []).some((agent) => agent.id === agentId && (agent.sessions ?? []).includes(sessionId));
-      if (!owned || row !== void 0 && row.blank !== true) agentDraft.delete(agentId);
+      const titled = typeof (row?.displayTitle ?? row?.title) === "string" && (row.displayTitle ?? row.title).trim() !== "";
+      if (!owned || row !== void 0 && row.blank !== true && titled) agentDraft.delete(agentId);
     }
     for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
@@ -29338,9 +29343,13 @@ function apply(ctx) {
       const list = ctx.sessions.list.getSnapshot();
       const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0));
       const draft = agentDraft.get(agentId);
-      if (draft !== void 0 && (list.byId[draft] === void 0 || list.byId[draft].blank === true)) return actions.openAgentSession(draft);
+      const newest = recent[0];
+      if (draft !== void 0 && (newest === void 0 || newest === draft)) {
+        const row = list.byId[draft];
+        if (row === void 0 || row.blank === true || !String(row.displayTitle ?? row.title ?? "").trim()) return actions.openAgentSession(draft);
+      }
       if (recent.length === 0) return actions.newAgentSession(agentId);
-      actions.openAgentSession(recent[0]);
+      actions.openAgentSession(newest);
     },
     newAgentSession: async (agentId) => {
       const agent = roster.getSnapshot().agentsById[agentId];
