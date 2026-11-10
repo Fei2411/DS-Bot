@@ -123,6 +123,27 @@ test('send replies passively with msg_id and a climbing msg_seq; a refusal is pe
   await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }), error => error.permanent === true && /reply/.test(error.message))
 })
 
+test('a delayed group reply keeps its own message ID after another member speaks', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  for (const [id, member] of [['message-a', 'alice'], ['message-b', 'bob']]) {
+    fake.push(ws, { op: 0, t: 'GROUP_AT_MESSAGE_CREATE', d: { id, content: 'question', group_openid: 'g1', author: { member_openid: member } } })
+  }
+  await until(() => messages.length === 2)
+  assert.deepEqual(messages[0].chat.replyTo, { messageId: 'message-a', senderId: 'alice' })
+  await handle.send(messages[0].chat, { text: 'answer Alice' })
+  await handle.send(messages[0].chat, { text: 'more for Alice' })
+  await handle.send(messages[1].chat, { text: 'answer Bob' })
+  const posts = fake.calls.filter(call => call.path === '/v2/groups/g1/messages')
+  assert.deepEqual(posts.map(call => [call.params.msg_id, call.params.msg_seq]), [
+    ['message-a', 1], ['message-a', 2], ['message-b', 1],
+  ])
+})
+
 test('a dropped socket reconnects and resumes', async (t) => {
   const fake = await fakeQq()
   const statuses = []

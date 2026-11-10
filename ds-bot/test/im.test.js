@@ -224,6 +224,45 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   assert.equal(s.fake.sent[1].chat.key, 'g1')
 })
 
+test('QQ group prompts identify each sender and queued replies keep their original message', async (t) => {
+  const s = await start({ platform: 'qq' })
+  t.after(s.stop)
+  const conn = await add(s, { appId: 'app-one', appSecret: 'test-secret' })
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'alice' }, { id: 'bob' })
+  one.chats.g1 = { kind: 'group', target: { botId: 'a' } }
+  one.chats.g2 = { kind: 'group', target: { botId: 'a' } }
+  await s.rt.save()
+  await gm(s, 'alice', 'my question', { messageId: 'message-a' })
+  await gm(s, 'bob', 'another question', { messageId: 'message-b' })
+  assert.match(s.prompts[0].content[0].text, /member_openid="alice"/)
+  assert.match(s.prompts[1].content[0].text, /member_openid="bob"/)
+  assert.match(s.prompts[0].requestId, /^im:qq:/)
+  assert.notEqual(s.prompts[0].requestId, s.prompts[1].requestId)
+  for (const [index, id] of ['message-a', 'message-b'].entries()) {
+    s.emitEvent('a', 'turn/start', { turn: index + 1 })
+    s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts[index].requestId }, content: s.prompts[index].content })
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `answer ${index}` }] } })
+    await s.flush()
+    const sent = s.fake.sent.slice(-2)
+    assert.equal(sent.find(item => item.chat.key === 'g1').chat.replyTo.messageId, id)
+    assert.equal(sent.find(item => item.chat.key === 'g2').chat.replyTo, undefined, 'other listeners keep their own passive reply context')
+  }
+})
+
+test('QQ room replies carry their captured message context through the outgoing queue', async (t) => {
+  const s = await start({ platform: 'qq' })
+  t.after(s.stop)
+  const conn = await add(s, { appId: 'app-one', appSecret: 'test-secret' })
+  const one = s.rt.state.im.connections[conn.id]
+  one.chats.g1 = { kind: 'group', target: { roomId: 'r1' } }
+  await s.rt.save()
+  const qqReply = { connectionId: conn.id, chatKey: 'g1', kind: 'group', messageId: 'message-a', senderId: 'alice' }
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Chief', botId: 'a', text: 'answer Alice', qqReply })
+  await s.flush()
+  assert.deepEqual(s.fake.sent[0].chat.replyTo, { messageId: 'message-a', senderId: 'alice' })
+})
+
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
   const s = await start()
   t.after(s.stop)

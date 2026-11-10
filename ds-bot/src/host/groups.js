@@ -25,6 +25,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, LATE_ANSWER, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
+import { qqReplyOf } from '../shared/qq-reply.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { failureLine } from './turns.js'
@@ -493,8 +494,8 @@ export function install(rt) {
 
   // A member's message in the round: in the log, for the members after it, and in the
   // round's replies, for the user.
-  const postInRound = (room, round, member, text, duration) => {
-    appendRoom(room, { who: member.name, botId: member.id, text })
+  const postInRound = (room, round, member, text, duration, qqReply) => {
+    appendRoom(room, { who: member.name, botId: member.id, text, ...(qqReply ? { qqReply } : {}) })
     round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now(), ...(duration === undefined ? {} : { duration }) })
     void rt.save().catch(() => {})
   }
@@ -507,7 +508,7 @@ export function install(rt) {
   // called it, which answers what the turn posts after the round moved on. What the
   // member writes before its last step is posted at once and collected in `said`, and
   // `heard` takes each such line once it is posted.
-  async function roomTurn(room, member, sessionId, { text, images = [], files = [] }, note, signal, round, by, said = [], heard = () => {}, onWork = () => {}) {
+  async function roomTurn(room, member, sessionId, { text, images = [], files = [], qqReply }, note, signal, round, by, said = [], heard = () => {}, onWork = () => {}) {
     if (signal.aborted) return null
     const startedAt = Date.now()
     const exchangeId = randomUUID()
@@ -540,7 +541,7 @@ export function install(rt) {
         const step = stripOwnName(member.name, raw)
         if (isPass(step)) return
         said.push(step)
-        postInRound(room, round, member, step, Date.now() - startedAt)
+        postInRound(room, round, member, step, Date.now() - startedAt, qqReply)
         heard(step)
       }
       touch()
@@ -548,7 +549,7 @@ export function install(rt) {
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
-      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}) })
+      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, ...(qqReply ? { qqReply } : {}), steer: busy, ...(by ? { askedBy: by } : {}) })
       // The prompt reached the member: its read position moves on.
       room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
@@ -682,7 +683,7 @@ export function install(rt) {
       const content = Array.isArray(message.content) ? message.content : []
       const text = textOf(content)
       if (text === '' || content.some(block => block?.type !== 'text') || text.includes('dsh-session:')) break
-      lines.push({ id: message.id, text, ...(viaOf(message.source) ? { via: viaOf(message.source) } : {}) })
+      lines.push({ id: message.id, text, ...(viaOf(message.source) ? { via: viaOf(message.source) } : {}), ...(qqReplyOf(message.source) ? { qqReply: qqReplyOf(message.source) } : {}) })
     }
     return lines
   })
@@ -701,7 +702,9 @@ export function install(rt) {
     rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const line of lines) {
-      appendRoom(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      // New calls may answer this message; running calls keep their own snapshot.
+      round.qqReply = line.qqReply
+      appendRoom(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}), ...(line.qqReply ? { qqReply: line.qqReply } : {}) })
       round.replies.push({ kind: 'user', text: line.text, time: Date.now(), ...(line.via ? { via: line.via } : {}) })
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
@@ -868,6 +871,7 @@ export function install(rt) {
     }
     await loadGroupLines(room)
     const prompt = roomPrompt(room, member, round, slot)
+    const qqReply = round.qqReply
     round.shown?.push(member.id)
     const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
     const said = []
@@ -884,7 +888,7 @@ export function install(rt) {
       markBatchWorked(room.id, member.id)
     }
     const reply = await roomTurn(
-      room, member, session.id, { text, images: prompt.images, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said,
+      room, member, session.id, { text, images: prompt.images, files: prompt.files, qqReply }, slot.note ?? 'your turn', signal, round, slot.by, said,
       line => callFrom(room, round, member, line, called, { worked, byBot: answeredBot }),
       onWork,
     )
@@ -907,7 +911,7 @@ export function install(rt) {
       round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
     } else if (subRunning) {
       if (final !== undefined) {
-        postInRound(room, round, member, final, Date.now() - startedAt)
+        postInRound(room, round, member, final, Date.now() - startedAt, qqReply)
         callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
       }
       slot.status = 'working'
@@ -916,7 +920,7 @@ export function install(rt) {
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined) {
-        postInRound(room, round, member, final, Date.now() - startedAt)
+        postInRound(room, round, member, final, Date.now() - startedAt, qqReply)
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
@@ -1003,6 +1007,7 @@ export function install(rt) {
           ...(post.images === undefined ? {} : { images: post.images }),
           ...(post.files === undefined ? {} : { files: post.files }),
           ...(post.via === undefined ? {} : { via: post.via }),
+          ...(post.qqReply ? { qqReply: post.qqReply } : {}),
         })
       }
       await rt.save()
@@ -1045,6 +1050,8 @@ export function install(rt) {
       if (draftPost !== undefined && admin !== undefined && !speakers.some(member => member.id === admin.id)) speakers.push(admin)
       const round = {
         roomId: room.id,
+        // An opener's reply anchor is copied into each member turn before it runs.
+        ...(opener.qqReply ? { qqReply: opener.qqReply } : {}),
         members: room.members,
         startSeq,
         goalRevision: room.goal?.revision,
@@ -1312,7 +1319,7 @@ export function install(rt) {
         running.replies.push({ kind, botId: sender.id, name: sender.name, color: sender.color, time: Date.now() })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        appendRoom(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}) })
+        appendRoom(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}), ...(extra.qqReply ? { qqReply: extra.qqReply } : {}) })
         running.replies.push({ botId: sender.id, name: sender.name, color: sender.color, text: line, time: Date.now() })
       }
       callPost(room, running, sender, text, extra)
@@ -1344,7 +1351,7 @@ export function install(rt) {
     if (rt.hasSubagents?.(sessionId) === true) {
       if (!isPass(text)) {
         const calls = callsIn(room, member, text)
-        await postToRoom(room, member, text, { progress: true, ...(!calls ? { quiet: true } : {}) })
+        await postToRoom(room, member, text, { progress: true, ...(info.qqReply ? { qqReply: info.qqReply } : {}), ...(!calls ? { quiet: true } : {}) })
           .catch(error => rt.warn('ds-bot: subagent progress from %s failed: %s', member.name, error))
       }
       return
@@ -1367,14 +1374,14 @@ export function install(rt) {
     }
     if (waitingPeers && named.length === 0) {
       if (!isPass(text)) {
-        await postToRoom(room, member, text, { late: true, quiet: true })
+        await postToRoom(room, member, text, { late: true, quiet: true, ...(info.qqReply ? { qqReply: info.qqReply } : {}) })
           .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
       }
       return
     }
     const done = isPass(text) && (shown || batchDoneBefore) && askedBy !== undefined
     if (isPass(text) && !done) return
-    await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })
+    await postToRoom(room, member, done ? '' : text, { late: true, ...(info.qqReply ? { qqReply: info.qqReply } : {}), ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
   }
   rt.lateRoomReply = lateRoomReply
@@ -1404,12 +1411,12 @@ export function install(rt) {
     const calls = callsIn(room, member, text)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     if (!calls && running !== undefined) {
-      postInRound(room, running, member, text)
+      postInRound(room, running, member, text, undefined, info?.qqReply)
       return
     }
     const quiet = !calls
     await rt.save()
-    await postToRoom(room, member, text, { progress: true, ...(quiet ? { quiet: true } : {}) })
+    await postToRoom(room, member, text, { progress: true, ...(info?.qqReply ? { qqReply: info.qqReply } : {}), ...(quiet ? { quiet: true } : {}) })
   }
 
   // Lines a member writes close together reach the group as one message, so a burst of
