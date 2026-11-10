@@ -244,11 +244,20 @@ export function install(rt) {
     if (rt.groupOwners.has(parentId)) rt.workRoomTurn?.(parentId, 'subagent')
   }
 
+  // A settlement notice can arrive after subagent/end; its label must survive until the
+  // notice is read, or the group line loses the name the child ran under (#973).
+  const endedSubagentLabels = new Map()
+  const rememberEndedLabel = (childId, label) => {
+    if (typeof label !== 'string' || label === '') return
+    endedSubagentLabels.set(childId, label)
+    while (endedSubagentLabels.size > 100) endedSubagentLabels.delete(endedSubagentLabels.keys().next().value)
+  }
   const noteSubagentEnd = (childId) => {
     if (typeof childId !== 'string' || childId === '') return
     const parentId = subagentParent.get(childId)
     if (parentId === undefined) return
     const map = subagentsByParent.get(parentId)
+    rememberEndedLabel(childId, map?.get(childId)?.label)
     map?.delete(childId)
     if (map !== undefined && map.size === 0) subagentsByParent.delete(parentId)
   }
@@ -810,9 +819,9 @@ export function install(rt) {
       case 'user/message': {
         const source = event.data?.source
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
-          // The child's label leaves with it in noteSubagentEnd; keep it for the group's line.
+          // subagent/end can come before the notice; its label is kept until the notice is read.
           const helper = source?.kind === 'subagent-settled' && typeof source.senderSessionId === 'string'
-            ? subagentsByParent.get(id)?.get(source.senderSessionId)?.label
+            ? subagentsByParent.get(id)?.get(source.senderSessionId)?.label ?? endedSubagentLabels.get(source.senderSessionId)
             : undefined
           if (typeof source.senderSessionId === 'string') {
             noteSubagentEnd(source.senderSessionId)
@@ -828,7 +837,7 @@ export function install(rt) {
           if (source?.kind === 'subagent-settled' && rt.groupOwners.has(id)) {
             const reason = subagentFailure(source, event.data.content)
             if (reason !== undefined) {
-              try { rt.subagentFailureNotice?.(id, { reason, helper }) } catch (error) { rt.warn('ds-bot: background helper failure not posted: %s', error) }
+              void Promise.resolve(rt.subagentFailureNotice?.(id, { reason, helper })).catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
             }
           }
         } else if (source?.kind === 'user' || source?.kind === SOURCE_KIND) {

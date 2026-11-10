@@ -118,6 +118,12 @@ async function start(t, room, services, extraRooms, bots, llm) {
   return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost, selected }
 }
 
+// The save before a group post runs on a timer; waiting with setImmediate starves it.
+const until = async (check, ms = 3000) => {
+  const stop = Date.now() + ms
+  while (!check() && Date.now() < stop) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(check(), 'condition not reached')
+}
 const settle = async (check) => {
   const until = Date.now() + 3000
   while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
@@ -1747,30 +1753,42 @@ test('a group member\'s dead background child is shown even when the model passe
   host.finish('gb', '正在导出。')
   await settle(() => first() !== undefined)
 
+  // The teammate dies after the round ended; subagent/end comes before its notice, as
+  // the handoff tests show. The member is woken and answers [PASS].
   const notice = {
     content: [{ type: 'text', text: 'Background subagent sub-1 failed before it finished.\nIt left no closing message.' }],
     source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
   }
+  host.emit('gb', 'subagent/end', { id: 'sub-1' })
   host.emit('gb', 'turn/start', { turn: 2 })
   host.emit('gb', 'user/message', notice)
-  const rows = () => rt.groupRows('r1', 0, rt.roomOf('r1')?.seq)
-  const shown = rows().filter(row => row.kind === 'helper-failed')
-  assert.equal(shown.length, 1, 'the group was not told about the dead child')
-  assert.equal(shown[0].name, 'Writer')
-  assert.match(shown[0].text, /^Export the deck: failed before it finished/)
-
-  // The member answers the notice with [PASS]; the notice stays and is not repeated.
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
   host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => true)
-  assert.equal(rows().filter(row => row.kind === 'helper-failed').length, 1)
+  await until(() => host.agentOf('r1').calls.length > 0)
+
+  // The settled round 1 draws only its own range: the late row is not in it. The host
+  // posts from the member, and the new round draws the row from there on (#973).
+  assert.equal(first().replies.filter(row => row.kind === 'helper-failed').length, 0)
+  const post = host.takePost()
+  assert.equal(post.source.role, 'post')
+  assert.match(post.content[0].text, /^\[Group post from Writer\]\nCould not finish: my background helper failed/)
+  const second = host.round('c2', post)
+  await until(() => second() !== undefined)
+  // The client reads a settled round's rows by the range its result names; the row must
+  // be inside that range, not only in the book.
+  const settled = second()
+  const shown = settled.replies.filter(row => row.kind === 'helper-failed')
+  assert.equal(shown.length, 1, 'the new round does not draw the dead child')
+  assert.equal(shown[0].name, 'Writer')
+  assert.match(shown[0].text, /^Export the deck: failed before it finished/, 'the label was lost before the settlement')
 
   // A child that finished makes no such line.
   host.emit('gb', 'user/message', {
     content: [{ type: 'text', text: 'Background subagent sub-2 finished.\nIts closing message:\ndone' }],
     source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-2 finished.', senderSessionId: 'sub-2' },
   })
-  assert.equal(rows().filter(row => row.kind === 'helper-failed').length, 1)
+  await settle(() => true)
+  assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed').length, 1)
 })
 
 test('approval keeps a member inside its parallel batch until all results arrive', async t => {
