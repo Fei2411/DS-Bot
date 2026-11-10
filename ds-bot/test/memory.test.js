@@ -11,6 +11,7 @@ import {
 } from '../src/host/memory.js'
 import { fitWindow, promptEntry } from '../src/host/memory-entries.js'
 import { rankEntries } from '../src/host/memory-search.js'
+import { estimateTokens } from '../src/host/text.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -131,7 +132,7 @@ const ownChat = [
 // it says otherwise. `requireSession` turns down a request without a Session, as
 // some routes do.
 let rt
-function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false } = {}) {
+function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, modelMaxTokens, requireSession = false } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const services = defaultModel === undefined ? {} : { agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: defaultModel }) } }
   const ctx = fakeContext({ services })
@@ -142,7 +143,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     llm: {
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
       listModels: async () => models.map(id => ({ id })),
-      resolveModelInfo: async () => ({ reasoning }),
+      resolveModelInfo: async () => ({ reasoning, ...(modelMaxTokens === undefined ? {} : { defaultMaxTokens: modelMaxTokens }) }),
       async* stream(request) {
         requests.push(request)
         if (requireSession && request.sessionId === undefined) throw new Error('400: {"type":"MissingSessionID","message":"Request is missing x-opencode-session"}')
@@ -150,7 +151,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
         if (reply instanceof Error) throw reply
         const out = typeof reply === 'object' && reply !== null ? reply : { text: reply ?? '' }
         yield { type: 'text-delta', index: 0, text: out.text ?? '' }
-        yield { type: 'finish', reason: { kind: out.finish ?? 'stop', ...(out.failure ? { failure: { message: out.failure } } : {}) } }
+        yield { type: 'finish', reason: { kind: out.finish ?? 'stop', ...(out.failure ? { failure: typeof out.failure === 'string' ? { message: out.failure } : out.failure } : {}) } }
       },
     },
     sessionController: {
@@ -881,7 +882,7 @@ test('Main Bots and group admins write the team memory; only Main Bots touch ano
   assert.match(await tool('remember', { text: 'Writes in Chinese', scope: 'Writer' }, 'm1'), /^Saved to Writer's memory/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /- Writes in Chinese \[id: [0-9a-f]{4}; source: part 1 #10; by: Chief; added: /)
   await assert.rejects(tool('remember', { text: 'Bossy', scope: 'Chief' }, 'b2'), /Only a Main Bot can change another Bot's memory/)
-  assert.match(await tool('recall', { scope: 'Writer' }, 'b3'), /^Only a Main Bot can read another Bot's memory/)
+  assert.doesNotMatch(await tool('recall', { scope: 'Writer' }, 'b3'), /private/)
   assert.match(await tool('recall', { scope: 'Nobody' }, 'b3'), /^No Bot named Nobody/)
   assert.match(await tool('recall', { query: 'friday' }, 'b2'), /\[team · MEMORY\.md\] Ship on Friday/)
   await assert.rejects(tool('forget', { entry: 'Friday', scope: 'team' }, 'b2'), /Only Main Bots and group admins/)
@@ -961,7 +962,7 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   t.after(() => renewed.stop())
   rmSync(join(first.home, 'memory', 'snapshots', 'b2.md'))
   await renewed.tool('recall', {}, 'b2')
-  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopic \[\[home\]\]: Lives in Hangzhou\n/)
+  assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopic \[\[home\]\]\n/)
 })
 
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
@@ -1069,7 +1070,7 @@ test('a summary cut off at the output limit is written once more with a bigger b
   await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.fresh, done.error], ['## Overview\nYou like tea.', true, null])
-  assert.deepEqual(requests.map(request => request.maxTokens), [2048, 8192])
+  assert.deepEqual(requests.map(request => request.maxTokens), [16384, 32768])
 })
 
 test('a summary cut off at both budgets keeps the old one and says the reasoning used the budget', async (t) => {
@@ -1089,8 +1090,94 @@ test('a summary cut off at both budgets keeps the old one and says the reasoning
   await summarized(call)
   const failed = (await call('memory-view', { botId: 'b2' })).value
   assert.equal(failed.summary.text, '## Overview\nYou like tea.')
-  assert.match(failed.error, /reasoning.*output budget|output budget.*reasoning/i)
-  assert.deepEqual(requests.map(request => request.maxTokens), [2048, 2048, 8192])
+  assert.match(failed.error, /cut off.*no complete answer/i)
+  assert.deepEqual(requests.map(request => request.maxTokens), [16384, 16384, 32768])
+})
+
+test('a gateway that turns an empty reply into a 502 is retried with a bigger budget', async (t) => {
+  // The reported shape: the model spends the whole budget on reasoning, the gateway
+  // reports the empty reply as HTTP 502. Before, this was an `error` and never retried.
+  const replies = [
+    { text: '', finish: 'error', failure: { message: 'an empty reply (the model answered nothing; try again)', code: 'SERVER', status: 502 } },
+    '## Overview\nYou like tea.',
+  ]
+  const { tool, call, requests, stop } = start({ replies })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const done = (await call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
+  assert.deepEqual(requests.map(request => request.maxTokens), [16384, 32768])
+  assert.equal(requests[0].reasoningEffort, 'off')
+})
+
+test('an empty reply without an error is retried with a bigger budget too', async (t) => {
+  const replies = [{ text: '' }, '## Overview\nYou like tea.']
+  const { tool, call, requests, stop } = start({ replies })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const done = (await call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
+  assert.deepEqual(requests.map(request => request.maxTokens), [16384, 32768])
+})
+
+test('an aborted summary call is not retried', async (t) => {
+  const replies = [{ text: '', finish: 'aborted' }]
+  const { tool, call, requests, stop } = start({ replies })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const failed = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(requests.length, 1)
+  assert.match(failed.error, /aborted/)
+})
+
+test('an auth failure is not retried: only the profile fallback is tried', async (t) => {
+  const replies = [
+    { text: '', finish: 'error', failure: { message: 'invalid key', code: 'AUTH', status: 401 } },
+    '## Overview\nYou like tea.',
+  ]
+  const { tool, call, requests, stop } = start({ replies, models: ['v4', 'flash'], defaultModel: 'flash' })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const done = (await call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
+  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384'])
+})
+
+test('an adapter output default leaves room for a larger retry', async (t) => {
+  // pi-ai classifies the gateway's 502 as SERVER without a structured status.
+  const replies = [
+    { text: '', finish: 'error', failure: { code: 'SERVER', message: 'HTTP 502: an empty reply' } },
+    '## ok',
+  ]
+  const { tool, call, requests, stop } = start({ replies, modelMaxTokens: 8_192 })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const done = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(done.summary?.text, '## ok')
+  assert.deepEqual(requests.map(request => request.maxTokens), [8192, 16384])
+})
+
+test('a provider failure on both tries says the provider failed, not that the model thought too long', async (t) => {
+  const failure = { text: '', finish: 'error', failure: { message: 'an empty reply', code: 'EMPTY_RESPONSE', status: 502 } }
+  const replies = [failure, failure]
+  const { tool, call, requests, stop } = start({ replies })
+  t.after(() => stop())
+  await tool('remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const failed = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(requests.length, 2)
+  assert.match(failed.error, /provider returned an error \(EMPTY_RESPONSE 502\): an empty reply/)
 })
 
 test('the panel call asks for the model\'s lowest thinking level when it has no "off"', async (t) => {
@@ -1120,7 +1207,7 @@ test('a summary the Bot\'s model refuses is written by the profile default model
   await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.fresh, done.error], ['## Overview\nYou like tea.', true, null])
-  assert.deepEqual(routes(requests), ['deepseek/v4@2048', 'deepseek/flash@2048'])
+  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384'])
   assert.ok(requests.every(request => request.messages[0].content[0].text.includes('Likes tea')))
 })
 
@@ -1133,20 +1220,21 @@ test('a summary cut off at both budgets on the Bot\'s model is written by the de
   await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
-  assert.deepEqual(routes(requests), ['deepseek/v4@2048', 'deepseek/v4@8192', 'deepseek/flash@2048'])
+  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/v4@32768', 'deepseek/flash@16384'])
 })
 
 test('a summary that failed on both models is tried again once the Bot has another model', async (t) => {
-  const replies = [new Error('401: Unauthorized'), { text: '', finish: 'error', failure: '503 Service Unavailable' }]
+  const unavailable = { text: '', finish: 'error', failure: { code: 'SERVER', status: 503, message: 'Service Unavailable' } }
+  const replies = [new Error('401: Unauthorized'), unavailable]
   const { tool, call, requests, stop } = start({ replies, models: ['v4', 'flash'], defaultModel: 'flash' })
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
   await summarized(call)
   const failed = (await call('memory-view', { botId: 'b2', summarize: true })).value
-  assert.equal(failed.error, 'deepseek/v4: 401: Unauthorized; deepseek/flash: 503 Service Unavailable')
+  assert.equal(failed.error, 'deepseek/v4: 401: Unauthorized; deepseek/flash: The provider returned an error (SERVER 503): Service Unavailable')
   assert.equal(failed.summarizing, false)
-  assert.equal(requests.length, 2)
+  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384'])
 
   assert.equal((await call('update-bot', { id: 'b2', model: 'deepseek/flash' })).ok, true)
   replies.push('## Overview\nYou like tea.')
@@ -1155,7 +1243,7 @@ test('a summary that failed on both models is tried again once the Bot has anoth
   await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
-  assert.deepEqual(routes(requests).slice(2), ['deepseek/flash@2048'])
+  assert.deepEqual(routes(requests).slice(2), ['deepseek/flash@16384'])
 })
 
 test('"ask or update" falls back to the default model when the Bot\'s model fails', async (t) => {
@@ -1165,7 +1253,7 @@ test('"ask or update" falls back to the default model when the Bot\'s model fail
   await tool('remember', { text: 'Likes tea' }, 'b2')
   const answer = (await call('memory-ask', { botId: 'b2', text: 'What do I like?' })).value
   assert.equal(answer.reply, 'You like tea.')
-  assert.deepEqual(routes(requests), ['deepseek/v4@2048', 'deepseek/flash@2048'])
+  assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/flash@16384'])
 })
 
 test('"ask or update" answers from the entries and changes them through the same rules', async (t) => {
@@ -1667,6 +1755,69 @@ test('a topic entry and another group stay out of the memory update', async (t) 
   assert.equal(await updateOf(ctx, 'b2'), undefined)
 })
 
+test('a resident update keeps edits to legacy entries that share a short id', async (t) => {
+  const { home, ctx, section, tool, stop } = start()
+  t.after(() => stop())
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'MEMORY.md'), '# Memory\n\n- Legacy note number 307\n- Legacy note number 432\n')
+  const prompt = section('b2')
+  assert.match(prompt, /307 \[1528\][\s\S]*432 \[1528\]/)
+  await settle()
+  await tool('remember', { text: 'Corrected legacy note', replace: 'Legacy note number 307', scope: 'Writer' }, 'm1')
+  const update = textOf(await updateOf(ctx, 'b2'))
+  assert.match(update, /"Legacy note number 307" is now "Corrected legacy note"/)
+  assert.doesNotMatch(update, /Legacy note number 432/)
+})
+
+test('a running conversation receives a team entry promoted to and removed from its prompt', async (t) => {
+  const { ctx, call, tool, section, stop } = start()
+  t.after(() => stop())
+  const opened = section('b2')
+  await tool('remember', { scope: 'team', text: 'The team prefers one-page reports' }, 'm1')
+  const entry = { botId: 'b2', text: 'The team prefers one-page reports' }
+  await call('memory-layer', { ...entry, topic: 'shared', always: true })
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Added to team memory by the user: The team prefers one-page reports/)
+  await settle()
+  await call('memory-layer', { ...entry, always: false })
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Removed from team memory by the user: The team prefers one-page reports/)
+  assert.equal(section('b2'), opened)
+})
+
+test('team entries never fall back to the resident layer without always', async (t) => {
+  const { home, tool, read, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { scope: 'team', text: 'Always answer in Chinese', always: true }, 'm1')
+  await assert.rejects(tool('remember', { scope: 'team', replace: 'Always answer in Chinese', text: 'Always answer in English' }, 'm1'), /requires always/)
+  const dir = join(home, 'memory', 'team')
+  for (let i = 0; i < MEMORY_LIMITS.topics; i += 1) writeFileSync(join(dir, `topic-${i}.md`), `# Topic ${i}\n`)
+  await tool('remember', { scope: 'team', text: 'Coder knows the build' }, 'm1')
+  assert.match(read('team', 'shared.md'), /Coder knows the build/)
+  assert.doesNotMatch(read('team', 'MEMORY.md'), /Coder knows the build|Always answer in English/)
+})
+
+test('a topic never shows its expired first entry as a navigation note', async (t) => {
+  const { section, tool, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'The old launch is on Friday', topic: 'launch', until: '2020-01-01' }, 'b2')
+  const prompt = section('b2')
+  assert.match(prompt, /Topic \[\[launch\]\]/)
+  assert.doesNotMatch(prompt, /The old launch is on Friday/)
+})
+
+test('topic navigation shares the resident prompt budget', async (t) => {
+  const { ctx, tool, section, stop } = start()
+  t.after(() => stop())
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 5_000 } })
+  await updateOf(ctx, 'b2')
+  await tool('remember', { text: 'The user prefers one-page reports' }, 'b2')
+  for (let i = 0; i < 20; i += 1) await tool('remember', { text: `Launch reference number ${i}`, topic: `launch-${i}` }, 'b2')
+  const own = section('b2').split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
+  assert.match(own, /The user prefers one-page reports/)
+  assert.match(own, /Topic \[\[launch-0\]\]/)
+  assert.ok(estimateTokens(own) <= 100)
+})
+
 test('the team memory every Bot always reads takes what the user says, and the rest waits in a topic', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   const history = { m1: [...ownChat] }
@@ -1703,6 +1854,104 @@ test('the team memory every Bot always reads takes what the user says, and the r
   assert.doesNotMatch(read('team', 'shared.md'), /Coder knows the build/)
   const down = await call('memory-layer', { botId: 'b2', text: 'Coder knows the build', always: false })
   assert.equal(down.value.entries.find(entry => entry.text === 'Coder knows the build').topic, 'shared')
+})
+
+test('the panel moves an entry to another memory, whole, and the first memory no longer has it', async (t) => {
+  const { tool, call, read, stop } = start()
+  t.after(() => stop())
+  await tool('remember', { text: 'Coder drafts in plain words', until: '2099-01-01' }, 'b2')
+  const pinned = await call('memory-pin', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', pin: true })
+  const before = pinned.value.entries.find(entry => entry.text === 'Coder drafts in plain words')
+  assert.ok(pinned.value.places.some(place => place.kind === 'bot' && place.key === 'bot:b3'), JSON.stringify(pinned.value.places))
+  assert.equal(pinned.value.keys.own, 'bot:b2')
+  const idOf = file => /\bid: ?([\w-]+)/.exec(read(...file).split('\n').find(line => line.includes('Coder drafts')))?.[1]
+  const id = idOf(['bots', 'b2', 'MEMORY.md'])
+  assert.ok(id)
+  // To another Bot: the line keeps its id, end date and pin.
+  const moved = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'bot:b3' })
+  assert.equal(moved.value.entries.some(entry => entry.text === before.text), false)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Coder drafts/)
+  const there = read('bots', 'b3', 'MEMORY.md').split('\n').find(line => line.includes('Coder drafts'))
+  assert.match(there, /until: 2099-01-01/)
+  assert.match(there, /pinned: user/)
+  assert.equal(idOf(['bots', 'b3', 'MEMORY.md']), id)
+  // To the team: it waits in a topic, and every Bot does not start reading it.
+  await call('memory-move', { botId: 'b3', scope: 'own', text: 'Coder drafts in plain words', to: 'team' })
+  assert.doesNotMatch(read('bots', 'b3', 'MEMORY.md'), /Coder drafts/)
+  assert.doesNotMatch(read('team', 'MEMORY.md').replace(/\[\[shared\]\].*/g, ''), /Coder drafts/)
+  assert.match(read('team', 'shared.md'), /Coder drafts in plain words/)
+  // Back out of the team: the empty topic goes, and so does its link.
+  await call('memory-move', { botId: 'b2', scope: 'team', topic: 'shared', text: 'Coder drafts in plain words', to: 'bot:b2' })
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Coder drafts in plain words/)
+  assert.doesNotMatch(read('team', 'MEMORY.md'), /\[\[shared\]\]/)
+  // Where it already is, and a place that does not exist, change nothing.
+  const same = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'bot:b2' })
+  assert.equal(same.value.entries.filter(entry => entry.text === 'Coder drafts in plain words').length, 1)
+  const gone = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'bot:nobody' })
+  assert.equal(gone.ok ?? false, false, JSON.stringify(gone))
+  const unknown = await call('memory-move', { botId: 'b2', scope: 'own', text: 'Coder drafts in plain words', to: 'somewhere' })
+  assert.equal(unknown.ok ?? false, false, JSON.stringify(unknown))
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Coder drafts in plain words/)
+})
+
+test('a move keeps the source when the destination already has different metadata', async (t) => {
+  const { call, tool, read, stop } = start()
+  t.after(() => stop())
+  const text = 'The user prefers one-page reports'
+  await tool('remember', { text, pin: true, until: '2099-06-01' }, 'b2')
+  await tool('remember', { text }, 'b3')
+  const from = read('bots', 'b2', 'MEMORY.md')
+  const to = read('bots', 'b3', 'MEMORY.md')
+  const result = await call('memory-move', { botId: 'b2', scope: 'own', text, to: 'bot:b3' })
+  assert.equal(result.ok, false)
+  assert.match(result.error.message, /different details/)
+  assert.equal(read('bots', 'b2', 'MEMORY.md'), from)
+  assert.equal(read('bots', 'b3', 'MEMORY.md'), to)
+})
+
+test('two moves of one entry only write one destination', async (t) => {
+  const { call, tool, read, home, stop } = start()
+  t.after(() => stop())
+  const text = 'The user prefers one-page reports'
+  await tool('remember', { text }, 'b2')
+  const move = to => call('memory-move', { botId: 'b2', scope: 'own', text, to })
+  const results = await Promise.all([move('bot:b3'), move('group:r1')])
+  assert.equal(results.filter(result => result.ok).length, 1)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /one-page reports/)
+  const destinations = [['bots', 'b3'], ['groups', 'r1']]
+  assert.equal(destinations.filter(path => existsSync(join(home, 'memory', ...path, 'MEMORY.md')) && read(...path, 'MEMORY.md').includes(text)).length, 1)
+})
+
+test('a move can finish when its exact destination copy is already saved', async (t) => {
+  const { call, tool, read, home, stop } = start()
+  t.after(() => stop())
+  const text = 'The user prefers one-page reports'
+  await tool('remember', { text, pin: true, until: '2099-06-01' }, 'b2')
+  const dir = join(home, 'memory', 'bots', 'b3')
+  mkdirSync(dir, { recursive: true })
+  const saved = read('bots', 'b2', 'MEMORY.md')
+  writeFileSync(join(dir, 'MEMORY.md'), saved)
+  const moved = await call('memory-move', { botId: 'b2', scope: 'own', text, to: 'bot:b3' })
+  assert.equal(moved.ok, true, JSON.stringify(moved))
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /one-page reports/)
+  assert.equal(read('bots', 'b3', 'MEMORY.md'), saved)
+})
+
+test('an entry moved out of a private Bot is the only thing of it the shared log sees', async (t) => {
+  const { tool, call, read, stop, home } = start()
+  t.after(() => stop())
+  const team = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  team.bots.b2.private = true
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  await tool('remember', { text: 'A private fact' }, 'b2')
+  await tool('remember', { text: 'A fact to share' }, 'b2')
+  await call('memory-move', { botId: 'b2', scope: 'own', text: 'A fact to share', to: 'team' })
+  assert.match(read('team', 'shared.md'), /A fact to share/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /A fact to share/)
+  assert.match(read('bots', 'b2', 'journal.jsonl'), /"op":"remove".*A fact to share/)
+  const shared = read('journal.jsonl')
+  assert.match(shared, /"op":"add","scope":"team".*A fact to share/)
+  assert.doesNotMatch(shared, /A private fact|"scope":"bot:b2"/)
 })
 
 async function recallOf(ctx, sessionId, said, history = []) {
@@ -1750,6 +1999,7 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   t.after(() => stop())
   await call('state', {})
   const room = rt.roomOf('r1')
+  assert.match(await tool('read_group_chat', { group: 'Launch', query: 'one page' }, 'g3'), /#1 .*under one page/)
   for (let at = 0; at < 70; at += 1) rt.logRoom(room, { who: 'User', text: `Plan number ${at} for the launch` })
   assert.ok(room.log[0].seq > 4, 'the first lines should have left the room log')
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
@@ -1759,6 +2009,56 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 4 }, 'g3'), /Plan number 0 for the launch/)
   assert.match(await tool('read_group_chat', { group: 'Launch', query: 'number 1 launch' }, 'g3'), /#5 .*Plan number 1 for the launch/)
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 9999 }, 'g3'), /has no message 9999/)
+})
+
+test('group search after an upgrade reads the saved full text of a legacy line', async (t) => {
+  const first = start()
+  t.after(() => first.stop())
+  await first.call('state', {})
+  const room = rt.roomOf('r1')
+  const text = `The launch notes follow. ${'Plan details. '.repeat(155)}Final deliverable appendix.`
+  const line = rt.keepGroupLine(room.id, { who: 'User', seq: 4, text }, text)
+  assert.doesNotMatch(line.text, /deliverable appendix/)
+  writeFileSync(join(first.home, 'state.json'), JSON.stringify({ ...TEAM, rooms: { r1: { ...TEAM.rooms.r1, seq: 4, log: [...TEAM.rooms.r1.log, line] } } }))
+  await first.stop({ keep: true })
+  const second = start({ home: first.home })
+  t.after(() => second.ctx.dispose())
+  assert.match(await second.tool('read_group_chat', { group: 'Launch', query: 'deliverable appendix' }, 'g3'), /#4 /)
+})
+
+test('a group review writes only to the group whose conversation it read', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const r2 = { ...TEAM.rooms.r1, id: 'r2', name: 'Other project', log: [], seq: 0, sessions: {} }
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, rooms: { ...TEAM.rooms, r2 } }))
+  const replies = [JSON.stringify({ changes: [{ op: 'add', group: 'Other project', text: 'Launch reports fit one page' }] })]
+  const { ctx, call, read, stop } = start({ home, replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /Launch reports fit one page/)
+  assert.equal(existsSync(join(home, 'memory', 'groups', 'r2', 'MEMORY.md')), false)
+})
+
+test('a tidy does not retire an entry that changed after the model read it', async (t) => {
+  const started = Promise.withResolvers()
+  const answer = Promise.withResolvers()
+  const { ctx, tool, read, home, stop } = start({ replies: [answer.promise] })
+  t.after(() => stop())
+  const stream = ctx.llm.stream
+  ctx.llm.stream = async function* (request) {
+    started.resolve()
+    yield* stream(request)
+  }
+  await tool('remember', { text: 'The team met on Monday' }, 'b2')
+  for (let i = 0; i < 7; i += 1) await tool('remember', { text: `Other fact number ${i}` }, 'b2')
+  const tidying = rt.tidyMemoryNow('bot:b2')
+  await started.promise
+  await tool('remember', { replace: 'The team met on Monday', text: 'The team meets on Friday' }, 'b2')
+  answer.resolve(JSON.stringify({ changes: [{ op: 'retire', entry: 1, why: 'The old meeting is over' }] }))
+  await tidying
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /The team meets on Friday/)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'retired.jsonl')), false)
 })
 
 test('the tidy merges and archives within a fifth of the entries, leaves a pin, and a batch undoes whole', async (t) => {
@@ -1776,10 +2076,13 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
     { op: 'retire', entry: 5, why: 'past the limit' },
     { op: 'retire', entry: 99 },
   ] })]
-  const { call, read, requests, stop } = start({ home, replies })
+  const { ctx, call, read, requests, section, stop } = start({ home, replies })
   t.after(() => stop())
   await call('state', {})
+  section('b2')
+  await settle()
   await rt.tidyMemoryNow('bot:b2')
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Removed from your memory by the memory review: Fact number 3/)
   assert.equal(requests.length, 1)
   assert.doesNotMatch(requests[0].messages[0].content[0].text, /Keep this forever|Over now/)
   const main = read('bots', 'b2', 'MEMORY.md')
@@ -1801,6 +2104,7 @@ test('the tidy merges and archives within a fifth of the entries, leaves a pin, 
   assert.equal(existsSync(join(dir, 'details.md')), false)
   assert.equal(existsSync(join(dir, 'retired.jsonl')), false)
   assert.equal(undone.value.tidy, null)
+  assert.match(textOf(await updateOf(ctx, 'b2')), /Added to your memory by the user: Fact number 3/)
 })
 
 test('a tidy keeps its records in the memory folder it tidied', async (t) => {
@@ -2261,7 +2565,7 @@ test('a memory summary names the Bot chat on both of its tries', async (t) => {
   const view = (await call('memory-view', { botId: 'b2' })).value
   assert.equal(view.error, null)
   assert.equal(view.summary?.text, 'You like tea.')
-  assert.deepEqual(requests.map(request => [request.sessionId, request.maxTokens, request.purpose]), [['b2', 2048, undefined], ['b2', 8192, undefined]])
+  assert.deepEqual(requests.map(request => [request.sessionId, request.maxTokens, request.purpose]), [['b2', 16384, undefined], ['b2', 32768, undefined]])
 })
 
 test('a memory panel question names the Bot chat', async (t) => {

@@ -9,6 +9,7 @@ import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
 import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
+import { prepareComputerHelper } from './mac-helper.js'
 import { REPLY_KIND } from '../constants.js'
 import { output } from '../tools.js'
 
@@ -34,9 +35,9 @@ const ALLOW_FOREGROUND_MS = 60_000
 const STEPS_KEPT = 50
 // What the Cua Driver reports as done on Windows is not always what the app received.
 const WINDOWS_INPUT_NOTES = [
-  '- On Windows, type_text can lose characters in WinUI and UWP apps such as the current Notepad, even when it reports success. For text fields use set_value, then read the text back.',
+  '- On Windows, type_text can lose characters in WinUI and UWP apps such as the current Notepad, even when it reports success. If the text field supports set_value, use it and read the text back.',
   '- On Windows, key combinations can be refused in older Win32 apps. Use the element action or invoke_menu instead of a shortcut.',
-  '- Element calls need pid and window_id together with element_token.',
+  '- When clicking by element_token, also pass pid and window_id from the same window.',
 ]
 const LEVEL_LABEL = { view: 'view only', background: 'background control', foreground: 'foreground control' }
 
@@ -176,8 +177,16 @@ export function install(rt) {
           return
         }
         const provider = await importPackage(name).catch(error => { throw missing(error, [name]) })
-        if (stopped || !enabled()) return
         const config = process.platform === 'darwin' ? { agentPreset: false } : {}
+        const { DS_BOT_RUNTIME_DIR: runtimeDir, DS_BOT_COMPUTER_HELPER_HOME: home } = process.env
+        if (process.platform === 'darwin' && runtimeDir && home) {
+          try {
+            config.helperPath = await prepareComputerHelper({ runtimeDir, home })
+          } catch (error) {
+            throw new Error(`Could not prepare the macOS computer-use helper: ${String(error?.message ?? error)}`, { cause: error })
+          }
+        }
+        if (stopped || !enabled()) return
         providerFiber = ctx.plugin(provider, config)
         await providerFiber.await?.()
         if (stopped || !enabled()) return

@@ -29,8 +29,10 @@ MIT License, Copyright (c) 2026 DeepSeek
     verification, the wheel test pruning and the Office skill asset copy.
   - app/src/host-process.mjs follows apps/desktop/src/host-process.ts: the
     Host in Electron's Node mode and the shutdown escalation.
-  - app/src/main.mjs follows apps/desktop/src/main.ts for the Windows window
-    options (the caption-button overlay, its colors and the native theme). app/src/preload.cjs adapts
+  - app/src/main.mjs and app/src/window-frame.mjs follow apps/desktop/src/main.ts
+    for the window options (the Windows caption-button overlay, its colors and
+    the native theme; the macOS traffic lights and sidebar vibrancy, and the
+    opaque fill while the window is minimized or hidden). app/src/preload.cjs adapts
     apps/desktop/src/preload-windows.ts, apps/desktop/src/preload-platform.ts
     and apps/desktop/src/preload-theme.ts: the caption-band marks, the
     fullscreen mark, the caption-color measure and the theme sync.

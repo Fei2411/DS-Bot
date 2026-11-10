@@ -1,0 +1,13 @@
+/* macOS: the traffic lights stand at the left of the caption band, to x 68, and the controls
+   that the page puts at the band's left edge start past them, at x 88 as in DSH Desktop.
+   Fullscreen hides the lights. */
+html:not([data-fullscreen]) {
+  --bt-caption-start: 76px;
+}
+/* The classic Agent view keeps DSH's own controls in the band: the sidebar switch and, while
+   the sidebar is collapsed, the new-session button. `translate` leaves DSH's own placement
+   and animations alone. */
+html:not([data-fullscreen]) [class*="_logoRow"] > [class*="_toggle"],
+html:not([data-fullscreen]) [class*="_collapsed"] [class*="_newSession"] {
+  translate: var(--bt-caption-start) 0;
+}

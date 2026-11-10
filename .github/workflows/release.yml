@@ -123,6 +123,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
@@ -166,6 +167,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
@@ -203,6 +205,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         # Ubuntu 24.04's AppArmor blocks the unprivileged user namespaces that Chromium's

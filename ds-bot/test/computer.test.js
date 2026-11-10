@@ -429,7 +429,7 @@ test('Windows Bots that can operate apps are told how input really lands', async
   await rt.computerEndpoint('set-enabled', { enabled: true })
   await rt.computerEndpoint('provider-retry', {})
   const text = () => ctx.sections.get('computer-use:ds-bot').text({ agent: { id: 'w1' } })
-  assert.match(text(), /use set_value/)
+  assert.match(text(), /If the text field supports set_value/)
   await rt.computerEndpoint('set-level', { botId: 'w1', level: 'view' })
   assert.doesNotMatch(text(), /set_value/)
 })
