@@ -3607,6 +3607,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-model{display:flex;flex-direction:column}
 .bt-drawer-model .bt-note{margin-top:6px}
 .bt-drawer-permission{display:flex;flex-direction:column}
+.bt-seg.bt-permissions button{height:auto;min-height:30px;min-width:0;padding:6px 4px;line-height:18px;white-space:normal}
 .bt-seg button.bt-perm-danger,.bt-seg button.bt-perm-danger[aria-pressed=true],.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
 
 /* Settings dialog: a 198px page list beside the page. */
@@ -11732,17 +11733,12 @@ function MemoryDialog({ owner, actions, leaving = false }) {
 var import_react26 = require("react");
 var LABELS = { allow: "Approved once", reject: "Rejected", manual: "Manual review", cancelled: "Cancelled" };
 var reviewsFor = (entries2, id, group) => (entries2 ?? []).filter((entry) => group ? entry.roomId === id : entry.botId === id && !entry.roomId).slice(-20).reverse();
-function ApprovalSettings({ target, group = false, roster, update, Card: Card3, SwitchRow: SwitchRow2 }) {
+function ApprovalSettings({ target, group = false, roster, Card: Card3 }) {
   const entries2 = reviewsFor(roster.approvalReviews, target.id, group);
+  if (!entries2.length) return null;
   return (0, import_react26.createElement)(
     Card3,
     { title: t("Approvals") },
-    (0, import_react26.createElement)(SwitchRow2, {
-      label: t("Review for me"),
-      on: target.autoApprove === true,
-      hint: t("Reviews pending approval requests; uncertain decisions come back to you."),
-      onChange: (autoApprove) => update({ autoApprove })
-    }),
     entries2.length ? (0, import_react26.createElement)(
       "details",
       { className: "bt-set-row bt-bs-stack" },
@@ -12057,7 +12053,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         (0, import_react27.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, onPick: (workDir) => save({ workDir }) })
       )
     ),
-    (0, import_react27.createElement)(ApprovalSettings, { target: bot, roster, update: save, Card: Card2, SwitchRow }),
+    (0, import_react27.createElement)(ApprovalSettings, { target: bot, roster, Card: Card2 }),
     (0, import_react27.createElement)(
       Card2,
       { title: t("Privacy") },
@@ -16816,7 +16812,7 @@ var SIDEBAR_CSS = `
 
 // src/client/permission-picker.js
 var import_react36 = require("react");
-var LABELS2 = { "read-only": "Read only", "workspace-write": "Workspace", "danger-full-access": "Full access" };
+var LABELS2 = { "read-only": "Read only", "workspace-write": "Workspace", "danger-full-access": "Full access", review: "Review for me" };
 var DANGER = /* @__PURE__ */ new Set(["danger-full-access"]);
 var presetDanger = (value) => DANGER.has(value);
 var presetName = (value, catalog) => LABELS2[value] ? t(LABELS2[value]) : catalog?.options?.find((option) => option.value === value)?.name ?? value;
@@ -16852,7 +16848,7 @@ function PermissionPicker({ catalog, saved, onPick, repick = false }) {
   };
   return (0, import_react36.createElement)(
     Segmented,
-    { label: t("Permissions"), value: current },
+    { label: t("Permissions"), value: current, className: "bt-permissions" },
     catalog.options.map((option) => (0, import_react36.createElement)("button", {
       key: option.value,
       type: "button",
@@ -16979,7 +16975,7 @@ function GroupSettingsForm({ room: room2, roster, actions, run: run2, onDeleted 
       )
     ),
     (0, import_react37.createElement)(GroupPermission, { room: room2, catalog: roster.permissions, update }),
-    (0, import_react37.createElement)(ApprovalSettings, { target: room2, group: true, roster, update, Card: Card2, SwitchRow }),
+    (0, import_react37.createElement)(ApprovalSettings, { target: room2, group: true, roster, Card: Card2 }),
     (0, import_react37.createElement)(
       Card2,
       { title: t("Members · {count}", { count: members.length }) },
@@ -17126,7 +17122,6 @@ var GROUP_SETTINGS_CSS = `
 .bt-gs-add{gap:8px;color:var(--bt-ink-2)}
 .bt-gs-pick{gap:10px;animation:bt-rise .16s ease-out}
 .bt-bs-stack .bt-seg{align-self:stretch}
-.bt-gs-perm .bt-seg button{flex:auto;white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.bt-gs-pick{animation:none}}
 `;
 

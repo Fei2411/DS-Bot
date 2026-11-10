@@ -56,7 +56,7 @@ export function install(rt) {
     }
     return undefined
   }
-  const enabled = owner => (owner.roomId !== undefined ? rt.roomOf(owner.roomId) : rt.botOf(owner.botId))?.autoApprove === true
+  const enabled = owner => (rt.roomOf(owner.roomId)?.permission ?? rt.botOf(owner.botId)?.permission) === 'review'
 
   async function record(entry, decision) {
     const item = {
@@ -176,7 +176,7 @@ export function install(rt) {
   }
   const cancelApprovalReviews = ({ botId, roomId } = {}) => {
     for (const entry of pending.values()) {
-      if (roomId !== undefined ? entry.roomId === roomId : botId === undefined || (entry.botId === botId && entry.roomId === undefined)) entry.cancelReview()
+      if (roomId !== undefined ? entry.roomId === roomId && (botId === undefined || entry.botId === botId) : botId === undefined || (entry.botId === botId && entry.roomId === undefined)) entry.cancelReview()
     }
   }
   ctx.effect?.(() => () => {

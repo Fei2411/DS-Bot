@@ -8,8 +8,8 @@ const user = text => ({ type: 'user/message', data: { source: { kind: 'user' }, 
 function setup(t, options = {}) {
   const listeners = new Map()
   const dispose = []
-  const bots = { b: { id: 'b', autoApprove: options.enabled !== false } }
-  const rooms = { r: { id: 'r', autoApprove: true } }
+  const bots = { b: { id: 'b', permission: options.enabled !== false ? 'review' : 'workspace-write' } }
+  const rooms = { r: { id: 'r', permission: 'review' } }
   const agents = { b: { id: 'b', session: { id: 'b', header: {} } }, g: { id: 'g', session: { id: 'g', header: {} } }, child: { id: 'child', session: { id: 'child', header: { parentSession: 'b' } } } }
   const calls = []
   const events = options.events ?? [user('Create the requested report in the project.')]
@@ -113,7 +113,7 @@ test('disabling the reviewer withdraws its answer and keeps manual approval', as
   const { rt, ask, waitManual, bots } = setup(t, { hold })
   const result = ask()
   await tick()
-  bots.b.autoApprove = false
+  bots.b.permission = 'workspace-write'
   rt.cancelApprovalReviews({ botId: 'b' })
   const entry = await waitManual()
   release()
@@ -148,6 +148,20 @@ test('group context distinguishes direct user posts and Bot messages', async t =
   assert.deepEqual(input.context.map(line => line.source), ['user', 'bot'])
   assert.equal(rt.approvalReviewsView()[0].roomId, 'r')
   assert.equal((await reviewContext(rt, { roomId: 'r' }))[0].source, 'user')
+})
+
+test('group review follows member mode and an explicit group override wins', async t => {
+  const { rt, ask, rooms, calls } = setup(t)
+  delete rooms.r.permission
+  assert.equal(await ask({ sessionId: 'g' }), 'allowed-once')
+  rooms.r.permission = 'workspace-write'
+  const result = ask({ sessionId: 'g' })
+  await tick()
+  assert.equal(calls.length, 1)
+  const entry = rt.approvalsView()[0]
+  assert.equal(entry.review, undefined)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
 })
 
 test('same-call browser sub-actions keep independent evidence', async t => {

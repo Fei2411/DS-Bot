@@ -95,12 +95,13 @@ export function install(rt) {
     reviewFor: sessionId => {
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
       const bot = rt.botOf(rt.selfOf(sessionId))
-      return (room ?? bot)?.autoApprove === true
+      return (room?.permission ?? bot?.permission) === 'review'
     },
     presetFor: (sessionId) => {
       const bot = rt.botOf(rt.selfOf(sessionId))
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      return room?.permission ?? bot?.permission ?? 'workspace-write'
+      const permission = room?.permission ?? bot?.permission ?? 'workspace-write'
+      return permission === 'review' ? 'workspace-write' : permission
     },
     cwdFor: async (sessionId) => {
       try {
