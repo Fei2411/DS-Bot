@@ -10401,7 +10401,12 @@ function useSchedules(actions) {
   return view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-var clock2 = (time) => String(time ?? "").slice(0, 5);
+var clock2 = (time) => {
+  const text = String(time ?? "");
+  const [, minutes, seconds] = /^(\d\d:\d\d)(?::(\d\d))?/.exec(text) ?? [];
+  if (minutes === void 0) return text.slice(0, 5);
+  return seconds === void 0 || seconds === "00" ? minutes : `${minutes}:${seconds}`;
+};
 var when2 = (ms, options) => new Intl.DateTimeFormat(dateLocale(), options).format(ms);
 function dayAndTime(ms) {
   const sameYear = new Date(ms).getFullYear() === (/* @__PURE__ */ new Date()).getFullYear();
