@@ -50,6 +50,8 @@ async function fixtureServer() {
     }
     if (path === '/') {
       html('Write safety', pageHtml())
+    } else if (path === '/upload-on-change') {
+      html('Immediate upload', `<input type="file" aria-label="Send file" onchange="fetch('/upload', {method:'POST', body:this.files[0]})">`)
     } else if (path === '/review-form') {
       html('Review form',
         '<button form="review" name="audience" value="public" formaction="/submit" formmethod="post" formenctype="text/plain" formtarget="_self">Publish reviewed</button>' +
@@ -636,6 +638,24 @@ test('uploads are confined to allowed roots and gated before setting files', asy
   assert.match(result, /notes\.txt/)
   assert.equal(actions.length, 2)
   assert.equal(fixture.counters.upload, 0)
+})
+
+test('upload handlers receive no files until manual approval', async t => {
+  const { fixture, profileRoot, session } = await setup(t, 1500, root => [root])
+  const file = join(profileRoot, 'private.txt')
+  await writeFile(file, 'private upload payload')
+  const snapshot = await session.open(new URL('upload-on-change', fixture.url).href)
+  const ref = findRef(snapshot, 'Send file')
+  const actions = []
+  await assert.rejects(gateScope.run(action => {
+    actions.push(action)
+    if (!action.evidenceComplete) throw new Error('Manual upload review required')
+  }, () => session.upload(ref, [file])), /Manual upload review required/)
+  assert.equal(actions[0].evidenceComplete, false)
+  assert.equal(fixture.counters.upload, 0)
+  await gateScope.run(() => {}, () => session.upload(ref, [file]))
+  await waitFor(() => fixture.uploads.length === 1)
+  assert.deepEqual(fixture.uploads, ['private upload payload'])
 })
 
 test('standalone uploads without configured roots are refused', async (t) => {

@@ -90,6 +90,38 @@ for (const [name, options] of [
   assert.equal(await result, 'rejected')
 })
 
+for (const content of [
+  [{ type: 'image', attachment: { attachmentId: 'restriction' } }],
+  [{ type: 'text', text: 'Follow the restrictions in this image.' }, { type: 'image', mediaType: 'image/png', data: 'fixture' }],
+]) test('non-text user restrictions stay manual: ' + content.length + ' blocks', async t => {
+  const events = [user('Create the report.'), { type: 'user/message', data: { source: { kind: 'user' }, content } }]
+  const { rt, ask, calls, waitManual } = setup(t, { events })
+  const result = ask()
+  const entry = await waitManual()
+  assert.equal(calls.length, 0)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+for (const stage of ['model', 'save']) test('new image restrictions during ' + stage + ' invalidate approval', async t => {
+  let release
+  let started
+  const hold = new Promise(resolve => { release = resolve })
+  const reached = new Promise(resolve => { started = resolve })
+  const { rt, ask, events, waitManual } = setup(t, stage === 'model' ? { hold } : {})
+  if (stage === 'save') rt.save = () => { started(); return hold }
+  const result = ask()
+  if (stage === 'save') await reached
+  else await tick()
+  events.push({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: { attachmentId: 'restriction' } }] } })
+  rt.save = async () => {}
+  release()
+  const entry = await waitManual()
+  assert.equal(rt.approvalReviewsView().at(-1).outcome, 'manual')
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
 test('missing action evidence and oversized action never call the model', async t => {
   for (const args of [{ capture: false }, { command: 'x'.repeat(100000) }]) {
     const { rt, ask, calls, waitManual } = setup(t)

@@ -740,7 +740,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       const { target, locator } = await refLocator(ref)
       const url = new URL(target.url())
       const label = labels.join(', ').slice(0, 80) || 'uploaded files'
-      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname, files, evidenceComplete: true })
+      // File selection can send bytes through arbitrary page handlers.
+      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname, files, evidenceComplete: false })
       return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target)
     },
     async scroll(direction) {

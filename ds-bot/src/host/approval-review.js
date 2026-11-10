@@ -47,7 +47,12 @@ export async function reviewContext(rt, owner, signal) {
   for await (const event of rt.eventsBackwards(owner.ownerSessionId, signal, 3)) {
     const data = event.data
     if (event.type === 'user/message') {
-      lines.push({ source: data?.source?.kind === 'user' ? 'user' : 'context', text: textOf(data?.content) })
+      const source = data?.source?.kind === 'user' ? 'user' : 'context'
+      if (source === 'user' && (!Array.isArray(data?.content)
+        || data.content.some(block => block?.type !== 'text' || typeof block.text !== 'string'))) {
+        throw new Error('Non-text user evidence needs manual review')
+      }
+      lines.push({ source, text: textOf(data?.content) })
     } else if (event.type === 'assistant/message') {
       lines.push({ source: 'assistant', text: textOf(data?.message?.content) })
     }
