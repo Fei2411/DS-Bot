@@ -1,5 +1,6 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
+import { dropCarriedDraft } from './draft-carry.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
@@ -119,7 +120,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),
     setTeamWorkspace: path => after(call('team-workspace', { path })),
-    deleteBot: id => after(call('delete-bot', { id })),
+    deleteBot: (id) => after(call('delete-bot', { id }).then((value) => {
+      dropCarriedDraft(id)
+      return value
+    })),
     releasePrivate: id => after(call('private-release', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
@@ -222,6 +226,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
     },
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
+    showToast: text => ui.set(state => ({ ...state, toast: { text, token: Date.now() } })),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === undefined || !Number.isFinite(turn) || !Number.isFinite(time)) return
       turnClock.set((state) => {

@@ -7,6 +7,7 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
+import { keepCarriedDraft, takeCarriedDraft } from './draft-carry.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -120,6 +121,34 @@ export function menuIcons(roster) {
 // input beside it.
 export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster(value => value)
+  const bot = roster.byId?.[sessionId]
+  const draftText = useInput?.(state => state.draft) ?? ''
+  const attachmentCount = useInput?.(state => state.attachmentIds?.length ?? 0) ?? 0
+  // A draft typed in a part the chat has since left comes along to the current part.
+  // A staged image's preview belongs to the part that ends, so it cannot; say so.
+  // Keyed by the part, so a second part move in the same mounted slot restores again.
+  const restoredFor = useRef('')
+  useEffect(() => {
+    if (bot === undefined || sessionId === undefined || inputActions === undefined) return
+    const restoreKey = `${bot.id}:${sessionId}:${bot.sessionId ?? bot.id}`
+    if (restoredFor.current === restoreKey) return
+    restoredFor.current = restoreKey
+    const carried = takeCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText })
+    if (carried === undefined) return
+    // The part can end again between the pull and this mount; the shell then refuses,
+    // and the draft waits for the part after that one.
+    if (carried.text !== '') {
+      try { inputActions.setDraft(carried.text) } catch {
+        keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: sessionId, text: carried.text, attachments: carried.attachments })
+        return
+      }
+    }
+    if (carried.attachments > 0) actions.showToast?.(t('This chat moved to a new session, so the images you attached were not kept.'))
+  }, [bot?.id, bot?.sessionId, sessionId, inputActions])
+  useEffect(() => {
+    if (bot === undefined || sessionId === undefined) return
+    keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText, attachments: attachmentCount })
+  }, [bot?.id, bot?.sessionId, sessionId, draftText, attachmentCount])
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)

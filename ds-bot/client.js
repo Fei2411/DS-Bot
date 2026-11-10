@@ -379,6 +379,7 @@ var ZH = {
   "Message {name}": "给 {name} 发消息",
   Message: "发消息",
   "Press Enter to steer queued messages": "按 Enter 插话发送排队的消息",
+  "This chat moved to a new session, so the images you attached were not kept.": "对话换到了新的一段，附带的图片没有保留。",
   "Couldn’t steer the queued messages. Try again.": "插话发送失败，请重试。",
   "{n} queued messages": "{n} 条排队消息",
   "Sending…": "发送中…",
@@ -2043,6 +2044,124 @@ function countCards(state, sessionId, callIds, delta) {
   return { ...state, [sessionId]: own };
 }
 
+// src/client/storage.js
+var STORAGE = {
+  unread: "ds-bot:unread",
+  reactions: "ds-bot:reactions",
+  seen: "ds-bot:seen",
+  prefs: "ds-bot:prefs",
+  surface: "ds-bot:surface",
+  agentSessions: "ds-bot:agent-sessions",
+  browserWidth: "ds-bot:browser-width",
+  sidebar: "ds-bot:sidebar",
+  browsers: "ds-bot.browser.v2",
+  drafts: "ds-bot:drafts"
+};
+var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
+var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
+var LEGACY_THEMES = { grok: "mono" };
+function legacyKeys(key) {
+  if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
+  const name = key.slice(key.indexOf(":") + 1);
+  return LEGACY_PREFIXES.map((prefix) => `${prefix}${name}`);
+}
+var migrateBrowsers = (storage) => {
+  if (storage.getItem(STORAGE.browsers) !== null) {
+    for (const key of LEGACY_BROWSER_KEYS) storage.removeItem(key);
+    return;
+  }
+  for (const key of LEGACY_BROWSER_KEYS) {
+    try {
+      const value = storage.getItem(key);
+      if (value === null) continue;
+      const previous = JSON.parse(value) ?? {};
+      const tabs = Object.fromEntries(Object.entries(previous).filter(([, page]) => page && typeof page === "object").map(([botId, page]) => {
+        const tab = { id: `v1-${botId}`, url: page.url ?? "", title: page.title ?? "" };
+        return [botId, { tabs: [tab], active: tab.id }];
+      }));
+      storage.setItem(STORAGE.browsers, JSON.stringify(tabs));
+      for (const earlier of LEGACY_BROWSER_KEYS) storage.removeItem(earlier);
+      return;
+    } catch {
+    }
+  }
+};
+function migrateStorage(storage = globalThis.localStorage) {
+  for (const key of Object.values(STORAGE)) {
+    if (key === STORAGE.browsers) continue;
+    for (const legacy of legacyKeys(key)) {
+      try {
+        const value = storage.getItem(legacy);
+        if (value !== null && storage.getItem(key) === null) storage.setItem(key, value);
+        storage.removeItem(legacy);
+      } catch {
+      }
+    }
+  }
+  try {
+    migrateBrowsers(storage);
+  } catch {
+  }
+  try {
+    const prefs = JSON.parse(storage.getItem(STORAGE.prefs) ?? "null");
+    if (prefs && Object.hasOwn(LEGACY_THEMES, prefs.theme ?? "")) {
+      storage.setItem(STORAGE.prefs, JSON.stringify({ ...prefs, theme: LEGACY_THEMES[prefs.theme] }));
+    }
+  } catch {
+  }
+}
+
+// src/client/draft-carry.js
+var KEY = STORAGE.drafts;
+var readStoredDrafts = (storage) => {
+  try {
+    const value = JSON.parse(storage?.getItem(KEY) ?? "{}");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+};
+var writeStoredDrafts = (storage, value) => {
+  try {
+    storage?.setItem(KEY, JSON.stringify(value));
+  } catch {
+  }
+};
+var entryOf = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string" && Number.isInteger(value.attachments) && value.attachments >= 0;
+function keepCarriedDraft({ botId, part, currentPart: currentPart2, text, attachments }, storage = globalThis.localStorage) {
+  if (typeof botId !== "string" || botId === "" || typeof part !== "string" || part === "" || part !== currentPart2) return;
+  const value = readStoredDrafts(storage);
+  const before = value[botId];
+  if (text === "" && attachments === 0) {
+    if (before === void 0) return;
+    delete value[botId];
+    writeStoredDrafts(storage, value);
+    return;
+  }
+  if (before?.part === part && before?.text === text && before?.attachments === attachments) return;
+  value[botId] = { part, text, attachments };
+  writeStoredDrafts(storage, value);
+}
+function dropCarriedDraft(botId, storage = globalThis.localStorage) {
+  if (typeof botId !== "string" || botId === "") return;
+  const value = readStoredDrafts(storage);
+  if (value[botId] === void 0) return;
+  delete value[botId];
+  writeStoredDrafts(storage, value);
+}
+function takeCarriedDraft({ botId, part, currentPart: currentPart2, text }, storage = globalThis.localStorage) {
+  if (typeof botId !== "string" || botId === "" || typeof part !== "string" || part === "") return void 0;
+  const value = readStoredDrafts(storage);
+  const entry = value[botId];
+  if (entry === void 0 || !entryOf(entry)) return void 0;
+  if (entry.part === part || part !== currentPart2) return void 0;
+  if (text.trim() !== "") return void 0;
+  if (entry.text === "" && entry.attachments === 0) return void 0;
+  delete value[botId];
+  writeStoredDrafts(storage, value);
+  return { text: entry.text, attachments: entry.attachments };
+}
+
 // src/client/team-actions.js
 function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
@@ -2183,7 +2302,10 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     folderPick: () => call2("folder-pick"),
     folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
     setTeamWorkspace: (path2) => after(call2("team-workspace", { path: path2 })),
-    deleteBot: (id) => after(call2("delete-bot", { id })),
+    deleteBot: (id) => after(call2("delete-bot", { id }).then((value) => {
+      dropCarriedDraft(id);
+      return value;
+    })),
     releasePrivate: (id) => after(call2("private-release", { id })),
     duplicateBot: (id) => after(call2("duplicate-bot", { id })),
     setPrefs: (prefs) => after(call2("set-prefs", prefs)),
@@ -2286,6 +2408,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
     dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
+    showToast: (text) => ui2.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
@@ -2971,72 +3094,6 @@ function stepMenuFocus(menu, event, trigger) {
   const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (current + 1) % items.length : current <= 0 ? items.length - 1 : current - 1;
   items[next]?.focus();
   return true;
-}
-
-// src/client/storage.js
-var STORAGE = {
-  unread: "ds-bot:unread",
-  reactions: "ds-bot:reactions",
-  seen: "ds-bot:seen",
-  prefs: "ds-bot:prefs",
-  surface: "ds-bot:surface",
-  agentSessions: "ds-bot:agent-sessions",
-  browserWidth: "ds-bot:browser-width",
-  sidebar: "ds-bot:sidebar",
-  browsers: "ds-bot.browser.v2"
-};
-var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
-var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
-var LEGACY_THEMES = { grok: "mono" };
-function legacyKeys(key) {
-  if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
-  const name = key.slice(key.indexOf(":") + 1);
-  return LEGACY_PREFIXES.map((prefix) => `${prefix}${name}`);
-}
-var migrateBrowsers = (storage) => {
-  if (storage.getItem(STORAGE.browsers) !== null) {
-    for (const key of LEGACY_BROWSER_KEYS) storage.removeItem(key);
-    return;
-  }
-  for (const key of LEGACY_BROWSER_KEYS) {
-    try {
-      const value = storage.getItem(key);
-      if (value === null) continue;
-      const previous = JSON.parse(value) ?? {};
-      const tabs = Object.fromEntries(Object.entries(previous).filter(([, page]) => page && typeof page === "object").map(([botId, page]) => {
-        const tab = { id: `v1-${botId}`, url: page.url ?? "", title: page.title ?? "" };
-        return [botId, { tabs: [tab], active: tab.id }];
-      }));
-      storage.setItem(STORAGE.browsers, JSON.stringify(tabs));
-      for (const earlier of LEGACY_BROWSER_KEYS) storage.removeItem(earlier);
-      return;
-    } catch {
-    }
-  }
-};
-function migrateStorage(storage = globalThis.localStorage) {
-  for (const key of Object.values(STORAGE)) {
-    if (key === STORAGE.browsers) continue;
-    for (const legacy of legacyKeys(key)) {
-      try {
-        const value = storage.getItem(legacy);
-        if (value !== null && storage.getItem(key) === null) storage.setItem(key, value);
-        storage.removeItem(legacy);
-      } catch {
-      }
-    }
-  }
-  try {
-    migrateBrowsers(storage);
-  } catch {
-  }
-  try {
-    const prefs = JSON.parse(storage.getItem(STORAGE.prefs) ?? "null");
-    if (prefs && Object.hasOwn(LEGACY_THEMES, prefs.theme ?? "")) {
-      storage.setItem(STORAGE.prefs, JSON.stringify({ ...prefs, theme: LEGACY_THEMES[prefs.theme] }));
-    }
-  } catch {
-  }
 }
 
 // src/client/frame-layout.js
@@ -23249,6 +23306,31 @@ function menuIcons(roster) {
 }
 function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster((value) => value);
+  const bot = roster.byId?.[sessionId];
+  const draftText = useInput?.((state) => state.draft) ?? "";
+  const attachmentCount = useInput?.((state) => state.attachmentIds?.length ?? 0) ?? 0;
+  const restoredFor = (0, import_react50.useRef)("");
+  (0, import_react50.useEffect)(() => {
+    if (bot === void 0 || sessionId === void 0 || inputActions === void 0) return;
+    const restoreKey = `${bot.id}:${sessionId}:${bot.sessionId ?? bot.id}`;
+    if (restoredFor.current === restoreKey) return;
+    restoredFor.current = restoreKey;
+    const carried = takeCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText });
+    if (carried === void 0) return;
+    if (carried.text !== "") {
+      try {
+        inputActions.setDraft(carried.text);
+      } catch {
+        keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: sessionId, text: carried.text, attachments: carried.attachments });
+        return;
+      }
+    }
+    if (carried.attachments > 0) actions.showToast?.(t("This chat moved to a new session, so the images you attached were not kept."));
+  }, [bot?.id, bot?.sessionId, sessionId, inputActions]);
+  (0, import_react50.useEffect)(() => {
+    if (bot === void 0 || sessionId === void 0) return;
+    keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText, attachments: attachmentCount });
+  }, [bot?.id, bot?.sessionId, sessionId, draftText, attachmentCount]);
   const [open, setOpen] = (0, import_react50.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react50.useRef)(null);

@@ -344,6 +344,7 @@ const ZH = {
   'Message {name}': '给 {name} 发消息',
   Message: '发消息',
   'Press Enter to steer queued messages': '按 Enter 插话发送排队的消息',
+  'This chat moved to a new session, so the images you attached were not kept.': '对话换到了新的一段，附带的图片没有保留。',
   'Couldn’t steer the queued messages. Try again.': '插话发送失败，请重试。',
   '{n} queued messages': '{n} 条排队消息',
   'Sending…': '发送中…',
