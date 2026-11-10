@@ -17,6 +17,8 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 </tr>
 </table>
 
+---
+
 ![和 Chief 说一句话，它就把 bot 和群聊建好](docs/images/team.zh.png)
 
 ## 安装

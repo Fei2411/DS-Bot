@@ -17,6 +17,8 @@ DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/
 </tr>
 </table>
 
+---
+
 ![Say one sentence to Chief, and it sets up the bots and the group chat](docs/images/team.png)
 
 ## Install
