@@ -129,6 +129,51 @@ async function start({ services = {}, privateBot = true, archives, memberPick = 
 
 const CLOSED = /private Bot/
 
+for (const child of [false, true]) test('private relative file approvals include their actual destination; child=' + child, async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const evidence = []
+  env.rt.requestActionApproval = async (_request, action) => { evidence.push(action); return 'allowed-once' }
+  const agent = env.agentOf(child ? 'private-child' : P)
+  if (child) Object.assign(agent.session.header, { parentSession: P, origin: 'subagent' })
+  for (const cwd of [env.project, env.team]) {
+    agent.session.header.cwd = cwd
+    assert.equal((await env.run('write', { file_path: 'report.txt', content: 'report' }, agent.id, agent)).ran, true)
+  }
+  assert.equal(evidence[0].cwd, env.project)
+  assert.equal(evidence[0].path, join(env.project, 'report.txt'))
+  assert.equal(evidence[0].resolvedPath, join(env.project, 'report.txt'))
+  assert.equal(evidence[1].path, join(env.team, 'report.txt'))
+  assert.notDeepEqual(evidence[0], evidence[1])
+})
+
+test('private file approval cannot be reused after a link target changes', async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const agent = env.agentOf(P)
+  agent.session.header.cwd = env.project
+  const path = join(env.project, 'report.txt')
+  const realBeyond = env.rt.realBeyond
+  let moved = false
+  env.rt.realBeyond = value => value === path && moved ? Promise.resolve(join(env.team, 'report.txt')) : realBeyond(value)
+  env.rt.requestActionApproval = async () => { moved = true; return 'allowed-once' }
+  const result = await env.run('write', { file_path: 'report.txt', content: 'report' }, P)
+  assert.equal(result.ran, false)
+  assert.match(result.error, /destination changed/)
+})
+
+test('private file approval cannot be reused after its effective directory changes', async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const agent = env.agentOf(P)
+  agent.session.header.cwd = env.project
+  env.rt.requestActionApproval = async () => { agent.session.header.cwd = env.team; return 'allowed-once' }
+  const result = await env.run('write', { file_path: 'report.txt', content: 'report' }, P)
+  assert.equal(result.ran, false)
+  assert.match(result.error, /destination changed/)
+})
+
+
 test('only the user makes a Bot private, and the Bot needs a folder of its own', async (t) => {
   const { rt, project, team, state, stop } = await start({ privateBot: false })
   t.after(stop)
