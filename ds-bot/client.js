@@ -29016,6 +29016,22 @@ function listedOpener({ list, open, refresh, current }) {
   };
 }
 
+// src/client/agent-new.js
+function agentSessionToReuse(list, latest, pending) {
+  if (pending !== void 0 && list.byId[pending] === void 0) return pending;
+  return latest !== void 0 && list.byId[latest]?.blank === true ? latest : void 0;
+}
+function singleFlight(map, key, run2) {
+  const running = map.get(key);
+  if (running !== void 0) return running;
+  const call2 = Promise.resolve().then(run2);
+  const tracked = call2.finally(() => {
+    if (map.get(key) === tracked) map.delete(key);
+  });
+  map.set(key, tracked);
+  return tracked;
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -29047,6 +29063,8 @@ function apply(ctx) {
     agentSessionCache = /* @__PURE__ */ new Set();
   }
   const pendingAdopt = /* @__PURE__ */ new Map();
+  const pendingAgentSession = /* @__PURE__ */ new Map();
+  const agentNewInFlight = /* @__PURE__ */ new Map();
   const isAgentSessionId = (id) => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id);
   const agentOfSession = (id) => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id);
   const workspaces = ctx.get("workspaces");
@@ -29159,6 +29177,9 @@ function apply(ctx) {
     const listed = ctx.sessions.list.getSnapshot().byId ?? {};
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== void 0 || listed[id] === void 0) pendingAdopt.delete(id);
+    }
+    for (const [agentId, sessionId] of pendingAgentSession) {
+      if (listed[sessionId] !== void 0 || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId);
     }
     for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
@@ -29398,6 +29419,7 @@ function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id);
     return ids;
   };
+  const latestAgentSession = (agentId, list) => agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))[0];
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id;
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;
@@ -29457,22 +29479,28 @@ function apply(ctx) {
       const agent = roster.getSnapshot().agentsById[agentId];
       if (agent === void 0) return;
       const list = ctx.sessions.list.getSnapshot();
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0));
-      if (recent.length === 0) return actions.newAgentSession(agentId);
-      actions.openAgentSession(recent[0]);
+      const latest = latestAgentSession(agentId, list);
+      if (latest === void 0) return actions.newAgentSession(agentId);
+      actions.openAgentSession(latest);
     },
     newAgentSession: async (agentId) => {
       const agent = roster.getSnapshot().agentsById[agentId];
       if (agent === void 0) return;
-      const list = ctx.sessions.list.getSnapshot();
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0));
-      if (recent.length > 0 && list.byId[recent[0]]?.blank === true) {
-        actions.openAgentSession(recent[0]);
-        return recent[0];
-      }
-      const { sessionId } = await after(call("agent-session", { agentId, workspaceId: workspaceOf(recent[0]) }));
-      actions.openAgentSession(sessionId);
-      return sessionId;
+      return singleFlight(agentNewInFlight, agentId, async () => {
+        const list = ctx.sessions.list.getSnapshot();
+        const latest = latestAgentSession(agentId, list);
+        const pending = pendingAgentSession.get(agentId);
+        if (pending !== void 0 && list.byId[pending] !== void 0) pendingAgentSession.delete(agentId);
+        const reuse = agentSessionToReuse(list, latest, pending);
+        if (reuse !== void 0) {
+          actions.openAgentSession(reuse);
+          return reuse;
+        }
+        const { sessionId } = await after(call("agent-session", { agentId, workspaceId: workspaceOf(latest) }));
+        if (ctx.sessions.list.getSnapshot().byId[sessionId] === void 0) pendingAgentSession.set(agentId, sessionId);
+        actions.openAgentSession(sessionId);
+        return sessionId;
+      });
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call("agent-archive", { agentId, sessionId }));
