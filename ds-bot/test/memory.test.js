@@ -2011,16 +2011,20 @@ test('a group line that left the room log is still reviewed, opened by its seq, 
   assert.match(await tool('read_group_chat', { group: 'Launch', seq: 9999 }, 'g3'), /has no message 9999/)
 })
 
+// A team from before the ledger kept a long line's start in state.json and its whole
+// text in group-lines; the group's book starts from both.
 test('group search after an upgrade reads the saved full text of a legacy line', async (t) => {
   const first = start()
   t.after(() => first.stop())
   await first.call('state', {})
-  const room = rt.roomOf('r1')
   const text = `The launch notes follow. ${'Plan details. '.repeat(155)}Final deliverable appendix.`
-  const line = rt.keepGroupLine(room.id, { who: 'User', seq: 4, text }, text)
+  const line = { who: 'User', seq: 4, text: text.slice(0, 2000), length: text.length }
   assert.doesNotMatch(line.text, /deliverable appendix/)
   writeFileSync(join(first.home, 'state.json'), JSON.stringify({ ...TEAM, rooms: { r1: { ...TEAM.rooms.r1, seq: 4, log: [...TEAM.rooms.r1.log, line] } } }))
   await first.stop({ keep: true })
+  rmSync(join(first.home, 'ledger'), { recursive: true, force: true })
+  mkdirSync(join(first.home, 'group-lines', 'r1'), { recursive: true })
+  writeFileSync(join(first.home, 'group-lines', 'r1', '4.txt'), text)
   const second = start({ home: first.home })
   t.after(() => second.ctx.dispose())
   assert.match(await second.tool('read_group_chat', { group: 'Launch', query: 'deliverable appendix' }, 'g3'), /#4 /)
