@@ -30,21 +30,9 @@ export function reviewSessionIds(rt, owner) {
   return [...new Set([owner.ownerSessionId, owner.sessionId, relay].filter(id => id !== undefined))]
 }
 
-export async function reviewContext(rt, owner, signal) {
-  for (const id of reviewSessionIds(rt, owner)) {
-    const agent = await rt.resolveAgent(id)
-    const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
-    if (pending.some(message => message.source?.kind === 'user')) throw new Error('Pending user input needs manual review')
-  }
-  if (owner.roomId !== undefined) {
-    const lines = (await rt.recentGroupLines(owner.roomId)).slice(-24)
-    if (lines.some(line => line.length > (line.text?.length ?? 0))) throw new Error('Some group messages are incomplete')
-    return lines.filter(line => typeof line.text === 'string' && line.text).map(line => ({
-      source: line.botId ? 'bot' : line.kind === 'user' || line.who === 'User' ? 'user' : 'context', text: line.text,
-    }))
-  }
+async function sessionContext(rt, sessionId, signal) {
   const lines = []
-  for await (const event of rt.eventsBackwards(owner.ownerSessionId, signal, 3)) {
+  for await (const event of rt.eventsBackwards(sessionId, signal, 3)) {
     const data = event.data
     if (event.type === 'user/message') {
       const source = data?.source?.kind === 'user' ? 'user' : 'context'
@@ -59,6 +47,27 @@ export async function reviewContext(rt, owner, signal) {
     if (lines.length === 24) break
   }
   return lines.reverse()
+}
+
+export async function reviewContext(rt, owner, signal) {
+  for (const id of reviewSessionIds(rt, owner)) {
+    const agent = await rt.resolveAgent(id)
+    const pending = [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]
+    if (pending.some(message => message.source?.kind === 'user')) throw new Error('Pending user input needs manual review')
+  }
+  if (owner.roomId !== undefined) {
+    const room = rt.roomOf(owner.roomId)
+    if (!room) throw new Error('The group context is unavailable')
+    const lines = (await rt.recentGroupLines(owner.roomId)).slice(-24)
+    if (lines.some(line => line.length > (line.text?.length ?? 0))) throw new Error('Some group messages are incomplete')
+    const context = lines.filter(line => typeof line.text === 'string' && line.text).map(line => ({
+      source: line.botId ? 'bot' : line.kind === 'user' || line.who === 'User' ? 'user' : 'context', text: line.text,
+    }))
+    // Consumed user events exist before image reading adds their text to the group log.
+    const direct = await sessionContext(rt, rt.sessionOfRoom(room), signal)
+    return [...context, ...direct.filter(line => line.source === 'user')]
+  }
+  return sessionContext(rt, owner.ownerSessionId, signal)
 }
 
 export async function reviewApproval(rt, { request, owner, evidence, signal, onModel }) {

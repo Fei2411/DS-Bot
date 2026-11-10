@@ -84,8 +84,11 @@ export function install(rt) {
     // The preset for one Session is read once its agent resolves: undefined once a
     // newer request exists, so a superseded request writes no more Sessions — every
     // Session the Bot has ends at the value the newest request actually applied.
-    const applyTo = (sessionId, room = roomOfSession(sessionId)) =>
-      setPreset(sessionId, () => (request.seq === mine ? room?.permission ?? bot.permission : undefined), true)
+    const applyTo = (sessionId, room = roomOfSession(sessionId)) => {
+      const groupRequest = room && roomRequests.get(room)
+      return setPreset(sessionId, () => request.seq === mine
+        && (!room || (!room.permission && roomRequests.get(room) === groupRequest)) ? bot.permission : undefined, true)
+    }
     const groups = async (warnFail) => {
       for (const sessionId of rt.groupSessionsOf(bot.id)) {
         if (request.seq !== mine) break

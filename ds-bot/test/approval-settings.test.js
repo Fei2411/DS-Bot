@@ -178,6 +178,32 @@ for (const stage of ['resolve', 'close']) for (const next of [null, 'read-only']
   })
 }
 
+for (const inheritAgain of [false, true]) test('Bot update respects a newer group override; inherited again=' + inheritAgain, async () => {
+  const { rt, bot, room, modes, closed } = setup()
+  const original = rt.resolveAgent
+  let release
+  let started
+  const reached = new Promise(resolve => { started = resolve })
+  let held = false
+  rt.resolveAgent = async id => {
+    if (id === 'g' && !held) {
+      held = true
+      started()
+      await new Promise(resolve => { release = resolve })
+    }
+    return original(id)
+  }
+  const first = rt.setPermission(bot, 'review')
+  await reached
+  await rt.setRoomPermission(room, 'read-only')
+  if (inheritAgain) await rt.setRoomPermission(room, null)
+  closed.length = 0
+  release()
+  await first
+  assert.deepEqual(closed, [], 'the Bot request must not close the CLI restarted by a newer group save')
+  assert.equal(modes.get('g'), inheritAgain ? 'workspace-write' : 'read-only')
+})
+
 test('mode changes reopen affected CLI sessions, ordinary turn setup keeps them', async () => {
   const { rt, bot, room, closed } = setup()
   await rt.setPermission(bot, 'review')
