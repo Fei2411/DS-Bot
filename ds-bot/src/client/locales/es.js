@@ -1236,6 +1236,7 @@ export const ES = {
   'Settings → Feedback has the details.': 'Los detalles están en Ajustes → Comentarios.',
   'Could not reach DSH. Check that it is still running.': 'No se pudo conectar con DSH. Comprueba que siga en ejecución.',
   '{name} stopped: {reason}. Switch its model or ask it to go on.': '{name} se detuvo: {reason}. Cambia su modelo o pídele que continúe.',
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "El ayudante en segundo plano de {name} no terminó: {reason}. Pídele que siga si aún importa.",
   'Unknown error': 'Error desconocido',
   'The model has no API key': 'El modelo no tiene clave API',
   'The API key is not in the right format': 'La clave API no tiene el formato correcto',

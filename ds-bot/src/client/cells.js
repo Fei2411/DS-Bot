@@ -929,6 +929,10 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     return h('div', { className: 'bt-event bt-event-error', role: 'status', title: [reply.code, reply.status, reply.text].filter(Boolean).join(' · ') },
       t('{name} stopped: {reason}. Switch its model or ask it to go on.', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
   }
+  if (reply.kind === 'helper-failed') {
+    return h('div', { className: 'bt-event bt-event-error', role: 'status', title: reply.text },
+      t("{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.", { name: bot.name, reason: reply.text }))
+  }
   if (reply.kind === 'lookup') {
     return h('div', { className: 'bt-event' },
       reply.text ? t('{name} looked up its own chat for “{text}”', { name: bot.name, text: reply.text }) : t('{name} looked up its own chat', { name: bot.name }))

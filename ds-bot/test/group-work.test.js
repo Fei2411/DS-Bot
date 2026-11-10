@@ -7,7 +7,7 @@ import { withRows } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
-import { promisesWork } from '../src/host/turns.js'
+import { promisesWork, subagentFailure } from '../src/host/turns.js'
 
 let rt
 
@@ -1723,6 +1723,55 @@ test('a group member with a running DSH subagent stays working and stop-room-wor
   assert.deepEqual(host.agentOf('r1').calls, [], 'suppressed settlement notice does not post to the group')
 })
 
+
+test('a settlement notice counts as a failure unless the child finished (#973)', () => {
+  const blocked = text => [{ type: 'text', text }]
+  assert.equal(subagentFailure({ summary: 'Background subagent sub-1 finished.' }, blocked('Background subagent sub-1 finished.')), undefined)
+  assert.equal(subagentFailure({ summary: 'Background subagent sub-1 finished and will do no further work unless you send it more.' }, blocked('Background subagent sub-1 finished and will do no further work unless you send it more.')), undefined)
+  assert.match(subagentFailure(
+    { summary: 'Background subagent sub-1 failed before it finished.' },
+    blocked('Background subagent sub-1 failed before it finished.\nIt left no closing message.'),
+  ), /failed before it finished/)
+  assert.match(subagentFailure(
+    { summary: 'Background subagent sub-1 ran out of room before it finished.' },
+    blocked('Background subagent sub-1 ran out of room before it finished.'),
+  ), /ran out of room/)
+})
+
+test('a group member\'s dead background child is shown even when the model passes (#973)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 导出这份 PPT'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Export the deck' })
+  host.finish('gb', '正在导出。')
+  await settle(() => first() !== undefined)
+
+  const notice = {
+    content: [{ type: 'text', text: 'Background subagent sub-1 failed before it finished.\nIt left no closing message.' }],
+    source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
+  }
+  host.emit('gb', 'turn/start', { turn: 2 })
+  host.emit('gb', 'user/message', notice)
+  const rows = () => rt.groupRows('r1', 0, rt.roomOf('r1')?.seq)
+  const shown = rows().filter(row => row.kind === 'helper-failed')
+  assert.equal(shown.length, 1, 'the group was not told about the dead child')
+  assert.equal(shown[0].name, 'Writer')
+  assert.match(shown[0].text, /^Export the deck: failed before it finished/)
+
+  // The member answers the notice with [PASS]; the notice stays and is not repeated.
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => true)
+  assert.equal(rows().filter(row => row.kind === 'helper-failed').length, 1)
+
+  // A child that finished makes no such line.
+  host.emit('gb', 'user/message', {
+    content: [{ type: 'text', text: 'Background subagent sub-2 finished.\nIts closing message:\ndone' }],
+    source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-2 finished.', senderSessionId: 'sub-2' },
+  })
+  assert.equal(rows().filter(row => row.kind === 'helper-failed').length, 1)
+})
 
 test('approval keeps a member inside its parallel batch until all results arrive', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })

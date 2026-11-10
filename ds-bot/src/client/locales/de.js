@@ -1236,6 +1236,7 @@ export const DE = {
   'Settings → Feedback has the details.': 'Details findest du unter Einstellungen → Feedback.',
   'Could not reach DSH. Check that it is still running.': 'DSH ist nicht erreichbar. Prüfe bitte, ob es noch läuft.',
   '{name} stopped: {reason}. Switch its model or ask it to go on.': '{name} hat gestoppt: {reason}. Wechsle das Modell oder bitte ihn weiterzumachen.',
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "Der Hintergrundhelfer von {name} wurde nicht fertig: {reason}. Bitte {name}, weiterzumachen, falls es noch wichtig ist.",
   'Unknown error': 'Unbekannter Fehler',
   'The model has no API key': 'Für das Modell ist kein API-Schlüssel hinterlegt',
   'The API key is not in the right format': 'Der API-Schlüssel hat ein ungültiges Format',

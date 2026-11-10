@@ -1329,6 +1329,7 @@ var JA = {
   "Settings → Feedback has the details.": "詳細は「設定 → フィードバック」を確認してください。",
   "Could not reach DSH. Check that it is still running.": "DSH に接続できませんでした。起動しているか確認してください。",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} が停止しました: {reason}。モデルを切り替えるか、続行するよう伝えてください。",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name} のバックグラウンド ヘルパーは完了できませんでした：{reason}。必要なら続行を依頼してください。",
   "Unknown error": "不明なエラー",
   "The model has no API key": "モデルに API キーが設定されていません",
   "The API key is not in the right format": "API キーの形式が正しくありません",
@@ -3618,6 +3619,7 @@ var KO = {
   "Settings → Feedback has the details.": "설정 → 피드백에서 자세한 내용을 확인하세요.",
   "Could not reach DSH. Check that it is still running.": "DSH에 연결할 수 없습니다. 실행 중인지 확인하세요.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 중지됨: {reason}. 모델을 변경하거나 계속 진행하도록 요청하세요.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name}의 백그라운드 도우미가 끝내지 못했습니다: {reason}. 계속 필요하면 다시 진행하도록 요청하세요.",
   "Unknown error": "알 수 없는 오류",
   "The model has no API key": "모델에 API 키가 없습니다",
   "The API key is not in the right format": "API 키 형식이 올바르지 않습니다",
@@ -5913,6 +5915,7 @@ var ES = {
   "Settings → Feedback has the details.": "Los detalles están en Ajustes → Comentarios.",
   "Could not reach DSH. Check that it is still running.": "No se pudo conectar con DSH. Comprueba que siga en ejecución.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} se detuvo: {reason}. Cambia su modelo o pídele que continúe.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "El ayudante en segundo plano de {name} no terminó: {reason}. Pídele que siga si aún importa.",
   "Unknown error": "Error desconocido",
   "The model has no API key": "El modelo no tiene clave API",
   "The API key is not in the right format": "La clave API no tiene el formato correcto",
@@ -8169,6 +8172,7 @@ var FR = {
   "Settings → Feedback has the details.": "Voir les détails dans Paramètres → Retours.",
   "Could not reach DSH. Check that it is still running.": "Impossible de joindre DSH. Vérifiez qu’il est toujours en cours d’exécution.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} s’est arrêté : {reason}. Changez son modèle ou demandez-lui de continuer.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "L'assistant en arrière-plan de {name} n'a pas terminé : {reason}. Demandez-lui de continuer si c'est encore utile.",
   "Unknown error": "Erreur inconnue",
   "The model has no API key": "Le modèle n’a pas de clé API",
   "The API key is not in the right format": "La clé API n’est pas au bon format",
@@ -10458,6 +10462,7 @@ var DE = {
   "Settings → Feedback has the details.": "Details findest du unter Einstellungen → Feedback.",
   "Could not reach DSH. Check that it is still running.": "DSH ist nicht erreichbar. Prüfe bitte, ob es noch läuft.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} hat gestoppt: {reason}. Wechsle das Modell oder bitte ihn weiterzumachen.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "Der Hintergrundhelfer von {name} wurde nicht fertig: {reason}. Bitte {name}, weiterzumachen, falls es noch wichtig ist.",
   "Unknown error": "Unbekannter Fehler",
   "The model has no API key": "Für das Modell ist kein API-Schlüssel hinterlegt",
   "The API key is not in the right format": "Der API-Schlüssel hat ein ungültiges Format",
@@ -12754,6 +12759,7 @@ var ZH = {
   "Settings → Feedback has the details.": "详情见 设置 → 反馈。",
   "Could not reach DSH. Check that it is still running.": "连不上 DSH，请确认它还在运行。",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 停下了：{reason}。换个模型，或让它继续。",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name} 的后台子代理没做完：{reason}。如果还需要，让它继续。",
   "Unknown error": "未知错误",
   "The model has no API key": "模型还没有 API Key",
   "The API key is not in the right format": "API Key 格式不对",
@@ -26341,6 +26347,13 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
       "div",
       { className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
       t("{name} stopped: {reason}. Switch its model or ask it to go on.", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
+    );
+  }
+  if (reply.kind === "helper-failed") {
+    return (0, import_react32.createElement)(
+      "div",
+      { className: "bt-event bt-event-error", role: "status", title: reply.text },
+      t("{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.", { name: bot.name, reason: reply.text })
     );
   }
   if (reply.kind === "lookup") {

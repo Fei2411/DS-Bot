@@ -1246,6 +1246,7 @@ const ZH = {
   'Settings → Feedback has the details.': '详情见 设置 → 反馈。',
   'Could not reach DSH. Check that it is still running.': '连不上 DSH，请确认它还在运行。',
   '{name} stopped: {reason}. Switch its model or ask it to go on.': '{name} 停下了：{reason}。换个模型，或让它继续。',
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name} 的后台子代理没做完：{reason}。如果还需要，让它继续。",
   'Unknown error': '未知错误',
   'The model has no API key': '模型还没有 API Key',
   'The API key is not in the right format': 'API Key 格式不对',

@@ -1236,6 +1236,7 @@ export const KO = {
   'Settings → Feedback has the details.': '설정 → 피드백에서 자세한 내용을 확인하세요.',
   'Could not reach DSH. Check that it is still running.': 'DSH에 연결할 수 없습니다. 실행 중인지 확인하세요.',
   '{name} stopped: {reason}. Switch its model or ask it to go on.': '{name} 중지됨: {reason}. 모델을 변경하거나 계속 진행하도록 요청하세요.',
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name}의 백그라운드 도우미가 끝내지 못했습니다: {reason}. 계속 필요하면 다시 진행하도록 요청하세요.",
   'Unknown error': '알 수 없는 오류',
   'The model has no API key': '모델에 API 키가 없습니다',
   'The API key is not in the right format': 'API 키 형식이 올바르지 않습니다',
