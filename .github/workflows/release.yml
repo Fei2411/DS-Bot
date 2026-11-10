@@ -81,6 +81,9 @@ jobs:
             exit 1
           fi
 
+      # The tests rebuild link.js from ../link and run its Relay Server, which have their own packages.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run harness
       - run: npm test
