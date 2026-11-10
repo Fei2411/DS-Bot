@@ -107,8 +107,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
+      # 504. The key holds the Electron and electron-builder versions and the builder config, which
+      # decide the files downloaded.
+      - name: Name the download cache
+        id: downloads-key
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Cache the locked runtime archives
+        uses: actions/cache@v4
+        with:
+          # A cache from another lock version cannot supply a wrong runtime: the archives are
+          # stored under their sha256 and every read is verified against it again.
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save Electron and the build tools
+        if: steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
       # The runner is a fresh machine, so the installer may run here. It must install for the
@@ -217,11 +248,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
+      # 504. The key holds the Electron and electron-builder versions and the builder config, which
+      # decide the files downloaded.
+      - name: Name the download cache
+        id: downloads-key
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Cache the locked runtime archives
+        uses: actions/cache@v4
+        with:
+          # A cache from another lock version cannot supply a wrong runtime: the archives are
+          # stored under their sha256 and every read is verified against it again.
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
         env:
           # Ad-hoc identity '-' uses no certificate or secret, so PR signing is safe; otherwise electron-builder skips signing and leaves an unsealed bundle.
           CSC_FOR_PULL_REQUEST: 'true'
+      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save Electron and the build tools
+        if: steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check the zip
         run: |
           zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
@@ -257,8 +319,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
+      # 504. The key holds the Electron and electron-builder versions and the builder config, which
+      # decide the files downloaded.
+      - name: Name the download cache
+        id: downloads-key
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Cache the locked runtime archives
+        uses: actions/cache@v4
+        with:
+          # A cache from another lock version cannot supply a wrong runtime: the archives are
+          # stored under their sha256 and every read is verified against it again.
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save Electron and the build tools
+        if: steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check the packages
         run: |
           version="$(node -p "require('./package.json').version")"
@@ -327,8 +420,11 @@ jobs:
           node-version: 24
       - run: docker compose -f docker-compose.yml config --quiet
       - run: docker compose -f docker/compose.yml config --quiet
+      - run: docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
       - run: docker build -f docker/Dockerfile -t ds-bot:test .
       - run: node docker/test.mjs ds-bot:test
+      - run: docker build -f docker/Dockerfile.dev -t ds-bot:dev-test .
+      - run: node docker/test-dev.mjs ds-bot:dev-test ds-bot:test
       - name: Publish the tested image
         if: github.event_name == 'push' && github.repository == 'Fei2411/DS-Bot'
         env:

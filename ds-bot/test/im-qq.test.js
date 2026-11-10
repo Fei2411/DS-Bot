@@ -134,3 +134,82 @@ test('a dropped socket reconnects and resumes', async (t) => {
   await until(() => fake.sockets.length === 2)
   await until(() => fake.packets.some(packet => packet.op === 6))
 })
+
+test('a network failure at start is retried until the platform answers (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  const fetch = async (...args) => {
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 120)
+  assert.ok(fake.calls.some(call => call.path === '/app/getAppAccessToken'))
+  assert.equal(fake.sockets.length, 1)
+})
+
+test('a gateway failure after the token is accepted is retried (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  let gateways = 0
+  const fetch = async (url, ...rest) => {
+    if (String(url).endsWith('/gateway')) {
+      gateways += 1
+      if (down) throw new TypeError('fetch failed')
+    }
+    return base.fetch(url, ...rest)
+  }
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  // The token was accepted before the handshake, so this is the gateway path and
+  // not a second token failure.
+  assert.equal(fake.calls.filter(call => call.path === '/app/getAppAccessToken').length, 1)
+  assert.equal(fake.sockets.length, 0)
+  down = false
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
+  assert.ok(ready !== undefined, 'the connection became ready after the retry')
+  assert.equal(gateways, 2)
+  assert.equal(fake.sockets.length, 1, 'the retry opened one socket, not one per attempt')
+})
+
+test('a 200 gateway with no url is a permanent refusal, not a retry loop (#1119)', async (t) => {
+  const fake = await fakeQq()
+  fake.replies['/gateway'] = { result: { message: 'no gateway for this app' } }
+  const statuses = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const stopped = await until(() => statuses.find(status => status.state === 'error'))
+  assert.match(stopped.error, /no gateway for this app/)
+  await new Promise(done => setTimeout(done, 400))
+  assert.equal(fake.calls.filter(call => call.path === '/gateway').length, 1, 'the refusal is not retried')
+  assert.equal(statuses.filter(status => status.state === 'retrying').length, 0)
+  assert.equal(fake.sockets.length, 0)
+})
+
+test('a socket that cannot be built at the handshake is retried (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let failures = 1
+  const WebSocket = function (...args) {
+    if (failures > 0) { failures -= 1; throw new TypeError('socket unavailable') }
+    return new base.WebSocket(...args)
+  }
+  const handle = qq.connect(FIELDS, { ...base, WebSocket }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /could not open a socket/)
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
+  assert.ok(ready !== undefined, 'the connection became ready after a new socket')
+  assert.equal(fake.sockets.length, 1)
+})

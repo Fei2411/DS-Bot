@@ -14,7 +14,7 @@ export const IM_PLATFORMS = [
   },
   {
     id: 'weixin',
-    name: '微信',
+    name: 'WeChat',
     fields: [],
     buttons: false,
     groups: false,
@@ -22,9 +22,9 @@ export const IM_PLATFORMS = [
   },
   {
     id: 'feishu',
-    name: '飞书 / Lark',
+    name: 'Feishu / Lark',
     fields: [
-      { key: 'domain', label: 'Domain', options: [['feishu', '飞书'], ['lark', 'Lark']] },
+      { key: 'domain', label: 'Edition', options: [['feishu', 'Feishu'], ['lark', 'Lark']] },
       { key: 'appId', label: 'App ID' },
       { key: 'appSecret', label: 'App Secret', secret: true },
     ],
@@ -33,7 +33,7 @@ export const IM_PLATFORMS = [
   },
   {
     id: 'dingtalk',
-    name: '钉钉',
+    name: 'DingTalk',
     fields: [
       { key: 'clientId', label: 'Client ID' },
       { key: 'clientSecret', label: 'Client Secret', secret: true },
@@ -43,7 +43,7 @@ export const IM_PLATFORMS = [
   },
   {
     id: 'wecom',
-    name: '企业微信',
+    name: 'WeCom',
     fields: [
       { key: 'botId', label: 'Bot ID' },
       { key: 'secret', label: 'Secret', secret: true },
