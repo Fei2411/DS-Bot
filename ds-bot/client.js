@@ -123,6 +123,16 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Approvals": "承認",
+  "Approval model": "承認モデル",
+  "Review for me": "代わりに審査",
+  "Follow team default": "チームの既定モデルに従う",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "承認待ちの操作を審査します。判断が難しい場合は、あなたに確認します。",
+  "Recent approval reviews": "最近の承認審査",
+  "Approved once": "今回のみ許可済み",
+  "Rejected": "拒否済み",
+  "Manual review": "手動審査",
+  "Reviewing this action…": "この操作を審査中…",
   "Main Bot": "メイン Bot",
   "Working": "実行中",
   "Waiting for your answer": "回答待ち",
@@ -2373,6 +2383,16 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Approvals": "승인",
+  "Approval model": "승인 모델",
+  "Review for me": "대신 검토",
+  "Follow team default": "팀 기본 모델 사용",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "승인 대기 중인 작업을 검토합니다. 판단이 어려우면 사용자에게 확인을 요청합니다.",
+  "Recent approval reviews": "최근 승인 검토",
+  "Approved once": "이번만 허용됨",
+  "Rejected": "거부됨",
+  "Manual review": "수동 검토",
+  "Reviewing this action…": "이 작업을 검토 중…",
   // Shared
   "Main Bot": "메인 Bot",
   Working: "작업 중",
@@ -4668,6 +4688,16 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Approvals": "Aprobaciones",
+  "Approval model": "Modelo de aprobación",
+  "Review for me": "Revisar por mí",
+  "Follow team default": "Usar el modelo predeterminado del equipo",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "Revisa las solicitudes de aprobación pendientes; si hay dudas, te pide que decidas.",
+  "Recent approval reviews": "Revisiones de aprobación recientes",
+  "Approved once": "Permitido una vez",
+  "Rejected": "Rechazado",
+  "Manual review": "Revisión manual",
+  "Reviewing this action…": "Revisando esta acción…",
   // Shared
   "Main Bot": "Bot principal",
   Working: "En curso",
@@ -6963,6 +6993,16 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Approvals": "Approbations",
+  "Approval model": "Modèle d’approbation",
+  "Review for me": "Examiner pour moi",
+  "Follow team default": "Utiliser le modèle par défaut de l’équipe",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "Examine les demandes d’approbation en attente ; en cas de doute, vous demande de décider.",
+  "Recent approval reviews": "Examens d’approbation récents",
+  "Approved once": "Autorisé une fois",
+  "Rejected": "Refusé",
+  "Manual review": "Examen manuel",
+  "Reviewing this action…": "Examen de cette action…",
   "Main Bot": "Bot principal",
   "Working": "En cours",
   "Waiting for your answer": "Attend votre réponse",
@@ -9213,6 +9253,16 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Approvals": "Genehmigungen",
+  "Approval model": "Genehmigungsmodell",
+  "Review for me": "Für mich prüfen",
+  "Follow team default": "Team-Standardmodell verwenden",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "Prüft ausstehende Genehmigungsanfragen; bei Unsicherheit wirst du um eine Entscheidung gebeten.",
+  "Recent approval reviews": "Letzte Genehmigungsprüfungen",
+  "Approved once": "Einmal erlaubt",
+  "Rejected": "Abgelehnt",
+  "Manual review": "Manuelle Prüfung",
+  "Reviewing this action…": "Diese Aktion wird geprüft…",
   // Shared
   "Main Bot": "Haupt-Bot",
   Working: "Arbeitet",

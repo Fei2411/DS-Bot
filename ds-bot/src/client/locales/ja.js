@@ -1,6 +1,16 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Approvals": "承認",
+  "Approval model": "承認モデル",
+  "Review for me": "代わりに審査",
+  "Follow team default": "チームの既定モデルに従う",
+  "Reviews pending approval requests; uncertain decisions come back to you.": "承認待ちの操作を審査します。判断が難しい場合は、あなたに確認します。",
+  "Recent approval reviews": "最近の承認審査",
+  "Approved once": "今回のみ許可済み",
+  "Rejected": "拒否済み",
+  "Manual review": "手動審査",
+  "Reviewing this action…": "この操作を審査中…",
   "Main Bot": "メイン Bot",
   "Working": "実行中",
   "Waiting for your answer": "回答待ち",
