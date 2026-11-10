@@ -1,5 +1,5 @@
 // Feishu / Lark: the long connection speaks protobuf pbbp2 frames — control
-// pings answered with pong, data frames ACKed by sending the frame back with a
+// pings sent at the server's interval, data frames ACKed by sending the frame back with a
 // {"code":200} payload and a biz_rt header; split payloads reassemble by
 // sum/seq. p2p messages are direct; a group message counts when the bot's
 // open_id is in its mentions. Sends go through the OpenAPI with a tenant
@@ -10,6 +10,11 @@ import { chunkMarkdown } from '../format.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
+const SOCKET_TIMEOUT = 30_000
+const pingInterval = seconds => {
+  const ms = Number(seconds) * 1000
+  return Number.isFinite(ms) && ms >= 1000 && ms <= 2_147_483_647 ? ms : undefined
+}
 
 const apiBase = (env, fields) => String(env.config?.api ?? (fields.domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn')).replace(/\/+$/, '')
 
@@ -136,6 +141,9 @@ export default {
     let socket
     let generation = 0
     let reconnectTimer
+    let connectTimer
+    let pingTimer
+    let heartbeatTimer
     let token
     let tokenExpiresAt = 0
     let botOpenId = ''
@@ -195,10 +203,31 @@ export default {
       }
     }
 
+    const clearSocketTimers = () => {
+      clearTimeout(connectTimer)
+      clearTimeout(pingTimer)
+      clearTimeout(heartbeatTimer)
+      connectTimer = pingTimer = heartbeatTimer = undefined
+    }
     let openFailures = 0
+    const retry = (gen, error) => {
+      if (stopped || generation !== gen) return
+      generation += 1
+      clearSocketTimers()
+      const previous = socket
+      socket = undefined
+      try { previous?.close(4001, 'reconnect') } catch { /* already gone */ }
+      handlers.onStatus({ state: 'retrying', error })
+      clearTimeout(reconnectTimer)
+      reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+      reconnectTimer.unref?.()
+      openFailures += 1
+    }
     const open = async () => {
-      const gen = generation
+      if (stopped) return
+      const gen = ++generation
       let url
+      let pingEvery = 90_000
       try {
         if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
           const got = await tenantToken({ appId, appSecret }, env)
@@ -219,7 +248,7 @@ export default {
           error.permanent = answer.ok || (answer.status >= 400 && answer.status < 500 && answer.status !== 429)
           throw error
         }
-        openFailures = 0
+        pingEvery = pingInterval(body.data?.ClientConfig?.PingInterval) ?? pingEvery
       } catch (error) {
         if (stopped || generation !== gen) return
         if (error?.permanent === true) {
@@ -228,32 +257,58 @@ export default {
         }
         // The handshake is retried, also when this is the first one: a connection
         // started before the network is up is not over (#1119).
-        handlers.onStatus({ state: 'retrying', error: error.message })
-        clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
-        reconnectTimer.unref?.()
-        openFailures += 1
+        retry(gen, error.message)
         return
       }
+      if (stopped || generation !== gen) return
+      let next
+      let service
       try {
-        socket = new env.WebSocket(url)
-        socket.binaryType = 'arraybuffer'
+        const id = Number(new URL(url).searchParams.get('service_id') ?? 0)
+        service = Number.isSafeInteger(id) && id >= 0 ? id : 0
+        next = new env.WebSocket(url)
+        next.binaryType = 'arraybuffer'
+        socket = next
       } catch (error) {
-        if (stopped || generation !== gen) return
-        handlers.onStatus({ state: 'retrying', error: `Feishu could not open a socket: ${error?.message ?? error}` })
-        clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
-        reconnectTimer.unref?.()
-        openFailures += 1
+        retry(gen, `Feishu could not open a socket: ${error?.message ?? error}`)
         return
       }
-      socket.addEventListener('message', (event) => {
-        if (stopped || generation !== gen) return
+      const current = () => !stopped && generation === gen && socket === next
+      const schedulePing = () => {
+        clearTimeout(pingTimer)
+        pingTimer = setTimeout(ping, pingEvery)
+        pingTimer.unref?.()
+      }
+      const ping = () => {
+        if (!current() || next.readyState !== 1) return
+        if (heartbeatTimer === undefined) {
+          heartbeatTimer = setTimeout(() => retry(gen, 'Feishu heartbeat timed out'), SOCKET_TIMEOUT)
+          heartbeatTimer.unref?.()
+        }
+        try {
+          next.send(encodeFrame({ SeqID: 0, LogID: 0, service, method: 0, headers: [{ key: 'type', value: 'ping' }] }))
+        } catch {
+          retry(gen, 'Feishu could not send a heartbeat')
+          return
+        }
+        schedulePing()
+      }
+      next.addEventListener('message', (event) => {
+        if (!current()) return
+        // Any inbound frame answers the liveness probe. The next scheduled
+        // ping arms it again; healthy idle time must not start a short timeout.
+        clearTimeout(heartbeatTimer)
+        heartbeatTimer = undefined
         let frame
         try { frame = decodeFrame(Buffer.from(event.data)) } catch { return }
         const type = frame.headers.find(h => h.key === 'type')?.value
         if (frame.method === 0 && type === 'ping') { pong(frame); return }
-        if (frame.method === 1 && type === 'reconnect') { socket.close(4000, 'Reconnect requested'); return }
+        if (frame.method === 0 && type === 'pong') {
+          const interval = pingInterval(safeJson(frame.payload?.toString('utf8'))?.PingInterval)
+          if (interval !== undefined) { pingEvery = interval; schedulePing() }
+          return
+        }
+        if (frame.method === 1 && type === 'reconnect') { retry(gen, 'Feishu requested a reconnect'); return }
         if (frame.method !== 1 || (type !== 'event' && type !== 'card')) return
         const messageId = frame.headers.find(h => h.key === 'message_id')?.value ?? ''
         const sum = Number(frame.headers.find(h => h.key === 'sum')?.value ?? 1)
@@ -269,14 +324,17 @@ export default {
         }
         void dispatch(type, frame.payload).catch(error => env.log?.warn?.('ds-bot im: feishu event failed: %s', error?.message ?? error))
       })
-      socket.addEventListener('open', () => { openFailures = 0; handlers.onStatus({ state: 'ready' }) })
-      socket.addEventListener('close', () => {
-        if (stopped || generation !== gen) return
-        handlers.onStatus({ state: 'connecting' })
-        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, 2000)
-        reconnectTimer.unref?.()
+      next.addEventListener('open', () => {
+        if (!current()) return
+        clearTimeout(connectTimer)
+        openFailures = 0
+        handlers.onStatus({ state: 'ready' })
+        ping()
       })
-      socket.addEventListener('error', () => {})
+      next.addEventListener('close', () => retry(gen, 'Feishu socket closed'))
+      next.addEventListener('error', () => retry(gen, 'Feishu socket error'))
+      connectTimer = setTimeout(() => retry(gen, 'Feishu socket opening timed out'), SOCKET_TIMEOUT)
+      connectTimer.unref?.()
     }
 
     handlers.onStatus({ state: 'connecting' })
@@ -351,7 +409,11 @@ export default {
         stopped = true
         generation += 1
         clearTimeout(reconnectTimer)
-        try { socket?.close(1000, 'stop') } catch { /* not open */ }
+        clearSocketTimers()
+        parts.clear()
+        const previous = socket
+        socket = undefined
+        try { previous?.close(1000, 'stop') } catch { /* not open */ }
       },
     }
   },
