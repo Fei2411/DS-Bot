@@ -123,6 +123,26 @@ for (const stage of ['model', 'save']) test('new image restrictions during ' + s
   assert.equal(await result, 'rejected')
 })
 
+for (const mode of ['failure', 'timeout', 'invalid', 'manual']) test('human approval opens while audit storage is blocked after ' + mode, async t => {
+  if (mode === 'timeout') t.mock.timers.enable({ apis: ['setTimeout'] })
+  let release
+  const holding = new Promise(resolve => { release = resolve })
+  t.after(() => release())
+  let hostCalls = 0
+  const options = mode === 'failure' ? { error: true } : mode === 'timeout' ? { hold: new Promise(() => {}) }
+    : { reply: mode === 'invalid' ? 'allow' : '{"decision":"manual","reason":"Need confirmation."}' }
+  const { rt, ask } = setup(t, { ...options, next: async () => { hostCalls++; return 'rejected' } })
+  rt.save = () => holding
+  const result = ask()
+  await tick()
+  if (mode === 'timeout') { t.mock.timers.tick(30_001); await tick() }
+  assert.equal(hostCalls, 1, 'the host card opens before the audit save completes')
+  assert.equal(await result, 'rejected')
+  release()
+  await tick()
+  assert.equal(rt.approvalsView().length, 0)
+})
+
 test('missing action evidence and oversized action never call the model', async t => {
   for (const args of [{ capture: false }, { command: 'x'.repeat(100000) }]) {
     const { rt, ask, calls, waitManual } = setup(t)
@@ -389,12 +409,30 @@ for (const stage of ['before', 'model', 'save']) test('consumed group image rest
   assert.equal(await result, 'rejected')
 })
 
-test('group context includes consumed user text before it reaches the log', async t => {
+test('group context stays manual until consumed user text reaches the log', async t => {
   const { rt, groupEvents, rooms } = setup(t)
   rooms.r.sessionId = 'relay-new'
   groupEvents.set('relay-new', [user('Only inspect the draft. Do not publish.')])
-  const context = await reviewContext(rt, { roomId: 'r', ownerSessionId: 'g', sessionId: 'g' })
-  assert.deepEqual(context.at(-1), { source: 'user', text: 'Only inspect the draft. Do not publish.' })
+  await assert.rejects(reviewContext(rt, { roomId: 'r', ownerSessionId: 'g', sessionId: 'g' }), /not aligned/)
+})
+
+test('a newer logged restriction cannot be followed by an old relay grant', async t => {
+  const { rt, ask, calls, groupEvents, waitManual } = setup(t)
+  groupEvents.set('relay-current', [user('Publish the report.')])
+  rt.recentGroupLines = async () => [{ who: 'User', text: 'Publish the report.' }, { who: 'User', text: 'Stop. Do not publish.' }]
+  const result = ask({ sessionId: 'g' })
+  const entry = await waitManual()
+  assert.equal(calls.length, 0)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
+test('aligned raw messages preserve the group log order without duplicates', async t => {
+  const { rt, groupEvents } = setup(t)
+  const texts = ['Publish the report.', 'Stop. Do not publish.']
+  groupEvents.set('relay-current', texts.map(user))
+  rt.recentGroupLines = async () => texts.map(text => ({ who: 'User', text }))
+  assert.deepEqual(await reviewContext(rt, { roomId: 'r', ownerSessionId: 'g', sessionId: 'g' }), texts.map(text => ({ source: 'user', text })))
 })
 
 test('group context distinguishes direct user posts and Bot messages', async t => {

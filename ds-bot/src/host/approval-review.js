@@ -65,7 +65,11 @@ export async function reviewContext(rt, owner, signal) {
     }))
     // Consumed user events exist before image reading adds their text to the group log.
     const direct = await sessionContext(rt, rt.sessionOfRoom(room), signal)
-    return [...context, ...direct.filter(line => line.source === 'user')]
+    const latest = direct.findLast(line => line.source === 'user')
+    if (latest && latest.text !== context.findLast(line => line.source === 'user')?.text) {
+      throw new Error('The group log and user events are not aligned; review manually')
+    }
+    return context
   }
   return sessionContext(rt, owner.ownerSessionId, signal)
 }

@@ -126,6 +126,7 @@ export function install(rt) {
       const manual = reason => {
         if (!pending.has(id) || manualStarted) return
         manualStarted = true
+        clearTimeout(timer)
         if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
         changed(entry)
         rt.yieldRoomTurn?.(owner.ownerSessionId)
@@ -156,19 +157,23 @@ export function install(rt) {
       }), timeout]).then(async decision => {
         if (!pending.has(id)) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
+        if (decision.decision === 'manual') {
+          manual(decision.reason)
+          await record(entry, decision)
+          return
+        }
         await record(entry, decision)
         if (JSON.stringify(await reviewContext(rt, owner, reviewer.signal)) !== JSON.stringify(decision.context)) {
           throw new Error('The conversation changed while saving the review')
         }
         if (!pending.has(id)) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
-        if (decision.decision === 'manual') manual(decision.reason)
-        else complete(OUTCOMES[decision.decision], true)
+        complete(OUTCOMES[decision.decision], true)
       }).catch(async () => {
         if (!pending.has(id)) return
         const reason = 'Automatic review could not decide. Review this action manually.'
-        try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
         manual(reason)
+        try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
       }).finally(() => clearTimeout(timer))
     })
   }, { prepend: true })
