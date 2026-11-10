@@ -24039,6 +24039,14 @@ function installHeaderNavigation(slots, face, component, priority) {
   };
 }
 
+// src/client/mention-source.js
+function fileMentionSource(ctx, sessionId) {
+  return (owner, getFileTriggerProps) => {
+    const service2 = ctx?.get?.("chatFileMentions");
+    return service2?.forClosing(owner, sessionId, getFileTriggerProps);
+  };
+}
+
 // src/client/turn-error.js
 var import_react52 = require("react");
 var OFFICIAL = "deepseek-official";
@@ -29642,7 +29650,7 @@ function apply(ctx) {
     const binding = ctx.sessions.binding(sessionId);
     if (binding === void 0) throw new Error(`ds-bot: unknown session "${sessionId}"`);
     const chat = ctx.uiConversation.binding(binding).target("chat");
-    return { ...face(), keyedHooks: {
+    return { ...face(), fileMentions: fileMentionSource(ctx, sessionId), keyedHooks: {
       turnSteps: (turn) => {
         const snapshot = chat.getSnapshot();
         if (snapshot === void 0) throw new Error("ds-bot: Chat target is unavailable");
