@@ -1262,6 +1262,11 @@ const ZH = {
   'Could not reach the model service': '连不上模型服务',
   'Its group conversation could not open': '它的群聊会话打不开',
   'Its group conversation could not open, so it starts a new one next time': '它的群聊会话打不开，下次会换一个新的',
+  // A long paste, folded into a card
+  'Pasted text · {count} characters': '粘贴的文本 · {count} 字',
+  'Put back': '放回',
+  'Put back into the box': '放回输入框',
+  'Remove pasted text': '删除粘贴的文本',
   // The composer's +
   'Add files': '添加文件',
   'Reference a chat': '引用对话',

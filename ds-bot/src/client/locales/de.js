@@ -1253,6 +1253,10 @@ export const DE = {
   'Its group conversation could not open': 'Seine Gruppensitzung konnte nicht geöffnet werden',
   'Its group conversation could not open, so it starts a new one next time': 'Seine Gruppensitzung konnte nicht geöffnet werden; beim nächsten Mal wird eine neue gestartet',
   // The composer's +
+  'Pasted text · {count} characters': 'Eingefügter Text · {count} Zeichen',
+  'Put back': 'Zurückholen',
+  'Put back into the box': 'Zurück ins Eingabefeld',
+  'Remove pasted text': 'Eingefügten Text entfernen',
   'Add files': 'Dateien hinzufügen',
   'Reference a chat': 'Chat referenzieren',
   'Chat with {name}': 'Chat mit {name}',
