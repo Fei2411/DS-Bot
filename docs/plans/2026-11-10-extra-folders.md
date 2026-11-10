@@ -56,6 +56,7 @@ DSH 的 `workspace-write` 把写入限制在 Session 自己的文件夹（Sessio
 
 ## 已知限制
 
+- 补丁自动批准使用宿主公开的 `@deepseek-ai/dsh-fs-patch` 解析器。旧版 DSH（如 0.2.0-rc.2）未提供这个包时，`write`、`edit` 仍按宿主文件系统的真实路径检查；`apply_patch` 的升级交给用户审批。
 - 子 agent 的 Session 不继承额外工作文件夹，子 agent 写那里时照常请用户批准。
 - 自动批准在审批时检查路径，和 DSH 自己的包含检查一样，挡不住审批之后才换掉的链接。
 - 自动批准走 DSH 的审批流程。DSH 自带的两个权限预设都适用：`workspace-write`（询问）由 DS Bot 批准，`danger-full-access` 本来就能写任何位置。自定义预设若是 `workspace-write` 加「从不询问」，DSH 在询问之前就拒绝升级，这时额外工作文件夹只能读；要写就换成询问的预设。

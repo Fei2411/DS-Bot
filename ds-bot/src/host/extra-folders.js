@@ -4,9 +4,11 @@
 // change that lands in the Session's folder or one of its extra folders, DS Bot answers
 // the approval itself. The paths of a shell command cannot be read reliably, so a shell
 // command still asks the user.
-import { parsePatch } from '@deepseek-ai/dsh-fs-patch'
 import { within } from './folders.js'
 import { unquote } from './text.js'
+
+// Older DSH releases have no public patch parser; those calls keep the user's approval.
+const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
 
 export const MAX_EXTRA_DIRS = 8
 
@@ -20,7 +22,7 @@ const targetsOf = (name, args) => {
     const path = args?.[PATH_ARGS[name]]
     return typeof path === 'string' && path.trim() !== '' ? [path] : []
   }
-  if (name === 'apply_patch' && typeof args?.input === 'string') {
+  if (name === 'apply_patch' && typeof args?.input === 'string' && typeof parsePatch === 'function') {
     // Match DSH's syntax exactly: indented headers can name more files too.
     try {
       return parsePatch(args.input).flatMap(operation => operation.moveTo === undefined ? [operation.path] : [operation.path, operation.moveTo])
@@ -97,7 +99,8 @@ export function install(rt) {
     const policy = ctx.get?.('sandboxPolicy')?.resolve?.({ session: call.session })
     const base = rt.sessionFolder(call.session)
     const fs = ctx.get?.('fs')
-    if (extras.length === 0 || policy?.mode !== 'workspace-write' || base === undefined || fs === undefined) return false
+    if (extras.length === 0 || policy?.mode !== 'workspace-write' || base === undefined) return false
+    if (typeof fs?.resolve !== 'function' || typeof fs.processPath !== 'function' || typeof fs.processPathFromHostPath !== 'function') return false
     const dirs = [policy.workspaceRoot ?? call.session?.header?.cwd, ...extras].filter(Boolean)
     const roots = (await Promise.all(dirs.map(async dir => (await rt.isFolder(dir) ? rt.real(dir) : undefined)))).filter(Boolean)
     for (const target of call.targets) {
@@ -120,11 +123,13 @@ export function install(rt) {
   const sectionFor = (sessionId) => {
     const extras = extraDirsOfSession(sessionId)
     if (extras.length === 0) return ''
+    const fileTools = typeof parsePatch === 'function' ? 'write, edit or apply_patch' : 'write or edit'
     return [
       '## Your extra folders',
       `Besides your working folder, you also work in ${extras.length === 1 ? 'this folder' : 'these folders'}:`,
       ...extras.map(dir => `- ${dir}`),
-      'Use full paths for files there. When the sandbox denies a write, edit or apply_patch there, retry that exact call once with sandbox_permissions "danger-full-access" and a justification: DS Bot approves it for these folders without asking the user. A shell command that changes files there asks the user, so change those files with the file tools. working_directory can take this conversation into one of these folders.',
+      `Use full paths for files there. When the sandbox denies a ${fileTools} there, retry that exact call once with sandbox_permissions "danger-full-access" and a justification: DS Bot approves it for these folders without asking the user. A shell command that changes files there asks the user, so change those files with the file tools. working_directory can take this conversation into one of these folders.`,
+      ...(typeof parsePatch === 'function' ? [] : ['This DSH version has no public patch parser, so apply_patch escalations still ask the user.']),
     ].join('\n')
   }
 
