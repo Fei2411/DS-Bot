@@ -697,6 +697,7 @@ export const FR = {
   "New session": "Nouvelle session",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
+  "Plugins": "Plugins",
   "Plain dsh session": "Session dsh standard",
   "just now": "à l’instant",
   "{n} min": "{n} min",

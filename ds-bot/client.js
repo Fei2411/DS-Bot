@@ -819,6 +819,7 @@ var JA = {
   "New session": "新しいセッション",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
+  "Plugins": "プラグイン",
   "Plain dsh session": "標準の dsh セッション",
   "just now": "たった今",
   "{n} min": "{n} 分",
@@ -3093,6 +3094,7 @@ var KO = {
   "New session": "새 세션",
   Archive: "보관",
   "Session actions": "세션 작업",
+  "Plugins": "플러그인",
   "Plain dsh session": "기본 dsh 세션",
   "just now": "방금",
   "{n} min": "{n}분",
@@ -5388,6 +5390,7 @@ var ES = {
   "New session": "Nueva sesión",
   Archive: "Archivar",
   "Session actions": "Acciones de sesión",
+  "Plugins": "Complementos",
   "Plain dsh session": "Sesión nativa de dsh",
   "just now": "ahora mismo",
   "{n} min": "{n} min",
@@ -7659,6 +7662,7 @@ var FR = {
   "New session": "Nouvelle session",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
+  "Plugins": "Plugins",
   "Plain dsh session": "Session dsh standard",
   "just now": "à l’instant",
   "{n} min": "{n} min",
@@ -9933,6 +9937,7 @@ var DE = {
   "New session": "Neue Sitzung",
   Archive: "Archivieren",
   "Session actions": "Sitzungsaktionen",
+  "Plugins": "Plugins",
   "Plain dsh session": "Native dsh-Sitzung",
   "just now": "gerade eben",
   "{n} min": "{n} Min.",
@@ -12229,6 +12234,7 @@ var ZH = {
   "New session": "新会话",
   Archive: "归档",
   "Session actions": "会话操作",
+  Plugins: "插件",
   "Plain dsh session": "原生 dsh 会话",
   "just now": "刚刚",
   "{n} min": "{n} 分钟",
@@ -27775,11 +27781,12 @@ function TeamSidebar(props) {
     main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react34.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react34.createElement)(
+  const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react34.createElement)(PluginsButton, { actions })) : (0, import_react34.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react34.createElement)(PlusIcon)),
-    (0, import_react34.createElement)(AccountLauncher, { seat: false, actions })
+    (0, import_react34.createElement)(AccountLauncher, { seat: false, actions }),
+    (0, import_react34.createElement)(PluginsButton, { actions })
   );
   const content = (0, import_react34.createElement)(
     "div",
@@ -28219,6 +28226,14 @@ function useLandOnMainBot(roster, useSessions, actions) {
     const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400);
     return () => clearTimeout(timer);
   }, [mainView, roster]);
+}
+function PluginsButton({ actions }) {
+  if (!actions.hasPlugins?.()) return null;
+  return (0, import_react34.createElement)(
+    "button",
+    { type: "button", className: "bt-account", "aria-label": t("Plugins"), title: t("Plugins"), onClick: () => actions.openPlugins() },
+    (0, import_react34.createElement)("span", { className: "bt-you", "aria-hidden": true }, (0, import_react34.createElement)(PlugIcon))
+  );
 }
 function FooterAccount(props) {
   const seated = props.useUi((value) => value.accountSeated === true);
@@ -41134,6 +41149,8 @@ function apply(ctx) {
   actions.signIn = () => ui2.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
   actions.closeSignIn = () => ui2.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale").bind("settings.account");
+  actions.hasPlugins = () => ctx.get("pluginNavigation") !== void 0;
+  actions.openPlugins = () => ctx.get("pluginNavigation")?.openList();
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
   actions.openHarnessOnboarding = (id) => settingsShell?.openOnboarding(id);
   actions.voiceSetup = (providerId) => {

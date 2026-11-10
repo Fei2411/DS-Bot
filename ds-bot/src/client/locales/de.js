@@ -699,6 +699,7 @@ export const DE = {
   'New session': 'Neue Sitzung',
   Archive: 'Archivieren',
   'Session actions': 'Sitzungsaktionen',
+  'Plugins': 'Plugins',
   'Plain dsh session': 'Native dsh-Sitzung',
   'just now': 'gerade eben',
   '{n} min': '{n} Min.',
