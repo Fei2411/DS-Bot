@@ -2,29 +2,15 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { agentSessionToReuse, singleFlight } from '../src/client/agent-new.js'
 
-// #1225: "+ new session" on the DSH Agent kept making empty Sessions. The decision used
-// to be the shell's blank flag alone, which a Session created a moment ago does not carry
-// — it is not in the list yet, or it has bootstrap events — so the next click made another.
-test('a new-session click reuses the Session this window just created', () => {
-  // The create has finished but the shell's list has not shown the Session yet.
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: undefined }), 's-new')
-  // The list has it, and it is still untouched.
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: true } }), 's-new')
-  // The user wrote in it: it is a conversation now, so a new click starts a real one.
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false, displayTitle: 'Fix the build' } }), undefined)
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false, title: 'Fix the build' } }), undefined)
-  // A shell that counts a Session's own bootstrap events as content never calls it blank;
-  // without a turn there is no title, so the draft is still the conversation to open.
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false } }), 's-new')
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: false, displayTitle: '   ' } }), 's-new')
-  // Nothing created by this window: the Agent's latest blank Session still counts.
-  assert.equal(agentSessionToReuse({ latest: 's-last', latestRow: { blank: true } }), 's-last')
-  assert.equal(agentSessionToReuse({ latest: 's-last', latestRow: { blank: false } }), undefined)
-  assert.equal(agentSessionToReuse({ latest: 's-last', latestRow: undefined }), undefined)
-  // A blank Session of this window wins over the Agent's latest one.
-  assert.equal(agentSessionToReuse({ draft: 's-new', draftRow: { blank: true }, latest: 's-last', latestRow: { blank: true } }), 's-new')
-  // An Agent with nothing at all still creates one.
-  assert.equal(agentSessionToReuse({}), undefined)
+test('reuse the just-created Session until the DSH list can decide whether it is blank', () => {
+  const existing = { blank: false, displayTitle: 'Fix the build' }
+  const blank = { blank: true, displayTitle: 'workspace' }
+  assert.equal(agentSessionToReuse({ byId: { old: existing } }, 'old', 'new'), 'new')
+  assert.equal(agentSessionToReuse({ byId: { new: blank } }, 'new', 'new'), 'new')
+  assert.equal(agentSessionToReuse({ byId: { new: { ...blank, blank: false } } }, 'new', 'new'), undefined)
+  assert.equal(agentSessionToReuse({ byId: { old: existing, new: blank } }, 'old', 'new'), undefined)
+  assert.equal(agentSessionToReuse({ byId: { new: blank } }, 'new'), 'new')
+  assert.equal(agentSessionToReuse({ byId: {} }), undefined)
 })
 
 test('a second new-session click while the first is in flight lands on the same call', async () => {
