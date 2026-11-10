@@ -159,7 +159,7 @@ function fixtures() {
   return { roster, sessions }
 }
 
-function createApp({ roster, sessions, unread = {}, status = new Map(), activity = {}, renameSection, settings = {} } = {}) {
+function createApp({ roster, sessions, unread = {}, status = new Map(), activity = {}, renameSection, settings = {}, retained = '' } = {}) {
   // A fresh component tree: hook state, refs and the window width belong to this app.
   stateStore.clear()
   refStore.clear()
@@ -180,7 +180,7 @@ function createApp({ roster, sessions, unread = {}, status = new Map(), activity
     useSessions: pick => pick(sessions),
     useUpdate: () => ({}),
     useSessionStatus: pick => pick(status),
-    useSessionRetainInfo: (_id, pick) => pick({ retainedBy: { mainView: 0 } }),
+    useSessionRetainInfo: (sessionId, pick) => pick({ retainedBy: { mainView: sessionId === retained ? 1 : 0 } }),
     useActivity: pick => pick(activity),
     useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
   }
@@ -383,13 +383,30 @@ test('C2: the segments flatten the list, hide group heads and keep the Agent to 
 
 test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
   const { roster, sessions } = fixtures()
-  const app = createApp({ roster, sessions })
+  const app = createApp({ roster, sessions, unread: { main: true } })
   let tree = app.render()
   const pin = byClass(tree, 'bt-main-pin')
   assert.equal(pin.length, 1, 'the pin slot is drawn')
   assert.deepEqual(collect(pin[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
   assert.ok(!collect(byClass(tree, 'bt-list')[0]).some(node => node.props?.['data-bot-id'] === 'main'), 'the Main Bot is out of the scroll box')
   assert.equal(byClass(tree, 'bt-main-pin-sep').length, 1)
+  // The slot sits between the new-Bot buttons and the search field.
+  const slotOrder = collect(byClass(tree, 'bt-side')[0])
+    .filter(node => node.props?.className === 'bt-side-top' || hasClass(node, 'bt-main-pin') || hasClass(node, 'bt-search'))
+    .map(node => node.props.className)
+  assert.deepEqual(slotOrder, ['bt-side-top', 'bt-main-pin', 'bt-search'])
+  // The slot is a stood-up tile: a 50px avatar above a 15px name, and no time or preview.
+  const tile = byClass(tree, 'bt-main-tile')
+  assert.equal(tile.length, 1, 'the pin draws the tile')
+  assert.equal(textOf(byClass(tree, 'bt-main-tile-name')[0]), 'Mist')
+  const mark = byClass(tile[0], 'bt-mark')[0].props.style
+  assert.equal(mark.width, 50, 'a 50px avatar')
+  assert.equal(mark.height, 50, 'a 50px avatar')
+  assert.equal(byClass(tile[0], 'bt-row-time').length, 0, 'no stamp on the tile')
+  assert.equal(byClass(tile[0], 'bt-row-preview').length, 0, 'no preview on the tile')
+  assert.equal(byClass(tile[0], 'bt-dot').length, 1, 'the unread dot rides on the tile')
+  assert.match(tile[0].props['aria-label'], /Mist/)
+  assert.match(tile[0].props['aria-label'], /Main Bot/)
 
   byClass(tree, 'bt-search-in')[0].props.onChange({ currentTarget: { value: 'Mist' } })
   tree = app.render()
@@ -402,6 +419,24 @@ test('C1b: the Main Bot is pinned above the list and never shows twice', () => {
   tree = app.render()
   assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'a filter hides the pin too')
   assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'and the filtered row still reaches it')
+})
+
+test('C1b: the pin stays on the Main Bot while another Bot chat is open', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions, retained: 's-designer' })
+  const tree = app.render()
+  assert.deepEqual(collect(byClass(tree, 'bt-main-pin')[0]).filter(node => node.props?.['data-bot-id']).map(node => node.props['data-bot-id']), ['main'])
+  const open = rows(tree).filter(node => node.props['aria-current'] === 'page').map(node => node.props['data-bot-id'])
+  assert.deepEqual(open, ['designer'], 'the open Bot is the one marked current')
+})
+
+test('C1b: the rail shows the Main Bot once and has no pin slot', () => {
+  const { roster, sessions } = fixtures()
+  const app = createApp({ roster, sessions })
+  viewport.innerWidth = 390
+  const tree = app.render()
+  assert.equal(byClass(tree, 'bt-main-pin').length, 0, 'no slot on the rail')
+  assert.deepEqual(rowIds(tree).filter(id => id === 'main'), ['main'], 'the Main Bot is in the rail list exactly once')
 })
 
 test('C2: rows stop being draggable while a filter is on', () => {

@@ -81,7 +81,7 @@ function avatarTint(bot) {
   return bot?.avatar?.image ? undefined : { '--bt-ava-tint': `color-mix(in srgb, ${inkFill(color)} 15%, transparent)` }
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart, pin }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns?.[part]))
@@ -112,6 +112,18 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
+  // The pinned slot stands the Main Bot up: avatar over its name, with the unread dot
+  // on the avatar where the row's "New" badge would otherwise sit.
+  if (pin) {
+    return h('button', {
+      type: 'button', className: 'bt-main-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+      'data-bot-id': id, onClick: () => actions.openSession(id), onContextMenu,
+    },
+    h('span', { className: 'bt-main-tile-ava', style: avatarTint(bot) },
+      h(BotAvatar, { bot, size: 50, state, main }),
+      !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
+    h('span', { className: 'bt-main-tile-name' }, bot.name))
+  }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-bot-id': id, title: wide ? undefined : bot.name,
@@ -938,7 +950,7 @@ export function TeamSidebar(props) {
   // the list moves. Search and the filters hide it, or a match would show twice.
   const mainPin = wideContent && !searching && main
     ? h(Fragment, { key: 'main-pin' },
-        h('div', { className: 'bt-main-pin' }, h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true })),
+        h('div', { className: 'bt-main-pin' }, h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true })),
         h('div', { className: 'bt-main-pin-sep', 'aria-hidden': true }))
     : null
   // The foot stands in for the shell's hidden footer: just the account avatar.
