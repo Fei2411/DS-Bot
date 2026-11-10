@@ -50,6 +50,17 @@ test('ds-bot leaves the host bubble variables to the host and its skins', () => 
   }
 })
 
+test('the shell gets the theme accent, and a custom accent wins over it', () => {
+  for (const [id, theme] of Object.entries(allThemes())) {
+    assert.deepEqual(shellTokens(theme)['--dsw-alias-brand-primary'], { light: theme.light.accent, dark: theme.dark.accent }, id)
+  }
+  // A custom accent is the user's explicit choice, so both modes use it.
+  assert.deepEqual(shellTokens(allThemes().deepseek, '#123456')['--dsw-alias-brand-primary'], { light: '#123456', dark: '#123456' })
+  // A preset accent takes its dark value in dark mode, as themeCss writes it.
+  const preset = shellTokens(allThemes().deepseek, INKS.deepseek[0])['--dsw-alias-brand-primary']
+  assert.deepEqual(preset, { light: INKS.deepseek[0], dark: INKS.deepseek[1] })
+})
+
 const themeVars = (theme, dark) => {
   const block = themeCss(theme).split('\n').find(line => line.startsWith(dark ? 'html body[data-ds-dark-theme]{' : 'html body{'))
   return Object.fromEntries(block.slice(block.indexOf('{') + 1, -1).split(';').map(item => item.split(':')))

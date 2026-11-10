@@ -58,13 +58,16 @@ const darkAccent = (accent) => {
 export const themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
 html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
 ${theme.css ?? ''}`
-export const shellTokens = ({ light, dark }) => ({
+export const shellTokens = ({ light, dark }, accent) => ({
   '--dsw-alias-bg-base': { light: light.bg, dark: dark.bg },
   '--dsw-specific-sidebar-fill': { light: light.sidebar, dark: dark.sidebar },
   '--dsw-specific-input-major': { light: light.bg, dark: dark.sidebar },
   '--dsw-alias-label-primary': { light: light.text, dark: dark.text },
   '--dsw-alias-label-secondary': { light: rgba(light.text, 0.74), dark: rgba(dark.text, 0.74) },
   '--dsw-alias-label-tertiary': { light: rgba(light.text, 0.6), dark: rgba(dark.text, 0.6) },
+  // Settings and other host pages live in the shell: a theme must recolor its brand too.
+  // A custom accent is the user's explicit choice and wins over the theme, both modes.
+  '--dsw-alias-brand-primary': { light: accent ?? light.accent, dark: darkAccent(accent) ?? dark.accent },
 })
 
 // Other plugins add character shapes and themes through `window.dshBot`, or queue
