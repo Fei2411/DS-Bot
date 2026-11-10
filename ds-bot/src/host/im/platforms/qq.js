@@ -5,6 +5,7 @@
 // refuses and the reason is permanent. No buttons — the core numbers choices.
 // Wire details ported from @tencent-connect/qqbot-nodejs (MIT, see NOTICE).
 import { chunkMarkdown } from '../format.js'
+import { retryDelay, retryWait } from './retry.js'
 
 const API = 'https://api.sgroup.qq.com'
 const TOKEN_API = 'https://bots.qq.com'
@@ -22,7 +23,12 @@ const getToken = async (fields, env) => {
     body: JSON.stringify({ appId: String(fields.appId ?? '').trim(), clientSecret: String(fields.appSecret ?? '').trim() }),
   })
   const body = await response.json().catch(() => ({}))
-  if (body.access_token === undefined) throw new Error(body.error_reason ?? body.error ?? 'QQ refused these credentials')
+  if (body.access_token === undefined) {
+    const error = new Error(body.error_reason ?? body.error ?? 'QQ refused these credentials')
+    // A refusal is not fixed by trying again; a server or network failure is.
+    error.permanent = response.ok || (response.status >= 400 && response.status < 500 && response.status !== 429)
+    throw error
+  }
   return { token: body.access_token, expiresAt: Date.now() + Math.max(10, Number(body.expires_in ?? 7200) - 300) * 1000 }
 }
 
@@ -107,12 +113,21 @@ export default {
       })
     }
 
+    let openFailures = 0
     const open = (resume) => {
       const gen = generation
       try {
         socket = new env.WebSocket(gatewayUrl)
+        openFailures = 0
       } catch (error) {
-        handlers.onStatus({ state: 'error', error: `QQ could not open a socket: ${error?.message ?? error}` })
+        // A socket that cannot be built yet is retried like a dropped one; the
+        // connection is not over (#1119).
+        if (stopped || generation !== gen) return
+        handlers.onStatus({ state: 'retrying', error: `QQ could not open a socket: ${error?.message ?? error}` })
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) open(resume) }, retryDelay(openFailures))
+        reconnectTimer.unref?.()
+        openFailures += 1
         return
       }
       socket.addEventListener('message', (event) => {
@@ -149,16 +164,36 @@ export default {
 
     let gatewayUrl
     handlers.onStatus({ state: 'connecting' })
+    // The token and gateway are fetched until they arrive: a start before the network
+    // is up must connect once it is (#1119). A refused credential stops instead.
     void (async () => {
-      try {
-        const got = await getToken(fields, env)
-        token = got.token
-        expiresAt = got.expiresAt
-        const gateway = await api(env, token, '/gateway', { method: 'GET' })
-        gatewayUrl = gateway?.url
-      } catch (error) {
-        handlers.onStatus({ state: 'error', error: error.message })
-        return
+      let attempt = 0
+      while (!stopped) {
+        try {
+          const got = await getToken(fields, env)
+          token = got.token
+          expiresAt = got.expiresAt
+          const gateway = await api(env, token, '/gateway', { method: 'GET' })
+          if (!gateway?.url) {
+            // A 200 that names no gateway is the platform refusing this app, the
+            // same as DingTalk's missing endpoint and Feishu's missing URL;
+            // retrying would send the same refusal again.
+            const refused = new Error(String(gateway?.message ?? gateway?.error ?? 'QQ refused the gateway'))
+            refused.permanent = true
+            throw refused
+          }
+          gatewayUrl = gateway.url
+          break
+        } catch (error) {
+          if (stopped) return
+          if (error?.permanent === true) {
+            handlers.onStatus({ state: 'error', error: error.message })
+            return
+          }
+          handlers.onStatus({ state: 'retrying', error: error.message })
+          await retryWait(retryDelay(attempt))
+          attempt += 1
+        }
       }
       if (stopped) return
       refresh()

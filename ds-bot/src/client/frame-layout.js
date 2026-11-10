@@ -21,11 +21,12 @@ export const RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2
  * @param {{viewport: number, sidebarWidth: number,
  *   pref: 'open'|'rail'|'hidden', drawer?: boolean,
  *   panel: null | {view: string, yielded: boolean}}} input
- * @returns {{left: 'open'|'rail'|'drawer'|'hidden', panel: 'none'|'shown'|'folded'|'overlay', room: number}}
- *   `room` is the width the panel and the conversation share: the viewport minus
- *   what the left column occupies (its full width when open, nothing when hidden,
- *   else the rail's — a drawer floats over the rail's place, so the chat does not
- *   move under it).
+ * @returns {{left: 'open'|'rail'|'drawer'|'hidden', panel: 'none'|'shown'|'folded'|'overlay', column: number, room: number}}
+ *   `column` is what the left column occupies: its full width when open, nothing
+ *   when hidden, else the rail's — a drawer floats over the rail's place, so the
+ *   chat does not move under it. New chat, Bot exchanges and voice mode start at
+ *   this edge. `room` is the width the panel and the conversation share: the
+ *   viewport minus `column`.
  */
 export function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
   const fits = pref === 'open' && viewport >= sidebarWidth + MIN_CHAT
@@ -42,7 +43,7 @@ export function frameLayout({ viewport, sidebarWidth, pref, drawer = false, pane
       panelState = occupied + need <= viewport ? 'shown' : 'overlay'
     } else panelState = 'folded'
   }
-  return { left, panel: panelState, room: Math.max(0, viewport - occupied) }
+  return { left, panel: panelState, column: occupied, room: Math.max(0, viewport - occupied) }
 }
 
 /**

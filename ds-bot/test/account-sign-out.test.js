@@ -162,13 +162,11 @@ test('cancel closes the confirm without signing out', async () => {
   assert.deepEqual(side.calls, ['hasRunningAccountTasks'])
 })
 
-test('Models and API keys opens DS Bot\'s Models page, or DSH\'s own where the host serves no providers', () => {
+test('Models and API keys opens the Models page of Settings', () => {
   const opened = []
-  const page = launcher({ actions: { providers: () => {}, openModels: () => opened.push('models'), openHarnessModels: () => opened.push('harness') } })
+  const page = launcher({ actions: { providers: () => {}, openModels: () => opened.push('models') } })
   page.item(page.open(), 'Models and API keys').props.onClick()
-  const shell = launcher({ actions: { openHarnessModels: () => opened.push('harness') } })
-  shell.item(shell.open(), 'Models and API keys').props.onClick()
-  assert.deepEqual(opened, ['models', 'harness'])
+  assert.deepEqual(opened, ['models'])
   const none = launcher()
   assert.equal(none.item(none.open(), 'Models and API keys'), undefined)
 })

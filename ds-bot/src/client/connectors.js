@@ -1,7 +1,7 @@
 // Settings → Connectors: connected rows, a catalog with search and categories,
 // an Add menu, and the mailbox. One row component draws the mark, name, status
 // and the expanding panels (browser sign-in, device code, key/token, client).
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { MaskedInput } from './secret-card.js'
 import { Switch, SwitchRow } from './bot-settings.js'
 import { Segmented, useMorph } from './motion.js'
@@ -57,19 +57,39 @@ function BrowserPanel({ connector, actions, run }) {
       : h('button', { type: 'button', className: 'bt-connector-link bt-connector-aside', onClick: () => setPasting(true) }, t('Did not come back here?')))
 }
 
+// The copy has to start before the sign-in page takes the focus, and the host's
+// update can mount the panel before or after it ends. The panel watches this
+// count, so it says "copied" only for a write that worked, in either order.
+const codeCopies = new Map()
+const copyWatchers = new Set()
+const copyCode = code => navigator.clipboard?.writeText(code).then(() => {
+  codeCopies.set(code, (codeCopies.get(code) ?? 0) + 1)
+  for (const watcher of copyWatchers) watcher()
+}, () => {})
+const watchCopies = (watcher) => { copyWatchers.add(watcher); return () => copyWatchers.delete(watcher) }
+
 function DevicePanel({ connector, actions, run, onUseToken }) {
   const { userCode, verificationUri } = connector.pending
-  const [copied, setCopied] = useState(false)
-  const copy = () => { void navigator.clipboard?.writeText(userCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600) }) }
+  const copies = useSyncExternalStore(watchCopies, () => codeCopies.get(userCode) ?? 0)
   return h('div', { className: 'bt-connector-form' },
     h('div', { className: 'bt-connector-device' },
       h('code', { className: 'bt-connector-code' }, userCode),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copy }, copied ? t('Copied') : t('Copy'))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void copyCode(userCode) }, t('Copy')),
+      h('span', { className: 'bt-connector-copied', role: 'status' },
+        copies > 0 ? h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard')) : null)),
     h('div', { className: 'bt-connector-form-row' },
       h('span', { className: 'bt-connector-wait' }, t('Paste the code on {host} and authorize.', { host: verificationUri.replace(/^https?:\/\//, '') })),
       h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(verificationUri) }, t('Open again')),
       connector.auth?.token === true && onUseToken ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => void run(actions.connectorCancel(connector.id), onUseToken) }, t('Use a token instead')) : null,
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel'))))
+}
+
+// What a sign-in in progress shows, on a catalog tile and in the app's own view.
+export function SignInPanel({ connector, actions, run, onUseToken }) {
+  const kind = connector.pending?.kind
+  if (kind === 'browser') return h(BrowserPanel, { connector, actions, run })
+  if (kind === 'device') return h(DevicePanel, { connector, actions, run, onUseToken })
+  return null
 }
 
 function ClientPanel({ connector, actions, run }) {
@@ -100,13 +120,13 @@ function TokenPanel({ connector, actions, run, onDone }) {
 }
 
 // Opens the sign-in page the host answers with: the browser page for OAuth, or the
-// device page with the code already on the clipboard.
+// device page with the code already on the clipboard. The write has to finish
+// first: the page takes the focus as it opens, and an unfocused page is refused.
 export const openSignIn = (win, id, view) => {
   const pending = view?.connectors?.find(entry => entry.id === id)?.pending
   if (pending?.kind === 'browser') return void win.go(pending.url)
   if (pending?.kind === 'device') {
-    void navigator.clipboard?.writeText(pending.userCode).catch(() => {})
-    return void win.go(pending.verificationUri)
+    return void Promise.resolve(copyCode(pending.userCode)).then(() => win.go(pending.verificationUri))
   }
   win.close()
 }
@@ -156,8 +176,7 @@ export function ConnectorRow({ connector, actions }) {
       actionsNode ? h('span', { className: 'bt-connector-actions' }, actionsNode) : null),
     connector.readOnly !== undefined && on && connector.state === 'ready' ? h('div', { className: 'bt-connector-ro' },
       h(SwitchRow, { label: t('Read-only'), on: connector.readOnly === true, onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) })) : null,
-    pending?.kind === 'browser' ? h(BrowserPanel, { connector, actions, run }) : null,
-    pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run, onUseToken: () => setForm('token') }) : null,
+    h(SignInPanel, { connector, actions, run, onUseToken: () => setForm('token') }),
     connector.state === 'needs-client' && !pending?.kind ? h(ClientPanel, { connector, actions, run }) : null,
     form === 'token' ? h(TokenPanel, { connector, actions, run, onDone: () => { setForm(null); setError(null) } }) : null,
     error ? h('div', { className: 'bt-connector-error', role: 'alert' }, hostText(error)) : null)
@@ -626,7 +645,10 @@ export const CONNECTOR_CSS = `
 .bt-connector-chips .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-connector-chips .bt-secret-seg[aria-pressed=true]{background:var(--bt-active)}
 .bt-connector-ro{padding-left:48px}
-.bt-connector-device{display:flex;align-items:center;gap:10px}
+.bt-connector-device{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.bt-connector-copied:empty{display:none}
+.bt-connector-copied-text{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:16px;color:var(--bt-ink-2);animation:bt-veil-in .2s ease-out}
+.bt-connector-copied-text svg{flex:none;width:13px;height:13px;color:var(--bt-green)}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-rule-wrap{position:relative;display:inline-flex;align-items:center}

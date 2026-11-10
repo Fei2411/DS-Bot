@@ -85,7 +85,7 @@ const clock = time => (typeof time === 'number' ? new Date(time).toLocaleTimeStr
 
 // A message that came in over IM names its platform: "via Telegram" by the time.
 export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)
-export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: imPlatform(via)?.name ?? via }))
+export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
 
 // A sent message, or one that joined a running turn ("steering").
 export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {

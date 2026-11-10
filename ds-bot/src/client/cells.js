@@ -17,7 +17,7 @@ import { AppAccessCall, ComputerCallRow, ComputerHandoffCall } from './computer.
 import { t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
-import { turnReasoning, thinkingStep, opensReply } from './turn-reasoning.js'
+import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
 import { parseReplies, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
@@ -68,11 +68,18 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
 // theirs is intercepted or cloned.
 function FoldCodeCopy({ code, actions }) {
   const [copied, setCopied] = useState(false)
-  const copy = () => {
-    void writeClipboard(code).then((ok) => {
-      if (!ok) { actions?.reportError?.(new Error('Could not copy the code block'), 'copy'); return }
+  const copy = async () => {
+    try {
+      if (typeof code === 'function' && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        // Safari needs the clipboard write inside the click, before the attachment loads.
+        const text = Promise.resolve().then(code).then(value => new Blob([value], { type: 'text/plain' }))
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': text })])
+      } else {
+        const text = typeof code === 'function' ? await code() : code
+        if (!await writeClipboard(text)) throw new Error('Could not copy the code block')
+      }
       setCopied(true); setTimeout(() => setCopied(false), 1000)
-    }, () => actions?.reportError?.(new Error('Could not copy the code block'), 'copy'))
+    } catch (error) { actions?.reportError?.(error, 'copy') }
   }
   return h('button', { type: 'button', className: 'bt-tool bt-fold-copy', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
 }
@@ -275,7 +282,8 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   // DSH 0.2; the step that answers it shows the event line where it was read,
   // once, in the step's first cell.
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : []
-  if (texts.length === 0 && !reasoning && relays.length === 0) return h(CellEmpty)
+  const activity = groupPart === 'response' ? [] : stepActivity(data)
+  if (texts.length === 0 && !reasoning && relays.length === 0 && activity.length === 0) return h(CellEmpty)
   const selfId = roster.byId[sessionId]?.id ?? sessionId
   // The flat layout heads a reply with who speaks, once per Turn: in the step that opens
   // it, in that step's reasoning part when the reasoning shows there.
@@ -295,6 +303,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       })
     }),
     head ? h(SpeakerHead, { bot: speaker, time: data.time }) : null,
+    activity.length ? h('div', { className: 'bt-agent-activity' }, activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line }, h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }), h('span', { className: 'bt-agent-act-text' }, activityParts(line))))) : null,
     reasoning ? h(ThinkingRow, {
       text: reasoning, live: thinking !== undefined, viewKey: `${sessionId}:${data.turn}`,
       // The live clock counts the settled steps too: backing `at` by the settled
@@ -303,6 +312,9 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
     }) : null,
     texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === undefined ? data.time : undefined }) : null)
 }
+
+// `code` in an activity line is the command or path the agent works on.
+const activityParts = line => line.split('`').map((part, index) => (index % 2 === 1 ? h('code', { key: index }, part) : part))
 
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
   if (whole && bots.length === 1) {
@@ -915,7 +927,7 @@ function useLiveNote(actions, sessionId, id, entry) {
 function RelayEvent({ reply, bot, sessionId, actions }) {
   if (reply.kind === 'failed') {
     return h('div', { className: 'bt-event bt-event-error', role: 'status', title: [reply.code, reply.status, reply.text].filter(Boolean).join(' · ') },
-      t('{name} could not answer: {reason}', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
+      t('{name} stopped: {reason}. Switch its model or ask it to go on.', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
   }
   if (reply.kind === 'lookup') {
     return h('div', { className: 'bt-event' },

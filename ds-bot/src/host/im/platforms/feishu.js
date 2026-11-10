@@ -7,6 +7,7 @@
 // by PATCH. The tiny protobuf codec below implements only this frame shape.
 // Protocol ported from @larksuiteoapi/node-sdk (MIT, see NOTICE).
 import { chunkMarkdown } from '../format.js'
+import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
 
@@ -122,7 +123,7 @@ export default {
   id: 'feishu',
 
   async check(fields, env) {
-    const token = await tenantToken(fields, env)
+    const { token } = await tenantToken(fields, env)
     const me = await api(env, apiBase(env, fields), token, '/open-apis/bot/v3/info', { method: 'GET' })
     const bot = me?.bot ?? me
     return { account: { id: String(bot?.open_id ?? bot?.app_id ?? fields.appId), name: bot?.app_name ?? String(fields.appId) } }
@@ -194,27 +195,56 @@ export default {
       }
     }
 
+    let openFailures = 0
     const open = async () => {
       const gen = generation
       let url
       try {
-        const answer = await env.fetch(`${apiBase(env, fields)}/open-apis/bot/v2/endpoint`, {
+        if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
+          const got = await tenantToken({ appId, appSecret }, env)
+          token = got.token
+          tokenExpiresAt = got.expiresAt
+        }
+        const answer = await env.fetch(`${apiBase(env, fields)}/callback/ws/endpoint`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ appId, appSecret }),
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          body: JSON.stringify({ AppID: appId, AppSecret: appSecret }),
         })
         const body = await answer.json().catch(() => ({}))
         url = body.data?.URL
-        if (url === undefined) throw new Error(body.msg ?? 'Feishu refused the connection')
+        if (url === undefined || (body.code !== undefined && body.code !== 0)) {
+          const reason = body.msg ?? `Feishu answered ${answer.status}`
+          const error = new Error(body.code === undefined ? reason : `${reason} (code ${body.code})`)
+          // A 200 that carries no WebSocket URL is the platform refusing the app.
+          error.permanent = answer.ok || (answer.status >= 400 && answer.status < 500 && answer.status !== 429)
+          throw error
+        }
+        openFailures = 0
       } catch (error) {
-        handlers.onStatus({ state: 'error', error: error.message })
+        if (stopped || generation !== gen) return
+        if (error?.permanent === true) {
+          handlers.onStatus({ state: 'error', error: error.message })
+          return
+        }
+        // The handshake is retried, also when this is the first one: a connection
+        // started before the network is up is not over (#1119).
+        handlers.onStatus({ state: 'retrying', error: error.message })
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+        reconnectTimer.unref?.()
+        openFailures += 1
         return
       }
       try {
         socket = new env.WebSocket(url)
         socket.binaryType = 'arraybuffer'
       } catch (error) {
-        handlers.onStatus({ state: 'error', error: `Feishu could not open a socket: ${error?.message ?? error}` })
+        if (stopped || generation !== gen) return
+        handlers.onStatus({ state: 'retrying', error: `Feishu could not open a socket: ${error?.message ?? error}` })
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+        reconnectTimer.unref?.()
+        openFailures += 1
         return
       }
       socket.addEventListener('message', (event) => {
@@ -239,7 +269,7 @@ export default {
         }
         void dispatch(type, frame.payload).catch(error => env.log?.warn?.('ds-bot im: feishu event failed: %s', error?.message ?? error))
       })
-      socket.addEventListener('open', () => handlers.onStatus({ state: 'ready' }))
+      socket.addEventListener('open', () => { openFailures = 0; handlers.onStatus({ state: 'ready' }) })
       socket.addEventListener('close', () => {
         if (stopped || generation !== gen) return
         handlers.onStatus({ state: 'connecting' })
@@ -250,16 +280,29 @@ export default {
     }
 
     handlers.onStatus({ state: 'connecting' })
+    // The tenant token is fetched until it arrives: a connection started before the
+    // network is up must connect once it is (#1119). The bot identity is fetched
+    // again per handshake below; here it only fills the mention check.
     void (async () => {
-      try {
-        const got = await tenantToken({ appId, appSecret }, env)
-        token = got.token
-        tokenExpiresAt = got.expiresAt
-        const me = await api(env, apiBase(env, fields), token, '/open-apis/bot/v3/info', { method: 'GET' }).catch(() => ({}))
-        botOpenId = String(me?.bot?.open_id ?? me?.open_id ?? '')
-      } catch (error) {
-        handlers.onStatus({ state: 'error', error: error.message })
-        return
+      let attempt = 0
+      while (!stopped) {
+        try {
+          const got = await tenantToken({ appId, appSecret }, env)
+          token = got.token
+          tokenExpiresAt = got.expiresAt
+          const me = await api(env, apiBase(env, fields), token, '/open-apis/bot/v3/info', { method: 'GET' }).catch(() => ({}))
+          botOpenId = String(me?.bot?.open_id ?? me?.open_id ?? '')
+          break
+        } catch (error) {
+          if (stopped) return
+          if (error?.permanent === true) {
+            handlers.onStatus({ state: 'error', error: error.message })
+            return
+          }
+          handlers.onStatus({ state: 'retrying', error: error.message })
+          await retryWait(retryDelay(attempt))
+          attempt += 1
+        }
       }
       if (!stopped) await open()
     })()
@@ -324,7 +367,12 @@ async function tenantToken(fields, env) {
     body: JSON.stringify({ app_id: String(fields.appId ?? '').trim(), app_secret: String(fields.appSecret ?? '').trim() }),
   })
   const body = await response.json().catch(() => ({}))
-  if (body.tenant_access_token === undefined) throw new Error(body.msg ?? 'Feishu refused these credentials')
+  if (body.tenant_access_token === undefined) {
+    const error = new Error(body.msg ?? 'Feishu refused these credentials')
+    // A 5xx or a 429 is the service, not the credentials: retry those.
+    error.permanent = !(response.status >= 500 || response.status === 429)
+    throw error
+  }
   return { token: body.tenant_access_token, expiresAt: Date.now() + Math.max(60, Number(body.expire ?? 7200) - 300) * 1000 }
 }
 

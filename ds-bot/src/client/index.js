@@ -5,9 +5,10 @@ import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sourc
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
-import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
+import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
-import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts, openHarnessOnboarding, openHarnessSettings, MODELS_STEP, MODELS_STEP_ORDER, OpenModelsStep } from './sidebar.js'
+import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
+import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
@@ -33,6 +34,7 @@ import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
+import { AGENT_CARDS_CSS } from './agent-cards.js'
 import { AVATAR_LIBRARY_CSS } from './avatar-library.js'
 import { GROUP_SETTINGS_CSS } from './group-settings.js'
 import { FOLDER_CSS } from './folder-menu.js'
@@ -51,9 +53,11 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { installTitle } from './branding.js'
+import { agentSessionToReuse, singleFlight } from './agent-new.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -85,12 +89,18 @@ export function apply(ctx) {
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
   const surface = createSource({ mode: readMode(), plain: false })
+  // Whether DS Bot holds the settings seat; Overlays draws the Settings dialog while it does not.
+  const settingsShellHeld = createSource(false)
+  let settingsShell = null
   // DSH Agent Session ids from the last pull, so a reload already knows the main
   // view is a plain Session before the team answers.
   let agentSessionCache = new Set()
   try { agentSessionCache = new Set(JSON.parse(localStorage.getItem(STORAGE.agentSessions) ?? '[]')) } catch { agentSessionCache = new Set() }
   // Sessions adopted on this window (workspace pick, fork) but not yet in the roster.
   const pendingAdopt = new Map()
+  // A create can finish before the DSH list publishes its Session (#1225).
+  const pendingAgentSession = new Map()
+  const agentNewInFlight = new Map()
   const isAgentSessionId = id => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id)
   const agentOfSession = id => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id)
   // The workspace a Session lives in, for follow-up creates and switch detection.
@@ -214,6 +224,9 @@ export function apply(ctx) {
     const listed = ctx.sessions.list.getSnapshot().byId ?? {}
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
+    }
+    for (const [agentId, sessionId] of pendingAgentSession) {
+      if (listed[sessionId] !== undefined || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId)
     }
     for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
       if (refreshed.has(id)) continue
@@ -434,6 +447,8 @@ export function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id)
     return ids
   }
+  const latestAgentSession = (agentId, list) => agentSessions(agentId)
+    .sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))[0]
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
   const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView })
   // Whether the open Bot panel is folded away for lack of room: its opener then
@@ -497,23 +512,29 @@ export function apply(ctx) {
       const agent = roster.getSnapshot().agentsById[agentId]
       if (agent === undefined) return
       const list = ctx.sessions.list.getSnapshot()
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))
-      if (recent.length === 0) return actions.newAgentSession(agentId)
-      actions.openAgentSession(recent[0])
+      const latest = latestAgentSession(agentId, list)
+      if (latest === undefined) return actions.newAgentSession(agentId)
+      actions.openAgentSession(latest)
     },
     newAgentSession: async (agentId) => {
       const agent = roster.getSnapshot().agentsById[agentId]
       if (agent === undefined) return
-      const list = ctx.sessions.list.getSnapshot()
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))
-      // An untouched Session is already the new conversation the user wants.
-      if (recent.length > 0 && list.byId[recent[0]]?.blank === true) {
-        actions.openAgentSession(recent[0])
-        return recent[0]
-      }
-      const { sessionId } = await after(call('agent-session', { agentId, workspaceId: workspaceOf(recent[0]) }))
-      actions.openAgentSession(sessionId)
-      return sessionId
+      // One create per Agent at a time, so two clicks in a row make one Session.
+      return singleFlight(agentNewInFlight, agentId, async () => {
+        const list = ctx.sessions.list.getSnapshot()
+        const latest = latestAgentSession(agentId, list)
+        const pending = pendingAgentSession.get(agentId)
+        if (pending !== undefined && list.byId[pending] !== undefined) pendingAgentSession.delete(agentId)
+        const reuse = agentSessionToReuse(list, latest, pending)
+        if (reuse !== undefined) {
+          actions.openAgentSession(reuse)
+          return reuse
+        }
+        const { sessionId } = await after(call('agent-session', { agentId, workspaceId: workspaceOf(latest) }))
+        if (ctx.sessions.list.getSnapshot().byId[sessionId] === undefined) pendingAgentSession.set(agentId, sessionId)
+        actions.openAgentSession(sessionId)
+        return sessionId
+      })
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call('agent-archive', { agentId, sessionId }))
@@ -569,6 +590,7 @@ export function apply(ctx) {
     setPanelYield: (on) => ui.set(state => (state.panelYield === on ? state : { ...state, panelYield: on })),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
+    surfaceMode: () => surface.getSnapshot().mode,
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
       // Already there: still worth the landing check — a cold start never calls
@@ -679,15 +701,9 @@ export function apply(ctx) {
   actions.accountT = () => ctx.get('locale').bind('settings.account')
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
-  // DSH's own settings: models, providers, keys and its plugins.
-  actions.openHarnessSettings = openHarnessSettings
-  actions.openHarnessOnboarding = openHarnessOnboarding
-  // DSH's Models page, through DS Bot's own onboarding step while it is registered.
-  actions.openHarnessModels = () => {
-    const step = (ctx.slots.entries?.('settings.onboarding') ?? []).some(entry => entry.options?.id === MODELS_STEP)
-    if (step) openHarnessOnboarding(MODELS_STEP)
-    else openHarnessSettings()
-  }
+  // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
+  // through the settings shell's coordinator.
+  actions.openHarnessOnboarding = id => settingsShell?.openOnboarding(id)
   // With the plugin manager mounted, setup is its bundle page (the model's size
   // and download notes live there). Where it is not mounted — the desktop app's
   // profile has no plugin manager — the speech Remote prepares the provider
@@ -819,7 +835,21 @@ export function apply(ctx) {
       else if (kind === 'letgo') void actions.computerAllowForeground(botId)
     })
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
+  // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.
+  ctx.effect(() => {
+    const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, 'settings-shell')
+    settingsShell = installSettingsShell(ctx, { face, actions, ui, held: settingsShellHeld })
+    return () => { settingsShell?.dispose(); settingsShell = null; offStyles() }
+  }, 'ds-bot: settings shell')
+  // The queue dock's per-session verbs, supplied the way the shell's own dock
+  // injects them (the session facade and the conversation service).
+  const queueFace = (sessionId) => ({
+    ...face(),
+    updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
+    loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
+  })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -1011,25 +1041,44 @@ export function apply(ctx) {
   // The shell group paints the team surface around the session; the conversation
   // group re-skins the session itself. Each step returns a disposer from slots.inject,
   // so a surface change withdraws the whole group and the outlets re-render.
+  // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
+  const SHELL_SHEETS = [
+    [SHELL_CSS, 'shell'],
+    [SIDEBAR_CSS, 'sidebar'],
+    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
+    [LEARNING_CSS, 'learning'],
+    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
+    [USAGE_CSS, 'usage'],
+    [SCHEDULE_CSS, 'schedules'],
+    [FEEDBACK_CSS, 'feedback'],
+    [ABOUT_CSS, 'about'],
+    [MEMBER_CSS, 'members'],
+    [IM_CSS, 'im'],
+    [GOAL_CSS, 'goal'],
+    [USER_MESSAGE_CSS, 'user-messages'],
+    [WIDGET_CSS, 'widgets'],
+    [HANDOFF_CSS, 'handoff'],
+    [SIDE_CSS, 'side'],
+    [BROWSER_CSS, 'browser'],
+  ]
+  // Settings outside Bot mode (Agent mode) brings DS Bot's own rules and colors while it
+  // shows; the shell overrides and DSH's tokens stay as Agent mode has them.
+  let shellSheets = 0
+  actions.holdSettingsLook = () => {
+    if (shellSheets > 0) return () => {}
+    const snapshot = roster.getSnapshot()
+    const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
+    const themes = allThemes()
+    const theme = themes[prefs.theme] ?? themes.deepseek
+    const offs = [
+      ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
+      installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : undefined)), 'settings-theme'),
+    ]
+    return () => { for (const off of offs) off() }
+  }
   const installShell = () => [
-    () => installCompiledStyles(SHELL_CSS, 'shell'),
-    () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
-    () => installCompiledStyles(SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'),
-    () => installCompiledStyles(LEARNING_CSS, 'learning'),
-    () => installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'),
-    () => installCompiledStyles(USAGE_CSS, 'usage'),
-    () => installCompiledStyles(SCHEDULE_CSS, 'schedules'),
-    () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
-    () => installCompiledStyles(ABOUT_CSS, 'about'),
-    () => installCompiledStyles(MEMBER_CSS, 'members'),
-    () => installCompiledStyles(IM_CSS, 'im'),
-    () => installCompiledStyles(GOAL_CSS, 'goal'),
-    () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
-    () => installCompiledStyles(WIDGET_CSS, 'widgets'),
-    () => installCompiledStyles(HANDOFF_CSS, 'handoff'),
-    () => installCompiledStyles(SIDE_CSS, 'side'),
-    // Strip and panel styles also serve the side-chat tabs, which need no bridge.
-    () => installCompiledStyles(BROWSER_CSS, 'browser'),
+    () => { shellSheets += 1; return () => { shellSheets -= 1 } },
+    ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
@@ -1041,7 +1090,6 @@ export function apply(ctx) {
     // The whale wins the seat over a shell account plugin's own launcher (the
     // Desktop's "··· More"), which comes back in Agent mode.
     () => shadow('settings.launcher', { priority: BOT_PRIORITY, inject: face }, AccountLauncher),
-    () => shadow('settings.onboarding', { id: MODELS_STEP, order: MODELS_STEP_ORDER }, OpenModelsStep),
     () => shadow('shell.overlay', { id: 'bot-computer', order: 40, inject: face }, ComputerIndicator),
     () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
     () => shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
@@ -1050,6 +1098,7 @@ export function apply(ctx) {
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
+    () => installCompiledStyles(QUEUE_CSS, 'queue'),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
@@ -1099,6 +1148,10 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-computer-handoff', order: -84, inject: face }, ComputerHandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-app', order: -83, inject: face }, AppAccessDock),
     () => shadow('conversation.input.dock', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock),
+    // The shell's own queue dock lists every queued inbox row as the user's
+    // drafts — including the team's relayed mail. Reusing its id puts ours in
+    // its cell; it lists only the sends the user authored (#663).
+    () => shadow('conversation.input.dock', { id: 'queue', order: 20, priority: BOT_PRIORITY, inject: queueFace }, QueueDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.
   ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')

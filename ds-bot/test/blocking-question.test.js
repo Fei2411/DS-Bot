@@ -7,8 +7,9 @@ import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 const QUESTION = 'ask_user_question'
-const DELEGATION = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph']
-const DELEGATION_REFUSAL = 'Bots do not start subagents or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
+const AGENT_TEAMS = ['spawn_teammate', 'wait_agent', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update']
+const DELEGATION = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph', ...AGENT_TEAMS]
+const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 
 const team = () => ({
   version: 1,
@@ -238,6 +239,18 @@ test('a Bot\'s chat and its group Sessions lose the delegation tools; other Sess
   assert.deepEqual(hidden.filter(([sessionId]) => sessionId === 'plain' || sessionId === 'elsewhere'), [])
 })
 
+// Fei2411/DS-Bot#973: an admin started an Agent Teams teammate it could not message,
+// list or stop; the teammate died and nobody heard of it. Agent Teams registers its
+// tools in each Agent's own scope, where restrict() cannot reach them; the guard test
+// below is what holds there.
+test('a Bot\'s chat and its group Sessions mask the Agent Teams tools; other Sessions keep them', async (t) => {
+  const { agentFor, hidden, stop } = await setup({ served: ['read', 'ask_user', 'send_message', 'list_agents', ...AGENT_TEAMS] })
+  t.after(stop)
+  for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
+  for (const id of ['chief', 'room-writer']) assert.deepEqual(hidden.filter(([sessionId]) => sessionId === id), [[id, ['send_message', 'list_agents', ...AGENT_TEAMS]]])
+  assert.deepEqual(hidden.filter(([sessionId]) => sessionId === 'plain'), [])
+})
+
 test('the guard refuses the delegation tools in Bot Sessions only', async (t) => {
   const { guard, stop } = await setup()
   t.after(stop)
@@ -274,13 +287,13 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   t.after(stop)
   for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
   const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
-  // Bot Sessions get the hidden-tools filter and the computer-use filter; the room's
-  // own Session and a plain Agent get only the computer-use one.
-  assert.deepEqual(filters.map(record => record.sessionId), ['room', 'chief', 'chief', 'room-writer', 'room-writer', 'plain'])
+  // Bot Sessions get the hidden-tools filter and the computer-use filter. The room's own
+  // Session and a plain Agent get neither while DS Bot has mounted no provider.
+  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'chief', 'room-writer', 'room-writer'])
   // Resolving the same Agent again adds no listener.
   await rt.resolveAgent('chief')
-  assert.equal(scopedListeners.length, 6)
-  const filtered = await filters[1].listener({}, {}, async () => ({
+  assert.equal(scopedListeners.length, 4)
+  const filtered = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
     contexts: [{ name: 'x' }],
     tools: [{ name: 'read' }, { name: 'subagent' }, { name: 'workflow' }, { name: 'send_message' }, { name: 'message_bot' }, { name: 'ask_user_question' }],
@@ -292,14 +305,21 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.variables, { a: 1 })
   // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
   // assembly it passes has none; the guidance is still filtered and no tools appear.
-  const current = await filters[1].listener({}, {}, async () => ({
+  const current = await filters[0].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
     contexts: [],
     variables: {},
   }))
   assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
+  // Fei2411/DS-Bot#973: Agent Teams' Team Lead guidance goes too.
+  const team = await filters[0].listener({}, {}, async () => ({
+    sections: [{ name: 'bot-identity' }, { name: 'team:policy' }, { name: 'tool:spawn_teammate' }],
+    contexts: [],
+    variables: {},
+  }))
+  assert.deepEqual(team.sections.map(section => section.name), ['bot-identity'])
   // The computer-use filter keeps everything but the provider's own sections.
-  const computer = await filters[0].listener({}, {}, async () => ({
+  const computer = await filters[1].listener({}, {}, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'computer-use:dsh-cua' }],
     contexts: [],
     variables: {},
