@@ -569,7 +569,7 @@ function PlusMenu({ actions, onOpenChange }) {
       h('button', { type: 'button', role: 'menuitem', onClick: pick('create') },
         h(PersonIcon), h('span', { className: 'bt-menu-label' }, t('Create new Bot'))),
       h('button', { type: 'button', role: 'menuitem', onClick: pick('group') },
-        h(PeopleIcon, { size: 16, strokeWidth: 1.6 }), h('span', { className: 'bt-menu-label' }, t('Create group chat')))), document.body) : null)
+        h(PeopleIcon, { size: 16, strokeWidth: 1.6 }), h('span', { className: 'bt-menu-label' }, t('New group chat')))), document.body) : null)
 }
 
 function TitleToggle({ hidden, onToggle }) {
@@ -1024,9 +1024,9 @@ export function TeamSidebar(props) {
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
-  // The dictionary's "Chats" means chats in general (聊天); this tab is the group
-  // chats, so it reads 群聊 in Chinese and stays "Chats" in English.
-  const chatsTab = dateLocale() === 'zh-CN' ? t('Group chats') : t('Chats')
+  // The dictionary's "Chats" means chats in general (聊天); this tab is the groups,
+  // so it reads 群组 in Chinese and stays "Chats" in English.
+  const chatsTab = dateLocale() === 'zh-CN' ? t('Groups') : t('Chats')
   // The inline field filters what is already here; Enter hands the same words to the
   // command palette, and the shell's own ⌘K still opens it.
   const filters = wideContent

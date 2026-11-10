@@ -102,6 +102,7 @@ var ZH = {
   "Remove Main Bot role": "取消主机器人",
   "Create group chat": "创建群组",
   "Add group chat": "新建群组",
+  "New group chat": "新建群组",
   "Group chat name": "群组名称",
   "e.g. Website launch": "例如：网站上线",
   "Select Bots": "选择机器人",
@@ -119,7 +120,7 @@ var ZH = {
   "New Bot or group": "新建",
   "Filter chats": "筛选会话",
   "No matches": "没有匹配结果",
-  Groups: "群聊",
+  Groups: "群组",
   Recent: "最近",
   "Setting up your Main Bot…": "正在设置你的主机器人…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "机器人团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
@@ -16021,7 +16022,7 @@ function PlusMenu({ actions, onOpenChange }) {
         "button",
         { type: "button", role: "menuitem", onClick: pick2("group") },
         (0, import_react34.createElement)(PeopleIcon, { size: 16, strokeWidth: 1.6 }),
-        (0, import_react34.createElement)("span", { className: "bt-menu-label" }, t("Create group chat"))
+        (0, import_react34.createElement)("span", { className: "bt-menu-label" }, t("New group chat"))
       )
     ), document.body) : null
   );
@@ -16459,7 +16460,7 @@ function TeamSidebar(props) {
     main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react34.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const chatsTab = dateLocale() === "zh-CN" ? t("Group chats") : t("Chats");
+  const chatsTab = dateLocale() === "zh-CN" ? t("Groups") : t("Chats");
   const filters = wideContent ? (0, import_react34.createElement)(
     "div",
     { className: "bt-seg", role: "group", "aria-label": t("Filter chats") },

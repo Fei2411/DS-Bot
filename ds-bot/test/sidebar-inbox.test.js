@@ -811,8 +811,8 @@ test('C5/C6: the Chinese copy of the inbox chrome holds', () => {
   assert.equal(t('Create group chat'), '创建群组', 'the same dialog keeps one name')
   tree = openSearch(app, tree)
   assert.equal(byClass(tree, 'bt-search-in')[0].props.placeholder, '搜索会话')
-  assert.deepEqual(byClass(tree, 'bt-seg-btn').map(textOf), ['全部', '机器人', '群聊'], 'the Bot filter reads 机器人')
-  assert.deepEqual(byClass(tree, 'bt-fixed-title').map(textOf), ['群聊', '最近'])
+  assert.deepEqual(byClass(tree, 'bt-seg-btn').map(textOf), ['全部', '机器人', '群组'], 'the groups filter reads 群组')
+  assert.deepEqual(byClass(tree, 'bt-fixed-title').map(textOf), ['群组', '最近'])
   installLocale({
     register: () => () => {},
     bind: () => key => key,
@@ -839,7 +839,11 @@ test('H1: the plus opens a menu of two entries and each entry opens its dialog',
   assert.equal(byClass(tree, 'bt-round-plus')[0].props['aria-expanded'], true)
   const menu = byClass(tree, 'bt-plus-menu')[0]
   assert.equal(menu.props.role, 'menu')
-  assert.deepEqual(collect(menu).filter(node => node.type === 'button').map(textOf), ['Create new Bot', 'Create group chat'])
+  const entries = collect(menu).filter(node => node.type === 'button')
+  assert.deepEqual(entries.map(textOf), ['Create new Bot', 'New group chat'])
+  // One person, two people: the shape count tells the two icons apart.
+  assert.deepEqual(entries.map(entry => collect(entry).filter(node => node.type === 'svg').map(svg => collect(svg).map(node => node.type))),
+    [[['svg', 'circle', 'path']], [['svg', 'circle', 'path', 'path']]], 'each entry carries its own icon')
 
   collect(menu).filter(node => node.type === 'button')[0].props.onClick()
   tree = app.render()
@@ -890,6 +894,9 @@ test('H3: the plus sits at the right end of the row, after the search, and the r
   tree = app.render()
   assert.equal(byClass(tree, 'bt-round-plus').length, 1, 'the rail keeps the plus')
   assert.equal(byClass(tree, 'bt-round-search').length, 0, 'the rail has no search button')
+  viewport.innerWidth = 1280
+  tree = app.render()
+  assert.equal(byClass(tree, 'bt-round-search').length, 1, 'a wide window gets both buttons back')
 })
 
 // SHELL_CSS is bundled with the sidebar; a sanity check keeps the import honest.
