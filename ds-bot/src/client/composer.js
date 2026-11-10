@@ -126,18 +126,25 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   const attachmentCount = useInput?.(state => state.attachmentIds?.length ?? 0) ?? 0
   // A draft typed in a part the chat has since left comes along to the current part.
   // A staged image's preview belongs to the part that ends, so it cannot; say so.
-  const restored = useRef(false)
+  // Keyed by the part, so a second part move in the same mounted slot restores again.
+  const restoredFor = useRef('')
   useEffect(() => {
-    if (restored.current || bot === undefined || sessionId === undefined || inputActions === undefined) return
-    restored.current = true
+    if (bot === undefined || sessionId === undefined || inputActions === undefined) return
+    const restoreKey = `${bot.id}:${sessionId}:${bot.sessionId ?? bot.id}`
+    if (restoredFor.current === restoreKey) return
+    restoredFor.current = restoreKey
     const carried = takeCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText })
     if (carried === undefined) return
-    // The part can end again between the pull and this mount; the shell then refuses.
+    // The part can end again between the pull and this mount; the shell then refuses,
+    // and the draft waits for the part after that one.
     if (carried.text !== '') {
-      try { inputActions.setDraft(carried.text) } catch { /* the newer part has its own shell */ }
+      try { inputActions.setDraft(carried.text) } catch {
+        keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: sessionId, text: carried.text, attachments: carried.attachments })
+        return
+      }
     }
     if (carried.attachments > 0) actions.showToast?.(t('This chat moved to a new session, so the images you attached were not kept.'))
-  }, [bot?.id, sessionId, inputActions])
+  }, [bot?.id, bot?.sessionId, sessionId, inputActions])
   useEffect(() => {
     if (bot === undefined || sessionId === undefined) return
     keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText, attachments: attachmentCount })

@@ -23299,20 +23299,24 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   const bot = roster.byId?.[sessionId];
   const draftText = useInput?.((state) => state.draft) ?? "";
   const attachmentCount = useInput?.((state) => state.attachmentIds?.length ?? 0) ?? 0;
-  const restored = (0, import_react50.useRef)(false);
+  const restoredFor = (0, import_react50.useRef)("");
   (0, import_react50.useEffect)(() => {
-    if (restored.current || bot === void 0 || sessionId === void 0 || inputActions === void 0) return;
-    restored.current = true;
+    if (bot === void 0 || sessionId === void 0 || inputActions === void 0) return;
+    const restoreKey = `${bot.id}:${sessionId}:${bot.sessionId ?? bot.id}`;
+    if (restoredFor.current === restoreKey) return;
+    restoredFor.current = restoreKey;
     const carried = takeCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText });
     if (carried === void 0) return;
     if (carried.text !== "") {
       try {
         inputActions.setDraft(carried.text);
       } catch {
+        keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: sessionId, text: carried.text, attachments: carried.attachments });
+        return;
       }
     }
     if (carried.attachments > 0) actions.showToast?.(t("This chat moved to a new session, so the images you attached were not kept."));
-  }, [bot?.id, sessionId, inputActions]);
+  }, [bot?.id, bot?.sessionId, sessionId, inputActions]);
   (0, import_react50.useEffect)(() => {
     if (bot === void 0 || sessionId === void 0) return;
     keepCarriedDraft({ botId: bot.id, part: sessionId, currentPart: bot.sessionId ?? bot.id, text: draftText, attachments: attachmentCount });
