@@ -662,6 +662,8 @@ export function install(rt) {
       }
       state.rooms[id] = room
       await rt.save()
+      // A new Session starts on DSH's default, which may be a model no longer served.
+      await rt.selectRoomSession(id)
       // The Session was resolved before the group owned it, so its relay tool lands now.
       await rt.resolveAgent(id)
       if (name !== title) await retitleRoom(room)

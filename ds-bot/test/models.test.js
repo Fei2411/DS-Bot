@@ -389,3 +389,132 @@ test('a Bot on the default model with its own thinking level leaves the default 
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', effort: 'low' })
   assert.deepEqual(current(), fallback)
 })
+
+// A group's own Session never asks the model, but DSH resolves its selection before every
+// step. One left on a model DSH no longer serves fails with UNKNOWN_MODEL however the
+// members are set (#1310).
+test('a group\'s own Session is moved onto a served model, once, while its members keep theirs', async () => {
+  const { rt, selected } = bench({ fallback: { provider: 'gone', model: 'old' } })
+  rt.state.bots = { b1: { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' } }
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: ['b1'] }, r2: { id: 'r2', sessionId: 'r2-part', members: ['b1'] } }
+  rt.sessionOfRoom = room => room.sessionId ?? room.id
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected.sort(), ['r1:deepseek/v4-flash', 'r2-part:deepseek/v4-flash'])
+  // Nothing changed, so a later sync leaves them alone.
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(selected.length, 2)
+})
+
+test('a group\'s own Session follows the team default when it changes, and a failure is retried', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'], stepfun: ['step-5'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, [])
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  rt.state.prefs.defaultBotModel = 'stepfun/step-5'
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected.slice(1), ['r1:stepfun/step-5'])
+})
+
+test('a group Session whose selection failed is retried at the next sync, though the models are the same', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The same models, as every state refresh finds them.
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  // Selected now, so a later refresh asks for nothing.
+  await rt.syncModels()
+  assert.equal(selected.length, 1)
+})
+
+test('a new group chat whose selection failed is retried at the next sync', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = {}
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  // The catalog was synced before the group existed, as at a start with no group yet.
+  await rt.syncModels()
+  rt.state.rooms.r1 = { id: 'r1', members: [] }
+  await rt.selectRoomSession('r1')
+  assert.deepEqual(selected, [])
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+})
+
+test('a deleted group does not keep the sync retrying its Session', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('Session unavailable') }
+  await rt.catalog()
+  await rt.syncModels()
+  delete rt.state.rooms.r1
+  await rt.syncModels()
+  const calls = []
+  rt.ctx.sessionController.selectModel = async request => { calls.push(request.sessionId) }
+  await rt.syncModels()
+  assert.deepEqual(calls, [])
+  assert.deepEqual(selected, [])
+})
+
+test('a group retry that cannot read the catalog logs and keeps the retry, it does not reject', async (t) => {
+  const warnings = []
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.warn = (...args) => warnings.push(args.join(' '))
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The cached catalog has run out and the provider list cannot be read now. Nothing
+  // awaits the promise bootstrap starts, so a rejection would end the host.
+  const listProviders = rt.ctx.llm.listProviders
+  rt.ctx.llm.listProviders = () => { throw new Error('providers unavailable') }
+  const now = Date.now()
+  t.mock.method(Date, 'now', () => now + 60_000)
+  await assert.doesNotReject(rt.syncModels())
+  assert.ok(warnings.some(line => /providers unavailable/.test(line)), warnings.join('\n'))
+  // The retry is kept: once the list can be read again, the next refresh selects.
+  rt.ctx.llm.listProviders = listProviders
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+})

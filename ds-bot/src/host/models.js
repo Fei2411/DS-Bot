@@ -268,6 +268,35 @@ export function install(rt) {
     return ref
   }
 
+  // A group's own Session never asks the model (groups.js synthesizes its relay step),
+  // but DSH resolves the Session's selection before every step. One left on a model the
+  // provider no longer serves fails with UNKNOWN_MODEL whatever its members run on, so
+  // it is kept on the model new Bots start on. The record is by Session, so a part moved
+  // on to a fresh Session is selected again.
+  // The Sessions whose selection failed. The models may not change again, so the next
+  // sync tries them once more instead of waiting for a change that never comes.
+  const roomRetry = new Set()
+  async function selectRoomSession(sessionId) {
+    const ref = await defaultBotModel()
+    if (ref === undefined) return
+    const route = splitRef(ref)
+    const applied = sessionSelections.get(sessionId)
+    if (applied !== undefined && sameSelection(applied, route)) return
+    await selectSessionModel(sessionId, route).then(
+      () => { roomRetry.delete(sessionId) },
+      (error) => {
+        roomRetry.add(sessionId)
+        rt.warn('ds-bot: model for the group Session %s not applied: %s', sessionId, error)
+      },
+    )
+  }
+  async function syncRoomSessions() {
+    const current = new Set(Object.values(state.rooms ?? {}).map(room => rt.sessionOfRoom(room)))
+    // A deleted group, or one moved on to a fresh part, no longer needs its old Session.
+    for (const sessionId of roomRetry) if (!current.has(sessionId)) roomRetry.delete(sessionId)
+    for (const sessionId of current) await selectRoomSession(sessionId)
+  }
+
   // A provider may register after the plugin starts; a greeting waits for its Bot's
   // model instead of failing with "no adapter registered".
   async function waitForModel(bot, ms = ROUTE_WAIT_MS) {
@@ -291,12 +320,17 @@ export function install(rt) {
   const syncModels = () => {
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
+    else if (roomRetry.size > 0) modelsSynced = modelsSynced?.then(syncRooms, syncRooms) ?? syncRooms()
     return modelsSynced
   }
+  // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
+  // here, such as a catalog that cannot be read, is logged; the retry record stays.
+  const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
   async function syncAll() {
     for (const bot of Object.values(state.bots)) {
       await applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     }
+    await syncRooms()
   }
 
   // A route that refused a request for not being a model endpoint: it stays out of
@@ -325,6 +359,6 @@ export function install(rt) {
   Object.assign(rt, {
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, waitForModel, syncModels, routeRefused, dropCatalog,
+    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog,
   })
 }

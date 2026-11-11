@@ -1042,12 +1042,11 @@ export function install(rt) {
     }
   }
 
-  // A fresh part runs on the Bot's model; the group's own Session, which has no Bot,
-  // keeps the earlier part's route. That route is what its last request used, which
-  // misses a model the user picked since, so it counts only for a conversation
-  // without a model of its own.
+  // A fresh part runs on its Bot's model. A Bot without a model of its own keeps the
+  // earlier part's route. That route is what its last request used, which misses a model
+  // the user picked since. A group's own Session has no Bot: see selectRoomSession.
   async function freshRoute(bot, session) {
-    const ref = bot === undefined ? undefined : await rt.desiredModel(bot)
+    const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
     const route = session.requestHeader()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
@@ -1149,7 +1148,10 @@ export function install(rt) {
     const dir = rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
     const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
-    const picked = await freshRoute(bot, session)
+    // The group's own Session never asks the model, so it takes the team's default; the
+    // earlier part's route may be one DSH no longer serves (#1310).
+    if (bot === undefined) await rt.selectRoomSession(freshId)
+    const picked = bot === undefined ? undefined : await freshRoute(bot, session)
     if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
     if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
@@ -1191,7 +1193,7 @@ export function install(rt) {
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
-    const now = await freshRoute(bot, session)
+    const now = bot === undefined ? undefined : await freshRoute(bot, session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
