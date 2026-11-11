@@ -211,6 +211,7 @@ const ZH = {
   'This DSH cannot load connectors': '这个 DSH 不能加载连接器',
   'No such connector': '没有这个连接器',
   'Classic Agent mode': '经典 Agent 模式',
+  'Switch to classic Agent mode': '切换到经典 Agent 模式',
   'Bot mode': 'Bot 模式',
   'Switch': '切换',
   '{model} is not available anymore. Pick another model for me.': '{model} 已经不可用了。给我换一个模型吧。',
