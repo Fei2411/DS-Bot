@@ -47,18 +47,24 @@ export function install(rt) {
   // What two Bots say to each other is in the book of the pair (ledger.js), whole, written
   // before the message goes out. A message is shown once a record says it was delivered.
   const pairBook = (a, b) => `pair-${[String(a), String(b)].sort().join('-')}`
-  const delivered = record => record.delivered === true || record.event === 'delivered'
   // A pair's book starts from the exchanges a team kept in state.json before the ledger.
   rt.ledger.importer('pair-', book => state.exchanges
     .filter(entry => entry.from !== undefined && entry.to !== undefined && pairBook(entry.from, entry.to) === book)
     .map(entry => ({ ...entry, delivered: true })))
-  // The pair's messages oldest first, the last record of each id, delivered ones only.
+  // A message shows the text its delivery carried: the last record of its id written before
+  // a delivery mark. A merged request whose replacement never went out keeps the text that did.
   function pairMessages(a, b) {
-    const records = rt.ledger.records(pairBook(a, b))
-    const shipped = new Set(records.filter(delivered).map(record => record.id))
-    const latest = new Map()
-    for (const record of records) if (record.event === undefined) latest.set(record.id, record)
-    return [...latest.values()].filter(record => shipped.has(record.id))
+    const written = new Map()
+    const shown = new Map()
+    for (const record of rt.ledger.records(pairBook(a, b))) {
+      if (record.event === 'delivered') {
+        if (written.has(record.id)) shown.set(record.id, written.get(record.id))
+      } else if (record.event === undefined) {
+        written.set(record.id, record)
+        if (record.delivered === true) shown.set(record.id, record)
+      }
+    }
+    return [...shown.values()]
   }
 
   // `sessionId` defaults to the recipient's own chat; group turns name its group Session.
@@ -101,11 +107,13 @@ export function install(rt) {
       ...(abandoned ? { abandoned: true } : {}),
     }
     const targetSessionId = sessionId ?? rt.chatOf(toId)
-    // Written before it goes out. A resend keeps the record it has; only a merged request
+    // On disk before it goes out: a message the book could not keep is not sent, so none is
+    // delivered with no record of it. A resend keeps the record it has; only a merged request
     // replaces it with its added text.
     const book = fromId !== undefined && from !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(fromId, toId) : undefined
     if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
       rt.ledger.append(book, { id: exchangeId, from: fromId, to: toId, role, text, time: Date.now(), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
+      await rt.ledger.written(book)
     }
     await rt.ensureCapabilities(targetSessionId)
     const agent = await resolveAgent(targetSessionId)
@@ -124,6 +132,8 @@ export function install(rt) {
     await ctx.sessions.flush(agent.session)
     if (book !== undefined) {
       rt.ledger.append(book, { event: 'delivered', id: exchangeId, sessionId: targetSessionId, time: Date.now() })
+      // The message went out either way; a mark that is lost only hides it from the dialog.
+      await rt.ledger.written(book).catch(() => {})
     } else if (recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried) {
       // A message no Bot of the team sent keeps the record it had before the ledger.
       // Recorded once the message is in the Session: an earlier record would show
@@ -200,13 +210,11 @@ export function install(rt) {
     return { text, whole: true }
   }
 
-  // What the exchange dialog lists: each message's start, and its length when cut.
   const exchangesOf = (a, b) => pairMessages(a, b).map((record) => {
     const kept = headOf(record.text ?? '', TEXT_KEPT)
     const { delivered: _delivered, ...rest } = record
     return { ...rest, text: kept, ...(record.length === undefined && kept.length < (record.text ?? '').length ? { length: record.text.length } : {}) }
   })
-  // One message whole, from the book of its pair.
   const exchangeOf = (id, a, b) => {
     const record = pairMessages(a, b).find(item => item.id === id)
     if (record === undefined) return undefined
