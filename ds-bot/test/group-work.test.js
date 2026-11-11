@@ -31,9 +31,10 @@ const seed = (room = {}, extraRooms = {}, bots = {}, top = {}) => ({
   ...top,
 })
 
-async function start(t, room, services, extraRooms, bots, llm, top) {
+async function start(t, room, services, extraRooms, bots, llm, top, files = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots, top)))
+  for (const [name, value] of Object.entries(files)) writeFileSync(join(home, name), JSON.stringify(value))
   const selected = []
   const ctx = fakeContext({ services })
   const agents = new Map()
@@ -2383,4 +2384,29 @@ test('the rows of the newest call say whether the group is still at work', async
   await settle(() => rt.roomRounds('r1').length === 0)
   const quiet = (await host.call('group-rows', { roomId: 'r1', from, anchor })).value
   assert.deepEqual([quiet.open, quiet.active, quiet.rows.map(row => row.text)], [true, false, ['写好了。']])
+})
+
+// The member that finished was renamed before the restart: its result still wakes the
+// Bot that asked, carried by that member.
+test('after a restart a batch whose finished member was renamed still wakes the caller', async (t) => {
+  const log = [{ seq: 1, who: 'User', text: '@Chief 安排' }, { seq: 2, who: 'Chief', botId: 'a', text: '@Writer @Tester 各做一半' }, { seq: 3, who: 'Tester', botId: 'c', text: 'TESTER-RESULT：测试全过。' }]
+  const batch = { key: 'k-renamed', roomId: 'r1', by: 'a', pending: ['b'], done: ['Tester'], doneIds: ['c'], results: [{ name: 'Tester', seq: 3 }], worked: true, answered: false, at: 1 }
+  const host = await start(t, { log, seq: 3 }, undefined, undefined, { c: { name: 'QA' } }, undefined, { roomBatches: { 'k-renamed': batch } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.senderSessionId, post.source.done, post.source.askedBy], ['c', true, 'a'])
+})
+
+// A member whose work a restart left is picked up again with a message its turn has not
+// taken yet: it still works for the batch, so the batch keeps waiting for it.
+test('after a restart a member whose pick-up is still queued keeps its batch waiting', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const batch = { key: 'k-queued', roomId: 'r1', by: 'a', pending: ['b'], done: ['Tester'], doneIds: ['c'], results: [], worked: true, answered: false, at: 1 }
+  const note = { at: 1, args: { toId: 'b', sessionId: 'gb', role: 'room', roomId: 'r1', note: 'your turn', text: '整理文档', exchangeId: 'x-queued', askedBy: 'a' } }
+  const host = await start(t, undefined, undefined, undefined, undefined, undefined, { roomBatches: { 'k-queued': batch } }, { 'inflight.json': { turns: {}, queued: { gb: [note] } } })
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  for (let i = 0; i < 20; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(rt.state.roomBatches['k-queued']?.pending, ['b'])
+  assert.equal(host.agentOf('r1').calls.length, 0, 'the caller is not woken before the member answers')
 })

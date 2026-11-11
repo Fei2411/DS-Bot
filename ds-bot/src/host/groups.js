@@ -534,9 +534,13 @@ export function install(rt) {
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
 
+  // At work in the group: a turn or subagent running, a call waiting in a round, or a
+  // message on its way to the member's group Session that no turn took up yet (a restart
+  // queues the pick-up before the turn starts).
   const activeInRoom = (room, botId) => {
     const sessionId = room.sessions?.[botId]
     if (sessionId !== undefined && (rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true)) return true
+    if (sessionId !== undefined && (rt.unreadOf?.(sessionId)?.length ?? 0) > 0) return true
     return [...rt.roomProgress.values()].some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))
   }
@@ -551,6 +555,8 @@ export function install(rt) {
       by,
       pending: callees.map(peer => peer.id),
       done: [],
+      // Who finished, by id: a name can change before a restart settles the batch.
+      doneIds: [],
       results: [],
       worked: false,
       answered: false,
@@ -562,6 +568,7 @@ export function install(rt) {
       unpend(prev, peer.id)
       if (prev.pending.length === 0) {
         batch.done.push(...prev.done)
+        batch.doneIds.push(...(prev.doneIds ?? []))
         batch.results.push(...prev.results)
         batch.worked ||= prev.worked
         batch.answered ||= prev.answered
@@ -642,8 +649,12 @@ export function install(rt) {
       if (batch.pending.length > 0) continue
       changed ||= before > 0
       const members = room.members.map(rt.botOf).filter(Boolean)
-      const last = members.find(bot => bot.name === batch.done.at(-1)) ?? members.find(bot => batch.done.includes(bot.name))
-      if (!room.members.includes(batch.by) || last === undefined || !batch.worked || batch.answered) {
+      // The post that wakes the caller comes from a member that finished, else from any
+      // other member: the results are in the batch, whoever carries them.
+      const doneIds = batch.doneIds ?? []
+      const last = members.find(bot => bot.id === doneIds.at(-1)) ?? members.find(bot => doneIds.includes(bot.id))
+        ?? members.find(bot => bot.name === batch.done.at(-1)) ?? members.find(bot => bot.id !== batch.by)
+      if (!room.members.includes(batch.by) || batch.done.length === 0 || last === undefined || !batch.worked || batch.answered) {
         delete batches()[batch.key]
         changed = true
         continue
@@ -1120,6 +1131,7 @@ export function install(rt) {
       if (batch !== undefined) {
         if (slot.status === 'posted') {
           batch.done.push(member.name)
+          batch.doneIds.push(member.id)
           batch.results.push(...posted.map(seq => ({ name: member.name, seq })))
           if (called.size > 0) batch.answered = true
           if (worked) batch.worked = true
@@ -1666,7 +1678,10 @@ export function install(rt) {
     let batchDoneBefore = false
     if (batch !== undefined) {
       if (named.length > 0) batch.answered = true
-      if (!isPass(text) || shown) batch.done.push(member.name)
+      if (!isPass(text) || shown) {
+        batch.done.push(member.name)
+        ;(batch.doneIds ??= []).push(member.id)
+      }
       leaveBatch(room, batch, member.id, { keep: true })
       waitingPeers = batch.pending.length > 0
       batchDoneBefore = !waitingPeers && batch.done.length > 0 && !batch.answered
