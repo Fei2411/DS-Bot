@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { absoluteLinks } from '../src/host/links.js'
 import { announcesWork, claimsFor, fileRefs, missingFileRefs } from '../src/host/claims.js'
 
 test('local file references are the marked links and code paths, never URLs or bare names', () => {
@@ -66,4 +67,15 @@ test('the marker combines a missing file with work that is not running', (t) => 
   assert.deepEqual(claimsFor({ text, base: root, runningJobs: 1 }), { missingFiles: ['./out/report.pptx'] })
   writeFileSync(join(root, 'report.pptx'), 'x')
   assert.deepEqual(claimsFor({ text: '正在导出报告到 ./report.pptx，稍后汇报。', base: root }), { inProgress: true })
+})
+
+test('file checks open encoded links and line anchors exactly as the chat does', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-claims-links-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'out'))
+  writeFileSync(join(root, 'out', 'Quarter 1 (final).md'), '# Report')
+  const reply = absoluteLinks('[Report](<./out/Quarter 1 (final).md#L1>)', root)
+  assert.deepEqual(missingFileRefs(reply, root), [])
+  assert.deepEqual(missingFileRefs('[Report](<./out/Quarter 1 (final).md#L1>)', root), [])
+  assert.deepEqual(claimsFor({ text: '正在整理报告，稍后汇报。', base: root, runningJobs: null }), undefined)
 })

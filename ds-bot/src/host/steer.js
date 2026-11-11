@@ -39,7 +39,7 @@ export function install(rt) {
     try {
       return jobs.list(sessionId).filter(job => job.status === 'running' || job.status === 'stopping')
     } catch {
-      return []
+      return undefined
     }
   }
 

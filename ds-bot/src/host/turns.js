@@ -839,6 +839,7 @@ export function install(rt) {
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.claims === undefined ? {} : { claims: source.claims }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),

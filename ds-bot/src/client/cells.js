@@ -381,8 +381,8 @@ export function claimLines(claims) {
   if (claims.inProgress === true) {
     lines.push({
       kind: 'inProgress',
-      text: t('Nothing is running'),
-      detail: t('This reply says work is going on, but no tool, background job or subagent is running.'),
+      text: t('No background work detected'),
+      detail: t('DS Bot has no recorded tool call or active background task for this reply.'),
     })
   }
   for (const path of claims.missingFiles ?? []) lines.push({ kind: 'file', text: t('File not found: {path}', { path }) })
@@ -722,6 +722,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         // A trigger's data carries no turn; its event seq is the one durable name of this post.
         return h(GroupMessage, {
           bot: poster, text: file ? stripLongNote(text) : text, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
+          claims: source.claims,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })
       }

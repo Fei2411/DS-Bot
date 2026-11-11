@@ -630,7 +630,7 @@ export function install(rt) {
     base: rt.sessionFolder?.(session),
     worked,
     subagents: rt.hasSubagents?.(session.id) === true,
-    runningJobs: rt.runningJobs?.(session.id)?.length ?? 0,
+    runningJobs: rt.runningJobs?.(session.id)?.length ?? null,
   })
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
@@ -1145,6 +1145,7 @@ export function install(rt) {
           ...(post.images === undefined ? {} : { images: post.images }),
           ...(post.files === undefined ? {} : { files: post.files }),
           ...(post.via === undefined ? {} : { via: post.via }),
+          ...(post.claims === undefined ? {} : { claims: post.claims }),
           // The group's own Session shows the message; a goal draft's trigger it hides.
           ...(post.goal === 'draft' ? {} : { session: true }),
         })
@@ -1505,7 +1506,9 @@ export function install(rt) {
     // The post names its batch: its line is a result of it, and the wake that closes the
     // batch carries the results.
     const inBatch = batch === undefined ? {} : { batch: batch.key, ...(waitingPeers ? {} : { batchEnd: true }) }
-    const post = (body, extra) => postToRoom(room, member, body, { late: true, ...extra, ...inBatch })
+    const session = await rt.resolveAgent(sessionId).then(agent => agent?.session, () => undefined)
+    const claims = isPass(text) ? undefined : claimsOf(session, text, toolCount > 0)
+    const post = (body, extra) => postToRoom(room, member, body, { late: true, ...extra, ...inBatch, ...(claims === undefined ? {} : { claims }) })
       .catch((error) => {
         if (batch !== undefined) closeBatch(batch.key)
         rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error)
@@ -1519,9 +1522,7 @@ export function install(rt) {
       if (batch !== undefined) closeBatch(batch.key)
       return
     }
-    const session = await rt.resolveAgent?.(sessionId).then(agent => agent?.session, () => undefined).catch(() => undefined)
-    const claims = done || text === '' ? undefined : claimsOf(session, text, toolCount > 0)
-    await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}), ...(claims === undefined ? {} : { claims }) })
+    await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })
   }
   rt.lateRoomReply = lateRoomReply
 

@@ -860,8 +860,8 @@ var JA = {
   "Today {time}": "今日 {time}",
   "Yesterday {time}": "昨日 {time}",
   "Ran for {duration}": "実行時間 {duration}",
-  "Nothing is running": "実行中のタスクはありません",
-  "This reply says work is going on, but no tool, background job or subagent is running.": "この返信は作業中と述べていますが、ツール、バックグラウンドジョブ、サブエージェントは動いていません。",
+  "No background work detected": "バックグラウンドの作業を検出できませんでした",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot には、この返信のツール呼び出しや実行中のバックグラウンドタスクの記録がありません。",
   "File not found: {path}": "ファイルが見つかりません：{path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · キャッシュヒット {hit}%",
   "1 turn": "1 ターン",
@@ -3141,8 +3141,8 @@ var KO = {
   "Today {time}": "오늘 {time}",
   "Yesterday {time}": "어제 {time}",
   "Ran for {duration}": "{duration} 동안 실행됨",
-  "Nothing is running": "실행 중인 작업 없음",
-  "This reply says work is going on, but no tool, background job or subagent is running.": "이 답변은 작업 중이라고 하지만 실행 중인 도구, 백그라운드 작업 또는 하위 에이전트가 없습니다.",
+  "No background work detected": "백그라운드 작업이 감지되지 않음",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot에 이 답변의 도구 호출이나 실행 중인 백그라운드 작업이 기록되어 있지 않습니다.",
   "File not found: {path}": "파일을 찾을 수 없음: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · 캐시 적중 {hit}%",
   "1 turn": "1턴",
@@ -5439,8 +5439,8 @@ var ES = {
   "Today {time}": "Hoy {time}",
   "Yesterday {time}": "Ayer {time}",
   "Ran for {duration}": "Duración: {duration}",
-  "Nothing is running": "No se está ejecutando nada",
-  "This reply says work is going on, but no tool, background job or subagent is running.": "Esta respuesta dice que hay trabajo en curso, pero no se está ejecutando ninguna herramienta, tarea en segundo plano ni subagente.",
+  "No background work detected": "No se detectó trabajo en segundo plano",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot no ha registrado llamadas a herramientas ni tareas activas en segundo plano para esta respuesta.",
   "File not found: {path}": "No se encuentra el archivo: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Acierto de caché {hit}%",
   "1 turn": "1 turno",
@@ -7709,8 +7709,8 @@ var FR = {
   "Today {time}": "Aujourd’hui {time}",
   "Yesterday {time}": "Hier {time}",
   "Ran for {duration}": "Exécuté pendant {duration}",
-  "Nothing is running": "Rien ne tourne",
-  "This reply says work is going on, but no tool, background job or subagent is running.": "Cette réponse annonce un travail en cours, mais aucun outil, tâche en arrière-plan ou sous-agent ne tourne.",
+  "No background work detected": "Aucune tâche en arrière-plan détectée",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot n’a enregistré aucun appel d’outil ni aucune tâche active en arrière-plan pour cette réponse.",
   "File not found: {path}": "Fichier introuvable : {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Cache {hit} %",
   "1 turn": "1 tour",
@@ -9990,8 +9990,8 @@ var DE = {
   "Today {time}": "Heute {time}",
   "Yesterday {time}": "Gestern {time}",
   "Ran for {duration}": "Laufzeit {duration}",
-  "Nothing is running": "Es läuft nichts",
-  "This reply says work is going on, but no tool, background job or subagent is running.": "Diese Antwort sagt, dass Arbeit läuft, aber kein Werkzeug, Hintergrundjob oder Subagent läuft.",
+  "No background work detected": "Keine Hintergrundarbeit erkannt",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot hat für diese Antwort keinen Werkzeugaufruf und keine aktive Hintergrundaufgabe aufgezeichnet.",
   "File not found: {path}": "Datei nicht gefunden: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Cache-Treffer {hit}%",
   "1 turn": "1 Durchgang",
@@ -12289,8 +12289,8 @@ var ZH = {
   "Today {time}": "今天 {time}",
   "Yesterday {time}": "昨天 {time}",
   "Ran for {duration}": "本次用时 {duration}",
-  "Nothing is running": "没有任务在运行",
-  "This reply says work is going on, but no tool, background job or subagent is running.": "这条回复说还在处理，但没有工具、后台任务或子代理在跑。",
+  "No background work detected": "未检测到后台任务",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot 未记录到这条回复的工具调用或正在运行的后台任务。",
   "File not found: {path}": "文件不存在：{path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · 缓存命中 {hit}%",
   "1 turn": "1 轮",
@@ -24795,7 +24795,7 @@ function stackReplies(replies) {
   const items = [];
   replies.forEach((reply, index) => {
     const last = items.at(-1);
-    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
+    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId && reply.claims === void 0 && last.reply.claims === void 0) {
       last.texts.push(reply.text);
       last.time = reply.time;
       last.duration = reply.duration;
@@ -25842,8 +25842,8 @@ function claimLines(claims) {
   if (claims.inProgress === true) {
     lines.push({
       kind: "inProgress",
-      text: t("Nothing is running"),
-      detail: t("This reply says work is going on, but no tool, background job or subagent is running.")
+      text: t("No background work detected"),
+      detail: t("DS Bot has no recorded tool call or active background task for this reply.")
     });
   }
   for (const path2 of claims.missingFiles ?? []) lines.push({ kind: "file", text: t("File not found: {path}", { path: path2 }) });
@@ -26174,6 +26174,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
           msgKey: `${sessionId}:post:${data.seq ?? node.key}`,
           useUi,
           time: data.time,
+          claims: source.claims,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : void 0
         });
       }

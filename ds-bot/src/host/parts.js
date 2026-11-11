@@ -1596,7 +1596,7 @@ export function install(rt) {
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(reply.claims === undefined ? {} : { claims: reply.claims }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -1623,6 +1623,7 @@ export function install(rt) {
           kind: 'post',
           botId: source.senderSessionId ?? null,
           name: source.senderName ?? null,
+          ...(source.claims === undefined ? {} : { claims: source.claims }),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
           time: event.time,

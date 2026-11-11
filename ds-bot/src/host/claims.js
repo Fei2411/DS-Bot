@@ -6,14 +6,14 @@
 // Only unambiguous local references count. A bare name such as `report.md` could be any
 // file, so it is not checked; `./out/report.md`, `/tmp/report.md` and a path with a
 // directory in it are.
-import { existsSync, statSync } from 'node:fs'
+import { statSync } from 'node:fs'
+import { fileLinks } from './links.js'
 import { homedir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i
 const WINDOWS_ABSOLUTE = /^[a-z]:[\\/]/i
 const UNC = /^\\\\[^\\]/
-const MARKDOWN_LINK = /\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g
 const CODE_SPAN = /`([^`\n]{1,300})`/g
 // A path written plainly in a sentence: it must start with `/`, `./`, `../`, `~/` or a
 // Windows drive, so an ordinary word or a date is not a file.
@@ -59,7 +59,7 @@ export function fileRefs(text) {
     seen.add(key)
     found.push(path)
   }
-  for (const match of text.matchAll(MARKDOWN_LINK)) add(match[1], true)
+  for (const path of fileLinks(text)) add(path, true)
   for (const match of text.matchAll(CODE_SPAN)) add(match[1], false)
   for (const match of text.matchAll(PLAIN_PATH)) add(match[1], false)
   return found
@@ -67,7 +67,7 @@ export function fileRefs(text) {
 
 // The referenced paths that are not on disk, as the reply wrote them. A path that
 // exists is never reported; neither is a path that cannot be resolved at all.
-export function missingFileRefs(text, base = process.cwd(), exists = (path) => existsSync(path)) {
+export function missingFileRefs(text, base = process.cwd()) {
   const missing = []
   const seen = new Set()
   for (const raw of fileRefs(text)) {
@@ -75,9 +75,7 @@ export function missingFileRefs(text, base = process.cwd(), exists = (path) => e
     if (seen.has(path)) continue
     seen.add(path)
     try {
-      if (exists(path)) continue
-      // A dangling symlink or an unreadable parent is not proof the file is absent.
-      statSync(path, { throwIfNoEntry: false })
+      if (statSync(path, { throwIfNoEntry: false }) !== undefined) continue
     } catch {
       continue
     }
