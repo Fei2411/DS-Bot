@@ -311,9 +311,7 @@ export function install(rt) {
     return {
       roomId: room.id,
       items,
-      cursor: more
-        ? { ...(parts.length > 1 ? { part: index } : {}), beforeSeq: events[0].seq }
-        : index > 0 ? { part: index - 1 } : null,
+      cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null,
       running: running.length > 0,
       speaking: running.map(([, round]) => round.slots?.find(slot => slot.status === 'speaking')?.id ?? round.speaking).find(Boolean) ?? null,
     }
