@@ -1798,8 +1798,36 @@ for (const [reason, summary] of [['error', 'failed before it finished.'], ['max-
     host.emitScoped('gb', 'subagent/end', { runId: 'run-1', provider: 'spawn', id: 'sub-1', local: true, stopReason: reason })
     assert.deepEqual(host.agentOf('r1').calls, [])
     assert.equal(rt.groupRows('r1', second().from, second().to).filter(row => row.kind === 'helper-failed').length, 1)
+    // A clean ending is not a failure: it adds no row and no post.
+    host.emit('gb', 'subagent/catalog', { childId: 'sub-2', label: 'Check the slides' })
+    host.emit('gb', 'user/message', {
+      content: [{ type: 'text', text: 'Background subagent sub-2 finished.' }],
+      source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-2 finished.', senderSessionId: 'sub-2' },
+    })
+    assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1').seq).filter(row => row.kind === 'helper-failed').length, 1)
+    assert.deepEqual(host.agentOf('r1').calls, [])
   })
 }
+
+test('a child that runs again after settling gets its own failure row (#973)', async (t) => {
+  const host = await start(t)
+  const failure = {
+    content: [
+      { type: 'text', text: 'Background subagent sub-1 failed before it finished.' },
+      { type: 'text', text: 'It left no closing message.' },
+    ],
+    source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
+  }
+  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'First run' })
+  host.emit('gb', 'user/message', failure)
+  const rows = () => rt.groupRows('r1', 0, rt.roomOf('r1').seq).filter(row => row.kind === 'helper-failed')
+  await until(() => rows().length === 1)
+  assert.equal(rows()[0].text, 'First run: subagent ended (error) without a closing message.')
+  // The same child takes a new run; the earlier row must not hide this ending.
+  host.emitScoped('gb', 'subagent/start', { runId: 'run-2', provider: 'spawn', id: 'sub-1', local: true })
+  host.emit('gb', 'user/message', failure)
+  await until(() => rows().length === 2)
+})
 
 test('a helper failure in a running round preserves the idle guard and stays one event', async (t) => {
   const host = await start(t)
