@@ -124,7 +124,7 @@ function rig() {
     // Run the frame that is waiting, at time `ms`. The first frame after take-off starts the glide.
     frame(ms) { clock = ms; const run = [...frames.values()]; frames.clear(); for (const step of run) step(ms) },
     // Move the clock to `ms` and fire the timers that are due.
-    fire(ms) { clock = ms; for (const [id, timer] of [...timers]) if (timer.at <= clock) { timers.delete(id); timer.run() } },
+    fire(ms) { clock = ms; for (const [id, timer] of Array.from(timers)) if (timer.at <= clock) { timers.delete(id); timer.run() } },
     clones: () => document.querySelectorAll('.bt-mark-fly'),
   }
 }
