@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { withRows } from './relay-rows.js'
+import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
@@ -13,7 +13,7 @@ import { promisesWork } from '../src/host/turns.js'
 let rt
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
-const seed = (room = {}, extraRooms = {}, bots = {}) => ({
+const seed = (room = {}, extraRooms = {}, bots = {}, top = {}) => ({
   version: 1,
   mainBotIds: ['a'],
   bots: {
@@ -29,11 +29,13 @@ const seed = (room = {}, extraRooms = {}, bots = {}) => ({
   questions: {},
   prefs: {},
   revision: 0,
+  ...top,
 })
 
-async function start(t, room, services, extraRooms, bots, llm) {
+async function start(t, room, services, extraRooms, bots, llm, top, files = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots)))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots, top)))
+  for (const [name, value] of Object.entries(files)) writeFileSync(join(home, name), JSON.stringify(value))
   const selected = []
   const ctx = fakeContext({ services })
   const agents = new Map()
@@ -109,9 +111,9 @@ async function start(t, room, services, extraRooms, bots, llm) {
     let result
     const stop = new AbortController()
     t.after(() => stop.abort())
-    void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then((value) => { result = withRows(rt, sessionId, JSON.parse(value)) })
+    void tool('group_relay', {}, sessionId, { callId, signal: stop.signal }).then(async (value) => { result = await afterRound(rt, sessionId, value) })
     const read = () => result
-    read.cancel = () => stop.abort()
+    read.cancel = () => { stop.abort(); rt.stopRoomRound(rt.roomOf(sessionId)?.id ?? sessionId) }
     return read
   }
   const say = text => ({ content: [{ type: 'text', text }], source: { kind: 'user' } })
@@ -1055,7 +1057,8 @@ test('the user stops a member\'s work in a group, and the group shows it', async
   assert.deepEqual(log.map(line => [line.who, line.kind]), [['Writer', 'stopped']])
 })
 
-// #592: DSH's own stop reaches only the round; a member the round moved on from kept working.
+// #592: stopping only the round left a member the round moved on from working. The round
+// runs in DS Bot, not in the group's Session, so the Session has nothing to cancel.
 test('one press stops the group\'s round and every member at work there, and nothing elsewhere', async (t) => {
   const host = await start(t)
   assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).value, false)
@@ -1068,12 +1071,18 @@ test('one press stops the group\'s round and every member at work there, and not
   host.emit('c', 'turn/start', { turn: 1 })
   const stopped = await host.call('stop-room-work', { roomId: 'r1' })
   assert.deepEqual([stopped.ok, stopped.value], [true, true])
-  for (const id of ['r1', 'ga', 'gb']) assert.deepEqual(host.agentOf(id).cancelled, [{ kind: 'user' }], id)
-  for (const id of ['c', 'gc']) assert.deepEqual(host.agentOf(id).cancelled, [], id)
-  assert.deepEqual(logLines(host).map(line => [line.who, line.kind]), [['User', undefined], ['Chief', 'stopped'], ['Writer', 'stopped']])
+  for (const id of ['ga', 'gb']) assert.deepEqual(host.agentOf(id).cancelled[0], { kind: 'user' }, id)
+  for (const id of ['r1', 'c', 'gc']) assert.deepEqual(host.agentOf(id).cancelled, [], id)
   host.emit('ga', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
   await settle(() => first() !== undefined)
-  assert.deepEqual(kinds(first()).filter(([kind]) => kind === 'stopped'), [['stopped', 'Chief'], ['stopped', 'Writer']])
+  // The round ended with the stop: Writer, which worked outside it, tells the group in a
+  // post of its own.
+  const post = host.takePost()
+  assert.deepEqual([post.source.stopped, post.source.senderSessionId], [true, 'b'])
+  const after = host.round('c2', post)
+  await settle(() => after() !== undefined)
+  assert.deepEqual(logLines(host).map(line => [line.who, line.kind]), [['User', undefined], ['Chief', 'stopped'], ['Writer', 'stopped']])
+  assert.deepEqual([...kinds(first()), ...kinds(after())].filter(([kind]) => kind === 'stopped'), [['stopped', 'Chief'], ['stopped', 'Writer']])
 })
 
 test('a member that cannot be stopped leaves the others stopped and reports the failure', async (t) => {
@@ -1087,27 +1096,6 @@ test('a member that cannot be stopped leaves the others stopped and reports the 
   assert.deepEqual(host.agentOf('gb').cancelled, [{ kind: 'user' }])
   await settle(() => host.agentOf('r1').calls.length === 1)
   assert.equal(host.takePost().source.stopped, true)
-})
-
-test('a round that cannot be stopped leaves the members stopped and reports the failure', async (t) => {
-  const host = await start(t)
-  const stop = new AbortController()
-  host.emit('gb', 'turn/start', { turn: 1 })
-  host.emit('r1', 'user/message', host.say('@Chief 看看进度'))
-  const relay = host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal })
-  try {
-    await settle(() => host.agentOf('ga').calls.length === 1)
-    host.begin('ga')
-    host.agentOf('r1').cancel = () => { throw new Error('round cancel failed') }
-    const stopped = await host.call('stop-room-work', { roomId: 'r1' })
-    assert.equal(stopped.ok, false)
-    assert.match(stopped.error.message, /round cancel failed/)
-    for (const id of ['ga', 'gb']) assert.deepEqual(host.agentOf(id).cancelled, [{ kind: 'user' }], id)
-  } finally {
-    stop.abort()
-    host.emit('ga', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
-    await relay
-  }
 })
 
 test('a subagent whose interrupt throws is still cancelled, and so is the member', async (t) => {
@@ -1150,7 +1138,7 @@ test('a stopped round warns when a member turn cannot be stopped', async (t) => 
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
   host.agentOf('gb').cancel = () => { throw new Error('cancel failed') }
-  stop.abort()
+  rt.stopRoomRound('r1')
   await relay
   await settle(() => warned.some(line => /cancel failed/.test(line)))
 })
@@ -2304,4 +2292,207 @@ test('a batch wake says which member finished with no closing message of its own
   assert.ok(!text(wake).includes('Finished without a closing message: Writer and'))
   host.begin('ga')
   host.finish('ga', '[PASS]')
+})
+
+// A batch is saved with the team, so who still owes whom survives a restart.
+test('a call batch is saved with the team while its member works', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief 安排一下'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 整理文档')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  await rt.save()
+  const saved = Object.values(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).roomBatches)
+  assert.deepEqual(saved.map(batch => [batch.roomId, batch.by, batch.pending, batch.worked]), [['r1', 'a', ['b'], true]])
+  host.finish('gb', '文档好了')
+})
+
+// After a restart, a member that does not pick its work up again never answers: the batch
+// settles without it, and the Bot that asked is woken once with the result that came.
+test('after a restart a batch whose last member is gone wakes the caller with the results it has', async (t) => {
+  const log = [{ seq: 1, who: 'User', text: '@Chief 安排' }, { seq: 2, who: 'Chief', botId: 'a', text: '@Writer @Tester 各做一半' }, { seq: 3, who: 'Tester', botId: 'c', text: 'TESTER-RESULT：测试全过。' }]
+  const batch = { key: 'k-batch', roomId: 'r1', by: 'a', pending: ['b'], done: ['Tester'], results: [{ name: 'Tester', seq: 3 }], worked: true, answered: false, at: 1 }
+  const host = await start(t, { log, seq: 3, shown: 3 }, undefined, undefined, undefined, undefined, { roomBatches: { 'k-batch': batch } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.role, post.source.done, post.source.askedBy, post.source.batch], ['post', true, 'a', 'k-batch'])
+  host.round('c1', post)
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  const wake = text(host.agentOf('ga').calls[0])
+  assert.match(wake, /Tester finished the work you asked for/)
+  assert.match(wake, /TESTER-RESULT/)
+  assert.equal(host.agentOf('gb').calls.length, 0)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => Object.keys(rt.state.roomBatches).length === 0)
+})
+
+test('after a restart a batch nobody finished is dropped without waking anyone', async (t) => {
+  const batch = { key: 'k-none', roomId: 'r1', by: 'a', pending: ['b', 'c'], done: [], results: [], worked: false, answered: false, at: 1 }
+  const host = await start(t, undefined, undefined, undefined, undefined, undefined, { roomBatches: { 'k-none': batch } })
+  await settle(() => Object.keys(rt.state.roomBatches).length === 0)
+  assert.equal(host.agentOf('r1').calls.length, 0)
+})
+
+// The round runs in DS Bot, not inside the group_relay call: the call returns at once, so
+// the group's Session is free and DSH cuts nothing short.
+test('the relay call returns at once and the round goes on without it', async (t) => {
+  const host = await start(t)
+  host.emit('r1', 'user/message', host.say('@Writer 整理文档'))
+  const value = await host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: new AbortController().signal })
+  assert.deepEqual(Object.keys(JSON.parse(value)), ['from', 'anchor'])
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal([...rt.roomProgress.values()].filter(round => round.roomId === 'r1').length, 1)
+  host.begin('gb')
+  host.finish('gb', '整理好了。')
+  await settle(() => rt.roomRounds('r1').length === 0)
+  const { from } = JSON.parse(value)
+  assert.deepEqual(rt.groupRows('r1', from).map(row => row.text), ['整理好了。'])
+})
+
+// A message the user sends while a round runs joins that round; what is said after it
+// shows under it.
+test('a message sent while a round runs joins it, and the rows after it show under it', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief 安排一下'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  const second = host.round('c2', host.say('@Writer 你也看看'))
+  // One round in the group: the second message called Writer in it.
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  assert.equal([...rt.roomProgress.values()].filter(round => round.roomId === 'r1').length, 1)
+  host.begin('gb')
+  host.finish('gb', '我看过了。')
+  host.finish('ga', '安排好了。')
+  await settle(() => first() !== undefined && second() !== undefined)
+  assert.deepEqual(first().replies, [])
+  assert.deepEqual(second().replies.map(row => [row.name, row.text]), [['Writer', '我看过了。'], ['Chief', '安排好了。']])
+  assert.deepEqual(logLines(host).map(line => line.who), ['User', 'User', 'Writer', 'Chief'])
+})
+
+// A post that waits for the next round (a goal post, an image, the greeting) does not
+// start one after the user stopped the group: it goes with the group's next message.
+test('a post waiting for the next round does not start one after the user stops the group', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 整理一下'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  assert.equal((await host.call('goal-draft', { roomId: 'r1', text: 'Ship v1' })).ok, true)
+  const at = host.agentOf('r1').calls.findIndex(call => call.source?.role === 'goal')
+  const [draft] = host.agentOf('r1').calls.splice(at, 1)
+  host.round('c2', { content: draft.content, source: draft.source })
+  await settle(() => true)
+  rt.stopRoomRound('r1')
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
+  await settle(() => first() !== undefined)
+  assert.equal(host.agentOf('ga').calls.length, 0, 'nothing started after the stop')
+  assert.equal(rt.roomActive('r1'), false)
+  // The group's next message takes the draft with it: the admin is called for the goal.
+  host.round('c3', host.say('继续'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  assert.match(text(host.agentOf('ga').calls[0]), /the user wants to set a goal/)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+})
+
+// While a round finishes (goal check, save), the group is still taken: a message that comes
+// in then opens the next round once this one is done, never a second round beside it.
+test('a message that comes in while a round finishes waits for it, and no two rounds run', async (t) => {
+  const host = await start(t)
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const drive = rt.goalDrive
+  rt.goalDrive = async (...args) => { await gate; return drive?.(...args) }
+  const first = host.round('c1', host.say('@Writer 写一句'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '写好了。')
+  await settle(() => rt.roomActive('r1') && [...rt.roomProgress.values()].every(round => round.roomId !== 'r1'))
+  const second = host.round('c2', host.say('@Tester 看一下'))
+  await settle(() => true)
+  assert.equal(host.agentOf('gc').calls.length, 0, 'the finishing round still holds the group')
+  release()
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.ok([...rt.roomProgress.values()].filter(round => round.roomId === 'r1').length <= 1)
+  host.begin('gc')
+  host.finish('gc', '看过了。')
+  await settle(() => first() !== undefined && second() !== undefined)
+  assert.deepEqual(second().replies.map(row => row.text), ['看过了。'])
+})
+
+// Two calls with nothing said between them start at the same seq: each shows only its own rows.
+test('two calls that start at the same seq each show only their own rows', async (t) => {
+  await start(t)
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'one', from: 1, time: 1 })
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'two', from: 1, time: 2 })
+  rt.logRoom(rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: '回答第二次' })
+  assert.deepEqual(rt.groupRows('r1', 1, undefined, 'one'), [])
+  assert.deepEqual(rt.groupRows('r1', 1, undefined, 'two').map(row => row.text), ['回答第二次'])
+})
+
+// The newest cell is read every second only while the group works.
+test('the rows of the newest call say whether the group is still at work', async (t) => {
+  const host = await start(t)
+  host.emit('r1', 'user/message', host.say('@Writer 写一句'))
+  const { from, anchor } = JSON.parse(await host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: new AbortController().signal }))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  const busy = (await host.call('group-rows', { roomId: 'r1', from, anchor })).value
+  assert.deepEqual([busy.open, busy.active], [true, true])
+  host.begin('gb')
+  host.finish('gb', '写好了。')
+  await settle(() => rt.roomRounds('r1').length === 0)
+  const quiet = (await host.call('group-rows', { roomId: 'r1', from, anchor })).value
+  assert.deepEqual([quiet.open, quiet.active, quiet.rows.map(row => row.text)], [true, false, ['写好了。']])
+})
+
+// The member that finished was renamed before the restart: its result still wakes the
+// Bot that asked, carried by that member.
+test('after a restart a batch whose finished member was renamed still wakes the caller', async (t) => {
+  const log = [{ seq: 1, who: 'User', text: '@Chief 安排' }, { seq: 2, who: 'Chief', botId: 'a', text: '@Writer @Tester 各做一半' }, { seq: 3, who: 'Tester', botId: 'c', text: 'TESTER-RESULT：测试全过。' }]
+  const batch = { key: 'k-renamed', roomId: 'r1', by: 'a', pending: ['b'], done: ['Tester'], doneIds: ['c'], results: [{ name: 'Tester', seq: 3 }], worked: true, answered: false, at: 1 }
+  const host = await start(t, { log, seq: 3 }, undefined, undefined, { c: { name: 'QA' } }, undefined, { roomBatches: { 'k-renamed': batch } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.deepEqual([post.source.senderSessionId, post.source.done, post.source.askedBy], ['c', true, 'a'])
+})
+
+// A member whose work a restart left is picked up again with a message its turn has not
+// taken yet: it still works for the batch, so the batch keeps waiting for it.
+test('after a restart a member whose pick-up is still queued keeps its batch waiting', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const batch = { key: 'k-queued', roomId: 'r1', by: 'a', pending: ['b'], done: ['Tester'], doneIds: ['c'], results: [], worked: true, answered: false, at: 1 }
+  const note = { at: 1, args: { toId: 'b', sessionId: 'gb', role: 'room', roomId: 'r1', note: 'your turn', text: '整理文档', exchangeId: 'x-queued', askedBy: 'a' } }
+  const host = await start(t, undefined, undefined, undefined, undefined, undefined, { roomBatches: { 'k-queued': batch } }, { 'inflight.json': { turns: {}, queued: { gb: [note] } } })
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  for (let i = 0; i < 20; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(rt.state.roomBatches['k-queued']?.pending, ['b'])
+  assert.equal(host.agentOf('r1').calls.length, 0, 'the caller is not woken before the member answers')
+})
+
+// Stop all while a round finishes: what waited on it does not start once it is done.
+test('stopping a group while its round finishes starts nothing afterwards', async (t) => {
+  const host = await start(t)
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const drive = rt.goalDrive
+  rt.goalDrive = async (...args) => { await gate; return drive?.(...args) }
+  const first = host.round('c1', host.say('@Writer 写一句'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '写好了。')
+  await settle(() => rt.roomActive('r1') && [...rt.roomProgress.values()].every(round => round.roomId !== 'r1'))
+  host.round('c2', host.say('@Tester 看一下'))
+  await settle(() => true)
+  assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).value, true)
+  release()
+  await settle(() => first() !== undefined && !rt.roomActive('r1'))
+  for (let i = 0; i < 20; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('gc').calls.length, 0, 'nothing started after the stop')
 })
