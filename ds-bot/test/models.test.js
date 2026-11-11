@@ -488,3 +488,33 @@ test('a deleted group does not keep the sync retrying its Session', async () => 
   assert.deepEqual(calls, [])
   assert.deepEqual(selected, [])
 })
+
+test('a group retry that cannot read the catalog logs and keeps the retry, it does not reject', async (t) => {
+  const warnings = []
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.warn = (...args) => warnings.push(args.join(' '))
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The cached catalog has run out and the provider list cannot be read now. Nothing
+  // awaits the promise bootstrap starts, so a rejection would end the host.
+  const listProviders = rt.ctx.llm.listProviders
+  rt.ctx.llm.listProviders = () => { throw new Error('providers unavailable') }
+  const now = Date.now()
+  t.mock.method(Date, 'now', () => now + 60_000)
+  await assert.doesNotReject(rt.syncModels())
+  assert.ok(warnings.some(line => /providers unavailable/.test(line)), warnings.join('\n'))
+  // The retry is kept: once the list can be read again, the next refresh selects.
+  rt.ctx.llm.listProviders = listProviders
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+})

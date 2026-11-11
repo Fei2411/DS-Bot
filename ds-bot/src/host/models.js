@@ -320,14 +320,17 @@ export function install(rt) {
   const syncModels = () => {
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
-    else if (roomRetry.size > 0) modelsSynced = modelsSynced?.then(syncRoomSessions, syncRoomSessions) ?? syncRoomSessions()
+    else if (roomRetry.size > 0) modelsSynced = modelsSynced?.then(syncRooms, syncRooms) ?? syncRooms()
     return modelsSynced
   }
+  // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
+  // here, such as a catalog that cannot be read, is logged; the retry record stays.
+  const syncRooms = () => syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
   async function syncAll() {
     for (const bot of Object.values(state.bots)) {
       await applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     }
-    await syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
+    await syncRooms()
   }
 
   // A route that refused a request for not being a model endpoint: it stays out of
