@@ -201,6 +201,7 @@ export const ES = {
   'This DSH cannot load connectors': 'Este DSH no puede cargar conectores',
   'No such connector': 'No existe ese conector',
   'Classic Agent mode': 'Modo Agente clásico',
+  'Switch to classic Agent mode': 'Cambiar al modo Agente clásico',
   'Bot mode': 'Modo Bot',
   'Switch': 'Cambiar',
   '{model} is not available anymore. Pick another model for me.': '{model} ya no está disponible. Elige otro modelo para mí.',
