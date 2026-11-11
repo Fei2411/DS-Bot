@@ -634,6 +634,38 @@ test('a Bot may take part in the same work again, but not message one that waits
   assert.match(await tool('message_bot', { to: 'Chief', message: 'done' }, 'c'), refused)
 })
 
+test('a refused message to a waiting Bot is kept as the work\'s answer', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, tool } = team
+  const { take, end } = await handedOn(team)
+  end('b')
+  take('c')
+  // Tester works for Writer, who works for Chief: messaging Chief is refused.
+  const reply = await tool('message_bot', { to: 'Chief', message: 'progress so far' }, 'c')
+  assert.match(reply, /kept as your answer for the work/)
+  // The refused text is what Tester said for the work it waits on.
+  const heldWork = Object.values(await worksIn(team)).find(work => work.from === 'b')
+  assert.equal(heldWork.held, 'progress so far')
+  // Ending the turn without more text sends it up as the answer.
+  end('c')
+  await settled(() => callsOf(agents, 'b').length === 2)
+  assert.equal(textOf(callsOf(agents, 'b')[1][1].content), '[Reply from Tester · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back]\nprogress so far')
+})
+
+test('a final answer replaces the text a refused message kept', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, tool } = team
+  const { take, end } = await handedOn(team)
+  end('b')
+  take('c')
+  await tool('message_bot', { to: 'Chief', message: 'progress so far' }, 'c')
+  end('c', 'the real answer')
+  await settled(() => callsOf(agents, 'b').length === 2)
+  assert.equal(textOf(callsOf(agents, 'b')[1][1].content), '[Reply from Tester · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back]\nthe real answer')
+})
+
 test('a stopped turn answers at once, and what it handed on comes back to it alone', async (t) => {
   const team = await start(threeBots())
   t.after(team.stop)

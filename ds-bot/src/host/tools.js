@@ -165,7 +165,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'message_bot',
-    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.',
+    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does. Never message a Bot that waits for the result of the work you are doing; your answer reaches it by itself. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.',
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
@@ -237,7 +237,10 @@ export function install(rt) {
       // bare error the Bot cannot act on.
       const works = worksOf(exec)
       if (rt.upstreamOf(works).has(target.id)) {
-        return `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`
+        // The refused text still counts as what the Bot said for the work that
+        // waits: an empty finish sends it up, a final answer replaces it.
+        for (const id of works) if (rt.upstreamOf([id]).has(target.id)) rt.holdWork(id, text)
+        return `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. What you wrote is kept as your answer for the work: end your turn without more text and it goes up; a final answer replaces it. To ask ${target.name} something, end your turn with the question.`
       }
       const send = async () => {
         const toUser = args.reply_to === 'user'
