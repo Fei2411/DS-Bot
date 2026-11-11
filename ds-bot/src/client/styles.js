@@ -221,6 +221,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 
 /* The width settings: the share of the column a bubble may take, and the flat text. */
 body{--bt-msg-w:.8;--bt-flat-w:1}
+body{--bt-qr-paper:#fff;--bt-qr-ink:#000}
 .bt-astack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:0}
 .bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-bubble);color:var(--bt-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-msg:not(:first-child)>.bt-msg-line>.bt-bubble{border-start-start-radius:6px}
@@ -576,7 +577,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-settings-form{display:flex;flex-direction:column;gap:16px}
 .bt-set-section{display:flex;flex-direction:column;gap:10px}
-.bt-set-section>h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 -2px;padding:0 4px}
+.bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 -2px;padding:0 4px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:20px}
 .bt-set-card{border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);display:flex;flex-direction:column}
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
@@ -616,6 +617,38 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 @media(max-width:700px){.bt-browser-grant{flex-wrap:wrap}.bt-browser-grant-who{flex:1}.bt-browser-grant-meta{order:3;flex:1 0 100%}}
 .bt-set-paste{flex-direction:column;align-items:stretch;gap:8px}
 .bt-chevron{color:var(--bt-ink-3);display:inline-flex;flex:none}
+.bt-la-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-la-sec-head>h3{margin:0}
+.bt-la-row{padding:11px 12px}
+.bt-la-logo{width:32px;height:32px;border-radius:8px}
+.bt-la-copy{gap:3px}
+.bt-la-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.bt-la-name{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-la-ver{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-la-path{font-size:12px;line-height:16px;font-family:var(--bt-mono);color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-la-note{margin-top:2px}
+.bt-la-actions{gap:8px}
+.bt-la-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
+.bt-la-state[data-state=true] .bt-cli-dot{background:var(--bt-green)}
+.bt-set-form{display:flex;flex-direction:column;gap:12px;padding:12px}
+.bt-set-form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bt-set-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-set-field>.bt-input{background:var(--bt-main)}
+.bt-la-code-input{font-family:var(--bt-mono)}
+.bt-set-form-foot{justify-content:flex-end}
+@media(max-width:600px){.bt-set-form-row{grid-template-columns:1fr}}
+
+/* Settings → Phone. */
+.bt-phone-server{gap:8px}
+.bt-phone-server .bt-input{flex:1;min-width:0}
+.bt-phone-warn .bt-set-hint{color:var(--bt-danger)}
+.bt-phone-error{padding:0 4px 12px}
+.bt-phone-pair{display:flex;align-items:center;gap:20px;padding:16px}
+.bt-phone-qr{flex:none;width:184px;height:184px;border-radius:8px}
+.bt-phone-qr rect{fill:var(--bt-qr-paper)}
+.bt-phone-qr path{fill:var(--bt-qr-ink)}
+.bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+@media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */
 .bt-connector{display:flex;flex-direction:column;gap:10px;padding:12px}
@@ -638,6 +671,9 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-connector-banner{padding:0 0 8px}
 .bt-mail-form{gap:10px}
 .bt-mail-seg{align-self:flex-start}
+/* Six providers share the width: a label that wraps would leave its fixed-height
+   button and spill out of the pill, so every provider name stays on one line. */
+.bt-mail-seg button{white-space:nowrap}
 .bt-mail-guide{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-mail-guide ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px}
 .bt-mail-links{display:flex;gap:16px}
@@ -1004,6 +1040,8 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-settings-scroll{overflow-x:clip}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
+  .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
+  .bt-la-row>.bt-set-copy{width:auto}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
@@ -1449,3 +1487,10 @@ export function installCompiledStyles(text, tag) {
     style.remove()
   }
 }
+
+// The classic page's return button draws its surface from these. Agent mode withdraws the
+// rest of this sheet, so they are installed on their own, with the return button's rules;
+// a mid grey reads on the shell's light and dark themes.
+export const RETURN_TOKENS = `
+body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
+`

@@ -381,7 +381,7 @@ function frameRules(file) {
   const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
     .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody')))
+    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody') && !selector.includes('_scrollRegion')))
     .filter(rule => rule.length > 0)
 }
 
@@ -464,13 +464,39 @@ async function chat(cdp) {
   }
   await cdp.call('Input.insertText', { text: 'packaged app check' })
   await until(text('packaged app check'), 'the typed message', 10_000)
+  // DSH's composer drops an Enter while it cannot send: while it is busy, or before it has taken
+  // in the inserted text. Its send button is disabled under the same conditions, so press Enter
+  // once a user could click the button, as a user who sees it greyed out would wait.
+  const send = `(() => {
+    let node = ${box}
+    while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
+    return node?.querySelector('button[aria-busy]') ?? null
+  })()`
+  const composerState = () => evaluate(`(() => {
+    const el = ${box}
+    const button = ${send}
+    return JSON.stringify({
+      active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
+      tail: document.body.innerText.slice(-300),
+    })
+  })()`)
+  try {
+    await until(`(() => { const button = ${send}; return button !== null && !button.disabled })()`, 'the send button', 30_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
   for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  try {
+    await until(`!(${box}?.innerText ?? '').includes('packaged app check')`, 'Enter to send the message', 10_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
   } catch (error) {
-    const state = await evaluate("JSON.stringify({ active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null, tail: document.body.innerText.slice(-300) })")
-    throw new Error(`${error.message}; page state: ${state}`)
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
   await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)

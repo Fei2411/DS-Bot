@@ -1,7 +1,7 @@
 {
   "name": "dsbot",
   "productName": "DS Bot",
-  "version": "0.3.2",
+  "version": "0.3.5",
   "private": true,
   "description": "DS Bot desktop app: the ds-bot team on its own pinned DeepSeek Harness.",
   "author": "Fei2411",
@@ -14,7 +14,7 @@
     "build": "vite build",
     "start": "electron .",
     "pack": "electron-builder --dir --publish never",
-    "dist": "electron-builder --publish never",
+    "dist": "node scripts/dist.mjs",
     "check-packed": "node scripts/check-packed.mjs",
     "runtime": "node scripts/prepare-runtime.mjs",
     "check-lifecycle": "node scripts/check-lifecycle.mjs",

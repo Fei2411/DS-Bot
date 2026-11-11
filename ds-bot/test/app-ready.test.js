@@ -153,6 +153,23 @@ test('in Agent mode the return button reports what the team sidebar would', asyn
   assert.deepEqual(calls, [[]])
 })
 
+test('the return button says where it goes, and a click goes back to the Bot surface', () => {
+  const { app } = readyCalls()
+  const { BotReturn } = page(app)
+  const text = node => (typeof node === 'string' ? node : [node?.props?.children].flat().filter(Boolean).map(text).join(''))
+  const modes = []
+  const wide = mount(BotReturn)({ ...returnProps('agent', TEAM), actions: { setSurface: mode => modes.push(mode) } })
+  assert.equal(wide.props['aria-label'], 'Back to DS Bot')
+  assert.equal(text(wide), 'Back to DS Bot')
+  wide.props.onClick()
+  assert.deepEqual(modes, ['bot'])
+  // The narrow footer keeps the whale alone; the name stays in the label and tooltip.
+  const narrow = mount(BotReturn)({ ...returnProps('agent', TEAM), wide: false })
+  assert.equal(narrow.props['aria-label'], 'Back to DS Bot')
+  assert.equal(narrow.props.title, 'Back to DS Bot')
+  assert.equal(text(narrow), '')
+})
+
 test('without the app bridge or its ready() the sidebar draws as before', async () => {
   for (const app of [undefined, {}]) {
     const { TeamSidebar, clientErrors } = page(app)

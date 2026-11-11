@@ -1251,15 +1251,17 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
     source: { kind: SOURCE_KIND, form: 'relay', role: 'post', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
     content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }],
   }), { surfaceOp: 'append' })
-  const relay = record('tool/call', { turn: 1, step: 1, callId: 'toolu_relay_1', name: 'group_relay', arguments: '{}' })
-  record('tool/result', {
-    turn: 1, step: 1,
-    message: createToolResultMessage({
-      callId: 'toolu_relay_1',
-      isError: false,
-      content: [{ type: 'text', text: JSON.stringify({ replies: [{ botId: 'b', name: 'Writer', color: 'blue', text: '在 docs/ 下面', time: 1000 }, { kind: 'missed', botId: 'a', name: 'Chief', color: 'gray', time: 2000 }] }) }],
-    }),
-  }, { surfaceOp: 'append', sourceEventSeqs: [relay.seq] })
+  for (const [step, callId, arguments_] of [[1, 'toolu_relay_1', '{}'], [3, 'toolu_relay_2', '{"roundId":"1-round-2"}']]) {
+    const relay = record('tool/call', { turn: 1, step, callId, name: 'group_relay', arguments: arguments_ })
+    record('tool/result', {
+      turn: 1, step,
+      message: createToolResultMessage({
+        callId,
+        isError: false,
+        content: [{ type: 'text', text: JSON.stringify({ replies: [{ botId: 'b', name: 'Writer', color: 'blue', text: '在 docs/ 下面', time: 1000 }, { kind: 'missed', botId: 'a', name: 'Chief', color: 'gray', time: 2000 }] }) }],
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [relay.seq] })
+  }
   // A result whose call named another tool is not the group's conversation.
   const other = record('tool/call', { turn: 1, step: 2, callId: 'toolu_2', name: 'remember', arguments: '{}' })
   record('tool/result', {
@@ -1276,6 +1278,8 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   assert.deepEqual(page.items.map(item => [item.kind, item.name ?? item.reply?.kind ?? null, item.text ?? item.texts?.[0] ?? null]), [
     ['user', null, '@Writer 文档在哪'],
     ['post', 'Writer', 'Done.'],
+    ['post', 'Writer', '在 docs/ 下面'],
+    ['relay', 'missed', null],
     ['post', 'Writer', '在 docs/ 下面'],
     ['relay', 'missed', null],
   ])
