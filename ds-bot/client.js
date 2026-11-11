@@ -33204,8 +33204,16 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 
 // src/client/providers-page.js
 var import_react46 = require("react");
-var PROTOCOL_NAMES = { "openai-completions": "OpenAI Chat Completions", "openai-responses": "OpenAI Responses", "anthropic-messages": "Anthropic Messages" };
-var ENDPOINT_HINTS = { "anthropic-messages": "https://gateway.example" };
+var PROTOCOL_NAMES = {
+  "openai-completions": "OpenAI Chat Completions",
+  "openai-responses": "OpenAI Responses",
+  "anthropic-messages": "Anthropic Messages",
+  "google-generative-ai": "Google Gemini"
+};
+var ENDPOINT_HINTS = {
+  "anthropic-messages": "https://gateway.example",
+  "google-generative-ai": "https://generativelanguage.googleapis.com/v1beta"
+};
 var SHOWN_MODELS = 8;
 var translated = (promise) => Promise.resolve(promise).catch((failure) => {
   throw new Error(hostText(failure?.message ?? String(failure)));
