@@ -119,6 +119,21 @@ test('earlier user and Bot rows retain independent quote boundaries', () => {
   assert.equal(sources(tree).length, 2)
 })
 
+test('image-only earlier messages do not expose their image-count label as quoted text', () => {
+  const imageOnly = expand(ChatRows({
+    items: [{ kind: 'user', text: '', images: 1, time: 1 }], sessionId: 'b', roster, actions: {},
+  }))
+  assert.equal(sources(imageOnly).length, 0)
+  const count = findAll(imageOnly, node => withClass(node, 'bt-uimages'))[0]
+  assert.equal(count.props['data-text-interaction-exclude'], '')
+
+  const captioned = expand(ChatRows({
+    items: [{ kind: 'user', text: 'A caption', images: 2, time: 2 }], sessionId: 'b', roster, actions: {},
+  }))
+  assert.equal(sources(captioned).length, 1)
+  assert.equal(findAll(captioned, node => withClass(node, 'bt-uimages'))[0].props['data-text-interaction-exclude'], '')
+})
+
 test('group relay user and Bot messages join the current chat quote interaction', () => {
   const room = { id: 'room', name: 'Ops', members: ['b'], admin: 'b' }
   const groupRoster = { ...roster, rooms: [room], roomsById: { room } }
