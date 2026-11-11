@@ -152,4 +152,6 @@ export function install(rt) {
     importer: (prefix, read) => { importers.set(prefix, read) },
   }
   rt.ledger = ledger
+  // What is still on its way to disk lands before the plugin goes.
+  rt.ctx?.effect?.(() => () => flush(), 'ds-bot: ledger')
 }
