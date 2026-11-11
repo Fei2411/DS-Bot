@@ -9458,8 +9458,11 @@ function EffortBar({ reasoning, current, onPick }) {
   const drag = (0, import_react19.useRef)(null);
   const [picked, setPicked] = (0, import_react19.useState)(current);
   const [dragRatio, setDragRatio] = (0, import_react19.useState)(null);
+  const pending = (0, import_react19.useRef)(0);
+  const latest = (0, import_react19.useRef)(current);
+  latest.current = current;
   (0, import_react19.useEffect)(() => {
-    if (!drag.current) setPicked(current);
+    if (!drag.current && pending.current === 0) setPicked(current);
   }, [current]);
   if (stops.length === 0) return null;
   const hasDefault = (reasoning?.efforts ?? []).some((effort) => effort.id === reasoning?.defaultEffort);
@@ -9470,7 +9473,15 @@ function EffortBar({ reasoning, current, onPick }) {
   const ratio = dragRatio ?? stopRatio;
   const commit = (effort) => {
     setPicked(effort);
-    if ((effort ?? null) !== (current ?? null)) onPick(effort);
+    if (pending.current === 0 && (effort ?? null) === (current ?? null)) return;
+    const saving = onPick(effort);
+    if (typeof saving?.then !== "function") return;
+    pending.current += 1;
+    const done = () => {
+      pending.current -= 1;
+      if (pending.current === 0 && !drag.current) setPicked(latest.current);
+    };
+    saving.then(done, done);
   };
   const ratioAt = (clientX) => {
     const rect = track.current?.getBoundingClientRect();
@@ -9693,6 +9704,51 @@ function useAnchoredMenu() {
   }, [anchor, tick]);
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close };
 }
+function useInlineMenu() {
+  const [isOpen, setOpen] = (0, import_react19.useState)(false);
+  const root = (0, import_react19.useRef)(null);
+  const button = (0, import_react19.useRef)(null);
+  const menu = (0, import_react19.useRef)(null);
+  const close = () => setOpen(false);
+  (0, import_react19.useEffect)(() => {
+    if (!isOpen) return void 0;
+    const onDown = (event) => {
+      if (!root.current?.contains(event.target)) close();
+    };
+    const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return;
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+        button.current?.focus();
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [isOpen]);
+  return { isOpen, root, button, menu, open: () => setOpen(true), close };
+}
+function Collapse({ open, children }) {
+  const [shown] = useLinger(open, SPRING_SHAPE.duration);
+  const [expanded, setExpanded] = (0, import_react19.useState)(open);
+  const box = (0, import_react19.useRef)(null);
+  const last = (0, import_react19.useRef)(children);
+  if (open) last.current = children;
+  (0, import_react19.useLayoutEffect)(() => {
+    if (open) void box.current?.offsetHeight;
+    setExpanded(open);
+  }, [open]);
+  if (!shown) return null;
+  return (0, import_react19.createElement)(
+    "div",
+    { ref: box, className: "bt-collapse", "data-open": expanded || void 0 },
+    (0, import_react19.createElement)("div", { className: "bt-collapse-in" }, open ? children : last.current)
+  );
+}
 function useAgentModels(actions) {
   const [reading, setReading] = (0, import_react19.useState)(false);
   const read = (route) => {
@@ -9702,8 +9758,7 @@ function useAgentModels(actions) {
   };
   return [reading, read];
 }
-function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
-  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
+function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts }) {
   const [reading, readModels] = useAgentModels(actions);
   const shown = modelOf(bot, roster);
   const current = bot.model ?? bot.appliedModel;
@@ -9714,72 +9769,149 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
   const [opening, setOpening] = (0, import_react19.useState)(0);
+  const models = modelsFor(roster.models, current);
+  return {
+    bot,
+    roster,
+    shown,
+    current,
+    local,
+    reasoning,
+    picked,
+    effortLabel,
+    models,
+    opening,
+    reading,
+    withEfforts,
+    manage: local ? void 0 : manageModels(actions),
+    hasEfforts: withEfforts && effortStops(reasoning).length > 0,
+    // DSH settings can change the list at any time, so opening asks again.
+    opened: () => {
+      if (local) readModels(routeOf(current));
+      else void actions?.refreshModels?.();
+      setOpening((count) => count + 1);
+    },
+    choose: (ref) => {
+      if (onPick) onPick(ref);
+      else if (ref !== current || !bot.model) void run2(actions.updateBot(bot.id, { model: ref }));
+    },
+    // Hands the save back, so the slider can tell when the Bot has caught up with its pick.
+    chooseEffort: (effort) => onPickEffort ? onPickEffort(effort) : run2(actions.updateBot(bot.id, { effort: effort ?? null }))
+  };
+}
+var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
+  const { bot, shown, models, withEfforts, effortLabel } = picker;
+  return (0, import_react19.createElement)(
+    "button",
+    {
+      ref: button,
+      type: "button",
+      className: "bt-model-trigger",
+      "data-wide": wide || void 0,
+      "aria-haspopup": "menu",
+      "aria-expanded": isOpen,
+      "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
+      "data-missing": shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
+      onClick
+    },
+    (0, import_react19.createElement)(
+      "span",
+      { className: "bt-model-copy" },
+      (0, import_react19.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
+      shown ? (0, import_react19.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
+    ),
+    (0, import_react19.createElement)(Caret)
+  );
+};
+var modelScroll = ({ roster, models, current, local, reading, opening }, pick2) => (0, import_react19.createElement)(
+  "div",
+  { className: "bt-model-scroll" },
+  models.length > 0 ? (0, import_react19.createElement)(ModelRows, { roster: { ...roster, models }, current, onPick: pick2, opening }) : local ? null : (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
+  reading ? (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
+);
+var manageButton = (manage, close) => (0, import_react19.createElement)(
+  "button",
+  { type: "button", role: "menuitem", onClick: () => {
+    close();
+    manage();
+  } },
+  (0, import_react19.createElement)(SlidersIcon),
+  (0, import_react19.createElement)("span", { className: "bt-menu-label" }, t("Models and providers…"))
+);
+var modelMenuLabel = (bot) => t("Model for {name}", { name: bot.name });
+function ModelMenu(props) {
+  return props.inline ? (0, import_react19.createElement)(InlineModelMenu, props) : (0, import_react19.createElement)(PopupModelMenu, props);
+}
+function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
+  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts });
+  const { manage, hasEfforts } = picker;
   const toggle = () => {
     if (isOpen) {
       close();
       return;
     }
-    if (local) readModels(routeOf(current));
-    else void actions?.refreshModels?.();
-    setOpening((count) => count + 1);
+    picker.opened();
     open();
   };
   const pick2 = (ref) => {
     close();
-    if (onPick) onPick(ref);
-    else if (ref !== current || !bot.model) void run2(actions.updateBot(bot.id, { model: ref }));
+    picker.choose(ref);
   };
-  const pickEffort = (effort) => {
-    if (onPickEffort) onPickEffort(effort);
-    else if (effort !== bot.effort) void run2(actions.updateBot(bot.id, { effort: effort ?? null }));
-  };
-  const models = modelsFor(roster.models, current);
-  const manage = local ? void 0 : manageModels(actions);
-  const hasEfforts = withEfforts && effortStops(reasoning).length > 0;
   return (0, import_react19.createElement)(
     import_react19.Fragment,
     null,
-    (0, import_react19.createElement)(
-      "button",
-      {
-        ref: button,
-        type: "button",
-        className: "bt-model-trigger",
-        "data-wide": wide || void 0,
-        "aria-haspopup": "menu",
-        "aria-expanded": isOpen,
-        "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
-        "data-missing": shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
-        onClick: toggle
-      },
-      (0, import_react19.createElement)(
-        "span",
-        { className: "bt-model-copy" },
-        (0, import_react19.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
-        shown ? (0, import_react19.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
-      ),
-      (0, import_react19.createElement)(Caret)
-    ),
+    modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react19.createElement)(
       "div",
-      { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": t("Model for {name}", { name: bot.name }), style: shownPlace, "data-leaving": leaving || void 0 },
-      (0, import_react19.createElement)(
-        "div",
-        { className: "bt-model-scroll" },
-        models.length > 0 ? (0, import_react19.createElement)(ModelRows, { roster: { ...roster, models }, current, onPick: pick2, opening }) : local ? null : (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
-        reading ? (0, import_react19.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
-      ),
+      { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
+      modelScroll(picker, pick2),
       hasEfforts || manage ? (0, import_react19.createElement)(
         "div",
         { className: "bt-model-foot" },
-        hasEfforts ? (0, import_react19.createElement)(EffortBar, { reasoning, current: picked, onPick: pickEffort }) : null,
+        hasEfforts ? (0, import_react19.createElement)(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort }) : null,
         hasEfforts && manage ? (0, import_react19.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-        manage ? (0, import_react19.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
-          close();
-          manage();
-        } }, (0, import_react19.createElement)(SlidersIcon), (0, import_react19.createElement)("span", { className: "bt-menu-label" }, t("Models and providers…"))) : null
+        manage ? manageButton(manage, close) : null
       ) : null
     ), document.body) : null
+  );
+}
+function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
+  const { isOpen, root, button, menu, open, close } = useInlineMenu();
+  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts });
+  const { manage, hasEfforts } = picker;
+  const toggle = () => {
+    if (isOpen) {
+      close();
+      return;
+    }
+    picker.opened();
+    open();
+  };
+  const pick2 = (ref) => {
+    close();
+    button.current?.focus();
+    picker.choose(ref);
+  };
+  return (0, import_react19.createElement)(
+    "div",
+    { ref: root, className: "bt-model-inline" },
+    modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
+    (0, import_react19.createElement)(
+      Collapse,
+      { open: isOpen },
+      (0, import_react19.createElement)(
+        "div",
+        { ref: menu, className: "bt-menu bt-model-menu bt-model-inline-menu", role: "menu", "aria-label": modelMenuLabel(bot) },
+        modelScroll(picker, pick2),
+        manage ? (0, import_react19.createElement)("div", { className: "bt-model-foot" }, manageButton(manage, close)) : null
+      )
+    ),
+    (0, import_react19.createElement)(
+      Collapse,
+      { open: hasEfforts },
+      hasEfforts ? (0, import_react19.createElement)("div", { className: "bt-model-effort" }, (0, import_react19.createElement)(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null
+    )
   );
 }
 function ModelChoiceDock({ sessionId, useRoster, actions }) {
@@ -9931,20 +10063,31 @@ var MODEL_CSS = `
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
+.bt-model-inline{display:flex;flex-direction:column;min-width:0}
+/* The inline list is a menu in the flow: the popup's float, glass and entrance give way to a card the width of its trigger. */
+.bt-menu.bt-model-inline-menu{position:static;z-index:auto;min-width:0;margin-top:4px;background:var(--bt-card);-webkit-backdrop-filter:none;backdrop-filter:none;border:0;box-shadow:inset 0 0 0 1px var(--bt-line);animation:none}
+.bt-model-inline-menu .bt-model-scroll{max-height:min(280px,45vh)}
+.bt-collapse{display:grid;grid-template-rows:0fr;transition:${spring(SPRING_SHAPE, "grid-template-rows")}}
+.bt-collapse[data-open]{grid-template-rows:1fr}
+.bt-collapse:not([data-open]){pointer-events:none}
+.bt-collapse-in{min-height:0;overflow:hidden}
+/* The collapse clips at its box: the extra 3px keeps the slider's focus ring inside it. */
+.bt-model-effort{padding:2px 0 3px}
+.bt-model-effort .bt-effort-bar{padding:4px 12px 5px}
 .bt-effort-bar{display:flex;flex-direction:column;gap:6px;padding:4px 6px 5px}
 .bt-effort-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:18px;padding:0 2px}
 .bt-effort-label{font-size:11px;line-height:14px;font-weight:500;color:var(--bt-ink-3)}
 .bt-effort-meta{display:inline-flex;align-items:center;gap:5px;min-width:0}
 .bt-effort-tag{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-effort-val{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap}
-.bt-menu button.bt-effort-reset{flex:none;position:relative;width:28px;height:28px;min-height:0;margin:-5px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing};transition:color .12s ease}
-.bt-menu button.bt-effort-reset::before{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--bt-hover);transition:background-color .12s ease}
-.bt-menu button.bt-effort-reset svg{position:relative;width:11px;height:11px;margin:0}
-.bt-menu button.bt-effort-reset:hover:not(:disabled){color:var(--bt-ink)}
-.bt-menu button.bt-effort-reset:hover:not(:disabled)::before{background:var(--bt-active)}
-.bt-menu button.bt-effort-reset:disabled{opacity:.35;cursor:default}
-.bt-menu button.bt-effort-reset:disabled::before{background:none}
-.bt-menu button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-effort-bar button.bt-effort-reset{flex:none;position:relative;width:28px;height:28px;min-height:0;margin:-5px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing};transition:color .12s ease}
+.bt-effort-bar button.bt-effort-reset::before{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--bt-hover);transition:background-color .12s ease}
+.bt-effort-bar button.bt-effort-reset svg{position:relative;width:11px;height:11px;margin:0}
+.bt-effort-bar button.bt-effort-reset:hover:not(:disabled){color:var(--bt-ink)}
+.bt-effort-bar button.bt-effort-reset:hover:not(:disabled)::before{background:var(--bt-active)}
+.bt-effort-bar button.bt-effort-reset:disabled{opacity:.35;cursor:default}
+.bt-effort-bar button.bt-effort-reset:disabled::before{background:none}
+.bt-effort-bar button.bt-effort-reset:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-effort-track{position:relative;height:28px;margin:-3px 0;border-radius:999px;cursor:pointer;user-select:none;touch-action:none}
 .bt-effort-track::before{content:"";position:absolute;left:0;right:0;top:3px;bottom:3px;border-radius:999px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line)}
 .bt-effort-track:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
@@ -9993,7 +10136,7 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 @keyframes bt-model-in{from{opacity:0;transform:translateY(6px)}}
 .bt-model-spin{flex:none;width:14px;height:14px;border-radius:50%;border:1.5px solid var(--bt-line-2);border-top-color:var(--bt-ink-2);animation:bt-model-spin .7s linear infinite}
 @keyframes bt-model-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.bt-model-dock{animation:none}.bt-model-spin{animation-duration:2s}.bt-model-caret,.bt-effort-fill,.bt-effort-knob{transition:none}.bt-model-tick svg{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-collapse{transition:none}.bt-model-dock{animation:none}.bt-model-spin{animation-duration:2s}.bt-model-caret,.bt-effort-fill,.bt-effort-knob{transition:none}.bt-model-tick svg{animation:none}}
 `;
 
 // src/client/bot-draft.js
@@ -26131,7 +26274,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           "div",
           { key: "model", className: "bt-drawer-model" },
           (0, import_react59.createElement)("div", { className: "bt-section-title" }, t("Model")),
-          (0, import_react59.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true }),
+          (0, import_react59.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true, inline: true }),
           modelOf(bot, roster) ? null : (0, import_react59.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
         bot.engine ? (0, import_react59.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }) : null,
