@@ -1,6 +1,25 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "Android beta": "Android 베타",
+  "Cannot reach the Server. Trying again…": "서버에 연결할 수 없습니다. 다시 시도하는 중…",
+  "No phones yet": "아직 휴대폰이 없습니다",
+  "Off. Phones cannot reach this computer.": "꺼짐. 휴대폰에서 이 컴퓨터에 연결할 수 없습니다.",
+  "On. Paired phones can use DS Bot here.": "켜짐. 페어링된 휴대폰에서 여기의 DS Bot을 사용할 수 있습니다.",
+  "Pair a phone": "휴대폰 페어링",
+  "Paired on {date}": "{date}에 페어링됨",
+  "Phone": "휴대폰",
+  "Phone access": "휴대폰 접근",
+  "Phone app": "휴대폰 앱",
+  "Phones": "휴대폰",
+  "Scan this code with the DS Bot app on your phone.": "휴대폰의 DS Bot 앱으로 이 코드를 스캔하세요.",
+  "Server": "서버",
+  "Show a QR code": "QR 코드 표시",
+  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
+  "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
+  "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
+  "Your phone scans it once. After that it connects by itself.": "한 번만 스캔하면 됩니다. 그 후에는 자동으로 연결됩니다.",
+  "Beta": "베타",
   // Shared
   'Main Bot': '메인 Bot',
   Working: '작업 중',

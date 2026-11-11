@@ -217,7 +217,8 @@ export function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, act
   const enterToSend = useRoster(value => sendsOnEnter(value.prefs))
   const drawn = useCards?.(state => state[sessionId]?.[question?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('question', question?.id)] > 0) === true
-  if (question === undefined || (question.callId && drawn && !held)) return null
+  const inPart = (question?.callSessionId ?? sessionId) === sessionId
+  if (question === undefined || (inPart && question.callId && drawn && !held)) return null
   return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend })
 }
 
