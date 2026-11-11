@@ -36262,7 +36262,9 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     { key: "cmd:new", icon: (0, import_react54.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
     { key: "cmd:bot", icon: (0, import_react54.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
     { key: "cmd:group", icon: (0, import_react54.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
-    { key: "cmd:settings", icon: (0, import_react54.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("general") }
+    { key: "cmd:settings", icon: (0, import_react54.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("general") },
+    // Found only by typing; the default list does not offer it. Same gate as the row in Settings.
+    ...wanted !== "" && actions.setSurface ? [{ key: "cmd:classic", avatar: (0, import_react54.createElement)("span", { className: "bt-palette-agent" }, (0, import_react54.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 18 })), title: t("Classic Agent mode"), run: () => actions.setSurface("agent") }] : []
   ].filter((command) => matchesName(command.title));
   if (commands.length) sections.push([t("Commands"), commands]);
   const rows2 = sections.flatMap(([, items]) => items);

@@ -82,6 +82,8 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     { key: 'cmd:bot', icon: h(PlusIcon), title: t('Create Bot'), run: () => actions.openNewChat('create') },
     { key: 'cmd:group', icon: h(PeopleIcon), title: t('Create group chat'), run: () => actions.openNewChat('group') },
     { key: 'cmd:settings', icon: h(GearIcon), title: t('Settings'), run: () => actions.openSettings('general') },
+    // Found only by typing; the default list does not offer it. Same gate as the row in Settings.
+    ...(wanted !== '' && actions.setSurface ? [{ key: 'cmd:classic', avatar: h('span', { className: 'bt-palette-agent' }, h(FishLogo, { size: 18 })), title: t('Classic Agent mode'), run: () => actions.setSurface('agent') }] : []),
   ].filter(command => matchesName(command.title))
   if (commands.length) sections.push([t('Commands'), commands])
   const rows = sections.flatMap(([, items]) => items)
