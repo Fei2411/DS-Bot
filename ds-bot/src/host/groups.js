@@ -378,9 +378,11 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const detail = helper ? `${helper}: ${reason}` : reason
-    say(room, { who: 'DS Bot', kind: 'notice', reason: 'helper-failed', names: [member.name], about: member.id, detail })
+    const line = say(room, { who: 'DS Bot', kind: 'notice', reason: 'helper-failed', names: [member.name], about: member.id, detail })
     await rt.save()
-    await postToRoom(room, member, '', { late: true, quiet: true, failed: { code: 'SUBAGENT_FAILED', message: detail } })
+    // The post names the notice's seq: the round it opens starts there, so the chat draws
+    // the notice row too, and the empty post is not written a second time.
+    await postToRoom(room, member, '', { late: true, quiet: true, logged: line?.seq, failed: { code: 'SUBAGENT_FAILED', message: detail } })
       .catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
   }
   rt.subagentFailureNotice = noteHelperFailure
