@@ -53,12 +53,23 @@ function scanReplies(text, start, replies) {
   }
 }
 
+// A status row is a state, not another message: the same member "started on it" twice
+// in a row says nothing new. The host notes one per working episode; a transcript
+// written before that can still hold several, so they are folded here too.
+const STATUS_KINDS = new Set(['working', 'approval'])
+const STATUS_MERGE_MS = 10 * 60_000
+const repeatedStatus = (reply, last) => reply.kind !== undefined && STATUS_KINDS.has(reply.kind)
+  && last?.reply.kind === reply.kind && last.reply.botId === reply.botId
+  && Number.isFinite(reply.time) && Number.isFinite(last.reply.time)
+  && Math.abs(reply.time - last.reply.time) <= STATUS_MERGE_MS
+
 // A member's messages in a row, as one block under its name: what it says while it
 // works comes one message at a time. A block carries the last message's time and run.
 export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
     const last = items.at(-1)
+    if (repeatedStatus(reply, last)) return
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId) {
       last.texts.push(reply.text)
       last.time = reply.time

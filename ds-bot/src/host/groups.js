@@ -28,6 +28,11 @@ import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { failureLine } from './turns.js'
+import { createWorkingNotices } from '../shared/working-notice.js'
+
+// One "started on it" row per working episode; a member called again while it still
+// works adds nothing (#1380).
+const workingNotices = createWorkingNotices()
 
 const ROOM_LOG_MAX = 60
 const ROOM_FIRST_LOOK = 12
@@ -463,6 +468,14 @@ export function install(rt) {
     return batch.key
   }
 
+  // The transcript notes that a member started once per working episode; a second call
+  // in the same round, or while the earlier work still runs, is the same episode.
+  const noteWorking = (room, round, member) => {
+    if (workingNotices.seen(room.id, member.id)) return
+    workingNotices.note(room.id, member.id)
+    round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+  }
+
   const markBatchWorked = (roomId, botId) => {
     const batch = memberBatch.get(batchKeyOf(roomId, botId))
     if (batch !== undefined) batch.worked = true
@@ -854,6 +867,7 @@ export function install(rt) {
     } catch (error) {
       rt.warn('ds-bot: group Session for %s in %s failed: %s', member.name, room.name, error)
       slot.status = 'failed'
+      workingNotices.clear(room.id, member.id)
       dropMemberFromBatch(room, member.id)
       round.failed.push(member.name)
       const failure = { code: 'SESSION', message: String(error?.message ?? error).slice(0, 300) }
@@ -893,6 +907,7 @@ export function install(rt) {
     if (reply?.failure !== undefined) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
       slot.status = 'failed'
+      workingNotices.clear(room.id, member.id)
       round.failed.push(member.name)
       const { code, status, message } = reply.failure
       round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
@@ -900,11 +915,12 @@ export function install(rt) {
     } else if (reply?.approval) {
       // The member's turn goes on in the background and posts when it ends.
       slot.status = 'waiting-approval'
+      workingNotices.clear(room.id, member.id)
       round.replies.push({ kind: 'approval', botId: member.id, name: member.name, color: member.color, time: Date.now() })
     } else if (reply?.working) {
       slot.status = 'working'
       markBatchWorked(room.id, member.id)
-      round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+      noteWorking(room, round, member)
     } else if (subRunning) {
       if (final !== undefined) {
         postInRound(room, round, member, final, Date.now() - startedAt)
@@ -912,15 +928,17 @@ export function install(rt) {
       }
       slot.status = 'working'
       markBatchWorked(room.id, member.id)
-      round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+      noteWorking(room, round, member)
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
+      workingNotices.clear(room.id, member.id)
       if (final !== undefined) {
         postInRound(room, round, member, final, Date.now() - startedAt)
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
       slot.status = reply === null ? 'cancelled' : typeof reply === 'string' ? 'passed' : 'missed'
+      workingNotices.clear(room.id, member.id)
       round.passed.push(member.name)
       if (reply?.missed) {
         round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })

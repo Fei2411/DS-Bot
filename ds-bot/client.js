@@ -13174,10 +13174,14 @@ function scanReplies(text, start, replies) {
     } else if (ch === "]" && depth === 0) break;
   }
 }
+var STATUS_KINDS = /* @__PURE__ */ new Set(["working", "approval"]);
+var STATUS_MERGE_MS = 10 * 6e4;
+var repeatedStatus = (reply, last) => reply.kind !== void 0 && STATUS_KINDS.has(reply.kind) && last?.reply.kind === reply.kind && last.reply.botId === reply.botId && Number.isFinite(reply.time) && Number.isFinite(last.reply.time) && Math.abs(reply.time - last.reply.time) <= STATUS_MERGE_MS;
 function stackReplies(replies) {
   const items = [];
   replies.forEach((reply, index) => {
     const last = items.at(-1);
+    if (repeatedStatus(reply, last)) return;
     if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
       last.texts.push(reply.text);
       last.time = reply.time;
