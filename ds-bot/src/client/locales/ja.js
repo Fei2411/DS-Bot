@@ -717,6 +717,7 @@ export const JA = {
   "New session": "新しいセッション",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
+  "Plugins": "プラグイン",
   "Plain dsh session": "標準の dsh セッション",
   "just now": "たった今",
   "{n} min": "{n} 分",

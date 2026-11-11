@@ -719,6 +719,7 @@ export const KO = {
   'New session': '새 세션',
   Archive: '보관',
   'Session actions': '세션 작업',
+  'Plugins': '플러그인',
   'Plain dsh session': '기본 dsh 세션',
   'just now': '방금',
   '{n} min': '{n}분',
