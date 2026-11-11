@@ -16280,6 +16280,9 @@ function installCompiledStyles(text, tag) {
     style.remove();
   };
 }
+var RETURN_TOKENS = `
+body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
+`;
 
 // src/client/mark.js
 var import_react2 = require("react");
@@ -28405,8 +28408,8 @@ function BotReturn({ wide, useSurface, useRoster, actions }) {
   );
 }
 var RETURN_CSS = `
-.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:color-mix(in srgb,currentColor 9%,transparent);color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
-.bt-return:hover{background:color-mix(in srgb,currentColor 17%,transparent)}
+.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-return-fill);color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
+.bt-return:hover{background:var(--bt-return-fill-hover)}
 .bt-return:active{transform:scale(.96)}
 .bt-return .bt-mark{display:inline-flex;flex:none;line-height:0}
 .bt-return .bt-mark svg{width:100%;height:100%;overflow:visible}
@@ -41847,7 +41850,7 @@ function apply(ctx) {
     // its cell; it lists only the sends the user authored (#663).
     () => shadow("conversation.input.dock", { id: "queue", order: 20, priority: BOT_PRIORITY, inject: queueFace }, QueueDock)
   ];
-  ctx.effect(() => installCompiledStyles(RETURN_CSS, "return"), "ds-bot: return styles");
+  ctx.effect(() => installCompiledStyles(RETURN_TOKENS + RETURN_CSS, "return"), "ds-bot: return styles");
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
