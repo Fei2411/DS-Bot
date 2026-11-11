@@ -78,7 +78,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -101,6 +101,9 @@ let failed = false
 let places
 // Which of the places this start made, so that 「换个位置…」 can take them away again.
 let made = { dataDir: false, workspace: false, root: false }
+// A bundle of the app installed into the profile's own dependencies shadows the bundled copy
+// for good (#1305). The card about it is asked once per run, however the start retries.
+let shadowedAsked = false
 // The folder picker of 「换个位置…」 is open, and the root it proposed on the 「会放在…」 card.
 let picking = false
 let proposed
@@ -303,7 +306,7 @@ async function loadModules() {
   ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome } = imports)
   ;({ ImportFlow } = flows)
   ;({ copyData, copyReason, moveProblem } = moves)
-  ;({ CHECK_PROFILE, PROFILE } = profile)
+  ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
@@ -611,6 +614,16 @@ async function startEngine(mine) {
       if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
       if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
     }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
+  }
+  if (!shadowedAsked) {
+    shadowedAsked = true
+    const { shadowedBundles, removeShadowed } = await import('./profile-shadow.mjs')
+    const shadowed = shadowedBundles(profileDir(), BUNDLES)
+    if (shadowed.length > 0 && mine === attempt) {
+      const names = shadowed.map(({ name, version }) => `${name} ${version}`).join(', ')
+      console.warn(`DS Bot: the profile carries its own ${names}, which shadows the bundled copy`)
+      if (await askCard({ kind: 'shadowed', names }) === 'remove' && mine === attempt) await removeShadowed(profileDir(), shadowed.map(entry => entry.name))
+    }
   }
   host = warm?.host ?? newHost()
   host.onMessage(message => {
