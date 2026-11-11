@@ -219,6 +219,7 @@ export const JA = {
   "Classic Agent mode": "クラシック Agent モード",
   "Bot mode": "Bot モード",
   "Switch": "切り替え",
+  "Back to DS Bot": "DS Bot に戻る",
   "{model} is not available anymore. Pick another model for me.": "{model} は現在利用できません。別のモデルを選んでください。",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "こんにちは、{name} です。まだモデルが設定されていません。どのように設定しますか？",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "こんにちは、{name} です。まずは使用するモデルを選んでください。後から詳細画面で変更できます。",

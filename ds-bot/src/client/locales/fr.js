@@ -219,6 +219,7 @@ export const FR = {
   "Classic Agent mode": "Mode Agent classique",
   "Bot mode": "Mode Bot",
   "Switch": "Basculer",
+  "Back to DS Bot": "Retour à DS Bot",
   "{model} is not available anymore. Pick another model for me.": "{model} n’est plus disponible. Choisissez-moi un autre modèle.",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "Bonjour, je suis {name}. Je n’ai pas encore de modèle. Comment souhaitez-vous en configurer un ?",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "Bonjour, je suis {name}. Choisissez-moi d’abord un modèle. Vous pourrez le modifier plus tard dans mes détails.",
