@@ -3,15 +3,14 @@ import { t } from './i18n.js'
 import { reducedMotion, SPRING_TAP } from './motion.js'
 
 export const quoteMarkdown = text => text.replace(/\r\n?/gu, '\n').split('\n').map(line => `> ${line}`).join('\n')
-export const annotatedMessage = (text, annotation) => [quoteMarkdown(text), annotation.trim()].filter(Boolean).join('\n\n')
+const withAnnotation = (text, annotation) => annotation.trim() ? `${text}\n\n${annotation.trim()}` : text
+export const annotatedMessage = (text, annotation) => quoteMarkdown(withAnnotation(text, annotation))
 export const annotationKey = event => event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229
   ? event.ctrlKey || event.metaKey ? 'send' : 'add'
   : null
 
 export function insertAnnotation(inputActions, text, annotation) {
-  if (!inputActions.insertQuote(text)) return false
-  if (!annotation.trim()) return true
-  return inputActions.insertText(`\n\n${annotation.trim()}`, inputActions.captureInsertion())
+  return inputActions.insertQuote(withAnnotation(text, annotation))
 }
 
 // The host's quote interaction owns admission. This renderer adds the annotation
