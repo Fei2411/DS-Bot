@@ -283,6 +283,8 @@ export function install(rt) {
     room.seq += 1
     const record = { ...line, seq: room.seq, time: line.time ?? Date.now() }
     rt.ledger.append(bookOf(room.id), record)
+    // The phone link hears every line the chat will draw (mobile.js).
+    rt.roomLineAdded?.(room, record)
     if (!memberLine(record)) return record
     room.log = [...room.log, cutLine(record)].slice(-ROOM_LOG_MAX)
     for (const listener of roomLineListeners) {
@@ -500,20 +502,23 @@ export function install(rt) {
   const unreadCount = (room, botId) => unseenLines(room, botId).length
   const minutesSince = at => Math.max(1, Math.round((Date.now() - at) / 60000))
 
-  // Active Bot-to-Bot call batches in groups: when Bot `by` calls one or more members
-  // together (`@B @C`), the batch tracks which callees are still working so:
+  // Bot-to-Bot call batches in groups: when Bot `by` calls one or more members together
+  // (`@B @C`), the batch tracks which callees are still working so:
   // 1) a callee that finishes tool work within the round (< 15s) without writing `@by`
   //    still hands the result back to `by` (#619), and
   // 2) when multiple callees work in parallel, `by` is woken once when the last callee
   //    in the batch finishes rather than woken piecemeal on every early reply.
   // A batch belongs to a call, not to the member: a member two Bots called is in both
   // batches, and each finished piece of work settles the batch of the Bot that asked.
-  // Calling the same member again settles into the newest batch of that Bot.
-  const roomBatches = new Map()
-  const memberBatch = new Map()
-  const callKey = (roomId, botId, by) => `${roomId}:${botId}:${by}`
-  const batchOf = (roomId, botId, by) => memberBatch.get(callKey(roomId, botId, by))
-  const batchesOf = (roomId, botId) => [...memberBatch.values()].filter(batch => batch.roomId === roomId && batch.pending.has(botId))
+  // Calling the same member again settles into the newest batch of that Bot, so a member
+  // waits in at most one batch per Bot that called it. Batches are saved with the team
+  // (`state.roomBatches`), so who still owes whom survives a restart.
+  const batches = () => (rt.state.roomBatches ??= {})
+  const saveSoon = () => void rt.save().catch(() => {})
+  const batchOf = (roomId, botId, by) => Object.values(batches()).find(batch => batch.roomId === roomId && batch.by === by && batch.pending.includes(botId))
+  // Oldest first.
+  const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
+  const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
 
   const activeInRoom = (room, botId) => {
     const sessionId = room.sessions?.[botId]
@@ -525,51 +530,50 @@ export function install(rt) {
   const registerBatch = (roomId, by, callees) => {
     if (by === undefined || callees.length === 0) return undefined
     // A group that was deleted takes its batches with it, also one whose wake never came.
-    for (const [key, old] of roomBatches) if (rt.roomOf(old.roomId) === undefined) roomBatches.delete(key)
+    for (const [key, old] of Object.entries(batches())) if (rt.roomOf(old.roomId) === undefined) delete batches()[key]
     const batch = {
       key: randomUUID(),
       roomId,
       by,
-      pending: new Set(callees.map(peer => peer.id)),
+      pending: callees.map(peer => peer.id),
       done: [],
       results: [],
       worked: false,
       answered: false,
+      at: Date.now(),
     }
-    roomBatches.set(batch.key, batch)
     for (const peer of callees) {
-      const index = callKey(roomId, peer.id, by)
-      const prev = memberBatch.get(index)
-      if (prev !== undefined) {
-        prev.pending.delete(peer.id)
-        if (prev.pending.size === 0) {
-          batch.done.push(...prev.done)
-          batch.results.push(...prev.results)
-          batch.worked ||= prev.worked
-          batch.answered ||= prev.answered
-          roomBatches.delete(prev.key)
-        }
+      const prev = batchOf(roomId, peer.id, by)
+      if (prev === undefined) continue
+      unpend(prev, peer.id)
+      if (prev.pending.length === 0) {
+        batch.done.push(...prev.done)
+        batch.results.push(...prev.results)
+        batch.worked ||= prev.worked
+        batch.answered ||= prev.answered
+        delete batches()[prev.key]
       }
-      memberBatch.set(index, batch)
     }
+    batches()[batch.key] = batch
+    saveSoon()
     return batch.key
   }
 
   const pruneBatchPending = (room, batch) => {
     for (const otherId of batch.pending) {
-      if (!room.members.includes(otherId) || !activeInRoom(room, otherId)) {
-        batch.pending.delete(otherId)
-        if (batchOf(room.id, otherId, batch.by) === batch) memberBatch.delete(callKey(room.id, otherId, batch.by))
-      }
+      if (!room.members.includes(otherId) || !activeInRoom(room, otherId)) unpend(batch, otherId)
     }
   }
 
   // The batch a call of the round settles into: its own, or when a later call of the same
   // Bot took the member over, the newest one of that Bot.
-  const batchOfSlot = (roomId, slot) => roomBatches.get(slot.batchKey) ?? batchOf(roomId, slot.id, slot.by)
+  const batchOfSlot = (roomId, slot) => (slot.batchKey === undefined ? undefined : batches()[slot.batchKey]) ?? batchOf(roomId, slot.id, slot.by)
   const markSlotWorked = (roomId, slot) => {
     const batch = batchOfSlot(roomId, slot)
-    if (batch !== undefined) batch.worked = true
+    if (batch !== undefined && !batch.worked) {
+      batch.worked = true
+      saveSoon()
+    }
   }
 
   // The batch the turn with trigger `info` answers. The call names who asked; a turn that
@@ -581,22 +585,62 @@ export function install(rt) {
   // (`keep`) stays until that post, the last one that names it, is taken in (closeBatch),
   // because the lines of its results are only known then.
   const leaveBatch = (room, batch, botId, { keep = false } = {}) => {
-    if (batchOf(room.id, botId, batch.by) === batch) memberBatch.delete(callKey(room.id, botId, batch.by))
-    batch.pending.delete(botId)
+    unpend(batch, botId)
     pruneBatchPending(room, batch)
-    if (batch.pending.size === 0) {
-      if (!keep) roomBatches.delete(batch.key)
+    if (batch.pending.length === 0) {
+      if (!keep) delete batches()[batch.key]
       void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
     }
+    saveSoon()
   }
   const closeBatch = (key) => {
-    if (roomBatches.get(key)?.pending.size === 0) roomBatches.delete(key)
+    if (key !== undefined && batches()[key]?.pending.length === 0) {
+      delete batches()[key]
+      saveSoon()
+    }
   }
-  const recordResult = (key, name, seq) => roomBatches.get(key)?.results.push({ name, seq })
+  const recordResult = (key, name, seq) => {
+    const batch = key === undefined ? undefined : batches()[key]
+    if (batch === undefined) return
+    batch.results.push({ name, seq })
+    saveSoon()
+  }
   // What a finished batch tells the Bot that asked: who finished and where their results are.
   const wakeOf = (key) => {
-    const batch = roomBatches.get(key)
-    return batch !== undefined && batch.pending.size === 0 && batch.done.length > 0 ? { names: [...batch.done], results: [...batch.results] } : undefined
+    const batch = key === undefined ? undefined : batches()[key]
+    return batch !== undefined && batch.pending.length === 0 && batch.done.length > 0 ? { names: [...batch.done], results: [...batch.results] } : undefined
+  }
+  // After a restart, once interrupted turns are picked up: a member that does not work for
+  // a batch now never will. The batch settles without it, and one whose work got done
+  // wakes the Bot that asked, once, with the results it has.
+  rt.settleRoomBatches = async () => {
+    if (rt.readOnly?.() !== undefined) return
+    let changed = false
+    for (const batch of Object.values(batches())) {
+      const room = rt.roomOf(batch.roomId)
+      if (room === undefined || rt.botOf(batch.by) === undefined) {
+        delete batches()[batch.key]
+        changed = true
+        continue
+      }
+      const before = batch.pending.length
+      pruneBatchPending(room, batch)
+      if (batch.pending.length > 0) continue
+      changed ||= before > 0
+      const members = room.members.map(rt.botOf).filter(Boolean)
+      const last = members.find(bot => bot.name === batch.done.at(-1)) ?? members.find(bot => batch.done.includes(bot.name))
+      if (!room.members.includes(batch.by) || last === undefined || !batch.worked || batch.answered) {
+        delete batches()[batch.key]
+        changed = true
+        continue
+      }
+      await postToRoom(room, last, '', { late: true, done: true, askedBy: batch.by, batch: batch.key, batchEnd: true })
+        .catch((error) => {
+          delete batches()[batch.key]
+          rt.warn('ds-bot: a batch in %s left by a restart did not wake its caller: %s', room.name, error)
+        })
+    }
+    if (changed) saveSoon()
   }
   const finishedNote = names => `${names.join(' and ')} finished the work you asked for`
   const giveResults = (round, botId, wake) => {
@@ -608,9 +652,9 @@ export function install(rt) {
 
   // The member is gone, stopped or failed for good: it leaves every batch it was in.
   const dropMemberFromBatch = (room, botId) => {
-    const batches = batchesOf(room.id, botId)
-    for (const batch of batches) leaveBatch(room, batch, botId)
-    return batches
+    const owed = batchesOf(room.id, botId)
+    for (const batch of owed) leaveBatch(room, batch, botId)
+    return owed
   }
 
   // A member's message in the round, for the members after it and the user.
@@ -1067,7 +1111,7 @@ export function install(rt) {
           if (worked) batch.worked = true
         }
         leaveBatch(room, batch, member.id)
-        if (batch.pending.size === 0 && batch.done.length > 0 && batch.worked && !batch.answered && !signal.aborted) {
+        if (batch.pending.length === 0 && batch.done.length > 0 && batch.worked && !batch.answered && !signal.aborted) {
           const caller = rt.botOf(batch.by)
           const wake = { names: [...batch.done], results: [...batch.results] }
           // A caller still waiting in this round starts with the results. One still in its
@@ -1486,7 +1530,7 @@ export function install(rt) {
       if (named.length > 0) batch.answered = true
       if (!isPass(text) || shown) batch.done.push(member.name)
       leaveBatch(room, batch, member.id, { keep: true })
-      waitingPeers = batch.pending.size > 0
+      waitingPeers = batch.pending.length > 0
       batchDoneBefore = !waitingPeers && batch.done.length > 0 && !batch.answered
     }
     // The post names its batch: its line is a result of it, and the wake that closes the
@@ -1631,7 +1675,7 @@ export function install(rt) {
   rt.stopRoomWork = stopRoomWork
   Object.assign(rt, {
     workingInRoom: workingIn,
-    roomBatchPending: roomId => [...roomBatches.values()].some(batch => batch.roomId === roomId && batch.pending.size > 0),
+    roomBatchPending: roomId => Object.values(batches()).some(batch => batch.roomId === roomId && batch.pending.length > 0),
   })
 
   // The round said such a member posts when done; a failed model call is how it ended.
@@ -1643,10 +1687,10 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     // The failed turn answers one call; without that call, every batch of the member ends.
-    const batches = info.askedBy !== undefined ? [batchOf(room.id, member.id, info.askedBy)].filter(Boolean) : batchesOf(room.id, member.id)
-    for (const batch of batches) leaveBatch(room, batch, member.id, { keep: true })
-    const woken = batches.find(batch => batch.pending.size === 0 && batch.done.length > 0 && !batch.answered)
-    for (const batch of batches) if (batch !== woken) closeBatch(batch.key)
+    const owed = info.askedBy !== undefined ? [batchOf(room.id, member.id, info.askedBy)].filter(Boolean) : batchesOf(room.id, member.id)
+    for (const batch of owed) leaveBatch(room, batch, member.id, { keep: true })
+    const woken = owed.find(batch => batch.pending.length === 0 && batch.done.length > 0 && !batch.answered)
+    for (const batch of owed) if (batch !== woken) closeBatch(batch.key)
     const wakeCaller = woken?.by
     const { code, status, message } = failure
     rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
