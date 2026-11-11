@@ -222,6 +222,7 @@ export const KO = {
   'Classic Agent mode': '클래식 Agent 모드',
   'Bot mode': 'Bot 모드',
   'Switch': '전환',
+  'Back to DS Bot': 'DS Bot로 돌아가기',
   '{model} is not available anymore. Pick another model for me.': '{model} 모델을 더 이상 사용할 수 없습니다. 다른 모델을 선택해 주세요.',
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": '안녕하세요, {name}입니다. 아직 사용할 모델이 없습니다. 어떻게 설정할까요?',
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": '안녕하세요, {name}입니다. 먼저 사용할 모델을 선택해 주세요. 나중에 상세 정보에서 변경할 수 있습니다.',

@@ -341,6 +341,7 @@ var JA = {
   "Classic Agent mode": "クラシック Agent モード",
   "Bot mode": "Bot モード",
   "Switch": "切り替え",
+  "Back to DS Bot": "DS Bot に戻る",
   "{model} is not available anymore. Pick another model for me.": "{model} は現在利用できません。別のモデルを選んでください。",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "こんにちは、{name} です。まだモデルが設定されていません。どのように設定しますか？",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "こんにちは、{name} です。まずは使用するモデルを選んでください。後から詳細画面で変更できます。",
@@ -2612,6 +2613,7 @@ var KO = {
   "Classic Agent mode": "클래식 Agent 모드",
   "Bot mode": "Bot 모드",
   "Switch": "전환",
+  "Back to DS Bot": "DS Bot로 돌아가기",
   "{model} is not available anymore. Pick another model for me.": "{model} 모델을 더 이상 사용할 수 없습니다. 다른 모델을 선택해 주세요.",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "안녕하세요, {name}입니다. 아직 사용할 모델이 없습니다. 어떻게 설정할까요?",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "안녕하세요, {name}입니다. 먼저 사용할 모델을 선택해 주세요. 나중에 상세 정보에서 변경할 수 있습니다.",
@@ -4926,6 +4928,7 @@ var ES = {
   "Classic Agent mode": "Modo Agente clásico",
   "Bot mode": "Modo Bot",
   "Switch": "Cambiar",
+  "Back to DS Bot": "Volver a DS Bot",
   "{model} is not available anymore. Pick another model for me.": "{model} ya no está disponible. Elige otro modelo para mí.",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "Hola, soy {name}. Aún no tengo un modelo. ¿Cómo quieres configurarlo?",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "Hola, soy {name}. Elige primero un modelo para mí. Podrás cambiarlo después en mis detalles.",
@@ -7238,6 +7241,7 @@ var FR = {
   "Classic Agent mode": "Mode Agent classique",
   "Bot mode": "Mode Bot",
   "Switch": "Basculer",
+  "Back to DS Bot": "Retour à DS Bot",
   "{model} is not available anymore. Pick another model for me.": "{model} n’est plus disponible. Choisissez-moi un autre modèle.",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "Bonjour, je suis {name}. Je n’ai pas encore de modèle. Comment souhaitez-vous en configurer un ?",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "Bonjour, je suis {name}. Choisissez-moi d’abord un modèle. Vous pourrez le modifier plus tard dans mes détails.",
@@ -9509,6 +9513,7 @@ var DE = {
   "Classic Agent mode": "Klassischer Agent-Modus",
   "Bot mode": "Bot-Modus",
   "Switch": "Wechseln",
+  "Back to DS Bot": "Zurück zu DS Bot",
   "{model} is not available anymore. Pick another model for me.": "{model} ist nicht mehr verfügbar. Wähle bitte ein anderes Modell für mich aus.",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "Hallo, ich bin {name}. Ich habe noch kein Modell. Wie möchtest du eines einrichten?",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "Hallo, ich bin {name}. Wähle zuerst ein Modell für mich aus. Du kannst es später in meinen Details ändern.",
@@ -11805,6 +11810,7 @@ var ZH = {
   "Classic Agent mode": "经典 Agent 模式",
   "Bot mode": "Bot 模式",
   "Switch": "切换",
+  "Back to DS Bot": "返回 DS Bot",
   "{model} is not available anymore. Pick another model for me.": "{model} 已经不可用了。给我换一个模型吧。",
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": "你好，我是 {name}。我还没有可用的模型。你想怎么配置？",
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": "你好，我是 {name}。先给我选一个模型吧，以后可以在我的详情里换。",
@@ -28389,22 +28395,26 @@ function BotReturn({ wide, useSurface, useRoster, actions }) {
   const ready = useRoster((value) => value.ready);
   useReportReady(mode === "agent" && ready);
   if (mode !== "agent") return null;
+  const label = t("Back to DS Bot");
   return (0, import_react34.createElement)(
     "button",
-    { type: "button", className: "bt-return", "aria-label": t("DS Bot"), title: t("DS Bot"), onClick: () => actions.setSurface("bot") },
+    { type: "button", className: "bt-return", "aria-label": label, title: label, onClick: () => actions.setSurface("bot") },
     (0, import_react34.createElement)(BotMark, { look: MAIN_LOOK, size: 20 }),
-    wide ? (0, import_react34.createElement)("span", { className: "bt-return-name" }, t("DS Bot")) : null
+    wide ? (0, import_react34.createElement)("span", { className: "bt-return-name" }, label) : null,
+    wide ? (0, import_react34.createElement)("span", { className: "bt-return-swap", "aria-hidden": true }, (0, import_react34.createElement)(SwitchIcon)) : null
   );
 }
 var RETURN_CSS = `
-.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
-.bt-return:hover{background:rgba(127,127,127,.14)}
+.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:color-mix(in srgb,currentColor 9%,transparent);color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
+.bt-return:hover{background:color-mix(in srgb,currentColor 17%,transparent)}
 .bt-return:active{transform:scale(.96)}
 .bt-return .bt-mark{display:inline-flex;flex:none;line-height:0}
 .bt-return .bt-mark svg{width:100%;height:100%;overflow:visible}
 /* Shell styles carry --bt-ink-deepseek and Agent mode withdraws them; pin it here. */
 .bt-return .bt-mark{--bt-ink-deepseek:#4D6BFE}
 .bt-return-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-return-swap{display:inline-flex;flex:none;line-height:0;opacity:.55}
+.bt-return-swap svg{width:16px;height:16px}
 `;
 function BrandMark({ size = 24 }) {
   return (0, import_react34.createElement)("span", { className: "bt-brand-whale" }, (0, import_react34.createElement)(BotMark, { look: MAIN_LOOK, size }));
