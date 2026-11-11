@@ -1174,19 +1174,18 @@ export function install(rt) {
     } else {
       ;(bot.segments ??= []).push(segment)
       bot.sessionId = freshId
-      // The card's call stays in the old part, so the fresh part shows it in the
-      // composer dock, which takes a card without a call.
+      // The card's call stays in the old part: the fresh part raises it in the
+      // composer dock while pending, and closing it records at the part that asked it.
       if (state.questions[agent.id] !== undefined) {
-        const { callId: _call, ...question } = state.questions[agent.id]
-        state.questions[freshId] = question
+        const pending = state.questions[agent.id]
+        state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
         delete state.questions[agent.id]
       }
       if (state.views?.[agent.id] !== undefined) {
-        const { callId: _call, ...pending } = state.views[agent.id]
-        state.views[freshId] = pending
+        const pending = state.views[agent.id]
+        state.views[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
         delete state.views[agent.id]
       }
-      moveClosedView(agent.id, freshId)
     }
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
@@ -1558,10 +1557,10 @@ export function install(rt) {
         // A group_relay call's result is paired back to it by call id — the tool
         // name is on the call, never on the result.
         if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
-        // Hidden turns and refused calls never showed a display card. Interactive
-        // cards live in the pending dock or on their answer message instead.
+        // Hidden turns and refused calls never showed a display card. Closed cards
+        // stay at the call that asked them, including in a hidden Bot-to-Bot turn.
         const named = event.data?.name
-        if ((named === 'show_view' || named === 'ask_user') && !hidden.has(event.data?.turn)) {
+        if (named === 'show_view' || named === 'ask_user') {
           let args = event.data?.arguments
           if (typeof args === 'string') { try { args = JSON.parse(args) } catch { args = undefined } }
           const callId = event.data?.callId ?? null
@@ -1573,7 +1572,7 @@ export function install(rt) {
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
           if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
-            items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
+            if (!hidden.has(event.data?.turn ?? turn)) items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
           } else if (shown.error === undefined && closed !== undefined) {
             items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })
           }
@@ -1818,14 +1817,6 @@ export function install(rt) {
     return true
   }
 
-  // The active chat's dock is authoritative, including when it has no closed view.
-  function moveClosedView(from, to) {
-    const closed = state.closedViews ??= {}
-    if (closed[from] === undefined) delete closed[to]
-    else closed[to] = closed[from]
-    delete closed[from]
-  }
-
   // Opening an earlier part again: it becomes the current one and the part that
   // was current joins the earlier ones where it sat.
   async function switchPart(botId, partId) {
@@ -1845,7 +1836,6 @@ export function install(rt) {
     segments.splice(at, 1)
     segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
-    moveClosedView(current, partId)
     rt.chatOwners.delete(current)
     rt.chatOwners.set(partId, botId)
     rt.pastOwners.delete(partId)

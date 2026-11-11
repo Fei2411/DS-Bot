@@ -534,13 +534,14 @@ function EarlierParts({ sessionId, roster, actions }) {
       setView(current => ({ ...current, loading: false, failed: true }))
     })
   }
+  const closedEarlier = JSON.stringify((roster.byId[sessionId]?.parts ?? []).map(part => roster.closedCards?.[part] ?? null))
   useEffect(() => {
     generation.current += 1
     busy.current = false
     setView({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
     load(undefined)
     return () => { generation.current += 1 }
-  }, [sessionId])
+  }, [sessionId, closedEarlier])
   useLayoutEffect(() => {
     const pending = restore.current
     restore.current = null
@@ -1141,7 +1142,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
     }
     case 'ask_user': {
       const question = roster.questions?.[sessionId]
-      if (!question || question.callId !== call.callId) {
+      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call.callId) {
         // Dismissed or answered by a message: the card stays here, read-only.
         // Answered on the card: its reply message carries it, so no gap here.
         const closed = roster.closedCards?.[sessionId]?.[call.callId]
@@ -1198,7 +1199,12 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   const turn = node.location?.turn?.turn ?? root.turn
   const hidden = isHiddenTurn(roster, sessionId, turn)
   const findBot = nameOrId => roster.byId[nameOrId] ?? roster.bots.find(bot => bot.name.toLowerCase() === String(nameOrId ?? '').toLowerCase())
-  const calls = hidden ? [] : callTree(root)
+  const closed = roster.closedCards?.[sessionId]
+  // Hidden Bot-to-Bot turns keep their own calls out of the chat, except a question
+  // or view card the user dismissed or answered by message, which settles here.
+  const calls = hidden
+    ? callTree(root).filter(call => (toolName(call) === 'ask_user' || toolName(call) === 'show_view') && call.callId && closed?.[call.callId] !== undefined)
+    : callTree(root)
   const drawn = calls.filter(call => DRAWN.has(toolName(call)) || isComputerCall(toolName(call)))
   // The newest call still running names the work, so a program reads as the tool it is in.
   const running = root.kind === 'tool-result' ? undefined : calls.findLast(call => call.kind !== 'tool-result')
