@@ -199,6 +199,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
+    groupRows: (roomId, from, to) => call('group-rows', { roomId, from, ...(to === undefined ? {} : { to }) }).catch(() => []),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
