@@ -972,7 +972,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   return null
 }
 
-// A settled round's rows do not change: each is read from the group's book once per page.
+// Rows a later call closed do not change: each is read from the group's book once per page.
 const settledRows = new Map()
 
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
@@ -997,24 +997,37 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   // the ledger carries them in its result.
   const resultText = done ? contentText(content) : ''
   const range = done ? relayRange(resultText) : undefined
-  const rowsKey = range === undefined ? undefined : `${sessionId}:${range.from}:${range.to ?? ''}`
-  const [settled, setSettled] = useState(() => (rowsKey === undefined ? null : settledRows.get(rowsKey) ?? null))
+  const rowsKey = range === undefined ? undefined : `${sessionId}:${range.from}:${range.to ?? ''}:${range.anchor ?? ''}`
+  const [view, setView] = useState(() => (rowsKey === undefined ? null : settledRows.get(rowsKey) ?? null))
+  // An open cell that is quiet is read again when the team changes, not on a clock.
+  const quietKey = view?.open === true && view.active !== true ? roster.revision : undefined
   useEffect(() => {
     if (rowsKey === undefined) return undefined
     const known = settledRows.get(rowsKey)
-    if (known !== undefined) { setSettled(known); return undefined }
+    if (known !== undefined) { setView(known); return undefined }
+    // The newest call's rows grow while the group works: they are read every second then,
+    // and once when the group is quiet, until the next call closes them.
     let stop = false
-    void actions.groupRows(sessionId, range.from, range.to).then((rows) => {
-      // A failed read is not kept, so the next draw asks again.
-      if (Array.isArray(rows) && rows.length > 0) settledRows.set(rowsKey, rows)
-      if (!stop) setSettled(Array.isArray(rows) ? rows : [])
-    })
-    return () => { stop = true }
-  }, [rowsKey])
+    let timer
+    let seen = ''
+    const tick = async () => {
+      const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor)
+      if (stop) return
+      if (next !== null && Array.isArray(next?.rows)) {
+        if (!next.open) settledRows.set(rowsKey, next)
+        const key = JSON.stringify(next)
+        if (key !== seen) { seen = key; setView(next) }
+        if (!next.open || next.active !== true) return
+      }
+      timer = setTimeout(tick, document.hidden ? 5000 : 1000)
+    }
+    void tick()
+    return () => { stop = true; clearTimeout(timer) }
+  }, [rowsKey, quietKey])
   let replies = live.replies
   let broken = false
   if (range !== undefined) {
-    replies = settled ?? live.replies
+    replies = view?.rows ?? live.replies
   } else if (done) {
     const parsed = parseReplies(resultText)
     replies = parsed.replies.length ? parsed.replies : live.replies
@@ -1022,7 +1035,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   // Every member answering in the round is typing; what each is doing comes as text,
   // so the cell redraws only when that changes.
-  const pending = done ? [] : live.speaking
+  const pending = range !== undefined ? (view?.open ? view.speaking ?? [] : []) : done ? [] : live.speaking
   const doing = JSON.parse(useWork?.(work => JSON.stringify(pending.map((id) => {
     const tool = work.bots?.[id]?.tool
     return tool ? [tool, workPhrase(work.bots[id])] : []
