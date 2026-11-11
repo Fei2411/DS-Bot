@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -37,7 +37,6 @@ test('a line cut by an interruption is left out, and the book goes on after it',
   mkdirSync(join(home, 'ledger'), { recursive: true })
   writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'whole' })}\n{"seq":2,"text":"cu`)
   assert.deepEqual(rt.ledger.records('group-r1').map(record => record.seq), [1])
-  appendFileSync(file('group-r1'), '\n')
   rt.ledger.append('group-r1', { seq: 2, text: 'again' })
   await rt.ledger.flush('group-r1')
   const again = host(t, { home })
@@ -94,4 +93,36 @@ test("a round's result names its rows; a result from before the ledger does not"
   assert.deepEqual(relayRange('{"from":3,"to":9,"passed":[]}'), { from: 3, to: 9 })
   assert.equal(relayRange('{"replies":[],"passed":[]}'), undefined)
   assert.equal(relayRange('{"replies":[{"botId":"a","text":"cu'), undefined)
+})
+
+// A window that only read a book takes over writing when the other host goes: what that
+// host wrote meanwhile is read again before anything new is added.
+test('a reader that takes over writing reads the book again first', async (t) => {
+  const writer = host(t)
+  writer.rt.ledger.append('group-r1', { seq: 1, text: 'one' })
+  await writer.rt.ledger.flush()
+  let reading = 'another dsh holds the team'
+  const reader = host(t, { home: writer.home, readOnly: () => reading })
+  assert.equal(reader.rt.ledger.lastSeq('group-r1'), 1)
+  writer.rt.ledger.append('group-r1', { seq: 2, text: 'two' })
+  await writer.rt.ledger.flush()
+  reading = undefined
+  reader.rt.ledger.append('group-r1', { seq: 3, text: 'three' })
+  await reader.rt.ledger.flush()
+  assert.deepEqual(reader.rt.ledger.records('group-r1').map(record => record.seq), [1, 2, 3])
+  assert.deepEqual(parseBook(readFileSync(writer.file('group-r1'), 'utf8')).map(record => record.seq), [1, 2, 3])
+})
+
+test('a write that does not reach the disk is reported to whoever waits for it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  chmodSync(join(home, 'ledger'), 0o500)
+  try {
+    rt.ledger.append('pair-a-b', { id: 'x', text: 'hello' })
+    await assert.rejects(rt.ledger.written('pair-a-b'))
+    // The queue goes on for the next record.
+    await rt.ledger.flush('pair-a-b')
+  } finally {
+    chmodSync(join(home, 'ledger'), 0o700)
+  }
 })

@@ -44,6 +44,10 @@ export function install(rt) {
   const books = new Map()
   /** @type {Map<string, Promise<unknown>>} */
   const writing = new Map()
+  // The last write of each book as it went, failure included, for a caller that must not
+  // go on when its record is not on disk.
+  /** @type {Map<string, Promise<unknown>>} */
+  const lastWrite = new Map()
   /** @type {Map<string, (book: string) => object[] | undefined>} */
   const importers = new Map()
 
@@ -60,7 +64,8 @@ export function install(rt) {
   // an importer finds of its conversation from before the ledger (writing hosts only).
   function open(book) {
     const known = books.get(book)
-    if (known !== undefined && (writes() || sizeOf(book) === known.size)) return known
+    // A copy read while another host wrote is stale once this host writes.
+    if (known !== undefined && (writes() ? !known.readOnly : sizeOf(book) === known.size)) return known
     let text
     let size = -1
     try {
@@ -88,7 +93,9 @@ export function install(rt) {
         }
       }
     }
-    const entry = { records, bySeq: index(records), size }
+    // An interruption can leave the last line without its end; the next record starts on a
+    // line of its own, or it would join the cut one and be lost with it.
+    const entry = { records, bySeq: index(records), size, readOnly: !writes(), torn: text !== undefined && text !== '' && !text.endsWith('\n') }
     books.set(book, entry)
     return entry
   }
@@ -99,12 +106,14 @@ export function install(rt) {
     entry.records.push(record)
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (!writes()) return record
-    const line = `${JSON.stringify(record)}\n`
+    const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
+    entry.torn = false
     entry.size += Buffer.byteLength(line)
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
       await mkdir(dir, { recursive: true })
       await appendFile(pathOf(book), line, 'utf8')
     })
+    lastWrite.set(book, run)
     writing.set(book, run.catch((error) => {
       rt.warn('ds-bot: a record of %s was not written: %s', book, error?.message ?? error)
     }))
@@ -128,6 +137,8 @@ export function install(rt) {
     open,
     append,
     flush,
+    // Rejects when the last record of the book did not reach the disk.
+    written: book => lastWrite.get(book) ?? Promise.resolve(),
     drop,
     records: book => open(book).records,
     record: (book, seq) => open(book).bySeq.get(seq),
