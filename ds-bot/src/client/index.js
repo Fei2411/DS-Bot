@@ -1,7 +1,7 @@
 import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
-import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
+import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession, withoutPending } from './sources.js'
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
 import { MENTION_ORIGIN, currentPart, shownSessionOf } from './text.js'
@@ -170,6 +170,9 @@ export function apply(ctx) {
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
   }
   const refreshed = new Set()
+  // Ids whose delete is on its way to the host; a read that still carries them must
+  // not bring the rows back.
+  const pendingDelete = new Set()
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
@@ -206,9 +209,10 @@ export function apply(ctx) {
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
+    const shown = pendingDelete.size === 0 ? value : withoutPending(value, pendingDelete)
     // On a browser with no visit record yet, everything already there counts as seen.
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    roster.set(indexRoster(value))
+    if (Object.keys(seenAt).length === 0) leaveVisits([...shown.bots, ...shown.rooms].map(entry => entry.id))
+    roster.set(indexRoster(shown))
     try {
       const ids = (value.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
@@ -219,7 +223,7 @@ export function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
+    for (const id of [...shown.bots.map(currentPart), ...shown.rooms.map(room => room.sessionId ?? room.id)]) {
       if (refreshed.has(id)) continue
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
@@ -251,8 +255,12 @@ export function apply(ctx) {
             if (misses >= 10 && !roster.getSnapshot().ready) ui.set(state => (state.bootFailed ? state : { ...state, bootFailed: true }))
           }
         }
-      } finally { running = false }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
+      } finally {
+        // The next read is due whatever this one did: a failed or timed-out pull
+        // must not be the last, or the sidebar stops refreshing for good.
+        running = false
+        if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
+      }
     }
     const wake = () => { if (!document.hidden) void loop() }
     document.addEventListener('visibilitychange', wake)
@@ -317,7 +325,9 @@ export function apply(ctx) {
         const snapshot = roster.getSnapshot()
         if (!snapshot.ready) return
         const on = snapshot.browser === true
-        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
+        // The host holds `browser-wait` open while it has nothing to hand over, so the
+        // poll waits as long as the host does instead of breaking and backing off.
+        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call, waitTimeoutMs: 0 })
         if (!on && stopReads) { stopReads(); stopReads = null }
         // A Bot deleted here or in another window takes its guests and saved tabs along.
         void browsers.retain(snapshot.bots.map(bot => bot.id))
@@ -423,7 +433,16 @@ export function apply(ctx) {
 
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
 
-  const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
+  const after = promise => promise.then(async (value) => {
+    // A read that fails after the change leaves the view on stale data; say so in
+    // the toast a failed action already uses, instead of swallowing it.
+    await pull().catch((error) => {
+      console.warn('[ds-bot] refresh after action', error)
+      noteClientError('refresh', error)
+      ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
+    })
+    return value
+  })
   // A Bot id or a group chat id, or any part of either's chat, opens the current part.
   const partFor = (id) => {
     const snapshot = roster.getSnapshot()
@@ -472,7 +491,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, refresh: pull, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, pendingDelete }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -784,7 +803,8 @@ export function apply(ctx) {
         while (!dead) {
           if (roster.getSnapshot().computer?.enabled !== true) { await pause(2000); continue }
           try {
-            const reply = await call('computer-cursor-wait', { after })
+            // The host parks this call for 25 s when no cursor event is due.
+            const reply = await call('computer-cursor-wait', { after }, undefined, 0)
             for (const event of reply?.events ?? []) {
               if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
               if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue

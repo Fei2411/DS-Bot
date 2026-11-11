@@ -44,6 +44,21 @@ export function indexRoster(value) {
   return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true }
 }
 
+// A read that started before a delete still lists the row being deleted: these ids
+// stay out of what it adds, until the delete's request settles.
+export function withoutPending(value, pending) {
+  const next = {
+    ...value,
+    bots: (value.bots ?? []).filter(bot => !pending.has(bot.id)),
+    rooms: (value.rooms ?? []).filter(room => !pending.has(room.id)),
+  }
+  if (Array.isArray(value.mainBotIds)) {
+    next.mainBotIds = value.mainBotIds.filter(id => !pending.has(id))
+    if (pending.has(value.mainBotId)) next.mainBotId = next.mainBotIds[0] ?? null
+  }
+  return next
+}
+
 // Whether a main-view Session id belongs to the team's DSH Agent: the conversation
 // group then stays withdrawn while the shell keeps the sidebar. Before the roster
 // arrives, the ids cached from the last pull answer.

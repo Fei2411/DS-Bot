@@ -111,6 +111,7 @@ var ZH = {
   "Choose at least 2 Bots (the admin counts)": "至少选择 2 个机器人（含管理员）",
   "Choose at least 1 more member": "还需至少 1 位成员",
   "Delete group": "删除群组",
+  "Delete group?": "删除群组？",
   "Open {name}'s chat": "打开 {name} 的对话",
   "New Bot": "新机器人",
   "New Bots": "新机器人",
@@ -1299,6 +1300,7 @@ var ZH = {
   Clear: "清空",
   "Settings → Feedback has the details.": "详情见 设置 → 反馈。",
   "Could not reach DSH. Check that it is still running.": "连不上 DSH，请确认它还在运行。",
+  "DSH did not answer in time.": "DSH 没有及时回应。",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 停下了：{reason}。换个模型，或让它继续。",
   "Unknown error": "未知错误",
   "The model has no API key": "模型还没有 API Key",
@@ -1821,38 +1823,66 @@ ${REST_NOTE}`);
 // src/client/api.js
 var ROUTE = "api/bot";
 var REFUSALS = /* @__PURE__ */ new Set(["bot/refused", "bot/invalid", "bot/read-only", "bot/not-found", "bot/browser-off"]);
-var call = async (endpoint, payload, signal) => {
-  let response;
-  try {
-    response = await fetch(ROUTE, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ endpoint, payload: payload ?? null }),
-      signal
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") throw error;
-    noteClientError(endpoint, Object.assign(new Error(`network error: ${error?.message ?? error}`), { code: "NETWORK" }));
-    throw markNoted(Object.assign(new Error(t("Could not reach DSH. Check that it is still running.")), { code: "NETWORK", cause: error }));
-  }
-  if (!response.ok) {
-    const error = Object.assign(new Error(hostText(`HTTP ${response.status}`)), { code: `HTTP_${response.status}` });
+var REQUEST_TIMEOUT_MS = 15e3;
+var call = async (endpoint, payload, signal, timeoutMs = REQUEST_TIMEOUT_MS) => {
+  const control = new AbortController();
+  const forward = () => control.abort();
+  if (signal?.aborted) control.abort();
+  else signal?.addEventListener("abort", forward, { once: true });
+  let expired2 = false;
+  const timed = timeoutMs > 0 && Number.isFinite(timeoutMs);
+  const timer = timed ? setTimeout(() => {
+    expired2 = true;
+    control.abort();
+  }, timeoutMs) : null;
+  const expiredError = (cause) => {
+    const error = Object.assign(new Error(t("DSH did not answer in time.")), { code: "REQUEST_TIMEOUT", cause });
     noteClientError(endpoint, error);
-    throw error;
-  }
-  const result = await response.json();
-  if (!result.ok) {
-    const code = result.error?.code ?? "bot/error";
-    const message = hostText(result.error?.message ?? "Request failed");
-    const error = Object.assign(new Error(code === "bot/internal" ? `${message} ${t("Settings → Feedback has the details.")}` : message), { code });
-    if (!REFUSALS.has(code)) {
-      noteClientError(endpoint, Object.assign(new Error(result.error?.message ?? "Request failed"), { code }));
-      markNoted(error);
+    return error;
+  };
+  try {
+    let response;
+    try {
+      response = await fetch(ROUTE, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint, payload: payload ?? null }),
+        signal: control.signal
+      });
+    } catch (error) {
+      if (expired2) throw expiredError(error);
+      if (error?.name === "AbortError") throw error;
+      noteClientError(endpoint, Object.assign(new Error(`network error: ${error?.message ?? error}`), { code: "NETWORK" }));
+      throw markNoted(Object.assign(new Error(t("Could not reach DSH. Check that it is still running.")), { code: "NETWORK", cause: error }));
     }
-    throw error;
+    if (!response.ok) {
+      const error = Object.assign(new Error(hostText(`HTTP ${response.status}`)), { code: `HTTP_${response.status}` });
+      noteClientError(endpoint, error);
+      throw error;
+    }
+    let result;
+    try {
+      result = await response.json();
+    } catch (error) {
+      if (expired2) throw expiredError(error);
+      throw error;
+    }
+    if (!result.ok) {
+      const code = result.error?.code ?? "bot/error";
+      const message = hostText(result.error?.message ?? "Request failed");
+      const error = Object.assign(new Error(code === "bot/internal" ? `${message} ${t("Settings → Feedback has the details.")}` : message), { code });
+      if (!REFUSALS.has(code)) {
+        noteClientError(endpoint, Object.assign(new Error(result.error?.message ?? "Request failed"), { code }));
+        markNoted(error);
+      }
+      throw error;
+    }
+    return result.value;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
   }
-  return result.value;
 };
 
 // src/client/inks.js
@@ -2038,6 +2068,18 @@ function indexRoster(value) {
   }
   return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true };
 }
+function withoutPending(value, pending) {
+  const next = {
+    ...value,
+    bots: (value.bots ?? []).filter((bot) => !pending.has(bot.id)),
+    rooms: (value.rooms ?? []).filter((room2) => !pending.has(room2.id))
+  };
+  if (Array.isArray(value.mainBotIds)) {
+    next.mainBotIds = value.mainBotIds.filter((id) => !pending.has(id));
+    if (pending.has(value.mainBotId)) next.mainBotId = next.mainBotIds[0] ?? null;
+  }
+  return next;
+}
 function isAgentSession(roster, cache, sessionId) {
   if (sessionId === void 0 || sessionId === null || sessionId === "") return false;
   if (roster.ready) return roster.agentOf[sessionId] !== void 0;
@@ -2055,7 +2097,7 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded, pendingDelete = /* @__PURE__ */ new Set() }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
@@ -2063,6 +2105,37 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
   };
   const openSettings = (page = "general", id = null) => {
     ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null, newBot: null }));
+  };
+  const forget = (kind, id) => {
+    const snapshot = roster.getSnapshot();
+    const key = kind === "room" ? "rooms" : "bots";
+    const list = snapshot[key] ?? [];
+    if (!list.some((entry) => entry.id === id)) return;
+    const next = { ...snapshot, [key]: list.filter((entry) => entry.id !== id) };
+    if (kind === "bot") {
+      const mains = (snapshot.mainBotIds ?? []).filter((mainId) => mainId !== id);
+      next.mainBotIds = mains;
+      if (snapshot.mainBotId === id) next.mainBotId = mains[0] ?? null;
+    }
+    roster.set(indexRoster(next));
+    const onIt = (state) => state.details !== null && state.details !== void 0 && (kind === "room" ? snapshot.roomsById[state.details] : snapshot.byId[state.details])?.id === id;
+    ui2.set((state) => onIt(state) ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
+  };
+  const removeEntry = (kind, id, request) => {
+    pendingDelete.add(id);
+    forget(kind, id);
+    return after(request()).then(
+      (value) => {
+        pendingDelete.delete(id);
+        return value;
+      },
+      (error) => {
+        pendingDelete.delete(id);
+        void Promise.resolve(refresh?.()).catch(() => {
+        });
+        throw error;
+      }
+    );
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -2173,7 +2246,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     deleteSection: (id) => after(call2("section-delete", { id })),
     beginSectionRename: (id) => ui2.set((state) => ({ ...state, renameSection: id })),
     endSectionRename: () => ui2.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
-    deleteRoom: (id) => after(call2("delete-room", { id })),
+    deleteRoom: (id) => removeEntry("room", id, () => call2("delete-room", { id })),
     openMenu: (menu) => {
       ui2.set((state) => ({ ...state, menu, palette: null }));
     },
@@ -2207,10 +2280,12 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: (botId) => after(call2("resume", { botId })),
     folders: () => call2("folders"),
-    folderPick: () => call2("folder-pick"),
+    // The host keeps the native folder dialog open for minutes; a timed-out wait
+    // would drop the choice while the dialog still stands.
+    folderPick: () => call2("folder-pick", void 0, void 0, 0),
     folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
     setTeamWorkspace: (path2) => after(call2("team-workspace", { path: path2 })),
-    deleteBot: (id) => after(call2("delete-bot", { id })),
+    deleteBot: (id) => removeEntry("bot", id, () => call2("delete-bot", { id })),
     releasePrivate: (id) => after(call2("private-release", { id })),
     duplicateBot: (id) => after(call2("duplicate-bot", { id })),
     setPrefs: (prefs) => after(call2("set-prefs", prefs)),
@@ -2278,7 +2353,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     imChat: (id, body) => after(call2("im-chat", { id, ...body })),
     imRetry: (id) => after(call2("im-retry", { id })),
     imLoginStart: (payload) => call2("im-login-start", payload),
-    imLoginWait: (payload) => call2("im-login-wait", payload),
+    // The host holds this one open until the code is scanned and confirmed.
+    imLoginWait: (payload) => call2("im-login-wait", payload, void 0, 0),
     saveCapability: (capability) => after(call2("capability-save", capability)),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
     approveCapability: (name) => after(call2("capability-approve", { name })),
@@ -12010,7 +12086,7 @@ function MemoryCard({ bot, actions }) {
     )
   );
 }
-function BotSettingsForm({ bot, roster, actions, run: run2 }) {
+function BotSettingsForm({ bot, roster, actions, run: run2, onDeleted }) {
   const [editing, setEditing] = (0, import_react26.useState)(false);
   const [editorShown, editorLeaving] = useLinger(editing, 120);
   const [confirming, setConfirming] = (0, import_react26.useState)(false);
@@ -12029,8 +12105,11 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const save = (patch) => run2(actions.updateBot(bot.id, patch));
   const duplicate = () => run2(actions.duplicateBot(bot.id).then((copy2) => actions.openSession(copy2.id)));
   const remove = () => {
-    if (confirming) void run2(actions.deleteBot(bot.id));
-    else setConfirming(true);
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    void actions.deleteBot(bot.id).then(() => onDeleted?.(), (error) => actions.reportError?.(error, "settings"));
   };
   (0, import_react26.useEffect)(() => {
     void actions.refreshModels?.();
@@ -25604,6 +25683,7 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     };
   }, []);
   const [place, setPlace] = (0, import_react58.useState)({ left: menu.x, top: menu.y });
+  const [confirming, setConfirming] = (0, import_react58.useState)(false);
   const tick = useViewport();
   (0, import_react58.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
@@ -25621,6 +25701,10 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   const isMainBot = isMainOf(roster, menu.id);
   const isTile = roster.mainBotId === menu.id;
   const mainCount = (roster.mainBotIds ?? []).length;
+  const remove = room2 ? confirming ? [
+    [t("Delete group?"), TrashIcon, () => actions.deleteRoom(menu.id), true],
+    [t("Cancel"), CloseIcon, () => setConfirming(false), false, false, true]
+  ] : [[t("Delete group"), TrashIcon, () => setConfirming(true), true, false, true]] : [[t("Delete"), TrashIcon, () => actions.deleteBot(bot.id), true]];
   const groups = [
     [
       isTile ? null : [entry.pinned ? t("Unpin") : t("Pin"), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
@@ -25643,7 +25727,7 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     bot ? (waits?.waits ?? []).map((item) => [t("Give up waiting for {name}", { name: item.name ?? t("a Bot") }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t("Hide from sidebar"), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
-      isMainBot ? null : [room2 ? t("Delete group") : t("Delete"), TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true]
+      ...isMainBot ? [] : remove
     ]
   ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
   return (0, import_react58.createElement)(
@@ -25653,13 +25737,13 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
       import_react58.Fragment,
       { key: index },
       index > 0 ? (0, import_react58.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run2, danger, checked]) => (0, import_react58.createElement)("button", {
+      group.map(([label, Icon, run2, danger, checked, hold]) => (0, import_react58.createElement)("button", {
         key: label,
         type: "button",
         role: "menuitem",
         className: danger ? "bt-danger" : void 0,
         onClick: () => {
-          actions.closeMenu();
+          if (!hold) actions.closeMenu();
           void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
         }
       }, (0, import_react58.createElement)(Icon), (0, import_react58.createElement)("span", { className: "bt-menu-label" }, label), checked ? (0, import_react58.createElement)("span", { className: "bt-menu-check" }, (0, import_react58.createElement)(CheckIcon)) : null))
@@ -26446,7 +26530,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
         "div",
         { key: "set-body", className: "bt-drawer-body bt-set-body", "data-move": move },
         errorLine,
-        bot ? (0, import_react60.createElement)(BotSettingsForm, { bot, roster, actions, run: run2 }) : (0, import_react60.createElement)(GroupSettingsForm, { room: room2, roster, actions, run: run2, onDeleted: close })
+        bot ? (0, import_react60.createElement)(BotSettingsForm, { bot, roster, actions, run: run2, onDeleted: close }) : (0, import_react60.createElement)(GroupSettingsForm, { room: room2, roster, actions, run: run2, onDeleted: close })
       )
     ];
   }
@@ -28596,7 +28680,7 @@ function createBotBrowsers({ bridge, createSource: createSource2, storage = glob
   };
 }
 var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3 }) {
+function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3, waitTimeoutMs }) {
   let stopped = false;
   let poll;
   let reported = "";
@@ -28625,7 +28709,7 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
       const open = browsers.openPages();
       reported = JSON.stringify(open);
       try {
-        const response = await post("browser-wait", { clientId, open }, poll.signal);
+        const response = await post("browser-wait", { clientId, open }, poll.signal, waitTimeoutMs);
         browsers.setHolds?.(response?.holds);
         failures = 0;
         const requests = Array.isArray(response) ? response : response?.requests;
@@ -29372,6 +29456,7 @@ function apply(ctx) {
     ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
+  const pendingDelete = /* @__PURE__ */ new Set();
   let pulls = 0;
   let applied = 0;
   const pull = async () => {
@@ -29415,8 +29500,9 @@ function apply(ctx) {
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live2.imVia = value.imVia;
     if (Object.keys(live2).length > 0 && current.ready) roster.set({ ...current, ...live2 });
     if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return;
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
-    roster.set(indexRoster(value));
+    const shown = pendingDelete.size === 0 ? value : withoutPending(value, pendingDelete);
+    if (Object.keys(seenAt).length === 0) leaveVisits([...shown.bots, ...shown.rooms].map((entry) => entry.id));
+    roster.set(indexRoster(shown));
     try {
       const ids = (value.agents ?? []).flatMap((agent) => agent.sessions ?? []);
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids));
@@ -29427,7 +29513,7 @@ function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== void 0 || listed[id] === void 0) pendingAdopt.delete(id);
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
+    for (const id of [...shown.bots.map(currentPart), ...shown.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
@@ -29456,8 +29542,8 @@ function apply(ctx) {
         }
       } finally {
         running = false;
+        if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
       }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
     };
     const wake = () => {
       if (!document.hidden) void loop();
@@ -29534,7 +29620,7 @@ function apply(ctx) {
         const snapshot = roster.getSnapshot();
         if (!snapshot.ready) return;
         const on = snapshot.browser === true;
-        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call });
+        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call, waitTimeoutMs: 0 });
         if (!on && stopReads) {
           stopReads();
           stopReads = null;
@@ -29649,7 +29735,10 @@ function apply(ctx) {
     scope.effect(() => holdShellShortcuts(scope.shortcuts), "ds-bot: settings shortcut");
   });
   const after = (promise) => promise.then(async (value) => {
-    await pull().catch(() => {
+    await pull().catch((error) => {
+      console.warn("[ds-bot] refresh after action", error);
+      noteClientError("refresh", error);
+      ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     });
     return value;
   });
@@ -29696,7 +29785,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, refresh: pull, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded, pendingDelete }),
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -29992,7 +30081,7 @@ function apply(ctx) {
             continue;
           }
           try {
-            const reply = await call("computer-cursor-wait", { after: after2 });
+            const reply = await call("computer-cursor-wait", { after: after2 }, void 0, 0);
             for (const event of reply?.events ?? []) {
               if (Number.isFinite(event.seq) && event.seq > after2) after2 = event.seq;
               if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3e3) continue;
