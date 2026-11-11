@@ -34,22 +34,6 @@ export function turnFailure(error) {
 
 export const failureLine = failure => `${failure.code}${failure.status ? ` ${failure.status}` : ''}${failure.message ? `: ${failure.message.slice(0, 200)}` : ''}`
 
-// DSH's settlement notice opens with what became of the child. A clean finish opens
-// with "finished"; every other ending (failed, ran out of room, stopped, declined, or
-// an ending DSH adds later) is a failure for this purpose, so an unknown one is shown
-// rather than lost (#973). Returns the reason to show, or undefined for a clean finish.
-const SUBAGENT_FINISHED = /^Background subagent \S+ finished\b/u
-const CLOSING_BOILERPLATE = new Set(['It left no closing message.', 'Its closing message:'])
-export function subagentFailure(source, content) {
-  const summary = String(source?.summary ?? '').trim()
-  const lines = textOf(content).split(/\r?\n/u).map(line => line.trim())
-  const first = summary || lines[0] || ''
-  if (first === '' || SUBAGENT_FINISHED.test(first)) return undefined
-  const reason = first.replace(/^Background subagent \S+\s*/u, '').trim() || first
-  const extra = lines.slice(first === lines[0] ? 1 : 0).filter(line => line !== '' && !CLOSING_BOILERPLATE.has(line)).join(' ')
-  return `${reason}${extra === '' ? '' : ` ${extra}`}`.replace(/\s+/gu, ' ').slice(0, 240)
-}
-
 // The reply a sender waits for, sent the way a finished turn sends it: the work it was
 // for closes, and the answer goes up to the Bot that asked. `id` is the Session the
 // answer comes from; `source` is the trigger the turn answered.
@@ -244,20 +228,11 @@ export function install(rt) {
     if (rt.groupOwners.has(parentId)) rt.workRoomTurn?.(parentId, 'subagent')
   }
 
-  // A settlement notice can arrive after subagent/end; its label must survive until the
-  // notice is read, or the group line loses the name the child ran under (#973).
-  const endedSubagentLabels = new Map()
-  const rememberEndedLabel = (childId, label) => {
-    if (typeof label !== 'string' || label === '') return
-    endedSubagentLabels.set(childId, label)
-    while (endedSubagentLabels.size > 100) endedSubagentLabels.delete(endedSubagentLabels.keys().next().value)
-  }
   const noteSubagentEnd = (childId) => {
     if (typeof childId !== 'string' || childId === '') return
     const parentId = subagentParent.get(childId)
     if (parentId === undefined) return
     const map = subagentsByParent.get(parentId)
-    rememberEndedLabel(childId, map?.get(childId)?.label)
     map?.delete(childId)
     if (map !== undefined && map.size === 0) subagentsByParent.delete(parentId)
   }
@@ -722,9 +697,18 @@ export function install(rt) {
       ?? [...live.entries()].find(([, entry]) => [...(entry.calls?.values() ?? [])].some(call => call.name === 'subagent'))?.[0]
     if (parentId !== undefined) noteSubagentStart(parentId, childId, undefined)
   })
-  ctx.on?.('subagent/end', (info) => {
+  ctx.on?.('subagent/end', function (info) {
+    const parentId = carrierKeyOf(this)?.session?.id ?? subagentParent.get(info?.id)
+    const helper = subagentsByParent.get(parentId)?.get(info?.id)?.label
     noteSubagentEnd(info?.id)
-    if (rt.groupOwners.has(info?.id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(info.id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+    const owner = rt.groupOwners.get(parentId)
+    if (owner === undefined) return
+    if (typeof info?.stopReason === 'string' && info.stopReason !== 'completed'
+      && !stoppedSubagentParents.has(parentId) && !stoppedSubagents.has(info.id)) {
+      void rt.subagentFailureNotice(parentId, { reason: subEndText(info), helper })
+        .catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
+    }
+    void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
   ctx.on('session/event', (session, event) => {
@@ -819,28 +803,10 @@ export function install(rt) {
       case 'user/message': {
         const source = event.data?.source
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
-          // subagent/end can come before the notice; its label is kept until the notice is read.
-          const helper = source?.kind === 'subagent-settled' && typeof source.senderSessionId === 'string'
-            ? subagentsByParent.get(id)?.get(source.senderSessionId)?.label ?? endedSubagentLabels.get(source.senderSessionId)
-            : undefined
-          if (typeof source.senderSessionId === 'string') {
-            noteSubagentEnd(source.senderSessionId)
-            // The kept label is spent with this settlement; a reused child id starts clean.
-            endedSubagentLabels.delete(source.senderSessionId)
-            if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
-          }
           if (stoppedSubagentParents.has(id) || (typeof source.senderSessionId === 'string' && stoppedSubagents.has(source.senderSessionId))) {
             entry.suppressedSubagent = true
             void rt.resolveAgent(id).then(agent => agent?.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })).catch(() => {})
             break
-          }
-          // The child's failure must not wait for the member's answer: a [PASS] would
-          // drop it, and a cancelled turn would never post it (#973).
-          if (source?.kind === 'subagent-settled' && rt.groupOwners.has(id)) {
-            const reason = subagentFailure(source, event.data.content)
-            if (reason !== undefined) {
-              void Promise.resolve(rt.subagentFailureNotice?.(id, { reason, helper })).catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
-            }
           }
         } else if (source?.kind === 'user' || source?.kind === SOURCE_KIND) {
           stoppedSubagentParents.delete(id)

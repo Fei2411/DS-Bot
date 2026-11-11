@@ -7,7 +7,8 @@ import { withRows } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
-import { promisesWork, subagentFailure } from '../src/host/turns.js'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import { promisesWork } from '../src/host/turns.js'
 
 let rt
 
@@ -80,6 +81,10 @@ async function start(t, room, services, extraRooms, bots, llm) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
   }
+  const emitScoped = (parentId, name, info) => {
+    const carrier = scopeTarget({}, agentOf(parentId))
+    for (const listener of ctx.listeners.get(name) ?? []) listener.call(carrier, info)
+  }
   const tool = (name, args, sessionId, exec = {}) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId }, ...exec })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   // A Session takes up the newest message it was sent, as a new turn.
@@ -115,7 +120,7 @@ async function start(t, room, services, extraRooms, bots, llm) {
     return { content: post.content, source: post.source }
   }
   await tool('list_bots', {}, 'a')
-  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost, selected }
+  return { home, ctx, agentOf, emit, emitScoped, tool, call, begin, finish, round, say, takePost, selected }
 }
 
 // The save before a group post runs on a timer; waiting with setImmediate starves it.
@@ -1730,73 +1735,58 @@ test('a group member with a running DSH subagent stays working and stop-room-wor
 })
 
 
-test('a settlement notice counts as a failure unless the child finished (#973)', () => {
-  const blocked = text => [{ type: 'text', text }]
-  assert.equal(subagentFailure({ summary: 'Background subagent sub-1 finished.' }, blocked('Background subagent sub-1 finished.')), undefined)
-  assert.equal(subagentFailure({ summary: 'Background subagent sub-1 finished and will do no further work unless you send it more.' }, blocked('Background subagent sub-1 finished and will do no further work unless you send it more.')), undefined)
-  assert.match(subagentFailure(
-    { summary: 'Background subagent sub-1 failed before it finished.' },
-    blocked('Background subagent sub-1 failed before it finished.\nIt left no closing message.'),
-  ), /failed before it finished/)
-  assert.match(subagentFailure(
-    { summary: 'Background subagent sub-1 ran out of room before it finished.' },
-    blocked('Background subagent sub-1 ran out of room before it finished.'),
-  ), /ran out of room/)
-})
+for (const noticeFirst of [true, false]) {
+  test(`a failed child reaches the group once when its notice comes ${noticeFirst ? 'first' : 'last'} (#973)`, async (t) => {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Writer 导出这份 PPT'))
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Export the deck' })
+    host.finish('gb', '正在导出。')
+    await settle(() => first() !== undefined)
+    const notice = {
+      content: [{ type: 'text', text: 'Background subagent sub-1 failed before it finished.\nIt left no closing message.' }],
+      source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
+    }
+    const ending = { runId: 'run-1', provider: 'spawn', id: 'sub-1', local: true, stopReason: 'error' }
+    if (noticeFirst) host.emit('gb', 'user/message', notice)
+    host.emitScoped('gb', 'subagent/end', ending)
+    if (!noticeFirst) host.emit('gb', 'user/message', notice)
+    host.emit('gb', 'turn/start', { turn: 2 })
+    host.finish('gb', '[PASS]')
+    await until(() => host.agentOf('r1').calls.length > 0)
+    const post = host.takePost()
+    assert.equal(post.source.failed.code, 'SUBAGENT_FAILED')
+    assert.equal(post.source.quiet, true)
+    assert.equal(post.content[0].text, '[Group post from Writer]\n')
+    const second = host.round('c2', post)
+    await until(() => second() !== undefined)
+    const shown = second().replies.filter(row => row.kind === 'helper-failed')
+    assert.equal(shown.length, 1)
+    assert.match(shown[0].text, /^Export the deck: subagent ended \(error\)/)
+    assert.equal(second().replies.some(row => row.text?.includes('Could not finish: my background helper')), false)
+    host.emit('gb', 'user/message', notice)
+    assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1').seq).filter(row => row.kind === 'helper-failed').length, 1)
+    host.emitScoped('gb', 'subagent/end', { ...ending, runId: 'run-2', stopReason: 'completed' })
+    assert.deepEqual(host.agentOf('r1').calls, [])
+  })
+}
 
-test('a group member\'s dead background child is shown even when the model passes (#973)', async (t) => {
+test('a helper failure in a running round preserves the idle guard and stays one event', async (t) => {
   const host = await start(t)
-  const first = host.round('c1', host.say('@Writer 导出这份 PPT'))
+  const round = host.round('c1', host.say('@Writer 检查'))
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
-  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Export the deck' })
-  host.finish('gb', '正在导出。')
-  await settle(() => first() !== undefined)
-
-  // The teammate dies after the round ended; subagent/end comes before its notice, as
-  // the handoff tests show. The member is woken and answers [PASS].
-  const notice = {
-    content: [{ type: 'text', text: 'Background subagent sub-1 failed before it finished.\nIt left no closing message.' }],
-    source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
-  }
-  host.emit('gb', 'subagent/end', { id: 'sub-1' })
-  host.emit('gb', 'turn/start', { turn: 2 })
-  host.emit('gb', 'user/message', notice)
-  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
-  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await until(() => host.agentOf('r1').calls.length > 0)
-
-  // The settled round 1 draws only its own range: the late row is not in it. The host
-  // posts from the member, and the new round draws the row from there on (#973).
-  assert.equal(first().replies.filter(row => row.kind === 'helper-failed').length, 0)
-  const post = host.takePost()
-  assert.equal(post.source.role, 'post')
-  assert.match(post.content[0].text, /^\[Group post from Writer\]\nCould not finish: my background helper failed/)
-  const second = host.round('c2', post)
-  await until(() => second() !== undefined)
-  // The client reads a settled round's rows by the range its result names; the row must
-  // be inside that range, not only in the book.
-  const settled = second()
-  const shown = settled.replies.filter(row => row.kind === 'helper-failed')
-  assert.equal(shown.length, 1, 'the new round does not draw the dead child')
-  assert.equal(shown[0].name, 'Writer')
-  assert.match(shown[0].text, /^Export the deck: failed before it finished/, 'the label was lost before the settlement')
-
-  // The label kept past subagent/end is spent once: a later settlement of the same
-  // child id starts without it.
-  host.emit('gb', 'user/message', notice)
-  await until(() => rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed').length === 2)
-  const [firstNotice, reused] = rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed')
-  assert.match(firstNotice.text, /^Export the deck:/)
-  assert.doesNotMatch(reused.text, /Export the deck/, 'the spent label was reused')
-
-  // A child that finished makes no such line.
-  host.emit('gb', 'user/message', {
-    content: [{ type: 'text', text: 'Background subagent sub-2 finished.\nIts closing message:\ndone' }],
-    source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-2 finished.', senderSessionId: 'sub-2' },
-  })
-  await until(() => true)
-  assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1')?.seq).filter(row => row.kind === 'helper-failed').length, 2)
+  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Check' })
+  const room = rt.roomOf('r1')
+  room.idleRelays = 4
+  await rt.subagentFailureNotice('gb', { reason: 'subagent ended (error)', helper: 'Check' })
+  assert.equal(room.idleRelays, 4)
+  assert.equal(room.log.filter(row => row.reason === 'helper-failed').length, 1)
+  assert.equal(room.log.filter(row => row.botId === 'b').length, 0)
+  host.emitScoped('gb', 'subagent/end', { id: 'sub-1', stopReason: 'completed', runId: 'run-1', provider: 'spawn', local: true })
+  host.finish('gb', '[PASS]')
+  await settle(() => round() !== undefined)
 })
 
 test('approval keeps a member inside its parallel batch until all results arrive', async t => {

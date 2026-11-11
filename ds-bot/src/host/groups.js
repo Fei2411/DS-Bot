@@ -354,20 +354,17 @@ export function install(rt) {
     say(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [member.name], about: member.id, detail: failureLine(failure), code, ...(status ? { status } : {}), message })
   }
 
-  // A group member's background child died. DSH's notice reaches the model only, and a
-  // [PASS] in reply would drop it, so the group is told as the notice arrives (#973).
-  // The notice row is in the book; a post from the member opens a new round so the chat
-  // draws it (a settled round only draws its own range), the same way a late failure or
-  // late reply reaches a group whose round is over.
+  // Reuse the late-failure event so an idle group draws the ledger row without
+  // turning the child's failure into another member message or calling anyone.
   const noteHelperFailure = async (sessionId, { reason, helper }) => {
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId)
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
-    const detail = (helper ? `${String(helper).slice(0, 60)}: ${reason}` : reason).replace(/\.$/u, '')
+    const detail = helper ? `${helper}: ${reason}` : reason
     say(room, { who: 'DS Bot', kind: 'notice', reason: 'helper-failed', names: [member.name], about: member.id, detail })
-    await rt.save().catch(error => rt.warn('ds-bot: background helper failure not saved: %s', error))
-    await postToRoom(room, member, `Could not finish: my background helper failed (${detail}).`, { late: true, quiet: true })
+    await rt.save()
+    await postToRoom(room, member, '', { late: true, quiet: true, failed: { code: 'SUBAGENT_FAILED', message: detail } })
       .catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
   }
   rt.subagentFailureNotice = noteHelperFailure
