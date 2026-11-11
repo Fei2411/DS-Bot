@@ -15333,7 +15333,10 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
-.bt-dsh-section{min-width:0}
+/* A DSH settings page may size itself with height:100% and scroll inside; the section
+   has to pass the scroll container's height down, or such a page collapses to its
+   content height and an inner flex scroller computes to 0. */
+.bt-settings-scroll>.bt-dsh-section{min-width:0;display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
 /* A DSH page opens on its own title, which the dialog head already shows. */
 .bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
