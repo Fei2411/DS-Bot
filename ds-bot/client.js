@@ -14342,7 +14342,9 @@ function springEasing(stiffness, damping) {
   let end = 0.05;
   while (end < 2 && Math.abs(1 - at(end)) > 1e-3) end += 0.01;
   const points = Array.from({ length: 25 }, (_, index) => (index === 24 ? 1 : at(end * index / 24)).toFixed(4));
-  return { duration: Math.round(end * 1e3), easing: `linear(${points.join(",")})`, stiffness, damping };
+  const duration = Math.round(end * 1e3);
+  const progress = (ms) => ms >= duration ? 1 : ms <= 0 ? 0 : at(ms / 1e3);
+  return { duration, easing: `linear(${points.join(",")})`, stiffness, damping, progress };
 }
 var SPRING_SHAPE = springEasing(400, 31.2);
 var SPRING_TAP = springEasing(900, 48);
@@ -37103,6 +37105,117 @@ function AgentMenu({ menu, roster, actions, leaving }) {
   );
 }
 
+// src/client/mark-flight.js
+var FLIGHT_ENDS = { tab: ":scope > .bt-ptabs .bt-ptab-bot .bt-mark", drawer: ":scope > .bt-panel-view .bt-drawer-id .bt-mark" };
+var flightEnd = (next) => next === "details" ? "drawer" : "tab";
+var flightStart = (next) => next === "details" ? "tab" : "drawer";
+var INTENT_MS = 1500;
+var SAFETY_MS = 400;
+function planFlight(active, next) {
+  if (active === null) return "start";
+  return active === flightEnd(next) ? "keep" : "reverse";
+}
+function flightBox(from, to, p) {
+  const mix = (key) => from[key] + (to[key] - from[key]) * p;
+  return { left: mix("left"), top: mix("top"), width: mix("width"), height: mix("height") };
+}
+var boxOf = (rect) => ({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+var serial = 0;
+function uniqueIds(root) {
+  const suffix = `-f${++serial}`;
+  const renamed = /* @__PURE__ */ new Map();
+  for (const node of [root, ...root.querySelectorAll("[id]")]) {
+    if (node.id === "") continue;
+    renamed.set(node.id, `${node.id}${suffix}`);
+    node.id = renamed.get(node.id);
+  }
+  if (renamed.size === 0) return root;
+  for (const node of [root, ...root.querySelectorAll("*")]) {
+    for (const { name, value } of node.attributes) {
+      let next = value.replace(/url\(\s*#([^)\s]+)\s*\)/g, (whole, id) => renamed.has(id) ? `url(#${renamed.get(id)})` : whole);
+      if ((name === "href" || name === "xlink:href") && next.startsWith("#") && renamed.has(next.slice(1))) next = `#${renamed.get(next.slice(1))}`;
+      if (next !== value) node.setAttribute(name, next);
+    }
+  }
+  return root;
+}
+function createFlight(env) {
+  const {
+    shape,
+    frame = (run2) => requestAnimationFrame(run2),
+    unframe = (id) => cancelAnimationFrame(id),
+    later = (run2, ms) => setTimeout(run2, ms),
+    unlater = (id) => clearTimeout(id)
+  } = env;
+  let live = null;
+  function finish() {
+    if (live === null) return;
+    const { panel, node, step, safety } = live;
+    live = null;
+    if (step !== null) unframe(step);
+    unlater(safety);
+    node.remove();
+    delete panel.dataset.flying;
+  }
+  function place(now) {
+    const { panel, node, end, from, size } = live;
+    live.step = null;
+    const target = panel.isConnected ? panel.querySelector(FLIGHT_ENDS[end]) : null;
+    const to = target?.getBoundingClientRect();
+    if (to === void 0 || to.width === 0) {
+      finish();
+      return;
+    }
+    if (live.at === null && now !== null) live.at = now;
+    const elapsed = live.at === null ? 0 : now - live.at;
+    const done = elapsed >= shape.duration;
+    const box = flightBox(from, boxOf(to), done ? 1 : shape.progress(elapsed));
+    const edge = panel.getBoundingClientRect();
+    const border = panel.ownerDocument.defaultView.getComputedStyle(panel);
+    const x = box.left - edge.left - (parseFloat(border.borderLeftWidth) || 0);
+    const y = box.top - edge.top - (parseFloat(border.borderTopWidth) || 0);
+    node.style.transform = `translate(${x}px, ${y}px) scale(${box.width / size.width}, ${box.height / size.height})`;
+    if (done) finish();
+    else live.step = frame(place);
+  }
+  const arm = () => later(finish, shape.duration + SAFETY_MS);
+  return {
+    /** The end the flying mark is heading for, or null with no flight. */
+    active: () => live?.end ?? null,
+    finish,
+    /**
+     * Take off. Whatever flew before ends first.
+     * @param {{panel: Element, end: 'tab'|'drawer', node: Element, from: {left: number, top: number, width: number, height: number}}} flight
+     * @returns {boolean} false when there is nothing to fly (a mark without a box)
+     */
+    begin({ panel, end, node, from }) {
+      finish();
+      if (!(from.width > 0 && from.height > 0)) return false;
+      node.classList.add("bt-mark-fly");
+      Object.assign(node.style, { width: `${from.width}px`, height: `${from.height}px` });
+      panel.append(node);
+      panel.dataset.flying = end;
+      live = { panel, node, end, from: boxOf(from), size: { width: from.width, height: from.height }, at: null, step: null, safety: arm() };
+      place(null);
+      return true;
+    },
+    /**
+     * Turn the mark that is flying round, from where it is now toward the other end.
+     * @returns {boolean} false when no flight was on
+     */
+    retarget(end) {
+      if (live === null) return false;
+      live.from = boxOf(live.node.getBoundingClientRect());
+      live.end = end;
+      live.at = null;
+      live.panel.dataset.flying = end;
+      unlater(live.safety);
+      live.safety = arm();
+      return true;
+    }
+  };
+}
+
 // src/client/member-status.js
 var import_react58 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
@@ -37825,7 +37938,6 @@ var savedWidth = () => {
 var widthRange = (view, room2) => view === "browser" ? [MIN_WIDTH, room2 - MIN_CHAT] : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room2 - MIN_CHAT)];
 var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)));
 var shortAddress = (url) => String(url ?? "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
-var reducedMotion2 = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label }) {
   const [open, setOpen] = (0, import_react60.useState)(false);
@@ -37930,7 +38042,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     capsule.style.opacity = "1";
     capsule.style.left = `${to.left}px`;
     capsule.style.right = `${to.right}px`;
-    if (from === null || from.left === to.left && from.right === to.right || reducedMotion2()) return void 0;
+    if (from === null || from.left === to.left && from.right === to.right || reducedMotion()) return void 0;
     const ahead = to.left > from.left ? "right" : "left";
     const behind = ahead === "right" ? "left" : "right";
     const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing });
@@ -38441,7 +38553,8 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
   const hold = useBrowserHolds?.((map) => bot ? map[bot.id] ?? null : null) ?? null;
   const root = (0, import_react60.useRef)(null);
-  const fly = (0, import_react60.useRef)(null);
+  const [flight] = (0, import_react60.useState)(() => createFlight({ shape: SPRING_SHAPE }));
+  const intent = (0, import_react60.useRef)(null);
   const [landed, setLanded] = (0, import_react60.useState)(false);
   const [settling, setSettling] = (0, import_react60.useState)(false);
   const [width, setWidth] = (0, import_react60.useState)(savedWidth);
@@ -38459,7 +38572,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const [last, setLast] = (0, import_react60.useState)({ view, width: panelWidth });
   if (last.view !== view || last.width !== panelWidth) {
     setLast({ view, width: panelWidth });
-    if (last.view !== view) setSettling(last.width !== panelWidth && !instant);
+    if (last.view !== view) setSettling(last.width !== panelWidth && !instant && !overlay);
   }
   const shownView = (0, import_react60.useRef)(view);
   (0, import_react60.useLayoutEffect)(() => {
@@ -38514,24 +38627,40 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     return () => clearTimeout(timer);
   }, [page.readAt]);
   const beginSwitch = (next) => {
-    if (reducedMotion2()) return;
     const panel = root.current;
-    const source = next === "details" ? panel?.querySelector(".bt-ptab-bot .bt-mark") : panel?.querySelector(".bt-drawer-id .bt-mark");
-    const outgoing = panel?.querySelector(".bt-panel-view");
+    intent.current = null;
+    if (reducedMotion()) {
+      flight.finish();
+      return;
+    }
+    if (!panel) return;
+    const plan = planFlight(flight.active(), next);
+    const source = plan === "start" ? panel.querySelector(FLIGHT_ENDS[flightStart(next)]) : null;
+    const flies = plan !== "keep" && (plan === "reverse" || source !== null);
+    const outgoing = panel.querySelector(":scope > .bt-panel-view");
     if (outgoing) {
       const ghostEl = document.createElement("div");
       ghostEl.className = "bt-panel-ghost";
-      ghostEl.style.width = `${outgoing.offsetWidth}px`;
-      ghostEl.append(outgoing.cloneNode(true));
-      if (source && next !== "details") for (const mark2 of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark")) mark2.style.visibility = "hidden";
-      outgoing.parentElement.append(ghostEl);
+      Object.assign(ghostEl.style, { top: `${outgoing.offsetTop}px`, width: `${outgoing.offsetWidth}px`, height: `${outgoing.offsetHeight}px` });
+      ghostEl.append(uniqueIds(outgoing.cloneNode(true)));
+      if (flies && next !== "details") for (const mark2 of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark")) mark2.style.visibility = "hidden";
+      panel.append(ghostEl);
       void ghostEl.animate([
         { opacity: 1, transform: "scale(1)" },
         { opacity: 0, transform: "scale(0.985)" }
       ], { duration: 160, easing: "ease-out", fill: "forwards" }).finished.catch(() => {
       }).finally(() => ghostEl.remove());
     }
-    if (source) fly.current = { node: source.cloneNode(true), from: source.getBoundingClientRect() };
+    if (plan === "start" && source === null) return;
+    intent.current = {
+      plan,
+      next,
+      id: pane.id,
+      at: performance.now(),
+      end: flightEnd(next),
+      node: source ? uniqueIds(source.cloneNode(true)) : null,
+      from: source ? source.getBoundingClientRect() : null
+    };
   };
   const switchView = (next) => {
     if (next === view || leaving) return;
@@ -38552,44 +38681,24 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     };
   }
   (0, import_react60.useLayoutEffect)(() => {
-    const move = fly.current;
-    if (!move) return;
-    fly.current = null;
-    const target = view === "details" ? root.current?.querySelector(".bt-drawer-id .bt-mark") : root.current?.querySelector(".bt-ptab-bot .bt-mark");
-    if (!target || move.from.width === 0) return;
-    const growing = root.current.getAnimations({ subtree: true }).filter((animation) => animation.animationName === "bt-strip-in");
-    const at = growing.map((animation) => animation.currentTime);
-    for (const animation of growing) animation.currentTime = animation.effect.getComputedTiming().endTime;
-    const to = target.getBoundingClientRect();
-    growing.forEach((animation, index) => {
-      animation.currentTime = at[index];
-    });
-    const clone = move.node;
-    Object.assign(clone.style, {
-      position: "fixed",
-      left: `${move.from.left}px`,
-      top: `${move.from.top}px`,
-      width: `${move.from.width}px`,
-      height: `${move.from.height}px`,
-      margin: "0",
-      transformOrigin: "0 0",
-      zIndex: "80",
-      pointerEvents: "none",
-      visibility: ""
-    });
-    document.body.append(clone);
-    target.style.visibility = "hidden";
-    const scale = to.width / move.from.width;
-    const anim = clone.animate([
-      { transform: "translate(0px, 0px) scale(1)" },
-      { transform: `translate(${to.left - move.from.left}px, ${to.top - move.from.top}px) scale(${scale})` }
-    ], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, fill: "forwards" });
-    void anim.finished.catch(() => {
-    }).finally(() => {
-      clone.remove();
-      target.style.visibility = "";
-    });
+    const note = intent.current;
+    intent.current = null;
+    const current = note !== null && note.next === view && note.id === pane.id && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
+    if (!current) {
+      flight.finish();
+      return;
+    }
+    if (note.plan === "keep") return;
+    if (note.plan === "reverse") {
+      if (!flight.retarget(note.end)) flight.finish();
+      return;
+    }
+    flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from });
   }, [view, pane.id]);
+  (0, import_react60.useLayoutEffect)(() => {
+    if (instant || leaving) flight.finish();
+  }, [instant, leaving]);
+  (0, import_react60.useEffect)(() => flight.finish, []);
   const startResize = (event) => {
     if (event.button !== 0 || leaving || overlay) return;
     event.preventDefault();
@@ -38705,14 +38814,16 @@ var BROWSER_CSS = `
 .bt-ptab-new svg{width:15px;height:15px}
 .bt-ptab-ind{position:absolute;top:4px;bottom:4px;border-radius:8px;background:var(--bt-hover);opacity:0;pointer-events:none;z-index:0;transition:opacity .15s ease}
 .bt-ptab-close{flex:none;margin-left:2px}
-.bt-panel-ghost{position:absolute;top:calc(44px + var(--bt-caption-band,0px));right:0;bottom:0;overflow:hidden;pointer-events:none;z-index:2}
+.bt-panel-ghost{position:absolute;right:0;overflow:hidden;pointer-events:none;z-index:2}
 .bt-panel-ghost>.bt-panel-view{position:absolute;inset:0}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
 @keyframes bt-panel-view-in{from{opacity:0}}
 /* While the panel changes width its views keep their final width on the right edge, so
    only the panel edge moves and nothing inside reflows frame by frame. */
 .bt-panel[data-settling]{overflow:hidden}
-.bt-panel[data-settling]>.bt-ptabs,.bt-panel[data-settling]>.bt-panel-view{flex-shrink:0;align-self:flex-end;box-sizing:border-box;width:calc(var(--bt-panel-w,320px) - .5px)}
+.bt-panel[data-settling]:not([data-overlay])>.bt-ptabs,.bt-panel[data-settling]:not([data-overlay])>.bt-panel-view{flex-shrink:0;align-self:flex-end;box-sizing:border-box;width:calc(var(--bt-panel-w,320px) - .5px)}
+.bt-panel[data-flying=tab] .bt-ptab-bot .bt-mark,.bt-panel[data-flying=drawer] .bt-drawer-id .bt-mark{visibility:hidden}
+.bt-mark-fly{position:absolute;left:0;top:0;margin:0;transform-origin:0 0;z-index:5;pointer-events:none;will-change:transform}
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
@@ -39362,7 +39473,7 @@ function createBotBrowsers({ bridge, createSource: createSource2, storage = glob
   let visible = false;
   let resizeLater = 0;
   let disposed = false;
-  let serial = 0;
+  let serial2 = 0;
   const makeGuest = guestFactory ?? (bridge.views ? ({ botId, tabId }) => ({ element: createAppViewProxy(bridge, botId, tabId), appView: true }) : ({ document: document2 }) => ({ element: document2.createElement("webview"), appView: false }));
   const appViewEvents = bridge.views?.subscribe?.((change) => {
     const { botId, tabId } = change ?? {};
@@ -39608,7 +39719,7 @@ function createBotBrowsers({ bridge, createSource: createSource2, storage = glob
   }
   function openTab(botId, url) {
     ensureTabs(botId);
-    const tabId = `t${Date.now().toString(36)}-${++serial}`;
+    const tabId = `t${Date.now().toString(36)}-${++serial2}`;
     owner.set(tabId, botId);
     tabs.set((state) => {
       const own = state[botId] ?? { ids: [], active: null };
