@@ -44,9 +44,7 @@ export function failureText(code, { name, provider, status }) {
     case 'RATE_LIMIT': return t('Too many requests. Wait a moment, then try again.')
     case 'SERVER': return t('The model service failed.')
     case 'INTERRUPTED': return t('DeepSeek Harness stopped before this turn finished.')
-    // The model's own limits, not the request: its output cap does not fit inside its
-    // context window, so DSH cannot make room for a switch. Only the model settings fix it.
-    case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.")
+    case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The conversation could not be compacted for this model. Try again or choose another model.")
     default: return knownFailure(code) ?? t('This turn failed.')
   }
 }
@@ -63,16 +61,12 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'AUTH': return ['rekey', canSignIn ? 'use-account' : null, 'model'].filter(Boolean)
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
-    case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model-settings']
+    case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
     default: return []
   }
 }
 
-// A switch that cannot be compacted is refused the same way until the model's own
-// limits change, so a retry there only repeats the refusal.
-export const retryShown = (code, blocked) => code === 'MODEL_SWITCH_COMPACTION_FAILED'
-  ? false
-  : !CREDENTIAL_CODES.has(code) || blocked === undefined
+export const retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || blocked === undefined
 
 const FIX_LABELS = {
   key: () => t('Enter API key'),

@@ -316,7 +316,7 @@ export const DE = {
   'The model service failed.': 'Fehler beim Modelldienst.',
   'DeepSeek Harness stopped before this turn finished.': 'DeepSeek Harness wurde beendet, bevor dieser Durchgang abgeschlossen war.',
   'This turn failed.': 'Dieser Durchgang ist fehlgeschlagen.',
-  "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.": 'Das Ausgabelimit des Modells übersteigt sein Kontextfenster, daher kann nichts gesendet werden. Vergrößere das Kontextfenster oder verringere das Ausgabelimit.',
+  "The conversation could not be compacted for this model. Try again or choose another model.": "Der Gesprächskontext konnte für dieses Modell nicht komprimiert werden. Versuche es erneut oder wähle ein anderes Modell.",
   'Open model settings': 'Modelleinstellungen öffnen',
   'The model service': 'Der Modelldienst',
   'DeepSeek account': 'DeepSeek-Konto',
@@ -1252,7 +1252,7 @@ export const DE = {
   'The model service failed': 'Fehler beim Modelldienst',
   'The model took too long to answer': 'Zeitüberschreitung bei der Modellantwort',
   'Could not reach the model service': 'Modelldienst nicht erreichbar',
-  "The model's output limit is above its context window": 'Das Ausgabelimit des Modells übersteigt sein Kontextfenster',
+  "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",
   'Its group conversation could not open': 'Seine Gruppensitzung konnte nicht geöffnet werden',
   'Its group conversation could not open, so it starts a new one next time': 'Seine Gruppensitzung konnte nicht geöffnet werden; beim nächsten Mal wird eine neue gestartet',
   // The composer's +

@@ -412,14 +412,14 @@ test('Copy puts the technical details on the clipboard in English', async () => 
   assert.deepEqual(copied, ['Code: SERVER\nMessage: upstream 503'])
 })
 
-test('a model whose output limit cannot fit its context window points at the model settings, not a retry', () => {
+test('a failed model-switch compaction offers retry, another model and settings', () => {
   const side = cell({ code: 'MODEL_SWITCH_COMPACTION_FAILED', message: 'compaction-basic: deepseek-official/deepseek-flash reserves 256000 completion tokens of its 20480-token context window' })
   const tree = side.render()
-  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.")
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), "The conversation could not be compacted for this model. Try again or choose another model.")
   const buttons = side.buttons(tree)
-  assert.deepEqual(labels(buttons), ['Open model settings'])
-  assert.equal(buttons.some(entry => entry.label === 'Retry'), false)
-  buttons[0].node.props.onClick()
+  assert.deepEqual(labels(buttons), ['Pick another model', 'Open model settings', 'Retry'])
+  assert.equal(buttons.some(entry => entry.label === 'Retry'), true)
+  buttons[1].node.props.onClick()
   assert.deepEqual(side.calls, [['openModels']])
 })
 
@@ -434,9 +434,9 @@ test('the copy and fix tables go by code alone', () => {
   assert.equal(retryShown('AUTH', { code: 'AUTH' }), false)
   assert.equal(retryShown('AUTH', undefined), true)
   assert.equal(retryShown('QUOTA', { code: 'QUOTA' }), true)
-  assert.deepEqual(Array.from(fixesFor('MODEL_SWITCH_COMPACTION_FAILED', {})), ['model-settings'])
-  assert.equal(retryShown('MODEL_SWITCH_COMPACTION_FAILED', undefined), false)
-  assert.equal(failureText('MODEL_SWITCH_COMPACTION_FAILED', {}), "The model's output limit is above its context window, so nothing can be sent. Raise the context window or lower the output limit.")
+  assert.deepEqual(Array.from(fixesFor('MODEL_SWITCH_COMPACTION_FAILED', {})), ['model', 'model-settings'])
+  assert.equal(retryShown('MODEL_SWITCH_COMPACTION_FAILED', undefined), true)
+  assert.equal(failureText('MODEL_SWITCH_COMPACTION_FAILED', {}), "The conversation could not be compacted for this model. Try again or choose another model.")
 })
 
 // The words a Chinese interface may still show in English (design note, 用词).
