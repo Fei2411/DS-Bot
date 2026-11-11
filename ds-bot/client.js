@@ -40815,14 +40815,13 @@ function singleFlight(map, key, run2) {
 // src/client/text-annotation.js
 var import_react65 = require("react");
 var quoteMarkdown = (text) => text.replace(/\r\n?/gu, "\n").split("\n").map((line) => `> ${line}`).join("\n");
-var annotatedMessage = (text, annotation) => [quoteMarkdown(text), annotation.trim()].filter(Boolean).join("\n\n");
+var withAnnotation = (text, annotation) => annotation.trim() ? `${text}
+
+${annotation.trim()}` : text;
+var annotatedMessage = (text, annotation) => quoteMarkdown(withAnnotation(text, annotation));
 var annotationKey = (event) => event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229 ? event.ctrlKey || event.metaKey ? "send" : "add" : null;
 function insertAnnotation(inputActions, text, annotation) {
-  if (!inputActions.insertQuote(text)) return false;
-  if (!annotation.trim()) return true;
-  return inputActions.insertText(`
-
-${annotation.trim()}`, inputActions.captureInsertion());
+  return inputActions.insertQuote(withAnnotation(text, annotation));
 }
 function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
   const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));

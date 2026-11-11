@@ -79,11 +79,11 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 5))
 
 test('an annotation becomes one Markdown message with a multiline quote', () => {
   assert.equal(quoteMarkdown('First\r\nSecond\rThird'), '> First\n> Second\n> Third')
-  assert.equal(annotatedMessage('First\nSecond', '  Explain this.\nWith two lines.  '), '> First\n> Second\n\nExplain this.\nWith two lines.')
+  assert.equal(annotatedMessage('First\nSecond', '  Explain this.\nWith two lines.  '), '> First\n> Second\n> \n> Explain this.\n> With two lines.')
   assert.equal(annotatedMessage('A quote', ' \n '), '> A quote')
 })
 
-test('composer insertion keeps the host quote and puts the annotation after its paragraph break', () => {
+test('composer insertion keeps the annotation inside the host quote', () => {
   const inserted = []
   const actions = {
     insertQuote: text => { inserted.push(['quote', text]); return true },
@@ -91,7 +91,7 @@ test('composer insertion keeps the host quote and puts the annotation after its 
     insertText: (text, span) => { inserted.push(['text', text, span]); return true },
   }
   assert.equal(insertAnnotation(actions, 'A quote', ' Note'), true)
-  assert.deepEqual(inserted, [['quote', 'A quote'], ['text', '\n\nNote', { draftRev: 3 }]])
+  assert.deepEqual(inserted, [['quote', 'A quote\n\nNote']])
   inserted.length = 0
   assert.equal(insertAnnotation(actions, 'A quote', ' \n'), true)
   assert.deepEqual(inserted, [['quote', 'A quote']])
@@ -119,7 +119,7 @@ test('adding from a Bot selection sends quote and annotation to the current comp
   assert.equal(event.stopped, 1)
   assert.equal(findAll(app.render(), 'section')[0].props['data-leaving'], true)
   await settle()
-  assert.deepEqual(app.inserted, [['quote', 'The selected text'], ['text', '\n\nExplain this', { draftRev: 2 }]])
+  assert.deepEqual(app.inserted, [['quote', 'The selected text\n\nExplain this']])
   assert.deepEqual(app.sent, [])
   assert.deepEqual(app.calls, { clear: 1, dismiss: 1 })
 })
@@ -129,7 +129,7 @@ test('Ctrl+Enter sends the annotated quote to a group through the existing send 
   findAll(app.render(), 'textarea')[0].props.onChange({ target: { value: 'Check this part' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
   await settle()
-  assert.deepEqual(app.sent, [['room', '> The selected text\n\nCheck this part']])
+  assert.deepEqual(app.sent, [['room', '> The selected text\n> \n> Check this part']])
   assert.deepEqual(app.inserted, [])
   assert.equal(app.calls.clear, 1)
   assert.equal(app.calls.dismiss, 1)
