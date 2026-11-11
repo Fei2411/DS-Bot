@@ -51,7 +51,7 @@ function PermissionRow({ bot, roster, actions, run }) {
 
 // The current part's turns, speed, cache hits and context, for a window without DSH's
 // status bar (actions.runStats). It reads them again when a turn starts or ends.
-function RunStats({ bot, part, running, actions }) {
+export function RunStats({ bot, part, running, actions }) {
   const [values, setValues] = useState(null)
   useEffect(() => {
     if (!actions.runStats) return undefined
