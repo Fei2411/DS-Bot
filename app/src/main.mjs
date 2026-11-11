@@ -210,6 +210,8 @@ if (canonical !== undefined) {
     onClose: () => { app.quit() },
     // 「换个位置…」: a first start picks the place again; a later start moves the data there.
     onPick: () => {
+      // The question about a shadowing plugin copy has to be answered first.
+      if (asked === 'shadowed') return
       // On the import card and the cards of its own picker, the import picks the place itself.
       if (answering !== undefined && ['import', 'importSpace', 'rejected', 'picked'].includes(asked)) { answering('pick'); return }
       (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail)
@@ -616,14 +618,19 @@ async function startEngine(mine) {
     }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
   }
   if (!shadowedAsked) {
-    shadowedAsked = true
     const { shadowedBundles, removeShadowed } = await import('./profile-shadow.mjs')
     const shadowed = shadowedBundles(profileDir(), BUNDLES)
     if (shadowed.length > 0 && mine === attempt) {
       const names = shadowed.map(({ name, version }) => `${name} ${version}`).join(', ')
       console.warn(`DS Bot: the profile carries its own ${names}, which shadows the bundled copy`)
-      if (await askCard({ kind: 'shadowed', names }) === 'remove' && mine === attempt) await removeShadowed(profileDir(), shadowed.map(entry => entry.name))
+      if (await askCard({ kind: 'shadowed', names }) === 'remove' && mine === attempt) {
+        // A failed removal stops the start with the reason, and the next try asks again.
+        await removeShadowed(profileDir(), shadowed.map(entry => entry.name)).catch((error) => {
+          throw new Error(`Could not remove ${names} from the profile: ${error?.message ?? error}`, { cause: error })
+        })
+      }
     }
+    shadowedAsked = true
   }
   host = warm?.host ?? newHost()
   host.onMessage(message => {

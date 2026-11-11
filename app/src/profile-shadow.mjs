@@ -1,8 +1,8 @@
 // A bundle of the app installed into the profile's own dependencies shadows the bundled one:
 // the engine mounts the profile's copy, so the running plugin stays at the version it was
 // installed at and no app update reaches it (#1305). Detect that copy and, when the user
-// agrees, take it out — the dependency row and the package, in the plain and the pnpm layouts.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+// agrees, take it out — the package and the dependency row.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -22,27 +22,23 @@ export function shadowedBundles(profileDir, ownNames) {
   })
 }
 
-const pnpmDirs = (dir, name) => {
-  const store = join(dir, 'node_modules', '.pnpm')
-  const flat = name.replace('/', '+')
-  try {
-    return readdirSync(store).filter(entry => entry === flat || entry.startsWith(`${flat}@`)).map(entry => join(store, entry))
-  } catch { return [] }
-}
-
 const fallbackDirs = (dir, name) => {
   const root = join(dir, '.dsh-module-fallback', 'node_modules')
   return existsSync(join(root, name)) ? [join(root, name)] : []
 }
 
-/** Drop `names` from the profile's dependencies and delete their package copies. */
+/**
+ * Delete the profile's own copies of `names` and drop them from its dependencies. The package goes
+ * first and a failure reaches the caller with the manifest untouched, so that the copy is still
+ * found on the next try. In the pnpm layout only the profile's link goes: the store entry behind it
+ * can be linked from other packages, and the package manager prunes it when nothing is left.
+ */
 export async function removeShadowed(profileDir, names) {
   const file = join(profileDir, 'package.json')
   const manifest = readJson(file)
+  for (const name of names) {
+    for (const dir of [join(profileDir, 'node_modules', name), ...fallbackDirs(profileDir, name)]) await rm(dir, { recursive: true, force: true })
+  }
   for (const name of names) delete manifest.dependencies?.[name]
   writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`)
-  for (const name of names) {
-    const dirs = [join(profileDir, 'node_modules', name), ...pnpmDirs(profileDir, name), ...fallbackDirs(profileDir, name)]
-    for (const dir of dirs) await rm(dir, { recursive: true, force: true }).catch((error) => { console.error(`DS Bot: removing the shadowing ${name} failed:`, error) })
-  }
 }
