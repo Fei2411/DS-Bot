@@ -60,6 +60,7 @@ var ZH = {
   "Ungroup section": "解散分组",
   "Remove from section": "移出分组",
   "Move to new section…": "移至新分组…",
+  "That section no longer exists": "该分组已不存在",
   "Add to {name}": "添加到 {name}",
   "Add existing": "添加已有对话",
   None: "无",
@@ -109,7 +110,7 @@ var ZH = {
   "{count} selected": "{count} 已选",
   "Choose at least 2 Bots (the admin counts)": "至少选择 2 个机器人（含管理员）",
   "Choose at least 1 more member": "还需至少 1 位成员",
-  "Delete group": "删除群聊",
+  "Delete group": "删除群组",
   "Open {name}'s chat": "打开 {name} 的对话",
   "New Bot": "新机器人",
   "New Bots": "新机器人",
@@ -870,7 +871,7 @@ var ZH = {
   "Working on an image": "处理图片",
   "Creating a group": "创建群聊",
   "Updating the group": "更新群聊",
-  "Deleting the group": "删除群聊",
+  "Deleting the group": "删除群组",
   "Posting in the group": "在群里发言",
   "Checking the keys": "查看密钥",
   "Asking {name}": "询问 {name}",
@@ -960,8 +961,8 @@ var ZH = {
   "Couldn't create the group": "没能创建群聊",
   "Updated group": "已更新群聊",
   "Couldn't update the group": "没能更新群聊",
-  "Deleted group": "已删除群聊",
-  "Couldn't delete the group": "没能删除群聊",
+  "Deleted group": "已删除群组",
+  "Couldn't delete the group": "没能删除群组",
   "Posted in": "已发到",
   "Couldn't post in the group": "没能在群里发言",
   Read: "已读取",
@@ -25685,7 +25686,13 @@ function SectionMenu({ menu, roster, actions, leaving }) {
   const sections = roster.sections ?? [];
   const index = sections.findIndex((sec2) => sec2.id === menu.id);
   const sec = sections[index];
-  if (sec === void 0) return null;
+  const missing = sec === void 0;
+  (0, import_react58.useEffect)(() => {
+    if (!missing) return;
+    actions.closeMenu();
+    actions.reportError(new Error(t("That section no longer exists")), "menu");
+  }, [missing]);
+  if (missing) return null;
   if (menu.kind === "section-add") {
     const candidates = [
       ...roster.bots.filter((bot) => bot.id !== roster.mainBotId && !bot.hidden).map((bot) => ({ kind: "bot", item: bot })),

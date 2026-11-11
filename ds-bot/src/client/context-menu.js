@@ -107,7 +107,15 @@ function SectionMenu({ menu, roster, actions, leaving }) {
   const sections = roster.sections ?? []
   const index = sections.findIndex(sec => sec.id === menu.id)
   const sec = sections[index]
-  if (sec === undefined) return null
+  const missing = sec === undefined
+  // The header can outlive its section between a roster change and the next paint;
+  // closing with a reason beats a menu that looks open but does nothing.
+  useEffect(() => {
+    if (!missing) return
+    actions.closeMenu()
+    actions.reportError(new Error(t('That section no longer exists')), 'menu')
+  }, [missing])
+  if (missing) return null
   if (menu.kind === 'section-add') {
     const candidates = [
       ...roster.bots.filter(bot => bot.id !== roster.mainBotId && !bot.hidden).map(bot => ({ kind: 'bot', item: bot })),
