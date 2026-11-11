@@ -273,17 +273,28 @@ export function install(rt) {
   // provider no longer serves fails with UNKNOWN_MODEL whatever its members run on, so
   // it is kept on the model new Bots start on. The record is by Session, so a part moved
   // on to a fresh Session is selected again.
+  // The Sessions whose selection failed. The models may not change again, so the next
+  // sync tries them once more instead of waiting for a change that never comes.
+  const roomRetry = new Set()
   async function selectRoomSession(sessionId) {
     const ref = await defaultBotModel()
     if (ref === undefined) return
     const route = splitRef(ref)
     const applied = sessionSelections.get(sessionId)
     if (applied !== undefined && sameSelection(applied, route)) return
-    await selectSessionModel(sessionId, route)
-      .catch(error => rt.warn('ds-bot: model for the group Session %s not applied: %s', sessionId, error))
+    await selectSessionModel(sessionId, route).then(
+      () => { roomRetry.delete(sessionId) },
+      (error) => {
+        roomRetry.add(sessionId)
+        rt.warn('ds-bot: model for the group Session %s not applied: %s', sessionId, error)
+      },
+    )
   }
   async function syncRoomSessions() {
-    for (const room of Object.values(state.rooms ?? {})) await selectRoomSession(rt.sessionOfRoom(room))
+    const current = new Set(Object.values(state.rooms ?? {}).map(room => rt.sessionOfRoom(room)))
+    // A deleted group, or one moved on to a fresh part, no longer needs its old Session.
+    for (const sessionId of roomRetry) if (!current.has(sessionId)) roomRetry.delete(sessionId)
+    for (const sessionId of current) await selectRoomSession(sessionId)
   }
 
   // A provider may register after the plugin starts; a greeting waits for its Bot's
@@ -309,6 +320,7 @@ export function install(rt) {
   const syncModels = () => {
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
+    else if (roomRetry.size > 0) modelsSynced = modelsSynced?.then(syncRoomSessions, syncRoomSessions) ?? syncRoomSessions()
     return modelsSynced
   }
   async function syncAll() {

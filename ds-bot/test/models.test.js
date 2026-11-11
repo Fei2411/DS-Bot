@@ -428,3 +428,63 @@ test('a group\'s own Session follows the team default when it changes, and a fai
   await rt.syncRoomSessions()
   assert.deepEqual(selected.slice(1), ['r1:stepfun/step-5'])
 })
+
+test('a group Session whose selection failed is retried at the next sync, though the models are the same', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The same models, as every state refresh finds them.
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  // Selected now, so a later refresh asks for nothing.
+  await rt.syncModels()
+  assert.equal(selected.length, 1)
+})
+
+test('a new group chat whose selection failed is retried at the next sync', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = {}
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  // The catalog was synced before the group existed, as at a start with no group yet.
+  await rt.syncModels()
+  rt.state.rooms.r1 = { id: 'r1', members: [] }
+  await rt.selectRoomSession('r1')
+  assert.deepEqual(selected, [])
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+})
+
+test('a deleted group does not keep the sync retrying its Session', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('Session unavailable') }
+  await rt.catalog()
+  await rt.syncModels()
+  delete rt.state.rooms.r1
+  await rt.syncModels()
+  const calls = []
+  rt.ctx.sessionController.selectModel = async request => { calls.push(request.sessionId) }
+  await rt.syncModels()
+  assert.deepEqual(calls, [])
+  assert.deepEqual(selected, [])
+})
