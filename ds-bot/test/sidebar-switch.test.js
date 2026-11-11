@@ -16,7 +16,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar } from './src/client/sidebar.js'",
+    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, RETURN_CSS, TeamSidebar } from './src/client/sidebar.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -42,7 +42,7 @@ const sandbox = {
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
+const { SHELL_CSS, SIDEBAR_CSS, RETURN_CSS, TeamSidebar } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -590,5 +590,70 @@ test('TeamSidebar subscribes to specific ui slices rather than the whole ui obje
     const after = pick({ ...base, palette: { query: 'test', token: 1 }, settings: { page: 'general' }, menu: { kind: 'bot', id: 'b1' }, toast: { text: 'err' } })
     assert.equal(Object.is(before, after), true)
   }
+})
+
+// The Bot column's footer carries the mirror of the DS Bot button the classic Agent
+// page keeps in its own footer, so both surfaces offer the switch at the bottom left.
+function findNode(node, match) {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findNode(child, match)
+      if (found) return found
+    }
+    return undefined
+  }
+  if (!node || typeof node !== 'object') return undefined
+  if (match(node)) return node
+  return findNode(node.props?.children, match)
+}
+
+function footerSidebar(pref, actions) {
+  viewport.innerWidth = 1280
+  renderRefs = []
+  refIndex = 0
+  layoutEffects = []
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const tree = TeamSidebar({
+    wide: false, actions,
+    useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+    useSidebarPref: pick => pick(pref),
+  })
+  renderRefs = undefined
+  const effects = layoutEffects
+  layoutEffects = undefined
+  effects.forEach(effect => effect())
+  return findNode(tree, node => typeof node.props?.className === 'string' && node.props.className.split(' ').includes('bt-leftcol-foot'))
+}
+
+for (const pref of ['open', 'rail']) {
+  test(`the Bot column footer carries the switch back to the classic Agent page (${pref})`, () => {
+    const calls = []
+    const foot = footerSidebar(pref, { setSurface: mode => calls.push(mode) })
+    assert.ok(foot, 'the Bot column has a footer')
+    const seat = findNode(foot, node => node.type?.name === 'ClassicReturn')
+    assert.ok(seat, 'the footer carries the switch beside the account')
+    const button = seat.type(seat.props)
+    assert.equal(button.props.className, 'bt-classic')
+    assert.equal(button.props['aria-label'], 'Switch to classic')
+    assert.equal(button.props.title, 'Switch to classic')
+    button.props.onClick()
+    assert.deepEqual(calls, ['agent'])
+    // The rail has no room for the name: it keeps the icon and the accessible label.
+    const name = button.props.children[1]
+    if (pref === 'open') {
+      assert.equal(name.type, 'span')
+      assert.equal(name.props.className, 'bt-classic-name')
+      assert.deepEqual(name.props.children, ['Switch to classic'])
+    } else assert.equal(name, null)
+    assert.match(RETURN_CSS, /\.bt-classic\{/)
+    assert.match(RETURN_CSS, /\.bt-leftcol-foot-rail \.bt-classic\{width:36px;padding:0;border-radius:50%;corner-shape:round\}/)
+  })
+}
+
+test('without the surface actions the Bot column footer has no switch to seat', () => {
+  const foot = footerSidebar('open', {})
+  assert.ok(foot)
+  assert.equal(findNode(foot, node => node.type?.name === 'ClassicReturn'), undefined)
 })
 
