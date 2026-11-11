@@ -53,17 +53,24 @@ function abortedAssembler(failure) {
   return assembler
 }
 
+function canRetryPolicy(policy, code, retry) {
+  if (policy.mode === 'always') return true
+  if (policy.mode !== 'normal') return false
+  return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
+}
+
 // Auxiliary calls (memory, learning, handoff, steward, OCR, side chats, browser_task)
 // bypass the agent loop's `agent/request-error` hook, so `dsh-llm-retry` never sees
 // their transport or stream-idle failures. Retry those transient codes on the same
 // route with the provider's own retry policy, discarding partial chunks from failed attempts.
 export async function assembleLlmStream(ctx, options, { signal, backoff, random = Math.random } = {}) {
   const fused = options.signal && signal ? AbortSignal.any([options.signal, signal]) : (options.signal ?? signal)
+  const request = fused === options.signal ? options : { ...options, signal: fused }
   for (let retry = 1; ; retry += 1) {
     const assembler = new BlockAssembler()
     let thrown
     try {
-      for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+      for await (const chunk of ctx.llm.stream(request)) assembler.push(chunk)
     } catch (error) {
       thrown = error
     }
@@ -72,7 +79,7 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
       const failure = thrown?.failure ?? { code, message: thrown?.message || String(thrown) }
       if (fused?.aborted || !TRANSIENT_LLM_CODES.has(code)) throw thrown
       const policy = retryPolicyOf(ctx, options.provider)
-      if (policy.mode === 'normal' && (!policy.retryableCodes.includes(code) || retry > policy.maxRetries)) throw thrown
+      if (!canRetryPolicy(policy, code, retry)) throw thrown
       const delayMs = retryDelayMs(policy, failure, retry, backoff, random)
       if (delayMs === undefined) throw thrown
       if (!await waitRetryDelay(delayMs, fused)) throw fused?.reason ?? thrown
@@ -84,7 +91,7 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
     const code = failure?.code
     if (!TRANSIENT_LLM_CODES.has(code)) return assembler
     const policy = retryPolicyOf(ctx, options.provider)
-    if (policy.mode === 'normal' && (!policy.retryableCodes.includes(code) || retry > policy.maxRetries)) return assembler
+    if (!canRetryPolicy(policy, code, retry)) return assembler
     const delayMs = retryDelayMs(policy, failure, retry, backoff, random)
     if (delayMs === undefined) return assembler
     if (!await waitRetryDelay(delayMs, fused)) return abortedAssembler({ code: 'ABORTED', message: failure?.message ?? 'aborted' })
