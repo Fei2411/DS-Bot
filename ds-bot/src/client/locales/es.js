@@ -776,6 +776,12 @@ export const ES = {
   '{used} of {total} tokens of context in use': '{used} de {total} tokens de contexto en uso',
 
   // Transcript
+  'Annotate quote': 'Anotar cita',
+  Annotation: 'Anotación',
+  'Add an annotation…': 'Añade una anotación…',
+  'Add quote and annotation to the composer · Enter': 'Añadir la cita y la anotación al campo · Intro',
+  'Send quote and annotation · Ctrl+Enter': 'Enviar la cita y la anotación · Ctrl+Intro',
+  'Quote text': 'Citar texto',
   Footnotes: 'Notas al pie',
   'Remove reaction {emoji}': 'Quitar reacción {emoji}',
   'Add reaction': 'Añadir reacción',
