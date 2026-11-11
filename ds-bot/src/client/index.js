@@ -56,6 +56,7 @@ import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-m
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
+import { agentSessionToReuse, singleFlight } from './agent-new.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -95,6 +96,9 @@ export function apply(ctx) {
   try { agentSessionCache = new Set(JSON.parse(localStorage.getItem(STORAGE.agentSessions) ?? '[]')) } catch { agentSessionCache = new Set() }
   // Sessions adopted on this window (workspace pick, fork) but not yet in the roster.
   const pendingAdopt = new Map()
+  // A create can finish before the DSH list publishes its Session (#1225).
+  const pendingAgentSession = new Map()
+  const agentNewInFlight = new Map()
   const isAgentSessionId = id => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id)
   const agentOfSession = id => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id)
   // The workspace a Session lives in, for follow-up creates and switch detection.
@@ -218,6 +222,9 @@ export function apply(ctx) {
     const listed = ctx.sessions.list.getSnapshot().byId ?? {}
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== undefined || listed[id] === undefined) pendingAdopt.delete(id)
+    }
+    for (const [agentId, sessionId] of pendingAgentSession) {
+      if (listed[sessionId] !== undefined || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId)
     }
     for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
       if (refreshed.has(id)) continue
@@ -438,6 +445,8 @@ export function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id)
     return ids
   }
+  const latestAgentSession = (agentId, list) => agentSessions(agentId)
+    .sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))[0]
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
   const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView })
   // Whether the open Bot panel is folded away for lack of room: its opener then
@@ -501,23 +510,29 @@ export function apply(ctx) {
       const agent = roster.getSnapshot().agentsById[agentId]
       if (agent === undefined) return
       const list = ctx.sessions.list.getSnapshot()
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))
-      if (recent.length === 0) return actions.newAgentSession(agentId)
-      actions.openAgentSession(recent[0])
+      const latest = latestAgentSession(agentId, list)
+      if (latest === undefined) return actions.newAgentSession(agentId)
+      actions.openAgentSession(latest)
     },
     newAgentSession: async (agentId) => {
       const agent = roster.getSnapshot().agentsById[agentId]
       if (agent === undefined) return
-      const list = ctx.sessions.list.getSnapshot()
-      const recent = agentSessions(agentId).sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))
-      // An untouched Session is already the new conversation the user wants.
-      if (recent.length > 0 && list.byId[recent[0]]?.blank === true) {
-        actions.openAgentSession(recent[0])
-        return recent[0]
-      }
-      const { sessionId } = await after(call('agent-session', { agentId, workspaceId: workspaceOf(recent[0]) }))
-      actions.openAgentSession(sessionId)
-      return sessionId
+      // One create per Agent at a time, so two clicks in a row make one Session.
+      return singleFlight(agentNewInFlight, agentId, async () => {
+        const list = ctx.sessions.list.getSnapshot()
+        const latest = latestAgentSession(agentId, list)
+        const pending = pendingAgentSession.get(agentId)
+        if (pending !== undefined && list.byId[pending] !== undefined) pendingAgentSession.delete(agentId)
+        const reuse = agentSessionToReuse(list, latest, pending)
+        if (reuse !== undefined) {
+          actions.openAgentSession(reuse)
+          return reuse
+        }
+        const { sessionId } = await after(call('agent-session', { agentId, workspaceId: workspaceOf(latest) }))
+        if (ctx.sessions.list.getSnapshot().byId[sessionId] === undefined) pendingAgentSession.set(agentId, sessionId)
+        actions.openAgentSession(sessionId)
+        return sessionId
+      })
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call('agent-archive', { agentId, sessionId }))
