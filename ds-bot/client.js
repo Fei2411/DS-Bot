@@ -26070,7 +26070,7 @@ function EarlierUser({ row, actions }) {
     { className: "bt-urow" },
     (0, import_react32.createElement)(
       "div",
-      { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": body ? "" : void 0 },
+      { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": body || code !== void 0 ? "" : void 0 },
       control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
       row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null

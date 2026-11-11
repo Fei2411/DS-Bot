@@ -152,6 +152,17 @@ test('group relay user and Bot messages join the current chat quote interaction'
   assert.equal(sources(tree).length, 2)
 })
 
+test('an earlier user message starting with a folded code block keeps its quote source', () => {
+  const text = `\`\`\`js\n${Array.from({ length: 40 }, (_, index) => `const line${index} = ${index}`).join('\n')}\n\`\`\``
+  const tree = expand(ChatRows({
+    items: [{ kind: 'user', text, time: 1 }], sessionId: 'b', roster, actions: {},
+  }))
+  const bubble = findAll(tree, node => withClass(node, 'bt-ububble'))[0]
+  assert.equal(bubble.props['data-text-interaction-source'], '')
+  assert.equal(findAll(bubble, node => withClass(node, 'bt-fold-pre')).length, 1)
+  assert.equal(sources(tree).length, 1)
+})
+
 test('a folded code preview stays inside its bubble source without marking preview bubbles elsewhere', () => {
   const text = `\`\`\`js\n${Array.from({ length: 40 }, (_, index) => `const line${index} = ${index}`).join('\n')}\n\`\`\``
   const tree = expand(Bubbles({
