@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
-// The pane's message field shares the composer preference: while Enter sends, a plain
-// Enter submits; off, it is the field's own newline and only the send button submits.
+// The right-hand new-chat pane: it picks one Bot (with an optional message) or hands
+// over to the centred Create Bot dialog. Group chats have their own dialog too.
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/new-chat.js', import.meta.url))],
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -34,6 +34,7 @@ const react = {
   useMemo: make => make(),
   useCallback: fn => fn,
 }
+const listeners = new Map()
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
@@ -43,7 +44,11 @@ runInNewContext(outputFiles[0].text, {
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { FishLogo: 'fish', MarkdownText: () => null, writeClipboard: () => {} }
     throw new Error(`no platform module ${name}`)
   },
-  window: { addEventListener() {}, removeEventListener() {}, innerWidth: 1200, innerHeight: 800, matchMedia: () => ({ matches: false }) },
+  window: {
+    innerWidth: 1200, innerHeight: 800, matchMedia: () => ({ matches: false }),
+    addEventListener: (name, fn) => { listeners.set(name, [...(listeners.get(name) ?? []), fn]) },
+    removeEventListener: (name, fn) => { listeners.set(name, (listeners.get(name) ?? []).filter(item => item !== fn)) },
+  },
   document: { querySelector: () => null, documentElement: { addEventListener() {}, removeEventListener() {} } },
   requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
 })
@@ -74,87 +79,107 @@ const text = (node) => {
   return text(node.props?.children)
 }
 const textarea = node => all(node, child => child.type === 'textarea')[0]
+const recipient = node => all(node, child => child.props?.['aria-label'] === 'Recipient')[0]
 const options = node => all(node, child => child.props?.role === 'option')
-const enter = (extra = {}) => ({
+const enter = () => ({
   key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false }, prevented: false,
-  preventDefault() { this.prevented = true }, ...extra,
+  preventDefault() { this.prevented = true },
 })
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-// A group pane picks its admin, then the member the typed message goes to. Every
-// step awaits: each click runs through the pane's async busy guard before the next
-// render reads the new state.
-const pane = async ({ ready = true, prefs = {} } = {}) => {
-  const calls = { send: [], rooms: [], sessions: [] }
+const pane = ({ mode = 'new', sectionId = null, prefs = {} } = {}) => {
+  const calls = { send: [], sessions: [], closed: 0, opened: [], newBots: [] }
   const bots = [
     { id: 'chief', name: 'Chief', role: 'main' },
     { id: 'worker', name: 'Worker', role: 'helper' },
   ]
-  const roster = { ready, prefs, bots, byId: { chief: bots[0], worker: bots[1] }, roomsById: {}, agents: [] }
+  const roster = { ready: true, prefs, bots, byId: { chief: bots[0], worker: bots[1] }, roomsById: {}, agents: [] }
   const actions = {
-    closeOverlay() { calls.closed = (calls.closed ?? 0) + 1 },
-    createRoom: async (ids) => { calls.rooms.push(ids); return { id: 'room1' } },
+    closeOverlay() { calls.closed += 1 },
+    createRoom: async () => ({ id: 'room1' }),
     send: async (id, value) => { calls.send.push([id, value]) },
     openSession: (id) => { calls.sessions.push(id) },
     setFlags: async () => {},
+    openNewChat: (next, section) => { calls.opened.push([next, section ?? null]) },
+    openNewBot: (payload) => { calls.newBots.push(payload) },
   }
-  const view = mount({ mode: 'group', roster, actions })
-  const pick = async (name) => {
-    const row = options(view.render()).find(child => text(child).includes(name))
-    assert.ok(row, `no option for ${name}`)
-    row.props.onClick()
-    await tick()
-  }
-  await pick('Chief')
-  await pick('Worker')
-  textarea(view.render()).props.onChange({ target: { value: 'hello team' } })
+  const view = mount({ mode, sectionId, roster, actions })
   return { view, calls, tree: () => view.render() }
 }
 
-test('with Enter sending on, a plain Enter sends the message to the group', async () => {
-  const { calls, tree } = await pane({ prefs: { enterToSend: true } })
+test('typing filters the Bot list and Enter opens the first match', async () => {
+  const { calls, tree } = pane()
+  const view = { tree }
+  recipient(view.tree()).props.onChange({ target: { value: 'chi' } })
+  const listed = options(view.tree()).filter(node => node.props['data-flip'] === 'chief')
+  assert.equal(listed.length, 1)
+  assert.match(text(listed[0]), /Chief/)
   const event = enter()
-  textarea(tree()).props.onKeyDown(event)
+  recipient(view.tree()).props.onKeyDown(event)
   await tick()
   assert.equal(event.prevented, true)
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.rooms)), [['chief', 'worker']])
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.send)), [['room1', 'hello team']])
+  assert.deepEqual(calls.sessions, ['chief'])
+  assert.equal(calls.closed, 1)
 })
 
-test('with Enter sending saved off, a plain Enter is the field\'s own newline', async () => {
-  const { calls, tree } = await pane({ prefs: { enterToSend: false } })
-  const event = enter()
-  textarea(tree()).props.onKeyDown(event)
+test('a message typed before picking is sent with the opened Bot', async () => {
+  const { calls, tree } = pane()
+  textarea(tree()).props.onChange({ target: { value: 'hello there' } })
+  const row = options(tree()).find(node => text(node).includes('Chief'))
+  assert.ok(row)
+  row.props.onClick()
   await tick()
-  assert.equal(event.prevented, false)
-  assert.deepEqual(calls.send, [])
-  assert.deepEqual(calls.rooms, [])
+  assert.deepEqual(calls.send, [['chief', 'hello there']])
+  assert.deepEqual(calls.sessions, ['chief'])
 })
 
-test('a roster still loading keeps a saved off and a first-time default', async () => {
-  // The pre-pull roster stays ready:false but already carries the window's saved prefs.
-  const saved = await pane({ ready: false, prefs: { enterToSend: false } })
-  const off = enter()
-  textarea(saved.tree()).props.onKeyDown(off)
-  await tick()
-  assert.equal(off.prevented, false)
-  assert.deepEqual(JSON.parse(JSON.stringify(saved.calls.send)), [])
-  // A window with nothing saved keeps the default: Enter sends, it is not stuck off.
-  const fresh = await pane({ ready: false, prefs: {} })
+test('the Create group chat entry opens the centred dialog', () => {
+  const { calls, tree } = pane()
+  const row = options(tree()).find(node => text(node).includes('Create group chat'))
+  assert.ok(row)
+  row.props.onClick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.opened)), [['group', null]], 'no section travels with it')
+})
+
+// The pane's message field follows the composer preference: while Enter sends, a plain
+// Enter is taken by the send (no newline); off, it stays the field's own newline.
+test('the message field follows the Enter-to-send preference', () => {
+  const sending = pane({ prefs: { enterToSend: true } })
   const on = enter()
-  textarea(fresh.tree()).props.onKeyDown(on)
-  await tick()
+  textarea(sending.tree()).props.onKeyDown(on)
   assert.equal(on.prevented, true)
-  assert.deepEqual(JSON.parse(JSON.stringify(fresh.calls.send)), [['room1', 'hello team']])
+  for (const extra of [{ shiftKey: true }, { nativeEvent: { isComposing: true } }]) {
+    const event = { ...enter(), ...extra }
+    textarea(sending.tree()).props.onKeyDown(event)
+    assert.equal(event.prevented, false)
+  }
+  const typing = pane({ prefs: { enterToSend: false } })
+  const off = enter()
+  textarea(typing.tree()).props.onKeyDown(off)
+  assert.equal(off.prevented, false)
 })
 
-test('Shift+Enter and IME confirmation keep their default behavior', async () => {
-  for (const extra of [{ shiftKey: true }, { nativeEvent: { isComposing: true } }]) {
-    const { calls, tree } = await pane({ prefs: { enterToSend: true } })
-    const event = enter(extra)
-    textarea(tree()).props.onKeyDown(event)
-    await tick()
-    assert.equal(event.prevented, false)
-    assert.deepEqual(calls.send, [])
-  }
+test('the Create new Bot entry opens the centred dialog', () => {
+  const { calls, tree } = pane()
+  const row = options(tree()).find(node => text(node).includes('Create new Bot'))
+  assert.ok(row)
+  row.props.onClick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.newBots)), [{ name: '', sectionId: null, brief: '' }])
+})
+
+test('the typed name and the drafted message travel into the dialog', () => {
+  const { calls, tree } = pane({ sectionId: 'sec-1' })
+  recipient(tree()).props.onChange({ target: { value: 'Writer' } })
+  textarea(tree()).props.onChange({ target: { value: 'Sum up the launch' } })
+  const row = options(tree()).find(node => text(node).includes('Create new Bot “Writer”'))
+  assert.ok(row)
+  row.props.onClick()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.newBots)), [{ name: 'Writer', sectionId: 'sec-1', brief: 'Sum up the launch' }])
+})
+
+test('Escape closes the pane', () => {
+  const { calls, tree } = pane()
+  assert.ok(recipient(tree()))
+  for (const listener of listeners.get('keydown') ?? []) listener({ key: 'Escape' })
+  assert.equal(calls.closed, 1)
 })

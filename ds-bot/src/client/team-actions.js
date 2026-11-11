@@ -1,11 +1,11 @@
-import { countCards, heldCardKey } from './sources.js'
+import { countCards, heldCardKey, indexRoster } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
+export function teamActions({ call, after, refresh, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, pendingDelete = new Set() }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   // An action that shows the panel lands the yield with it: when a folded
@@ -18,10 +18,61 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     ui.set(state => ({ ...state, details: sessionId, view: 'side', side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, 'side') }))
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
-  const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null, newBot: null })) }
+  // A deleted row leaves the sidebar before the host answers, and the panel on it
+  // cannot stay open; the read that follows puts the row back if the host refused.
+  const forget = (kind, id) => {
+    const snapshot = roster.getSnapshot()
+    const key = kind === 'room' ? 'rooms' : 'bots'
+    const list = snapshot[key] ?? []
+    if (!list.some(entry => entry.id === id)) return
+    const next = { ...snapshot, [key]: list.filter(entry => entry.id !== id) }
+    if (kind === 'bot') {
+      const mains = (snapshot.mainBotIds ?? []).filter(mainId => mainId !== id)
+      next.mainBotIds = mains
+      if (snapshot.mainBotId === id) next.mainBotId = mains[0] ?? null
+    }
+    roster.set(indexRoster(next))
+    const onIt = state => state.details !== null && state.details !== undefined
+      && (kind === 'room' ? snapshot.roomsById[state.details] : snapshot.byId[state.details])?.id === id
+    ui.set(state => (onIt(state) ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state))
+  }
+  // Until the host answers, a read that started before the delete still lists the
+  // row; `pendingDelete` keeps such an answer from putting it back.
+  const removeEntry = (kind, id, request) => {
+    pendingDelete.add(id)
+    forget(kind, id)
+    return after(request()).then(
+      (value) => { pendingDelete.delete(id); return value },
+      (error) => {
+        pendingDelete.delete(id)
+        void Promise.resolve(refresh?.()).catch(() => {})
+        throw error
+      },
+    )
+  }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
-    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
+    // A group chat opens the centred Add group chat dialog and a new Bot its own centred
+    // dialog; the other modes take the right-hand new-chat pane.
+    openNewChat: (mode, sectionId = null) => {
+      if (mode === 'group') {
+        // The token remounts the dialog, so a reopen during the exit animation starts empty.
+        ui.set(state => ({ ...state, groupChat: { token: Date.now() }, newChat: null, newChatSection: null, newBot: null, menu: null, palette: null, leftDrawer: false }))
+        return
+      }
+      if (mode === 'create') {
+        ui.set(state => ({ ...state, newBot: { token: Date.now(), name: '', sectionId: sectionId ?? null, brief: '' }, newChat: null, newChatSection: null, menu: null, palette: null, leftDrawer: false }))
+        return
+      }
+      ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, newBot: null, menu: null, palette: null, leftDrawer: false }))
+    },
+    // The new-chat pane hands over the name typed into it and the message drafted below.
+    openNewBot: ({ name = '', sectionId = null, brief = '' } = {}) => {
+      ui.set(state => ({ ...state, newBot: { token: Date.now(), name, sectionId, brief }, newChat: null, newChatSection: null, menu: null, palette: null, leftDrawer: false }))
+    },
+    closeNewBot: () => ui.set(state => (state.newBot ? { ...state, newBot: null } : state)),
+    closeGroupChat: () => ui.set(state => (state.groupChat ? { ...state, groupChat: null } : state)),
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
@@ -90,10 +141,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     deleteSection: id => after(call('section-delete', { id })),
     beginSectionRename: id => ui.set(state => ({ ...state, renameSection: id })),
     endSectionRename: () => ui.set(state => (state.renameSection ? { ...state, renameSection: null } : state)),
-    deleteRoom: id => after(call('delete-room', { id })),
+    deleteRoom: id => removeEntry('room', id, () => call('delete-room', { id })),
     openMenu: (menu) => { ui.set(state => ({ ...state, menu, palette: null })) },
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
-    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
+    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, newBot: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
     createBot: payload => after(call('create-bot', payload)),
     // The avatar library: photos the user imported once, kept by the host.
     avatarLibrary: (options = {}) => call('avatar-library', options),
@@ -116,10 +167,12 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
     folders: () => call('folders'),
-    folderPick: () => call('folder-pick'),
+    // The host keeps the native folder dialog open for minutes; a timed-out wait
+    // would drop the choice while the dialog still stands.
+    folderPick: () => call('folder-pick', undefined, undefined, 0),
     folderList: path => call('folder-list', { path: path ?? '' }),
     setTeamWorkspace: path => after(call('team-workspace', { path })),
-    deleteBot: id => after(call('delete-bot', { id })),
+    deleteBot: id => removeEntry('bot', id, () => call('delete-bot', { id })),
     releasePrivate: id => after(call('private-release', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
@@ -187,7 +240,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     imChat: (id, body) => after(call('im-chat', { id, ...body })),
     imRetry: id => after(call('im-retry', { id })),
     imLoginStart: payload => call('im-login-start', payload),
-    imLoginWait: payload => call('im-login-wait', payload),
+    // The host holds this one open until the code is scanned and confirmed.
+    imLoginWait: payload => call('im-login-wait', payload, undefined, 0),
     saveCapability: capability => after(call('capability-save', capability)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),

@@ -400,7 +400,9 @@ async function chat(cdp) {
   const text = needle => `document.body.innerText.includes(${JSON.stringify(needle)})`
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
-  await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
+  // A new team has only its pinned Main Bot, and the wide sidebar draws that one as a tile of
+  // its own rather than a row, so the tile is a team too.
+  await until("document.querySelector('.bt-tile, .bt-row, .bt-main-tile')", 'the team')
   for (const file of frameSheets) {
     const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
     if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)

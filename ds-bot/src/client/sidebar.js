@@ -3,15 +3,15 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
-import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
+import { currentPart, previewOf, relativeShort, rowForSession } from './text.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon, PersonIcon, PeopleIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
 import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_TAP, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
-import { hostText, t } from './i18n.js'
+import { dateLocale, hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
@@ -60,10 +60,32 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
+// Today reads as a clock, anything older as a date, and a date from another year
+// carries the year so two Januaries cannot look alike.
+function clockStamp(at) {
+  if (!at) return ''
+  const date = new Date(at)
+  if (Number.isNaN(date.getTime())) return ''
+  const now = new Date()
+  if (date.toDateString() === now.toDateString()) {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  }
+  const sameYear = date.getFullYear() === now.getFullYear()
+  return new Intl.DateTimeFormat(dateLocale(), sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' }).format(date)
+}
+
+// The tile behind a Bot's character takes its color; a photo keeps its own pixels and
+// the neutral tile, and so does a mark without a usable color.
+function avatarTint(bot) {
+  const color = lookOf(bot).color
+  return bot?.avatar?.image ? undefined : { '--bt-ava-tint': `color-mix(in srgb, ${inkFill(color)} 15%, transparent)` }
+}
+
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart, pin }) {
   const id = bot.id
   const part = currentPart(bot)
-  const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
+  const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns?.[part]))
+  const updated = useSessions(list => list.byId[part]?.updatedAt ?? 0)
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
@@ -90,14 +112,17 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   }
   const pinned = bot.pinned === true && !tile
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
-  if (tile && wide) {
-    return h('div', { className: 'bt-tile-wrap' }, h('button', {
-      type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
-      'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
+  // The pinned slot stands the Main Bot up: avatar over its name, with the unread dot
+  // on the avatar where the row's "New" badge would otherwise sit.
+  if (pin) {
+    return h('button', {
+      type: 'button', className: 'bt-main-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+      'data-bot-id': id, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h(BotAvatar, { bot, size: 60, state, main: true }),
-    h('span', { className: 'bt-tile-name' }, bot.name),
-    bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
+    h('span', { className: 'bt-main-tile-ava' },
+      h(BotAvatar, { bot, size: 84, state, main, crown: true }),
+      !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null),
+    h('span', { className: 'bt-main-tile-name' }, bot.name))
   }
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
@@ -106,7 +131,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     onDragStart: wide && !tile && onDragStart ? event => onDragStart(event, id) : undefined,
     onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id), onContextMenu,
   },
-  h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
+  h('span', { className: 'bt-row-ava', style: avatarTint(bot) }, h(BotAvatar, { bot, size: wide ? 40 : 44, state, main })),
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), bot.engine ? h(AgentBadge, { engine: bot.engine }) : null, pinned ? h(PinMark) : null),
@@ -114,8 +139,11 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
         : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
           : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-  wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
-    : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
+  wide ? h('span', { className: 'bt-row-side' },
+    (unread || approval) && !active
+      ? h('span', { className: 'bt-row-new', 'data-wait': approval ? '' : undefined }, t('New'))
+      : updated > 0 ? h('span', { className: 'bt-row-time' }, clockStamp(updated)) : null)
+    : !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
 function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked, onDragStart }) {
@@ -123,6 +151,7 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
   const fallback = useSessions(list => previewOf(list, sessionId))
+  const updated = useSessions(list => list.byId[sessionId]?.updatedAt ?? 0)
   const preview = room.preview?.replace(/\s+/g, ' ').trim() || fallback
   const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
@@ -142,14 +171,16 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
     onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id),
     onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'room', id, x: event.clientX, y: event.clientY }) },
   },
-  h(RoomAvatar, { room, roster, size: wide ? 36 : 44 }),
+  h('span', { className: 'bt-row-ava' }, h(RoomAvatar, { room, roster, size: wide ? 40 : 44 })),
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null),
     workingLine ? h('span', { className: 'bt-row-preview' }, workingLine) : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-  wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
-    : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
-      : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
+  wide ? h('span', { className: 'bt-row-side' },
+    (unread || approval) && !active
+      ? h('span', { className: 'bt-row-new', 'data-wait': approval ? '' : undefined }, t('New'))
+      : updated > 0 ? h('span', { className: 'bt-row-time' }, clockStamp(updated)) : null)
+    : !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
 const agentSessionTitle = session => (session.title === '' ? t('New session') : session.title)
@@ -243,12 +274,14 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       onClick: () => actions.openAgent(agent.id),
       onContextMenu: (event) => { event.preventDefault(); actions.openMenu({ kind: 'agent', id: agent.id, x: event.clientX, y: event.clientY }) },
     },
-    h('span', { className: `bt-agent-ava${running ? ' bt-run' : ''}` }, h(FishLogo, { size: wide ? 22 : 24 })),
+    h('span', { className: 'bt-row-ava' }, h('span', { className: `bt-agent-ava${running ? ' bt-run' : ''}` }, h(FishLogo, { size: wide ? 22 : 24 }))),
     wide ? h('span', { className: 'bt-row-body' },
       h('span', { className: 'bt-row-name' }, 'DSH Agent'),
       preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
-    wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
-      : !wide && unread && !active ? h('span', { className: 'bt-dot', 'aria-hidden': true }) : null),
+    wide ? h('span', { className: 'bt-row-side' },
+      unread && !active ? h('span', { className: 'bt-row-new' }, t('New'))
+        : sessions[0]?.at > 0 ? h('span', { className: 'bt-row-time' }, clockStamp(sessions[0].at)) : null)
+      : unread && !active ? h('span', { className: 'bt-dot', 'aria-hidden': true }) : null),
     h('div', { className: 'bt-agent-sub', 'data-open': open || undefined },
       h('div', { className: 'bt-agent-sub-in' },
         h('button', { type: 'button', className: 'bt-agent-sub-row bt-agent-new', style: { '--i': 0 }, onClick: () => { void actions.newAgentSession(agent.id).catch(error => actions.reportError(error, 'agent-session')) } },
@@ -297,14 +330,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
         : entry.item.sessions ?? []
   )), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
-  const activeEntry = useMemo(() => {
-    if (activeSession === '') return undefined
-    return entries.find(entry => (
-      entry.kind === 'bot' ? currentPart(entry.item) === activeSession
-        : entry.kind === 'room' ? (entry.item.sessionId ?? entry.item.id) === activeSession
-          : (entry.item.sessions ?? []).includes(activeSession)
-    ))
-  }, [entries, activeSession])
+  const activeEntry = useMemo(() => rowForSession(entries, activeSession), [entries, activeSession])
   const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
     id,
     map.get(id)?.running === true ? 1 : 0,
@@ -426,6 +452,19 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     : null)
 }
 
+// The two groups the sidebar always ends with. They follow the user's own sections,
+// cannot be renamed, reordered, collapsed or dropped onto, and count what they hold.
+// Groups and Recent are fixed sections, not user sections: no rename, drag or
+// collapse. They render in place so their rows keep every row behavior.
+function fixedGroup(title, entries, rowProps, markedUnread, onDragStart) {
+  if (entries.length === 0) return null
+  return h('div', { className: 'bt-fixed' },
+    h('div', { className: 'bt-fixed-head' },
+      h('span', { className: 'bt-fixed-title' }, title),
+      h('span', { className: 'bt-fixed-count' }, entries.length)),
+    entries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))
+}
+
 function useListGlide(listRef, layout, key) {
   const tops = useRef({ layout, map: new Map() })
   useLayoutEffect(() => {
@@ -458,14 +497,85 @@ function LeftColumn({ mode, width, onGrip, leaving, children }) {
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
 
-// The top-left switch hides the whole column and brings it back. Under a
-// Windows title bar it takes the shell's own place in the title band; elsewhere
-// it shows only while the column is hidden, since the column's own top row
-// carries it otherwise.
+// The top-left switch brings a hidden column back. Under a Windows title bar it
+// takes the shell's own place in the title band and hides it too; elsewhere it
+// floats by the window buttons. Either way it shows only while the column is
+// hidden — the open column and the rail carry no collapse button; they are
+// dragged and ⌘B toggles them.
+
+// The top row's one "new" entry: a plus whose menu holds the two ways to start
+// something. The menu floats over the list, so nothing below the row moves, and it
+// opens under the button with the two right edges lining up.
+function PlusMenu({ actions, onOpenChange }) {
+  const [open, setOpen] = useState(false)
+  const [box, setBox] = useState(null)
+  const button = useRef(null)
+  const menu = useRef(null)
+  const tick = useViewport()
+  useLayoutEffect(() => {
+    if (!open || !button.current) return
+    const rect = button.current.getBoundingClientRect()
+    const width = 200
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+    const below = viewBottom() - rect.bottom
+    setBox(rect.top > below && below < 160
+      ? { left, width, bottom: viewBottom() - rect.top + 6, '--bt-origin': 'bottom right' }
+      : { left, width, top: rect.bottom + 6, '--bt-origin': 'top right' })
+  }, [open, tick])
+  // A click anywhere but the menu or the button puts it away. The click that opens
+  // it is a press that started before this listener existed, so it cannot close it.
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (event) => {
+      if (menu.current?.contains(event.target) || button.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const onKey = (event) => {
+      if (stepMenuFocus(menu.current, event, button.current)) return
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setOpen(false)
+      button.current?.focus()
+    }
+    const onScroll = (event) => { if (!menu.current?.contains(event.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+  const toggle = () => {
+    if (open) { setOpen(false); return }
+    setBox(null)
+    setOpen(true)
+    onOpenChange?.(true)
+  }
+  // The chat that is picked opens behind a menu that has already gone.
+  const pick = (mode) => () => {
+    setOpen(false)
+    actions.openNewChat(mode)
+  }
+  return h(Fragment, null,
+    h('button', {
+      ref: button, type: 'button', className: 'bt-round bt-round-plus',
+      'aria-label': t('New Bot or group'), title: t('New Bot or group'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle,
+    }, h(PlusIcon)),
+    open ? createPortal(h('div', {
+      ref: menu, className: 'bt-menu bt-plus-menu', role: 'menu', 'aria-label': t('New Bot or group'), style: box ?? undefined,
+    },
+      h('button', { type: 'button', role: 'menuitem', onClick: pick('create') },
+        h(PersonIcon), h('span', { className: 'bt-menu-label' }, t('Create new Bot'))),
+      h('button', { type: 'button', role: 'menuitem', onClick: pick('group') },
+        h(PeopleIcon, { size: 16, strokeWidth: 1.6 }), h('span', { className: 'bt-menu-label' }, t('New group chat')))), document.body) : null)
+}
+
 function TitleToggle({ hidden, onToggle }) {
   if (typeof document === 'undefined') return null
   const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
-  if (!titlebar && !hidden) return null
+  if (!hidden) return null
   const label = t(hidden ? 'Expand sidebar' : 'Collapse sidebar')
   return createPortal(h('button', {
     type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'aria-label': label, title: label, onClick: onToggle,
@@ -504,6 +614,14 @@ export function TeamSidebar(props) {
   })
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
+  // The inline search and the All/Bots/Chats filter share the list's one view.
+  const [query, setQuery] = useState('')
+  const [tab, setTab] = useState('all')
+  // The search keeps to a button in the top row until it is asked for.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef(null)
+  // When the field was opened, so the click that opened it cannot also put it away.
+  const searchOpenedAt = useRef(0)
   const mode = drag?.left ?? layout.left
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
@@ -518,7 +636,7 @@ export function TeamSidebar(props) {
     const stamps = JSON.parse(updated)
     const entries = [
       ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
+      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.sessionId ?? room.id] ?? room.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
     ]
@@ -531,11 +649,57 @@ export function TeamSidebar(props) {
     [order, sectionSet],
   )
   const main = roster.byId[roster.mainBotId]
+  // The rail hides the search box and the tabs, so it shows the grouped list and keeps
+  // the query for when the column widens again.
+  const searching = wideContent && (query.trim() !== '' || tab !== 'all')
+  const mainEntry = useMemo(() => {
+    if (!main) return null
+    const stamps = JSON.parse(updated)
+    return { kind: 'bot', item: main, at: stamps[currentPart(main)] ?? main.createdAt ?? 0 }
+  }, [main, updated])
+  // The Main Bot has a row of its own in the arranged list too, so search and the
+  // filters reach it like every other row.
+  const allEntries = useMemo(() => {
+    const list = mainEntry ? [mainEntry, ...order.filter(entry => entry.item.id !== mainEntry.item.id)] : order
+    return [...list].sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
+  }, [mainEntry, order])
+  // The text a row matches: its name and role, a group's name and preview, the
+  // Agent's Session titles, and the last message of a conversation.
+  const searchText = useSessions(list => {
+    if (!searching) return ''
+    const text = {}
+    for (const entry of allEntries) {
+      if (entry.kind === 'bot') {
+        const part = currentPart(entry.item)
+        text[entry.item.id] = [entry.item.name, entry.item.role, previewOf(list, part, roster.exchangeTurns?.[part])].filter(Boolean).join(' ')
+      } else if (entry.kind === 'room') {
+        text[entry.item.id] = [entry.item.name, entry.item.preview, previewOf(list, entry.item.sessionId ?? entry.item.id)].filter(Boolean).join(' ')
+      } else {
+        text[entry.item.id] = ['DSH Agent', ...(entry.item.sessions ?? []).map(id => list.byId[id]?.displayTitle ?? list.byId[id]?.title ?? '')].filter(Boolean).join(' ')
+      }
+    }
+    return JSON.stringify(text)
+  })
+  // The standing tile already shows the Main Bot, so the filtered rows leave it out;
+  // a text search drops the tile and its own row in the results answers instead.
+  const tileShown = wideContent && Boolean(main) && query.trim() === ''
+  const found = useMemo(() => {
+    if (!searching) return []
+    const text = searchText === '' ? {} : JSON.parse(searchText)
+    const needle = query.trim().toLowerCase()
+    return allEntries.filter((entry) => {
+      if (tileShown && entry.kind === 'bot' && entry.item.id === roster.mainBotId) return false
+      if (entry.item.hidden && !(entry.kind === 'bot' && isMainOf(roster, entry.item.id))) return false
+      if (tab === 'bots' && entry.kind !== 'bot') return false
+      if (tab === 'chats' && entry.kind !== 'room') return false
+      return needle === '' || (text[entry.item.id] ?? '').toLowerCase().includes(needle)
+    })
+  }, [searching, tileShown, allEntries, tab, query, searchText, roster.mainBotId])
   const glideKey = useMemo(
-    () => `${sections.map(s => `${s.id}:${s.collapsed ? 1 : 0}`).join(',')}|${order.map(entry => `${entry.item.id}:${entry.item.sectionId ?? ''}`).join(',')}`,
-    [sections, order],
+    () => `${sections.map(s => `${s.id}:${s.collapsed ? 1 : 0}`).join(',')}|${order.map(entry => `${entry.item.id}:${entry.item.sectionId ?? ''}`).join(',')}|${searching ? `${tab}:${query}:${found.map(entry => entry.item.id).join(',')}` : ''}`,
+    [sections, order, searching, tab, query, found],
   )
-  useListGlide(listRef, wideContent, glideKey)
+  useListGlide(listRef, wideContent ? (searching ? 'search' : 'groups') : 'rail', glideKey)
   useLandOnMainBot(roster, useSessions, actions)
   useReportReady(roster.ready, roster)
   const [dragId, setDragId] = useState(null)
@@ -758,12 +922,17 @@ export function TeamSidebar(props) {
     newAgentSession: id => navigate(actions.newAgentSession, id),
   }
   const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
-  // Typing while the sidebar has focus starts a search.
+  // Typing while the sidebar has focus starts an inline search; the rail has no field,
+  // so there the keystroke still opens the command palette.
   const typeToSearch = (event) => {
-    if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
+    if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent?.isComposing) return
     if (event.target instanceof Element && event.target.closest('input,textarea,[contenteditable]')) return
     event.preventDefault()
-    actions.openPalette(event.key)
+    if (!wideContent) { actions.openPalette(event.key); return }
+    setQuery(event.key)
+    setSearchOpen(true)
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => searchRef.current?.focus())
+    else searchRef.current?.focus()
   }
   // The switch (top-left button, the shortcut) hides the whole column or brings
   // back the one it hid.
@@ -785,56 +954,137 @@ export function TeamSidebar(props) {
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
   }, [])
+  // A click anywhere but the field puts it away, and the words go with it: a filter
+  // left running behind a closed box would keep the list short for no visible reason.
+  // It waits for the click itself, so a result row has already opened before it goes.
+  // The click that opens the field reaches this listener too, because the effect runs
+  // while that click is still being dispatched: it is the one click to let through.
+  useEffect(() => {
+    if (!searchOpen) return undefined
+    const onDown = (event) => {
+      if (event.target instanceof Element && event.target.closest('.bt-search')) return
+      if (event.timeStamp <= searchOpenedAt.current) return
+      setSearchOpen(false)
+      setQuery('')
+    }
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return
+      if (document.querySelector('[aria-modal="true"]')) return
+      setSearchOpen(false)
+      setQuery('')
+    }
+    document.addEventListener('click', onDown)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('click', onDown)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [searchOpen])
+  const openSearch = (event) => {
+    const opened = event?.nativeEvent?.timeStamp ?? event?.timeStamp
+    searchOpenedAt.current = typeof opened === 'number' ? opened : (globalThis.performance?.now?.() ?? 0)
+    setSearchOpen(true)
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => searchRef.current?.focus())
+    else searchRef.current?.focus()
+  }
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setQuery('')
+    searchRef.current?.blur?.()
+  }
+  // The search lives in the top row as a button until it is opened; then the field
+  // takes the row's free width, so nothing above the list changes height.
+  const searchField = searchOpen
+    ? h('div', { className: 'bt-search' },
+        h('span', { className: 'bt-search-ico', 'aria-hidden': true }, h(SearchIcon)),
+        h('input', {
+          ref: searchRef, type: 'search', className: 'bt-search-in', value: query,
+          placeholder: t('Search chats'), 'aria-label': t('Search chats'),
+          onChange: event => setQuery(event.currentTarget.value),
+          onKeyDown: (event) => {
+            if (event.nativeEvent?.isComposing) return
+            if (event.key === 'Enter') { event.preventDefault(); actions.openPalette(query.trim()) }
+            else if (event.key === 'Escape') { event.preventDefault(); closeSearch() }
+          },
+        }))
+    : h('button', {
+        type: 'button', className: 'bt-round bt-round-search', 'aria-label': t('Search chats'), title: t('Search chats'), onClick: openSearch,
+      }, h(SearchIcon))
+  // One plus holds both ways to start something new; the search field keeps the row's
+  // free width and the plus stays at its right end.
+  const plusMenu = h(PlusMenu, { actions, onOpenChange: (open) => { if (open && searchOpen) closeSearch() } })
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
-        h('span', { className: 'bt-brand' }, h(BrandName)),
-        h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New section'), title: t('New section'), onClick: createNewSection }, h(FolderIcon)),
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
+        h('div', { className: `bt-top-right${searchOpen ? ' bt-top-right-open' : ''}` },
+          h(UpdateButton, { useUpdate: props.useUpdate, actions }),
+          searchField,
+          plusMenu))
     : h('div', { className: 'bt-rail-top' },
+        plusMenu,
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-        h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
-  // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // The dictionary's "Chats" means chats in general (聊天); this tab is the groups,
+  // so it reads 群组 in Chinese and stays "Chats" in English.
+  const chatsTab = dateLocale() === 'zh-CN' ? t('Groups') : t('Chats')
+  // The inline field filters what is already here; Enter hands the same words to the
+  // command palette, and the shell's own ⌘K still opens it.
+  const filters = wideContent
+    ? h('div', { className: 'bt-seg', role: 'group', 'aria-label': t('Filter chats') },
+        [['all', t('All')], ['bots', t('Bots')], ['chats', chatsTab]].map(([id, label]) => h('button', {
+          key: id, type: 'button', className: 'bt-seg-btn', 'aria-pressed': tab === id, onClick: () => setTab(id),
+        }, label)))
+    : null
+  const rows = searching
+    ? (found.length > 0
+        ? found.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, undefined))
+        : h('div', { className: 'bt-empty', role: 'status' }, t('No matches')))
+    : [
+        wideContent && !main && !roster.ready ? h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')) : null,
+        sections.length > 0
+          ? h('div', {
+              key: '__ungrouped__',
+              className: 'bt-sec-ungrouped',
+              'data-dragging': dragId ? 'true' : undefined,
+              'data-drop': dropTarget === '__none__' ? 'true' : undefined,
+              onDragOver: event => onDragOverSec(event, '__none__'),
+              onDrop: event => onDropSec(event, null),
+            })
+          : null,
+        ...sections.map(section => h(SectionBlock, {
+          key: section.id,
+          section,
+          entries: order.filter(entry => entry.item.sectionId === section.id),
+          rowProps,
+          markedUnread,
+          renaming: renameSection === section.id,
+          dropTarget,
+          onDragStart,
+          onDragOverSec,
+          onDropSec,
+        })),
+        fixedGroup(t('Groups'), ungrouped.filter(entry => entry.kind === 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
+        fixedGroup(t('Recent'), ungrouped.filter(entry => entry.kind !== 'room' && !entry.item.hidden), rowProps, markedUnread, onDragStart),
+      ]
+  // The Main Bot sits in a fixed slot above the scroll box, so it stays put while
+  // the list moves. A text search drops the tile; its row in the results answers.
+  const mainPin = tileShown
+    ? h('div', { className: 'bt-main-pin' }, h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true, pin: true }))
+    : null
+  // The foot stands in for the shell's hidden footer: just the account avatar.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }))
-    : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h(AccountLauncher, { seat: false, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
+    : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' }, h(AccountLauncher, { seat: false, actions, onNewSection: createNewSection }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
+    mainPin,
+    filters,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', {
       ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list'),
       onDragEnd: () => { setDragId(null); setDropTarget(null) },
       onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
-    },
-      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…'))) : null,
-      sections.length > 0 && wideContent
-        ? h('div', {
-            className: 'bt-sec-ungrouped',
-            'data-dragging': dragId ? 'true' : undefined,
-            'data-drop': dropTarget === '__none__' ? 'true' : undefined,
-            onDragOver: event => onDragOverSec(event, '__none__'),
-            onDrop: event => onDropSec(event, null),
-          }, ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))
-        : ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)),
-      sections.map(section => h(SectionBlock, {
-        key: section.id,
-        section,
-        entries: order.filter(entry => entry.item.sectionId === section.id),
-        rowProps,
-        markedUnread,
-        renaming: renameSection === section.id,
-        dropTarget,
-        onDragStart,
-        onDragOverSec,
-        onDropSec,
-      }))),
+    }, rows),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
@@ -965,7 +1215,7 @@ const NO_SNAPSHOT = () => null
 // `seat` is the shell's settings.launcher seat: at priority -10 the whale wins it
 // over a shell account plugin's own launcher (the Desktop's "··· More"), which comes
 // back in Agent mode; FooterAccount stands in while no seat exists at all.
-export function AccountLauncher({ seat = true, settingsOpen, actions }) {
+export function AccountLauncher({ seat = true, settingsOpen, actions, onNewSection }) {
   const [open, setOpen] = useState(false)
   useLayoutEffect(() => {
     if (!seat) return undefined
@@ -1046,6 +1296,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      onNewSection ? [t('New section'), FolderIcon, onNewSection] : null,
       [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
   ]
@@ -1257,9 +1508,6 @@ export const SIDEBAR_CSS = `
 .bt-confirm-go{height:28px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease}
 .bt-confirm-go:hover:not(:disabled){opacity:.9}
 .bt-confirm-go:disabled{opacity:.6;cursor:default}
-.bt-side-top .bt-brand{cursor:default;padding-left:6px}
-.bt-side-top .bt-brand:hover{background:none}
-.bt-brand .bt-mark{flex:none}
 .bt-pin{flex:none;display:inline-flex;color:var(--bt-ink-3)}
 .bt-rail .bt-row{position:relative}
 .bt-rail .bt-pin{position:absolute;top:1px;left:calc(50% + 14px)}
@@ -1382,4 +1630,54 @@ export const SIDEBAR_CSS = `
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
 @media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
+
+/* The inbox: the page itself, with the title, an inline search, the All/Bots/Chats
+   filter, the list, and the status and account rows at the foot. It carries no card
+   of its own, so the buttons inside need a fill the page does not already give them. */
+.bt-leftcol:not([data-left=rail]){padding:calc(var(--bt-lc-clear) + 8px) 8px 8px;background:var(--bt-page,var(--bt-sidebar));box-shadow:inset -1px 0 0 var(--bt-line)}
+.bt-leftcol:not([data-left=rail])>.bt-side{background:transparent;border:0;border-radius:0;box-shadow:none;padding:12px 10px 10px 12px;gap:8px;box-sizing:border-box}
+/* A step off the page in either mode, so the buttons stay visible on the flat inbox. */
+.bt-leftcol:not([data-left=rail]) .bt-round{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 8%)}
+.bt-leftcol:not([data-left=rail]) .bt-round:hover{background:color-mix(in srgb,var(--bt-page,var(--bt-sidebar)),var(--bt-ink) 13%)}
+/* No field and no focus ring: the words sit on the page itself, and focus only
+   raises a faint fill. Opened, it takes the top row's free width. */
+.bt-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:10px;background:transparent;color:var(--bt-ink-3);flex:1 1 auto;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
+.bt-search:focus-within{background:color-mix(in srgb,var(--bt-field,var(--bt-hover)) 55%,transparent)}
+.bt-search-ico{display:inline-flex;align-items:center;flex:none;color:var(--bt-ink-3)}
+.bt-search-ico svg{width:14px;height:14px}
+.bt-search-in{flex:1;min-width:0;height:100%;padding:0;border:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;outline:none;appearance:none}
+.bt-search-in::placeholder{color:var(--bt-ink-3)}
+.bt-search-in::-webkit-search-cancel-button{display:none}
+.bt-seg{display:flex;align-items:center;gap:2px;height:36px;padding:2px;border-radius:10px;background:var(--bt-field,var(--bt-hover));flex:none;box-sizing:border-box}
+/* Scoped under .bt-seg so these outrank the shell's .bt-seg button rules (styles.js), which
+   are also installed globally for the settings panel and must keep their own look. */
+.bt-seg .bt-seg-btn{position:relative;z-index:1;flex:1;min-width:0;height:32px;padding:0 6px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12.5px;line-height:16px;font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .12s ease,color .12s ease}
+.bt-seg .bt-seg-btn:hover{color:var(--bt-ink)}
+.bt-seg .bt-seg-btn[aria-pressed=true]{background:var(--bt-seg-on,var(--bt-card));color:var(--bt-ink);box-shadow:inset 0 0 0 1px var(--bt-panel-rim,var(--bt-line))}
+.bt-seg .bt-seg-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-sec-ungrouped:empty:not([data-dragging=true]){display:none}
+.bt-fixed{display:flex;flex-direction:column;gap:3px}
+.bt-fixed-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:28px;padding:0 8px;margin-top:4px}
+.bt-fixed-title{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-fixed-count{font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
+.bt-empty{padding:24px 12px;text-align:center;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.bt-row{min-height:64px;padding:10px;gap:10px;border-radius:12px}
+.bt-row[aria-current=page]{background:var(--bt-row-sel,var(--bt-active))}
+.bt-row-ava{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;background:var(--bt-ava-tint,var(--bt-hover));overflow:hidden;transition:background-color .12s ease}
+.bt-row[aria-current=page] .bt-row-ava{background:var(--bt-accent)}
+.bt-row[aria-current=page] .bt-row-ava .bt-mark[data-shape]:not([data-shape=image]){filter:brightness(0) invert(1)}
+.bt-row-name{font-size:14px;line-height:20px;font-weight:500}
+.bt-row[aria-current=page] .bt-row-name{font-weight:500}
+.bt-row-preview{font-size:12.5px;line-height:17px;color:var(--bt-ink-2)}
+.bt-row-side{flex:none;display:inline-flex;align-items:flex-end;justify-content:flex-start;min-width:34px;margin-left:auto;padding-bottom:1px}
+.bt-row-time{font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-row-new{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-accent);white-space:nowrap}
+.bt-row-new[data-wait]{color:var(--bt-star)}
+.bt-leftcol:not([data-left=rail]) .bt-side>.bt-list{margin-right:-10px}
+.bt-leftcol:not([data-left=rail]) .bt-tile-wrap{padding:6px 0 10px}
+.bt-rail .bt-fixed-head{display:none}
+.bt-rail .bt-fixed{gap:8px;margin-top:4px}
+.bt-rail .bt-row-ava{width:44px;height:44px;border-radius:16px;background:none}
+.bt-rail .bt-row-ava .bt-agent-ava{width:44px;height:44px}
+@media (prefers-reduced-motion:reduce){.bt-search,.bt-seg .bt-seg-btn,.bt-row-ava{transition:none}}
 `

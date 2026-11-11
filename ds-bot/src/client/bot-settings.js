@@ -177,7 +177,7 @@ function MemoryCard({ bot, actions }) {
 // A Bot's settings as grouped cards: who it is (avatar, name, label), what it runs on
 // (model), what it does (instructions), its memory and tasks, its Main Bot role, its
 // sidebar place, and copies.
-export function BotSettingsForm({ bot, roster, actions, run }) {
+export function BotSettingsForm({ bot, roster, actions, run, onDeleted }) {
   const [editing, setEditing] = useState(false)
   const [editorShown, editorLeaving] = useLinger(editing, 120)
   const [confirming, setConfirming] = useState(false)
@@ -195,7 +195,11 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
-  const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
+  const remove = () => {
+    if (!confirming) { setConfirming(true); return }
+    // The drawer closes either way, so a failure reported in it would never be seen.
+    void actions.deleteBot(bot.id).then(() => onDeleted?.(), error => actions.reportError?.(error, 'settings'))
+  }
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
   return h('div', { className: 'bt-bs' },

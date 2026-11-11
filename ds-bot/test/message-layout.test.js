@@ -16,8 +16,8 @@ test('a layout or width the plugin does not know reads as the default', () => {
   assert.equal(layoutOf(undefined), 'bubble')
   assert.equal(layoutOf({ layout: 'grid' }), 'bubble')
   assert.equal(layoutOf({ layout: 'flat' }), 'flat')
-  assert.equal(widthOf({}), 80)
-  assert.deepEqual([40, 101, 72.5, 'wide'].map(width => widthOf({ width })), [80, 80, 80, 80])
+  assert.equal(widthOf({}), 90)
+  assert.deepEqual([40, 101, 72.5, 'wide'].map(width => widthOf({ width })), [90, 90, 90, 90])
   assert.deepEqual([50, 95, 100].map(width => widthOf({ width })), [50, 95, 100])
   assert.equal(flatWidthOf({ width: 60 }), 100)
   assert.deepEqual([70, 101].map(flatWidth => flatWidthOf({ flatWidth })), [70, 100])
@@ -27,7 +27,7 @@ test('every message takes the share of the column that the width setting gives',
   for (const selector of ['.bt-msg', '.bt-astack[data-lead]>.bt-msg', '.bt-ustack', '.bt-ububble', '.bt-think']) {
     assert.match(ruleOf(selector), /max-width:[^;]*var\(--bt-msg-w\)/, selector)
   }
-  assert.match(bundle, /\nbody\{--bt-msg-w:\.8;--bt-flat-w:1\}/)
+  assert.match(bundle, /\nbody\{--bt-msg-w:\.9;--bt-flat-w:1\}/)
 })
 
 test('a Bot bubble keeps room for the toolbar beside it; flat Bot text takes the flat width', () => {

@@ -14,11 +14,11 @@ import { DSH_NARROW } from './frame-layout.js'
 // CONVERSATION_CSS re-skins the shell's own conversation DOM and styles what only
 // the conversation renders.
 export const SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-crown-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-reply:#ffffff;--bt-reply-ink:#141414;--bt-reply-ink-2:rgba(20,20,20,.72);--bt-reply-ink-3:rgba(20,20,20,.6);--bt-reply-line:rgba(20,20,20,.08);--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice){corner-shape:round}
-body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
+body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-reply:#262626;--bt-reply-ink:#f2f2f2;--bt-reply-ink-2:rgba(242,242,242,.72);--bt-reply-ink-3:rgba(242,242,242,.62);--bt-reply-line:rgba(255,255,255,.06);--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join('')}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join('')}
 .bt-mark{display:inline-block;flex:none;position:relative;line-height:0}
@@ -118,8 +118,13 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 5px 0 0}
-.bt-brand{display:inline-flex;align-items:center;gap:6px;margin-right:auto;padding:4px 8px 4px 4px;border:0;border-radius:8px;background:none;cursor:pointer;font-family:inherit;font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);white-space:nowrap}
+/* The top row carries the two round buttons at its left and, at its right, the
+   update button and the search button. */
+.bt-side-top{display:flex;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
+/* The search keeps to the right edge; opening it lets the field take the row. */
+.bt-top-right{display:flex;align-items:center;gap:8px;margin-left:auto;min-width:0}
+.bt-top-right-open{flex:1}
+.bt-side-top .bt-round:not(.bt-update) svg,.bt-rail-top .bt-round:not(.bt-update) svg{width:17px;height:17px;stroke-width:1.6}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
 .bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
 .bt-round:hover{background:var(--bt-hover)}
@@ -131,6 +136,19 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-track{background:transparent}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
+/* The Main Bot is pinned above the scroll box, so paging the list never carries it away. */
+.bt-main-pin{flex:none;display:flex;flex-direction:column;box-sizing:border-box}
+/* The tile stands the Main Bot up on the page itself: a large mark with its name
+   and no plate, ring or block in any state. The open chat is told by the name. */
+.bt-main-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:130px;padding:6px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit}
+.bt-main-tile:hover .bt-main-tile-ava{filter:brightness(1.06)}
+.bt-main-tile-ava{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;width:84px;height:84px;border-radius:50%;background:transparent;transition:filter .12s ease}
+.bt-main-tile .bt-badge-main{right:-4px;bottom:-4px;width:18px;height:18px;border-radius:50%;background:var(--bt-star);box-shadow:0 0 0 2px var(--bt-main)}
+.bt-main-tile .bt-badge-main svg{width:11px;height:11px;overflow:visible}
+.bt-main-tile .bt-badge-main path{fill:var(--bt-crown-ink);stroke:none}
+.bt-main-tile .bt-dot{top:0;right:0;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-main-tile-name{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;line-height:24px;font-weight:500;color:var(--bt-ink-2)}
+.bt-main-tile[aria-current=page] .bt-main-tile-name{font-weight:600;color:var(--bt-ink)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:hover{background:var(--bt-hover)}
@@ -191,7 +209,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
-.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+.bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-dot-wait{background:var(--bt-star)}
 .bt-side-foot{display:flex;padding-top:8px}
 
@@ -220,9 +238,9 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 @media (prefers-reduced-motion:reduce){.bt-pill,.bt-pill-go,.bt-pill-go svg{transition:none!important}.bt-pill-go{filter:none}.bt-pill:active{transform:none}}
 
 /* The width settings: the share of the column a bubble may take, and the flat text. */
-body{--bt-msg-w:.8;--bt-flat-w:1}
+body{--bt-msg-w:.9;--bt-flat-w:1}
 .bt-astack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:0}
-.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-bubble);color:var(--bt-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
+.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-reply);color:var(--bt-reply-ink);border:1px solid var(--bt-reply-line);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-msg:not(:first-child)>.bt-msg-line>.bt-bubble{border-start-start-radius:6px}
 .bt-msg:not(:last-child)>.bt-msg-line>.bt-bubble{border-end-start-radius:6px}
 .bt-bubble [class*="_markdown"]>*+*{margin-top:10px}
@@ -232,6 +250,15 @@ body{--bt-msg-w:.8;--bt-flat-w:1}
 .bt-bubble ul,.bt-bubble ol{margin:4px 0;padding-left:20px}
 .bt-bubble [class*="_markdown"] li+li{margin-top:6px}
 .bt-bubble [class*="_markdown"] li::marker{color:var(--bt-ink-2)}
+/* The reply bubble carries its own inks, so its secondary text cannot follow the
+   theme inks: they are mixed against the bubble surface, not the page. Scoping to
+   the bubble, and to layouts that draw one, keeps the flat text on the theme inks. */
+body:not([data-bt-layout=flat]) .bt-bubble [class*="_markdown"] li::marker{color:var(--bt-reply-ink-2)}
+body:not([data-bt-layout=flat]) .bt-bubble .bt-fold-note,body:not([data-bt-layout=flat]) .bt-bubble .bt-fold .bt-more{color:var(--bt-reply-ink-3)}
+body:not([data-bt-layout=flat]) .bt-bubble .bt-fold .bt-more:hover{color:var(--bt-reply-ink)}
+body:not([data-bt-layout=flat]) .bt-bubble .bt-fold-code>.bt-tool{color:var(--bt-reply-ink-3)}
+body:not([data-bt-layout=flat]) .bt-bubble .bt-fold-code>.bt-tool:hover,body:not([data-bt-layout=flat]) .bt-bubble .bt-fold-code>.bt-tool[aria-expanded=true]{color:var(--bt-reply-ink)}
+body:not([data-bt-layout=flat]) .bt-bubble a{color:inherit}
 /* line-height:1 keeps the monospace line box from making an inline code line taller. */
 .bt-bubble [class*="_markdown"] :not(pre)>code{line-height:1;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .bt-bubble :is(img,video),.bt-ububble :is(img,video),[data-chat-flow] [class*="_bubble"] :is(img,video){max-width:100%;height:auto}
@@ -342,8 +369,6 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-token{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 6px 0 4px;border-radius:999px;background:var(--bt-hover);font-size:13px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-token button{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;padding:0 2px}
 .bt-admin-star{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;corner-shape:round;background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar));vertical-align:-1px}
-.bt-to-star{display:inline-flex;margin-right:-2px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-.bt-to .bt-to-create{flex:none;height:28px;padding:0 12px;font-size:13px;animation:bt-q-submit-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 .bt-drop{position:absolute;top:48px;left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12px;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;z-index:1;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
 .bt-option{display:flex;align-items:center;gap:10px;border:0;background:none;border-radius:8px;padding:7px 8px;min-height:36px;box-sizing:border-box;font-size:13px;line-height:18px;color:var(--bt-ink);cursor:pointer;text-align:left;width:100%}
 .bt-option[aria-selected=true]{background:var(--bt-active)}
@@ -359,17 +384,12 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-nc-card textarea{flex:1;resize:none;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;padding:7px 4px;min-height:34px;max-height:140px;box-sizing:border-box}
 .bt-nc-send{width:34px;height:34px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
 .bt-nc-send:disabled{opacity:.3;cursor:default}
-.bt-create{flex:1;display:flex;flex-direction:column;min-width:0}
-.bt-create-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:48px;padding:6px 12px;border-bottom:1px solid var(--bt-line);box-sizing:border-box}
-.bt-create-gap{width:28px}
-.bt-create-title{font-size:14px;line-height:20px;font-weight:500}
-.bt-create-body{flex:1;overflow-y:auto;padding:28px 16px 32px;display:flex;justify-content:center}
 .bt-create-card{width:100%;max-width:400px;display:flex;flex-direction:column;gap:18px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} both,bt-veil-in .22s ease-out both}
 .bt-create-preview{display:flex;flex-direction:column;align-items:center;gap:10px}
 .bt-create-pop{display:inline-flex;animation:bt-create-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} both}
 @keyframes bt-create-pop{from{transform:scale(.72);opacity:.4}}
 .bt-create-name{font-size:17px;line-height:24px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-create-step{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-bottom:-10px}
+.bt-create-step{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin-bottom:-10px}
 .bt-create-looks{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
 .bt-create-lookbar{justify-content:center}
 .bt-create-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
@@ -395,7 +415,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 @keyframes bt-sheet-in{from{transform:translateY(24px)}}
 @keyframes bt-sheet-out{to{opacity:0;transform:translateY(16px);filter:blur(4px)}}
 .bt-exchange .bt-dialog{position:relative}
-.bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - 960px)/2)) 116px;scrollbar-width:thin}
+.bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - var(--dsh-chat-content-width,748px))/2)) 116px;scrollbar-width:thin}
 .bt-exchange .bt-tools{display:none}
 .bt-fold{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:4px;white-space:normal}
 .bt-fold-code{position:relative}
@@ -467,7 +487,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 
 /* Bot settings: fields, the avatar editor popover, and the details-pane sub-view. */
 .bt-field{display:flex;flex-direction:column;gap:6px}
-.bt-field-label{font-size:13px;line-height:18px;font-weight:500}
+.bt-field-label{font-size:13px;line-height:18px;font-weight:400;color:var(--bt-ink-2)}
 .bt-input{width:100%;box-sizing:border-box;height:36px;border:1px solid var(--bt-line);border-radius:8px;padding:0 10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;outline:none}
 .bt-input:focus{border-color:var(--bt-line-2)}
 .bt-input-area{height:auto;min-height:96px;padding:8px 10px;line-height:18px;resize:vertical}
@@ -522,9 +542,9 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);animation:bt-fade .22s ease-out}
 body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings{--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:16px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-gm-layer)[data-leaving]{pointer-events:none}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-gm-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-gm-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
 @keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:blur(3px)}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
@@ -655,7 +675,6 @@ button.bt-set-row:hover{background:var(--bt-hover)}
    the sidebar is open. Elsewhere an open sidebar uses the team's own top row. */
 html:not([data-windows-titlebar]) :not([class*="_collapsed"])>[class*="_logoRow"]{display:none!important}
 html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{height:0!important;margin:0!important}
-html[data-windows-titlebar] .bt-side-collapse{display:none}
 /* Under a Windows title bar our own switch replaces the shell's: the shell's
    toggle expands the shell sidebar first, and pulling it back afterwards is a
    visible flash of the shell's column. A host whose window controls stand at the band's
@@ -729,7 +748,7 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
    (the whole of it unless set). The toolbar floats over the message's bottom right. */
 body[data-bt-layout=flat] .bt-astack{align-items:stretch;gap:10px}
 body[data-bt-layout=flat] .bt-msg,body[data-bt-layout=flat] .bt-astack[data-lead]>.bt-msg{align-items:stretch;max-width:calc(var(--bt-flat-w) * 100%)}
-body[data-bt-layout=flat] .bt-bubble{background:none;padding:0;border-radius:0}
+body[data-bt-layout=flat] .bt-bubble{background:none;padding:0;border:0;border-radius:0;color:var(--bt-ink)}
 body[data-bt-layout=flat] .bt-tools{bottom:-14px;right:0;left:auto;margin-left:0;transform:none;padding:2px;border-radius:999px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
 /* With reactions below, the toolbar stays inside the message row instead of
    covering their top edge when the hover shows it. */
@@ -815,7 +834,6 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 @keyframes bt-veil-in{from{opacity:0;filter:blur(6px)}}
 @keyframes bt-check-pop{from{opacity:0;scale:.4}}
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
-.bt-brand:hover{background:var(--bt-hover)}
 .bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
 .bt-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
 .bt-pick{display:flex;flex-direction:column;align-items:center;gap:4px;padding:7px 2px 6px;border-radius:10px;border:1px solid transparent;background:none;color:var(--bt-ink);cursor:pointer;font:inherit;font-size:11px;line-height:14px;min-width:0}
@@ -826,7 +844,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:1px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink);padding:0 8px;font:inherit;font-size:13px;outline:none}
 :is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-:is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+:is(.bt-row,.bt-tile,.bt-main-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
 .bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
@@ -879,6 +897,42 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-mem-row-go{display:inline-flex;align-items:center;gap:2px;color:var(--bt-ink-3);font-size:12px;flex:none;white-space:nowrap}
 .bt-mem-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
 .bt-mem-scrim{animation:bt-fade .2s ease-out}
+/* The Add group chat dialog: the Memory card's language on a fixed 560px form. */
+.bt-gm-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font);box-sizing:border-box}
+.bt-gm-scrim{animation:bt-fade .2s ease-out}
+.bt-gm{position:relative;display:flex;flex-direction:column;width:min(560px,calc(100vw - 32px));max-height:min(600px,calc(100vh - 64px));background:var(--bt-main);color:var(--bt-ink);border:.5px solid var(--bt-line-2);border-radius:20px;box-shadow:0 24px 80px rgba(0,0,0,.24);overflow:hidden;box-sizing:border-box;animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-gm-head{display:flex;align-items:center;gap:8px;height:60px;flex:none;padding:0 14px 0 24px;border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
+.bt-gm-head h2{margin:0;flex:1;font-size:17px;line-height:24px;font-weight:600;white-space:nowrap}
+.bt-gm-head .bt-icon-btn{width:32px;height:32px;flex:none}
+.bt-gm-body{display:flex;flex-direction:column;gap:16px;flex:1;min-height:0;padding:22px 24px 0;overflow:hidden}
+.bt-gm-field{display:flex;flex-direction:column;gap:8px;flex:none}
+.bt-gm-label{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.bt-gm-input{height:40px;width:100%;box-sizing:border-box;border-radius:10px;border:.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:14px;padding:0 12px;outline:none}
+.bt-gm-input:focus{border-color:var(--bt-accent)}
+.bt-gm-pick{display:flex;flex-direction:column;flex:1;min-height:0;gap:8px}
+.bt-gm-pick-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none}
+.bt-gm-count{font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-gm-bots{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin;padding-bottom:2px}
+.bt-gm-bot{display:flex;align-items:center;gap:10px;height:48px;flex:none;padding:0 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink);font:inherit;font-size:14px;text-align:left;cursor:pointer;transition:background-color .12s ease}
+.bt-gm-bot:hover{background:var(--bt-hover)}
+.bt-gm-bot[aria-checked=true]{background:var(--bt-accent-soft)}
+.bt-gm-title{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+.bt-gm-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-gm-admin{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-gm-check{width:20px;height:20px;flex:none;border-radius:50%;corner-shape:round;border:1.5px solid var(--bt-line-2);display:inline-flex;align-items:center;justify-content:center;color:var(--bt-accent-ink);box-sizing:border-box}
+.bt-gm-bot[aria-checked=true] .bt-gm-check{background:var(--bt-accent);border-color:var(--bt-accent)}
+.bt-gm-check svg{width:12px;height:12px;stroke-width:2.2}
+.bt-gm-foot{flex:none;display:flex;flex-direction:column;gap:8px;padding:16px 24px 22px}
+.bt-gm-create{height:40px;width:100%;border:0;border-radius:10px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .12s ease}
+.bt-gm-create:disabled{opacity:.35;cursor:default}
+.bt-gm-reason{font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
+.bt-gm-error{padding:0}
+/* The Create Bot dialog: the group dialog's shell around the form, whose content scrolls. */
+.bt-bm-body{overflow-y:auto;align-items:center;padding-bottom:22px;scrollbar-width:thin}
+.bt-bm-body>.bt-create-card{max-width:none;animation:none}
+.bt-bm-body .bt-input{height:40px;border:.5px solid var(--bt-line-2);border-radius:10px;font-size:14px;padding:0 12px}
+.bt-bm-body .bt-input:focus{border-color:var(--bt-accent)}
+@media (prefers-reduced-motion:reduce){.bt-gm{animation:bt-fade .12s ease-out}}
 .bt-mem{position:relative;width:min(680px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 .bt-mem-head{position:relative;display:flex;align-items:center;gap:8px;height:60px;flex:none;padding:0 14px 0 24px;border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
 .bt-mem-head .bt-icon-btn{width:32px;height:32px;flex:none}
@@ -1078,7 +1132,7 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
    keep no-drag. The data-slot anchor must not take no-drag, or the bar inherits it. */
 html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
 html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
-[class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
+[class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(1120px,100%)}
 /* The shell writes the column's width on the conversation root at every resize, only to
    derive the content width that the rule above replaces. Inherited, each write restyled
    the whole conversation: once a frame while the details panel glides, most in a long
@@ -1140,7 +1194,7 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:hover,[data-composer-card]:focus-within{border-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
 [class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
-[class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+[class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:var(--dsh-chat-content-width,748px)!important}
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 [data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}

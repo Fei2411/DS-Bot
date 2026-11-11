@@ -74,9 +74,9 @@ const collect = (match) => {
   return out
 }
 const button = text => collect(n => n.type === 'button' && flatten(n).join('') === text)[0]
-const render = (roster) => {
+const render = (roster, overrides = {}) => {
   slots.length = 0
-  props = { roster: { bots: [], rooms: [], prefs: {}, ...roster }, actions: {}, onBack() {}, onCreated() {} }
+  props = { roster: { bots: [], rooms: [], prefs: {}, ...roster }, actions: {}, onBack() {}, onCreated() {}, ...overrides }
   rerender()
 }
 
@@ -89,16 +89,16 @@ test('the form opens on DS Bot models and can create at once', () => {
   render({ models: MODELS })
   assert.equal(button('DS Bot model').props['aria-pressed'], true)
   assert.equal(button('Local agent').props['aria-pressed'], false)
-  assert.equal(button('Create').props.disabled, false)
+  assert.equal(button('Create Bot').props.disabled, false)
 })
 
 test('a name another Bot has blocks Create on both sides', () => {
   render({ models: MODELS, bots: [{ id: 'a', name: 'Ada' }] })
   collect(n => n.type === 'input' && n.props['aria-label'] === 'Name')[0].props.onChange({ target: { value: 'Ada' } })
   assert.match(flatten(concrete).join(' '), /A Bot named Ada already exists/)
-  assert.equal(button('Create').props.disabled, true)
+  assert.equal(button('Create Bot').props.disabled, true)
   button('Local agent').props.onClick()
-  assert.equal(button('Create').props.disabled, true)
+  assert.equal(button('Create Bot').props.disabled, true)
 })
 
 test('on Local agent, Create waits for a CLI', () => {
@@ -106,7 +106,18 @@ test('on Local agent, Create waits for a CLI', () => {
   button('Local agent').props.onClick()
   assert.equal(button('Local agent').props['aria-pressed'], true)
   assert.match(flatten(concrete).join(' '), /Looking for agent CLIs/)
-  assert.equal(button('Create').props.disabled, true)
+  assert.equal(button('Create Bot').props.disabled, true)
   button('DS Bot model').props.onClick()
-  assert.equal(button('Create').props.disabled, false)
+  assert.equal(button('Create Bot').props.disabled, false)
+})
+
+test('Create sends the form and hands back the new Bot', async () => {
+  const calls = { made: [], created: [] }
+  const actions = { createBot: async payload => { calls.made.push(payload); return { id: 'b1', name: payload.name } } }
+  render({ models: MODELS }, { actions, onCreated: bot => calls.created.push(bot) })
+  button('Create Bot').props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls.made[0].name, 'New Bot')
+  assert.deepEqual(Object.keys(calls.made[0].avatar), ['shape'])
+  assert.deepEqual(calls.created, [{ id: 'b1', name: 'New Bot' }])
 })
