@@ -4,17 +4,6 @@
 import { Socket } from 'node:net'
 import { IMAP_ID } from './presets.js'
 
-// mailparser loads when a mail is first read, not when the plugin loads: its
-// charset module calls into iconv-lite as it loads, so a host that resolves
-// iconv-lite differently would otherwise fail the whole plugin's activation.
-let simpleParserPromise
-const loadSimpleParser = (deps) => deps.modules?.simpleParser
-  ? Promise.resolve(deps.modules.simpleParser)
-  : (simpleParserPromise ??= import('mailparser').then(
-    (mod) => mod.simpleParser ?? mod.default.simpleParser,
-    (error) => { simpleParserPromise = undefined; throw error },
-  ))
-
 // IMAP + SMTP (imapflow + nodemailer). One live IMAP connection per account is
 // kept by the caller (QQ throttles frequent logins); on a dropped connection the
 // caller reconnects once.
@@ -112,7 +101,9 @@ export async function connectImap(account, deps = {}) {
     try {
       const message = await imap.fetchOne(uid, { source: true, envelope: true, bodyStructure: true }, { uid: true })
       if (message === false) throw new Error('No such message')
-      const parsed = await (await loadSimpleParser(deps))(message.source)
+      // Keep optional mail decoding out of plugin activation.
+      const { simpleParser } = await import('mailparser')
+      const parsed = await simpleParser(message.source)
       return {
         uid, folder,
         messageId: parsed.messageId ?? message.envelope?.messageId ?? '',
