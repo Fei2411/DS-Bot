@@ -417,7 +417,7 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
 
 // The trigger shows the model name over its provider.
 const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { bot, shown, models, withEfforts, effortLabel } = picker
+  const { shown, models, withEfforts, effortLabel } = picker
   return h('button', {
     ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
     'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),

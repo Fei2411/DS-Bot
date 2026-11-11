@@ -21385,7 +21385,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   };
 }
 var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { bot, shown, models, withEfforts, effortLabel } = picker;
+  const { shown, models, withEfforts, effortLabel } = picker;
   return (0, import_react19.createElement)(
     "button",
     {
