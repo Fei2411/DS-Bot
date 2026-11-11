@@ -12,6 +12,7 @@ import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
 import { SPRING_GLIDE, SPRING_POP, SPRING_SHAPE, SPRING_TAP, stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
+import { ModelMenu } from './model-menu.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
@@ -801,10 +802,10 @@ export function TeamSidebar(props) {
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions, useRoster: props.useRoster }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h(AccountLauncher, { seat: false, actions }))
+        h(AccountLauncher, { seat: false, actions, useRoster: props.useRoster }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -965,8 +966,10 @@ const NO_SNAPSHOT = () => null
 // `seat` is the shell's settings.launcher seat: at priority -10 the whale wins it
 // over a shell account plugin's own launcher (the Desktop's "··· More"), which comes
 // back in Agent mode; FooterAccount stands in while no seat exists at all.
-export function AccountLauncher({ seat = true, settingsOpen, actions }) {
+export function AccountLauncher({ seat = true, settingsOpen, actions, useRoster }) {
   const [open, setOpen] = useState(false)
+  const roster = useRoster ? useRoster(value => value) : null
+  const mainBot = roster?.byId?.[roster.mainBotId]
   useLayoutEffect(() => {
     if (!seat) return undefined
     actions.seatAccount(true)
@@ -1046,6 +1049,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      [t('Classic Agent mode'), GearIcon, () => actions.setSurface('agent')],
       [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
   ]
@@ -1061,12 +1065,18 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
         h('div', { className: 'bt-confirm-row' },
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: cancelSignOut }, t('Cancel')),
           h('button', { type: 'button', className: 'bt-confirm-go', disabled: busy, onClick: () => { void runSignOut() } }, accountT('signOut'))))
-        : groups.map((group, index) => h(Fragment, { key: index },
+        : h(Fragment, null,
+          mainBot && roster ? h('div', { className: 'bt-account-model' }, h(ModelMenu, {
+            bot: mainBot, roster, actions,
+            onPick: ref => actions.updateBot(mainBot.id, { model: ref }),
+            onPickEffort: effort => actions.updateBot(mainBot.id, { effort: effort ?? null }),
+          })) : null,
+          groups.map((group, index) => h(Fragment, { key: index },
           index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
           group.map(([label, Icon, run, hint, stay]) => h('button', {
             key: label, type: 'button', role: 'menuitem',
             onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
-          }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
+          }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null)))))), document.body) : null)
 }
 
 // The desktop app keeps its main window hidden until the team interface has drawn

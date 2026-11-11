@@ -27932,11 +27932,11 @@ function TeamSidebar(props) {
     main ? (0, import_react34.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : (0, import_react34.createElement)("div", { className: "bt-hint" }, bootFailed ? bootHint() : t("Setting up your Main Bot…")),
     (0, import_react34.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions })) : (0, import_react34.createElement)(
+  const foot = wideContent ? (0, import_react34.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, useRoster: props.useRoster })) : (0, import_react34.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react34.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react34.createElement)(PlusIcon)),
-    (0, import_react34.createElement)(AccountLauncher, { seat: false, actions })
+    (0, import_react34.createElement)(AccountLauncher, { seat: false, actions, useRoster: props.useRoster })
   );
   const content = (0, import_react34.createElement)(
     "div",
@@ -28121,8 +28121,10 @@ function pressesShellShortcut(event, id) {
 var NO_SUBSCRIBE = () => () => {
 };
 var NO_SNAPSHOT = () => null;
-function AccountLauncher({ seat = true, settingsOpen, actions }) {
+function AccountLauncher({ seat = true, settingsOpen, actions, useRoster }) {
   const [open, setOpen] = (0, import_react34.useState)(false);
+  const roster = useRoster ? useRoster((value) => value) : null;
+  const mainBot = roster?.byId?.[roster.mainBotId];
   (0, import_react34.useLayoutEffect)(() => {
     if (!seat) return void 0;
     actions.seatAccount(true);
@@ -28217,6 +28219,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
       [t("Automation tasks"), ClockIcon, () => actions.selectPanel("schedules")],
+      [t("Classic Agent mode"), GearIcon, () => actions.setSurface("agent")],
       [t("Settings"), GearIcon, () => actions.openSettings("general")]
     ].filter(Boolean)
   ];
@@ -28246,20 +28249,31 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
             void runSignOut();
           } }, accountT("signOut"))
         )
-      ) : groups.map((group, index) => (0, import_react34.createElement)(
+      ) : (0, import_react34.createElement)(
         import_react34.Fragment,
-        { key: index },
-        index > 0 ? (0, import_react34.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-        group.map(([label, Icon, run2, hint, stay]) => (0, import_react34.createElement)("button", {
-          key: label,
-          type: "button",
-          role: "menuitem",
-          onClick: () => {
-            if (stay !== true) setOpen(false);
-            void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
-          }
-        }, (0, import_react34.createElement)(Icon), (0, import_react34.createElement)("span", { className: "bt-menu-label" }, label), hint ? (0, import_react34.createElement)("span", { className: "bt-menu-hint" }, hint) : null))
-      ))
+        null,
+        mainBot && roster ? (0, import_react34.createElement)("div", { className: "bt-account-model" }, (0, import_react34.createElement)(ModelMenu, {
+          bot: mainBot,
+          roster,
+          actions,
+          onPick: (ref) => actions.updateBot(mainBot.id, { model: ref }),
+          onPickEffort: (effort) => actions.updateBot(mainBot.id, { effort: effort ?? null })
+        })) : null,
+        groups.map((group, index) => (0, import_react34.createElement)(
+          import_react34.Fragment,
+          { key: index },
+          index > 0 ? (0, import_react34.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+          group.map(([label, Icon, run2, hint, stay]) => (0, import_react34.createElement)("button", {
+            key: label,
+            type: "button",
+            role: "menuitem",
+            onClick: () => {
+              if (stay !== true) setOpen(false);
+              void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
+            }
+          }, (0, import_react34.createElement)(Icon), (0, import_react34.createElement)("span", { className: "bt-menu-label" }, label), hint ? (0, import_react34.createElement)("span", { className: "bt-menu-hint" }, hint) : null))
+        ))
+      )
     ), document.body) : null
   );
 }
