@@ -81,3 +81,17 @@ test('a failed removal throws and keeps the dependency row, so the copy is found
   assert.deepEqual(manifest.dependencies, { 'ds-bot': '0.2.7' })
   assert.equal(shadowedBundles(dir, OWN).length, 1)
 })
+
+test('a failure on a later name keeps only the rows of the packages that are still there', async (t) => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) { t.skip('read-only folders do not block removal here'); return }
+  const dir = folder(t)
+  profile(dir, { 'ds-bot': '0.2.7', '@deepseek-ai/dsh-base': '1.0.0' })
+  plant(dir, 'ds-bot', '0.2.7')
+  plant(dir, '@deepseek-ai/dsh-base', '1.0.0')
+  const stuck = join(dir, 'node_modules', '@deepseek-ai', 'dsh-base')
+  chmodSync(stuck, 0o555)
+  try { await assert.rejects(removeShadowed(dir, ['ds-bot', '@deepseek-ai/dsh-base'])) } finally { chmodSync(stuck, 0o755) }
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  assert.deepEqual(manifest.dependencies, { '@deepseek-ai/dsh-base': '1.0.0' })
+  assert.deepEqual(shadowedBundles(dir, OWN).map(entry => entry.name), ['@deepseek-ai/dsh-base'])
+})
