@@ -1231,8 +1231,8 @@ export function BotReturn({ wide, useSurface, useRoster, actions }) {
 
 // Agent mode has none of the shell-group styles, so the return button carries its own.
 export const RETURN_CSS = `
-.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:color-mix(in srgb,currentColor 9%,transparent);color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
-.bt-return:hover{background:color-mix(in srgb,currentColor 17%,transparent)}
+.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-return-fill);color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
+.bt-return:hover{background:var(--bt-return-fill-hover)}
 .bt-return:active{transform:scale(.96)}
 .bt-return .bt-mark{display:inline-flex;flex:none;line-height:0}
 .bt-return .bt-mark svg{width:100%;height:100%;overflow:visible}
