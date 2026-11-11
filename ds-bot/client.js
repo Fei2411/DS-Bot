@@ -32952,15 +32952,6 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 @media (prefers-reduced-motion:reduce){.bt-star:hover .bt-star-icon,.bt-star-count{animation:none}}
 `;
 
-// src/client/provider-form.js
-function providerFormMissing(draft, models) {
-  const missing = [];
-  if (String(draft?.provider ?? "").trim() === "") missing.push("provider");
-  if (String(draft?.baseURL ?? "").trim() === "") missing.push("endpoint");
-  if ((models ?? []).length === 0) missing.push("model");
-  return missing;
-}
-
 // src/client/providers-page.js
 var import_react45 = require("react");
 var PROTOCOL_NAMES = { "openai-completions": "OpenAI Chat Completions", "openai-responses": "OpenAI Responses", "anthropic-messages": "Anthropic Messages" };
@@ -33148,13 +33139,16 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const set = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
   const typed = draft.typed.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean);
   const models = [...(found ?? []).filter((model) => picked.includes(model.id)), ...typed.filter((id) => !picked.includes(id)).map((id) => ({ id }))];
-  const missing = providerFormMissing(draft, models);
+  const missing = [];
+  if (draft.provider.trim() === "") missing.push(t("Provider ID"));
+  if (draft.baseURL.trim() === "") missing.push(t("Endpoint"));
+  if (models.length === 0) missing.push(t("At least one model"));
   const ready = missing.length === 0;
   const missingHint = ready ? null : (0, import_react45.createElement)(
     "div",
     { className: "bt-set-hint bt-provider-missing", role: "status" },
     t("Still needed: {fields}", {
-      fields: missing.map((field) => field === "provider" ? t("Provider ID") : field === "endpoint" ? t("Endpoint") : t("At least one model")).join(t(", "))
+      fields: missing.join(t(", "))
     })
   );
   const fetchModels = () => {
