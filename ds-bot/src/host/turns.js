@@ -228,11 +228,19 @@ export function install(rt) {
     if (rt.groupOwners.has(parentId)) rt.workRoomTurn?.(parentId, 'subagent')
   }
 
+  // The settlement notice can arrive before subagent/end, so the label must outlive the
+  // active entry; it is spent when the ending is read (#973).
+  const endedSubagentLabels = new Map()
   const noteSubagentEnd = (childId) => {
     if (typeof childId !== 'string' || childId === '') return
     const parentId = subagentParent.get(childId)
     if (parentId === undefined) return
     const map = subagentsByParent.get(parentId)
+    const label = map?.get(childId)?.label
+    if (typeof label === 'string' && label !== '') {
+      endedSubagentLabels.set(childId, label)
+      while (endedSubagentLabels.size > 100) endedSubagentLabels.delete(endedSubagentLabels.keys().next().value)
+    }
     map?.delete(childId)
     if (map !== undefined && map.size === 0) subagentsByParent.delete(parentId)
   }
@@ -699,8 +707,9 @@ export function install(rt) {
   })
   ctx.on?.('subagent/end', function (info) {
     const parentId = carrierKeyOf(this)?.session?.id ?? subagentParent.get(info?.id)
-    const helper = subagentsByParent.get(parentId)?.get(info?.id)?.label
+    const helper = subagentsByParent.get(parentId)?.get(info?.id)?.label ?? endedSubagentLabels.get(info?.id)
     noteSubagentEnd(info?.id)
+    endedSubagentLabels.delete(info?.id)
     const owner = rt.groupOwners.get(parentId)
     if (owner === undefined) return
     if (typeof info?.stopReason === 'string' && info.stopReason !== 'completed'
@@ -803,6 +812,8 @@ export function install(rt) {
       case 'user/message': {
         const source = event.data?.source
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
+          // A settle the group view sees before (or without) subagent/end clears the work.
+          if (typeof source.senderSessionId === 'string') noteSubagentEnd(source.senderSessionId)
           if (stoppedSubagentParents.has(id) || (typeof source.senderSessionId === 'string' && stoppedSubagents.has(source.senderSessionId))) {
             entry.suppressedSubagent = true
             void rt.resolveAgent(id).then(agent => agent?.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })).catch(() => {})
