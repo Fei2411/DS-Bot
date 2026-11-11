@@ -268,6 +268,24 @@ export function install(rt) {
     return ref
   }
 
+  // A group's own Session never asks the model (groups.js synthesizes its relay step),
+  // but DSH resolves the Session's selection before every step. One left on a model the
+  // provider no longer serves fails with UNKNOWN_MODEL whatever its members run on, so
+  // it is kept on the model new Bots start on. The record is by Session, so a part moved
+  // on to a fresh Session is selected again.
+  async function selectRoomSession(sessionId) {
+    const ref = await defaultBotModel()
+    if (ref === undefined) return
+    const route = splitRef(ref)
+    const applied = sessionSelections.get(sessionId)
+    if (applied !== undefined && sameSelection(applied, route)) return
+    await selectSessionModel(sessionId, route)
+      .catch(error => rt.warn('ds-bot: model for the group Session %s not applied: %s', sessionId, error))
+  }
+  async function syncRoomSessions() {
+    for (const room of Object.values(state.rooms ?? {})) await selectRoomSession(rt.sessionOfRoom(room))
+  }
+
   // A provider may register after the plugin starts; a greeting waits for its Bot's
   // model instead of failing with "no adapter registered".
   async function waitForModel(bot, ms = ROUTE_WAIT_MS) {
@@ -297,6 +315,7 @@ export function install(rt) {
     for (const bot of Object.values(state.bots)) {
       await applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     }
+    await syncRoomSessions().catch(error => rt.warn('ds-bot: models of the groups not applied: %s', error))
   }
 
   // A route that refused a request for not being a model endpoint: it stays out of
@@ -325,6 +344,6 @@ export function install(rt) {
   Object.assign(rt, {
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, waitForModel, syncModels, routeRefused, dropCatalog,
+    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog,
   })
 }

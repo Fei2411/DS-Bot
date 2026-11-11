@@ -389,3 +389,42 @@ test('a Bot on the default model with its own thinking level leaves the default 
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', effort: 'low' })
   assert.deepEqual(current(), fallback)
 })
+
+// A group's own Session never asks the model, but DSH resolves its selection before every
+// step. One left on a model DSH no longer serves fails with UNKNOWN_MODEL however the
+// members are set (#1310).
+test('a group\'s own Session is moved onto a served model, once, while its members keep theirs', async () => {
+  const { rt, selected } = bench({ fallback: { provider: 'gone', model: 'old' } })
+  rt.state.bots = { b1: { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' } }
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: ['b1'] }, r2: { id: 'r2', sessionId: 'r2-part', members: ['b1'] } }
+  rt.sessionOfRoom = room => room.sessionId ?? room.id
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected.sort(), ['r1:deepseek/v4-flash', 'r2-part:deepseek/v4-flash'])
+  // Nothing changed, so a later sync leaves them alone.
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(selected.length, 2)
+})
+
+test('a group\'s own Session follows the team default when it changes, and a failure is retried', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'], stepfun: ['step-5'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, [])
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  rt.state.prefs.defaultBotModel = 'stepfun/step-5'
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected.slice(1), ['r1:stepfun/step-5'])
+})
