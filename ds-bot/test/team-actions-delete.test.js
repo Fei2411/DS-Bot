@@ -2,7 +2,7 @@
 // closes the panel on it, and reads the team again if the host refused.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { EMPTY_ROSTER, createSource, indexRoster } from '../src/client/sources.js'
+import { EMPTY_ROSTER, createSource, indexRoster, withoutPending } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
 
 function bench({ refuse = false } = {}) {
@@ -27,8 +27,9 @@ function bench({ refuse = false } = {}) {
   }
   const after = promise => promise.then(value => value)
   const refresh = () => { refreshed++; return Promise.resolve() }
-  const actions = teamActions({ call, after, refresh, partFor: id => id, roster, ui })
-  return { actions, roster, ui, sent, finish: () => finish?.(), refreshes: () => refreshed }
+  const pendingDelete = new Set()
+  const actions = teamActions({ call, after, refresh, partFor: id => id, roster, ui, pendingDelete })
+  return { actions, roster, ui, sent, pendingDelete, finish: () => finish?.(), refreshes: () => refreshed }
 }
 
 test('a deleted group leaves the sidebar before the host answers', async () => {
@@ -64,4 +65,16 @@ test('a refused delete reads the team again so the row comes back', async () => 
   const { actions, refreshes } = bench({ refuse: true })
   await assert.rejects(actions.deleteRoom('room1'), /refused/)
   assert.equal(refreshes(), 1)
+})
+
+test('a delete in flight keeps the row out of a read that still carries it', async () => {
+  const { actions, pendingDelete, finish } = bench()
+  const done = actions.deleteRoom('room1')
+  assert.deepEqual([...pendingDelete], ['room1'])
+  // The answer to a read sent before the delete still lists the group.
+  const stale = { bots: [{ id: 'main' }], rooms: [{ id: 'room1' }], mainBotId: 'main', mainBotIds: ['main'] }
+  assert.deepEqual(withoutPending(stale, pendingDelete).rooms, [])
+  finish()
+  await done
+  assert.deepEqual([...pendingDelete], [])
 })

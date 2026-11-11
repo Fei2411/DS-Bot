@@ -585,7 +585,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
  * @param {{ browsers: ReturnType<typeof createBotBrowsers>, post: (endpoint:string, payload:any, signal?:AbortSignal) => Promise<any>, clientId?: string, retryMs?: number }} options
  * @returns {() => void} stop
  */
-export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1000 }) {
+export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1000, waitTimeoutMs }) {
   let stopped = false
   let poll
   let reported = ''
@@ -617,7 +617,8 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
       const open = browsers.openPages()
       reported = JSON.stringify(open)
       try {
-        const response = await post('browser-wait', { clientId, open }, poll.signal)
+        // `browser-wait` is held open by the host while it has nothing to hand over.
+        const response = await post('browser-wait', { clientId, open }, poll.signal, waitTimeoutMs)
         browsers.setHolds?.(response?.holds)
         failures = 0
         const requests = Array.isArray(response) ? response : response?.requests

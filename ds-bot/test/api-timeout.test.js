@@ -33,6 +33,17 @@ test('an answer before the timeout is used', async (t) => {
   t.mock.timers.tick(REQUEST_TIMEOUT_MS)
 })
 
+test('a call that passes 0 waits as long as the host does', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  globalThis.fetch = hangingFetch()
+  let settled = false
+  void call('folder-pick', undefined, undefined, 0).then(() => { settled = true }, () => { settled = true })
+  t.mock.timers.tick(REQUEST_TIMEOUT_MS * 10)
+  await new Promise(resolve => setImmediate(resolve))
+  // No timer was armed, so however long the host takes is still being waited for.
+  assert.equal(settled, false)
+})
+
 test('a caller that aborts gets an AbortError, not a timeout', async () => {
   globalThis.fetch = hangingFetch()
   const control = new AbortController()

@@ -9,13 +9,16 @@ const REFUSALS = new Set(['bot/refused', 'bot/invalid', 'bot/read-only', 'bot/no
 // roster poll from scheduling its next read, and a menu action then showed nothing.
 export const REQUEST_TIMEOUT_MS = 15000
 
-export const call = async (endpoint, payload, signal) => {
+// `timeoutMs` is the longest this call may wait for an answer; 0 waits as long as the
+// host does, for the calls whose host side is a long-poll or a dialog a person fills in.
+export const call = async (endpoint, payload, signal, timeoutMs = REQUEST_TIMEOUT_MS) => {
   const control = new AbortController()
   const forward = () => control.abort()
   if (signal?.aborted) control.abort()
   else signal?.addEventListener('abort', forward, { once: true })
   let expired = false
-  const timer = setTimeout(() => { expired = true; control.abort() }, REQUEST_TIMEOUT_MS)
+  const timed = timeoutMs > 0 && Number.isFinite(timeoutMs)
+  const timer = timed ? setTimeout(() => { expired = true; control.abort() }, timeoutMs) : null
   // `noteClientError` marks it noted, so the menu or form that shows it adds no second line.
   const expiredError = (cause) => {
     const error = Object.assign(new Error(t('DSH did not answer in time.')), { code: 'REQUEST_TIMEOUT', cause })
@@ -64,7 +67,7 @@ export const call = async (endpoint, payload, signal) => {
     }
     return result.value
   } finally {
-    clearTimeout(timer)
+    if (timer !== null) clearTimeout(timer)
     signal?.removeEventListener('abort', forward)
   }
 }

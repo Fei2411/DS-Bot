@@ -1824,16 +1824,17 @@ ${REST_NOTE}`);
 var ROUTE = "api/bot";
 var REFUSALS = /* @__PURE__ */ new Set(["bot/refused", "bot/invalid", "bot/read-only", "bot/not-found", "bot/browser-off"]);
 var REQUEST_TIMEOUT_MS = 15e3;
-var call = async (endpoint, payload, signal) => {
+var call = async (endpoint, payload, signal, timeoutMs = REQUEST_TIMEOUT_MS) => {
   const control = new AbortController();
   const forward = () => control.abort();
   if (signal?.aborted) control.abort();
   else signal?.addEventListener("abort", forward, { once: true });
   let expired2 = false;
-  const timer = setTimeout(() => {
+  const timed = timeoutMs > 0 && Number.isFinite(timeoutMs);
+  const timer = timed ? setTimeout(() => {
     expired2 = true;
     control.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, timeoutMs) : null;
   const expiredError = (cause) => {
     const error = Object.assign(new Error(t("DSH did not answer in time.")), { code: "REQUEST_TIMEOUT", cause });
     noteClientError(endpoint, error);
@@ -1879,7 +1880,7 @@ var call = async (endpoint, payload, signal) => {
     }
     return result.value;
   } finally {
-    clearTimeout(timer);
+    if (timer !== null) clearTimeout(timer);
     signal?.removeEventListener("abort", forward);
   }
 };
@@ -2067,6 +2068,18 @@ function indexRoster(value) {
   }
   return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true };
 }
+function withoutPending(value, pending) {
+  const next = {
+    ...value,
+    bots: (value.bots ?? []).filter((bot) => !pending.has(bot.id)),
+    rooms: (value.rooms ?? []).filter((room2) => !pending.has(room2.id))
+  };
+  if (Array.isArray(value.mainBotIds)) {
+    next.mainBotIds = value.mainBotIds.filter((id) => !pending.has(id));
+    if (pending.has(value.mainBotId)) next.mainBotId = next.mainBotIds[0] ?? null;
+  }
+  return next;
+}
 function isAgentSession(roster, cache, sessionId) {
   if (sessionId === void 0 || sessionId === null || sessionId === "") return false;
   if (roster.ready) return roster.agentOf[sessionId] !== void 0;
@@ -2084,7 +2097,7 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded, pendingDelete = /* @__PURE__ */ new Set() }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
@@ -2109,12 +2122,20 @@ function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, li
     ui2.set((state) => onIt(state) ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
   };
   const removeEntry = (kind, id, request) => {
+    pendingDelete.add(id);
     forget(kind, id);
-    return after(request()).catch((error) => {
-      void Promise.resolve(refresh?.()).catch(() => {
-      });
-      throw error;
-    });
+    return after(request()).then(
+      (value) => {
+        pendingDelete.delete(id);
+        return value;
+      },
+      (error) => {
+        pendingDelete.delete(id);
+        void Promise.resolve(refresh?.()).catch(() => {
+        });
+        throw error;
+      }
+    );
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -2259,7 +2280,9 @@ function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, li
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: (botId) => after(call2("resume", { botId })),
     folders: () => call2("folders"),
-    folderPick: () => call2("folder-pick"),
+    // The host keeps the native folder dialog open for minutes; a timed-out wait
+    // would drop the choice while the dialog still stands.
+    folderPick: () => call2("folder-pick", void 0, void 0, 0),
     folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
     setTeamWorkspace: (path2) => after(call2("team-workspace", { path: path2 })),
     deleteBot: (id) => removeEntry("bot", id, () => call2("delete-bot", { id })),
@@ -2330,7 +2353,8 @@ function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, li
     imChat: (id, body) => after(call2("im-chat", { id, ...body })),
     imRetry: (id) => after(call2("im-retry", { id })),
     imLoginStart: (payload) => call2("im-login-start", payload),
-    imLoginWait: (payload) => call2("im-login-wait", payload),
+    // The host holds this one open until the code is scanned and confirmed.
+    imLoginWait: (payload) => call2("im-login-wait", payload, void 0, 0),
     saveCapability: (capability) => after(call2("capability-save", capability)),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
     approveCapability: (name) => after(call2("capability-approve", { name })),
@@ -12085,9 +12109,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2, onDeleted }) {
       setConfirming(true);
       return;
     }
-    void run2(actions.deleteBot(bot.id)).then((done) => {
-      if (done) onDeleted?.();
-    });
+    void actions.deleteBot(bot.id).then(() => onDeleted?.(), (error) => actions.reportError?.(error, "settings"));
   };
   (0, import_react26.useEffect)(() => {
     void actions.refreshModels?.();
@@ -28658,7 +28680,7 @@ function createBotBrowsers({ bridge, createSource: createSource2, storage = glob
   };
 }
 var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3 }) {
+function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3, waitTimeoutMs }) {
   let stopped = false;
   let poll;
   let reported = "";
@@ -28687,7 +28709,7 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
       const open = browsers.openPages();
       reported = JSON.stringify(open);
       try {
-        const response = await post("browser-wait", { clientId, open }, poll.signal);
+        const response = await post("browser-wait", { clientId, open }, poll.signal, waitTimeoutMs);
         browsers.setHolds?.(response?.holds);
         failures = 0;
         const requests = Array.isArray(response) ? response : response?.requests;
@@ -29434,6 +29456,7 @@ function apply(ctx) {
     ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
+  const pendingDelete = /* @__PURE__ */ new Set();
   let pulls = 0;
   let applied = 0;
   const pull = async () => {
@@ -29477,8 +29500,9 @@ function apply(ctx) {
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live2.imVia = value.imVia;
     if (Object.keys(live2).length > 0 && current.ready) roster.set({ ...current, ...live2 });
     if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return;
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
-    roster.set(indexRoster(value));
+    const shown = pendingDelete.size === 0 ? value : withoutPending(value, pendingDelete);
+    if (Object.keys(seenAt).length === 0) leaveVisits([...shown.bots, ...shown.rooms].map((entry) => entry.id));
+    roster.set(indexRoster(shown));
     try {
       const ids = (value.agents ?? []).flatMap((agent) => agent.sessions ?? []);
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids));
@@ -29489,7 +29513,7 @@ function apply(ctx) {
     for (const id of pendingAdopt.keys()) {
       if (roster.getSnapshot().agentOf[id] !== void 0 || listed[id] === void 0) pendingAdopt.delete(id);
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
+    for (const id of [...shown.bots.map(currentPart), ...shown.rooms.map((room2) => room2.sessionId ?? room2.id)]) {
       if (refreshed.has(id)) continue;
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
@@ -29596,7 +29620,7 @@ function apply(ctx) {
         const snapshot = roster.getSnapshot();
         if (!snapshot.ready) return;
         const on = snapshot.browser === true;
-        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call });
+        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call, waitTimeoutMs: 0 });
         if (!on && stopReads) {
           stopReads();
           stopReads = null;
@@ -29761,7 +29785,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, refresh: pull, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, refresh: pull, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded, pendingDelete }),
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -30057,7 +30081,7 @@ function apply(ctx) {
             continue;
           }
           try {
-            const reply = await call("computer-cursor-wait", { after: after2 });
+            const reply = await call("computer-cursor-wait", { after: after2 }, void 0, 0);
             for (const event of reply?.events ?? []) {
               if (Number.isFinite(event.seq) && event.seq > after2) after2 = event.seq;
               if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3e3) continue;

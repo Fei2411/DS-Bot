@@ -5,7 +5,7 @@ import { noteClientError } from './diagnostics.js'
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, refresh, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
+export function teamActions({ call, after, refresh, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, pendingDelete = new Set() }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   // An action that shows the panel lands the yield with it: when a folded
@@ -37,12 +37,19 @@ export function teamActions({ call, after, refresh, partFor, roster, ui, live, c
       && (kind === 'room' ? snapshot.roomsById[state.details] : snapshot.byId[state.details])?.id === id
     ui.set(state => (onIt(state) ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state))
   }
+  // Until the host answers, a read that started before the delete still lists the
+  // row; `pendingDelete` keeps such an answer from putting it back.
   const removeEntry = (kind, id, request) => {
+    pendingDelete.add(id)
     forget(kind, id)
-    return after(request()).catch((error) => {
-      void Promise.resolve(refresh?.()).catch(() => {})
-      throw error
-    })
+    return after(request()).then(
+      (value) => { pendingDelete.delete(id); return value },
+      (error) => {
+        pendingDelete.delete(id)
+        void Promise.resolve(refresh?.()).catch(() => {})
+        throw error
+      },
+    )
   }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -160,7 +167,9 @@ export function teamActions({ call, after, refresh, partFor, roster, ui, live, c
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
     folders: () => call('folders'),
-    folderPick: () => call('folder-pick'),
+    // The host keeps the native folder dialog open for minutes; a timed-out wait
+    // would drop the choice while the dialog still stands.
+    folderPick: () => call('folder-pick', undefined, undefined, 0),
     folderList: path => call('folder-list', { path: path ?? '' }),
     setTeamWorkspace: path => after(call('team-workspace', { path })),
     deleteBot: id => removeEntry('bot', id, () => call('delete-bot', { id })),
@@ -231,7 +240,8 @@ export function teamActions({ call, after, refresh, partFor, roster, ui, live, c
     imChat: (id, body) => after(call('im-chat', { id, ...body })),
     imRetry: id => after(call('im-retry', { id })),
     imLoginStart: payload => call('im-login-start', payload),
-    imLoginWait: payload => call('im-login-wait', payload),
+    // The host holds this one open until the code is scanned and confirmed.
+    imLoginWait: payload => call('im-login-wait', payload, undefined, 0),
     saveCapability: capability => after(call('capability-save', capability)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),

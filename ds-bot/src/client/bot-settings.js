@@ -197,7 +197,8 @@ export function BotSettingsForm({ bot, roster, actions, run, onDeleted }) {
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => {
     if (!confirming) { setConfirming(true); return }
-    void run(actions.deleteBot(bot.id)).then((done) => { if (done) onDeleted?.() })
+    // The drawer closes either way, so a failure reported in it would never be seen.
+    void actions.deleteBot(bot.id).then(() => onDeleted?.(), error => actions.reportError?.(error, 'settings'))
   }
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
