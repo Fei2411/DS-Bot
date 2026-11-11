@@ -249,14 +249,16 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
     wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
       : !wide && unread && !active ? h('span', { className: 'bt-dot', 'aria-hidden': true }) : null),
-    h('div', { className: 'bt-agent-sub', 'data-open': open || undefined },
+    // The rail has no Session list. Left in, its text is wider than the rail, so this wrapper
+    // filled the rail and the 56px row sat at its left edge instead of the centre.
+    wide ? h('div', { className: 'bt-agent-sub', 'data-open': open || undefined },
       h('div', { className: 'bt-agent-sub-in' },
         h('button', { type: 'button', className: 'bt-agent-sub-row bt-agent-new', style: { '--i': 0 }, onClick: () => { void actions.newAgentSession(agent.id).catch(error => actions.reportError(error, 'agent-session')) } },
           h(PlusIcon), h('span', { className: 'bt-agent-sub-title' }, t('New session'))),
         sessions.map((session, index) => h(AgentSessionRow, {
           key: session.id, session, agent, actions, index: index + 1,
           renaming: renaming === session.id,
-        })))))
+        })))) : null)
 }
 
 function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {

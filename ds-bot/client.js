@@ -27348,7 +27348,9 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       ) : null,
       wide && unread && !active ? (0, import_react34.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && unread && !active ? (0, import_react34.createElement)("span", { className: "bt-dot", "aria-hidden": true }) : null
     ),
-    (0, import_react34.createElement)(
+    // The rail has no Session list. Left in, its text is wider than the rail, so this wrapper
+    // filled the rail and the 56px row sat at its left edge instead of the centre.
+    wide ? (0, import_react34.createElement)(
       "div",
       { className: "bt-agent-sub", "data-open": open || void 0 },
       (0, import_react34.createElement)(
@@ -27371,7 +27373,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
           renaming: renaming === session.id
         }))
       )
-    )
+    ) : null
   );
 }
 function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
