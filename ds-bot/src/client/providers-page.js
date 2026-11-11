@@ -122,7 +122,9 @@ function KnownForm({ view, apply, actions, onDone }) {
     h(FormActions, { onCancel: onDone, onAdd: add, ready: provider !== '' }))
 }
 
-function CustomForm({ view, apply, actions, onDone }) {
+// Exported so the Add form's readiness and missing-field hint can be driven without a
+// whole settings page: the hint is what tells the user why Add stays disabled.
+export function CustomForm({ view, apply, actions, onDone }) {
   const [draft, setDraft] = useState({ provider: '', name: '', baseURL: '', api: view.protocols[0], key: '', typed: '' })
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
