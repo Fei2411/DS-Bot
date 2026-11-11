@@ -25544,7 +25544,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
       attachments.length > 0 ? (0, import_react31.createElement)(Attachments, { attachments, renderMessageImages }) : null,
       text !== "" || rest.length > 0 ? (0, import_react31.createElement)(
         "div",
-        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, onClick: tapTools },
+        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick: tapTools },
         control ? (0, import_react31.createElement)("div", { className: "bt-fold-body" }, body) : body,
         control,
         rest.map((block, index) => ui.JsonBlock ? (0, import_react31.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
@@ -25579,7 +25579,7 @@ var USER_MESSAGE_CSS = `
 var import_react32 = require("react");
 var import_react_dom3 = require("react-dom");
 var mdLabels3 = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -25604,6 +25604,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         msgKey,
         mentions,
         fold,
+        textInteractionSource,
         picked: msgKey ? reactions?.[index] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -25639,7 +25640,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
   (0, import_react32.createElement)("pre", { className: "bt-fold-pre" }, (0, import_react32.createElement)("code", null, codeHead)),
   (0, import_react32.createElement)(FoldCodeCopy, { code, actions })
 );
-function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
+function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
   const body = shown === "" ? null : (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels3(), variant: "compact", fileMentions: mentions });
@@ -25660,7 +25661,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
       lead,
       (0, import_react32.createElement)(
         "div",
-        { className: "bt-bubble", "data-folded": folded || void 0 },
+        { className: "bt-bubble", "data-folded": folded || void 0, "data-text-interaction-source": textInteractionSource ? "" : void 0 },
         control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
         control
       ),
@@ -25779,7 +25780,7 @@ function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
   return ms;
 }
 var rowViews = /* @__PURE__ */ new Map();
-function ThinkingRow({ text, live, at, ms, viewKey }) {
+function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
   const box = (0, import_react32.useRef)(null);
   const view = (0, import_react32.useRef)(rowViews.get(viewKey));
   const atEnd = (0, import_react32.useRef)(view.current?.atEnd ?? true);
@@ -25821,7 +25822,7 @@ function ThinkingRow({ text, live, at, ms, viewKey }) {
       live && at !== void 0 ? (0, import_react32.createElement)(Elapsed, { at, className: "bt-think-time" }) : null,
       !live && ms !== void 0 ? (0, import_react32.createElement)("span", { className: "bt-think-time" }, `· ${elapsedLabel(Math.max(1e3, ms))}`) : null
     ),
-    (0, import_react32.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, onScroll: measure }, text)
+    (0, import_react32.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure }, text)
   );
 }
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
@@ -25843,6 +25844,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn);
   const texts2 = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text);
   const running = data.status === "running";
+  const textInteractionSource = data.status === "settled" && data.finalNode?.messageId !== void 0;
   const members = steps.length ? steps : [data];
   const shown = thinkingShown(roster.prefs);
   const reasoning = groupPart === "response" || !shown ? "" : turnReasoning(steps, data);
@@ -25878,11 +25880,12 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       text: reasoning,
       live: thinking !== void 0,
       viewKey: `${sessionId}:${data.turn}`,
+      textInteractionSource,
       // The live clock counts the settled steps too: backing `at` by the settled
       // time makes one Elapsed show settled + running.
       ...thinking !== void 0 ? { at: typeof thinking.time === "number" ? thinking.time - (ms ?? 0) : void 0 } : { ms }
     }) : null,
-    texts2.length ? (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0 }) : null
+    texts2.length ? (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0, textInteractionSource }) : null
   );
 }
 var activityParts = (line) => line.split("`").map((part, index) => index % 2 === 1 ? (0, import_react32.createElement)("code", { key: index }, part) : part);
@@ -25984,7 +25987,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react32.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true })
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -26067,7 +26070,7 @@ function EarlierUser({ row, actions }) {
     { className: "bt-urow" },
     (0, import_react32.createElement)(
       "div",
-      { className: "bt-ububble", "data-folded": folded || void 0 },
+      { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": "" },
       control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
       row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
@@ -26189,7 +26192,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case "view":
       return (0, import_react32.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react32.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE });
+      const bubbles = (0, import_react32.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
       return speaker ? (0, import_react32.createElement)(import_react32.Fragment, { key }, (0, import_react32.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
     }
@@ -26604,7 +26607,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return (0, import_react32.createElement)(
           "div",
           { key: `user-${index}`, className: "bt-urow" },
-          (0, import_react32.createElement)("div", { className: "bt-ububble" }, (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: reply.text, labels: mdLabels3(), variant: "compact" })),
+          (0, import_react32.createElement)("div", { className: "bt-ububble", "data-text-interaction-source": "" }, (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: reply.text, labels: mdLabels3(), variant: "compact" })),
           reply.via !== void 0 || Number.isFinite(time) ? (0, import_react32.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, ...reply.via !== void 0 ? [(0, import_react32.createElement)(ViaTag, { key: "via", via: reply.via })] : [], Number.isFinite(time) ? messageClock(time) : null) : null
         );
       }
