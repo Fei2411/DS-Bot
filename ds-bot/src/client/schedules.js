@@ -41,7 +41,7 @@ function dayAndTime(ms) {
 }
 function weekdayNames(days) {
   const names = days.map(day => when(Date.UTC(2024, 0, day), { weekday: 'short', timeZone: 'UTC' }))
-  return names.join(dateLocale().startsWith('zh') ? '、' : ', ')
+  return names.join(dateLocale().startsWith('zh') || dateLocale().startsWith('ja') ? '、' : ', ')
 }
 function everyText(seconds) {
   if (seconds % 86400 === 0) return seconds === 86400 ? t('Every day') : t('Every {count} days', { count: seconds / 86400 })

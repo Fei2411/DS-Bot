@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
+import { relayRange } from '../shared/group-replies.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
 
@@ -97,8 +98,9 @@ function replyItem(reply, id, extra = {}) {
 
 // A group chat's own Session as display items, oldest first. The Session holds the
 // user's messages, Bots' posts from outside the group, and one group_relay call per
-// round, whose result lists the round's replies in order.
-export function roomItems(events) {
+// round. A round's result names where its rows are in the group's book of the ledger
+// (`rowsOf` reads them); one from before the ledger lists the replies itself.
+export function roomItems(events, rowsOf = () => []) {
   const items = []
   const relays = new Map()
   for (const event of events) {
@@ -131,11 +133,16 @@ export function roomItems(events) {
     }
     if (event.type !== 'tool/result') continue
     const callId = event.data?.message?.toolCallId
-    let result
-    try { result = JSON.parse(textOf(event.data?.message?.content)) } catch { continue }
-    if (!Array.isArray(result?.replies)) continue
+    const text = textOf(event.data?.message?.content)
+    const range = relayRange(text)
+    let replies
+    if (range !== undefined) replies = rowsOf(range)
+    else {
+      try { replies = JSON.parse(text)?.replies } catch { continue }
+    }
+    if (!Array.isArray(replies)) continue
     relays.delete(callId)
-    result.replies.forEach((reply, index) => {
+    replies.forEach((reply, index) => {
       const item = replyItem(reply ?? {}, `${callId ?? seq}:${index}`)
       if (item !== undefined) items.push(item)
     })
@@ -279,7 +286,7 @@ export function install(rt) {
       maxMessages: ROOM_PAGE,
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
-    const { items, open } = roomItems(events)
+    const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to) ?? [])
     if (body.steps === true) await rt.applySteps?.(items, events, room.id)
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
@@ -287,7 +294,8 @@ export function install(rt) {
       for (const { callId, at } of open.reverse()) {
         const round = rt.roomProgress.get(callId)
         if (round === undefined) continue
-        const live = round.replies.map((reply, index) => replyItem(reply, `${callId}:${index}`, { live: true })).filter(Boolean)
+        const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from) ?? [] : round.replies ?? []
+        const live = said.map((reply, index) => replyItem(reply, `${callId}:${index}`, { live: true })).filter(Boolean)
         items.splice(at, 0, ...live)
       }
     }

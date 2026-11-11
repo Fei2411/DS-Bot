@@ -17,8 +17,9 @@
 // turn keeps running in its group Session, and what it ends with is posted to the group,
 // where the member that asked for it answers.
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -28,6 +29,7 @@ import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { failureLine } from './turns.js'
+import { parseBook } from './ledger.js'
 
 const ROOM_LOG_MAX = 60
 const ROOM_FIRST_LOOK = 12
@@ -66,14 +68,9 @@ export const isIdleRelayText = (text, everyone, priorBodies) => {
   return priorBodies.some(prev => prev !== '' && (prev === norm || (prev.length >= 8 && norm.length >= 8 && (prev.includes(norm) || norm.includes(prev)))))
 }
 
-// Logs written before rooms were versioned get sequence numbers in place.
-const ensureRoomLog = (room) => {
-  if (typeof room.seq !== 'number') {
-    room.log = (room.log ?? []).map((line, index) => ({ ...line, seq: index + 1 }))
-    room.seq = room.log.length
-  }
-  room.seen ??= {}
-}
+// Rows only the group chat draws: members read who is at work from the round itself.
+const SHOWN_ONLY = new Set(['working', 'approval'])
+const memberLine = record => record !== undefined && !SHOWN_ONLY.has(record.kind)
 
 // A member's own lines are already in its Session, so only the others' are news.
 const unseenLines = (room, memberId) => {
@@ -200,84 +197,150 @@ const fileLine = file => `[File "${file.name}" (${file.bytes} bytes) attached]`
 export function install(rt) {
   const { ctx } = rt
 
-  // A long line keeps its start in state.json, which is written whole on every save,
-  // and what a member reads of it (GROUP_LINE_READ) in a file of its own: written once,
-  // before the state that names it, and removed with the line. All of it stays in the
-  // group's Session, where the group chat shows it.
-  const linesDir = join(rt.home, 'group-lines')
-  const lineFile = (roomId, seq) => join(linesDir, roomId, `${seq}.txt`)
-  const wholeLines = new Map()
-  const lineKey = (roomId, seq) => `${roomId}/${seq}`
+  // Everything said in a group is in the group's book of the ledger (ledger.js), whole,
+  // before anything reads it. The room's own log in state.json keeps the latest lines,
+  // each cut to its start, for the members' turns; a member reads a long line whole from
+  // the book. The group chat draws its rows from the book too (groupRows).
+  const bookOf = roomId => `group-${roomId}`
   const writes = () => rt.readOnly?.() === undefined
 
-  function keepGroupLine(roomId, line, text) {
-    const kept = headOf(text, TEXT_KEPT)
-    if (kept.length === text.length) return line
-    const read = headOf(text, GROUP_LINE_READ)
-    wholeLines.set(lineKey(roomId, line.seq), read)
-    if (writes()) {
-      try {
-        mkdirSync(join(linesDir, roomId), { recursive: true })
-        writeFileSync(lineFile(roomId, line.seq), read, 'utf8')
-      } catch (error) {
-        rt.warn('ds-bot: group line %s/%s not kept whole: %s', roomId, line.seq, error)
+  // A group's book starts from what groups kept before the ledger: the room's log, the
+  // whole text of its long lines (group-lines), and its own log of whole lines (group-logs).
+  const oldLogName = id => (/^[\w-]{1,128}$/.test(id) ? id : createHash('sha256').update(String(id)).digest('hex').slice(0, 32))
+  rt.ledger.importer('group-', (book) => {
+    const roomId = book.slice('group-'.length)
+    const lines = new Map()
+    for (const line of rt.roomOf(roomId)?.log ?? []) {
+      if (!Number.isInteger(line?.seq)) continue
+      const { length, ...rest } = line
+      let text = rest.text
+      if (length !== undefined) {
+        try { text = readFileSync(join(rt.home, 'group-lines', roomId, `${line.seq}.txt`), 'utf8') } catch { /* only its start was kept */ }
+      }
+      lines.set(line.seq, { ...rest, ...(text === undefined ? {} : { text }) })
+    }
+    try {
+      for (const line of parseBook(readFileSync(join(rt.home, 'group-logs', `${oldLogName(roomId)}.jsonl`), 'utf8'))) {
+        if (Number.isInteger(line.seq)) lines.set(line.seq, line)
+      }
+    } catch { /* no log of its own yet */ }
+    return [...lines.values()].sort((a, b) => a.seq - b.seq)
+  })
+
+  // Logs written before rooms were versioned get sequence numbers in place. A book that
+  // holds a later record than the saved state (the state was not saved after it) moves
+  // the room's count on, so no number is used twice. What was said before a room had a
+  // place for the chat to start from was shown already.
+  const reconciled = new WeakSet()
+  const ensureRoomLog = (room) => {
+    if (typeof room.seq !== 'number') {
+      room.log = (room.log ?? []).map((line, index) => ({ ...line, seq: index + 1 }))
+      room.seq = room.log.length
+    }
+    room.seen ??= {}
+    if (!reconciled.has(room)) {
+      reconciled.add(room)
+      const ahead = rt.ledger.after(bookOf(room.id), room.seq)
+      if (ahead.length > 0) {
+        room.seq = Math.max(room.seq, ...ahead.map(record => record.seq))
+        room.log = [...room.log, ...ahead.filter(memberLine).map(record => cutLine(record))].slice(-ROOM_LOG_MAX)
       }
     }
-    return { ...line, text: kept, length: text.length }
+    room.shown ??= room.seq
   }
-
-  function dropGroupLine(roomId, line) {
-    if (line.length === undefined) return
-    wholeLines.delete(lineKey(roomId, line.seq))
-    if (writes()) void rm(lineFile(roomId, line.seq), { force: true }).catch(() => {})
-  }
-
-  function dropGroupLines(roomId) {
-    for (const key of wholeLines.keys()) if (key.startsWith(`${roomId}/`)) wholeLines.delete(key)
-    if (writes()) void rm(join(linesDir, roomId), { recursive: true, force: true }).catch(() => {})
-  }
-
-  // After a restart the whole lines are read back before a member reads them.
-  const loadGroupLines = room => Promise.all(room.log
-    .filter(line => line.length !== undefined && !wholeLines.has(lineKey(room.id, line.seq)))
-    .map(line => readFile(lineFile(room.id, line.seq), 'utf8').then(text => { wholeLines.set(lineKey(room.id, line.seq), text) }, () => {})))
 
   // What a member reads of a line: all of it, up to GROUP_LINE_READ.
   const memberText = room => (line) => {
-    const read = line.length === undefined ? line.text : wholeLines.get(lineKey(room.id, line.seq))
-    if (read === undefined) return `${line.text}… (cut; ${line.length} characters in all, the rest was not kept)`
-    const length = line.length ?? read.length
-    const shown = headOf(read, GROUP_LINE_READ)
-    return length > shown.length ? `${shown}… (cut; ${length} characters in all)` : shown
+    const whole = line.length === undefined ? line.text : rt.ledger.record(bookOf(room.id), line.seq)?.text
+    if (whole === undefined) return `${line.text}… (cut; ${line.length} characters in all, the rest was not kept)`
+    const shown = headOf(whole, GROUP_LINE_READ)
+    return whole.length > shown.length ? `${shown}… (cut; ${whole.length} characters in all)` : shown
+  }
+
+  // The start of a line for the room's log; the book has it whole.
+  const cutLine = (line, text = line.text ?? '') => {
+    const kept = headOf(text, TEXT_KEPT)
+    return kept.length === text.length ? line : { ...line, text: kept, length: text.length }
+  }
+  // A team from before the ledger cuts its long lines once its book has them whole.
+  function keepGroupLine(roomId, line, text) {
+    rt.ledger.open(bookOf(roomId))
+    return cutLine(line, text)
+  }
+
+  function dropGroupLines(roomId) {
+    rt.ledger.drop(bookOf(roomId))
+    if (!writes()) return
+    void rm(join(rt.home, 'group-lines', roomId), { recursive: true, force: true }).catch(() => {})
+    void rm(join(rt.home, 'group-logs', `${oldLogName(roomId)}.jsonl`), { force: true }).catch(() => {})
   }
 
   const roomLineListeners = new Set()
-  const appendRoom = (room, line) => {
+  // The one way anything is said in a group: into its book, then into the room's log for
+  // the members' turns. `session` marks a message the group's own Session shows already.
+  const say = (room, line) => {
+    ensureRoomLog(room)
     room.seq += 1
-    const whole = { ...line, seq: room.seq }
-    const log = [...room.log, keepGroupLine(room.id, whole, line.text ?? '')]
-    for (const gone of log.slice(0, -ROOM_LOG_MAX)) dropGroupLine(room.id, gone)
-    room.log = log.slice(-ROOM_LOG_MAX)
-    // Listeners see the whole line, before keepGroupLine cut it for the log.
+    const record = { ...line, seq: room.seq, time: line.time ?? Date.now() }
+    rt.ledger.append(bookOf(room.id), record)
+    // The phone link hears every line the chat will draw (mobile.js).
+    rt.roomLineAdded?.(room, record)
+    if (!memberLine(record)) return record
+    room.log = [...room.log, cutLine(record)].slice(-ROOM_LOG_MAX)
     for (const listener of roomLineListeners) {
-      try { listener(room, whole) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
+      try { listener(room, record) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
     }
-    rt.roomLineAdded?.(room, whole)
+    return record
   }
+
+  // What the group chat draws of a record, in the shape of a reply of the round.
+  function rowOf(record) {
+    // A notice names the member it is about, not as its speaker: members skip their own lines.
+    const botId = record.botId ?? record.about
+    const bot = botId === undefined ? undefined : rt.botOf(botId)
+    const who = { botId, name: bot?.name ?? (record.kind === 'notice' ? record.names?.[0] : record.who), color: bot?.color }
+    const time = record.time
+    if (record.kind === undefined) {
+      if (record.botId === undefined) return { kind: 'user', text: record.text, time, ...(record.via ? { via: record.via } : {}) }
+      return { ...who, text: record.text, time, ...(record.duration === undefined ? {} : { duration: record.duration }) }
+    }
+    if (record.kind === 'lookup') return { kind: 'lookup', ...who, text: record.text, time }
+    if (record.kind !== 'notice') return { kind: record.kind, ...who, time }
+    switch (record.reason) {
+      case 'failed': return { kind: 'failed', ...who, code: record.code, ...(record.status ? { status: record.status } : {}), text: record.message ?? record.detail, time }
+      case 'missed': return { kind: 'missed', ...who, time }
+      case 'admin-passed': return { kind: 'admin-passed', ...who, time }
+      case 'paused': return { kind: 'paused', idle: record.idle, ...who, name: bot?.name ?? record.from, count: record.count ?? record.limit, limit: record.limit, names: record.names, time }
+      case 'folder': return { kind: 'folder', text: noticeText(record), time }
+      case 'goal': {
+        const { who: _who, kind: _kind, reason: _reason, seq: _seq, time: _time, about: _about, ...fields } = record
+        return { kind: 'goal', ...fields, time }
+      }
+      default: return undefined
+    }
+  }
+  // The rows of what was said from `from` to `to` (the end when undefined), but not the
+  // messages the group's own Session shows itself.
+  const groupRows = (roomId, from, to) => {
+    const room = rt.roomOf(roomId)
+    if (room !== undefined) ensureRoomLog(room)
+    return rt.ledger.range(bookOf(roomId), from, to).filter(record => record.session !== true).map(rowOf).filter(Boolean)
+  }
+
   Object.assign(rt, {
-    keepGroupLine, dropGroupLines,
-    async recentGroupLines(roomId) {
-      const room = rt.roomOf(roomId)
-      if (room === undefined) return []
-      ensureRoomLog(room)
-      await loadGroupLines(room)
-      return room.log.map(line => ({ ...line, text: wholeLines.get(lineKey(room.id, line.seq)) ?? line.text }))
-    },
-    logRoom: (room, line) => { ensureRoomLog(room); appendRoom(room, line) },
+    keepGroupLine, dropGroupLines, groupRows,
+    logRoom: (room, line) => say(room, line),
     onRoomLine: (listener) => {
       roomLineListeners.add(listener)
       return () => roomLineListeners.delete(listener)
     },
+    // The group's own log, for the memory review and read_group_chat: every line, whole.
+    groupLinesAfter: async (roomId, since) => rt.ledger.after(bookOf(roomId), since).filter(memberLine),
+    groupLine: async (roomId, seq) => {
+      const record = rt.ledger.record(bookOf(roomId), seq)
+      return memberLine(record) ? record : undefined
+    },
+    searchGroupLog: async (roomId, query) => rt.ledger.search(bookOf(roomId), query).filter(memberLine),
   })
 
   // The folder a group was set to work in is gone: its members' Sessions move on in
@@ -286,21 +349,16 @@ export function install(rt) {
   // A failed turn stays in the log, so the admin and the other members read on their
   // next turn that the work stopped there and why (#974); the round's row is gone once
   // the round is.
-  const noteFailure = (room, name, failure) => {
-    ensureRoomLog(room)
-    appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [name], detail: failureLine(failure) })
+  const noteFailure = (room, member, failure) => {
+    const { code, status, message } = failure
+    say(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [member.name], about: member.id, detail: failureLine(failure), code, ...(status ? { status } : {}), message })
   }
 
   async function roomFolderNotice(roomId, folder) {
     const room = rt.roomOf(roomId)
     if (room === undefined || folder === undefined || room.workDir !== folder || room.folderNotice === folder) return
-    ensureRoomLog(room)
     room.folderNotice = folder
-    appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'folder', path: folder })
-    const text = noticeText({ reason: 'folder', path: folder })
-    for (const round of rt.roomProgress.values()) {
-      if (round.roomId === room.id) round.replies.push({ kind: 'folder', text, time: Date.now() })
-    }
+    say(room, { who: 'DS Bot', kind: 'notice', reason: 'folder', path: folder })
     await rt.save()
   }
   rt.roomFolderNotice = roomFolderNotice
@@ -557,11 +615,9 @@ export function install(rt) {
     return batches
   }
 
-  // A member's message in the round: in the log, for the members after it, and in the
-  // round's replies, for the user.
-  const postInRound = (room, round, member, text, duration) => {
-    appendRoom(room, { who: member.name, botId: member.id, text })
-    round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now(), ...(duration === undefined ? {} : { duration }) })
+  // A member's message in the round, for the members after it and the user.
+  const postInRound = (room, member, text, duration) => {
+    say(room, { who: member.name, botId: member.id, text, ...(duration === undefined ? {} : { duration }) })
     void rt.save().catch(() => {})
     return room.seq
   }
@@ -607,7 +663,7 @@ export function install(rt) {
         const step = stripOwnName(member.name, raw)
         if (isPass(step)) return
         said.push(step)
-        postInRound(room, round, member, step, Date.now() - startedAt)
+        postInRound(room, member, step, Date.now() - startedAt)
         heard(step)
       }
       touch()
@@ -774,8 +830,7 @@ export function install(rt) {
     rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const line of lines) {
-      appendRoom(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
-      round.replies.push({ kind: 'user', text: line.text, time: Date.now(), ...(line.via ? { via: line.via } : {}) })
+      say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       const { speakers, ordered } = openingCall(room, { text: line.text })
@@ -829,8 +884,7 @@ export function install(rt) {
     if (room.idlePaused === undefined || room.idlePaused.noticed === true) return
     room.idlePaused.noticed = true
     const names = callees.map(peer => peer.name)
-    appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', idle: true, from: member.name, limit: ROOM_IDLE_RELAY_LIMIT, names })
-    round.replies.push({ kind: 'paused', idle: true, botId: member.id, name: member.name, color: member.color, count: room.idlePaused.count ?? ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names, time: Date.now() })
+    say(room, { who: 'DS Bot', kind: 'notice', reason: 'paused', idle: true, from: member.name, about: member.id, count: room.idlePaused.count ?? ROOM_IDLE_RELAY_LIMIT, limit: ROOM_IDLE_RELAY_LIMIT, names })
     void rt.save().catch(() => {})
   }
 
@@ -903,9 +957,7 @@ export function install(rt) {
     // An answer that came, or is still coming, means the round is not left silent.
     const answered = round.slots.some(slot => ['posted', 'working', 'waiting-approval'].includes(slot.status))
     if (alone && !answered) {
-      appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'admin-passed', names: [round.soleAdmin.name] })
-      // The round the user watched shows the same notice as one line of its replies.
-      round.replies.push({ kind: 'admin-passed', botId: round.soleAdmin.id, name: round.soleAdmin.name, color: round.soleAdmin.color, time: Date.now() })
+      say(room, { who: 'DS Bot', kind: 'notice', reason: 'admin-passed', names: [round.soleAdmin.name], about: round.soleAdmin.id })
       await rt.save()
     }
   }
@@ -930,9 +982,7 @@ export function install(rt) {
       const own = batchOfSlot(room.id, slot)
       if (own !== undefined) leaveBatch(room, own, member.id)
       round.failed.push(member.name)
-      const failure = { code: 'SESSION', message: String(error?.message ?? error).slice(0, 300) }
-      round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code: failure.code, text: failure.message, time: Date.now() })
-      noteFailure(room, member.name, failure)
+      noteFailure(room, member, { code: 'SESSION', message: String(error?.message ?? error).slice(0, 300) })
       return
     }
     if (session === undefined) {
@@ -940,7 +990,6 @@ export function install(rt) {
       dropMemberFromBatch(room, member.id)
       return
     }
-    await loadGroupLines(room)
     const prompt = roomPrompt(room, member, round, slot, await finishedLines(room, slot))
     round.shown?.push(member.id)
     const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
@@ -973,40 +1022,37 @@ export function install(rt) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
       slot.status = 'failed'
       round.failed.push(member.name)
-      const { code, status, message } = reply.failure
-      round.replies.push({ kind: 'failed', botId: member.id, name: member.name, color: member.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
-      noteFailure(room, member.name, reply.failure)
+      noteFailure(room, member, reply.failure)
     } else if (reply?.approval) {
       // The member's turn goes on in the background and posts when it ends.
       slot.status = 'waiting-approval'
-      round.replies.push({ kind: 'approval', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+      say(room, { who: member.name, botId: member.id, kind: 'approval' })
     } else if (reply?.working) {
       slot.status = 'working'
       markSlotWorked(room.id, slot)
-      round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+      say(room, { who: member.name, botId: member.id, kind: 'working' })
     } else if (subRunning) {
       if (final !== undefined) {
-        postInRound(room, round, member, final, Date.now() - startedAt)
+        postInRound(room, member, final, Date.now() - startedAt)
         callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
       }
       slot.status = 'working'
       markSlotWorked(room.id, slot)
-      round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+      say(room, { who: member.name, botId: member.id, kind: 'working' })
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined) {
-        posted.push(postInRound(room, round, member, final, Date.now() - startedAt))
+        posted.push(postInRound(room, member, final, Date.now() - startedAt))
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
       slot.status = reply === null ? 'cancelled' : typeof reply === 'string' ? 'passed' : 'missed'
       round.passed.push(member.name)
       if (reply?.missed) {
-        round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
         // The round moved on without this member: the log shows the call and then
         // silence, which reads as a lost message. The group is told the baton was
         // dropped, and what brings the member back.
-        appendRoom(room, { who: 'DS Bot', kind: 'notice', reason: 'missed', names: [member.name], minutes: Math.round(ROOM_REPLY_TIMEOUT_MS / 60000) })
+        say(room, { who: 'DS Bot', kind: 'notice', reason: 'missed', names: [member.name], about: member.id, minutes: Math.round(ROOM_REPLY_TIMEOUT_MS / 60000) })
       }
     }
     // A result the admin asked for reports its goal task; a failed model call puts it back.
@@ -1081,13 +1127,15 @@ export function install(rt) {
         const readings = post.images === undefined ? [] : await rt.imagesForGroup(post.images, rt.sessionOfRoom(room))
         const text = [post.text, ...readings, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
         const who = post.botId ? rt.botOf(post.botId)?.name ?? post.name ?? 'Bot' : 'User'
-        appendRoom(room, {
+        say(room, {
           who,
           ...(post.botId ? { botId: post.botId } : {}),
           text,
           ...(post.images === undefined ? {} : { images: post.images }),
           ...(post.files === undefined ? {} : { files: post.files }),
           ...(post.via === undefined ? {} : { via: post.via }),
+          // The group's own Session shows the message; a goal draft's trigger it hides.
+          ...(post.goal === 'draft' ? {} : { session: true }),
         })
         if (post.batch !== undefined && text !== '') recordResult(post.batch, who, room.seq)
       }
@@ -1158,7 +1206,8 @@ export function install(rt) {
         })),
         batches: 1,
         ...(soleAdmin ? { soleAdmin: { id: admin.id, name: admin.name, color: admin.color } } : {}),
-        replies: [],
+        // The chat shows what was said from here: whatever came since the last round too.
+        from: Math.min(startSeq, room.shown + 1),
         passed: [],
         failed: [],
         started: [],
@@ -1167,23 +1216,15 @@ export function install(rt) {
       // with work in it clears the streak, and a paused room holds the post back.
       if (!idlePost && poster !== undefined && !event(opener) && opener.quiet !== true) clearIdleStreak(room)
       if (holdsPost) holdIdleCalls(room, round, poster, opened.speakers, { named, all: (mentionsOf(opener, everyone) ?? mentionsIn(opener.text ?? '', everyone)).all === true })
-      // The group transcript hides the goal trigger, so the user sees their request as a reply.
-      for (const post of posts.filter(item => item.goal === 'draft' && item.logged === undefined)) {
-        round.replies.push({ kind: 'user', text: post.text, time: Date.now() })
-      }
+      // A member's late failure is in the log already (noteFailure); the round names it.
       for (const post of posts.filter(item => item.failed && item.logged === undefined)) {
-        const bot = rt.botOf(post.botId)
-        const { code, status, message } = post.failed
-        round.failed.push(bot?.name ?? post.name)
-        round.replies.push({ kind: 'failed', botId: post.botId, name: bot?.name ?? post.name, color: bot?.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
+        round.failed.push(rt.botOf(post.botId)?.name ?? post.name)
       }
       // The log line tells the admin and the other members on their next turn.
       for (const post of posts.filter(item => (item.resumed || item.stopped || item.done) && item.logged === undefined)) {
-        const bot = rt.botOf(post.botId)
-        const name = bot?.name ?? post.name
+        const name = rt.botOf(post.botId)?.name ?? post.name
         const kind = post.done ? 'done' : post.stopped ? 'stopped' : post.again ? 'cut' : 'resumed'
-        appendRoom(room, { who: name, botId: post.botId, kind, text: '' })
-        round.replies.push({ kind, botId: post.botId, name, color: bot?.color, time: Date.now() })
+        say(room, { who: name, botId: post.botId, kind, text: '' })
       }
       if (posts.some(post => post.resumed || post.stopped || post.done)) await rt.save()
       for (const post of posts) if (post.batchEnd) closeBatch(post.batch)
@@ -1195,6 +1236,8 @@ export function install(rt) {
         rt.warn('ds-bot: group round in %s stopped: %s', room.name, error)
       } finally {
         rt.roomProgress.delete(exec.callId)
+        round.to = room.seq
+        room.shown = Math.max(room.shown, round.to)
       }
       if (exec.signal?.aborted) {
         for (const turn of round.started) {
@@ -1210,21 +1253,23 @@ export function install(rt) {
         }
       }
       await rt.save()
+      const rows = groupRows(room.id, round.from, round.to)
       for (const post of open) {
-        if (post.reportBack && rt.botOf(post.botId)) void reportRound(room, post, round)
+        if (post.reportBack && rt.botOf(post.botId)) void reportRound(room, post, { rows, passed: round.passed, failed: round.failed })
       }
       // A post this round took in while it ran gets the replies of the members it called.
       for (const { post, ids, from } of round.reports ?? []) {
         if (!rt.botOf(post.botId)) continue
         const names = ids.map(id => rt.botOf(id)?.name).filter(Boolean)
         void reportRound(room, post, {
-          replies: round.replies.slice(from).filter(reply => ids.includes(reply.botId)),
+          rows: groupRows(room.id, from, round.to).filter(row => ids.includes(row.botId)),
           passed: round.passed.filter(name => names.includes(name)),
           failed: round.failed.filter(name => names.includes(name)),
         })
       }
       exec.concludeTurn?.()
-      return JSON.stringify({ replies: round.replies, passed: round.passed, ...(round.failed.length > 0 ? { failed: round.failed } : {}) })
+      // The rows are in the group's book: the result names where, so DSH never cuts them.
+      return JSON.stringify({ from: round.from, to: round.to, passed: round.passed, ...(round.failed.length > 0 ? { failed: round.failed } : {}) })
     },
   }))
 
@@ -1251,12 +1296,8 @@ export function install(rt) {
       const parts = rt.partsOf(botId)
       const number = Number.isInteger(args.part) ? args.part : undefined
       if (room !== undefined && member !== undefined) {
-        ensureRoomLog(room)
         const text = query !== '' ? query : around !== '' ? `around ${around}` : number !== undefined ? `part ${number}` : ''
-        appendRoom(room, { who: member.name, botId: member.id, kind: 'lookup', text })
-        for (const round of rt.roomProgress.values()) {
-          if (round.roomId === room.id) round.replies.push({ kind: 'lookup', botId: member.id, name: member.name, color: member.color, text, time: Date.now() })
-        }
+        say(room, { who: member.name, botId: member.id, kind: 'lookup', text })
         void rt.save().catch(() => {})
       }
       const partsNote = parts.length > 1 ? `\n\nYour own chat has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
@@ -1302,10 +1343,7 @@ export function install(rt) {
       ensureRoomLog(room)
       if (args.seq !== undefined) {
         const line = room.log.find(entry => entry.seq === Number(args.seq))
-        if (line !== undefined) {
-          await loadGroupLines(room)
-          return lineText(line, memberText(room)(line))
-        }
+        if (line !== undefined) return lineText(line, memberText(room)(line))
         const kept = await rt.groupLine(room.id, Number(args.seq)).catch(() => undefined)
         return kept === undefined ? `"${room.name}" has no message ${args.seq}.` : lineText(kept, headOf(kept.text ?? '', GROUP_LINE_READ))
       }
@@ -1380,7 +1418,7 @@ export function install(rt) {
     if (wake !== undefined) giveResults(round, extra.askedBy, wake)
     if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     if (extra.reportBack) {
-      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}), ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}) }, ids: speakers.map(peer => peer.id), from: round.replies.length })
+      (round.reports ??= []).push({ post: { botId: sender.id, name: sender.name, reportBack: true, ...(extra.sub ? { sub: extra.sub } : {}), ...(extra.fromRoomId ? { fromRoomId: extra.fromRoomId } : {}) }, ids: speakers.map(peer => peer.id), from: room.seq + 1 })
     }
     return true
   }
@@ -1392,20 +1430,15 @@ export function install(rt) {
   async function postToRoom(room, sender, text, extra = {}, files = []) {
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id && round.nudge !== undefined)
     if (running !== undefined) {
-      ensureRoomLog(room)
       if (extra.failed !== undefined) {
-        // A failed model call is an event of the round only: no log line, as the relay does it.
-        const { code, status, message } = extra.failed
+        // A failed model call is in the log already (noteFailure); the round names it.
         running.failed.push(sender.name)
-        running.replies.push({ kind: 'failed', botId: sender.id, name: sender.name, color: sender.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
       } else if (extra.resumed === true || extra.stopped === true || extra.done === true) {
         const kind = extra.done === true ? 'done' : extra.stopped === true ? 'stopped' : extra.again === true ? 'cut' : 'resumed'
-        appendRoom(room, { who: sender.name, botId: sender.id, kind, text: '' })
-        running.replies.push({ kind, botId: sender.id, name: sender.name, color: sender.color, time: Date.now() })
+        say(room, { who: sender.name, botId: sender.id, kind, text: '' })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        appendRoom(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}) })
-        running.replies.push({ botId: sender.id, name: sender.name, color: sender.color, text: line, time: Date.now() })
+        say(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}) })
         if (extra.batch !== undefined && line !== '') recordResult(extra.batch, sender.name, room.seq)
       }
       callPost(room, running, sender, text, extra)
@@ -1504,7 +1537,7 @@ export function install(rt) {
     const calls = callsIn(room, member, text)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     if (!calls && running !== undefined) {
-      postInRound(room, running, member, text)
+      postInRound(room, member, text)
       return
     }
     const quiet = !calls
@@ -1619,7 +1652,7 @@ export function install(rt) {
     const wakeCaller = woken?.by
     const { code, status, message } = failure
     rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
-    noteFailure(room, member.name, failure)
+    noteFailure(room, member, failure)
     await postToRoom(room, member, `Could not finish: its model call failed (${failureLine(failure)}).`, {
       late: true,
       ...(wakeCaller ? { askedBy: wakeCaller, batch: woken.key, batchEnd: true } : { quiet: true }),
@@ -1645,15 +1678,15 @@ export function install(rt) {
   rt.greetRoom = greetRoom
 
   async function reportRound(room, post, round) {
-    const lines = round.replies.filter(reply => reply.kind === undefined).map(reply => `${reply.name}: ${reply.text}`)
-    const waiting = round.replies.filter(reply => reply.kind === 'approval').map(reply => reply.name)
-    const working = round.replies.filter(reply => reply.kind === 'working').map(reply => reply.name)
+    const lines = round.rows.filter(row => row.kind === undefined).map(row => `${row.name}: ${row.text}`)
+    const waiting = round.rows.filter(row => row.kind === 'approval').map(row => row.name)
+    const working = round.rows.filter(row => row.kind === 'working').map(row => row.name)
     const text = [
       lines.length > 0 ? `Replies to your post (oldest first):\n${lines.join('\n')}` : 'Nobody replied to your post.',
       working.length > 0 ? `Still working on it: ${working.join(', ')}. Each posts its result in the group when done, not to you; read_group_chat shows it.` : '',
       waiting.length > 0 ? `Waiting for the user's approval: ${waiting.join(', ')}. What they say afterwards is posted in the group, not sent to you; read_group_chat shows it.` : '',
       round.passed.length > 0 ? `Stayed silent: ${round.passed.join(', ')}.` : '',
-      round.failed.length > 0 ? `Could not answer because their model call failed: ${round.replies.filter(reply => reply.kind === 'failed').map(reply => `${reply.name} (${failureLine({ code: reply.code, status: reply.status, message: reply.text })})`).join(', ')}.` : '',
+      round.failed.length > 0 ? `Could not answer because their model call failed: ${round.rows.filter(row => row.kind === 'failed').map(row => `${row.name} (${failureLine({ code: row.code, status: row.status, message: row.text })})`).join(', ')}.` : '',
     ].filter(Boolean).join('\n\n')
     // Replies the poster waited for go on with the work it posted for.
     const work = post.sub === undefined ? undefined : rt.closeWork(post.sub, `Group "${room.name}"`, text)

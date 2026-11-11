@@ -127,7 +127,10 @@ async function team(call) {
 
 const user = (seq, text, time = seq) => ({ seq, time, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
 const relayCall = (seq, callId) => ({ seq, time: seq, type: 'tool/call', data: { callId, name: 'group_relay', arguments: '{}' } })
-const relayResult = (seq, callId, replies) => ({ seq, time: seq, type: 'tool/result', data: { message: { role: 'tool', toolCallId: callId, content: [{ type: 'text', text: JSON.stringify({ replies, passed: [] }) }] } } })
+// A settled round's result as the group's Session keeps it: the text group_relay
+// returned (where its rows are in the group's book), or the replies of a round from
+// before the ledger.
+const relayResult = (seq, callId, result) => ({ seq, time: seq, type: 'tool/result', data: { message: { role: 'tool', toolCallId: callId, content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify({ replies: result, passed: [] }) }] } } })
 
 test('hello names the API version both sides speak, the capabilities and the notice cursor', async (t) => {
   const { call, stop } = start()
@@ -212,7 +215,7 @@ test('a group round logs notices a returning client reads back, and the feed say
 
   await answer(second.sessionId, second.message.source.exchangeId, 'Writer here.', 2)
   const result = await running
-  history[room.id].push(relayResult(3, 'call-1', JSON.parse(result).replies))
+  history[room.id].push(relayResult(3, 'call-1', result))
   const done = (await call('room-chat', { roomId: room.id })).value
   assert.deepEqual(done.items.map(item => [item.id, item.text]), [['1', 'Start'], ['call-1:0', 'Chief here.'], ['call-1:1', 'Writer here.']])
   assert.equal(done.running, false)

@@ -51,6 +51,7 @@
 | [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 本地 agent CLI 作为 Bot 的运行方式（英文文档）：运行方式的选择和切换、会话映射、工具桥、审批、记忆、会话管理与徽标 |
 | [头像库](2026-10-23-avatar-library.md) | 可复用的自定义头像库（`bot/avatars/`，按内容去重）与单张容错的批量导入 |
 | [AGENTS.md 维护](2026-10-27-agents-md-upkeep.md) | 从项目工作中审阅持久规则；用户批准后才原子写入 |
+| [消息账本](2026-11-10-message-ledger.md) | 群里的每条消息先写进群的只追加账本，界面、成员、记忆整理、IM 都从账本读；一轮的工具结果只记序号范围，刷新后不丢 |
 | [长消息](2026-10-16-long-messages.md) | state.json 只存开头；超过 2 万字的 Bot 消息转成 DSH 文件；成员和界面怎么读全文 |
 | [桌面应用](2026-10-16-desktop-app.md) | 壳、引擎和界面怎么分；锁定的 DSH 版本、独立的数据位置、首次启动和导入、插件怎么兼容 DSH、安装和更新 |
 | [Linux 桌面包](2026-10-21-linux-app-package.md) | AppImage（自更新）加 deb（Debian/Ubuntu 沙箱兜底），同一轮构建产出 |
