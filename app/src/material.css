@@ -26,11 +26,13 @@ div[class*="_sidebarCol"] > * > div[class*="_root"] {
   background: transparent !important;
 }
 /* The session tree fades out above the footer with a gradient to the opaque sidebar fill, a
-   dark bar on the material; the list fades itself out instead. */
-div[class*="_sidebarCol"] [class*="_treeBody"] > [class*="_fade"] {
+   dark bar on the material; the list fades itself out instead (0.2.2-rc.1 `_treeBody`, rc.2 `_scrollRegion`). */
+div[class*="_sidebarCol"] [class*="_treeBody"] > [class*="_fade"],
+div[class*="_sidebarCol"] [class*="_scrollRegion"] > [class*="_scrollFade"] {
   display: none !important;
 }
-div[class*="_sidebarCol"] [class*="_treeBody"]:has(> [class*="_fade"]) > [class*="_list"] {
+div[class*="_sidebarCol"] [class*="_treeBody"]:has(> [class*="_fade"]) > [class*="_list"],
+div[class*="_sidebarCol"] [class*="_scrollRegion"]:has(> [class*="_scrollFade"]) [class*="_listArea"] {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
 }
 /* ds-bot's own docked column (.bt-leftcol) reaches the window's top edge and shows the

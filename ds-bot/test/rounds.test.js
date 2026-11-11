@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { withRows } from './relay-rows.js'
+import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { ROOM_IDLE_RELAY_LIMIT } from '../src/host/constants.js'
 import { isIdleRelayText, lineText } from '../src/host/groups.js'
@@ -94,7 +94,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
   })
   const relay = (roomId, callId, signal = new AbortController().signal) => rt.teamTools.find(d => d.name === 'group_relay')
     .execute({}, { agent: { id: roomId, inbox: inboxOf(roomId) }, callId, signal })
-    .then(value => JSON.stringify(withRows(rt, roomId, JSON.parse(value))))
+    .then(async value => JSON.stringify(await afterRound(rt, roomId, value)))
   // The Bot's answer to its group turn: a delivery source plus the reply text.
   const answer = async (sessionId, exchangeId, text, turn) => {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
@@ -304,7 +304,7 @@ test('a stopped round leaves a waiting message for the next round', async (t) =>
   const running = relay(room.id, 'relay', controller.signal)
   await turnFor(sent)
   await compose(room.id, 'still there?')
-  controller.abort()
+  rt.stopRoomRound(room.id)
   const result = JSON.parse(await running)
   assert.equal(result.replies.some(reply => reply.kind === 'user'), false)
   assert.equal(inboxOf(room.id).nextTurn.length, 1)
@@ -1339,20 +1339,22 @@ test("a long round's result stays small, and its rows read back whole after a re
   await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
   const result = await raw
   assert.ok(result.length < 200, result)
-  const { from, to } = JSON.parse(result)
-  assert.equal((await call('group-rows', { roomId: room.id, from, to })).value.find(row => row.botId !== undefined).text, long)
+  const { from } = JSON.parse(result)
+  await afterRound(rt, room.id, result)
+  const to = undefined
+  assert.equal((await call('group-rows', { roomId: room.id, from, to })).value.rows.find(row => row.botId !== undefined).text, long)
   await rt.save()
   await stop({ keep: true })
 
   const again = start({ home })
   t.after(() => again.stop({ keep: true }))
   await again.call('state', {})
-  const rows = (await again.call('group-rows', { roomId: room.id, from, to })).value
+  const rows = (await again.call('group-rows', { roomId: room.id, from, to })).value.rows
   assert.deepEqual(rows.map(row => [row.kind ?? 'message', row.text?.length]), [['message', long.length]])
 })
 
 // The opening message is the one the group's own Session shows; what is said between
-// rounds shows in the next round, once.
+// rounds shows once, above the message that opens the next round.
 test('the rows of a round leave out its opening message and show once what came between rounds', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)
@@ -1372,7 +1374,11 @@ test('the rows of a round leave out its opening message and show once what came 
   await answer(c.sessionId, c.message.source.exchangeId, 'Done two.', 3)
   const d = await turnFor(sent, a, b, c)
   await answer(d.sessionId, d.message.source.exchangeId, '[PASS]', 4)
-  assert.deepEqual(JSON.parse(await second).replies.map(row => [row.kind ?? 'message', row.text]), [['lookup', 'plan'], ['message', 'Done two.']])
+  const secondRows = JSON.parse(await second)
+  assert.deepEqual(secondRows.replies.map(row => [row.kind ?? 'message', row.text]), [['message', 'Done two.']])
+  // The first call's rows run up to the second call: its reply, then the look-up.
+  const firstFrom = rt.ledger.records(`group-${room.id}`).find(record => record.event === 'anchor').from
+  assert.deepEqual(rt.groupRows(room.id, firstFrom).map(row => [row.kind ?? 'message', row.text]), [['message', 'Done one.'], ['lookup', 'plan']])
 })
 
 // The book is written before the state that counts its lines. A record the state was not
@@ -1407,7 +1413,7 @@ test('a group whose state was not saved after its last line goes on numbering af
   await again.answer(d.sessionId, d.message.source.exchangeId, '[PASS]', 4)
   await next
   await again.rt.ledger.flush()
-  const seqs = readFileSync(book, 'utf8').trim().split('\n').map(row => JSON.parse(row).seq)
+  const seqs = readFileSync(book, 'utf8').trim().split('\n').map(row => JSON.parse(row).seq).filter(seq => seq !== undefined)
   assert.equal(new Set(seqs).size, seqs.length)
   assert.ok(again.rt.ledger.records(`group-${room.id}`).some(record => record.text === 'Two' && record.seq === seq + 2))
 })
