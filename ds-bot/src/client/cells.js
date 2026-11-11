@@ -373,7 +373,7 @@ function scheduleGroupChains(flow) {
 // One Bot message inside a group chat: avatar, name (with its group role), when it ran
 // and how long it took, bubble. The flat layout moves the avatar from beside the last
 // bubble to the head of the name row, so the text below runs the whole width.
-function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi, whole, time, duration }) {
+function GroupMessage({ bot, text, texts = [text], room, sessionId, roster, actions, msgKey, useUi, whole, time, duration }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -387,12 +387,15 @@ function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey
     h(BotMark, { bot, size: 22 }))
   const flat = layoutOf(roster.prefs) === 'flat'
   const took = Number.isFinite(duration) && duration >= 1000 ? elapsedLabel(duration) : undefined
+  // The Reply tool quotes into the composer of the chat on screen: a group that has split
+  // its public chat keeps going in a new Session, while its room id stays the same.
+  const quoteSession = sessionId ?? room?.sessionId ?? room?.id
   return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
       took ? h('span', { className: 'bt-group-took', title: t('Ran for {duration}', { duration: took }) }, took) : null),
-    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead: flat ? null : lead, whole }))
+    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole }))
 }
 
 // A centered event line that names a group chat and opens it.
@@ -620,7 +623,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       // A member's message in a group's earlier part, as the live row shows it.
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
       return h(GroupMessage, {
-        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, room: roster.roomsById[sessionId], roster, actions,
+        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, room: roster.roomsById[sessionId], sessionId, roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
       })
@@ -704,7 +707,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         const text = stripHeader(contentText(data.content))
         // A trigger's data carries no turn; its event seq is the one durable name of this post.
         return h(GroupMessage, {
-          bot: poster, text: file ? stripLongNote(text) : text, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
+          bot: poster, text: file ? stripLongNote(text) : text, room, sessionId, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })
       }
@@ -1046,7 +1049,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },
           h('span', { className: 'bt-event-ico', 'aria-hidden': true }, h(GoalIcon)), goalEventText(reply))
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration })
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id]
