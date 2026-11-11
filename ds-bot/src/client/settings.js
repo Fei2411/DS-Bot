@@ -2,7 +2,7 @@ import { Component, createElement as h, useCallback, useEffect, useRef, useState
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -14,6 +14,7 @@ import { KeptPrivateSection } from './kept-private.js'
 import { KeyIcon, SecretsPage } from './secret-card.js'
 import { UsagePage } from './usage-page.js'
 import { ConnectorsPage } from './connectors-page.js'
+import { PhonePage } from './phone-page.js'
 import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
 import { BrowserPage } from './browser-settings.js'
@@ -35,7 +36,7 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // DS Bot's pages come first; below a rule, the pages DSH and other plugins register
 // (`settings.section`), then Feedback and About. DSH's General rows join General, and
 // its Models page opens from DS Bot's Models page as the advanced settings.
-const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
 const LAST_PAGES = new Set(['feedback', 'about'])
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models'])
@@ -45,7 +46,7 @@ const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPr
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -336,7 +337,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const errorLine = error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null
   const pageButton = (key, text) => h('button', {
     key, type: 'button', className: 'bt-settings-item', 'aria-current': shown === key ? 'page' : undefined, onClick: () => actions.openSettings(key),
-  }, h(PAGE_ICONS[key]), t(text))
+  }, h(PAGE_ICONS[key]), t(text), key === 'phone' ? h('span', { className: 'bt-tag', style: { marginLeft: 'auto' } }, t('Beta')) : null)
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onMouseDown: close }),
     h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('Settings'), 'data-shortcut-modal': 'settings' },
@@ -373,6 +374,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
           shown === 'im' ? h(ImPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
+          shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
           shown === 'browser' ? h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow }) : null,
           shown === 'schedules' ? h(SchedulesPage, { roster, actions, start: id ?? undefined }) : null,
           shown === 'secrets' ? h(SecretsPage, { roster, actions, run, Section: SetSection }) : null,

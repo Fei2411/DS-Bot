@@ -282,6 +282,8 @@ export function install(rt) {
     room.seq += 1
     const record = { ...line, seq: room.seq, time: line.time ?? Date.now() }
     rt.ledger.append(bookOf(room.id), record)
+    // The phone link hears every line the chat will draw (mobile.js).
+    rt.roomLineAdded?.(room, record)
     if (!memberLine(record)) return record
     room.log = [...room.log, cutLine(record)].slice(-ROOM_LOG_MAX)
     for (const listener of roomLineListeners) {

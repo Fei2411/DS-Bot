@@ -173,5 +173,8 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
   }
 
   // An object return would be collected as an effect by cordis, so the api is an out-param.
-  if (api) api.drop = drop
+  if (api) {
+    api.drop = drop
+    api.frame = async botId => (await sessions.get(botId))?.frame?.()
+  }
 }
