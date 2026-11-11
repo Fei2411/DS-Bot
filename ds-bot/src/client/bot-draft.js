@@ -39,6 +39,16 @@ export function avatarAfter(bot, target) {
   return { avatar: Object.keys(rest).length > 0 ? rest : null }
 }
 
+// Whether picking `target` changes what the Bot runs on, so the Runs on card asks
+// before starting a new part. A local route is compared by route (one CLI session
+// maps to route/default); a DS Bot model is compared with the Bot's current model,
+// and a Bot moving off a local CLI always changes, even to a model it used before.
+export function runModeChanges(bot, target) {
+  if (target === '') return false
+  if (isLocalRoute(target)) return routeOf(target) !== bot.engine
+  return bot.engine !== undefined || target !== bot.model
+}
+
 // What the change does to this Bot, in the words the confirmation shows.
 export function runModeNotes({ bot, roster, target, agent }) {
   const groups = (roster.rooms ?? []).filter(room => room.members?.includes(bot.id)).length

@@ -2,10 +2,10 @@
 // form and the Runs on card of a Bot's settings. Changing it starts a new part of every
 // conversation of the Bot, so it asks first.
 import { createElement as h, useEffect, useState } from 'react'
-import { agentAvatar, isLocalRoute, routeOf } from './agent-routes.js'
+import { agentAvatar, routeOf } from './agent-routes.js'
 import { AgentBadge } from './agent-badge.js'
 import { call } from './api.js'
-import { avatarAfter, runModeNotes, startModel } from './bot-draft.js'
+import { avatarAfter, runModeChanges, runModeNotes, startModel } from './bot-draft.js'
 import { CheckIcon } from './icons.js'
 import { ModelMenu } from './model-menu.js'
 import { Segmented } from './motion.js'
@@ -112,7 +112,7 @@ export function RunModeCard({ bot, roster, actions, run, Card }) {
     setTarget(next === 'model' ? startModel(roster) : '')
   }
   const agent = agents.find(entry => entry.route === routeOf(target))
-  const changing = target !== '' && (isLocalRoute(target) ? routeOf(target) !== bot.engine : bot.engine !== undefined)
+  const changing = runModeChanges(bot, target)
   const confirm = () => run(actions.updateBot(bot.id, { model: target, changeEngine: true, ...avatarAfter(bot, target) })).then((done) => { if (done !== false) setOpen(false) })
   return h(Card, { title: t('Runs on') },
     h('div', { className: 'bt-set-row bt-bs-row' },

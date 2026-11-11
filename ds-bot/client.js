@@ -21610,6 +21610,11 @@ function avatarAfter(bot, target) {
   if (logo !== void 0) return { avatar: { ...rest, image: logo } };
   return { avatar: Object.keys(rest).length > 0 ? rest : null };
 }
+function runModeChanges(bot, target) {
+  if (target === "") return false;
+  if (isLocalRoute(target)) return routeOf(target) !== bot.engine;
+  return bot.engine !== void 0 || target !== bot.model;
+}
 function runModeNotes({ bot, roster, target, agent }) {
   const groups = (roster.rooms ?? []).filter((room2) => room2.members?.includes(bot.id)).length;
   const notes = [groups === 0 ? t("Its own chat starts a new part with a handoff before the next turn.") : t("Its own chat and {count} group chats each start a new part with a handoff before the next turn.", { count: groups })];
@@ -21740,7 +21745,7 @@ function RunModeCard({ bot, roster, actions, run: run2, Card: Card3 }) {
     setTarget(next === "model" ? startModel(roster) : "");
   };
   const agent = agents.find((entry) => entry.route === routeOf(target));
-  const changing = target !== "" && (isLocalRoute(target) ? routeOf(target) !== bot.engine : bot.engine !== void 0);
+  const changing = runModeChanges(bot, target);
   const confirm = () => run2(actions.updateBot(bot.id, { model: target, changeEngine: true, ...avatarAfter(bot, target) })).then((done) => {
     if (done !== false) setOpen(false);
   });

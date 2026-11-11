@@ -10,7 +10,7 @@ import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { probeSignIn } from '../src/host/local-agents/discover.js'
 import { agentAvatar, badgeOf, isLocalRoute, modelsFor } from '../src/client/agent-routes.js'
-import { avatarAfter, createPayload, runModeNotes, startModel } from '../src/client/bot-draft.js'
+import { avatarAfter, createPayload, runModeChanges, runModeNotes, startModel } from '../src/client/bot-draft.js'
 import { fakeContext } from './fake-ctx.js'
 
 const FIXTURE = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
@@ -706,4 +706,20 @@ test('only prefixed routes count as local agents on the page', () => {
   assert.deepEqual(badgeOf('local-codex-cli'), ['CX', 'green'])
   assert.deepEqual(badgeOf('local-acp-a1'), ['AC', 'rose'])
   assert.equal(badgeOf('codex-cli'), undefined)
+})
+
+test('a DS Bot model Bot picking another model is a change; the same model is not', () => {
+  const bot = { id: 'b', name: 'Writer', model: 'ds/flash', appliedModel: 'ds/flash' }
+  assert.equal(runModeChanges(bot, 'ds/pro'), true)
+  assert.equal(runModeChanges(bot, 'ds/flash'), false, 'the same model asks for nothing, by design')
+  assert.equal(runModeChanges(bot, ''), false)
+})
+
+test('a local agent Bot compares routes and moving between the two kinds always changes', () => {
+  const local = { id: 'b', name: 'Writer', model: CLI, appliedModel: CLI, engine: 'local-acp-fake' }
+  assert.equal(runModeChanges(local, CLI), false, 'the same CLI route asks for nothing')
+  assert.equal(runModeChanges(local, CLI2), true)
+  assert.equal(runModeChanges(local, DS), true, 'a local agent Bot moved onto a DS Bot model changes')
+  const model = { id: 'b', name: 'Writer', model: DS, appliedModel: DS }
+  assert.equal(runModeChanges(model, CLI), true, 'a DS Bot model Bot moved onto a local agent changes')
 })
