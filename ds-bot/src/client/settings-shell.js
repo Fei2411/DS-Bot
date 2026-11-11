@@ -224,7 +224,7 @@ export function SettingsShell(props) {
     wide, renderSlot, actions, useUi, useRoster, useUpdate, useSessions,
     useSections, useGeneralItems, useOnboardingSteps, useOnboardingRequest,
     useConnectionState, useDesktopUpdate, useSettingsShortcut,
-    reconnect, openDesktopUpdate, openOnboarding, finishOnboarding,
+    reconnect, openDesktopUpdate, openOnboarding, finishOnboarding, holdSeat,
   } = props
   const settings = useUi(state => state.settings)
   const roster = useRoster(value => value)
@@ -255,6 +255,8 @@ export function SettingsShell(props) {
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS)
   const showing = Boolean(kept)
   useEffect(() => (showing ? actions.holdSettingsLook?.() : undefined), [showing])
+  // A layout effect, so the Settings dialog changes hands before the next paint.
+  useLayoutEffect(() => holdSeat?.(), [])
   const open = settings !== null && settings !== undefined
   const openSettings = () => actions.openSettings('general')
   return h(Fragment, null,
@@ -393,6 +395,26 @@ export function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     })))
 }
 
+// Whether SettingsShell is on screen, counted by mount: a remount can mount the new
+// shell before the old one unmounts. A registered seat is not enough, since DSH draws
+// only the seat's lowest-priority entry and sets aside one that crashed.
+export function seatHold(held) {
+  let count = 0
+  return {
+    hold: () => {
+      count += 1
+      held?.set(true)
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        count -= 1
+        if (count === 0) held?.set(false)
+      }
+    },
+  }
+}
+
 // Registers the seat and its companions. `face` is DS Bot's own injected face; the
 // returned `openOnboarding` reaches a registered onboarding step by id.
 export function installSettingsShell(ctx, { face, actions, ui, held }) {
@@ -415,6 +437,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   const sections = ledgerSource(slots, locale, 'settings.section', sectionRows)
   const items = ledgerSource(slots, locale, 'settings.general.item', itemRows)
   const steps = ledgerSource(slots, locale, 'settings.onboarding', stepRows)
+  const seat = seatHold(held)
   const shellFace = () => {
     const base = face()
     return {
@@ -423,6 +446,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
+      holdSeat: seat.hold,
       hooks: {
         ...base.hooks,
         sections, generalItems: items, onboardingSteps: steps, onboardingRequest: request,
@@ -434,11 +458,10 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     () => update.dispose(),
     // A profile that turned DSH's shell back on keeps it: the seat's child slots are then
     // declared already, and DS Bot's dialog stays on its own pages.
+    // SettingsShell holds the seat itself while it is mounted (`holdSeat`).
     slots.inject('sidebar.settings', () => {
       try {
-        const off = slots.register({ name: 'sidebar.settings', inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell)
-        held?.set(true)
-        return () => { held?.set(false); off() }
+        return slots.register({ name: 'sidebar.settings', inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell)
       } catch (error) {
         console.warn('[ds-bot] DSH settings shell is on; DS Bot settings show its own pages only', error)
         return () => {}

@@ -225,6 +225,108 @@ test('General settings keeps the Classic Agent mode switch', () => {
   assert.deepEqual(calls, ['agent'])
 })
 
+// The seat is `single`: DSH draws only the lowest-priority entry, and an entry whose
+// component crashed is set aside. A registration that succeeds is not a shell on screen.
+const fakeSlots = () => {
+  const registered = []
+  return {
+    registered,
+    inject: (_, fn) => { const off = fn(); return () => off?.() },
+    register: (options, component) => { const row = { options, component }; registered.push(row); return () => registered.splice(registered.indexOf(row), 1) },
+    entries: () => [], getVersion: () => 0, subscribe: () => () => {},
+  }
+}
+const installShell = (held) => {
+  const slots = fakeSlots()
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }) }
+  const ui = { getSnapshot: () => ({}) }
+  const installed = shell.installSettingsShell(ctx, { face: () => ({ actions: {}, hooks: {} }), actions: { closeSettings() {} }, ui, held })
+  return { slots, installed }
+}
+const heldSource = () => {
+  let value = false
+  return { getSnapshot: () => value, set: (next) => { value = next } }
+}
+
+test('a seat registration that DSH does not draw leaves DS Bot\'s own Settings dialog on', () => {
+  const held = heldSource()
+  const { slots, installed } = installShell(held)
+  assert.ok(slots.registered.some(row => row.options.name === 'sidebar.settings'))
+  // Another entry holds the seat at a lower priority, so SettingsShell never mounts.
+  assert.equal(held.getSnapshot(), false)
+  installed.dispose()
+  assert.equal(held.getSnapshot(), false)
+})
+
+// SettingsShell drawn with its layout effects run, as React runs them on mount and
+// unmount.
+const mounted = async () => {
+  const effects = []
+  const recording = { ...react, useLayoutEffect: (fn) => effects.push(fn), useEffect() {} }
+  const module = { exports: {} }
+  runInNewContext(await bundle("export * from './src/client/settings-shell.js'"), {
+    module, exports: module.exports,
+    window: { innerWidth: 1280, matchMedia: () => ({ matches: false }) },
+    requestAnimationFrame: () => 0, cancelAnimationFrame() {}, setTimeout, clearTimeout, Promise,
+    require: name => (name === 'react' ? recording : name === 'react-dom' ? { createPortal: node => node } : new Proxy({}, { get: (_, key) => key })),
+  })
+  const shellModule = module.exports
+  const pick = value => fn => fn(value)
+  const props = (holdSeat) => ({
+    wide: true, renderSlot: () => null, actions: { closeSettings() {}, openSettings() {} },
+    useUi: pick({ settings: null }), useRoster: pick(roster), useUpdate: pick({}), useSessions: pick({}),
+    useSections: pick([]), useGeneralItems: pick([]), useOnboardingSteps: pick([]), useOnboardingRequest: pick(undefined),
+    useConnectionState: pick('connected'), useDesktopUpdate: pick({}), useSettingsShortcut: pick(undefined),
+    reconnect() {}, openDesktopUpdate() {}, openOnboarding() {}, finishOnboarding() {}, holdSeat,
+  })
+  // Each render returns the cleanups of the layout effects it ran, like one mount.
+  const mount = (holdSeat) => {
+    effects.length = 0
+    shellModule.SettingsShell(props(holdSeat))
+    return effects.splice(0).map(fn => fn()).filter(cleanup => typeof cleanup === 'function')
+  }
+  return { shellModule, mount }
+}
+
+test('DS Bot holds the seat only while SettingsShell is on screen', async () => {
+  const { shellModule, mount } = await mounted()
+  const held = heldSource()
+  const seat = shellModule.seatHold(held)
+  const cleanups = mount(seat.hold)
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of cleanups) cleanup()
+  assert.equal(held.getSnapshot(), false)
+})
+
+test('a remount that overlaps the old shell keeps the seat held until the last one leaves', async () => {
+  const { shellModule, mount } = await mounted()
+  const held = heldSource()
+  const seat = shellModule.seatHold(held)
+  const first = mount(seat.hold)
+  const second = mount(seat.hold)
+  for (const cleanup of first) cleanup()
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of second) cleanup()
+  assert.equal(held.getSnapshot(), false)
+  // A release that runs twice does not take another mount's hold with it.
+  const third = mount(seat.hold)
+  for (const cleanup of first) cleanup()
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of third) cleanup()
+  assert.equal(held.getSnapshot(), false)
+})
+
+test('the installer hands SettingsShell the hold through the seat\'s face', () => {
+  const held = heldSource()
+  const { slots, installed } = installShell(held)
+  const seat = slots.registered.find(row => row.options.name === 'sidebar.settings')
+  const release = seat.options.inject().holdSeat()
+  assert.equal(held.getSnapshot(), true)
+  release()
+  assert.equal(held.getSnapshot(), false)
+  installed.dispose()
+})
+
 // Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
 const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
 
