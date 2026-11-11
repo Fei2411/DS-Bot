@@ -145,8 +145,8 @@ test('a legacy round without roundId returns the same result as a new one', asyn
   const exec = { agent: { id: 'room' }, callId: 'legacy', signal: AbortSignal.abort() }
   // Each call names where its rows start in the group's book; the rest of the result is the same.
   const rest = (value) => {
-    const { from, ...others } = JSON.parse(value)
-    assert.ok(Number.isInteger(from))
+    const { from, anchor, ...others } = JSON.parse(value)
+    assert.ok(Number.isInteger(from) && typeof anchor === 'string')
     return others
   }
   const legacy = rest(await tool.execute({}, exec))

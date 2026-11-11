@@ -321,19 +321,25 @@ export function install(rt) {
   // Each group_relay call is an anchor in the group's book: the chat shows the rows from
   // it up to the next anchor, so what comes after the user's next message shows under it.
   // `to` undefined: up to the next anchor, or to the end while there is none (`open`).
-  const rowsView = (roomId, from, to) => {
+  // `anchor` names the call, so the next call in the book ends its rows even when it starts
+  // at the same seq.
+  const rowsView = (roomId, from, to, anchor) => {
     const room = rt.roomOf(roomId)
     if (room !== undefined) ensureRoomLog(room)
     let end = to
     if (end === undefined) {
-      const next = rt.ledger.records(bookOf(roomId)).filter(record => record.event === 'anchor' && record.from > from).map(record => record.from)
+      const records = rt.ledger.records(bookOf(roomId))
+      const at = anchor === undefined ? -1 : records.findIndex(record => record.event === 'anchor' && record.id === anchor)
+      const next = at === -1
+        ? records.filter(record => record.event === 'anchor' && record.from > from).map(record => record.from)
+        : [records.slice(at + 1).find(record => record.event === 'anchor')?.from].filter(seq => seq !== undefined)
       if (next.length > 0) end = Math.min(...next) - 1
     }
     // Not the messages the group's own Session shows itself.
     const rows = rt.ledger.range(bookOf(roomId), from, end).filter(record => record.session !== true).map(rowOf).filter(Boolean)
     return { rows, open: end === undefined }
   }
-  const groupRows = (roomId, from, to) => rowsView(roomId, from, to).rows
+  const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
 
   Object.assign(rt, {
     keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView,
@@ -1138,6 +1144,11 @@ export function install(rt) {
   // One round runs in a group at a time; what comes in meanwhile joins it (joinRound) or
   // waits for the next one (laterPosts).
   const laterPosts = new Map()
+  // Groups whose round has ended but still finishes (goal check, save, reports): the group
+  // stays taken until it hands what waits on to the next round, so no second round starts.
+  const finalizing = new Set()
+  let disposed = false
+  rt.roomActive = roomId => runningRound(roomId) !== undefined || finalizing.has(roomId)
   // The rounds of each group until they are all the way done, saves and reports included.
   const roundRuns = new Map()
   rt.roomRounds = roomId => [...(roundRuns.get(roomId) ?? [])]
@@ -1196,7 +1207,10 @@ export function install(rt) {
   }
 
   // Rounds stop with the plugin.
-  ctx.effect(() => () => { for (const round of rt.roomProgress.values()) round.abort?.abort() }, 'ds-bot: group rounds')
+  ctx.effect(() => () => {
+    disposed = true
+    for (const round of rt.roomProgress.values()) round.abort?.abort()
+  }, 'ds-bot: group rounds')
 
   function startRound(room, queued, agent, key = randomUUID()) {
     const controller = new AbortController()
@@ -1357,43 +1371,51 @@ export function install(rt) {
     } catch (error) {
       rt.warn('ds-bot: group round in %s stopped: %s', room.name, error)
     } finally {
+      finalizing.add(room.id)
       rt.roomProgress.delete(key)
       round.to = room.seq
       // How the round ended, beside what was said in it.
       rt.ledger.append(bookOf(room.id), { event: 'round', from: round.from, to: round.to, passed: round.passed, failed: round.failed, ...(signal.aborted ? { stopped: true } : {}), time: Date.now() })
     }
-    if (signal.aborted) {
-      for (const turn of round.started) {
-        void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
-          ?.catch(error => rt.warn('ds-bot: stopping a turn of the round in %s failed: %s', room.name, error))
+    try {
+      if (signal.aborted) {
+        for (const turn of round.started) {
+          void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
+            ?.catch(error => rt.warn('ds-bot: stopping a turn of the round in %s failed: %s', room.name, error))
+        }
+      } else if (rt.goalDrive !== undefined) {
+        // A round that ends with an active goal and nothing running may wake the admin.
+        try {
+          await rt.goalDrive(room, round)
+        } catch (error) {
+          rt.warn('ds-bot: goal check in %s failed: %s', room.name, error)
+        }
       }
-    } else if (rt.goalDrive !== undefined) {
-      // A round that ends with an active goal and nothing running may wake the admin.
-      try {
-        await rt.goalDrive(room, round)
-      } catch (error) {
-        rt.warn('ds-bot: goal check in %s failed: %s', room.name, error)
+      await rt.save()
+      const rows = groupRows(room.id, round.from, round.to)
+      for (const post of open) {
+        if (post.reportBack && rt.botOf(post.botId)) void reportRound(room, post, { rows, passed: round.passed, failed: round.failed })
+      }
+      // A post this round took in while it ran gets the replies of the members it called.
+      for (const { post, ids, from } of round.reports ?? []) {
+        if (!rt.botOf(post.botId)) continue
+        const names = ids.map(id => rt.botOf(id)?.name).filter(Boolean)
+        void reportRound(room, post, {
+          rows: groupRows(room.id, from, round.to).filter(row => ids.includes(row.botId)),
+          passed: round.passed.filter(name => names.includes(name)),
+          failed: round.failed.filter(name => names.includes(name)),
+        })
+      }
+    } finally {
+      // What came in while it ran or while it finished opens the next round, in the same
+      // step that frees the group. After a stop it waits for the group's next message.
+      finalizing.delete(room.id)
+      const later = laterPosts.get(room.id) ?? []
+      if (!signal.aborted && !disposed && later.length > 0 && rt.roomOf(room.id) === room) {
+        laterPosts.delete(room.id)
+        startRound(room, later, agent)
       }
     }
-    await rt.save()
-    const rows = groupRows(room.id, round.from, round.to)
-    for (const post of open) {
-      if (post.reportBack && rt.botOf(post.botId)) void reportRound(room, post, { rows, passed: round.passed, failed: round.failed })
-    }
-    // A post this round took in while it ran gets the replies of the members it called.
-    for (const { post, ids, from } of round.reports ?? []) {
-      if (!rt.botOf(post.botId)) continue
-      const names = ids.map(id => rt.botOf(id)?.name).filter(Boolean)
-      void reportRound(room, post, {
-        rows: groupRows(room.id, from, round.to).filter(row => ids.includes(row.botId)),
-        passed: round.passed.filter(name => names.includes(name)),
-        failed: round.failed.filter(name => names.includes(name)),
-      })
-    }
-    // What came in while it ran and could not join it opens the next round.
-    const later = laterPosts.get(room.id) ?? []
-    laterPosts.delete(room.id)
-    if (later.length > 0 && rt.roomOf(room.id) === room) startRound(room, later, agent)
   }
 
   rt.teamTools.push(defineTool({
@@ -1414,12 +1436,20 @@ export function install(rt) {
       rt.roomInbox.delete(room.id)
       // The chat shows this call's rows from here to the next call's.
       const from = Math.min(room.seq + 1, ...queued.map(post => post.logged).filter(seq => typeof seq === 'number'))
-      rt.ledger.append(bookOf(room.id), { event: 'anchor', from, time: Date.now() })
+      // Its own id: two calls with nothing said between them start at the same seq.
+      const anchor = randomUUID()
+      rt.ledger.append(bookOf(room.id), { event: 'anchor', id: anchor, from, time: Date.now() })
       const running = runningRound(room.id)
       if (running !== undefined) await joinRound(room, running, queued)
-      else startRound(room, queued, exec.agent, exec.callId)
+      else if (finalizing.has(room.id)) laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...queued])
+      else {
+        // What a stopped round left waiting goes first.
+        const left = laterPosts.get(room.id) ?? []
+        laterPosts.delete(room.id)
+        startRound(room, [...left, ...queued], exec.agent, exec.callId)
+      }
       exec.concludeTurn?.()
-      return JSON.stringify({ from })
+      return JSON.stringify({ from, anchor })
     },
   }))
 

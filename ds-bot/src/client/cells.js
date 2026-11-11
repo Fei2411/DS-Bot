@@ -995,31 +995,33 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   // the ledger carries them in its result.
   const resultText = done ? contentText(content) : ''
   const range = done ? relayRange(resultText) : undefined
-  const rowsKey = range === undefined ? undefined : `${sessionId}:${range.from}:${range.to ?? ''}`
+  const rowsKey = range === undefined ? undefined : `${sessionId}:${range.from}:${range.to ?? ''}:${range.anchor ?? ''}`
   const [view, setView] = useState(() => (rowsKey === undefined ? null : settledRows.get(rowsKey) ?? null))
+  // An open cell that is quiet is read again when the team changes, not on a clock.
+  const quietKey = view?.open === true && view.active !== true ? roster.revision : undefined
   useEffect(() => {
     if (rowsKey === undefined) return undefined
     const known = settledRows.get(rowsKey)
     if (known !== undefined) { setView(known); return undefined }
-    // The newest call's rows grow while the group works, so they are read again until the
-    // next call closes them.
+    // The newest call's rows grow while the group works: they are read every second then,
+    // and once when the group is quiet, until the next call closes them.
     let stop = false
     let timer
     let seen = ''
     const tick = async () => {
-      const next = await actions.groupRows(sessionId, range.from, range.to)
+      const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor)
       if (stop) return
       if (next !== null && Array.isArray(next?.rows)) {
         if (!next.open) settledRows.set(rowsKey, next)
         const key = JSON.stringify(next)
         if (key !== seen) { seen = key; setView(next) }
-        if (!next.open) return
+        if (!next.open || next.active !== true) return
       }
       timer = setTimeout(tick, document.hidden ? 5000 : 1000)
     }
     void tick()
     return () => { stop = true; clearTimeout(timer) }
-  }, [rowsKey])
+  }, [rowsKey, quietKey])
   let replies = live.replies
   let broken = false
   if (range !== undefined) {
