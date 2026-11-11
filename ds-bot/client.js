@@ -34082,7 +34082,8 @@ function SettingsShell(props) {
     reconnect,
     openDesktopUpdate,
     openOnboarding,
-    finishOnboarding
+    finishOnboarding,
+    holdSeat
   } = props;
   const settings = useUi((state) => state.settings);
   const roster = useRoster((value) => value);
@@ -34114,6 +34115,7 @@ function SettingsShell(props) {
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS);
   const showing = Boolean(kept);
   (0, import_react48.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
+  (0, import_react48.useLayoutEffect)(() => holdSeat?.(), []);
   const open = settings !== null && settings !== void 0;
   const openSettings = () => actions.openSettings("general");
   return (0, import_react48.createElement)(
@@ -34295,6 +34297,22 @@ function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     }))
   );
 }
+function seatHold(held) {
+  let count = 0;
+  return {
+    hold: () => {
+      count += 1;
+      held?.set(true);
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        count -= 1;
+        if (count === 0) held?.set(false);
+      };
+    }
+  };
+}
 function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
@@ -34319,6 +34337,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
   const items = ledgerSource(slots, locale, "settings.general.item", itemRows);
   const steps = ledgerSource(slots, locale, "settings.onboarding", stepRows);
+  const seat = seatHold(held);
   const shellFace = () => {
     const base = face();
     return {
@@ -34327,6 +34346,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
+      holdSeat: seat.hold,
       hooks: {
         ...base.hooks,
         sections,
@@ -34343,14 +34363,10 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
     () => update.dispose(),
     // A profile that turned DSH's shell back on keeps it: the seat's child slots are then
     // declared already, and DS Bot's dialog stays on its own pages.
+    // SettingsShell holds the seat itself while it is mounted (`holdSeat`).
     slots.inject("sidebar.settings", () => {
       try {
-        const off = slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
-        held?.set(true);
-        return () => {
-          held?.set(false);
-          off();
-        };
+        return slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
       } catch (error) {
         console.warn("[ds-bot] DSH settings shell is on; DS Bot settings show its own pages only", error);
         return () => {
