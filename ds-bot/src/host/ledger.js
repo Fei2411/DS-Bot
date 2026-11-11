@@ -116,6 +116,13 @@ export function install(rt) {
     lastWrite.set(book, run)
     writing.set(book, run.catch((error) => {
       rt.warn('ds-bot: a record of %s was not written: %s', book, error?.message ?? error)
+      // Memory holds only what the disk has, so a record that did not land is written again
+      // when it is sent again. Part of its line may have landed: the next one starts anew.
+      if (books.get(book) !== entry) return
+      const at = entry.records.indexOf(record)
+      if (at !== -1) entry.records.splice(at, 1)
+      if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq.delete(record.seq)
+      entry.torn = true
     }))
     return record
   }

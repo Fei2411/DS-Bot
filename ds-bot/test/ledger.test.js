@@ -120,9 +120,14 @@ test('a write that does not reach the disk is reported to whoever waits for it',
   try {
     rt.ledger.append('pair-a-b', { id: 'x', text: 'hello' })
     await assert.rejects(rt.ledger.written('pair-a-b'))
-    // The queue goes on for the next record.
+    // The queue goes on for the next record, and memory holds only what landed.
     await rt.ledger.flush('pair-a-b')
+    assert.deepEqual(rt.ledger.records('pair-a-b'), [])
   } finally {
     chmodSync(join(home, 'ledger'), 0o700)
   }
+  // Sent again, it is written again.
+  rt.ledger.append('pair-a-b', { id: 'x', text: 'hello' })
+  await rt.ledger.written('pair-a-b')
+  assert.deepEqual(parseBook(readFileSync(join(home, 'ledger', 'pair-a-b.jsonl'), 'utf8')).map(record => record.id), ['x'])
 })

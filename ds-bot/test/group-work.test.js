@@ -2410,3 +2410,24 @@ test('after a restart a member whose pick-up is still queued keeps its batch wai
   assert.deepEqual(rt.state.roomBatches['k-queued']?.pending, ['b'])
   assert.equal(host.agentOf('r1').calls.length, 0, 'the caller is not woken before the member answers')
 })
+
+// Stop all while a round finishes: what waited on it does not start once it is done.
+test('stopping a group while its round finishes starts nothing afterwards', async (t) => {
+  const host = await start(t)
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const drive = rt.goalDrive
+  rt.goalDrive = async (...args) => { await gate; return drive?.(...args) }
+  const first = host.round('c1', host.say('@Writer 写一句'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '写好了。')
+  await settle(() => rt.roomActive('r1') && [...rt.roomProgress.values()].every(round => round.roomId !== 'r1'))
+  host.round('c2', host.say('@Tester 看一下'))
+  await settle(() => true)
+  assert.equal((await host.call('stop-room-work', { roomId: 'r1' })).value, true)
+  release()
+  await settle(() => first() !== undefined && !rt.roomActive('r1'))
+  for (let i = 0; i < 20; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('gc').calls.length, 0, 'nothing started after the stop')
+})

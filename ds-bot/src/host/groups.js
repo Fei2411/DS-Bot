@@ -1166,10 +1166,14 @@ export function install(rt) {
   rt.roomRounds = roomId => [...(roundRuns.get(roomId) ?? [])]
   const runningRound = roomId => [...rt.roomProgress.values()].find(round => round.roomId === roomId)
   // Stops the round running in a group, with the member turns it started.
+  // A round still finishing is stopped too: what waits on it then waits for the group's
+  // next message instead of starting.
+  const stoppedFinishing = new Set()
   rt.stopRoomRound = (roomId) => {
     const round = runningRound(roomId)
     round?.abort.abort()
-    return round !== undefined
+    if (finalizing.has(roomId)) stoppedFinishing.add(roomId)
+    return round !== undefined || finalizing.has(roomId)
   }
   // A call that comes in while a round runs joins it: the user's messages are answered in
   // it, a Bot's post calls its members in it. A goal post, a greeting, a message with
@@ -1423,7 +1427,8 @@ export function install(rt) {
       // step that frees the group. After a stop it waits for the group's next message.
       finalizing.delete(room.id)
       const later = laterPosts.get(room.id) ?? []
-      if (!signal.aborted && !disposed && later.length > 0 && rt.roomOf(room.id) === room) {
+      const stopped = stoppedFinishing.delete(room.id)
+      if (!signal.aborted && !stopped && !disposed && later.length > 0 && rt.roomOf(room.id) === room) {
         laterPosts.delete(room.id)
         startRound(room, later, agent)
       }
@@ -1818,7 +1823,7 @@ export function install(rt) {
         return false
       }
     }
-    const round = rt.roomBusy(room.id)
+    const round = rt.roomActive(room.id)
     if (round) await attempt(async () => rt.stopRoomRound(room.id))
     let stopped = false
     for (const botId of room.members) stopped = (await attempt(() => stopMemberWork(room.id, botId))) || stopped
