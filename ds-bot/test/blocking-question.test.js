@@ -329,25 +329,6 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   for (const record of scopedListeners) assert.equal(record.disposed, true)
 })
 
-// #986: a downstream plugin may return an assembly without fields; the Bot filter
-// must not throw and must leave DSH a complete assembly.
-test('the Bot assembly filter survives an assembly missing sections and contexts (#986)', async (t) => {
-  const { agentFor, scopedListeners, stop } = await setup({ served: ['read'] })
-  t.after(stop)
-  await agentFor('chief')
-  const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
-  const initial = { sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }], contexts: [{ name: 'ctx' }], variables: { a: 1 } }
-  const out = await filters[0].listener(initial, {}, async () => ({ variables: {} }))
-  assert.deepEqual(out.sections.map(section => section.name), ['bot-identity'])
-  assert.deepEqual(out.contexts, [{ name: 'ctx' }])
-  assert.deepEqual(out.variables, {})
-  // A downstream listener that returns no assembly at all is tolerated too.
-  const gone = await filters[0].listener(initial, {}, async () => undefined)
-  assert.deepEqual(gone.sections.map(section => section.name), ['bot-identity'])
-  assert.deepEqual(gone.contexts, [{ name: 'ctx' }])
-  assert.deepEqual(gone.variables, { a: 1 })
-})
-
 // DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.
 test('a Bot schedules only into its own chat', async (t) => {
   const { ctx, stop } = await setup()

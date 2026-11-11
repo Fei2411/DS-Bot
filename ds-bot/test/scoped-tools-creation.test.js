@@ -364,7 +364,7 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
 // scoped it again, so the Session ran its requests without the team tools. The
 // step's assemble scopes an owned Session the creation path missed and adds the
 // names the request list was already built without.
-const assemble = (host, agent, assembly = { tools: [], sections: [], contexts: [], variables: {} }) => {
+const assemble = (host, agent, assembly = { tools: [], sections: [] }) => {
   const listener = host.ctx.listeners.get('system-prompt/assemble')
     .find(listener => /scopeTeamTools/.test(String(listener)))
   return listener(assembly, { agent, signal: AbortSignal.timeout(60_000) }, async () => assembly)
@@ -377,7 +377,7 @@ test("a group Session the creation path missed is scoped at the step's assemble"
   // The Agent is live but agent/created never ran for it and no save re-synced
   // the scopes — the state a restart left the reporter's group in.
   const agent = host.agentOf('r1')
-  const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} })
+  const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
   assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
   assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'group_relay'])
 })
@@ -387,7 +387,7 @@ test("a Bot's own Session the creation path missed gets the whole scope at the a
   t.after(host.stop)
   await host.call('state', {})
   const agent = host.agentOf('a')
-  const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} })
+  const assembled = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
   const expected = [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort()
   assert.deepEqual(scopedNames(host, 'a').sort(), expected)
   assert.deepEqual(assembled.tools.map(tool => tool.name).sort(), ['read', ...expected].sort())
@@ -397,33 +397,13 @@ test("a Bot's own Session the creation path missed gets the whole scope at the a
   assert.ok(!HIDDEN.some(name => assembled.tools.some(tool => tool.name === name)))
 })
 
-test('the assemble keeps the fields a plugin dropped (#986)', async (t) => {
-  // DSH reads transformed.sections/contexts after the waterfall; a plugin in
-  // the chain that returns none of them must not make a turn's preStep read
-  // .filter on undefined. The assembly the waterfall began with is kept.
-  const host = start()
-  t.after(host.stop)
-  await host.call('state', {})
-  const listener = host.ctx.listeners.get('system-prompt/assemble')
-    .find(listener => /scopeTeamTools/.test(String(listener)))
-  const initial = {
-    sections: [{ name: 'bot-identity' }],
-    contexts: [{ name: 'working-directory:current' }],
-    variables: { cwd: '/team' },
-  }
-  const assembled = await listener(initial, { agent: host.agentOf('plain1'), signal: AbortSignal.timeout(60_000) }, async () => ({}))
-  assert.deepEqual(assembled.sections, initial.sections)
-  assert.deepEqual(assembled.contexts, initial.contexts)
-  assert.deepEqual(assembled.variables, initial.variables)
-})
-
 test('the assemble registers nothing twice in an already scoped Session', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
   await host.agentCreated('a')
   const before = host.scoped.length
-  const assembly = { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} }
+  const assembly = { tools: [{ name: 'read' }], sections: [] }
   assert.equal(await assemble(host, host.agentOf('a'), assembly), assembly)
   assert.equal(host.scoped.length, before)
 })
@@ -432,7 +412,7 @@ test('the assemble passes an unowned Session through unchanged', async (t) => {
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
-  const assembly = { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} }
+  const assembly = { tools: [{ name: 'read' }], sections: [] }
   assert.equal(await assemble(host, host.agentOf('plain1'), assembly), assembly)
   assert.deepEqual(scopedNames(host, 'plain1'), [])
 })
@@ -443,7 +423,7 @@ test('a Session the load itself scoped still gets its tools into the step\'s lis
   // the assemble must still add them to this step's.
   const host = start(TEAM, {}, [], { live: ['r1'] })
   t.after(host.stop)
-  const assembled = await assemble(host, host.agentOf('r1'), { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} })
+  const assembled = await assemble(host, host.agentOf('r1'), { tools: [{ name: 'read' }], sections: [] })
   assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
   assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'group_relay'])
 })
@@ -454,7 +434,7 @@ test('a PTC group Session gets its relay scoped but keeps run_code alone in the 
   const host = start()
   t.after(host.stop)
   const agent = host.agentOf('r1')
-  const assembly = { tools: [{ name: 'run_code' }], sections: [], contexts: [], variables: {} }
+  const assembly = { tools: [{ name: 'run_code' }], sections: [] }
   assert.equal(await assemble(host, agent, assembly), assembly)
   assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
 })
@@ -465,7 +445,7 @@ test('a same-named global in the list is replaced by the scoped schema', async (
   const host = start()
   t.after(host.stop)
   const agent = host.agentOf('a')
-  const assembled = await assemble(host, agent, { tools: [{ name: 'show_view', description: 'global' }], sections: [], contexts: [], variables: {} })
+  const assembled = await assemble(host, agent, { tools: [{ name: 'show_view', description: 'global' }], sections: [] })
   const named = assembled.tools.filter(tool => tool.name === 'show_view')
   assert.equal(named.length, 1)
   assert.notEqual(named[0].description, 'global')
@@ -475,9 +455,9 @@ test('the assemble adds the recovered names once, not on every step', async (t) 
   const host = start()
   t.after(host.stop)
   const agent = host.agentOf('r1')
-  const first = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} })
+  const first = await assemble(host, agent, { tools: [{ name: 'read' }], sections: [] })
   assert.deepEqual(first.tools.map(tool => tool.name), ['read', 'group_relay'])
-  const second = { tools: [{ name: 'read' }], sections: [], contexts: [], variables: {} }
+  const second = { tools: [{ name: 'read' }], sections: [] }
   assert.equal(await assemble(host, agent, second), second)
 })
 

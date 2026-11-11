@@ -902,26 +902,10 @@ export function install(rt) {
   // refuses calls. The assembly filter goes on every Bot Session whether or not
   // the tools are served yet: subagent's own agent/created listener can run
   // after this one.
-  //
-  // A plugin in the chain can hand back an assembly without a field DSH reads
-  // after the waterfall (`transformed.sections`, `transformed.contexts`). The
-  // waterfall began with a complete one, so keep that one rather than let a
-  // turn's preStep crash on .filter (#986).
-  const completeAssembly = (assembled, initial) => {
-    if (assembled !== null && typeof assembled === 'object'
-      && Array.isArray(assembled.sections) && Array.isArray(assembled.contexts)
-      && assembled.variables !== undefined && assembled.variables !== null) return assembled
-    return {
-      ...assembled,
-      variables: assembled?.variables ?? initial?.variables ?? {},
-      sections: Array.isArray(assembled?.sections) ? assembled.sections : Array.isArray(initial?.sections) ? initial.sections : [],
-      contexts: Array.isArray(assembled?.contexts) ? assembled.contexts : Array.isArray(initial?.contexts) ? initial.contexts : [],
-    }
-  }
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const assembled = completeAssembly(await next(), _assembly)
+      const assembled = await next()
       // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
       // older assembly still carries tools to drop here.
       return {
@@ -1082,7 +1066,7 @@ export function install(rt) {
     } catch (error) {
       rt.warn('ds-bot: scoping the tools of %s failed: %s', agent.session?.id ?? agent.id, error)
     }
-    const assembled = completeAssembly(await next(), _assembly)
+    const assembled = await next()
     const held = scoped.get(agent.session?.id)
     if (held?.unlisted === undefined || held.unlisted.size === 0) return assembled
     // DSH 0.2.2 collects the scoped tools itself after this waterfall (#814).
