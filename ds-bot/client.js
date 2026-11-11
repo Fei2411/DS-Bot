@@ -13970,7 +13970,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
-    exchangeText: (id) => call2("exchange-text", { id }).catch(() => void 0),
+    exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
     groupRows: (roomId, from, to) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to } }).catch(() => []),
@@ -36679,7 +36679,7 @@ function ExchangeDialog({ pair, paneLeft, roster, actions }) {
           const bot = roster.byId[entry.from] ?? { id: entry.from, name: t("You"), color: "gray" };
           const showDay = entry.time - lastDay > 30 * 60 * 1e3;
           lastDay = entry.time;
-          const whole = entry.length === void 0 ? void 0 : { length: entry.length, load: () => actions.exchangeText(entry.id) };
+          const whole = entry.length === void 0 ? void 0 : { length: entry.length, load: () => actions.exchangeText(entry.id, entry.from, entry.to) };
           const lead = (0, import_react56.createElement)("span", { className: "bt-lead" }, (0, import_react56.createElement)(BotMark, { bot, size: 22 }));
           return (0, import_react56.createElement)(
             import_react56.Fragment,

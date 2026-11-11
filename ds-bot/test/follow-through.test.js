@@ -838,10 +838,11 @@ test('a resend whose first send never landed records the exchange once it arrive
   const second = await start(home)
   t.mock.timers.tick(3000)
   await settle(() => second.agentOf('b').calls.length === 1)
-  // The first send never reached the Session, so the resend records the exchange.
+  // The first send never reached the Session: the exchange shows once the resend lands.
   const [again] = second.agentOf('b').calls
-  await settleState(t, home, () => (stateOf(home).exchanges ?? []).length === 1)
-  const [entry] = stateOf(home).exchanges
+  const listed = async () => (await second.call('exchange', { a: 'a', b: 'b' })).value
+  for (let at = 0; at < 50 && (await listed()).length === 0; at += 1) await new Promise(resolve => setImmediate(resolve))
+  const [entry] = await listed()
   assert.deepEqual([entry.id, entry.role, entry.from, entry.to], [again.source.exchangeId, 'request', 'a', 'b'])
 })
 
