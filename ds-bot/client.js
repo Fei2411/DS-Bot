@@ -13973,7 +13973,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
-    groupRows: (roomId, from, to) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to } }).catch(() => []),
+    groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -24856,7 +24856,7 @@ var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).
 function relayRange(text) {
   try {
     const value = JSON.parse(text);
-    if (Number.isInteger(value?.from)) return { from: value.from, ...Number.isInteger(value.to) ? { to: value.to } : {} };
+    if (Number.isInteger(value?.from)) return { from: value.from, ...Number.isInteger(value.to) ? { to: value.to } : {}, ...typeof value.anchor === "string" ? { anchor: value.anchor } : {} };
   } catch {
   }
   return void 0;
@@ -26560,34 +26560,49 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }, [done, sessionId, callId]);
   const resultText = done ? contentText(content) : "";
   const range = done ? relayRange(resultText) : void 0;
-  const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}`;
-  const [settled, setSettled] = (0, import_react32.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
+  const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}:${range.anchor ?? ""}`;
+  const [view, setView] = (0, import_react32.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
+  const quietKey = view?.open === true && view.active !== true ? roster.revision : void 0;
   (0, import_react32.useEffect)(() => {
     if (rowsKey === void 0) return void 0;
     const known = settledRows.get(rowsKey);
     if (known !== void 0) {
-      setSettled(known);
+      setView(known);
       return void 0;
     }
     let stop = false;
-    void actions.groupRows(sessionId, range.from, range.to).then((rows2) => {
-      if (Array.isArray(rows2) && rows2.length > 0) settledRows.set(rowsKey, rows2);
-      if (!stop) setSettled(Array.isArray(rows2) ? rows2 : []);
-    });
+    let timer;
+    let seen = "";
+    const tick = async () => {
+      const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor);
+      if (stop) return;
+      if (next !== null && Array.isArray(next?.rows)) {
+        if (!next.open) settledRows.set(rowsKey, next);
+        const key = JSON.stringify(next);
+        if (key !== seen) {
+          seen = key;
+          setView(next);
+        }
+        if (!next.open || next.active !== true) return;
+      }
+      timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
+    };
+    void tick();
     return () => {
       stop = true;
+      clearTimeout(timer);
     };
-  }, [rowsKey]);
+  }, [rowsKey, quietKey]);
   let replies = live.replies;
   let broken = false;
   if (range !== void 0) {
-    replies = settled ?? live.replies;
+    replies = view?.rows ?? live.replies;
   } else if (done) {
     const parsed = parseReplies(resultText);
     replies = parsed.replies.length ? parsed.replies : live.replies;
     broken = parsed.broken;
   }
-  const pending = done ? [] : live.speaking;
+  const pending = range !== void 0 ? view?.open ? view.speaking ?? [] : [] : done ? [] : live.speaking;
   const doing = JSON.parse(useWork?.((work) => JSON.stringify(pending.map((id) => {
     const tool = work.bots?.[id]?.tool;
     return tool ? [tool, workPhrase(work.bots[id])] : [];
