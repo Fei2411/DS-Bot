@@ -483,19 +483,6 @@ const bootHint = () => {
     : t('The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.', { error: last })
 }
 
-// The Bot column's own way to the classic Agent page: the classic page keeps a
-// DS Bot button in its footer, and this is its counterpart, so one click flips the
-// surface and one click flips it back. It names the page it opens, like that button.
-function ClassicSwitch({ wide, actions }) {
-  if (typeof actions.setSurface !== 'function') return null
-  const label = t('Switch to classic Agent mode')
-  const onClick = () => actions.setSurface('agent')
-  return wide
-    ? h('button', { type: 'button', className: 'bt-classic', 'aria-label': label, title: label, onClick },
-        h(SwitchIcon), h('span', { className: 'bt-classic-name' }, t('Classic Agent mode')))
-    : h('button', { type: 'button', className: 'bt-round', 'aria-label': label, title: label, onClick }, h(SwitchIcon))
-}
-
 export function TeamSidebar(props) {
   const { wide, useRoster, useUi, useSessions, actions } = props
   const listRef = useRef(null)
@@ -814,10 +801,9 @@ export function TeamSidebar(props) {
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(ClassicSwitch, { wide: true, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h(ClassicSwitch, { wide: false, actions }),
         h(AccountLauncher, { seat: false, actions }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
@@ -1062,7 +1048,8 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
-  ]
+    typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
+  ].filter(Boolean)
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
   else if (signedOut) groups.push([[t('Sign in to DeepSeek'), SignInIcon, () => actions.signIn()]])
   return h(Fragment, null,
