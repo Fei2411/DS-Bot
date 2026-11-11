@@ -1760,6 +1760,47 @@ for (const noticeFirst of [true, false]) {
   })
 }
 
+for (const [reason, summary] of [['error', 'failed before it finished.'], ['max-tokens', 'ran out of room before it finished.']]) {
+  test(`a failure known only from its settlement notice still shows in the group (${reason}, #973)`, async (t) => {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Writer 导出这份 PPT'))
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Export the deck' })
+    host.finish('gb', '正在导出。')
+    await settle(() => first() !== undefined)
+    // No subagent/end: an in-place plugin reload lost it, so the notice is the only
+    // ending this runtime sees. The child's own turn answers it with [PASS].
+    const notice = {
+      content: [
+        { type: 'text', text: `Background subagent sub-1 ${summary}` },
+        { type: 'text', text: 'It left no closing message.' },
+      ],
+      source: { kind: 'subagent-settled', form: 'notice', summary: `Background subagent sub-1 ${summary}`, senderSessionId: 'sub-1' },
+    }
+    host.emit('gb', 'user/message', notice)
+    host.emit('gb', 'turn/start', { turn: 2 })
+    host.finish('gb', '[PASS]')
+    await until(() => host.agentOf('r1').calls.length > 0)
+    const post = host.takePost()
+    assert.equal(post.source.failed.code, 'SUBAGENT_FAILED')
+    assert.equal(post.source.quiet, true)
+    const second = host.round('c2', post)
+    await until(() => second() !== undefined)
+    const shown = second().replies.filter(row => row.kind === 'helper-failed')
+    assert.equal(shown.length, 1)
+    assert.equal(shown[0].name, 'Writer')
+    assert.equal(shown[0].text, `Export the deck: subagent ended (${reason}) without a closing message.`)
+    assert.equal(second().replies.some(row => row.text?.includes('Could not finish: my background helper')), false)
+    // The same notice again, and the lifecycle ending arriving late, add no second
+    // row and no second post.
+    host.emit('gb', 'user/message', notice)
+    host.emitScoped('gb', 'subagent/end', { runId: 'run-1', provider: 'spawn', id: 'sub-1', local: true, stopReason: reason })
+    assert.deepEqual(host.agentOf('r1').calls, [])
+    assert.equal(rt.groupRows('r1', second().from, second().to).filter(row => row.kind === 'helper-failed').length, 1)
+  })
+}
+
 test('a helper failure in a running round preserves the idle guard and stays one event', async (t) => {
   const host = await start(t)
   const round = host.round('c1', host.say('@Writer 检查'))
