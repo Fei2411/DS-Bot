@@ -140,13 +140,20 @@ test('send goes through sendmessage with the stored context_token, chunked at th
   const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
   t.after(() => { handle.stop(); fake.close() })
   await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
-  const { messageId } = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'x'.repeat(4000) })
+  const { messageId, ids, parts } = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'x'.repeat(4000) })
   const sends = fake.calls.filter(call => call.path === '/ilink/bot/sendmessage')
   assert.ok(sends.length >= 2, 'chunked at the limit')
   assert.equal(sends[0].params.msg.to_user_id, 'u1')
   assert.equal(sends[0].params.msg.context_token, 'tok-u1')
   assert.equal(sends[0].params.msg.item_list[0].type, 1)
   assert.ok(messageId.startsWith('ds-bot-'))
+  // Each chunk is its own WeChat message: it keeps its own ids and its own text,
+  // so quoting a later chunk must not resolve to the start of the reply.
+  assert.equal(parts.length, sends.length, 'one entry per chunk')
+  assert.equal(parts.map(part => part.text).join(''), 'x'.repeat(4000))
+  assert.equal(new Set(parts.map(part => part.ids[0])).size, sends.length, 'each chunk keeps its own id')
+  for (const part of parts) assert.ok(part.ids[0].startsWith('ds-bot-'))
+  assert.equal(ids.length, sends.length)
 })
 
 test('a quoted reply carries the ids in protocol order and the text the platform kept', async (t) => {

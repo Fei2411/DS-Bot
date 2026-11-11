@@ -248,6 +248,9 @@ export default {
         const contextToken = contextTokens()[chat.key]
         let messageId
         const ids = []
+        // A long reply goes out as several WeChat messages with an id each, so a
+        // quote names one chunk: keep every chunk's ids next to its own text.
+        const parts = []
         for (const chunkText of chunks) {
           const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
           const answer = await request(env, base(env, fields), fields.token, 'sendmessage', {
@@ -263,9 +266,14 @@ export default {
           }
           messageId = clientId
           addId(ids, clientId)
-          for (const id of answerIds(answer)) addId(ids, id)
+          const partIds = [clientId]
+          for (const id of answerIds(answer)) {
+            addId(ids, id)
+            addId(partIds, id)
+          }
+          parts.push({ ids: partIds, text: chunkText })
         }
-        return { messageId, ids }
+        return { messageId, ids, parts }
       },
       typing: async (chat) => {
         const answer = await request(env, base(env, fields), fields.token, 'getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)

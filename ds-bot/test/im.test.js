@@ -250,6 +250,42 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
 })
 
+test('a quote of a later chunk shows that chunk, not the start of the reply', async (t) => {
+  // A platform that cuts a long reply into messages with an id each.
+  const adapter = {
+    id: 'fake',
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      return {
+        send: async () => ({
+          messageId: 'chunk-b',
+          ids: ['chunk-a', 'chunk-b'],
+          parts: [
+            { ids: ['chunk-a'], text: 'Project A is done' },
+            { ids: ['chunk-b'], text: 'Project B is done' },
+          ],
+        }),
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done\n\nProject B is done' }] } })
+  await s.flush()
+  await dm(s, 'u1', 'do that', { quote: { ids: ['chunk-b'] } })
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project B is done\n\ndo that')
+})
+
 test('a quote resolves by its ids, then by the platform text, and says when both are gone', async (t) => {
   const s = await start()
   t.after(s.stop)

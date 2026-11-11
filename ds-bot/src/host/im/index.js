@@ -299,19 +299,30 @@ export function install(rt) {
     scheduleWrite(id)
   }
   // What was sent to a chat, by the ids the platform gave back: a quoted reply
-  // names one of those ids, and the Bot has to see the message it answers. The
-  // reply can come long after the send, so this lives in the runtime file.
+  // names one of those ids, and the Bot has to see the message it answers. A
+  // long reply goes out as several platform messages with an id each, so a
+  // platform that reports them gets one entry per part — quoting a later chunk
+  // then shows that chunk, not the start of the reply. The reply can come long
+  // after the send, so this lives in the runtime file.
   const rememberSent = async (id, chatKey, text, sent) => {
-    const ids = []
-    for (const value of [sent?.messageId, ...(Array.isArray(sent?.ids) ? sent.ids : [])]) {
-      const one = String(value ?? '').trim()
-      if (one !== '' && !ids.includes(one)) ids.push(one)
+    const parts = Array.isArray(sent?.parts) && sent.parts.length > 0
+      ? sent.parts
+      : [{ ids: [sent?.messageId, ...(Array.isArray(sent?.ids) ? sent.ids : [])], text }]
+    const entries = []
+    for (const part of parts) {
+      const ids = []
+      for (const value of Array.isArray(part?.ids) ? part.ids : []) {
+        const one = String(value ?? '').trim()
+        if (one !== '' && !ids.includes(one)) ids.push(one)
+      }
+      const body = String(part?.text ?? '').slice(0, SENT_TEXT_LIMIT).trim()
+      if (ids.length === 0 || body === '') continue
+      entries.push({ ids, text: body })
     }
-    const body = String(text ?? '').slice(0, SENT_TEXT_LIMIT).trim()
-    if (ids.length === 0 || body === '') return
+    if (entries.length === 0) return
     const data = await dataOf(id)
     const kept = data.sent[chatKey] ?? []
-    data.sent[chatKey] = [...kept, { ids, text: body }].slice(-SENT_KEEP)
+    data.sent[chatKey] = [...kept, ...entries].slice(-SENT_KEEP)
     scheduleWrite(id)
   }
   // The text a quoted reply answers: the first of its ids that names a message
