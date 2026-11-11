@@ -91,6 +91,7 @@ test('switching to a computer with a lower revision clears the old team and acce
   let cbCursor = 0
   let effectCursor = 0
   let pendingEffects: (() => void)[] = []
+  const closed: string[] = []
   const sent: { host: string; endpoint: string; payload: unknown; state?: unknown }[] = []
   const byHost: Record<string, TeamState> = {
     'host-a': { revision: 10, bots: [{ id: 'a1', name: 'Alpha' }] },
@@ -177,7 +178,7 @@ test('switching to a computer with a lower revision clears the old team and acce
       host: computer.hostDeviceId,
       onEvent() {},
       onClose() {},
-      close: async () => {},
+      close: async () => { closed.push(computer.hostDeviceId) },
       probe() {},
     }),
     callBot: async (client: { host: string }, endpoint: string, payload: unknown) => {
@@ -223,6 +224,7 @@ test('switching to a computer with a lower revision clears the old team and acce
     for (const run of pendingEffects) run()
     await new Promise(resolve => setTimeout(resolve, 20))
     const onB = render(compB)
+    assert.equal(closed.includes('host-a'), true)
     assert.equal(onB.team?.revision, 2)
     assert.equal(onB.team?.bots[0].name, 'Beta')
 

@@ -42,6 +42,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   const switched = hostRef.current !== computer.hostDeviceId
   if (switched) {
     hostRef.current = computer.hostDeviceId
+    void clientRef.current?.close()
     clientRef.current = undefined
     revision.current = -1
     writes.current = []
@@ -134,6 +135,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
 
   useEffect(() => {
     let stopped = false
+    let activeClient: RpcClient | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     revision.current = -1
     writes.current = []
@@ -172,6 +174,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       try {
         const client = await openLink(computer, identity)
         if (stopped) { void client.close(); return }
+        activeClient = client
         clientRef.current = client
         setLinked(true)
         // The handshake: its api is null when the computer's DS Bot is too old for
@@ -191,15 +194,18 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setOnline(true)
         setError(null)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
+          if (stopped || clientRef.current !== client) return
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
         void callBot(client, 'notices', { boot: helloResult.boot, since: 0 }).then(answer => {
+          if (stopped || clientRef.current !== client) return
           const notices = answer as { reset?: boolean }
           if (notices.reset === true) void poll()
         }).catch(() => {})
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return
+          activeClient = undefined
           clientRef.current = undefined
           setOnline(false)
           setLinked(false)
@@ -207,6 +213,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
           later(() => void connect(), RETRY_MS)
         })
       } catch (failure) {
+        if (stopped) return
         setError(errorText(failure))
         if (rejected(failure)) setTeam(null)
         else later(() => void connect(), RETRY_MS)
@@ -219,7 +226,13 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       if (status === 'active') { clientRef.current?.probe(); void poll() }
       else clearTimeout(timer)
     })
-    return () => { stopped = true; clearTimeout(timer); foreground.remove(); void clientRef.current?.close(); clientRef.current = undefined }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      foreground.remove()
+      void activeClient?.close()
+      if (clientRef.current === activeClient) clientRef.current = undefined
+    }
   }, [computer, identity, apply])
 
   return {
