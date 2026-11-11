@@ -251,8 +251,12 @@ export function apply(ctx) {
             if (misses >= 10 && !roster.getSnapshot().ready) ui.set(state => (state.bootFailed ? state : { ...state, bootFailed: true }))
           }
         }
-      } finally { running = false }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
+      } finally {
+        // The next read is due whatever this one did: a failed or timed-out pull
+        // must not be the last, or the sidebar stops refreshing for good.
+        running = false
+        if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
+      }
     }
     const wake = () => { if (!document.hidden) void loop() }
     document.addEventListener('visibilitychange', wake)
@@ -423,7 +427,16 @@ export function apply(ctx) {
 
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
 
-  const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
+  const after = promise => promise.then(async (value) => {
+    // A read that fails after the change leaves the view on stale data; say so in
+    // the toast a failed action already uses, instead of swallowing it.
+    await pull().catch((error) => {
+      console.warn('[ds-bot] refresh after action', error)
+      noteClientError('refresh', error)
+      ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
+    })
+    return value
+  })
   // A Bot id or a group chat id, or any part of either's chat, opens the current part.
   const partFor = (id) => {
     const snapshot = roster.getSnapshot()
@@ -472,7 +485,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, refresh: pull, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.

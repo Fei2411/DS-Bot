@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useR
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
-import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, FolderIcon, PlusIcon, CheckIcon, PeopleIcon, SignOutIcon } from './icons.js'
+import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, FolderIcon, PlusIcon, CheckIcon, PeopleIcon, SignOutIcon, CloseIcon } from './icons.js'
 import { BotMark, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { stepMenuFocus, useViewport, viewBottom } from './motion.js'
@@ -40,6 +40,8 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
   }, [])
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
+  // Deleting a group chat is the one item a stray click must not do: it asks first.
+  const [confirming, setConfirming] = useState(false)
   const tick = useViewport()
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect()
@@ -58,6 +60,16 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
   const isMainBot = isMainOf(roster, menu.id)
   const isTile = roster.mainBotId === menu.id
   const mainCount = (roster.mainBotIds ?? []).length
+  // A group chat asks before deleting, like its settings page; `hold` keeps the
+  // menu open for that first click.
+  const remove = room
+    ? confirming
+      ? [
+          [t('Delete group?'), TrashIcon, () => actions.deleteRoom(menu.id), true],
+          [t('Cancel'), CloseIcon, () => setConfirming(false), false, false, true],
+        ]
+      : [[t('Delete group'), TrashIcon, () => setConfirming(true), true, false, true]]
+    : [[t('Delete'), TrashIcon, () => actions.deleteBot(bot.id), true]]
   const groups = [
     [
       isTile ? null : [entry.pinned ? t('Unpin') : t('Pin'), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
@@ -77,15 +89,18 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
     bot ? (waits?.waits ?? []).map(item => [t('Give up waiting for {name}', { name: item.name ?? t('a Bot') }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t('Hide from sidebar'), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
-      isMainBot ? null : [room ? t('Delete group') : t('Delete'), TrashIcon, () => (bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id)), true],
+      ...(isMainBot ? [] : remove),
     ],
   ].map(group => group.filter(Boolean)).filter(group => group.length > 0)
   return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': t('{name} actions', { name: bot?.name ?? room.name }), style: place, 'data-leaving': leaving || undefined },
     groups.map((group, index) => h(Fragment, { key: index },
       index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
-      group.map(([label, Icon, run, danger, checked]) => h('button', {
+      group.map(([label, Icon, run, danger, checked, hold]) => h('button', {
         key: label, type: 'button', role: 'menuitem', className: danger ? 'bt-danger' : undefined,
-        onClick: () => { actions.closeMenu(); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
+        onClick: () => {
+          if (!hold) actions.closeMenu()
+          void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu'))
+        },
       }, h(Icon), h('span', { className: 'bt-menu-label' }, label), checked ? h('span', { className: 'bt-menu-check' }, h(CheckIcon)) : null)))))
 }
 

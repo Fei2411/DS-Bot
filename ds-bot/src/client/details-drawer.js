@@ -266,7 +266,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         h('span', { className: 'bt-subhead-title' }, bot ? t('Settings') : t('Group settings')),
         hasStrip ? null : h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close details'), onClick: close }, h(CloseIcon))),
       h('div', { key: 'set-body', className: 'bt-drawer-body bt-set-body', 'data-move': move }, errorLine,
-        bot ? h(BotSettingsForm, { bot, roster, actions, run }) : h(GroupSettingsForm, { room, roster, actions, run, onDeleted: close })),
+        bot ? h(BotSettingsForm, { bot, roster, actions, run, onDeleted: close }) : h(GroupSettingsForm, { room, roster, actions, run, onDeleted: close })),
     ]
   }
   // The `···` button holds Browser, a new side chat, and DSH's right-column

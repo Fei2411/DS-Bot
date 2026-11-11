@@ -111,6 +111,7 @@ var ZH = {
   "Choose at least 2 Bots (the admin counts)": "至少选择 2 个机器人（含管理员）",
   "Choose at least 1 more member": "还需至少 1 位成员",
   "Delete group": "删除群组",
+  "Delete group?": "删除群组？",
   "Open {name}'s chat": "打开 {name} 的对话",
   "New Bot": "新机器人",
   "New Bots": "新机器人",
@@ -1299,6 +1300,7 @@ var ZH = {
   Clear: "清空",
   "Settings → Feedback has the details.": "详情见 设置 → 反馈。",
   "Could not reach DSH. Check that it is still running.": "连不上 DSH，请确认它还在运行。",
+  "DSH did not answer in time.": "DSH 没有及时回应。",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 停下了：{reason}。换个模型，或让它继续。",
   "Unknown error": "未知错误",
   "The model has no API key": "模型还没有 API Key",
@@ -1821,38 +1823,65 @@ ${REST_NOTE}`);
 // src/client/api.js
 var ROUTE = "api/bot";
 var REFUSALS = /* @__PURE__ */ new Set(["bot/refused", "bot/invalid", "bot/read-only", "bot/not-found", "bot/browser-off"]);
+var REQUEST_TIMEOUT_MS = 15e3;
 var call = async (endpoint, payload, signal) => {
-  let response;
-  try {
-    response = await fetch(ROUTE, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ endpoint, payload: payload ?? null }),
-      signal
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") throw error;
-    noteClientError(endpoint, Object.assign(new Error(`network error: ${error?.message ?? error}`), { code: "NETWORK" }));
-    throw markNoted(Object.assign(new Error(t("Could not reach DSH. Check that it is still running.")), { code: "NETWORK", cause: error }));
-  }
-  if (!response.ok) {
-    const error = Object.assign(new Error(hostText(`HTTP ${response.status}`)), { code: `HTTP_${response.status}` });
+  const control = new AbortController();
+  const forward = () => control.abort();
+  if (signal?.aborted) control.abort();
+  else signal?.addEventListener("abort", forward, { once: true });
+  let expired2 = false;
+  const timer = setTimeout(() => {
+    expired2 = true;
+    control.abort();
+  }, REQUEST_TIMEOUT_MS);
+  const expiredError = (cause) => {
+    const error = Object.assign(new Error(t("DSH did not answer in time.")), { code: "REQUEST_TIMEOUT", cause });
     noteClientError(endpoint, error);
-    throw error;
-  }
-  const result = await response.json();
-  if (!result.ok) {
-    const code = result.error?.code ?? "bot/error";
-    const message = hostText(result.error?.message ?? "Request failed");
-    const error = Object.assign(new Error(code === "bot/internal" ? `${message} ${t("Settings → Feedback has the details.")}` : message), { code });
-    if (!REFUSALS.has(code)) {
-      noteClientError(endpoint, Object.assign(new Error(result.error?.message ?? "Request failed"), { code }));
-      markNoted(error);
+    return error;
+  };
+  try {
+    let response;
+    try {
+      response = await fetch(ROUTE, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint, payload: payload ?? null }),
+        signal: control.signal
+      });
+    } catch (error) {
+      if (expired2) throw expiredError(error);
+      if (error?.name === "AbortError") throw error;
+      noteClientError(endpoint, Object.assign(new Error(`network error: ${error?.message ?? error}`), { code: "NETWORK" }));
+      throw markNoted(Object.assign(new Error(t("Could not reach DSH. Check that it is still running.")), { code: "NETWORK", cause: error }));
     }
-    throw error;
+    if (!response.ok) {
+      const error = Object.assign(new Error(hostText(`HTTP ${response.status}`)), { code: `HTTP_${response.status}` });
+      noteClientError(endpoint, error);
+      throw error;
+    }
+    let result;
+    try {
+      result = await response.json();
+    } catch (error) {
+      if (expired2) throw expiredError(error);
+      throw error;
+    }
+    if (!result.ok) {
+      const code = result.error?.code ?? "bot/error";
+      const message = hostText(result.error?.message ?? "Request failed");
+      const error = Object.assign(new Error(code === "bot/internal" ? `${message} ${t("Settings → Feedback has the details.")}` : message), { code });
+      if (!REFUSALS.has(code)) {
+        noteClientError(endpoint, Object.assign(new Error(result.error?.message ?? "Request failed"), { code }));
+        markNoted(error);
+      }
+      throw error;
+    }
+    return result.value;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
   }
-  return result.value;
 };
 
 // src/client/inks.js
@@ -2055,7 +2084,7 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, refresh, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
@@ -2063,6 +2092,29 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
   };
   const openSettings = (page = "general", id = null) => {
     ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null, newBot: null }));
+  };
+  const forget = (kind, id) => {
+    const snapshot = roster.getSnapshot();
+    const key = kind === "room" ? "rooms" : "bots";
+    const list = snapshot[key] ?? [];
+    if (!list.some((entry) => entry.id === id)) return;
+    const next = { ...snapshot, [key]: list.filter((entry) => entry.id !== id) };
+    if (kind === "bot") {
+      const mains = (snapshot.mainBotIds ?? []).filter((mainId) => mainId !== id);
+      next.mainBotIds = mains;
+      if (snapshot.mainBotId === id) next.mainBotId = mains[0] ?? null;
+    }
+    roster.set(indexRoster(next));
+    const onIt = (state) => state.details !== null && state.details !== void 0 && (kind === "room" ? snapshot.roomsById[state.details] : snapshot.byId[state.details])?.id === id;
+    ui2.set((state) => onIt(state) ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
+  };
+  const removeEntry = (kind, id, request) => {
+    forget(kind, id);
+    return after(request()).catch((error) => {
+      void Promise.resolve(refresh?.()).catch(() => {
+      });
+      throw error;
+    });
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -2173,7 +2225,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     deleteSection: (id) => after(call2("section-delete", { id })),
     beginSectionRename: (id) => ui2.set((state) => ({ ...state, renameSection: id })),
     endSectionRename: () => ui2.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
-    deleteRoom: (id) => after(call2("delete-room", { id })),
+    deleteRoom: (id) => removeEntry("room", id, () => call2("delete-room", { id })),
     openMenu: (menu) => {
       ui2.set((state) => ({ ...state, menu, palette: null }));
     },
@@ -2210,7 +2262,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     folderPick: () => call2("folder-pick"),
     folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
     setTeamWorkspace: (path2) => after(call2("team-workspace", { path: path2 })),
-    deleteBot: (id) => after(call2("delete-bot", { id })),
+    deleteBot: (id) => removeEntry("bot", id, () => call2("delete-bot", { id })),
     releasePrivate: (id) => after(call2("private-release", { id })),
     duplicateBot: (id) => after(call2("duplicate-bot", { id })),
     setPrefs: (prefs) => after(call2("set-prefs", prefs)),
@@ -12010,7 +12062,7 @@ function MemoryCard({ bot, actions }) {
     )
   );
 }
-function BotSettingsForm({ bot, roster, actions, run: run2 }) {
+function BotSettingsForm({ bot, roster, actions, run: run2, onDeleted }) {
   const [editing, setEditing] = (0, import_react26.useState)(false);
   const [editorShown, editorLeaving] = useLinger(editing, 120);
   const [confirming, setConfirming] = (0, import_react26.useState)(false);
@@ -12029,8 +12081,13 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const save = (patch) => run2(actions.updateBot(bot.id, patch));
   const duplicate = () => run2(actions.duplicateBot(bot.id).then((copy2) => actions.openSession(copy2.id)));
   const remove = () => {
-    if (confirming) void run2(actions.deleteBot(bot.id));
-    else setConfirming(true);
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    void run2(actions.deleteBot(bot.id)).then((done) => {
+      if (done) onDeleted?.();
+    });
   };
   (0, import_react26.useEffect)(() => {
     void actions.refreshModels?.();
@@ -25604,6 +25661,7 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     };
   }, []);
   const [place, setPlace] = (0, import_react58.useState)({ left: menu.x, top: menu.y });
+  const [confirming, setConfirming] = (0, import_react58.useState)(false);
   const tick = useViewport();
   (0, import_react58.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
@@ -25621,6 +25679,10 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   const isMainBot = isMainOf(roster, menu.id);
   const isTile = roster.mainBotId === menu.id;
   const mainCount = (roster.mainBotIds ?? []).length;
+  const remove = room2 ? confirming ? [
+    [t("Delete group?"), TrashIcon, () => actions.deleteRoom(menu.id), true],
+    [t("Cancel"), CloseIcon, () => setConfirming(false), false, false, true]
+  ] : [[t("Delete group"), TrashIcon, () => setConfirming(true), true, false, true]] : [[t("Delete"), TrashIcon, () => actions.deleteBot(bot.id), true]];
   const groups = [
     [
       isTile ? null : [entry.pinned ? t("Unpin") : t("Pin"), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
@@ -25643,7 +25705,7 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     bot ? (waits?.waits ?? []).map((item) => [t("Give up waiting for {name}", { name: item.name ?? t("a Bot") }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t("Hide from sidebar"), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
-      isMainBot ? null : [room2 ? t("Delete group") : t("Delete"), TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true]
+      ...isMainBot ? [] : remove
     ]
   ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
   return (0, import_react58.createElement)(
@@ -25653,13 +25715,13 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
       import_react58.Fragment,
       { key: index },
       index > 0 ? (0, import_react58.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run2, danger, checked]) => (0, import_react58.createElement)("button", {
+      group.map(([label, Icon, run2, danger, checked, hold]) => (0, import_react58.createElement)("button", {
         key: label,
         type: "button",
         role: "menuitem",
         className: danger ? "bt-danger" : void 0,
         onClick: () => {
-          actions.closeMenu();
+          if (!hold) actions.closeMenu();
           void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
         }
       }, (0, import_react58.createElement)(Icon), (0, import_react58.createElement)("span", { className: "bt-menu-label" }, label), checked ? (0, import_react58.createElement)("span", { className: "bt-menu-check" }, (0, import_react58.createElement)(CheckIcon)) : null))
@@ -26446,7 +26508,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
         "div",
         { key: "set-body", className: "bt-drawer-body bt-set-body", "data-move": move },
         errorLine,
-        bot ? (0, import_react60.createElement)(BotSettingsForm, { bot, roster, actions, run: run2 }) : (0, import_react60.createElement)(GroupSettingsForm, { room: room2, roster, actions, run: run2, onDeleted: close })
+        bot ? (0, import_react60.createElement)(BotSettingsForm, { bot, roster, actions, run: run2, onDeleted: close }) : (0, import_react60.createElement)(GroupSettingsForm, { room: room2, roster, actions, run: run2, onDeleted: close })
       )
     ];
   }
@@ -29456,8 +29518,8 @@ function apply(ctx) {
         }
       } finally {
         running = false;
+        if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
       }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
     };
     const wake = () => {
       if (!document.hidden) void loop();
@@ -29649,7 +29711,10 @@ function apply(ctx) {
     scope.effect(() => holdShellShortcuts(scope.shortcuts), "ds-bot: settings shortcut");
   });
   const after = (promise) => promise.then(async (value) => {
-    await pull().catch(() => {
+    await pull().catch((error) => {
+      console.warn("[ds-bot] refresh after action", error);
+      noteClientError("refresh", error);
+      ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     });
     return value;
   });
@@ -29696,7 +29761,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, refresh: pull, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
