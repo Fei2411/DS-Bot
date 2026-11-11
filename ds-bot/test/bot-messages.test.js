@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -1236,4 +1236,32 @@ test('without file storage a message past 20,000 characters is not sent', async 
   // 20,000 characters still go as they are.
   await tool('message_bot', { to: 'Writer', message: 'x'.repeat(20_000) }, 'a')
   assert.equal(agentOf('b').calls.length, 1)
+})
+
+// A request merged with another the recipient had not read goes out under the same id. If
+// the merged text never reaches the recipient, the dialog keeps the text that did.
+test('a merged request that does not go out leaves the delivered text in the dialog', async (t) => {
+  const { ctx, exchanges, stop } = await start(team())
+  t.after(stop)
+  await rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan', exchangeId: 'x-merge' })
+  const flush = ctx.sessions.flush
+  ctx.sessions.flush = async () => { throw new Error('Session is gone') }
+  await assert.rejects(rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan\n\nAnd the budget', exchangeId: 'x-merge', merged: true }), /Session is gone/)
+  ctx.sessions.flush = flush
+  assert.deepEqual((await exchanges()).map(entry => [entry.id, entry.text]), [['x-merge', 'Draft the plan']])
+})
+
+// The book is written before the message goes out: one it cannot keep is not sent.
+test('a message between Bots that the book cannot keep is not sent', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { agentOf, tool, exchanges, home, stop } = await start(team())
+  t.after(stop)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  chmodSync(join(home, 'ledger'), 0o500)
+  try {
+    await assert.rejects(tool('message_bot', { to: 'Writer', message: 'Hello' }, 'a'))
+    assert.equal(agentOf('b').calls.filter(([kind]) => kind === 'steer' || kind === 'followup').length, 0)
+  } finally {
+    chmodSync(join(home, 'ledger'), 0o700)
+  }
+  assert.deepEqual(await exchanges(), [])
 })

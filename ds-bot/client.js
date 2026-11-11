@@ -13973,7 +13973,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
-    groupRows: (roomId, from, to) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to } }).catch(() => []),
+    groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -17448,7 +17448,8 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
   const enterToSend = useRoster((value) => sendsOnEnter(value.prefs));
   const drawn = useCards?.((state) => state[sessionId]?.[question?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("question", question?.id)] > 0) === true;
-  if (question === void 0 || question.callId && drawn && !held) return null;
+  const inPart = (question?.callSessionId ?? sessionId) === sessionId;
+  if (question === void 0 || inPart && question.callId && drawn && !held) return null;
   return (0, import_react9.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend });
 }
 function AnsweredCell({ node }) {
@@ -20561,7 +20562,7 @@ function PendingView({ sessionId, view, actions, inline }) {
 }
 function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, heldCards }) {
   const record = roster.views?.[sessionId];
-  if (record !== void 0 && record.callId === callId) {
+  if (record !== void 0 && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId) {
     if (heldCards?.[heldCardKey("view", record.id)] > 0) return (0, import_react16.createElement)(CellEmpty);
     return (0, import_react16.createElement)(PendingView, { sessionId, view: record, actions, inline: true });
   }
@@ -20580,11 +20581,10 @@ function ClosedView({ title, closed }) {
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
-  const closed = useRoster((value) => value.closedViews?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
-  if (view === void 0) return closed === void 0 ? null : (0, import_react16.createElement)("div", { className: "bt-q-dock" }, (0, import_react16.createElement)(SettledQuestion, { question: { question: closed.title || t("View") }, closed: closed.closed }));
-  if (view.callId && drawn && !held) return null;
+  const inPart = (view?.callSessionId ?? sessionId) === sessionId;
+  if (view === void 0 || inPart && view.callId && drawn && !held) return null;
   return (0, import_react16.createElement)(PendingView, { sessionId, view, actions, inline: false });
 }
 function AnsweredView2({ node }) {
@@ -24856,7 +24856,7 @@ var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).
 function relayRange(text) {
   try {
     const value = JSON.parse(text);
-    if (Number.isInteger(value?.from)) return { from: value.from, ...Number.isInteger(value.to) ? { to: value.to } : {} };
+    if (Number.isInteger(value?.from)) return { from: value.from, ...Number.isInteger(value.to) ? { to: value.to } : {}, ...typeof value.anchor === "string" ? { anchor: value.anchor } : {} };
   } catch {
   }
   return void 0;
@@ -26113,6 +26113,7 @@ function EarlierParts({ sessionId, roster, actions }) {
       setView((current) => ({ ...current, loading: false, failed: true }));
     });
   };
+  const closedEarlier = JSON.stringify((roster.byId[sessionId]?.parts ?? []).map((part) => roster.closedCards?.[part] ?? null));
   (0, import_react32.useEffect)(() => {
     generation.current += 1;
     busy.current = false;
@@ -26121,7 +26122,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     return () => {
       generation.current += 1;
     };
-  }, [sessionId]);
+  }, [sessionId, closedEarlier]);
   (0, import_react32.useLayoutEffect)(() => {
     const pending = restore.current;
     restore.current = null;
@@ -26562,34 +26563,49 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }, [done, sessionId, callId]);
   const resultText = done ? contentText(content) : "";
   const range = done ? relayRange(resultText) : void 0;
-  const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}`;
-  const [settled, setSettled] = (0, import_react32.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
+  const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}:${range.anchor ?? ""}`;
+  const [view, setView] = (0, import_react32.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
+  const quietKey = view?.open === true && view.active !== true ? roster.revision : void 0;
   (0, import_react32.useEffect)(() => {
     if (rowsKey === void 0) return void 0;
     const known = settledRows.get(rowsKey);
     if (known !== void 0) {
-      setSettled(known);
+      setView(known);
       return void 0;
     }
     let stop = false;
-    void actions.groupRows(sessionId, range.from, range.to).then((rows2) => {
-      if (Array.isArray(rows2) && rows2.length > 0) settledRows.set(rowsKey, rows2);
-      if (!stop) setSettled(Array.isArray(rows2) ? rows2 : []);
-    });
+    let timer;
+    let seen = "";
+    const tick = async () => {
+      const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor);
+      if (stop) return;
+      if (next !== null && Array.isArray(next?.rows)) {
+        if (!next.open) settledRows.set(rowsKey, next);
+        const key = JSON.stringify(next);
+        if (key !== seen) {
+          seen = key;
+          setView(next);
+        }
+        if (!next.open || next.active !== true) return;
+      }
+      timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
+    };
+    void tick();
     return () => {
       stop = true;
+      clearTimeout(timer);
     };
-  }, [rowsKey]);
+  }, [rowsKey, quietKey]);
   let replies = live.replies;
   let broken = false;
   if (range !== void 0) {
-    replies = settled ?? live.replies;
+    replies = view?.rows ?? live.replies;
   } else if (done) {
     const parsed = parseReplies(resultText);
     replies = parsed.replies.length ? parsed.replies : live.replies;
     broken = parsed.broken;
   }
-  const pending = done ? [] : live.speaking;
+  const pending = range !== void 0 ? view?.open ? view.speaking ?? [] : [] : done ? [] : live.speaking;
   const doing = JSON.parse(useWork?.((work) => JSON.stringify(pending.map((id) => {
     const tool = work.bots?.[id]?.tool;
     return tool ? [tool, workPhrase(work.bots[id])] : [];
@@ -26709,7 +26725,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
     }
     case "ask_user": {
       const question = roster.questions?.[sessionId];
-      if (!question || question.callId !== call2.callId) {
+      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call2.callId) {
         const closed = roster.closedCards?.[sessionId]?.[call2.callId];
         if (closed === void 0) return (0, import_react32.createElement)(CellEmpty, { className: "bt-q-gone" });
         const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
@@ -26770,7 +26786,8 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   const turn = node.location?.turn?.turn ?? root.turn;
   const hidden = isHiddenTurn(roster, sessionId, turn);
   const findBot = (nameOrId) => roster.byId[nameOrId] ?? roster.bots.find((bot) => bot.name.toLowerCase() === String(nameOrId ?? "").toLowerCase());
-  const calls = hidden ? [] : callTree(root);
+  const closed = roster.closedCards?.[sessionId];
+  const calls = hidden ? callTree(root).filter((call2) => (toolName(call2) === "ask_user" || toolName(call2) === "show_view") && call2.callId && closed?.[call2.callId] !== void 0) : callTree(root);
   const drawn = calls.filter((call2) => DRAWN.has(toolName(call2)) || isComputerCall(toolName(call2)));
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
