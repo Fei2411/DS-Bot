@@ -1487,3 +1487,10 @@ export function installCompiledStyles(text, tag) {
     style.remove()
   }
 }
+
+// The classic page's return button draws its surface from these. Agent mode withdraws the
+// rest of this sheet, so they are installed on their own, with the return button's rules;
+// a mid grey reads on the shell's light and dark themes.
+export const RETURN_TOKENS = `
+body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
+`
