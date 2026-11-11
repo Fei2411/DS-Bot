@@ -26106,10 +26106,10 @@ function EarlierUser({ row, actions }) {
     { className: "bt-urow" },
     (0, import_react32.createElement)(
       "div",
-      { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": "" },
+      { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": body ? "" : void 0 },
       control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
-      row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
+      row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
     ),
     row.via ? (0, import_react32.createElement)("div", { className: "bt-utime" }, (0, import_react32.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
