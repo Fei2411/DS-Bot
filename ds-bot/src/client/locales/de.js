@@ -1,6 +1,25 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  "Android beta": "Android-Beta",
+  "Cannot reach the Server. Trying again…": "Server nicht erreichbar. Neuer Versuch…",
+  "No phones yet": "Noch keine Telefone",
+  "Off. Phones cannot reach this computer.": "Aus. Telefone können diesen Computer nicht erreichen.",
+  "On. Paired phones can use DS Bot here.": "An. Gekoppelte Telefone können DS Bot hier nutzen.",
+  "Pair a phone": "Telefon koppeln",
+  "Paired on {date}": "Gekoppelt am {date}",
+  "Phone": "Telefon",
+  "Phone access": "Telefonzugriff",
+  "Phone app": "Telefon-App",
+  "Phones": "Telefone",
+  "Scan this code with the DS Bot app on your phone.": "Scanne diesen Code mit der DS Bot-App auf deinem Telefon.",
+  "Server": "Server",
+  "Show a QR code": "QR-Code anzeigen",
+  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Der Relay-Server, der verschlüsselte Nachrichten zwischen deinem Telefon und diesem Computer weiterleitet. Er kann sie nicht lesen.",
+  "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
+  "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
+  "Your phone scans it once. After that it connects by itself.": "Dein Telefon scannt ihn einmal. Danach verbindet es sich von selbst.",
+  "Beta": "Beta",
   // Shared
   'Main Bot': 'Haupt-Bot',
   Working: 'Arbeitet',

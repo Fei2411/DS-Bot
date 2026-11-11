@@ -2,17 +2,19 @@
   "expo": {
     "name": "DS Bot",
     "slug": "dsbot",
-    "version": "0.1.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "io.github.fei2411.dsbot"
+      "bundleIdentifier": "io.github.fei2411.dsbot",
+      "infoPlist": {
+        "CFBundleLocalizations": ["en", "zh-Hans"]
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#eef1f7",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -20,6 +22,26 @@
       "predictiveBackGestureEnabled": false,
       "package": "io.github.fei2411.dsbot"
     },
-    "scheme": "dsbot"
+    "scheme": "dsbot",
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DS Bot uses the camera to scan the pairing code that your computer shows.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "./plugins/android-release-signing.js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class com.google.mlkit.** { *; }\n-keep class com.google.android.gms.internal.mlkit_vision_barcode.** { *; }\n-keep class com.google.android.gms.internal.mlkit_vision_common.** { *; }\n-keep class com.google.android.odml.** { *; }"
+          }
+        }
+      ]
+    ]
   }
 }

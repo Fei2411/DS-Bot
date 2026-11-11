@@ -233,15 +233,22 @@ test('a display view is retained when its part becomes earlier history', async (
   assert.deepEqual(page.items, [{ kind: 'view', title: 'Earlier card', view, callId: 'old-view', time: 20 }])
 })
 
-test('a question or view card closed without an answer reads back in earlier history; an answered one does not', async (t) => {
+test('a question or view card closed without an answer reads back in earlier history, including hidden turns; an answered one does not', async (t) => {
   const options = [{ label: 'Short' }, { label: 'Long' }]
   const pick = { type: 'options', id: 'lane', options: [{ label: 'Ship now' }] }
+  const meter = { type: 'metric', label: 'Done', value: '3' }
   const events = [
     { type: 'tool/call', time: 20, seq: 3, data: { turn: 1, callId: 'q-closed', name: 'ask_user', arguments: JSON.stringify({ question: 'Which draft?', options }) } },
     { type: 'tool/call', time: 21, seq: 4, data: { turn: 1, callId: 'q-answered', name: 'ask_user', arguments: JSON.stringify({ question: 'Answered', options }) } },
     { type: 'tool/call', time: 22, seq: 5, data: { turn: 1, callId: 'v-closed', name: 'show_view', arguments: JSON.stringify({ title: 'Pick a lane', view: pick }) } },
+    { type: 'tool/call', time: 23, seq: 6, data: { turn: 2, callId: 'v-hidden-meter', name: 'show_view', arguments: JSON.stringify({ title: 'Hidden meter', view: meter }) } },
+    { type: 'tool/call', time: 24, seq: 7, data: { turn: 2, callId: 'v-hidden-closed', name: 'show_view', arguments: JSON.stringify({ title: 'Browser default?', view: pick }) } },
   ]
-  const team = { ...TEAM, closedCards: { m1: { 'q-closed': 'replied', 'v-closed': 'dismissed' } } }
+  const team = {
+    ...TEAM,
+    exchangeTurns: { ...TEAM.exchangeTurns, m1: [2] },
+    closedCards: { m1: { 'q-closed': 'replied', 'v-closed': 'dismissed', 'v-hidden-closed': 'replied' } },
+  }
   const { call, stop } = start({ team, pages: { 'm1:end': { records: events.map(event => ({ event })), hasMore: false } } })
   t.after(stop)
   await call('state')
@@ -249,6 +256,7 @@ test('a question or view card closed without an answer reads back in earlier his
   assert.deepEqual(page.items, [
     { kind: 'closed', closed: 'replied', question: { question: 'Which draft?', options, multiSelect: false }, callId: 'q-closed', time: 20 },
     { kind: 'closed', closed: 'dismissed', title: 'Pick a lane', view: pick, callId: 'v-closed', time: 22 },
+    { kind: 'closed', closed: 'replied', title: 'Browser default?', view: pick, callId: 'v-hidden-closed', time: 24 },
   ])
 })
 
