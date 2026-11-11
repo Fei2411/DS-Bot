@@ -17448,7 +17448,8 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
   const enterToSend = useRoster((value) => sendsOnEnter(value.prefs));
   const drawn = useCards?.((state) => state[sessionId]?.[question?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("question", question?.id)] > 0) === true;
-  if (question === void 0 || question.callId && drawn && !held) return null;
+  const inPart = (question?.callSessionId ?? sessionId) === sessionId;
+  if (question === void 0 || inPart && question.callId && drawn && !held) return null;
   return (0, import_react9.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend });
 }
 function AnsweredCell({ node }) {
@@ -20561,7 +20562,7 @@ function PendingView({ sessionId, view, actions, inline }) {
 }
 function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, heldCards }) {
   const record = roster.views?.[sessionId];
-  if (record !== void 0 && record.callId === callId) {
+  if (record !== void 0 && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId) {
     if (heldCards?.[heldCardKey("view", record.id)] > 0) return (0, import_react16.createElement)(CellEmpty);
     return (0, import_react16.createElement)(PendingView, { sessionId, view: record, actions, inline: true });
   }
@@ -20580,11 +20581,10 @@ function ClosedView({ title, closed }) {
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
-  const closed = useRoster((value) => value.closedViews?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
-  if (view === void 0) return closed === void 0 ? null : (0, import_react16.createElement)("div", { className: "bt-q-dock" }, (0, import_react16.createElement)(SettledQuestion, { question: { question: closed.title || t("View") }, closed: closed.closed }));
-  if (view.callId && drawn && !held) return null;
+  const inPart = (view?.callSessionId ?? sessionId) === sessionId;
+  if (view === void 0 || inPart && view.callId && drawn && !held) return null;
   return (0, import_react16.createElement)(PendingView, { sessionId, view, actions, inline: false });
 }
 function AnsweredView2({ node }) {
@@ -26110,6 +26110,7 @@ function EarlierParts({ sessionId, roster, actions }) {
       setView((current) => ({ ...current, loading: false, failed: true }));
     });
   };
+  const closedEarlier = JSON.stringify((roster.byId[sessionId]?.parts ?? []).map((part) => roster.closedCards?.[part] ?? null));
   (0, import_react32.useEffect)(() => {
     generation.current += 1;
     busy.current = false;
@@ -26118,7 +26119,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     return () => {
       generation.current += 1;
     };
-  }, [sessionId]);
+  }, [sessionId, closedEarlier]);
   (0, import_react32.useLayoutEffect)(() => {
     const pending = restore.current;
     restore.current = null;
@@ -26706,7 +26707,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
     }
     case "ask_user": {
       const question = roster.questions?.[sessionId];
-      if (!question || question.callId !== call2.callId) {
+      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call2.callId) {
         const closed = roster.closedCards?.[sessionId]?.[call2.callId];
         if (closed === void 0) return (0, import_react32.createElement)(CellEmpty, { className: "bt-q-gone" });
         const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
@@ -26767,7 +26768,8 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   const turn = node.location?.turn?.turn ?? root.turn;
   const hidden = isHiddenTurn(roster, sessionId, turn);
   const findBot = (nameOrId) => roster.byId[nameOrId] ?? roster.bots.find((bot) => bot.name.toLowerCase() === String(nameOrId ?? "").toLowerCase());
-  const calls = hidden ? [] : callTree(root);
+  const closed = roster.closedCards?.[sessionId];
+  const calls = hidden ? callTree(root).filter((call2) => (toolName(call2) === "ask_user" || toolName(call2) === "show_view") && call2.callId && closed?.[call2.callId] !== void 0) : callTree(root);
   const drawn = calls.filter((call2) => DRAWN.has(toolName(call2)) || isComputerCall(toolName(call2)));
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
