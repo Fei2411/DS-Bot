@@ -281,6 +281,56 @@ test('confirmed, the own chat and every group move on at once, with a handoff an
   assert.equal(saved.bots.a.segments, undefined)
 })
 
+// #1321: a confirmed change between two DS Bot models leaves the run mode at
+// 'model', but the confirmation promised a fresh part in every conversation.
+test('a confirmed model change moves its own chat and every group on, with a handoff', async (t) => {
+  const env = await start(t)
+  for (const id of ['b', 'gb', 'gb2']) env.lastRoute.set(id, { provider: 'ds', model: 'flash' })
+  const done = await env.call('update-bot', { id: 'b', model: 'ds/pro', changeEngine: true })
+  assert.equal(done.ok, true)
+  await until(() => env.created.length === 3, 'three fresh parts')
+  await until(() => env.archived.length === 3, 'the earlier parts archived')
+  const saved = env.state()
+  const bot = saved.bots.b
+  assert.equal(bot.model, 'ds/pro')
+  assert.equal(bot.segments.at(-1).sessionId, 'b')
+  assert.equal(bot.segments.at(-1).fallback, 'engine')
+  assert.notEqual(bot.sessionId, 'b')
+  assert.equal(saved.rooms.r1.segments.b.at(-1).sessionId, 'gb')
+  assert.notEqual(saved.rooms.r1.sessions.b, 'gb')
+  assert.equal(saved.rooms.r2.segments.b.at(-1).sessionId, 'gb2')
+  assert.notEqual(saved.rooms.r2.sessions.b, 'gb2')
+  for (const fresh of [bot.sessionId, saved.rooms.r1.sessions.b, saved.rooms.r2.sessions.b]) {
+    assert.match(env.handoffOf(fresh), /the user changed what you run on, to the model ds\/pro/)
+    assert.ok(env.selected.some(([sessionId, ref]) => sessionId === fresh && ref === 'ds/pro'), `${fresh} runs on the new model`)
+  }
+})
+
+test('a confirmed model change leaves a conversation that never made a request alone', async (t) => {
+  const env = await start(t)
+  env.lastRoute.set('b', { provider: 'ds', model: 'flash' })
+  await env.call('update-bot', { id: 'b', model: 'ds/pro', changeEngine: true })
+  await until(() => env.created.length === 1, 'one fresh part')
+  await settle()
+  assert.equal(env.state().rooms.r1.sessions.b, 'gb')
+  assert.equal(env.state().rooms.r2.sessions.b, 'gb2')
+})
+
+test('a running turn after a confirmed model change moves on at its next step', async (t) => {
+  const env = await start(t)
+  env.lastRoute.set('b', { provider: 'ds', model: 'flash' })
+  env.agentOf('b').status = 'running'
+  await env.call('update-bot', { id: 'b', model: 'ds/pro', changeEngine: true })
+  await settle()
+  assert.deepEqual(env.created, [], 'the running part is not moved under the turn')
+  const input = createUserMessage({ content: [{ type: 'text', text: 'still needed' }], source: { kind: 'user' } })
+  assert.deepEqual(await env.preStep('b', [input], 2), { kind: 'reject' })
+  await until(() => env.archived.some(([id]) => id === 'b'), 'the fresh part')
+  const fresh = env.state().bots.b.sessionId
+  await until(() => env.agentOf(fresh).calls.some(([, message]) => textOf(message) === 'still needed'), 'the carried input')
+  assert.match(env.handoffOf(fresh) ?? '', /the model ds\/pro/)
+})
+
 test('a group conversation that never made a request needs no new part', async (t) => {
   const env = await start(t)
   env.lastRoute.set('b', { provider: 'ds', model: 'flash' })

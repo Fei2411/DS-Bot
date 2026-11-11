@@ -838,6 +838,9 @@ export function install(rt) {
   // not try again: without it every step would move on again. Until then their input
   // waits, and engineWakes wakes them for the next try.
   const engineRetry = new Map()
+  // Parts of a Bot whose confirmed model change (same run mode) still has to move on:
+  // an idle part moves at once, a running one at its next step (agent/pre-step).
+  const forcedMode = new Set()
   const engineWakes = new Map()
 
   const placeOf = (sessionId) => {
@@ -1092,6 +1095,7 @@ export function install(rt) {
   ctx.effect(() => () => {
     for (const timer of engineWakes.values()) clearTimeout(timer)
     engineWakes.clear()
+    forcedMode.clear()
   }, 'ds-bot: wake parts that wait for their run mode')
 
   async function moveOn(agent, job, signal) {
@@ -1269,6 +1273,9 @@ export function install(rt) {
       freshParts.delete(agent.id)
       partBase.set(agent.id, (tokensOf(agent.session) ?? 0) + fresh)
     }
+    // A confirmed change between two models of the same run mode: the running part
+    // moves on here, carrying this step's input, as a change of run mode does.
+    if (!readOnly() && forcedMode.delete(agent.id)) return switchBeforeStep(agent, payload, { engine: true })
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     // The group's own Session moves only for its folder, never for its size: its turns
     // are synthesized relay calls, so the steward's lines do not apply to it.
@@ -1382,13 +1389,21 @@ export function install(rt) {
 
   // A Bot's new run mode reaches all its conversations at once: each part that is idle
   // moves on now, and one that is running at its next step (agent/pre-step).
-  async function followEngine(botId) {
+  // `force`: the user confirmed a change in the Bot's settings, so a part moves on
+  // even when the run mode itself is the same (a model of DS Bot's own changed). A
+  // conversation that never made a request has nothing to move and is left alone.
+  async function followEngine(botId, { force = false } = {}) {
     for (const sessionId of [rt.chatOf(botId), ...rt.groupSessionsOf(botId)]) {
       if (sessionId === undefined || switches.has(sessionId) || readOnly()) continue
       engineRetry.delete(sessionId)
       try {
         const agent = await rt.resolveAgent(sessionId)
-        if (agent.status === 'idle' && engineMoved(agent, placeOf(sessionId))) startSwitch(agent, { engine: true })
+        const moved = force
+          ? agent.session.requestHeader?.()?.config !== undefined
+          : engineMoved(agent, placeOf(sessionId))
+        if (!moved) continue
+        if (agent.status === 'idle') startSwitch(agent, { engine: true })
+        else if (force) forcedMode.add(sessionId)
       } catch (error) {
         rt.warn('ds-bot: %s did not follow its run mode in %s: %s', rt.botOf(botId)?.name ?? botId, sessionId, error)
       }

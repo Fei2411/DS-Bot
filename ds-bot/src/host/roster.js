@@ -426,6 +426,7 @@ export function install(rt) {
       if (avatar) bot.avatar = avatar
       else delete bot.avatar
     }
+    const modelBefore = bot.model
     if (patch.model !== undefined) {
       // A failure that blocked the Bot was its old model's (turns.js).
       if ((modelRef ?? undefined) !== bot.model) delete bot.blocked
@@ -475,6 +476,9 @@ export function install(rt) {
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
     if (engineChanged) void rt.followEngine(bot.id)
+    // The settings confirmation promises a new part; a confirmed change between two
+    // models of the same kind starts one too, not only a change of run mode (#1321).
+    else if (patch.changeEngine === true && !!modelRef && modelRef !== modelBefore) void rt.followEngine(bot.id, { force: true })
     if (moved) void rt.followFolder({ botId: bot.id })
     // A new model lifted what blocked the Bot; a new thinking level alone fixes nothing.
     // releaseKickoff itself leaves when the Bot still lacks a model or holds no greeting.
