@@ -169,7 +169,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
         kind === 'weekly' ? h('div', { className: 'bt-task-days', role: 'group', 'aria-label': t('Days') }, [1, 2, 3, 4, 5, 6, 7].map(day => h('button', {
           key: day, type: 'button', className: 'bt-task-day', 'aria-pressed': weekdays.includes(day), onClick: () => toggleDay(day),
         }, when(Date.UTC(2024, 0, day), { weekday: 'narrow', timeZone: 'UTC' })))) : null,
-        kind === 'daily' || kind === 'weekly' ? h('input', { className: 'bt-input bt-task-time', type: 'time', step: 1, value: time, 'aria-label': t('Time'), onChange: event => setTime(event.target.value) }) : null,
+        kind === 'daily' || kind === 'weekly' ? h('input', { className: 'bt-input bt-task-time', type: 'time', value: time, 'aria-label': t('Time'), onChange: event => setTime(event.target.value) }) : null,
         kind === 'every' ? h(Fragment, null,
           h('span', { className: 'bt-task-every' }, t('Every')),
           h('input', { className: 'bt-input bt-task-count', type: 'number', min: 1, value: count, 'aria-label': t('How many'), onChange: event => setCount(event.target.value) }),

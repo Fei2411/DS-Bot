@@ -22164,7 +22164,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
           "aria-pressed": weekdays.includes(day),
           onClick: () => toggleDay(day)
         }, when2(Date.UTC(2024, 0, day), { weekday: "narrow", timeZone: "UTC" })))) : null,
-        kind === "daily" || kind === "weekly" ? (0, import_react22.createElement)("input", { className: "bt-input bt-task-time", type: "time", step: 1, value: time, "aria-label": t("Time"), onChange: (event) => setTime(event.target.value) }) : null,
+        kind === "daily" || kind === "weekly" ? (0, import_react22.createElement)("input", { className: "bt-input bt-task-time", type: "time", value: time, "aria-label": t("Time"), onChange: (event) => setTime(event.target.value) }) : null,
         kind === "every" ? (0, import_react22.createElement)(
           import_react22.Fragment,
           null,
