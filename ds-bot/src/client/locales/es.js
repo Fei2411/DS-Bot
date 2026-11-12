@@ -1,6 +1,8 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'Opening…': 'Abriendo…',
+  'Still opening…': 'Sigue abriendo…',
   "Android beta": "Android beta",
   "Cannot reach the Server. Trying again…": "No se puede conectar con el servidor. Reintentando…",
   "No phones yet": "Aún no hay teléfonos",
@@ -266,6 +268,9 @@ export const ES = {
   'Change and start a new part': 'Cambiar e iniciar nueva sección',
   // Local agents page
   'Local agents': 'Agentes locales',
+  // Add-provider form
+  "Still needed: {fields}": "Falta: {fields}",
+  "At least one model": "Al menos un modelo",
   'This DSH cannot register local agent routes.': 'Este DSH no puede registrar rutas de agentes locales.',
   'Detected agents': 'Agentes detectados',
   Refresh: 'Actualizar',
@@ -457,7 +462,6 @@ export const ES = {
   'Name after members': 'Nombrar según los miembros',
   'Rename {name}': 'Renombrar {name}',
   Rename: 'Renombrar',
-  'Add instructions in Bot settings': 'Añadir instrucciones en los ajustes del Bot',
   'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': 'Aún no hay tareas programadas. Para añadir una, dile al Bot en su chat qué hacer y cuándo.',
   'The browser is in DSH Desktop and the DS Bot app.': 'El navegador está disponible en DSH Desktop y en la aplicación DS Bot.',
   'New tab': 'Nueva pestaña',
@@ -535,6 +539,7 @@ export const ES = {
   'Applies from the next message.': 'Se aplica a partir del siguiente mensaje.',
   Profile: 'Perfil',
   Label: 'Etiqueta',
+  'Add a label': 'Añadir etiqueta',
   'Optional. Shown under the name.': 'Opcional. Se muestra debajo del nombre.',
   'Research, admin…': 'Investigación, administración…',
   'What this Bot does': 'Qué hace este Bot',
