@@ -419,13 +419,26 @@ export function PhotoViewer({ open, onClose }: { open: { sessionId: string; refs
 
 interface ImageState { uri?: string; error?: string }
 
+// The state entry for each image ref, reusing the in-memory cache.
+function initialImageStates(sessionId: string, refs: ImageRef[]): ImageState[] {
+  return refs.map(ref => {
+    const uri = imageCache.get(`${sessionId}:${ref.attachmentId}`)
+    return uri !== undefined ? { uri } : {}
+  })
+}
+
 function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
   const { call } = useTeam()
-  const [states, setStates] = useState<ImageState[]>(() =>
-    refs.map(ref => imageCache.has(`${sessionId}:${ref.attachmentId}`) ? { uri: imageCache.get(`${sessionId}:${ref.attachmentId}`) } : {}))
+  const [states, setStates] = useState<ImageState[]>(() => initialImageStates(sessionId, refs))
   const key = `${sessionId}:${refs.map(ref => ref.attachmentId).join(',')}`
   useEffect(() => {
     let live = true
+    // The state array is only initialised once, so when a message's image
+    // list grows the states stay shorter than refs and ImageGrid reads .uri
+    // off an undefined entry, which throws during render and closes the app
+    // (there is no error boundary). Rebuild the states to match the refs
+    // before fetching the ones that are not cached yet.
+    setStates(initialImageStates(sessionId, refs))
     refs.forEach((ref, index) => {
       const cacheKey = `${sessionId}:${ref.attachmentId}`
       if (imageCache.has(cacheKey)) return

@@ -11,6 +11,7 @@ import { messageClock, t } from '../ui/i18n.ts'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
+import { ChatErrorBoundary } from '../ui/ErrorBoundary.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer, type Photo } from './chat/composer.tsx'
@@ -348,7 +349,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               </View>
           : page === null || chatWidth <= 0
             ? <ActivityIndicator style={styles.loading} color={p.accent} />
-            : <FlatList
+            : <ChatErrorBoundary p={p} onRetry={() => { setLoadError(null); void refresh(generation.current) }}>
+              <FlatList
                 ref={list}
                 inverted
                 data={rows}
@@ -368,7 +370,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 scrollEventThrottle={100}
                 ListHeaderComponent={<Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={inRoom} />}
                 ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ marginVertical: 12 }} color={p.ink3} /> : undefined}
-              />}
+              />
+            </ChatErrorBoundary>}
         {empty && !gone ? <EmptyChat bot={bot} room={room} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
         {awayFromLatest ? (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')} onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
