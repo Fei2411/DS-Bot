@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import { Platform } from 'react-native'
 import { allThemes } from '../../../ds-bot/src/client/themes.js'
 import { ACCENT_INKS, INKS, luminance } from '../../../ds-bot/src/client/inks.js'
 
@@ -33,6 +34,7 @@ export interface Palette {
   accent: string; accentInk: string
   user: string; userInk: string
   tagBg: string; tagInk: string
+  knob: string
   danger: string; green: string; star: string
 }
 
@@ -50,6 +52,7 @@ export function palette(dark: boolean, themeId?: string, accent?: string): Palet
     accent: use, accentInk: accentInk(use),
     user: mode.user, userInk: mode.userText,
     tagBg: rgba(mode.text, dark ? 0.09 : 0.06), tagInk: rgba(mode.text, 0.58),
+    knob: '#ffffff',
     danger: '#e02135', green: '#00c972', star: '#ff9800',
   }
 }
@@ -89,14 +92,17 @@ export const type = {
 
 export const radius = { tag: 4, item: 6, input: 8, row: 10, card: 12, option: 12, dialog: 16, bubble: 18, composer: 22, composerLong: 18, pill: 999 }
 
-// Shadow levels 0-4 from the standard, mapped to iOS shadow + Android elevation.
-export const shadow = (level: 0 | 1 | 2 | 3 | 4, color = '#000') => ([
-  {},
-  { shadowColor: color, shadowOffset: { width: 0, height: 2 }, shadowRadius: 8, shadowOpacity: 0.06, elevation: 3 },
-  { shadowColor: color, shadowOffset: { width: 0, height: 10 }, shadowRadius: 20, shadowOpacity: 0.1, elevation: 8 },
-  { shadowColor: color, shadowOffset: { width: 0, height: 8 }, shadowRadius: 28, shadowOpacity: 0.14, elevation: 12 },
-  { shadowColor: color, shadowOffset: { width: 0, height: 24 }, shadowRadius: 80, shadowOpacity: 0.24, elevation: 16 },
-][level])
+// Shadow levels 0-4 from the standard, mapped to iOS shadow + subtle Android elevation.
+export const shadow = (level: 0 | 1 | 2 | 3 | 4, color = '#000') => {
+  const android = Platform.OS === 'android'
+  return [
+    {},
+    { shadowColor: android ? 'rgba(0,0,0,0.28)' : color, shadowOffset: { width: 0, height: 2 }, shadowRadius: 8, shadowOpacity: 0.06, elevation: 1 },
+    { shadowColor: android ? 'rgba(0,0,0,0.35)' : color, shadowOffset: { width: 0, height: 10 }, shadowRadius: 20, shadowOpacity: 0.1, elevation: 4 },
+    { shadowColor: android ? 'rgba(0,0,0,0.4)' : color, shadowOffset: { width: 0, height: 8 }, shadowRadius: 28, shadowOpacity: 0.14, elevation: 8 },
+    { shadowColor: android ? 'rgba(0,0,0,0.5)' : color, shadowOffset: { width: 0, height: 24 }, shadowRadius: 80, shadowOpacity: 0.24, elevation: 14 },
+  ][level]
+}
 
 export const MONO = 'monospace'
 

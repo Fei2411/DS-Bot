@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Children, Fragment, useEffect, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -27,10 +27,18 @@ function Back({ title, onBack }: { title: string; onBack: () => void }) {
 }
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   const { p } = useTheme()
+  const items = Children.toArray(children).filter(Boolean)
   return (
     <View style={{ marginTop: 16 }}>
       <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 18, marginBottom: 6, fontSize: 11 }]}>{label}</Text>
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>{children}</View>
+      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+        {items.map((child, i) => (
+          <Fragment key={i}>
+            {i > 0 ? <View style={[styles.divider, { backgroundColor: p.line }]} /> : null}
+            {child}
+          </Fragment>
+        ))}
+      </View>
     </View>
   )
 }
@@ -38,13 +46,13 @@ function Row({ label, hint, value, onPress, end }: { label: string; hint?: strin
   const { p } = useTheme()
   const body = (
     <View style={styles.row}>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 96 }}>
         <Text style={[typeScale.settingsRow, { color: p.ink }]}>{label}</Text>
         {hint ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{hint}</Text> : null}
       </View>
-      {value !== undefined ? <Text style={[typeScale.settingsRow, { color: p.ink2 }]} numberOfLines={1}>{value}</Text> : null}
+      {value !== undefined ? <Text style={[typeScale.settingsRow, { color: p.ink2, flexShrink: 1, maxWidth: '54%', textAlign: 'right' }]} numberOfLines={1}>{value}</Text> : null}
       {end}
-      {onPress ? <ChevronRightIcon size={16} color={p.ink3} /> : null}
+      {onPress ? <View style={{ flexShrink: 0 }}><ChevronRightIcon size={16} color={p.ink3} /></View> : null}
     </View>
   )
   return onPress ? <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed ? { backgroundColor: p.hover } : null}>{body}</Pressable> : body
@@ -106,29 +114,29 @@ export function Providers({ navigation }: any) {
           {(view?.providers ?? []).map(provider => (
             <View key={provider.id}>
               <Pressable accessibilityRole="button" onPress={() => setOpen(open === provider.id ? null : provider.id)} style={styles.row}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[typeScale.settingsRow, { color: p.ink }]}>{provider.name}</Text>
                   <Text style={[typeScale.small, { color: provider.key?.configured !== true ? p.danger : p.ink3, marginTop: 2 }]}>{keyLabel(provider.key)}</Text>
                   {provider.error ? <Text style={[typeScale.small, { color: p.danger, marginTop: 2 }]}>{provider.error}</Text> : null}
                 </View>
-                <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length })}</Text>
-                <ChevronRightIcon size={16} color={p.ink3} />
+                <Text style={[typeScale.settingsRow, { color: p.ink2, flexShrink: 0 }]}>{provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length })}</Text>
+                <View style={{ flexShrink: 0 }}><ChevronRightIcon size={16} color={p.ink3} /></View>
               </Pressable>
               {open === provider.id ? (
-                <View style={{ borderTopWidth: 1, borderTopColor: p.line }}>
+                <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line }}>
                   {provider.key?.writable === true ? (
                     <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
                       <Text style={[typeScale.small, { color: p.ink3, marginBottom: 6 }]}>{provider.key.configured ? t('Replace the API key') : t('API key')}</Text>
-                      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                        <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40 }]} value={key} onChangeText={setKey} placeholder={t('{provider} API key', { provider: provider.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
-                        <Pressable accessibilityRole="button" disabled={key === ''} onPress={() => saveKey(provider.id)} style={[styles.smallBtn, { backgroundColor: p.accent, opacity: key === '' ? 0.4 : 1 }]}>
-                          <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Save')}</Text>
-                        </Pressable>
+                      <TextInput style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, minHeight: 40, paddingVertical: 6 }]} value={key} onChangeText={setKey} placeholder={t('{provider} API key', { provider: provider.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
                         {provider.key.configured ? (
                           <Pressable accessibilityRole="button" onPress={() => void apply(call('provider-key', { provider: provider.id, value: null }), load)} style={[styles.smallBtn, { backgroundColor: p.hover }]}>
                             <Text style={{ color: p.danger, fontSize: 14 }}>{t('Remove key')}</Text>
                           </Pressable>
                         ) : null}
+                        <Pressable accessibilityRole="button" disabled={key === ''} onPress={() => saveKey(provider.id)} style={[styles.smallBtn, { backgroundColor: p.accent, opacity: key === '' ? 0.4 : 1 }]}>
+                          <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Save')}</Text>
+                        </Pressable>
                       </View>
                       {saved === provider.id ? <Text style={[typeScale.small, { color: p.accent, marginTop: 6 }]}>{t('Saved.')}</Text> : null}
                     </View>
@@ -184,8 +192,8 @@ export function Providers({ navigation }: any) {
                 <LabeledInput label={t('Provider name')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.name} onChangeText={v => setDraft(d => ({ ...d, name: v }))} placeholder={t('Provider name')} placeholderTextColor={p.ink3} autoCapitalize="none" />
                 <LabeledInput label={t('API base URL')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.baseURL} onChangeText={v => setDraft(d => ({ ...d, baseURL: v }))} placeholder={t('API base URL')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
                 <LabeledInput label={t('Provider id')} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 6 }]} value={draft.provider} onChangeText={v => setDraft(d => ({ ...d, provider: v }))} placeholder={t('Provider id')} placeholderTextColor={p.ink3} autoCapitalize="none" />
-                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                  <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                  <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1, minWidth: 160, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, minHeight: 40, paddingVertical: 6 }]} value={draft.key} onChangeText={v => setDraft(d => ({ ...d, key: v }))} placeholder={t('API key')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
                   <Pressable accessibilityRole="button" disabled={draft.baseURL.trim() === ''} onPress={discover} style={[styles.smallBtn, { backgroundColor: p.hover, opacity: draft.baseURL.trim() === '' ? 0.4 : 1 }]}>
                     <Text style={{ color: p.ink, fontSize: 14 }}>{t('Find models')}</Text>
                   </Pressable>
@@ -264,10 +272,10 @@ export function Connectors({ navigation }: any) {
                     : connecting ? null : <Pressable onPress={() => setForm(item.id)}><Text style={{ color: p.accent }}>{t('Connect')}</Text></Pressable>}
                 </View>
                 {!on && connecting ? (
-                  <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
-                    <LabeledInput label={t('{name} token', { name: item.name })} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, height: 40, marginBottom: 8 }]} value={token} onChangeText={setToken} placeholder={t('{name} token', { name: item.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
-                    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
-                      {TOKEN_URLS[item.id] !== undefined ? <Text style={[typeScale.small, { color: p.accent, flex: 1 }]} onPress={() => void require('react-native').Linking.openURL(TOKEN_URLS[item.id])}>{t('Create a token on {name}', { name: item.name })}</Text> : <View style={{ flex: 1 }} />}
+                  <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+                    <LabeledInput label={t('{name} token', { name: item.name })} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, minHeight: 40, paddingVertical: 6 }]} value={token} onChangeText={setToken} placeholder={t('{name} token', { name: item.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                    {TOKEN_URLS[item.id] !== undefined ? <Text style={[typeScale.small, { color: p.accent }]} onPress={() => void Linking.openURL(TOKEN_URLS[item.id])}>{t('Create a token on {name}', { name: item.name })}</Text> : null}
+                    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
                       <Pressable onPress={() => { setForm(null); setToken('') }}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
                       <Pressable disabled={busy === item.id || token.trim() === ''} onPress={() => { const next = token; setToken(''); void run(item.id, call('connector-connect', { id: item.id, token: next }), () => setForm(null)) }}>
                         <Text style={{ color: token.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{busy === item.id ? t('Connecting…') : t('Connect')}</Text>
@@ -575,12 +583,13 @@ export function About({ navigation }: any) {
 const styles = StyleSheet.create({
   backRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden', ...shadow(1) },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 50, gap: 8 },
-  smallBtn: { borderRadius: 10, paddingHorizontal: 12, height: 36, alignItems: 'center', justifyContent: 'center' },
+  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', ...shadow(1) },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, minHeight: 50, gap: 10 },
+  smallBtn: { borderRadius: 10, paddingHorizontal: 12, minHeight: 36, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
   segRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.pill, overflow: 'hidden' },
-  seg: { flex: 1, height: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
-  cta: { height: 48, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  field: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, height: 40 },
+  seg: { flex: 1, minHeight: 38, paddingVertical: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  cta: { minHeight: 48, borderRadius: radius.pill, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  field: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, minHeight: 40, paddingVertical: 6 },
   multi: { minHeight: 80, paddingVertical: 10, textAlignVertical: 'top', fontFamily: 'monospace' },
 })
