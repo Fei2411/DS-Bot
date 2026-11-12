@@ -503,7 +503,7 @@ function Steps({ item, p, open, onToggle }: { item: ChatItem; p: Palette; open: 
       </Pressable>
       {open ? tools.map((tool, index) => (
         <Text key={`${tool.name}-${index}`} style={[type.caption, { color: p.ink2, textAlign: 'center' }]}>
-          {tool.label ?? tool.name}{tool.ok === false ? t(' — failed') : ''}
+          {(tool.label ? t(tool.label) : undefined) ?? tool.name}{tool.ok === false ? t(' — failed') : ''}
         </Text>
       )) : null}
     </View>

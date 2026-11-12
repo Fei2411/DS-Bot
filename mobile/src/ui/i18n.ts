@@ -227,7 +227,6 @@ const MOBILE_ZH: Record<string, string> = {
   'Confirmation needed': '需要确认',
   'Your turn in the browser': '请接手浏览器',
   'Browser handoffs': '浏览器交接',
-  'Browser handoff': '浏览器交接',
   'Approval': '批准',
   'Question': '提问',
   'Allow a secret': '填写密钥',
