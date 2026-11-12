@@ -1,0 +1,19 @@
+Official Lark/Feishu integration
+
+This package includes source code from larksuite/openclaw-lark:
+https://github.com/larksuite/openclaw-lark
+
+Upstream version: 2026.7.9
+Upstream commit: dde0be3680d6fd5443cab426c8f4b3216266346a
+Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
+License: MIT
+
+The upstream license is preserved at vendor/openclaw-lark/LICENSE.
+
+DSH adaptations exist in two places:
+- vendored sources carry port adaptations (OpenClaw SDK shims in
+  vendor/openclaw-lark/src/core/dsh-compat.ts and friends, removal of the
+  single-owner policy for the DSH multi-identity model) plus local patches;
+  all post-import patches are inventoried in
+  vendor/openclaw-lark/LOCAL_PATCHES.txt and documented in docs/VENDORING.md;
+- DSH session orchestration and native tool registration live in src/.
