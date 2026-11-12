@@ -451,6 +451,8 @@ var JA = {
   "The model service failed.": "モデルサービスでエラーが発生しました。",
   "DeepSeek Harness stopped before this turn finished.": "このターンが完了する前に DeepSeek Harness が停止しました。",
   "This turn failed.": "このターンの実行に失敗しました。",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "このモデル用に会話を圧縮できませんでした。再試行するか、別のモデルを選択してください。",
+  "Open model settings": "モデル設定を開く",
   "The model service": "モデルサービス",
   "DeepSeek account": "DeepSeek アカウント",
   "This Bot": "この Bot",
@@ -1364,6 +1366,7 @@ var JA = {
   "The model service failed": "モデルサービスでエラーが発生しました",
   "The model took too long to answer": "モデルの応答がタイムアウトしました",
   "Could not reach the model service": "モデルサービスに接続できませんでした",
+  "The conversation could not be compacted for the model switch": "モデル切り替え時に会話を圧縮できませんでした",
   "Its group conversation could not open": "グループ会話を開けませんでした",
   "Its group conversation could not open, so it starts a new one next time": "グループ会話を開けなかったため、次回新しい会話を開始します",
   "Add files": "ファイルを追加",
@@ -2728,6 +2731,8 @@ var KO = {
   "The model service failed.": "모델 서비스 오류가 발생했습니다.",
   "DeepSeek Harness stopped before this turn finished.": "이번 차례가 끝나기 전에 DeepSeek Harness가 중지되었습니다.",
   "This turn failed.": "이번 차례 실행에 실패했습니다.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "이 모델에 맞게 대화를 압축하지 못했습니다. 다시 시도하거나 다른 모델을 선택하세요.",
+  "Open model settings": "모델 설정 열기",
   "The model service": "모델 서비스",
   "DeepSeek account": "DeepSeek 계정",
   "This Bot": "이 Bot",
@@ -3674,6 +3679,7 @@ var KO = {
   "The model service failed": "모델 서비스 오류",
   "The model took too long to answer": "모델 응답 시간이 초과되었습니다",
   "Could not reach the model service": "모델 서비스에 연결할 수 없습니다",
+  "The conversation could not be compacted for the model switch": "모델 전환을 위해 대화를 압축하지 못했습니다",
   "Its group conversation could not open": "그룹 대화 세션을 열 수 없습니다",
   "Its group conversation could not open, so it starts a new one next time": "그룹 대화 세션을 열 수 없어 다음번에 새 세션을 시작합니다",
   // The composer's +
@@ -5044,6 +5050,8 @@ var ES = {
   "The model service failed.": "El servicio de modelos falló.",
   "DeepSeek Harness stopped before this turn finished.": "DeepSeek Harness se detuvo antes de que terminara este turno.",
   "This turn failed.": "Este turno falló.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "No se pudo compactar la conversación para este modelo. Vuelve a intentarlo o elige otro modelo.",
+  "Open model settings": "Abrir ajustes del modelo",
   "The model service": "El servicio de modelos",
   "DeepSeek account": "Cuenta de DeepSeek",
   "This Bot": "Este Bot",
@@ -5990,6 +5998,7 @@ var ES = {
   "The model service failed": "El servicio de modelos falló",
   "The model took too long to answer": "El modelo tardó demasiado en responder",
   "Could not reach the model service": "No se pudo conectar con el servicio de modelos",
+  "The conversation could not be compacted for the model switch": "No se pudo compactar la conversación para cambiar de modelo",
   "Its group conversation could not open": "No se pudo abrir su conversación grupal",
   "Its group conversation could not open, so it starts a new one next time": "No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez",
   // The composer's +
@@ -7354,6 +7363,8 @@ var FR = {
   "The model service failed.": "Le service de modèles a rencontré une erreur.",
   "DeepSeek Harness stopped before this turn finished.": "DeepSeek Harness s’est arrêté avant la fin de ce tour.",
   "This turn failed.": "Ce tour a échoué.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "La conversation n’a pas pu être condensée pour ce modèle. Réessayez ou choisissez un autre modèle.",
+  "Open model settings": "Ouvrir les réglages du modèle",
   "The model service": "Le service de modèles",
   "DeepSeek account": "Compte DeepSeek",
   "This Bot": "Ce Bot",
@@ -8267,6 +8278,7 @@ var FR = {
   "The model service failed": "Le service de modèles a rencontré une erreur",
   "The model took too long to answer": "Le modèle a mis trop de temps à répondre",
   "Could not reach the model service": "Impossible de joindre le service de modèles",
+  "The conversation could not be compacted for the model switch": "La conversation n’a pas pu être condensée pour changer de modèle",
   "Its group conversation could not open": "Sa discussion de groupe n’a pas pu s’ouvrir",
   "Its group conversation could not open, so it starts a new one next time": "Sa discussion de groupe n’a pas pu s’ouvrir ; une nouvelle sera créée la prochaine fois",
   "Add files": "Ajouter des fichiers",
@@ -9631,6 +9643,8 @@ var DE = {
   "The model service failed.": "Fehler beim Modelldienst.",
   "DeepSeek Harness stopped before this turn finished.": "DeepSeek Harness wurde beendet, bevor dieser Durchgang abgeschlossen war.",
   "This turn failed.": "Dieser Durchgang ist fehlgeschlagen.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "Der Gesprächskontext konnte für dieses Modell nicht komprimiert werden. Versuche es erneut oder wähle ein anderes Modell.",
+  "Open model settings": "Modelleinstellungen öffnen",
   "The model service": "Der Modelldienst",
   "DeepSeek account": "DeepSeek-Konto",
   "This Bot": "Dieser Bot",
@@ -10577,6 +10591,7 @@ var DE = {
   "The model service failed": "Fehler beim Modelldienst",
   "The model took too long to answer": "Zeitüberschreitung bei der Modellantwort",
   "Could not reach the model service": "Modelldienst nicht erreichbar",
+  "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",
   "Its group conversation could not open": "Seine Gruppensitzung konnte nicht geöffnet werden",
   "Its group conversation could not open, so it starts a new one next time": "Seine Gruppensitzung konnte nicht geöffnet werden; beim nächsten Mal wird eine neue gestartet",
   // The composer's +
@@ -11929,6 +11944,8 @@ var ZH = {
   "The model service failed.": "模型服务出错了。",
   "DeepSeek Harness stopped before this turn finished.": "这一轮还没完成，DeepSeek Harness 就停下了。",
   "This turn failed.": "这一轮运行失败了。",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "无法为这个模型压缩对话。请重试或选择其他模型。",
+  "Open model settings": "打开模型设置",
   "The model service": "模型服务",
   "DeepSeek account": "DeepSeek 账号",
   "This Bot": "这个 Bot",
@@ -12895,6 +12912,7 @@ var ZH = {
   "The model service failed": "模型服务出错",
   "The model took too long to answer": "模型响应超时",
   "Could not reach the model service": "连不上模型服务",
+  "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
   "Its group conversation could not open": "它的群聊会话打不开",
   "Its group conversation could not open, so it starts a new one next time": "它的群聊会话打不开，下次会换一个新的",
   // The composer's +
@@ -13502,6 +13520,7 @@ var FAILURES = {
   SERVER: "The model service failed",
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
+  MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -36008,6 +36027,8 @@ function failureText2(code, { name, provider, status }) {
       return t("The model service failed.");
     case "INTERRUPTED":
       return t("DeepSeek Harness stopped before this turn finished.");
+    case "MODEL_SWITCH_COMPACTION_FAILED":
+      return t("The conversation could not be compacted for this model. Try again or choose another model.");
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -36026,6 +36047,8 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
       return topUp ? ["top-up"] : [];
+    case "MODEL_SWITCH_COMPACTION_FAILED":
+      return ["model", "model-settings"];
     default:
       return [];
   }
@@ -36033,6 +36056,7 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
 var retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || blocked === void 0;
 var FIX_LABELS = {
   key: () => t("Enter API key"),
+  "model-settings": () => t("Open model settings"),
   rekey: () => t("Enter the key again"),
   "sign-in": (signedIn) => signedIn ? t("Use the DeepSeek account") : t("Sign in with a DeepSeek account"),
   "use-account": () => t("Use a DeepSeek account instead"),
@@ -36163,7 +36187,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     "sign-in": viaAccount,
     "use-account": viaAccount,
     "sign-in-again": () => actions.signIn(),
-    model: actions.showDetails ? () => actions.showDetails(sessionId) : void 0
+    model: actions.showDetails ? () => actions.showDetails(sessionId) : void 0,
+    "model-settings": manageModels(actions)
   };
   const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== void 0, onAccount: provider === ACCOUNT }).filter((fix) => fix === "top-up" || runs[fix] !== void 0);
   const asked = isHiddenTurn(roster, sessionId, data.turn);
