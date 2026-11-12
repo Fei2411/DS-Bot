@@ -86,11 +86,11 @@ function editing(props, steps) {
 }
 
 test('an inline field saves the trimmed text on blur and then reports the edit done', () => {
-  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('  Editor '); api.blur() }), [['done'], ['save', 'Editor']])
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('  Editor '); api.blur() }), [['save', 'Editor'], ['done']])
 })
 
 test('Enter in a single-line field saves; Enter in a multiline one adds a line', () => {
-  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('Editor'); api.key('Enter') }), [['done'], ['save', 'Editor']])
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('Editor'); api.key('Enter') }), [['save', 'Editor'], ['done']])
   assert.deepEqual(editing({ label: 'Instructions', value: '', multiline: true }, (api) => { api.type('A'); api.key('Enter') }), [])
 })
 
@@ -106,7 +106,21 @@ test('an unchanged or untouched field saves nothing but still reports done', () 
 
 test('a required field never saves empty', () => {
   assert.deepEqual(editing({ label: 'Name', value: 'Ada', required: true }, (api) => { api.type('  '); api.blur() }), [['done']])
-  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type(''); api.blur() }), [['done'], ['save', '']])
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type(''); api.blur() }), [['save', ''], ['done']])
+})
+
+test('a failed save keeps the typed draft in the field and does not end the edit', async () => {
+  const done = []
+  const { api, restore } = field({ label: 'Instructions', value: 'Old', onSave: () => Promise.resolve(false), onDone: () => done.push('done') })
+  try {
+    api.type('Unsaved draft')
+    api.blur()
+    await Promise.resolve()
+    assert.equal(api.props().value, 'Unsaved draft')
+    assert.deepEqual(done, [])
+  } finally {
+    restore()
+  }
 })
 
 test('a field takes its class from the page it sits in, and defaults to the Settings page look', () => {

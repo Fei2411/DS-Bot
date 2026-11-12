@@ -33,11 +33,23 @@ export function InlineText({ label, value, placeholder, required = false, maxLen
   }, [])
   const commit = () => {
     const next = draft?.trim()
-    setDraft(null)
-    onDone?.()
-    if (reverting.current) { reverting.current = false; return }
-    if (next === undefined || next === (value ?? '') || (required && next === '')) return
-    void onSave(next)
+    if (reverting.current) { reverting.current = false; setDraft(null); onDone?.(); return }
+    if (next === undefined || next === (value ?? '') || (required && next === '')) {
+      setDraft(null)
+      onDone?.()
+      return
+    }
+    const finish = (ok) => {
+      if (ok === false) return
+      setDraft(null)
+      onDone?.()
+    }
+    const outcome = onSave(next)
+    if (outcome && typeof outcome.then === 'function') {
+      void outcome.then(finish, () => {})
+    } else {
+      finish(outcome)
+    }
   }
   return h(multiline ? 'textarea' : 'input', {
     ref: field, className: className ?? (multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input'), value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,

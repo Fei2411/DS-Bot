@@ -15111,9 +15111,10 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
 .bt-drawer-role{font-size:12px;line-height:16px;color:var(--bt-ink-3);margin-top:6px;text-align:center}
-.bt-drawer-role-input{width:min(100%,220px);height:24px;box-sizing:border-box;margin-top:4px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+.bt-drawer-role-input{width:min(100%,220px);min-height:28px;box-sizing:border-box;margin-top:4px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
 .bt-drawer-role-input:hover{background:var(--bt-hover)}
 .bt-drawer-role-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
@@ -23325,14 +23326,29 @@ function InlineText({ label, value, placeholder, required = false, maxLength, mu
   }, []);
   const commit = () => {
     const next = draft?.trim();
-    setDraft(null);
-    onDone?.();
     if (reverting.current) {
       reverting.current = false;
+      setDraft(null);
+      onDone?.();
       return;
     }
-    if (next === void 0 || next === (value ?? "") || required && next === "") return;
-    void onSave(next);
+    if (next === void 0 || next === (value ?? "") || required && next === "") {
+      setDraft(null);
+      onDone?.();
+      return;
+    }
+    const finish = (ok) => {
+      if (ok === false) return;
+      setDraft(null);
+      onDone?.();
+    };
+    const outcome = onSave(next);
+    if (outcome && typeof outcome.then === "function") {
+      void outcome.then(finish, () => {
+      });
+    } else {
+      finish(outcome);
+    }
   };
   return (0, import_react26.createElement)(multiline ? "textarea" : "input", {
     ref: field,
@@ -37476,7 +37492,16 @@ function useSaved(value, save) {
   const [pending, setPending] = (0, import_react59.useState)(null);
   const commit = (next) => {
     setPending({ next });
-    return Promise.resolve(save(next)).finally(() => setPending(null));
+    return Promise.resolve(save(next)).then(
+      (ok) => {
+        setPending(null);
+        return ok;
+      },
+      () => {
+        setPending(null);
+        return false;
+      }
+    );
   };
   return [pending ? pending.next : value, commit];
 }
@@ -37771,7 +37796,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
         setDraftName(room2 && !room2.named ? "" : current);
         setEditing(true);
       } }, current),
-      bot ? (0, import_react59.createElement)(BotLabel, { bot, actions, run: run2 }) : subtitle ? (0, import_react59.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
+      bot ? roster.readOnly ? bot.role ? (0, import_react59.createElement)("span", { className: "bt-drawer-role" }, bot.role) : null : (0, import_react59.createElement)(BotLabel, { key: `role:${bot.id}`, bot, actions, run: run2 }) : subtitle ? (0, import_react59.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
     ),
     tabs.length > 1 ? (0, import_react59.createElement)(
       "div",
@@ -37803,8 +37828,8 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           (0, import_react59.createElement)("div", { className: "bt-section-title" }, t("Working folder")),
           (0, import_react59.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, wide: true, onPick: (workDir) => run2(actions.updateBot(bot.id, { workDir })) })
         ),
-        (0, import_react59.createElement)(About, {
-          key: "about",
+        roster.readOnly ? bot.instructions ? (0, import_react59.createElement)(About, { key: `about:${bot.id}`, text: bot.instructions }) : null : (0, import_react59.createElement)(About, {
+          key: `about:${bot.id}`,
           text: bot.instructions ?? "",
           label: t("Instructions"),
           placeholder: t("What this Bot is responsible for…"),

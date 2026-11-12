@@ -117,7 +117,10 @@ function useSaved(value, save) {
   const [pending, setPending] = useState(null)
   const commit = (next) => {
     setPending({ next })
-    return Promise.resolve(save(next)).finally(() => setPending(null))
+    return Promise.resolve(save(next)).then(
+      (ok) => { setPending(null); return ok },
+      () => { setPending(null); return false },
+    )
   }
   return [pending ? pending.next : value, commit]
 }
@@ -341,7 +344,11 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
             onKeyDown: (event) => { if (event.key === 'Enter') void saveName(); if (event.key === 'Escape') { event.stopPropagation(); setEditing(false) } },
           })
         : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
-      bot ? h(BotLabel, { bot, actions, run }) : subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
+      bot
+        ? (roster.readOnly
+            ? (bot.role ? h('span', { className: 'bt-drawer-role' }, bot.role) : null)
+            : h(BotLabel, { key: `role:${bot.id}`, bot, actions, run }))
+        : subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
     tabs.length > 1 ? h('div', { key: 'tabs', ref: glide.box, className: 'bt-tabs', role: 'tablist', 'data-move': side },
       h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
       tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))) : null,
@@ -362,10 +369,12 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         h('div', { key: 'folder', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Working folder')),
           h(FolderMenu, { value: bot.workDir, actions, run, wide: true, onPick: workDir => run(actions.updateBot(bot.id, { workDir })) })),
-        h(About, {
-          key: 'about', text: bot.instructions ?? '', label: t('Instructions'), placeholder: t('What this Bot is responsible for…'),
-          onSave: instructions => run(actions.updateBot(bot.id, { instructions })),
-        }),
+        roster.readOnly
+          ? (bot.instructions ? h(About, { key: `about:${bot.id}`, text: bot.instructions }) : null)
+          : h(About, {
+              key: `about:${bot.id}`, text: bot.instructions ?? '', label: t('Instructions'), placeholder: t('What this Bot is responsible for…'),
+              onSave: instructions => run(actions.updateBot(bot.id, { instructions })),
+            }),
         roster.memory === false ? null : h(MemoryRow, { key: 'memory', owner: { id: bot.id, name: bot.name }, actions }),
         usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
           h('div', { className: 'bt-kv' }, h('span', null, bot.name), h('span', null, usage))) : null,
