@@ -8,6 +8,7 @@ import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { PinMarkIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
+import { cleanPreview } from './chat/settled.ts'
 
 export interface ChatTarget { kind: 'bot' | 'room'; id: string }
 
@@ -50,7 +51,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
     }
     const waits = waiting[bot.id]
     if (waits !== undefined && (waits.bots?.length || waits.rooms?.length)) return t('Waiting for your answer')
-    return bot.preview ?? bot.role
+    return cleanPreview(bot.preview) ?? bot.role
   }
   const roomPreview = (room: Room): string | undefined => {
     if (approvals.some(a => a.roomId === room.id)) return t('Waiting for your approval')
@@ -76,7 +77,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
                 <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={questions[main.sessionId ?? main.id] !== undefined} />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
-                {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 14, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
+                {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
             ))}
           </View>
@@ -140,8 +141,8 @@ function RoomRow({ room, bots, p, dark, approvals, preview, unread, working, sel
 const styles = StyleSheet.create({
   root: { flex: 1 },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 4, paddingBottom: 10 },
-  tile: { width: 100, alignItems: 'center', borderRadius: radius.card, paddingTop: 10, paddingBottom: 8, paddingHorizontal: 6 },
-  tag: { marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1, maxWidth: '100%' },
+  tile: { width: 104, alignItems: 'center', borderRadius: radius.card, paddingTop: 10, paddingBottom: 8, paddingHorizontal: 6 },
+  tag: { marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, maxWidth: '100%' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 6, paddingHorizontal: 10, marginHorizontal: 8, borderRadius: 10 },
   rowBody: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

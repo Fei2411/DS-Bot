@@ -223,6 +223,16 @@ const MOBILE_ZH: Record<string, string> = {
   'Secret requests': '密钥',
   'Cards': '卡片',
   'Demo team': '演示团队',
+  'Read full message': '查看完整消息',
+  'Confirmation needed': '需要确认',
+  'Your turn in the browser': '请接手浏览器',
+  'Browser handoffs': '浏览器交接',
+  'Approval': '批准',
+  'Question': '提问',
+  'Allow a secret': '填写密钥',
+  'the Bot': 'Bot',
+  '{name} could not answer: {reason}': '{name} 无法回答：{reason}',
+  'Copy data (CSV)': '复制数据（CSV）',
 }
 
 const systemZh = (): boolean => {
@@ -271,6 +281,9 @@ const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(
 const daysBefore = (time: number, now: number) => Math.round((midnight(new Date(now)) - midnight(new Date(time))) / 86400000)
 const WEEK_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const WEEK_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const ISO_WEEK_ZH = ['', '一', '二', '三', '四', '五', '六', '日']
+const ISO_WEEK_EN = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+export const weekdayShort = (day: number) => (isZh() ? ISO_WEEK_ZH[day] : ISO_WEEK_EN[day]) ?? String(day)
 export function clockLabel(time: number, now = Date.now()): string {
   const days = daysBefore(time, now)
   if (days === 0) return t('Today {time}', { time: clock(time) })
