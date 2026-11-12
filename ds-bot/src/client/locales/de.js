@@ -778,6 +778,12 @@ export const DE = {
   '{used} of {total} tokens of context in use': '{used} von {total} Kontext-Tokens belegt',
 
   // Transcript
+  'Annotate quote': 'Zitat kommentieren',
+  Annotation: 'Anmerkung',
+  'Add an annotation…': 'Anmerkung hinzufügen…',
+  'Add quote and annotation to the composer · Enter': 'Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe',
+  'Send quote and annotation · Ctrl+Enter': 'Zitat und Anmerkung senden · Strg+Eingabe',
+  'Quote text': 'Text zitieren',
   Footnotes: 'Fußnoten',
   'Remove reaction {emoji}': 'Reaktion {emoji} entfernen',
   'Add reaction': 'Reaktion hinzufügen',

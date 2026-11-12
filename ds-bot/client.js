@@ -888,6 +888,12 @@ var JA = {
   "Cache hit {hit}%": "キャッシュヒット {hit}%",
   "Context {percent}%": "コンテキスト {percent}%",
   "{used} of {total} tokens of context in use": "コンテキスト使用量: {used} / {total} トークン",
+  "Annotate quote": "引用に注釈",
+  "Annotation": "注釈",
+  "Add an annotation…": "注釈を入力…",
+  "Add quote and annotation to the composer · Enter": "引用と注釈を入力欄に追加 · Enter",
+  "Send quote and annotation · Ctrl+Enter": "引用と注釈を送信 · Ctrl+Enter",
+  "Quote text": "テキストを引用",
   "Footnotes": "脚注",
   "Remove reaction {emoji}": "リアクション {emoji} を削除",
   "Add reaction": "リアクションを追加",
@@ -3188,6 +3194,12 @@ var KO = {
   "Context {percent}%": "컨텍스트 {percent}%",
   "{used} of {total} tokens of context in use": "컨텍스트 {total} 토큰 중 {used} 사용 중",
   // Transcript
+  "Annotate quote": "인용 주석",
+  Annotation: "주석",
+  "Add an annotation…": "주석을 입력하세요…",
+  "Add quote and annotation to the composer · Enter": "인용과 주석을 입력창에 추가 · Enter",
+  "Send quote and annotation · Ctrl+Enter": "인용과 주석 볂기 · Ctrl+Enter",
+  "Quote text": "텍스트 인용",
   Footnotes: "각주",
   "Remove reaction {emoji}": "{emoji} 반응 제거",
   "Add reaction": "반응 추가",
@@ -5504,6 +5516,12 @@ var ES = {
   "Context {percent}%": "Contexto {percent}%",
   "{used} of {total} tokens of context in use": "{used} de {total} tokens de contexto en uso",
   // Transcript
+  "Annotate quote": "Anotar cita",
+  Annotation: "Anotación",
+  "Add an annotation…": "Añade una anotación…",
+  "Add quote and annotation to the composer · Enter": "Añadir la cita y la anotación al campo · Intro",
+  "Send quote and annotation · Ctrl+Enter": "Enviar la cita y la anotación · Ctrl+Intro",
+  "Quote text": "Citar texto",
   Footnotes: "Notas al pie",
   "Remove reaction {emoji}": "Quitar reacción {emoji}",
   "Add reaction": "Añadir reacción",
@@ -7791,6 +7809,12 @@ var FR = {
   "Cache hit {hit}%": "Cache {hit} %",
   "Context {percent}%": "Contexte {percent} %",
   "{used} of {total} tokens of context in use": "{used} sur {total} jetons de contexte utilisés",
+  "Annotate quote": "Annoter la citation",
+  "Annotation": "Annotation",
+  "Add an annotation…": "Ajouter une annotation…",
+  "Add quote and annotation to the composer · Enter": "Ajouter la citation et l’annotation au champ · Entrée",
+  "Send quote and annotation · Ctrl+Enter": "Envoyer la citation et l’annotation · Ctrl+Entrée",
+  "Quote text": "Texte de citation",
   "Footnotes": "Notes de bas de page",
   "Remove reaction {emoji}": "Retirer la réaction {emoji}",
   "Add reaction": "Ajouter une réaction",
@@ -10091,6 +10115,12 @@ var DE = {
   "Context {percent}%": "Kontext {percent}%",
   "{used} of {total} tokens of context in use": "{used} von {total} Kontext-Tokens belegt",
   // Transcript
+  "Annotate quote": "Zitat kommentieren",
+  Annotation: "Anmerkung",
+  "Add an annotation…": "Anmerkung hinzufügen…",
+  "Add quote and annotation to the composer · Enter": "Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe",
+  "Send quote and annotation · Ctrl+Enter": "Zitat und Anmerkung senden · Strg+Eingabe",
+  "Quote text": "Text zitieren",
   Footnotes: "Fußnoten",
   "Remove reaction {emoji}": "Reaktion {emoji} entfernen",
   "Add reaction": "Reaktion hinzufügen",
@@ -12409,6 +12439,12 @@ var ZH = {
   "Context {percent}%": "上下文 {percent}%",
   "{used} of {total} tokens of context in use": "上下文已用 {used} / {total} tokens",
   // Transcript
+  "Annotate quote": "批注引用",
+  Annotation: "批注",
+  "Add an annotation…": "写下批注…",
+  "Add quote and annotation to the composer · Enter": "将引用和批注添加到输入框 · Enter",
+  "Send quote and annotation · Ctrl+Enter": "发送引用和批注 · Ctrl+Enter",
+  "Quote text": "引用文本",
   Footnotes: "脚注",
   "Remove reaction {emoji}": "移除表情 {emoji}",
   "Add reaction": "添加表情",
@@ -13670,8 +13706,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h62, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h62 / 2}" width="${w}" height="${h62}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h62, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h62 * 0.14}Q0 ${-h62 * 0.42} ${w * 0.62} ${h62 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h63, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h63 / 2}" width="${w}" height="${h63}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h63, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h63 * 0.14}Q0 ${-h63 * 0.42} ${w * 0.62} ${h63 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -14501,12 +14537,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h62 = dt / steps;
+    const h63 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h62;
-        value.x += value.v * h62;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h63;
+        value.x += value.v * h63;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -25560,7 +25596,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
       attachments.length > 0 ? (0, import_react31.createElement)(Attachments, { attachments, renderMessageImages }) : null,
       text !== "" || rest.length > 0 ? (0, import_react31.createElement)(
         "div",
-        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, onClick: tapTools },
+        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick: tapTools },
         control ? (0, import_react31.createElement)("div", { className: "bt-fold-body" }, body) : body,
         control,
         rest.map((block, index) => ui.JsonBlock ? (0, import_react31.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
@@ -25595,7 +25631,7 @@ var USER_MESSAGE_CSS = `
 var import_react32 = require("react");
 var import_react_dom3 = require("react-dom");
 var mdLabels3 = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -25620,6 +25656,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         msgKey,
         mentions,
         fold,
+        textInteractionSource,
         picked: msgKey ? reactions?.[index] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -25655,7 +25692,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
   (0, import_react32.createElement)("pre", { className: "bt-fold-pre" }, (0, import_react32.createElement)("code", null, codeHead)),
   (0, import_react32.createElement)(FoldCodeCopy, { code, actions })
 );
-function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
+function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
   const body = shown === "" ? null : (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels3(), variant: "compact", fileMentions: mentions });
@@ -25676,7 +25713,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
       lead,
       (0, import_react32.createElement)(
         "div",
-        { className: "bt-bubble", "data-folded": folded || void 0 },
+        { className: "bt-bubble", "data-folded": folded || void 0, "data-text-interaction-source": textInteractionSource ? "" : void 0 },
         control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
         control
       ),
@@ -25795,7 +25832,7 @@ function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
   return ms;
 }
 var rowViews = /* @__PURE__ */ new Map();
-function ThinkingRow({ text, live, at, ms, viewKey }) {
+function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
   const box = (0, import_react32.useRef)(null);
   const view = (0, import_react32.useRef)(rowViews.get(viewKey));
   const atEnd = (0, import_react32.useRef)(view.current?.atEnd ?? true);
@@ -25837,7 +25874,7 @@ function ThinkingRow({ text, live, at, ms, viewKey }) {
       live && at !== void 0 ? (0, import_react32.createElement)(Elapsed, { at, className: "bt-think-time" }) : null,
       !live && ms !== void 0 ? (0, import_react32.createElement)("span", { className: "bt-think-time" }, `· ${elapsedLabel(Math.max(1e3, ms))}`) : null
     ),
-    (0, import_react32.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, onScroll: measure }, text)
+    (0, import_react32.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure }, text)
   );
 }
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
@@ -25859,6 +25896,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn);
   const texts2 = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text);
   const running = data.status === "running";
+  const textInteractionSource = data.status === "settled" && data.finalNode?.messageId !== void 0;
   const members = steps.length ? steps : [data];
   const shown = thinkingShown(roster.prefs);
   const reasoning = groupPart === "response" || !shown ? "" : turnReasoning(steps, data);
@@ -25894,11 +25932,12 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       text: reasoning,
       live: thinking !== void 0,
       viewKey: `${sessionId}:${data.turn}`,
+      textInteractionSource,
       // The live clock counts the settled steps too: backing `at` by the settled
       // time makes one Elapsed show settled + running.
       ...thinking !== void 0 ? { at: typeof thinking.time === "number" ? thinking.time - (ms ?? 0) : void 0 } : { ms }
     }) : null,
-    texts2.length ? (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0 }) : null
+    texts2.length ? (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`, useUi, mentions, fold: FOLD_HUGE, time: speaker === void 0 ? data.time : void 0, textInteractionSource }) : null
   );
 }
 var activityParts = (line) => line.split("`").map((part, index) => index % 2 === 1 ? (0, import_react32.createElement)("code", { key: index }, part) : part);
@@ -26000,7 +26039,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react32.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true })
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -26083,10 +26122,10 @@ function EarlierUser({ row, actions }) {
     { className: "bt-urow" },
     (0, import_react32.createElement)(
       "div",
-      { className: "bt-ububble", "data-folded": folded || void 0 },
+      { className: "bt-ububble", "data-folded": folded || void 0, "data-text-interaction-source": body || code !== void 0 ? "" : void 0 },
       control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
-      row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
+      row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
     ),
     row.via ? (0, import_react32.createElement)("div", { className: "bt-utime" }, (0, import_react32.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
@@ -26206,7 +26245,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case "view":
       return (0, import_react32.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react32.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE });
+      const bubbles = (0, import_react32.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
       return speaker ? (0, import_react32.createElement)(import_react32.Fragment, { key }, (0, import_react32.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
     }
@@ -26636,7 +26675,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return (0, import_react32.createElement)(
           "div",
           { key: `user-${index}`, className: "bt-urow" },
-          (0, import_react32.createElement)("div", { className: "bt-ububble" }, (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: reply.text, labels: mdLabels3(), variant: "compact" })),
+          (0, import_react32.createElement)("div", { className: "bt-ububble", "data-text-interaction-source": "" }, (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: reply.text, labels: mdLabels3(), variant: "compact" })),
           reply.via !== void 0 || Number.isFinite(time) ? (0, import_react32.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, ...reply.via !== void 0 ? [(0, import_react32.createElement)(ViaTag, { key: "via", via: reply.via })] : [], Number.isFinite(time) ? messageClock(time) : null) : null
         );
       }
@@ -40811,6 +40850,145 @@ function singleFlight(map, key, run2) {
   return tracked;
 }
 
+// src/client/text-annotation.js
+var import_react65 = require("react");
+var quoteMarkdown = (text) => text.replace(/\r\n?/gu, "\n").split("\n").map((line) => `> ${line}`).join("\n");
+var withAnnotation = (text, annotation) => annotation.trim() ? `${text}
+
+${annotation.trim()}` : text;
+var annotatedMessage = (text, annotation) => quoteMarkdown(withAnnotation(text, annotation));
+var annotationKey = (event) => event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229 ? event.ctrlKey || event.metaKey ? "send" : "add" : null;
+function insertAnnotation(inputActions, text, annotation) {
+  return inputActions.insertQuote(withAnnotation(text, annotation));
+}
+function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
+  const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));
+  const team = useRoster((state) => state.byId[sessionId] !== void 0 || state.roomsById[sessionId] !== void 0);
+  const [annotation, setAnnotation] = (0, import_react65.useState)("");
+  const [sending, setSending] = (0, import_react65.useState)(false);
+  const [closing, setClosing] = (0, import_react65.useState)(false);
+  const field = (0, import_react65.useRef)(null);
+  const pending = (0, import_react65.useRef)(false);
+  const closeTimer = (0, import_react65.useRef)(null);
+  (0, import_react65.useEffect)(() => {
+    if (!enabled) dismiss();
+  }, [enabled, dismiss]);
+  (0, import_react65.useEffect)(() => {
+    if (team && enabled) field.current?.focus();
+  }, [team, enabled]);
+  (0, import_react65.useEffect)(() => () => clearTimeout(closeTimer.current), []);
+  if (!enabled) return null;
+  const close = () => {
+    clearSelection();
+    setClosing(true);
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(dismiss, reducedMotion() ? 0 : 160);
+  };
+  const closeNative = () => {
+    clearSelection();
+    dismiss();
+  };
+  const add = () => {
+    const text = readText();
+    if (text === null) {
+      close();
+      return;
+    }
+    if (closing) return;
+    if (insertAnnotation(inputActions, text, annotation)) close();
+  };
+  const send = async () => {
+    const text = readText();
+    if (text === null) {
+      close();
+      return;
+    }
+    if (pending.current || closing) return;
+    pending.current = true;
+    setSending(true);
+    try {
+      await actions.send(sessionId, annotatedMessage(text, annotation));
+      close();
+    } catch (error) {
+      actions.reportError(error, "text-annotation");
+      setSending(false);
+      pending.current = false;
+      field.current?.focus();
+    }
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    const action = annotationKey(event);
+    if (action === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (action === "add") add();
+    else void send();
+  };
+  if (!team) return (0, import_react65.createElement)("button", {
+    type: "button",
+    className: "bt-quote-plain",
+    "aria-label": hostT("quote.add"),
+    onPointerDown: (event) => event.preventDefault(),
+    onClick: () => {
+      const text = readText();
+      if (text === null) {
+        dismiss();
+        return;
+      }
+      if (inputActions.insertQuote(text)) closeNative();
+    }
+  }, hostT("quote.add"));
+  return (0, import_react65.createElement)(
+    "section",
+    { className: "bt-annotation", "aria-label": t("Annotate quote"), "data-leaving": closing || void 0, onPointerDown: (event) => event.stopPropagation() },
+    (0, import_react65.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
+    (0, import_react65.createElement)("blockquote", { className: "bt-annotation-quote" }, readText()),
+    (0, import_react65.createElement)("textarea", {
+      id: "bt-annotation-field",
+      ref: field,
+      value: annotation,
+      rows: 3,
+      placeholder: t("Add an annotation…"),
+      "aria-label": t("Annotation"),
+      disabled: sending || closing,
+      onChange: (event) => setAnnotation(event.target.value),
+      onKeyDown
+    }),
+    (0, import_react65.createElement)(
+      "div",
+      { className: "bt-annotation-actions" },
+      (0, import_react65.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
+      (0, import_react65.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: t("Send quote and annotation · Ctrl+Enter") }, sending ? t("Sending…") : t("Send"))
+    )
+  );
+}
+var ANNOTATION_CSS = `
+.bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
+.bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
+.bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-annotation[data-leaving]{animation:bt-annotation-out .16s cubic-bezier(.22,1,.36,1) forwards;pointer-events:none}
+.bt-annotation-label{font:500 12px/16px var(--bt-font);color:var(--bt-ink-2)}
+.bt-annotation-quote{margin:0;padding:6px 10px;border-left:2px solid var(--bt-accent);border-radius:6px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font:12px/16px var(--bt-font);white-space:pre-wrap;overflow-wrap:anywhere;max-height:96px;overflow:auto}
+.bt-annotation textarea{display:block;resize:vertical;width:100%;min-height:84px;max-height:180px;box-sizing:border-box;padding:8px 10px;border:1px solid var(--bt-line);border-radius:8px;outline:none;background:var(--bt-main);color:var(--bt-ink);font:14px/22px var(--bt-font)}
+.bt-annotation textarea:focus{border-color:var(--bt-accent);box-shadow:0 0 0 2px var(--bt-accent-soft)}
+.bt-annotation textarea::placeholder{color:var(--bt-ink-3)}
+.bt-annotation-actions{display:flex;justify-content:flex-end;gap:8px}
+.bt-annotation-actions button{height:28px;border:1px solid var(--bt-line-2);border-radius:999px;padding:0 12px;background:var(--bt-main);color:var(--bt-ink);font:12px/16px var(--bt-font);cursor:pointer;touch-action:manipulation}
+.bt-annotation-actions button:hover{background:var(--bt-hover)}
+.bt-annotation-actions .bt-annotation-send{background:var(--bt-accent);border-color:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-annotation-actions .bt-annotation-send:hover{filter:brightness(1.06)}
+.bt-annotation-actions button:disabled{opacity:.55;cursor:default}
+@keyframes bt-annotation-in{from{opacity:0;transform:translateY(3px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes bt-annotation-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(2px) scale(.98)}}
+@media (prefers-reduced-motion:reduce){.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
+`;
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -41821,9 +41999,11 @@ function apply(ctx) {
     () => installCompiledStyles(CONVERSATION_CSS, "conversation"),
     () => installCompiledStyles(TURN_ERROR_CSS, "turn-errors"),
     () => installCompiledStyles(QUEUE_CSS, "queue"),
+    () => installCompiledStyles(ANNOTATION_CSS, "text-annotation"),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
+    () => shadow("conversation.chat.text-interaction", { key: "quote", priority: BOT_PRIORITY, locale: "messageQuotes", inject: face }, TextSelectionAction),
     () => shadow("conversation.chat.node", { key: "assistant-step", priority: BOT_PRIORITY, locale: "chat", inject: assistantFace }, AssistantCell),
     () => shadow("conversation.chat.node", { key: "turn-trigger", priority: BOT_PRIORITY, locale: "chat", inject: face }, TriggerCell),
     () => shadow("conversation.chat.node", { key: "tool-call", priority: BOT_PRIORITY, locale: "chat", inject: face }, ToolCell),

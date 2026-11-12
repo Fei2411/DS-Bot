@@ -790,6 +790,12 @@ const ZH = {
   '{used} of {total} tokens of context in use': '上下文已用 {used} / {total} tokens',
 
   // Transcript
+  'Annotate quote': '批注引用',
+  Annotation: '批注',
+  'Add an annotation…': '写下批注…',
+  'Add quote and annotation to the composer · Enter': '将引用和批注添加到输入框 · Enter',
+  'Send quote and annotation · Ctrl+Enter': '发送引用和批注 · Ctrl+Enter',
+  'Quote text': '引用文本',
   Footnotes: '脚注',
   'Remove reaction {emoji}': '移除表情 {emoji}',
   'Add reaction': '添加表情',

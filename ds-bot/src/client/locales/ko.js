@@ -778,6 +778,12 @@ export const KO = {
   '{used} of {total} tokens of context in use': '컨텍스트 {total} 토큰 중 {used} 사용 중',
 
   // Transcript
+  'Annotate quote': '인용 주석',
+  Annotation: '주석',
+  'Add an annotation…': '주석을 입력하세요…',
+  'Add quote and annotation to the composer · Enter': '인용과 주석을 입력창에 추가 · Enter',
+  'Send quote and annotation · Ctrl+Enter': '인용과 주석 볂기 · Ctrl+Enter',
+  'Quote text': '텍스트 인용',
   Footnotes: '각주',
   'Remove reaction {emoji}': '{emoji} 반응 제거',
   'Add reaction': '반응 추가',
