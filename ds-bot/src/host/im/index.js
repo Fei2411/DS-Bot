@@ -15,6 +15,7 @@ const RUNTIME_SAVE_MS = 400
 const RETRY_MS = 5_000
 const TYPING_MS = 4_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
+const safeParams = text => { try { const value = JSON.parse(text); return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined } catch { return undefined } }
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
@@ -54,6 +55,11 @@ export function install(rt) {
         numbersMulti: 'reply with the numbers, separated by spaces',
         allow: 'Allow once',
         reject: 'Reject',
+        newDone: 'Started a new session. Earlier history remains available in the Web UI.',
+        newBusy: 'Chief is still replying. Wait for this turn to finish, then send /new again.',
+        newPending: 'Creating a new session; please wait a moment.',
+        newFailed: 'Could not start a new session. Please try again shortly.',
+        newOnlyBot: '/new is only available in a direct chat with one Bot.',
       },
       zh: {
         requested: '已向 DS Bot 发出连接请求，请在电脑上的 DS Bot 设置 → IM 里允许。',
@@ -74,6 +80,11 @@ export function install(rt) {
         numbersMulti: '回复编号，多选用空格隔开',
         allow: '允许一次',
         reject: '拒绝',
+        newDone: '已开始新会话，历史记录仍保留在 Web UI。',
+        newBusy: 'Chief 正在回复，请等这轮结束后再发送 /new。',
+        newPending: '正在创建新会话，请稍候。',
+        newFailed: '新会话创建失败，请稍后再试。',
+        newOnlyBot: '/new 目前只支持与单个 Bot 的私聊。',
       },
       'zh-TW': {
         requested: '已向 DS Bot 發出連線請求，請在電腦上的 DS Bot 設定 → IM 裡允許。',
@@ -94,6 +105,11 @@ export function install(rt) {
         numbersMulti: '回覆編號，多選用空格隔開',
         allow: '允許一次',
         reject: '拒絕',
+        newDone: '已開始新會話，歷史記錄仍保留在 Web UI。',
+        newBusy: 'Chief 正在回覆，請等這輪結束後再發送 /new。',
+        newPending: '正在建立新會話，請稍候。',
+        newFailed: '新會話建立失敗，請稍後再試。',
+        newOnlyBot: '/new 目前僅支援與單一 Bot 的私聊。',
       },
       ja: {
         requested: 'DS Bot に接続リクエストを送信しました。PC の DS Bot 設定 → IM で許可してください。',
@@ -114,6 +130,11 @@ export function install(rt) {
         numbersMulti: '番号をスペース区切りで返信',
         allow: '1回許可',
         reject: '拒否',
+        newDone: '新しいセッションを開始しました。以前の履歴は Web UI に残っています。',
+        newBusy: 'Chief が返信中です。このターンが終わってから /new を送ってください。',
+        newPending: '新しいセッションを作成しています。少々お待ちください。',
+        newFailed: '新しいセッションを開始できませんでした。しばらくしてからもう一度お試しください。',
+        newOnlyBot: '/new は単一の Bot とのダイレクトチャットでのみ使用できます。',
       },
       ko: {
         requested: 'DS Bot에 연결 요청을 보냈습니다. 컴퓨터의 DS Bot 설정 → IM에서 허용해 주세요.',
@@ -134,6 +155,11 @@ export function install(rt) {
         numbersMulti: '공백으로 구분하여 번호로 답장',
         allow: '한 번 허용',
         reject: '거부',
+        newDone: '새 세션을 시작했습니다. 이전 기록은 Web UI에 남아 있습니다.',
+        newBusy: 'Chief가 답변 중입니다. 이 턴이 끝난 후 /new를 다시 보내주세요.',
+        newPending: '새 세션을 생성하고 있습니다. 잠시만 기다려 주세요.',
+        newFailed: '새 세션을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        newOnlyBot: '/new는 단일 Bot과의 다이렉트 채팅에서만 사용할 수 있습니다.',
       },
       es: {
         requested: 'Se envió una solicitud de conexión a DS Bot; permítela en Ajustes → IM en el ordenador.',
@@ -154,6 +180,11 @@ export function install(rt) {
         numbersMulti: 'responde con los números separados por espacios',
         allow: 'Permitir una vez',
         reject: 'Rechazar',
+        newDone: 'Se inició una nueva sesión. El historial anterior sigue disponible en la Web UI.',
+        newBusy: 'Chief sigue respondiendo. Espera a que termine este turno y envía /new de nuevo.',
+        newPending: 'Creando una nueva sesión; espera un momento.',
+        newFailed: 'No se pudo iniciar una nueva sesión. Inténtalo de nuevo en unos momentos.',
+        newOnlyBot: '/new solo está disponible en un chat directo con un Bot.',
       },
       fr: {
         requested: 'Une demande de connexion a été envoyée à DS Bot ; autorisez-la dans Paramètres → IM sur l’ordinateur.',
@@ -174,6 +205,11 @@ export function install(rt) {
         numbersMulti: 'répondez avec les numéros séparés par des espaces',
         allow: 'Autoriser une fois',
         reject: 'Refuser',
+        newDone: "Une nouvelle session a démarré. L'historique précédent reste disponible dans la Web UI.",
+        newBusy: 'Chief est en train de répondre. Attends la fin de ce tour, puis renvoie /new.',
+        newPending: "Création d'une nouvelle session ; patiente un instant.",
+        newFailed: "Impossible de démarrer une nouvelle session. Réessaie dans quelques instants.",
+        newOnlyBot: "/new n'est disponible que dans une conversation directe avec un Bot.",
       },
       de: {
         requested: 'Eine Verbindungsanfrage wurde an DS Bot gesendet; erlaube sie am Computer unter Einstellungen → IM.',
@@ -194,6 +230,11 @@ export function install(rt) {
         numbersMulti: 'mit durch Leerzeichen getrennten Nummern antworten',
         allow: 'Einmal erlauben',
         reject: 'Ablehnen',
+        newDone: 'Eine neue Sitzung wurde gestartet. Der bisherige Verlauf bleibt in der Web UI verfügbar.',
+        newBusy: 'Chief antwortet noch. Warte, bis diese Runde beendet ist, und sende /new dann erneut.',
+        newPending: 'Eine neue Sitzung wird erstellt; einen Moment bitte.',
+        newFailed: 'Die neue Sitzung konnte nicht gestartet werden. Bitte versuche es gleich erneut.',
+        newOnlyBot: '/new ist nur im Direktchat mit einem Bot verfügbar.',
       },
     }
     return (table[lang] ?? table.en)[key] ?? key
@@ -280,7 +321,7 @@ export function install(rt) {
   const adaptersFor = () => Object.keys(adapters)
   const hasSecrets = conn => Object.values(conn.secrets ?? {}).every(name => rt.secretValue(name) !== undefined)
   const fieldsOf = (conn) => {
-    const fields = { ...conn.settings }
+    const fields = { ...conn.settings, connectionId: conn.id }
     for (const [key, name] of Object.entries(conn.secrets ?? {})) fields[key] = rt.secretValue(name)
     return fields
   }
@@ -331,11 +372,18 @@ export function install(rt) {
 
   const enqueue = (conn, chatKey, job) => {
     const runner = runners.get(conn.id)
-    if (runner === undefined) return
+    if (runner === undefined) return Promise.reject(Object.assign(new Error('IM connection is not running'), { unknown: true }))
     let queue = runner.queues.get(chatKey)
     if (queue === undefined) runner.queues.set(chatKey, queue = { jobs: [] })
+    let settle, reject
+    const done = new Promise((resolve, fail) => { settle = resolve; reject = fail })
+    // No caller for a fire-and-forget event: retain the historical swallow.
+    done.catch(() => {})
+    job.done = settle
+    job.failed = reject
     queue.jobs.push(job)
     if (queue.jobs.length === 1) void drain(conn, chatKey)
+    return done
   }
   const drain = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
@@ -346,10 +394,18 @@ export function install(rt) {
     while (queue.jobs.length > 0) {
       const job = queue.jobs[0]
       try {
-        const sent = await runner.handle.send(job.chat, job)
-        job.after?.(sent)
+        const sent = job.tool !== undefined ? await runner.handle.toolEvent?.(job.chat, job.tool)
+          : job.end !== undefined ? await runner.handle.turnEnd?.(job.chat, job.end)
+            : job.frame !== undefined ? await runner.handle.assistantFrame?.(job.chat, job.frame)
+            : await runner.handle.send(job.chat, job)
+        await job.after?.(sent)
+        // A no-op frame/end or a no-text update is not a delivery. Keep the
+        // turn's inbound quote until an adapter reports a real message id.
+        if (typeof sent?.messageId === 'string' && sent.messageId !== '') job.origin?.consume?.()
         queue.jobs.shift()
+        job.done?.()
       } catch (error) {
+        job.failed?.(error)
         const how = failClass(error)
         if (how === 'retry') {
           const wait = Number(error?.retryAfter) > 0 ? error.retryAfter * 1000 : RETRY_MS
@@ -358,12 +414,41 @@ export function install(rt) {
           return
         }
         queue.jobs.shift()
+        // Terminal failures reject exactly once (job.failed above) and surface
+        // in the connection status; the queue itself stays alive for later jobs.
         if (how === 'permanent') setStatus(conn.id, { state: 'error', error: String(error?.message ?? error).slice(0, 300) })
       }
     }
   }
-  const sendText = (conn, chat, body, buttons, after) => enqueue(conn, chat.key, { chat, text: body, buttons, after })
-  const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueue(conn, chatKey, { chat, text: body, buttons, after })
+  // Command acknowledgements and errors are standalone system messages, not model
+  // output. Adapters can keep them out of the streaming response card.
+  const sendText = (conn, chat, body, buttons, after, replyTo) => enqueue(conn, chat.key, { chat, text: body, buttons, after, replyTo, system: true })
+  const sendTo = (conn, chatKey, chat, body, buttons, after, origin) => enqueue(conn, chatKey, {
+    chat, text: body, buttons, after, ...(typeof origin === 'object' ? origin : { replyTo: origin }),
+  })
+  // Durable user/message identifies the origin. Depending on inbox admission,
+  // turn/start can arrive either before or after that durable event; bind in
+  // whichever event arrives second. A later queued message must not steal it.
+  const inbound = new Map()
+  const lastUser = new Map()
+  const activeTurns = new Map()
+  const turnReplies = new Map()
+  const bindTurnOrigin = (sessionId, requestId, turn) => {
+    if (typeof requestId !== 'string' || !Number.isSafeInteger(turn)) return
+    const queue = inbound.get(sessionId) ?? []
+    const index = queue.findIndex(item => item.requestId === requestId)
+    if (index < 0) return
+    const [origin] = queue.splice(index, 1)
+    turnReplies.set(`${sessionId}:${turn}`, origin)
+    if (lastUser.get(sessionId) === requestId) lastUser.delete(sessionId)
+  }
+  const replyOrigin = (sessionId, turn) => turnReplies.get(`${sessionId}:${turn}`)
+  const replyChat = (sessionId, event, conn, chat, chatKey = chat.key) => {
+    const key = `${sessionId}:${event.data?.turn}`
+    const origin = replyOrigin(sessionId, event.data?.turn)
+    if (origin?.connId !== conn.id || origin.chatKey !== chatKey || !origin.messageId) return {}
+    return { replyTo: origin.messageId, origin: { consume: () => turnReplies.delete(key) } }
+  }
 
   // ----------------------------------------------------------------- inbound
   const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
@@ -455,11 +540,13 @@ export function install(rt) {
   }
 
   const onMessage = (conn) => async (msg) => {
+    const commandReply = body => sendText(conn, msg.chat, body, undefined, undefined, msg.messageId)
+      .catch(error => rt.warn('ds-bot: im command reply failed: %s', error))
     if (!paired(conn, msg.sender.id)) {
       if (msg.chat.kind === 'group' && !msg.mentioned) return
       if (!requested(conn, msg)) return
       await rt.save()
-      await sendText(conn, msg.chat, text('requested'))
+      await commandReply( text('requested'))
       return
     }
     conn.chats ??= {}
@@ -470,19 +557,45 @@ export function install(rt) {
     }
     const body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
+    const requestReply = commandReply
     const target = resolveTarget(conn, chat)
     if (/^\/start(?:@\S+)?\s*$/.test(body)) {
       const name = target === undefined ? undefined : targetName(conn, target)
-      await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
+      await requestReply( name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
       return
     }
     if (/^\/stop(?:@\S+)?\s*$/.test(body)) {
       if (target === undefined) {
-        await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+        await requestReply( text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
         return
       }
       const stopped = target.botId !== undefined ? await rt.stopChat(target.botId) : await rt.stopRoomWork(target.roomId)
-      await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
+      await requestReply( text(stopped ? 'stopped' : 'idle'))
+      return
+    }
+    if (/^\/new(?:@\S+)?\s*$/.test(body)) {
+      if (target === undefined) {
+        await requestReply( text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+        return
+      }
+      if (target.botId === undefined) {
+        await requestReply( text('newOnlyBot'))
+        return
+      }
+      const before = rt.chatOf(target.botId)
+      try {
+        await rt.newPart(before)
+      } catch (error) {
+        await requestReply( text(error?.code === 'bot/busy' ? 'newBusy' : 'newFailed'))
+        return
+      }
+      // Starting a part is asynchronous in the Web API too. Confirm only after the
+      // Bot really points at a different Session; never let the model imitate /new.
+      const deadline = Date.now() + 15_000
+      while (rt.chatOf(target.botId) === before && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      await requestReply( text(rt.chatOf(target.botId) === before ? 'newPending' : 'newDone'))
       return
     }
     if (NUMBERS.test(body)) {
@@ -506,10 +619,14 @@ export function install(rt) {
       }
     }
     if (target === undefined) {
-      await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+      await requestReply( text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
       return
     }
-    const sessionId = target.botId ?? target.roomId
+    const targetId = target.botId ?? target.roomId
+    // Routing accepts a Bot/Room reference; durable events are keyed by the
+    // concrete Session. Keep the origin ledger on that same Session key.
+    const sessionId = rt.botOf(targetId) ? rt.chatOf(targetId)
+      : rt.roomOf(targetId) ? rt.sessionOfRoom(rt.roomOf(targetId)) : targetId
     const content = []
     if (body !== '') content.push({ type: 'text', text: body })
     for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
@@ -519,11 +636,20 @@ export function install(rt) {
         const receiptId = await env.uploadFile(rt.botOf(sessionId) ? rt.chatOf(sessionId) : sessionId, file)
         content.push({ type: 'file', receiptId })
       } catch {
-        await sendText(conn, msg.chat, text('noFile'))
+        await requestReply( text('noFile'))
       }
     }
     if (content.length === 0) return
-    await rt.sendUser({ sessionId, content, requestId: `im:${conn.platform}:${randomUUID()}` })
+    const requestId = `im:${conn.platform}:${randomUUID()}`
+    const queue = inbound.get(sessionId) ?? []
+    queue.push({ requestId, connId: conn.id, chatKey: msg.chat.key, messageId: msg.messageId })
+    inbound.set(sessionId, queue.slice(-50))
+    try {
+      await rt.sendUser({ sessionId, content, requestId })
+    } catch (error) {
+      inbound.set(sessionId, (inbound.get(sessionId) ?? []).filter(item => item.requestId !== requestId))
+      throw error
+    }
   }
 
   const onAction = (conn) => async (action) => {
@@ -712,7 +838,10 @@ export function install(rt) {
       const handle = adapter.connect(fieldsOf(conn), env, {
         onMessage: (msg) => {
           const current = fresh(conn.id)
-          return current === undefined ? undefined : onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error))
+          // Platform boundaries log the error after releasing their delivery
+          // claims. Swallowing it here would make a failed Feishu admission
+          // permanently deduplicated instead of retryable on redelivery.
+          return current === undefined ? undefined : onMessage(current)(msg)
         },
         onAction: (action) => {
           const current = fresh(conn.id)
@@ -746,7 +875,10 @@ export function install(rt) {
     const runner = runners.get(id)
     runners.delete(id)
     if (runner?.typing !== undefined) clearInterval(runner.typing)
-    for (const queue of runner?.queues.values() ?? []) clearTimeout(queue.retry)
+    for (const queue of runner?.queues.values() ?? []) {
+      clearTimeout(queue.retry)
+      for (const job of queue.jobs.splice(0)) job.done?.()
+    }
     await Promise.resolve(runner?.handle?.stop?.()).catch(() => {})
     if (statuses.get(id)?.state !== 'error') setStatus(id, { state: 'off', at: Date.now() })
   }
@@ -1025,13 +1157,72 @@ export function install(rt) {
     const rpcId = event.type === 'user/message' ? event.data?.source?.rpcId : undefined
     if (typeof rpcId === 'string' && rpcId.startsWith('im:') && Number.isInteger(event.seq)) {
       imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
+      lastUser.set(session.id, rpcId)
+      bindTurnOrigin(session.id, rpcId, activeTurns.get(session.id))
     }
+    if (event.type === 'turn/start') {
+      const turn = event.data?.turn
+      activeTurns.set(session.id, turn)
+      bindTurnOrigin(session.id, lastUser.get(session.id), turn)
+      lastUser.delete(session.id)
+    }
+    if (event.type === 'turn/end' && activeTurns.get(session.id) === event.data?.turn) activeTurns.delete(session.id)
+    // Bind all adapter operations to the concrete Session and turn. A later
+    // turn must not overwrite an earlier turn's first-card quote.
+    const eventChat = (conn, chat, chatKey = chat.key) => ({ key: chatKey, kind: chat.kind, title: chat.title,
+      sessionId: session.id, turn: event.data?.turn, ...replyChat(session.id, event, conn, chat, chatKey) })
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
       for (const conn of Object.values(connections())) {
         if (!runners.has(conn.id)) continue
-        for (const { chatKey, chat } of listeners(conn, { botId })) sendTo(conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
+        for (const { chatKey, chat } of listeners(conn, { botId })) {
+          const target = eventChat(conn, chat, chatKey)
+          sendTo(conn, chatKey, target, body, undefined, undefined, { replyTo: target.replyTo, origin: target.origin })
+        }
+      }
+    }
+    // CardKit streaming hooks (optional adapter capability, feishu today):
+    // tool calls roll a status panel while the turn runs; turn end closes the
+    // streaming card so it becomes forwardable again. Adapters without these
+    // methods skip the whole block.
+    if (event.type === 'tool/call' || event.type === 'tool/result') {
+      const message = event.data?.message ?? {}
+      const callId = event.data?.callId ?? message.source?.callId ?? message.toolCallId
+      const params = typeof event.data?.arguments === 'string' ? safeParams(event.data.arguments) : event.data?.arguments
+      const step = event.type === 'tool/call'
+        ? { phase: 'call', callId, name: event.data?.name, params }
+        : { phase: 'done', callId, name: event.data?.name, result: message.content,
+          error: message.isError ? (event.data?.error?.reason ?? 'Tool failed') : undefined }
+      for (const conn of Object.values(connections())) {
+        const r = runners.get(conn.id)
+        if (r?.handle?.toolEvent === undefined) continue
+        for (const { chatKey, chat } of listeners(conn, { botId })) {
+          enqueue(conn, chatKey, { chat: eventChat(conn, chat, chatKey), text: '', tool: step }).catch(error => rt.warn('ds-bot: im tool event failed: %s', error))
+        }
+      }
+    } else if (event.type === 'turn/end') {
+      for (const conn of Object.values(connections())) {
+        const r = runners.get(conn.id)
+        if (r?.handle?.turnEnd === undefined) continue
+        for (const { chatKey, chat } of listeners(conn, { botId })) {
+          enqueue(conn, chatKey, { chat: eventChat(conn, chat, chatKey), text: '', end: event.data?.reason ?? { kind: 'completed' } }).catch(error => rt.warn('ds-bot: im turn close failed: %s', error))
+        }
+      }
+    }
+  })
+
+  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    const sessionId = agent.session?.id ?? agent.id
+    const botId = rt.chatOwners.get(sessionId)
+    if (botId === undefined) return
+    const turn = frame.turn ?? rt.live.get(sessionId)?.turn
+    for (const conn of Object.values(connections())) {
+      const r = runners.get(conn.id)
+      if (r?.handle?.assistantFrame === undefined) continue
+      for (const { chatKey, chat } of listeners(conn, { botId })) {
+        const target = { key: chatKey, kind: chat.kind, title: chat.title, sessionId, turn, ...replyChat(sessionId, { data: { turn } }, conn, chat, chatKey) }
+        void enqueue(conn, chatKey, { chat: target, text: '', frame }).catch(error => rt.warn('ds-bot: im live frame failed: %s', error))
       }
     }
   })
