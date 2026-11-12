@@ -336,6 +336,8 @@ export const ES = {
   'The model service failed.': 'El servicio de modelos falló.',
   'DeepSeek Harness stopped before this turn finished.': 'DeepSeek Harness se detuvo antes de que terminara este turno.',
   'This turn failed.': 'Este turno falló.',
+  "The conversation could not be compacted for this model. Try again or choose another model.": "No se pudo compactar la conversación para este modelo. Vuelve a intentarlo o elige otro modelo.",
+  'Open model settings': 'Abrir ajustes del modelo',
   'The model service': 'El servicio de modelos',
   'DeepSeek account': 'Cuenta de DeepSeek',
   'This Bot': 'Este Bot',
@@ -1271,6 +1273,7 @@ export const ES = {
   'The model service failed': 'El servicio de modelos falló',
   'The model took too long to answer': 'El modelo tardó demasiado en responder',
   'Could not reach the model service': 'No se pudo conectar con el servicio de modelos',
+  "The conversation could not be compacted for the model switch": "No se pudo compactar la conversación para cambiar de modelo",
   'Its group conversation could not open': 'No se pudo abrir su conversación grupal',
   'Its group conversation could not open, so it starts a new one next time': 'No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez',
   // The composer's +

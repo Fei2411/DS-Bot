@@ -451,6 +451,8 @@ var JA = {
   "The model service failed.": "モデルサービスでエラーが発生しました。",
   "DeepSeek Harness stopped before this turn finished.": "このターンが完了する前に DeepSeek Harness が停止しました。",
   "This turn failed.": "このターンの実行に失敗しました。",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "このモデル用に会話を圧縮できませんでした。再試行するか、別のモデルを選択してください。",
+  "Open model settings": "モデル設定を開く",
   "The model service": "モデルサービス",
   "DeepSeek account": "DeepSeek アカウント",
   "This Bot": "この Bot",
@@ -1364,6 +1366,7 @@ var JA = {
   "The model service failed": "モデルサービスでエラーが発生しました",
   "The model took too long to answer": "モデルの応答がタイムアウトしました",
   "Could not reach the model service": "モデルサービスに接続できませんでした",
+  "The conversation could not be compacted for the model switch": "モデル切り替え時に会話を圧縮できませんでした",
   "Its group conversation could not open": "グループ会話を開けませんでした",
   "Its group conversation could not open, so it starts a new one next time": "グループ会話を開けなかったため、次回新しい会話を開始します",
   "Add files": "ファイルを追加",
@@ -2728,6 +2731,8 @@ var KO = {
   "The model service failed.": "모델 서비스 오류가 발생했습니다.",
   "DeepSeek Harness stopped before this turn finished.": "이번 차례가 끝나기 전에 DeepSeek Harness가 중지되었습니다.",
   "This turn failed.": "이번 차례 실행에 실패했습니다.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "이 모델에 맞게 대화를 압축하지 못했습니다. 다시 시도하거나 다른 모델을 선택하세요.",
+  "Open model settings": "모델 설정 열기",
   "The model service": "모델 서비스",
   "DeepSeek account": "DeepSeek 계정",
   "This Bot": "이 Bot",
@@ -3674,6 +3679,7 @@ var KO = {
   "The model service failed": "모델 서비스 오류",
   "The model took too long to answer": "모델 응답 시간이 초과되었습니다",
   "Could not reach the model service": "모델 서비스에 연결할 수 없습니다",
+  "The conversation could not be compacted for the model switch": "모델 전환을 위해 대화를 압축하지 못했습니다",
   "Its group conversation could not open": "그룹 대화 세션을 열 수 없습니다",
   "Its group conversation could not open, so it starts a new one next time": "그룹 대화 세션을 열 수 없어 다음번에 새 세션을 시작합니다",
   // The composer's +
@@ -5044,6 +5050,8 @@ var ES = {
   "The model service failed.": "El servicio de modelos falló.",
   "DeepSeek Harness stopped before this turn finished.": "DeepSeek Harness se detuvo antes de que terminara este turno.",
   "This turn failed.": "Este turno falló.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "No se pudo compactar la conversación para este modelo. Vuelve a intentarlo o elige otro modelo.",
+  "Open model settings": "Abrir ajustes del modelo",
   "The model service": "El servicio de modelos",
   "DeepSeek account": "Cuenta de DeepSeek",
   "This Bot": "Este Bot",
@@ -5990,6 +5998,7 @@ var ES = {
   "The model service failed": "El servicio de modelos falló",
   "The model took too long to answer": "El modelo tardó demasiado en responder",
   "Could not reach the model service": "No se pudo conectar con el servicio de modelos",
+  "The conversation could not be compacted for the model switch": "No se pudo compactar la conversación para cambiar de modelo",
   "Its group conversation could not open": "No se pudo abrir su conversación grupal",
   "Its group conversation could not open, so it starts a new one next time": "No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez",
   // The composer's +
@@ -7354,6 +7363,8 @@ var FR = {
   "The model service failed.": "Le service de modèles a rencontré une erreur.",
   "DeepSeek Harness stopped before this turn finished.": "DeepSeek Harness s’est arrêté avant la fin de ce tour.",
   "This turn failed.": "Ce tour a échoué.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "La conversation n’a pas pu être condensée pour ce modèle. Réessayez ou choisissez un autre modèle.",
+  "Open model settings": "Ouvrir les réglages du modèle",
   "The model service": "Le service de modèles",
   "DeepSeek account": "Compte DeepSeek",
   "This Bot": "Ce Bot",
@@ -8267,6 +8278,7 @@ var FR = {
   "The model service failed": "Le service de modèles a rencontré une erreur",
   "The model took too long to answer": "Le modèle a mis trop de temps à répondre",
   "Could not reach the model service": "Impossible de joindre le service de modèles",
+  "The conversation could not be compacted for the model switch": "La conversation n’a pas pu être condensée pour changer de modèle",
   "Its group conversation could not open": "Sa discussion de groupe n’a pas pu s’ouvrir",
   "Its group conversation could not open, so it starts a new one next time": "Sa discussion de groupe n’a pas pu s’ouvrir ; une nouvelle sera créée la prochaine fois",
   "Add files": "Ajouter des fichiers",
@@ -9631,6 +9643,8 @@ var DE = {
   "The model service failed.": "Fehler beim Modelldienst.",
   "DeepSeek Harness stopped before this turn finished.": "DeepSeek Harness wurde beendet, bevor dieser Durchgang abgeschlossen war.",
   "This turn failed.": "Dieser Durchgang ist fehlgeschlagen.",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "Der Gesprächskontext konnte für dieses Modell nicht komprimiert werden. Versuche es erneut oder wähle ein anderes Modell.",
+  "Open model settings": "Modelleinstellungen öffnen",
   "The model service": "Der Modelldienst",
   "DeepSeek account": "DeepSeek-Konto",
   "This Bot": "Dieser Bot",
@@ -10577,6 +10591,7 @@ var DE = {
   "The model service failed": "Fehler beim Modelldienst",
   "The model took too long to answer": "Zeitüberschreitung bei der Modellantwort",
   "Could not reach the model service": "Modelldienst nicht erreichbar",
+  "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",
   "Its group conversation could not open": "Seine Gruppensitzung konnte nicht geöffnet werden",
   "Its group conversation could not open, so it starts a new one next time": "Seine Gruppensitzung konnte nicht geöffnet werden; beim nächsten Mal wird eine neue gestartet",
   // The composer's +
@@ -11929,6 +11944,8 @@ var ZH = {
   "The model service failed.": "模型服务出错了。",
   "DeepSeek Harness stopped before this turn finished.": "这一轮还没完成，DeepSeek Harness 就停下了。",
   "This turn failed.": "这一轮运行失败了。",
+  "The conversation could not be compacted for this model. Try again or choose another model.": "无法为这个模型压缩对话。请重试或选择其他模型。",
+  "Open model settings": "打开模型设置",
   "The model service": "模型服务",
   "DeepSeek account": "DeepSeek 账号",
   "This Bot": "这个 Bot",
@@ -12895,6 +12912,7 @@ var ZH = {
   "The model service failed": "模型服务出错",
   "The model took too long to answer": "模型响应超时",
   "Could not reach the model service": "连不上模型服务",
+  "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
   "Its group conversation could not open": "它的群聊会话打不开",
   "Its group conversation could not open, so it starts a new one next time": "它的群聊会话打不开，下次会换一个新的",
   // The composer's +
@@ -13502,6 +13520,7 @@ var FAILURES = {
   SERVER: "The model service failed",
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
+  MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
   SESSION: "Its group conversation could not open",
   SESSION_RESET: "Its group conversation could not open, so it starts a new one next time"
 };
@@ -14480,7 +14499,9 @@ function springEasing(stiffness, damping) {
   let end = 0.05;
   while (end < 2 && Math.abs(1 - at(end)) > 1e-3) end += 0.01;
   const points = Array.from({ length: 25 }, (_, index) => (index === 24 ? 1 : at(end * index / 24)).toFixed(4));
-  return { duration: Math.round(end * 1e3), easing: `linear(${points.join(",")})`, stiffness, damping };
+  const duration = Math.round(end * 1e3);
+  const progress = (ms) => ms >= duration ? 1 : ms <= 0 ? 0 : at(ms / 1e3);
+  return { duration, easing: `linear(${points.join(",")})`, stiffness, damping, progress };
 }
 var SPRING_SHAPE = springEasing(400, 31.2);
 var SPRING_TAP = springEasing(900, 48);
@@ -14767,6 +14788,7 @@ var MIN_CHAT = 420;
 var RAIL_WIDTH = 88;
 var PANEL_MIN = { details: 320, browser: 360, side: 320 };
 var DSH_NARROW = 1024;
+var trackRoom = ({ width, right }) => Math.max(0, Math.min(width, right));
 var SIDEBAR_MIN = 264;
 var SIDEBAR_MAX = 420;
 var FALLBACK_SIDEBAR_WIDTH = 280;
@@ -25971,7 +25993,7 @@ function scheduleGroupChains(flow) {
     if (flow.isConnected !== false) syncGroupChains(flow);
   });
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole, time, duration }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionId, roster, actions, msgKey, useUi, whole, time, duration }) {
   const ref = (0, import_react32.useRef)(null);
   (0, import_react32.useLayoutEffect)(() => {
     const el = ref.current;
@@ -25988,6 +26010,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
   );
   const flat = layoutOf(roster.prefs) === "flat";
   const took = Number.isFinite(duration) && duration >= 1e3 ? elapsedLabel(duration) : void 0;
+  const quoteSession = sessionId ?? room2?.sessionId ?? room2?.id;
   return (0, import_react32.createElement)(
     "div",
     { ref, className: "bt-group-msg", "data-bot-id": bot.id },
@@ -26000,7 +26023,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react32.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole })
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -26220,6 +26243,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         text: row.file ? stripLongNote(row.text) : row.text,
         texts: row.texts,
         room: roster.roomsById[sessionId],
+        sessionId,
         roster,
         actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
@@ -26290,6 +26314,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
           bot: poster,
           text: file ? stripLongNote(text) : text,
           room: room2,
+          sessionId,
           roster,
           actions,
           msgKey: `${sessionId}:post:${data.seq ?? node.key}`,
@@ -26651,7 +26676,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           goalEventText(reply)
         );
       }
-      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
+      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id];
@@ -27004,7 +27029,10 @@ function showsDshRow(dsh, app) {
 }
 
 // src/client/frame-watch.js
-var sidebarTrackWidth = () => typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect().width ?? null;
+var sidebarTrackWidth = () => {
+  const box = typeof document === "undefined" ? void 0 : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect();
+  return box === void 0 ? null : trackRoom(box);
+};
 var dshCollapsed = () => {
   if (typeof document === "undefined") return null;
   const column = document.querySelector('[class*="_sidebarCol"]');
@@ -27364,7 +27392,9 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       ) : null,
       wide && unread && !active ? (0, import_react34.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && unread && !active ? (0, import_react34.createElement)("span", { className: "bt-dot", "aria-hidden": true }) : null
     ),
-    (0, import_react34.createElement)(
+    // The rail has no Session list. Left in, its text is wider than the rail, so this wrapper
+    // filled the rail and the 56px row sat at its left edge instead of the centre.
+    wide ? (0, import_react34.createElement)(
       "div",
       { className: "bt-agent-sub", "data-open": open || void 0 },
       (0, import_react34.createElement)(
@@ -27387,7 +27417,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
           renaming: renaming === session.id
         }))
       )
-    )
+    ) : null
   );
 }
 function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
@@ -35999,6 +36029,8 @@ function failureText2(code, { name, provider, status }) {
       return t("The model service failed.");
     case "INTERRUPTED":
       return t("DeepSeek Harness stopped before this turn finished.");
+    case "MODEL_SWITCH_COMPACTION_FAILED":
+      return t("The conversation could not be compacted for this model. Try again or choose another model.");
     default:
       return knownFailure(code) ?? t("This turn failed.");
   }
@@ -36017,6 +36049,8 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
       return topUp ? ["top-up"] : [];
+    case "MODEL_SWITCH_COMPACTION_FAILED":
+      return ["model", "model-settings"];
     default:
       return [];
   }
@@ -36024,6 +36058,7 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
 var retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || blocked === void 0;
 var FIX_LABELS = {
   key: () => t("Enter API key"),
+  "model-settings": () => t("Open model settings"),
   rekey: () => t("Enter the key again"),
   "sign-in": (signedIn) => signedIn ? t("Use the DeepSeek account") : t("Sign in with a DeepSeek account"),
   "use-account": () => t("Use a DeepSeek account instead"),
@@ -36154,7 +36189,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     "sign-in": viaAccount,
     "use-account": viaAccount,
     "sign-in-again": () => actions.signIn(),
-    model: actions.showDetails ? () => actions.showDetails(sessionId) : void 0
+    model: actions.showDetails ? () => actions.showDetails(sessionId) : void 0,
+    "model-settings": manageModels(actions)
   };
   const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== void 0, onAccount: provider === ACCOUNT }).filter((fix) => fix === "top-up" || runs[fix] !== void 0);
   const asked = isHiddenTurn(roster, sessionId, data.turn);
@@ -37410,6 +37446,117 @@ function AgentMenu({ menu, roster, actions, leaving }) {
   );
 }
 
+// src/client/mark-flight.js
+var FLIGHT_ENDS = { tab: ":scope > .bt-ptabs .bt-ptab-bot .bt-mark", drawer: ":scope > .bt-panel-view .bt-drawer-id .bt-mark" };
+var flightEnd = (next) => next === "details" ? "drawer" : "tab";
+var flightStart = (next) => next === "details" ? "tab" : "drawer";
+var INTENT_MS = 1500;
+var SAFETY_MS = 400;
+function planFlight(active, next) {
+  if (active === null) return "start";
+  return active === flightEnd(next) ? "keep" : "reverse";
+}
+function flightBox(from, to, p) {
+  const mix = (key) => from[key] + (to[key] - from[key]) * p;
+  return { left: mix("left"), top: mix("top"), width: mix("width"), height: mix("height") };
+}
+var boxOf = (rect) => ({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+var serial = 0;
+function uniqueIds(root) {
+  const suffix = `-f${++serial}`;
+  const renamed = /* @__PURE__ */ new Map();
+  for (const node of [root, ...root.querySelectorAll("[id]")]) {
+    if (node.id === "") continue;
+    renamed.set(node.id, `${node.id}${suffix}`);
+    node.id = renamed.get(node.id);
+  }
+  if (renamed.size === 0) return root;
+  for (const node of [root, ...root.querySelectorAll("*")]) {
+    for (const { name, value } of node.attributes) {
+      let next = value.replace(/url\(\s*#([^)\s]+)\s*\)/g, (whole, id) => renamed.has(id) ? `url(#${renamed.get(id)})` : whole);
+      if ((name === "href" || name === "xlink:href") && next.startsWith("#") && renamed.has(next.slice(1))) next = `#${renamed.get(next.slice(1))}`;
+      if (next !== value) node.setAttribute(name, next);
+    }
+  }
+  return root;
+}
+function createFlight(env) {
+  const {
+    shape,
+    frame = (run2) => requestAnimationFrame(run2),
+    unframe = (id) => cancelAnimationFrame(id),
+    later = (run2, ms) => setTimeout(run2, ms),
+    unlater = (id) => clearTimeout(id)
+  } = env;
+  let live = null;
+  function finish() {
+    if (live === null) return;
+    const { panel, node, step, safety } = live;
+    live = null;
+    if (step !== null) unframe(step);
+    unlater(safety);
+    node.remove();
+    delete panel.dataset.flying;
+  }
+  function place(now) {
+    const { panel, node, end, from, size } = live;
+    live.step = null;
+    const target = panel.isConnected ? panel.querySelector(FLIGHT_ENDS[end]) : null;
+    const to = target?.getBoundingClientRect();
+    if (to === void 0 || to.width === 0) {
+      finish();
+      return;
+    }
+    if (live.at === null && now !== null) live.at = now;
+    const elapsed = live.at === null ? 0 : now - live.at;
+    const done = elapsed >= shape.duration;
+    const box = flightBox(from, boxOf(to), done ? 1 : shape.progress(elapsed));
+    const edge = panel.getBoundingClientRect();
+    const border = panel.ownerDocument.defaultView.getComputedStyle(panel);
+    const x = box.left - edge.left - (parseFloat(border.borderLeftWidth) || 0);
+    const y = box.top - edge.top - (parseFloat(border.borderTopWidth) || 0);
+    node.style.transform = `translate(${x}px, ${y}px) scale(${box.width / size.width}, ${box.height / size.height})`;
+    if (done) finish();
+    else live.step = frame(place);
+  }
+  const arm = () => later(finish, shape.duration + SAFETY_MS);
+  return {
+    /** The end the flying mark is heading for, or null with no flight. */
+    active: () => live?.end ?? null,
+    finish,
+    /**
+     * Take off. Whatever flew before ends first.
+     * @param {{panel: Element, end: 'tab'|'drawer', node: Element, from: {left: number, top: number, width: number, height: number}}} flight
+     * @returns {boolean} false when there is nothing to fly (a mark without a box)
+     */
+    begin({ panel, end, node, from }) {
+      finish();
+      if (!(from.width > 0 && from.height > 0)) return false;
+      node.classList.add("bt-mark-fly");
+      Object.assign(node.style, { width: `${from.width}px`, height: `${from.height}px` });
+      panel.append(node);
+      panel.dataset.flying = end;
+      live = { panel, node, end, from: boxOf(from), size: { width: from.width, height: from.height }, at: null, step: null, safety: arm() };
+      place(null);
+      return true;
+    },
+    /**
+     * Turn the mark that is flying round, from where it is now toward the other end.
+     * @returns {boolean} false when no flight was on
+     */
+    retarget(end) {
+      if (live === null) return false;
+      live.from = boxOf(live.node.getBoundingClientRect());
+      live.end = end;
+      live.at = null;
+      live.panel.dataset.flying = end;
+      unlater(live.safety);
+      live.safety = arm();
+      return true;
+    }
+  };
+}
+
 // src/client/member-status.js
 var import_react59 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
@@ -38057,7 +38204,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           (0, import_react60.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true }),
           modelOf(bot, roster) ? null : (0, import_react60.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
-        bot.engine ? (0, import_react60.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }) : null,
+        (0, import_react60.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }),
         (0, import_react60.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
         (0, import_react60.createElement)(BotConnectors, { key: "connectors", bot, roster, actions, run: run2 }),
         (0, import_react60.createElement)(
@@ -38132,7 +38279,6 @@ var savedWidth = () => {
 var widthRange = (view, room2) => view === "browser" ? [MIN_WIDTH, room2 - MIN_CHAT] : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room2 - MIN_CHAT)];
 var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)));
 var shortAddress = (url) => String(url ?? "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
-var reducedMotion2 = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label }) {
   const [open, setOpen] = (0, import_react61.useState)(false);
@@ -38237,7 +38383,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     capsule.style.opacity = "1";
     capsule.style.left = `${to.left}px`;
     capsule.style.right = `${to.right}px`;
-    if (from === null || from.left === to.left && from.right === to.right || reducedMotion2()) return void 0;
+    if (from === null || from.left === to.left && from.right === to.right || reducedMotion()) return void 0;
     const ahead = to.left > from.left ? "right" : "left";
     const behind = ahead === "right" ? "left" : "right";
     const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing });
@@ -38748,7 +38894,8 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
   const hold = useBrowserHolds?.((map) => bot ? map[bot.id] ?? null : null) ?? null;
   const root = (0, import_react61.useRef)(null);
-  const fly = (0, import_react61.useRef)(null);
+  const [flight] = (0, import_react61.useState)(() => createFlight({ shape: SPRING_SHAPE }));
+  const intent = (0, import_react61.useRef)(null);
   const [landed, setLanded] = (0, import_react61.useState)(false);
   const [settling, setSettling] = (0, import_react61.useState)(false);
   const [width, setWidth] = (0, import_react61.useState)(savedWidth);
@@ -38766,7 +38913,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const [last, setLast] = (0, import_react61.useState)({ view, width: panelWidth });
   if (last.view !== view || last.width !== panelWidth) {
     setLast({ view, width: panelWidth });
-    if (last.view !== view) setSettling(last.width !== panelWidth && !instant);
+    if (last.view !== view) setSettling(last.width !== panelWidth && !instant && !overlay);
   }
   const shownView = (0, import_react61.useRef)(view);
   (0, import_react61.useLayoutEffect)(() => {
@@ -38821,24 +38968,40 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     return () => clearTimeout(timer);
   }, [page.readAt]);
   const beginSwitch = (next) => {
-    if (reducedMotion2()) return;
     const panel = root.current;
-    const source = next === "details" ? panel?.querySelector(".bt-ptab-bot .bt-mark") : panel?.querySelector(".bt-drawer-id .bt-mark");
-    const outgoing = panel?.querySelector(".bt-panel-view");
+    intent.current = null;
+    if (reducedMotion()) {
+      flight.finish();
+      return;
+    }
+    if (!panel) return;
+    const plan = planFlight(flight.active(), next);
+    const source = plan === "start" ? panel.querySelector(FLIGHT_ENDS[flightStart(next)]) : null;
+    const flies = plan !== "keep" && (plan === "reverse" || source !== null);
+    const outgoing = panel.querySelector(":scope > .bt-panel-view");
     if (outgoing) {
       const ghostEl = document.createElement("div");
       ghostEl.className = "bt-panel-ghost";
-      ghostEl.style.width = `${outgoing.offsetWidth}px`;
-      ghostEl.append(outgoing.cloneNode(true));
-      if (source && next !== "details") for (const mark2 of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark")) mark2.style.visibility = "hidden";
-      outgoing.parentElement.append(ghostEl);
+      Object.assign(ghostEl.style, { top: `${outgoing.offsetTop}px`, width: `${outgoing.offsetWidth}px`, height: `${outgoing.offsetHeight}px` });
+      ghostEl.append(uniqueIds(outgoing.cloneNode(true)));
+      if (flies && next !== "details") for (const mark2 of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark")) mark2.style.visibility = "hidden";
+      panel.append(ghostEl);
       void ghostEl.animate([
         { opacity: 1, transform: "scale(1)" },
         { opacity: 0, transform: "scale(0.985)" }
       ], { duration: 160, easing: "ease-out", fill: "forwards" }).finished.catch(() => {
       }).finally(() => ghostEl.remove());
     }
-    if (source) fly.current = { node: source.cloneNode(true), from: source.getBoundingClientRect() };
+    if (plan === "start" && source === null) return;
+    intent.current = {
+      plan,
+      next,
+      id: pane.id,
+      at: performance.now(),
+      end: flightEnd(next),
+      node: source ? uniqueIds(source.cloneNode(true)) : null,
+      from: source ? source.getBoundingClientRect() : null
+    };
   };
   const switchView = (next) => {
     if (next === view || leaving) return;
@@ -38859,44 +39022,24 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     };
   }
   (0, import_react61.useLayoutEffect)(() => {
-    const move = fly.current;
-    if (!move) return;
-    fly.current = null;
-    const target = view === "details" ? root.current?.querySelector(".bt-drawer-id .bt-mark") : root.current?.querySelector(".bt-ptab-bot .bt-mark");
-    if (!target || move.from.width === 0) return;
-    const growing = root.current.getAnimations({ subtree: true }).filter((animation) => animation.animationName === "bt-strip-in");
-    const at = growing.map((animation) => animation.currentTime);
-    for (const animation of growing) animation.currentTime = animation.effect.getComputedTiming().endTime;
-    const to = target.getBoundingClientRect();
-    growing.forEach((animation, index) => {
-      animation.currentTime = at[index];
-    });
-    const clone = move.node;
-    Object.assign(clone.style, {
-      position: "fixed",
-      left: `${move.from.left}px`,
-      top: `${move.from.top}px`,
-      width: `${move.from.width}px`,
-      height: `${move.from.height}px`,
-      margin: "0",
-      transformOrigin: "0 0",
-      zIndex: "80",
-      pointerEvents: "none",
-      visibility: ""
-    });
-    document.body.append(clone);
-    target.style.visibility = "hidden";
-    const scale = to.width / move.from.width;
-    const anim = clone.animate([
-      { transform: "translate(0px, 0px) scale(1)" },
-      { transform: `translate(${to.left - move.from.left}px, ${to.top - move.from.top}px) scale(${scale})` }
-    ], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, fill: "forwards" });
-    void anim.finished.catch(() => {
-    }).finally(() => {
-      clone.remove();
-      target.style.visibility = "";
-    });
+    const note = intent.current;
+    intent.current = null;
+    const current = note !== null && note.next === view && note.id === pane.id && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
+    if (!current) {
+      flight.finish();
+      return;
+    }
+    if (note.plan === "keep") return;
+    if (note.plan === "reverse") {
+      if (!flight.retarget(note.end)) flight.finish();
+      return;
+    }
+    flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from });
   }, [view, pane.id]);
+  (0, import_react61.useLayoutEffect)(() => {
+    if (instant || leaving) flight.finish();
+  }, [instant, leaving]);
+  (0, import_react61.useEffect)(() => flight.finish, []);
   const startResize = (event) => {
     if (event.button !== 0 || leaving || overlay) return;
     event.preventDefault();
@@ -39012,14 +39155,16 @@ var BROWSER_CSS = `
 .bt-ptab-new svg{width:15px;height:15px}
 .bt-ptab-ind{position:absolute;top:4px;bottom:4px;border-radius:8px;background:var(--bt-hover);opacity:0;pointer-events:none;z-index:0;transition:opacity .15s ease}
 .bt-ptab-close{flex:none;margin-left:2px}
-.bt-panel-ghost{position:absolute;top:calc(44px + var(--bt-caption-band,0px));right:0;bottom:0;overflow:hidden;pointer-events:none;z-index:2}
+.bt-panel-ghost{position:absolute;right:0;overflow:hidden;pointer-events:none;z-index:2}
 .bt-panel-ghost>.bt-panel-view{position:absolute;inset:0}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
 @keyframes bt-panel-view-in{from{opacity:0}}
 /* While the panel changes width its views keep their final width on the right edge, so
    only the panel edge moves and nothing inside reflows frame by frame. */
 .bt-panel[data-settling]{overflow:hidden}
-.bt-panel[data-settling]>.bt-ptabs,.bt-panel[data-settling]>.bt-panel-view{flex-shrink:0;align-self:flex-end;box-sizing:border-box;width:calc(var(--bt-panel-w,320px) - .5px)}
+.bt-panel[data-settling]:not([data-overlay])>.bt-ptabs,.bt-panel[data-settling]:not([data-overlay])>.bt-panel-view{flex-shrink:0;align-self:flex-end;box-sizing:border-box;width:calc(var(--bt-panel-w,320px) - .5px)}
+.bt-panel[data-flying=tab] .bt-ptab-bot .bt-mark,.bt-panel[data-flying=drawer] .bt-drawer-id .bt-mark{visibility:hidden}
+.bt-mark-fly{position:absolute;left:0;top:0;margin:0;transform-origin:0 0;z-index:5;pointer-events:none;will-change:transform}
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
@@ -39669,7 +39814,7 @@ function createBotBrowsers({ bridge, createSource: createSource2, storage = glob
   let visible = false;
   let resizeLater = 0;
   let disposed = false;
-  let serial = 0;
+  let serial2 = 0;
   const makeGuest = guestFactory ?? (bridge.views ? ({ botId, tabId }) => ({ element: createAppViewProxy(bridge, botId, tabId), appView: true }) : ({ document: document2 }) => ({ element: document2.createElement("webview"), appView: false }));
   const appViewEvents = bridge.views?.subscribe?.((change) => {
     const { botId, tabId } = change ?? {};
@@ -39915,7 +40060,7 @@ function createBotBrowsers({ bridge, createSource: createSource2, storage = glob
   }
   function openTab(botId, url) {
     ensureTabs(botId);
-    const tabId = `t${Date.now().toString(36)}-${++serial}`;
+    const tabId = `t${Date.now().toString(36)}-${++serial2}`;
     owner.set(tabId, botId);
     tabs.set((state) => {
       const own = state[botId] ?? { ids: [], active: null };
@@ -40225,6 +40370,24 @@ function lineDiff(before, after) {
   rows2.push(...b.slice(offset).map((line, index) => ({ kind: "same", line, number: offset + index + 1 })));
   return rows2;
 }
+var answerKeepsCard = (failure) => failure?.code !== "bot/stale";
+var withoutEntry = (state, key) => {
+  if (!(key in state)) return state;
+  const next = { ...state };
+  delete next[key];
+  return next;
+};
+function answerFailure(record, proposal, failure) {
+  if (!answerKeepsCard(failure)) return withoutEntry(record, proposal.id);
+  return { ...record, [proposal.id]: { proposal, error: failure?.message ?? String(failure) } };
+}
+function proposalCards({ proposals = [], settled = [], failures = {} }) {
+  const visible = [...settled.filter((entry) => !proposals.some((proposal) => proposal.id === entry.id)), ...proposals];
+  for (const entry of Object.values(failures)) {
+    if (!proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
+  }
+  return visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+}
 
 // src/client/learning-card.js
 var import_react63 = require("react");
@@ -40242,9 +40405,8 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
     setBusy(true);
     setError("");
     void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve)).then(() => onResolved(proposal.id), (failure) => {
-      const message = failure?.message ?? String(failure);
-      setError(message);
-      onFailure(proposal, message);
+      setError(failure?.message ?? String(failure));
+      onFailure(proposal, failure);
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
@@ -40370,32 +40532,31 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const facts = useTurnFacts(sessionId, actions);
   const [failed, setFailed] = (0, import_react63.useState)({});
   const bot = roster.byId?.[sessionId];
+  const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
+  (0, import_react63.useEffect)(() => {
+    const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
+    if (gone.length === 0) return;
+    for (const id of gone) failedAnswers.delete(id);
+    setFailed((current) => gone.reduce((next, id) => withoutEntry(next, id), current));
+  }, [settledIds.join("|")]);
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
-  const settled = (roster.learningSettled?.[bot.id] ?? []).filter((entry) => !proposals.some((proposal) => proposal.id === entry.id));
-  const visible = [...settled, ...proposals];
-  for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
-  }
-  for (const entry of failedAnswers.values()) {
-    if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
-  }
-  visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+  const settled = roster.learningSettled?.[bot.id] ?? [];
+  const remembered = Object.fromEntries([...failedAnswers.values(), ...Object.values(failed)].filter((entry) => entry.proposal.botId === bot.id).map((entry) => [entry.proposal.id, entry]));
+  const visible = proposalCards({ proposals, settled, failures: remembered });
   const cards = visible.filter((proposal) => {
     const placement = proposalPlacement(proposal, facts?.turns);
     return dock ? placement.kind === "dock" : placement.kind === "turn" && placement.turn === turn?.turn;
   });
   if (cards.length === 0) return null;
-  const onFailure = (proposal, error) => {
-    failedAnswers.set(proposal.id, { proposal, error });
-    setFailed((current) => ({ ...current, [proposal.id]: { proposal, error } }));
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) });
+    else failedAnswers.delete(proposal.id);
+    setFailed((current) => answerFailure(current, proposal, failure));
   };
   const onResolved = (id) => setFailed((current) => {
     failedAnswers.delete(id);
-    if (!(id in current)) return current;
-    const next = { ...current };
-    delete next[id];
-    return next;
+    return withoutEntry(current, id);
   });
   return (0, import_react63.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react63.createElement)(
     "div",
