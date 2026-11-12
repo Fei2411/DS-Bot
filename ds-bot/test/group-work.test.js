@@ -2321,7 +2321,7 @@ test('a late reply and post_to_group keep missing-file claims when opening a gro
   assert.deepEqual(record.claims, { missingFiles: [missing] })
   assert.equal(record.session, true)
 
-  const postedMissing = join(root, 'gone.md')
+  const postedMissing = join(root, 'gone.md').replace(/\\/g, '/')
   await host.tool('post_to_group', { group: 'Ops', message: '请看 [gone.md](./gone.md)' }, 'a', { agent: { id: 'a', session: { header: { cwd: root } } } })
   const fromTool = host.takePost()
   assert.deepEqual(fromTool.source.claims, { missingFiles: [postedMissing] })
