@@ -2,12 +2,10 @@
 // delete a card when it is no longer wanted.
 import { createElement as h, useEffect, useState } from 'react'
 import { MarkdownText } from './dsh-primitives.js'
-import { hostText, t } from './i18n.js'
+import { hostText, mdLabels, t } from './i18n.js'
 import { CloseIcon } from './icons.js'
 import { messageClock } from './text.js'
 import { dockCards, sessionCards, tailCards } from './btw-model.js'
-
-export const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied') }, footnotes: t('Footnotes') })
 
 export function failureText(card) {
   const raw = typeof card.error === 'string' ? card.error : card.error?.message

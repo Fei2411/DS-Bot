@@ -35,6 +35,33 @@ function GroupPermission({ room, catalog, update }) {
       h(PermissionPicker, { catalog, saved: room.permission, onPick: permission => update({ permission }) })) : null)
 }
 
+// A group's shared to-do list, shown in its details: every member sees the same items,
+// open ones first. The user ticks, deletes, or clears the completed ones here. Adding
+// is a Bot tool (`group_todo`), so this panel keeps no input of its own.
+export function GroupTodos({ room, actions }) {
+  const todos = [...(room.todos ?? [])].sort((a, b) => Number(a.done === true) - Number(b.done === true) || (a.createdAt ?? 0) - (b.createdAt ?? 0))
+  const open = todos.filter(item => item.done !== true).length
+  const done = todos.length - open
+  return h('div', { className: 'bt-gt' },
+    h('div', { className: 'bt-gt-head' },
+      h('div', { className: 'bt-section-title' }, t('Shared to-do'), open > 0 ? h('span', { className: 'bt-note' }, ` ${t('{count} open', { count: open })}`) : null),
+      done > 0 ? h('button', { type: 'button', className: 'bt-mini', onClick: () => { void actions.roomTodoClear?.(room.id).catch(() => {}) } }, t('Clear completed')) : null),
+    todos.length === 0
+      ? h('div', { className: 'bt-gt-empty' }, t('No shared to-dos yet. Ask a Bot in this group to add one.'))
+      : todos.map(item => h('div', { key: item.id, className: `bt-gt-row${item.done === true ? ' is-done' : ''}` },
+        h('label', { className: 'bt-gt-main' },
+          h('input', {
+            type: 'checkbox',
+            checked: item.done === true,
+            onChange: () => { void actions.roomTodoCheck?.(room.id, item.id, item.done !== true).catch(() => {}) },
+          }),
+          h('span', { className: 'bt-gt-text' }, item.text)),
+        h('button', {
+          type: 'button', className: 'bt-x', 'aria-label': t('Delete'), title: t('Delete'),
+          onClick: () => { void actions.roomTodoRemove?.(room.id, item.id).catch(() => {}) },
+        }, '×'))))
+}
+
 // A group chat's settings as grouped cards: its name and notice, who answers, its
 // members and admin, its permissions, its sidebar place, and deleting it. The user may
 // change all of it; the host enforces what Bots may change.
@@ -176,5 +203,16 @@ export const GROUP_SETTINGS_CSS = `
 .bt-gs-pick{gap:10px;animation:bt-rise .16s ease-out}
 .bt-bs-stack .bt-seg{align-self:stretch}
 .bt-gs-perm .bt-seg button{flex:auto;white-space:nowrap}
+.bt-gt{display:flex;flex-direction:column;gap:4px}
+.bt-gt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.bt-gt-head>.bt-section-title{margin:0}
+.bt-gt-head>.bt-mini{flex:none}
+.bt-gt-row{display:flex;align-items:flex-start;gap:4px;padding:3px 0;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-gt-main{flex:1;display:flex;align-items:flex-start;gap:8px;min-width:0;cursor:pointer}
+.bt-gt-row input{margin:2px 0 0;flex:none;accent-color:var(--bt-accent);cursor:pointer}
+.bt-gt-text{min-width:0;overflow-wrap:anywhere}
+.bt-gt-row.is-done .bt-gt-text{color:var(--bt-ink-3);text-decoration:line-through}
+.bt-gt-row .bt-x{flex:none;margin-top:-3px}
+.bt-gt-empty{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-gs-pick{animation:none}}
 `

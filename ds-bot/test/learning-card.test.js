@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { editLines, lineDiff, proposalPlacement } from '../src/client/learning-card-model.js'
+import { answerKeepsCard, editLines, lineDiff, proposalPlacement, withoutEntry } from '../src/client/learning-card-model.js'
 
 const turns = new Map([
   [1, { turn: 1, end: { time: 100 }, status: 'closed' }],
@@ -70,4 +70,21 @@ test('AGENTS.md edit previews keep the blank lines the edit writes', () => {
   assert.deepEqual(editLines('\n'), ['', ''])
   assert.deepEqual(editLines('Rule\n\n'), ['Rule', '', ''])
   assert.deepEqual(editLines(undefined), [])
+})
+
+test('a failure keeps the card only while another try could work', () => {
+  // The host no longer has the proposal: nothing is left to answer.
+  assert.equal(answerKeepsCard(Object.assign(new Error('gone'), { code: 'bot/stale' })), false)
+  // Everything else can pass on a retry, or still wants a different answer.
+  for (const code of ['NETWORK', 'bot/internal', 'bot/refused', 'HTTP_502', 'bot/error']) {
+    assert.equal(answerKeepsCard(Object.assign(new Error(code), { code })), true, code)
+  }
+  assert.equal(answerKeepsCard(new Error('no code')), true)
+  assert.equal(answerKeepsCard(undefined), true)
+})
+
+test('a record without one entry keeps every other entry, and the same object when nothing changed', () => {
+  const state = { a: 1, b: 2 }
+  assert.deepEqual(withoutEntry(state, 'a'), { b: 2 })
+  assert.equal(withoutEntry(state, 'z'), state)
 })
