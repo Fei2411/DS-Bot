@@ -5,6 +5,9 @@
 //   contains "ask-permission" -> session/request_permission to the client
 //   contains "hang"         -> never ends until session/cancel
 //   otherwise               -> a thought chunk, an activity line, "ok"
+const omitMcpCapabilities = process.argv.includes('--omit-mcp-capabilities')
+const mcpHttp = !omitMcpCapabilities && !process.argv.includes('--no-http-mcp')
+const failLoad = process.argv.includes('--fail-load')
 const sessions = new Map()
 let nextId = 0
 const requests = new Map()
@@ -89,9 +92,13 @@ process.stdin.on('data', (chunk) => {
       continue
     }
     const { id, method, params = {} } = message
+    if (!mcpHttp && ['session/new', 'session/load'].includes(method) && (!Array.isArray(params.mcpServers) || params.mcpServers.length !== 0)) {
+      fail(id, 'MCP servers are not supported')
+      continue
+    }
     switch (method) {
       case 'initialize':
-        reply(id, { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: false }, loadSession: true }, authMethods: [] })
+        reply(id, { protocolVersion: 1, agentCapabilities: { ...(omitMcpCapabilities ? {} : { mcpCapabilities: { http: mcpHttp, sse: false } }), loadSession: true }, authMethods: [] })
         break
       case 'session/new': {
         const session = { id: `acp-${++nextId}`, mcp: undefined }
@@ -108,6 +115,7 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/load': {
+        if (failLoad) { fail(id, 'Session not found'); break }
         let session = sessions.get(params.sessionId)
         if (session === undefined) { session = { id: params.sessionId, mcp: undefined }; sessions.set(session.id, session) }
         const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')

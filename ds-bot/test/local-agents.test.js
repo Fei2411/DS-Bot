@@ -23,7 +23,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write' } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acpArgs = [] } = {}) {
   const files = { acp: FIXTURES.acp, codex: FIXTURES.codex, claude: FIXTURES.claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -31,7 +31,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write' } = {}) {
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude] }, { findExecutable: path => path })
       spawned.push(engine)
@@ -110,6 +110,60 @@ test('the MCP bridge suspends the turn and the next stream answers it', async (t
   assert.equal(second.finish.kind, 'stop')
   assert.match(second.text, /tool said: Kai says hi back/)
 })
+
+for (const capability of ['--no-http-mcp', '--omit-mcp-capabilities']) {
+  for (const start of ['new', 'load', 'fallback']) {
+    test(`acp: ${capability} supports ${start} sessions, text and approvals without team tools`, async (t) => {
+      const records = start === 'new' ? {} : { s1: { route: 'acp-fake', cliSessionId: 'acp-saved', model: 'default' } }
+      const acpArgs = [capability, ...(start === 'fallback' ? ['--fail-load'] : [])]
+      const adapter = makeAdapter({ records, acpArgs })
+      t.after(() => adapter.dispose())
+      const peer = await adapter.engine('acp-fake').ensure()
+      const request = t.mock.method(peer, 'request')
+
+      const messages = [user('m1', 'hello')]
+      const first = await collect(adapter.stream(options('s1', messages)))
+      assert.match(first.text, /^ok: /)
+      assert.equal(first.finish.kind, 'stop')
+      assert.equal(first.thinking.match(/without DS Bot team tools/g)?.length, 1)
+      assert.equal(records.s1.cliSessionId === 'acp-saved', start === 'load')
+
+      const opened = request.mock.calls.filter(call => ['session/new', 'session/load'].includes(call.arguments[0]))
+      assert.deepEqual(opened.map(call => call.arguments[0]), start === 'new' ? ['session/new'] : start === 'load' ? ['session/load'] : ['session/load', 'session/new'])
+      for (const call of opened) assert.deepEqual(call.arguments[1].mcpServers, [])
+
+      messages.push(user('m2', 'ask-permission'))
+      const ask = await collect(adapter.stream(options('s1', messages)))
+      assert.equal(ask.finish.kind, 'tool-calls')
+      assert.equal(ask.calls[0].name, 'approve_agent_action')
+      assert.equal(JSON.parse(ask.calls[0].arguments).action, 'Run `rm -rf /tmp/x`')
+      assert.doesNotMatch(ask.thinking, /without DS Bot team tools/)
+
+      messages.push(toolResult('m3', ask.calls[0].id, JSON.stringify({ decision: 'allow' })))
+      const allowed = await collect(adapter.stream(options('s1', messages)))
+      assert.match(allowed.text, /allowed via allow-once/)
+      assert.equal(allowed.finish.kind, 'stop')
+      assert.doesNotMatch(allowed.thinking, /without DS Bot team tools/)
+    })
+  }
+}
+
+for (const capability of ['--no-http-mcp', '--omit-mcp-capabilities', 'http']) {
+  test(`acp: model probes respect ${capability} with a supplied MCP server`, async (t) => {
+    const adapter = makeAdapter({ acpArgs: capability === 'http' ? [] : [capability] })
+    t.after(() => adapter.dispose())
+    const engine = adapter.engine('acp-fake')
+    const peer = await engine.ensure()
+    const request = t.mock.method(peer, 'request')
+    const mcp = { url: 'http://127.0.0.1:1234/mcp', token: 'fake' }
+    const models = await engine.listModels({ cwd: tmpdir(), mcp })
+    assert.deepEqual(models.map(model => model.id), ['fake-large', 'fake-small'])
+    const servers = request.mock.calls.find(call => call.arguments[0] === 'session/new').arguments[1].mcpServers
+    assert.deepEqual(servers, capability === 'http'
+      ? [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: 'Bearer fake' }] }]
+      : [])
+  })
+}
 
 test('queued calls finish later streams', async (t) => {
   const adapter = makeAdapter()

@@ -1,6 +1,6 @@
 // The Agent Client Protocol engine: one child process per route, ACP over
 // stdio. A process multiplexes sessions: each DS Bot Session maps to one ACP
-// session, created or resumed with our loopback MCP server attached.
+// session, with our loopback MCP server attached when the agent supports HTTP.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { cleanEnv, spawnAgent } from './discover.js'
 
@@ -125,8 +125,7 @@ export class AcpEngine {
   async open(dshSessionId, { cwd, mcp, resumeId, mode }) {
     const peer = await this.ensure()
     const session = this.sessionFor(dshSessionId)
-    const mcpServers = mcp === undefined ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }]
-    if (mcp !== undefined && this.caps.mcpHttp === false) throw Object.assign(new Error(`${this.engine.name} cannot use HTTP MCP servers; the team tools cannot reach it`), { code: 'NOT_SUPPORTED' })
+    const mcpServers = serversFor(mcp, this.caps.mcpHttp)
     const params = { cwd, mcpServers }
     let reply
     if (resumeId !== undefined) {
@@ -142,6 +141,9 @@ export class AcpEngine {
     session.configOptions = reply?.configOptions ?? []
     session.modes = reply?.modes?.availableModes ?? configOptionsOf(session.configOptions, 'mode')?.options ?? []
     if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
+    if (mcp !== undefined && this.caps.mcpHttp === false) {
+      session.push({ type: 'activity', text: 'This agent does not support HTTP MCP servers; the session runs without DS Bot team tools.' })
+    }
     return session
   }
 
@@ -181,12 +183,13 @@ export class AcpEngine {
   // Models the agent advertises on a probe session (configOptions 'model').
   async listModels({ cwd, mcp }) {
     const peer = await this.ensure()
-    const probe = await peer.request('session/new', { cwd, mcpServers: mcp === undefined ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }] }, { timeout: 60_000 })
+    const probe = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp, this.caps.mcpHttp) }, { timeout: 60_000 })
     const option = configOptionsOf(probe?.configOptions ?? [], 'model')
     return (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
   }
 }
 
+const serversFor = (mcp, mcpHttp) => (mcp === undefined || mcpHttp === false ? [] : [{ type: 'http', name: 'dsbot', url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }])
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')
