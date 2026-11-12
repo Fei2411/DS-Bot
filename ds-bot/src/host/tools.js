@@ -78,13 +78,28 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'list_bots',
-    description: 'List every Bot on the user\'s team with its role, what it does and what it is doing right now, and the group chats you can see.',
-    parameters: {},
+    description: 'List the Bots on the user\'s team with their role, what each does and what it is doing right now, and the group chats you can see. Pass `bot` or `group` to get just one of them.',
+    parameters: {
+      bot: { type: 'string', description: 'Only this Bot, by its exact name as list_bots shows it' },
+      group: { type: 'string', description: 'Only the members of this group chat, by its exact name' },
+    },
     output,
-    async execute(_args, exec) {
+    async execute(args = {}, exec) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
-      const lines = Object.values(state.bots).map(bot => {
+      // A Bot that needs one teammate, or the members of one group, should not
+      // have to read the whole roster — and pay for it in every result — to find
+      // them (#1141).
+      const wanted = value => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined)
+      const wantBot = wanted(args.bot)
+      const wantGroup = wanted(args.group)
+      const rooms = visibleRooms(self)
+      const room = wantGroup === undefined ? undefined : rooms.find(entry => String(entry.name ?? '').toLowerCase() === wantGroup.toLowerCase() || entry.id === wantGroup)
+      if (wantGroup !== undefined && room === undefined) return `No group chat named "${wantGroup}" that you can see.`
+      const inRoom = Object.values(state.bots).filter(bot => room === undefined || room.members.includes(bot.id))
+      const listed = wantBot === undefined ? inRoom : inRoom.filter(bot => String(bot.name ?? '').toLowerCase() === wantBot.toLowerCase() || bot.id === wantBot)
+      if (listed.length === 0 && wantBot !== undefined) return `No Bot named "${wantBot}"${room === undefined ? '' : ` in "${room.name}"`}.`
+      const lines = listed.map(bot => {
         // A private Bot is only named to the others: not what it does, where, or what now.
         if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
         const model = bot.appliedModel ?? bot.model
@@ -95,13 +110,13 @@ export function install(rt) {
         return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
       })
       if (lines.length === 0) return 'No Bots yet.'
-      const rooms = visibleRooms(self)
+      const shown = room === undefined ? rooms : [room]
       return [
         'Bots:',
         ...lines,
         '',
-        rooms.length === 0 ? 'Group chats: none you can see.' : 'Group chats:',
-        ...rooms.map(room => roomLine(room, self)),
+        shown.length === 0 ? 'Group chats: none you can see.' : 'Group chats:',
+        ...shown.map(entry => roomLine(entry, self)),
       ].join('\n')
     },
   }))
