@@ -152,6 +152,13 @@ const CUT_OFF_EMPTY_NOTE = '[cut off at the model\'s output limit before it wrot
 // The answer a cut-off turn leaves: what it said, marked as unfinished, or the line
 // that stands in for a turn that wrote nothing at all.
 export const cutOffText = said => (said === '' ? CUT_OFF_EMPTY_NOTE : `${said}\n\n${CUT_OFF_NOTE}`)
+// A route whose real window is smaller than the one DS Bot knows answers an oversized
+// request with a `length` finish and a short answer, not a context error (#1104). Such
+// a turn is far below any real output cap; a turn that truly reached the model's
+// output limit is not, and only that one is a real truncation. The cut-off shape has to
+// make room the way an overflow does, even when the turn wrote a line first (#1461).
+const PREMATURE_OUTPUT_TOKENS = 4_096
+const PREMATURE_INPUT_TOKENS = 32_000
 
 // A reply that only promises to start investigating/checking/running tools now without
 // actually calling a tool or handing off with @Name (#469). A verb followed by 过了,
@@ -646,12 +653,18 @@ export function install(rt) {
 
   // A turn cut off at the output limit is not a finish, but no failure either. The
   // record names the route and the size of the input, so a route whose declared
-  // window is larger than the service really serves can be found from it.
-  const noteCutOffTurn = (id, { session, wroteNothing }) => {
+  // window is larger than the service really serves can be found from it. A cut-off
+  // far below the model's output limit also records what came out: that is the shape
+  // of a route stopping the request at its real window (#1104, #1461).
+  const noteCutOffTurn = (id, { session, wroteNothing, outputTokens }) => {
     const route = session.requestHeader?.()?.config
     const ref = route?.provider && route?.model ? `${route.provider}/${route.model}` : undefined
     const tokens = rt.sessionTokens?.(session)
-    const facts = [ref, Number.isFinite(tokens) && tokens > 0 ? `${tokens} tokens in` : undefined].filter(Boolean)
+    const facts = [
+      ref,
+      Number.isFinite(tokens) && tokens > 0 ? `${tokens} tokens in` : undefined,
+      Number.isFinite(outputTokens) && outputTokens >= 0 ? `${outputTokens} tokens out` : undefined,
+    ].filter(Boolean)
     rt.noteFailure({
       level: 'warn',
       source: 'turn',
@@ -797,6 +810,7 @@ export function install(rt) {
         entry.step = undefined
         entry.info = undefined
         entry.toolCount = 0
+        entry.usage = undefined
         entry.suppressedSubagent = false
         // A turn turned away before its first step may end without a turn/end.
         entry.switched = false
@@ -1021,6 +1035,7 @@ export function install(rt) {
         const content = event.data?.message?.content
         const text = textOf(content)
         const called = Array.isArray(content) && content.some(block => block?.type === 'tool-call')
+        if (event.data?.usage !== undefined) entry.usage = event.data.usage
         if (text !== '' && text !== HANDOFF_ACK) {
           // What a turn says goes on to the group or the sender, read from other folders.
           entry.texts.push(absoluteLinks(text, rt.sessionFolder?.(session)))
@@ -1050,6 +1065,7 @@ export function install(rt) {
         const wroteText = entry.texts.length > 0
         const shown = entry.shown > 0 || (info?.retried === true && promisedOpenings.delete(info.exchangeId))
         const { lastText, lastCalled } = entry
+        const usage = entry.usage
         const toolCount = entry.toolCount ?? 0
         const suppressedSubagent = entry.suppressedSubagent === true
         // A turn stopped for a switch goes on in the next part, which answers instead.
@@ -1072,6 +1088,7 @@ export function install(rt) {
         entry.calls = undefined
         entry.lastText = undefined
         entry.lastCalled = undefined
+        entry.usage = undefined
         const later = entry.later ?? []
         entry.later = []
         if (steerCut || suppressedSubagent) break
@@ -1107,8 +1124,18 @@ export function install(rt) {
         // context check then moves the part on instead of sending the same size again.
         const cutOff = watched && failure === undefined && reason?.kind === 'max-tokens'
         const wroteNothing = cutOff && !wroteText
-        rt.noteCutOffTurn?.(id, { withoutText: wroteNothing })
-        if (cutOff) noteCutOffTurn(id, { session, wroteNothing })
+        // A `length` finish far below any real output cap is the route's window, not the
+        // model's output limit: it counts toward making room like a turn that wrote
+        // nothing, or every later turn stops at the same size (#1461).
+        const outputTokens = Number(usage?.outputTokens)
+        // The request's size is its fresh input plus both cache sides: a route that
+        // reads mostly from the provider's cache still sends the whole prompt.
+        const inputTokens = Number(usage?.inputTokens ?? 0) + Number(usage?.cacheReadTokens ?? 0)
+          + Number(usage?.cacheWriteTokens ?? 0)
+        const premature = cutOff && Number.isFinite(outputTokens) && outputTokens < PREMATURE_OUTPUT_TOKENS
+          && inputTokens >= PREMATURE_INPUT_TOKENS
+        rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
+        if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
