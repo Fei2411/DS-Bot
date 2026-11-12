@@ -20,7 +20,7 @@
     "check-lifecycle": "node scripts/check-lifecycle.mjs",
     "shot": "node scripts/shot.mjs",
     "icon": "node scripts/icon.mjs",
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --import ./test/reset-env.mjs --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-group": "1.1.0",
