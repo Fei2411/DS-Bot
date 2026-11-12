@@ -13757,14 +13757,14 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       ui2.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
       return block.id;
     },
-    // The shell's attachment for a waiting card, in the order both sides saw them.
-    linkPastes: (sessionId, ids) => ui2.set((state) => {
+    // The shell attachment whose label is that waiting card's own file name.
+    linkPastes: (sessionId, links) => ui2.set((state) => {
       const blocks = state.paste?.[sessionId] ?? [];
-      let next = 0;
+      const byBlock = /* @__PURE__ */ new Map();
+      for (const link of links) byBlock.set(link.blockId, link.attachmentId);
       const linked = blocks.map((block) => {
         if (block.attachmentId !== null) return block;
-        const id = ids[next];
-        next += 1;
+        const id = byBlock.get(block.id);
         return id === void 0 ? block : { ...block, attachmentId: id };
       });
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked);
@@ -36162,6 +36162,29 @@ var ORPHAN_MS = 3e3;
 var foldPastedText = (text) => typeof text === "string" && text.length > PASTE_LIMIT ? text : null;
 var pastedName = (text) => `Pasted text (${text.length} characters).txt`;
 var blockLives = (block, ids) => block.attachmentId === null || ids.includes(block.attachmentId);
+function composerLabels(root) {
+  const group = root.querySelector('[data-slot="conversation.input.attachments"] [role="group"]');
+  if (group === null) return [];
+  return [...group.children].map((item) => {
+    const alt = item.querySelector("img[alt]")?.getAttribute("alt") ?? "";
+    if (alt !== "") return alt;
+    return item.querySelector("[title]")?.getAttribute("title") ?? "";
+  });
+}
+function pasteLinks(blocks, ids, labels) {
+  if (labels.length !== ids.length) return [];
+  const taken = /* @__PURE__ */ new Set();
+  for (const block of blocks) if (block.attachmentId !== null) taken.add(block.attachmentId);
+  const links = [];
+  for (const block of blocks) {
+    if (block.attachmentId !== null || !block.name) continue;
+    const index = labels.findIndex((label, i) => label === block.name && !taken.has(ids[i]));
+    if (index === -1) continue;
+    taken.add(ids[index]);
+    links.push({ blockId: block.id, attachmentId: ids[index] });
+  }
+  return links;
+}
 function putBackText({ block, inputActions, draft = "" }) {
   const text = block?.text ?? "";
   if (text === "" || !inputActions) return false;
@@ -36228,20 +36251,22 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = (0, import_react54.useRef)(null);
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
-  const seen = (0, import_react54.useRef)(null);
-  const unclaimed = (0, import_react54.useRef)([]);
   const latest = (0, import_react54.useRef)({ blocks, ids });
   latest.current = { blocks, ids };
   (0, import_react54.useEffect)(() => {
-    const before = seen.current;
-    seen.current = ids;
-    if (before !== null) {
-      const added = ids.filter((id) => !before.includes(id));
-      if (added.length > 0) unclaimed.current.push(...added);
-    }
-    if (unclaimed.current.length === 0) return;
-    if (!latest.current.blocks.some((block) => block.attachmentId === null)) return;
-    actions.linkPastes(sessionId, unclaimed.current.splice(0));
+    if (!blocks.some((block) => block.attachmentId === null)) return void 0;
+    const card = anchor.current?.closest("[data-composer-card]");
+    if (card === null || card === void 0) return void 0;
+    const sync = () => {
+      const { blocks: now, ids: nowIds } = latest.current;
+      if (!now.some((block) => block.attachmentId === null)) return;
+      const links = pasteLinks(now, nowIds, composerLabels(card));
+      if (links.length > 0) actions.linkPastes(sessionId, links);
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(card, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [ids, blocks]);
   (0, import_react54.useEffect)(() => {
     const gone = latest.current.blocks.filter((block) => !blockLives(block, ids));

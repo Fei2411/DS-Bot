@@ -93,14 +93,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => pasteState(state, sessionId, [...(state.paste?.[sessionId] ?? []), block]))
       return block.id
     },
-    // The shell's attachment for a waiting card, in the order both sides saw them.
-    linkPastes: (sessionId, ids) => ui.set((state) => {
+    // The shell attachment whose label is that waiting card's own file name.
+    linkPastes: (sessionId, links) => ui.set((state) => {
       const blocks = state.paste?.[sessionId] ?? []
-      let next = 0
+      const byBlock = new Map()
+      for (const link of links) byBlock.set(link.blockId, link.attachmentId)
       const linked = blocks.map((block) => {
         if (block.attachmentId !== null) return block
-        const id = ids[next]
-        next += 1
+        const id = byBlock.get(block.id)
         return id === undefined ? block : { ...block, attachmentId: id }
       })
       return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked)

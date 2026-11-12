@@ -27,6 +27,36 @@ export const pastedName = text => `Pasted text (${text.length} characters).txt`
 // A card still backed by an attachment, or still waiting for one.
 export const blockLives = (block, ids) => block.attachmentId === null || ids.includes(block.attachmentId)
 
+// The shell's attachment rail lists draft files in the same order as their ids.
+// File cards wear the file name as their title; an image tile wears it as the img alt.
+function composerLabels(root) {
+  const group = root.querySelector('[data-slot="conversation.input.attachments"] [role="group"]')
+  if (group === null) return []
+  return [...group.children].map((item) => {
+    const alt = item.querySelector('img[alt]')?.getAttribute('alt') ?? ''
+    if (alt !== '') return alt
+    return item.querySelector('[title]')?.getAttribute('title') ?? ''
+  })
+}
+
+// Waiting cards bind to the attachments whose labels are those cards' own file names.
+// A rail that has not caught up has a different count; pairing it early would claim
+// a file the user added while the card was waiting.
+export function pasteLinks(blocks, ids, labels) {
+  if (labels.length !== ids.length) return []
+  const taken = new Set()
+  for (const block of blocks) if (block.attachmentId !== null) taken.add(block.attachmentId)
+  const links = []
+  for (const block of blocks) {
+    if (block.attachmentId !== null || !block.name) continue
+    const index = labels.findIndex((label, i) => label === block.name && !taken.has(ids[i]))
+    if (index === -1) continue
+    taken.add(ids[index])
+    links.push({ blockId: block.id, attachmentId: ids[index] })
+  }
+  return links
+}
+
 // Put a card's text back at the caret. A draft that moved under the caret falls back
 // to setting the whole draft, so the text is never lost.
 export function putBackText({ block, inputActions, draft = '' }) {
@@ -93,24 +123,25 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
   const anchor = useRef(null)
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
-  const seen = useRef(null)
-  const unclaimed = useRef([])
   const latest = useRef({ blocks, ids })
   latest.current = { blocks, ids }
-  // The shell adds the pasted file the moment the card hands it over, so an attachment
-  // that appears while a card waits for one is that card's. The attachment and the card
-  // reach this component in either order, so an earlier attachment waits for its card.
+  // Bind a waiting card only when its own file shows up in the rail. A file the user
+  // attaches while the card waits keeps its id, so dismissing the card cannot delete it.
+  // The rail draws after the id lands, and again while the file uploads.
   useEffect(() => {
-    const before = seen.current
-    seen.current = ids
-    // The first render only learns what is already there: those are the user's own files.
-    if (before !== null) {
-      const added = ids.filter(id => !before.includes(id))
-      if (added.length > 0) unclaimed.current.push(...added)
+    if (!blocks.some(block => block.attachmentId === null)) return undefined
+    const card = anchor.current?.closest('[data-composer-card]')
+    if (card === null || card === undefined) return undefined
+    const sync = () => {
+      const { blocks: now, ids: nowIds } = latest.current
+      if (!now.some(block => block.attachmentId === null)) return
+      const links = pasteLinks(now, nowIds, composerLabels(card))
+      if (links.length > 0) actions.linkPastes(sessionId, links)
     }
-    if (unclaimed.current.length === 0) return
-    if (!latest.current.blocks.some(block => block.attachmentId === null)) return
-    actions.linkPastes(sessionId, unclaimed.current.splice(0))
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(card, { childList: true, subtree: true })
+    return () => observer.disconnect()
   }, [ids, blocks])
   // The shell drops a draft attachment the user removed; the card goes with it. Only the
   // cards' own buttons put text back, so a dropped paste stays dropped.

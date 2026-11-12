@@ -5,6 +5,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { createSource } from '../src/client/sources.js'
+import { teamActions } from '../src/client/team-actions.js'
 
 // jsdom comes from the harness that test/harness-resolve.mjs found.
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -39,9 +41,13 @@ const react = {
   useState: init => [typeof init === 'function' ? init() : init, () => {}],
   useRef: current => ({ current }),
 }
+const timers = []
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, document, File, DataTransfer, Event,
+  MutationObserver: dom.window.MutationObserver,
+  setTimeout: (fn, ms) => { const handle = { fn, ms }; timers.push(handle); return handle },
+  clearTimeout: (handle) => { const index = timers.indexOf(handle); if (index !== -1) timers.splice(index, 1) },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
 const { PASTE_LIMIT, foldPastedText, handOffPaste, liveBlocks: _live, blockLives, pastedName, putBackText, PasteDock, PasteGuard } = module.exports
@@ -199,4 +205,129 @@ test('the guard draws nothing in the composer', () => {
   })
   assert.equal(tree.type, 'span')
   assert.equal(tree.props.className, 'bt-paste-guard')
+})
+
+// The shell's attachment rail, in id order: one titled file card per name.
+function composerRail(names) {
+  document.body.innerHTML = ''
+  const card = document.createElement('div')
+  card.setAttribute('data-composer-card', '')
+  const guard = document.createElement('span')
+  guard.className = 'bt-paste-guard'
+  card.append(guard)
+  if (names.length > 0) {
+    const slot = document.createElement('div')
+    slot.setAttribute('data-slot', 'conversation.input.attachments')
+    const group = document.createElement('div')
+    group.setAttribute('role', 'group')
+    for (const name of names) {
+      const item = document.createElement('div')
+      const file = document.createElement('div')
+      file.title = name
+      item.append(file)
+      group.append(item)
+    }
+    slot.append(group)
+    card.append(slot)
+  }
+  document.body.append(card)
+  return guard
+}
+
+// One PasteGuard instance: refs and effects persist across renders, as React's do.
+function guardMount() {
+  const slots = []
+  const effectSlots = []
+  let cursor = 0
+  let effectCursor = 0
+  const useRef = (current) => {
+    const i = cursor++
+    if (slots[i] === undefined) slots[i] = { current }
+    return slots[i]
+  }
+  const useEffect = (fn, deps) => {
+    const i = effectCursor++
+    const prev = effectSlots[i]
+    const changed = prev === undefined || deps === undefined || prev.deps === undefined
+      || deps.some((dep, n) => !Object.is(dep, prev.deps[n]))
+    if (prev === undefined) effectSlots[i] = { deps, fn, pending: true, cleanup: undefined }
+    else if (changed) { prev.fn = fn; prev.deps = deps; prev.pending = true }
+  }
+  return {
+    render(props) {
+      const prevRef = react.useRef
+      const prevEffect = react.useEffect
+      react.useRef = useRef
+      react.useEffect = useEffect
+      cursor = 0
+      effectCursor = 0
+      try { return PasteGuard(props) }
+      finally { react.useRef = prevRef; react.useEffect = prevEffect }
+    },
+    flush() {
+      for (const slot of effectSlots) {
+        if (slot === undefined || slot.pending !== true) continue
+        slot.pending = false
+        if (typeof slot.cleanup === 'function') slot.cleanup()
+        const cleanup = slot.fn()
+        slot.cleanup = typeof cleanup === 'function' ? cleanup : undefined
+      }
+    },
+    stop() {
+      for (const slot of effectSlots) if (typeof slot?.cleanup === 'function') slot.cleanup()
+    },
+  }
+}
+
+function dismissPaste(ui, actions, recorder) {
+  const tree = expand(PasteDock({
+    sessionId: 'bot-1', inputActions: recorder, actions,
+    useUi: select => select(ui.getSnapshot()),
+    useInput: select => select({ draft: '' }),
+  }))
+  walk(tree).find(node => node.type === 'button' && node.props['aria-label'] === 'Remove pasted text').props.onClick()
+}
+
+test('a user file added while a paste card waits is not claimed or deleted', () => {
+  const kept = 'x'.repeat(3200)
+  const name = pastedName(kept)
+  const ui = createSource({})
+  const actions = teamActions({ call: async () => {}, after: promise => promise, partFor: id => id, roster: createSource({}), ui })
+  const removed = []
+  const recorder = { removeAttachment: id => { removed.push(id) }, insertText: () => false, captureInsertion: () => ({}) }
+  let ids = []
+  const props = () => ({
+    sessionId: 'bot-1', inputActions: recorder, actions,
+    useUi: select => select(ui.getSnapshot()),
+    useInput: select => select({ attachmentIds: ids, draft: '' }),
+  })
+  const guard = guardMount()
+  const paint = (fileNames) => {
+    const node = composerRail(fileNames)
+    const tree = guard.render(props())
+    tree.props.ref.current = node
+    guard.flush()
+  }
+  try {
+    // The card is already waiting. The first paint only learns the empty rail.
+    actions.addPaste('bot-1', kept, name)
+    paint([])
+    // The user then drops their own file. It appears before the paste's file does.
+    ids = ['user-1']
+    paint(['notes.pdf'])
+    const waiting = ui.getSnapshot().paste['bot-1'][0]
+    assert.equal(waiting.attachmentId, null)
+    dismissPaste(ui, actions, recorder)
+    assert.deepEqual(removed, [])
+    // Once the paste's own file is in the rail, dismissing the card removes that file.
+    actions.addPaste('bot-1', kept, name)
+    ids = ['user-1', 'paste-1']
+    paint(['notes.pdf', name])
+    assert.equal(ui.getSnapshot().paste['bot-1'][0].attachmentId, 'paste-1')
+    dismissPaste(ui, actions, recorder)
+    assert.deepEqual(removed, ['paste-1'])
+    assert.equal(ui.getSnapshot().paste['bot-1'].length, 0)
+  } finally {
+    guard.stop()
+  }
 })
