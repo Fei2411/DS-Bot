@@ -7,6 +7,8 @@
 import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { composeEntries } from '@deepseek-ai/dsh-app-boot'
+import { Config as SkillOfficeConfig } from '@deepseek-ai/dsh-skill-office'
 import { stringify } from 'yaml'
 
 export const OFFICE_PATCH_NAME = 'office.patch.yml'
@@ -41,16 +43,28 @@ export function officeCli(manifest = fileURLToPath(import.meta.resolve('@deepsee
  * @returns {{ patchFiles: string[], node?: string }} the `patchFiles` addition for this
  *   launch and the payload's Node, which the Host exports for the plugin's own use
  */
-export function reconcileOfficeRuntime(profile, runtimeDir = process.env.DS_BOT_RUNTIME_DIR) {
+export function reconcileOfficeRuntime(profile, runtimeDir = process.env.DS_BOT_RUNTIME_DIR, { skillConfig = SkillOfficeConfig } = {}) {
   const file = join(dirname(profile.dir), OFFICE_PATCH_NAME)
   const runtime = runtimeDir === undefined ? undefined : officeRuntime(runtimeDir)
   if (runtime === undefined) {
     rmSync(file, { force: true })
     return { patchFiles: [] }
   }
-  writeFileSync(file, stringify([{ insert: [
+  const usesPythonEnvironment = 'pythonEnvironment' in (skillConfig?.dict ?? {})
+  const desired = [
     { id: 'workspace-dependencies', name: '@deepseek-ai/dsh-tool-workspace-dependencies', config: { source: runtime.source } },
-    { id: 'skill-office', name: '@deepseek-ai/dsh-skill-office', config: { assetRoot: join(runtimeDir, 'office-skills'), node: runtime.node, cli: officeCli() } },
-  ] }]), 'utf8')
+    {
+      id: 'skill-office',
+      name: '@deepseek-ai/dsh-skill-office',
+      config: usesPythonEnvironment
+        ? { assetRoot: join(runtimeDir, 'office-skills'), pythonEnvironment: 'workspace-dependencies' }
+        : { assetRoot: join(runtimeDir, 'office-skills'), node: runtime.node, cli: officeCli() },
+    },
+  ]
+  const existing = new Set(composeEntries([...profile.layers.map(layer => layer.patches), profile.patches]).map(entry => entry.id))
+  const inserted = desired.filter(entry => !existing.has(entry.id))
+  const overridden = desired.filter(entry => existing.has(entry.id)).map(entry => ({ ...entry, disabled: false }))
+  const patches = [...(inserted.length > 0 ? [{ insert: inserted }] : []), ...overridden]
+  writeFileSync(file, stringify(patches), 'utf8')
   return { patchFiles: [file], node: runtime.node }
 }

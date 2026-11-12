@@ -499,8 +499,7 @@ test('a group conversation cut off with nothing written moves on too', async (t)
   }
   await until(() => host.state().rooms.r1.sessions.b === 's1')
   assert.equal(host.state().rooms.r1.segments.b[0].fallback, 'cutoff')
-  // The earlier part is archived after the move is saved and its tasks moved, so wait
-  // for that side effect instead of asserting right after the session id changes.
-  await until(() => host.archived.length === 1)
+  // The old part is archived just after the switch is saved.
+  await until(() => host.archived.length > 0)
   assert.deepEqual(host.archived, [['gb', { stopActivity: true }]])
 })
