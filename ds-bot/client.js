@@ -569,7 +569,6 @@ var JA = {
   "Name after members": "メンバー名を使用",
   "Rename {name}": "{name} の名前を変更",
   "Rename": "名前を変更",
-  "Add instructions in Bot settings": "Bot 設定で指示を追加",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "定期タスクはまだありません。追加するには、チャットで Bot に内容と日時を伝えてください。",
   "The browser is in DSH Desktop and the DS Bot app.": "ブラウザは DSH デスクトップ版および DS Bot アプリで利用できます。",
   "New tab": "新しいタブ",
@@ -643,6 +642,7 @@ var JA = {
   "Applies from the next message.": "次のメッセージから適用されます。",
   "Profile": "プロフィール",
   "Label": "ラベル",
+  "Add a label": "ラベルを追加",
   "Optional. Shown under the name.": "任意。名前の下に表示されます。",
   "Research, admin…": "リサーチ、管理…",
   "What this Bot does": "この Bot の役割",
@@ -2864,7 +2864,6 @@ var KO = {
   "Name after members": "멤버 이름으로 자동 지정",
   "Rename {name}": "{name} 이름 변경",
   Rename: "이름 변경",
-  "Add instructions in Bot settings": "Bot 설정에서 지침 추가",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "아직 예약 작업이 없습니다. 대화창에서 Bot에게 할 일과 시간을 말해 추가하세요.",
   "The browser is in DSH Desktop and the DS Bot app.": "브라우저는 DSH 데스크톱 및 DS Bot 앱에서 사용할 수 있습니다.",
   "New tab": "새 탭",
@@ -2940,6 +2939,7 @@ var KO = {
   "Applies from the next message.": "다음 메시지부터 적용됩니다.",
   Profile: "프로필",
   Label: "라벨",
+  "Add a label": "라벨 추가",
   "Optional. Shown under the name.": "선택사항. 이름 아래에 표시됩니다.",
   "Research, admin…": "리서치, 관리…",
   "What this Bot does": "이 Bot의 역할",
@@ -5195,7 +5195,6 @@ var ES = {
   "Name after members": "Nombrar según los miembros",
   "Rename {name}": "Renombrar {name}",
   Rename: "Renombrar",
-  "Add instructions in Bot settings": "Añadir instrucciones en los ajustes del Bot",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aún no hay tareas programadas. Para añadir una, dile al Bot en su chat qué hacer y cuándo.",
   "The browser is in DSH Desktop and the DS Bot app.": "El navegador está disponible en DSH Desktop y en la aplicación DS Bot.",
   "New tab": "Nueva pestaña",
@@ -5271,6 +5270,7 @@ var ES = {
   "Applies from the next message.": "Se aplica a partir del siguiente mensaje.",
   Profile: "Perfil",
   Label: "Etiqueta",
+  "Add a label": "Añadir etiqueta",
   "Optional. Shown under the name.": "Opcional. Se muestra debajo del nombre.",
   "Research, admin…": "Investigación, administración…",
   "What this Bot does": "Qué hace este Bot",
@@ -7517,7 +7517,6 @@ var FR = {
   "Name after members": "Nommer d’après les membres",
   "Rename {name}": "Renommer {name}",
   "Rename": "Renommer",
-  "Add instructions in Bot settings": "Ajouter des instructions dans les paramètres du Bot",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aucune tâche planifiée. Pour en ajouter une, dites au Bot dans sa discussion quoi faire et quand.",
   "The browser is in DSH Desktop and the DS Bot app.": "Le navigateur est disponible dans DSH Desktop et l’application DS Bot.",
   "New tab": "Nouvel onglet",
@@ -7591,6 +7590,7 @@ var FR = {
   "Applies from the next message.": "S’applique dès le prochain message.",
   "Profile": "Profil",
   "Label": "Étiquette",
+  "Add a label": "Ajouter une étiquette",
   "Optional. Shown under the name.": "Facultatif. Affiché sous le nom.",
   "Research, admin…": "Recherche, administration…",
   "What this Bot does": "Rôle de ce Bot",
@@ -9812,7 +9812,6 @@ var DE = {
   "Name after members": "Nach Mitgliedern benennen",
   "Rename {name}": "{name} umbenennen",
   Rename: "Umbenennen",
-  "Add instructions in Bot settings": "Anweisungen in den Bot-Einstellungen hinzufügen",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Noch keine geplanten Aufgaben. Sage dem Bot einfach im Chat, was er wann erledigen soll.",
   "The browser is in DSH Desktop and the DS Bot app.": "Der Browser ist in DSH Desktop und in der DS Bot-App verfügbar.",
   "New tab": "Neuer Tab",
@@ -9888,6 +9887,7 @@ var DE = {
   "Applies from the next message.": "Gilt ab der nächsten Nachricht.",
   Profile: "Profil",
   Label: "Kurzbeschreibung",
+  "Add a label": "Kurzbeschreibung hinzufügen",
   "Optional. Shown under the name.": "Optional. Wird unter dem Namen angezeigt.",
   "Research, admin…": "Recherche, Organisation…",
   "What this Bot does": "Aufgabe dieses Bots",
@@ -12125,7 +12125,6 @@ var ZH = {
   "Name after members": "按成员命名",
   "Rename {name}": "重命名 {name}",
   Rename: "重命名",
-  "Add instructions in Bot settings": "在 Bot 设置里添加说明",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。",
   "The browser is in DSH Desktop and the DS Bot app.": "浏览器在 DSH 桌面版和 DS Bot 应用里。",
   "New tab": "新标签页",
@@ -12201,6 +12200,7 @@ var ZH = {
   "Applies from the next message.": "从下一条消息开始生效。",
   Profile: "资料",
   Label: "标签",
+  "Add a label": "添加标签",
   "Optional. Shown under the name.": "可选，显示在名字下方。",
   "Research, admin…": "研究、行政…",
   "What this Bot does": "这个 Bot 做什么",
@@ -15349,6 +15349,11 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
 .bt-drawer-role{font-size:12px;line-height:16px;color:var(--bt-ink-3);margin-top:6px;text-align:center}
+.bt-drawer-role-input{width:min(100%,220px);min-height:28px;box-sizing:border-box;margin-top:4px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+.bt-drawer-role-input:hover{background:var(--bt-hover)}
+.bt-drawer-role-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
@@ -15411,6 +15416,9 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-set-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .bt-about{white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .bt-about[data-open]{display:block;-webkit-line-clamp:unset}
+.bt-about[data-editable]{margin:0 -6px;padding:2px 6px;border-radius:6px;cursor:text;transition:background-color .12s ease}
+.bt-about[data-editable]:hover{background:var(--bt-hover)}
+.bt-about[data-editable]:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-more{border:0;background:none;color:var(--bt-ink-3);font-size:12px;line-height:16px;cursor:pointer;padding:2px 0}
 .bt-more:hover{color:var(--bt-ink)}
 .bt-subhead{display:flex;align-items:center;gap:4px;padding:10px 12px 4px}
@@ -23631,21 +23639,45 @@ function MemoryDialog({ owner, actions, leaving = false }) {
 // src/client/bot-settings.js
 var import_react26 = require("react");
 var capitalize = (word) => word[0].toUpperCase() + word.slice(1);
-function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, onSave }) {
+function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, className, autoFocus = false, onSave, onDone }) {
   const [draft, setDraft] = (0, import_react26.useState)(null);
   const reverting = (0, import_react26.useRef)(false);
+  const field = (0, import_react26.useRef)(null);
+  (0, import_react26.useEffect)(() => {
+    const node = field.current;
+    if (!autoFocus || !node) return;
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+  }, []);
   const commit = () => {
     const next = draft?.trim();
-    setDraft(null);
     if (reverting.current) {
       reverting.current = false;
+      setDraft(null);
+      onDone?.();
       return;
     }
-    if (next === void 0 || next === (value ?? "") || required && next === "") return;
-    void onSave(next);
+    if (next === void 0 || next === (value ?? "") || required && next === "") {
+      setDraft(null);
+      onDone?.();
+      return;
+    }
+    const finish = (ok) => {
+      if (ok === false) return;
+      setDraft(null);
+      onDone?.();
+    };
+    const outcome = onSave(next);
+    if (outcome && typeof outcome.then === "function") {
+      void outcome.then(finish, () => {
+      });
+    } else {
+      finish(outcome);
+    }
   };
   return (0, import_react26.createElement)(multiline ? "textarea" : "input", {
-    className: multiline ? "bt-bs-input bt-bs-area" : "bt-bs-input",
+    ref: field,
+    className: className ?? (multiline ? "bt-bs-input bt-bs-area" : "bt-bs-input"),
     value: draft ?? value ?? "",
     placeholder,
     maxLength,
@@ -38131,17 +38163,54 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     (0, import_react60.createElement)("button", { type: "button", className: "bt-bcard-new", style: { animationDelay: `${state.ids.length * 30}ms` }, onClick: () => actions.browserNewTab(sessionId) }, (0, import_react60.createElement)(PlusIcon), t("New tab"))
   );
 }
-function About({ text, title = "About" }) {
+function useSaved(value, save) {
+  const [pending, setPending] = (0, import_react60.useState)(null);
+  const commit = (next) => {
+    setPending({ next });
+    return Promise.resolve(save(next)).then(
+      (ok) => {
+        setPending(null);
+        return ok;
+      },
+      () => {
+        setPending(null);
+        return false;
+      }
+    );
+  };
+  return [pending ? pending.next : value, commit];
+}
+function BotLabel({ bot, actions, run: run2 }) {
+  const [role, save] = useSaved(bot.role ?? "", (next) => run2(actions.updateBot(bot.id, { role: next })));
+  return (0, import_react60.createElement)(InlineText, { label: t("Label"), value: role, placeholder: t("Add a label"), maxLength: 24, className: "bt-drawer-role-input", onSave: save });
+}
+function About({ text, title = "About", label, placeholder, onSave }) {
   const [open, setOpen] = (0, import_react60.useState)(false);
-  const long = text.split("\n").length > 5 || text.length > 240;
+  const [editing, setEditing] = (0, import_react60.useState)(false);
+  const [shown, save] = useSaved(text, (next) => onSave(next));
+  const long = shown.split("\n").length > 5 || shown.length > 240;
   const body = (0, import_react60.useRef)(null);
   useMorph(body, open);
+  const field = onSave !== void 0 && (editing || shown === "");
+  const edit = () => {
+    if (!window.getSelection?.()?.toString()) setEditing(true);
+  };
   return (0, import_react60.createElement)(
     "div",
     null,
     (0, import_react60.createElement)("div", { className: "bt-section-title" }, t(title)),
-    (0, import_react60.createElement)("div", { ref: body, className: "bt-about", "data-open": open || void 0 }, text),
-    long ? (0, import_react60.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
+    field ? (0, import_react60.createElement)(InlineText, { label, value: shown, multiline: true, placeholder, autoFocus: editing, className: "bt-input bt-input-area", onSave: save, onDone: () => setEditing(false) }) : (0, import_react60.createElement)("div", {
+      ref: body,
+      className: "bt-about",
+      "data-open": open || void 0,
+      ...onSave ? { role: "button", tabIndex: 0, title: t("Edit"), "data-editable": "", onClick: edit, onKeyDown: (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setEditing(true);
+        }
+      } } : {}
+    }, shown),
+    long && !field ? (0, import_react60.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
   );
 }
 var PILE_MAX = 4;
@@ -38375,7 +38444,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     if (bot && next) await run2(actions.updateBot(bot.id, { name: next }));
     if (room2) await run2(actions.updateRoom(room2.id, { name: next }));
   };
-  const subtitle = bot ? bot.role : roomSubtitle(room2, roster);
+  const subtitle = bot ? void 0 : roomSubtitle(room2, roster);
   const tabs = bot ? roster.computer?.enabled === true ? ["details", "browser", "computer"] : ["details", "browser"] : ["details"];
   return [
     (0, import_react60.createElement)(import_react60.Fragment, { key: "top" }, top),
@@ -38402,7 +38471,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
         setDraftName(room2 && !room2.named ? "" : current);
         setEditing(true);
       } }, current),
-      subtitle ? (0, import_react60.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
+      bot ? roster.readOnly ? bot.role ? (0, import_react60.createElement)("span", { className: "bt-drawer-role" }, bot.role) : null : (0, import_react60.createElement)(BotLabel, { key: `role:${bot.id}`, bot, actions, run: run2 }) : subtitle ? (0, import_react60.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
     ),
     tabs.length > 1 ? (0, import_react60.createElement)(
       "div",
@@ -38434,7 +38503,13 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           (0, import_react60.createElement)("div", { className: "bt-section-title" }, t("Working folder")),
           (0, import_react60.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, wide: true, onPick: (workDir) => run2(actions.updateBot(bot.id, { workDir })) })
         ),
-        bot.instructions ? (0, import_react60.createElement)(About, { key: "about", text: bot.instructions }) : (0, import_react60.createElement)("button", { key: "about", type: "button", className: "bt-more", onClick: () => setView("settings") }, t("Add instructions in Bot settings")),
+        roster.readOnly ? bot.instructions ? (0, import_react60.createElement)(About, { key: `about:${bot.id}`, text: bot.instructions }) : null : (0, import_react60.createElement)(About, {
+          key: `about:${bot.id}`,
+          text: bot.instructions ?? "",
+          label: t("Instructions"),
+          placeholder: t("What this Bot is responsible for…"),
+          onSave: (instructions) => run2(actions.updateBot(bot.id, { instructions }))
+        }),
         roster.memory === false ? null : (0, import_react60.createElement)(MemoryRow, { key: "memory", owner: { id: bot.id, name: bot.name }, actions }),
         usage ? (0, import_react60.createElement)(
           "div",
