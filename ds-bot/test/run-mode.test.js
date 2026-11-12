@@ -637,6 +637,34 @@ test('the sign-in check gives only yes, no or unknown', async (t) => {
   assert.equal(await probeSignIn('x', { file: ['.tool', 'none.json'] }, { home: dir }), null)
 })
 
+// `claude auth status` answers with JSON, not prose, and macOS keeps the OAuth token in
+// the Keychain, so the credential file is only a fallback for an older CLI.
+test('a JSON status answer decides the sign-in check, a file is the fallback', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-signin-json-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const script = (name, body) => {
+    const path = join(dir, name)
+    writeFileSync(path, `#!/bin/sh
+printf '%s' '${body}'
+`)
+    chmodSync(path, 0o755)
+    return path
+  }
+  const json = { args: [], json: ['loggedIn'], file: ['.tool', 'auth.json'] }
+  mkdirSync(join(dir, '.tool'))
+  writeFileSync(join(dir, '.tool', 'auth.json'), '{"token":"secret-value"}')
+  if (process.platform !== 'win32') {
+    const line = await probeSignIn(script('in', '{"loggedIn":true,"authMethod":"oauth_token"}'), json, { home: dir })
+    assert.equal(line, true)
+    assert.equal(await probeSignIn(script('out', '{"loggedIn":false}'), json, { home: dir }), false)
+    // No such field, or unreadable output: the file still says yes when it exists.
+    assert.equal(await probeSignIn(script('other', '{"loggedIn":"yes"}'), json, { home: dir }), true)
+    assert.equal(await probeSignIn(script('junk', 'not a status'), json, { home: dir }), true)
+  }
+  const missing = { args: [], json: ['loggedIn'], file: ['.tool', 'none.json'] }
+  if (process.platform !== 'win32') assert.equal(await probeSignIn(script('none', 'nonsense'), missing, { home: dir }), null)
+})
+
 // -----------------------------------------------------------------------------
 // The form and the menus.
 
