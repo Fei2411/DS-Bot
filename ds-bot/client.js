@@ -40546,7 +40546,7 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const [failed, setFailed] = (0, import_react63.useState)({});
   const bot = roster.byId?.[sessionId];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
-  (0, import_react62.useEffect)(() => {
+  (0, import_react63.useEffect)(() => {
     const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
     if (gone.length === 0) return;
     for (const id of gone) failedAnswers.delete(id);
