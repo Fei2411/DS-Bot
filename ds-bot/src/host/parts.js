@@ -15,9 +15,10 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
@@ -257,7 +258,7 @@ export function install(rt) {
     const route = session.requestHeader()?.config
     if (!route?.provider || !route?.model) return undefined
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
-    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio })
+    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
   }
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
@@ -492,8 +493,7 @@ export function install(rt) {
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
       const prompt = retry === undefined ? base : `${base}\n\n${retry}`
       const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
+      const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
@@ -504,7 +504,8 @@ export function install(rt) {
         sessionId: session.id,
         purpose: 'compaction',
         signal,
-      })) assembler.push(chunk)
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
       const text = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
@@ -621,8 +622,7 @@ export function install(rt) {
     let last
     for (const one of routes) {
       try {
-        const assembler = new BlockAssembler()
-        for await (const chunk of ctx.llm.stream({
+        const callOptions = {
           ...one,
           messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
           toolHistory: session.toolHistory(),
@@ -631,7 +631,8 @@ export function install(rt) {
           sessionId: session.id,
           purpose: 'compaction',
           signal,
-        })) assembler.push(chunk)
+        }
+        const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
         const finish = assembler.finish
         if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
         if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
@@ -665,8 +666,7 @@ export function install(rt) {
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     // The decision needs no long thinking.
     const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
-    const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
+    const callOptions = {
       provider: route.provider,
       model: route.model,
       ...(off ? { reasoningEffort: 'off' } : {}),
@@ -676,7 +676,8 @@ export function install(rt) {
       sessionId: session.id,
       purpose: 'compaction',
       signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS),
-    })) assembler.push(chunk)
+    }
+    const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
     return parseDecision(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n'))
@@ -1589,13 +1590,13 @@ export function install(rt) {
         const range = relayRange(text)
         const room = range === undefined ? undefined : rt.roomOf(partId) ?? rt.roomOf(rt.pastOwners.get(partId)?.roomId)
         const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
-        for (const { reply, texts, time, duration } of stackReplies(replies)) {
+        for (const { reply, texts, time, duration, claims } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -1624,6 +1625,7 @@ export function install(rt) {
           kind: 'post',
           botId: source.senderSessionId ?? null,
           name: source.senderName ?? null,
+          ...(source.claims === undefined ? {} : { claims: source.claims }),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
           time: event.time,

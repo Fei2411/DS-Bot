@@ -1,12 +1,102 @@
 // Models. Every Bot runs on one model of its own, fixed when it is created and changed
 // only in its settings or by a Main Bot. The team's first Main Bot has none until the
 // user picks one in its chat. The Session keeps the selection durably.
+import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
+const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT'])
+
+function retryPolicyOf(ctx, provider) {
+  try {
+    const resolved = ctx.llm?.providerRetryPolicy?.(provider)
+    if (resolved !== undefined) return resolved
+  } catch {}
+  return resolveRetryPolicy(undefined, 'ds-bot')
+}
+
+function retryDelayMs(policy, failure, retry, backoff, random) {
+  const initialDelayMs = backoff?.initialDelayMs ?? policy.initialDelayMs
+  const maxDelayMs = backoff?.maxDelayMs ?? policy.maxDelayMs
+  const jitterRatio = backoff?.jitterRatio ?? policy.jitterRatio
+  const providerAfter = failure?.providerRetryAfterMs
+  if (providerAfter !== undefined && Number.isFinite(providerAfter) && providerAfter > 0) {
+    if (providerAfter <= maxDelayMs) return providerAfter
+    if (policy.mode === 'normal') return undefined
+  }
+  const exponential = Math.min(initialDelayMs * 2 ** Math.min(retry - 1, 1024), maxDelayMs)
+  const jitter = 1 - jitterRatio + 2 * jitterRatio * random()
+  return Math.min(exponential * jitter, maxDelayMs)
+}
+
+function waitRetryDelay(delayMs, signal) {
+  if (signal?.aborted) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve(true)
+    }, delayMs)
+    function onAbort() {
+      clearTimeout(timer)
+      resolve(false)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function abortedAssembler(failure) {
+  const assembler = new BlockAssembler()
+  assembler.push({ type: 'finish', reason: { kind: 'aborted', failure: failure ?? { code: 'ABORTED', message: 'aborted' } } })
+  return assembler
+}
+
+function canRetryPolicy(policy, code, retry) {
+  if (policy.mode === 'always') return true
+  if (policy.mode !== 'normal') return false
+  return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
+}
+
+// Auxiliary calls (memory, learning, handoff, steward, OCR, side chats, browser_task)
+// bypass the agent loop's `agent/request-error` hook, so `dsh-llm-retry` never sees
+// their transport or stream-idle failures. Retry those transient codes on the same
+// route with the provider's own retry policy, discarding partial chunks from failed attempts.
+export async function assembleLlmStream(ctx, options, { signal, backoff, random = Math.random } = {}) {
+  const fused = options.signal && signal ? AbortSignal.any([options.signal, signal]) : (options.signal ?? signal)
+  const request = fused === options.signal ? options : { ...options, signal: fused }
+  for (let retry = 1; ; retry += 1) {
+    const assembler = new BlockAssembler()
+    let thrown
+    try {
+      for await (const chunk of ctx.llm.stream(request)) assembler.push(chunk)
+    } catch (error) {
+      thrown = error
+    }
+    if (thrown !== undefined) {
+      const code = thrown?.failure?.code ?? thrown?.code
+      const failure = thrown?.failure ?? { code, message: thrown?.message || String(thrown) }
+      if (fused?.aborted || !TRANSIENT_LLM_CODES.has(code)) throw thrown
+      const policy = retryPolicyOf(ctx, options.provider)
+      if (!canRetryPolicy(policy, code, retry)) throw thrown
+      const delayMs = retryDelayMs(policy, failure, retry, backoff, random)
+      if (delayMs === undefined) throw thrown
+      if (!await waitRetryDelay(delayMs, fused)) throw fused?.reason ?? thrown
+      continue
+    }
+    const finish = assembler.finish
+    if (finish.kind !== 'error' || fused?.aborted) return assembler
+    const failure = finish.failure
+    const code = failure?.code
+    if (!TRANSIENT_LLM_CODES.has(code)) return assembler
+    const policy = retryPolicyOf(ctx, options.provider)
+    if (!canRetryPolicy(policy, code, retry)) return assembler
+    const delayMs = retryDelayMs(policy, failure, retry, backoff, random)
+    if (delayMs === undefined) return assembler
+    if (!await waitRetryDelay(delayMs, fused)) return abortedAssembler({ code: 'ABORTED', message: failure?.message ?? 'aborted' })
+  }
+}
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -322,9 +412,13 @@ export function install(rt) {
     if (bot !== undefined) await applyModel(bot, { force: true })
   }
 
+  const lifetime = new AbortController()
+  ctx.effect?.(() => () => { lifetime.abort() }, 'ds-bot: auxiliary llm retry')
+  const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
+
   Object.assign(rt, {
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, waitForModel, syncModels, routeRefused, dropCatalog,
+    selectSessionModel, applyModel, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm,
   })
 }

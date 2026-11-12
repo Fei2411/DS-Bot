@@ -42,11 +42,15 @@ describe('office skill provider', () => {
     assert.match(skill.content, /PowerShell/)
   })
 
-  test('office skill routes to office-tools and mentions availability', async () => {
+  test('office skill routes to office-tools, native Office tools, and fallback operation skills', async () => {
     const provider = officeProvider()
     const [candidate] = (await provider.list()).filter(s => s.name === 'office')
     const skill = await provider.get(candidate)
     assert.match(skill.content, /`office-tools`/)
+    assert.match(skill.content, /`office_render`/)
+    assert.match(skill.content, /`office_recalculate`/)
+    assert.match(skill.content, /`office_convert`/)
+    assert.match(skill.content, /`office-render`/)
     assert.match(skill.content, /unavailable/)
   })
 })

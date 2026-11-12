@@ -7,9 +7,17 @@ import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
 
-const PROTOCOL_NAMES = { 'openai-completions': 'OpenAI Chat Completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic Messages' }
-// Anthropic's SDK appends /v1/messages itself; the OpenAI ones take the /v1 root.
-const ENDPOINT_HINTS = { 'anthropic-messages': 'https://gateway.example' }
+const PROTOCOL_NAMES = {
+  'openai-completions': 'OpenAI Chat Completions',
+  'openai-responses': 'OpenAI Responses',
+  'anthropic-messages': 'Anthropic Messages',
+  'google-generative-ai': 'Google Gemini',
+}
+// Anthropic's SDK appends /v1/messages itself, Gemini takes /v1beta, and OpenAI takes /v1.
+const ENDPOINT_HINTS = {
+  'anthropic-messages': 'https://gateway.example',
+  'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
+}
 const SHOWN_MODELS = 8
 
 // A failure in the interface language; the dialog's error line shows it.
