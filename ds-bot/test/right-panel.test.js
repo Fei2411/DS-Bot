@@ -298,3 +298,16 @@ test('the Bot label and instructions are keyed by Bot id and stay read-only when
   const [about] = named(locked, 'About')
   assert.equal(about.props.onSave, undefined)
 })
+
+test('every Bot gets the Sessions section and New session, not only local-agent Bots', () => {
+  // A plain cloud-model Bot (no engine badge) has chat parts too.
+  const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a' } } })
+  assert.match(textOf(plain), /Sessions/)
+  const entry = buttonsOf(plain).find(button => textOf(button).includes('New session'))
+  assert.ok(entry, 'the New session button is there')
+  assert.equal(entry.props.disabled, undefined)
+  // A local-agent Bot keeps the same section.
+  const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a', 'a-old'] } } })
+  const engineEntry = buttonsOf(engine).find(button => textOf(button).includes('New session'))
+  assert.ok(engineEntry, 'the local-agent Bot still has it')
+})

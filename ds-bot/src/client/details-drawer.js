@@ -228,8 +228,9 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
   ]
 }
 
-// A local agent Bot's sessions: the current one first, then the earlier ones,
-// newest first. Each row names when it started and how it was last titled.
+// A Bot's chat sessions: the current one first, then the earlier ones, newest first.
+// Every Bot's chat has parts, whether it answers with a DS Bot model or a local CLI.
+// Each row names when it started and how it was last titled.
 function AgentSessions({ bot, part, run, useSessions }) {
   const ids = [part, ...(bot.parts ?? []).filter(id => id !== part).slice().reverse()]
   const rows = useSessions(list => ids.map(id => list.byId?.[id]), rowsEqual)
@@ -363,7 +364,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h(ModelMenu, { bot, roster, actions, run, wide: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
         ),
-        bot.engine ? h(AgentSessions, { key: 'sessions', bot, part, run, useSessions }) : null,
+        h(AgentSessions, { key: 'sessions', bot, part, run, useSessions }),
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h(BotConnectors, { key: 'connectors', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },

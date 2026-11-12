@@ -67,12 +67,23 @@ async function start(team = TEAM) {
     hold = { promise: new Promise(resolve => { release = resolve }) }
     return () => { hold = undefined; release() }
   }
+  let releaseHold
+  const rawReleaseBot = rt.releaseBot.bind(rt)
+  rt.releaseBot = async (...args) => {
+    if (releaseHold !== undefined) await releaseHold.promise
+    return rawReleaseBot(...args)
+  }
+  const heldRelease = () => {
+    let release
+    releaseHold = { promise: new Promise(resolve => { release = resolve }) }
+    return () => { releaseHold = undefined; release() }
+  }
   const saved = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const stop = async () => {
     await ctx.dispose()
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { rt, ctx, home, folder, archived, held, saved, stop }
+  return { rt, ctx, home, folder, archived, held, heldRelease, saved, stop }
 }
 
 test('a Bot deleted while its group is made stays out of it, and so does the admin role it was given', async (t) => {
@@ -116,9 +127,25 @@ test('a Bot deleted while a change waits for its folder is not added back', asyn
   const { rt, folder, saved, stop } = await start()
   t.after(stop)
   const moving = rt.updateRoom('r1', { add: ['c'], workDir: folder })
-  const deleting = rt.deleteBot('c')
-  const [moved] = await Promise.all([moving, deleting])
+  await rt.deleteBot('c')
+  const moved = await moving
   assert.deepEqual(moved.changes, [`every member now works in ${folder} here`])
+  assert.deepEqual(saved().rooms.r1.members, ['a', 'b'])
+})
+
+test('a change that finishes its folder check while deleteBot still releases the Bot cannot add it', async (t) => {
+  const { rt, folder, saved, heldRelease, stop } = await start()
+  t.after(stop)
+  const moving = rt.updateRoom('r1', { add: ['c'], workDir: folder })
+  const letReleaseFinish = heldRelease()
+  const deleting = rt.deleteBot('c')
+  const moved = await moving
+  assert.deepEqual(moved.changes, [`every member now works in ${folder} here`])
+  assert.deepEqual(rt.state.rooms.r1.members, ['a', 'b'])
+  await assert.rejects(rt.deleteBot('c'), /Unknown Bot/)
+  letReleaseFinish()
+  await deleting
+  assert.equal('c' in rt.state.bots, false)
   assert.deepEqual(saved().rooms.r1.members, ['a', 'b'])
 })
 
