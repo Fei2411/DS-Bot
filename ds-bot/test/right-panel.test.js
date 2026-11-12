@@ -206,6 +206,19 @@ test('the drawer Show button toggles the goal by the room id when the Session mo
   assert.deepEqual(calls, [['toggle', 'g']])
 })
 
+test('every Bot gets the Sessions section and New session, not only local-agent Bots', () => {
+  // A plain cloud-model Bot (no engine badge) has chat parts too.
+  const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a' } } })
+  assert.match(textOf(plain), /Sessions/)
+  const entry = buttonsOf(plain).find(button => textOf(button).includes('New session'))
+  assert.ok(entry, 'the New session button is there')
+  assert.equal(entry.props.disabled, undefined)
+  // A local-agent Bot keeps the same section.
+  const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a', 'a-old'] } } })
+  const engineEntry = buttonsOf(engine).find(button => textOf(button).includes('New session'))
+  assert.ok(engineEntry, 'the local-agent Bot still has it')
+})
+
 // A second instance of the drawer bundle whose React runs effects at once and keeps
 // one state slot, so the status line can resolve its host read and render.
 const runStatsBundle = await build({
