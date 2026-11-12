@@ -25972,7 +25972,7 @@ function scheduleGroupChains(flow) {
     if (flow.isConnected !== false) syncGroupChains(flow);
   });
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole, time, duration }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionId, roster, actions, msgKey, useUi, whole, time, duration }) {
   const ref = (0, import_react32.useRef)(null);
   (0, import_react32.useLayoutEffect)(() => {
     const el = ref.current;
@@ -25989,6 +25989,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
   );
   const flat = layoutOf(roster.prefs) === "flat";
   const took = Number.isFinite(duration) && duration >= 1e3 ? elapsedLabel(duration) : void 0;
+  const quoteSession = sessionId ?? room2?.sessionId ?? room2?.id;
   return (0, import_react32.createElement)(
     "div",
     { ref, className: "bt-group-msg", "data-bot-id": bot.id },
@@ -26001,7 +26002,7 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react32.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole })
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -26221,6 +26222,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         text: row.file ? stripLongNote(row.text) : row.text,
         texts: row.texts,
         room: roster.roomsById[sessionId],
+        sessionId,
         roster,
         actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
@@ -26291,6 +26293,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
           bot: poster,
           text: file ? stripLongNote(text) : text,
           room: room2,
+          sessionId,
           roster,
           actions,
           msgKey: `${sessionId}:post:${data.seq ?? node.key}`,
@@ -26652,7 +26655,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           goalEventText(reply)
         );
       }
-      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
+      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id];
