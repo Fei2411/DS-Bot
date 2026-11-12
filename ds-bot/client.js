@@ -41167,6 +41167,16 @@ function listedOpener({ list, open, refresh, current }) {
   };
 }
 
+// src/client/polling.js
+var POLL_MAX_MS = 5e3;
+function pollDelay(base, unchanged) {
+  const steps = Math.min(Math.max(unchanged, 0), 8);
+  return Math.min(base * 2 ** steps, Math.max(base, POLL_MAX_MS));
+}
+function needsIdleSample(computer) {
+  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle");
+}
+
 // src/client/agent-new.js
 function agentSessionToReuse(list, latest, pending) {
   if (pending !== void 0 && list.byId[pending] === void 0) return pending;
@@ -41316,7 +41326,7 @@ function apply(ctx) {
     if (value.imStatus !== void 0 && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live2.imStatus = value.imStatus;
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live2.imVia = value.imVia;
     if (Object.keys(live2).length > 0 && current.ready) roster.set({ ...current, ...live2 });
-    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return;
+    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return false;
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
     roster.set(indexRoster(value));
     try {
@@ -41337,18 +41347,20 @@ function apply(ctx) {
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
     }
+    return true;
   };
   ctx.effect(() => {
     let stopped = false;
     let running = false;
     let timer;
     let misses = 0;
+    let unchanged = 0;
     const loop = async () => {
       clearTimeout(timer);
       if (running || stopped) return;
       running = true;
       try {
-        await pull();
+        unchanged = await pull() ? 0 : unchanged + 1;
         misses = 0;
         ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
@@ -41362,10 +41374,13 @@ function apply(ctx) {
       } finally {
         running = false;
       }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
+      if (!stopped) timer = setTimeout(loop, pollDelay(document.hidden ? 1e4 : 1500, unchanged));
     };
     const wake = () => {
-      if (!document.hidden) void loop();
+      if (!document.hidden) {
+        unchanged = 0;
+        void loop();
+      }
     };
     document.addEventListener("visibilitychange", wake);
     void loop();
@@ -41927,6 +41942,7 @@ function apply(ctx) {
     ctx.effect(() => {
       const push = () => {
         if (roster.getSnapshot().computer?.enabled !== true) return;
+        if (!needsIdleSample(computer.getSnapshot())) return;
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call("computer-user-active", { idleSeconds: idle }).catch(() => {
           });
