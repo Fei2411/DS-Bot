@@ -17,6 +17,13 @@ test('the release build signs with the upload key when the build names one, else
   assert.equal(sign(signed), signed)
 })
 
+test('incremental prebuild upgrades an older v2-only signing block in place', () => {
+  const legacy = gradle
+    .replace(/signingConfigs \{\n(\s*debug \{[^}]*\})/, (_w, debug) => `signingConfigs {\n${debug}\n        release {\n            if (System.getenv('DSBOT_ANDROID_KEYSTORE')) {\n                storeFile file(System.getenv('DSBOT_ANDROID_KEYSTORE'))\n                storePassword System.getenv('DSBOT_ANDROID_KEYSTORE_PASSWORD')\n                keyAlias System.getenv('DSBOT_ANDROID_KEY_ALIAS')\n                keyPassword System.getenv('DSBOT_ANDROID_KEY_PASSWORD') ?: System.getenv('DSBOT_ANDROID_KEYSTORE_PASSWORD')\n            }\n        }`)
+    .replace(/(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig signingConfigs\.debug/, "$1signingConfig System.getenv('DSBOT_ANDROID_KEYSTORE') ? signingConfigs.release : signingConfigs.debug")
+  assert.equal(sign(legacy), sign(gradle))
+})
+
 test('a build.gradle of another layout stops the build instead of shipping a debug-signed app', () => {
   assert.throws(() => sign('android {\n}\n'), /unexpected layout/)
 })

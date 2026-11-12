@@ -26,9 +26,9 @@ const RELEASE_CONFIG = `
         }`
 
 function sign(gradle) {
-  if (gradle.includes("System.getenv('DSBOT_ANDROID_KEYSTORE')")) return gradle
-  const configs = /signingConfigs \{\n(\s*debug \{[^}]*?)(\n\s*\})/
-  const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig signingConfigs\.debug/
+  if (gradle.includes("System.getenv('DSBOT_ANDROID_KEYSTORE')") && gradle.includes('enableV3Signing true')) return gradle
+  const configs = /signingConfigs \{\n(\s*debug \{[^}]*?)(\n\s*\})(?:\n\s*release \{\n\s*if \(System\.getenv\('DSBOT_ANDROID_KEYSTORE'\)\) \{[^}]*\}\n\s*\})?/
+  const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig (?:signingConfigs\.debug|System\.getenv\('DSBOT_ANDROID_KEYSTORE'\) \? signingConfigs\.release : signingConfigs\.debug)/
   if (!configs.test(gradle) || !release.test(gradle)) throw new Error('android-release-signing: app/build.gradle has an unexpected layout')
   return gradle
     .replace(configs, (_whole, debug, close) => `signingConfigs {\n${debug}${SCHEMES}${close}${RELEASE_CONFIG}`)
