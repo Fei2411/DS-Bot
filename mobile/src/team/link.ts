@@ -38,6 +38,21 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
   const liveKey = useRef<string | undefined>(undefined)
   const pollRef = useRef<() => void>(() => {})
   const feedHandlers = useRef(new Set<FeedHandler>())
+  const hostRef = useRef(computer.hostDeviceId)
+  const switched = hostRef.current !== computer.hostDeviceId
+  if (switched) {
+    hostRef.current = computer.hostDeviceId
+    void clientRef.current?.close()
+    clientRef.current = undefined
+    revision.current = -1
+    writes.current = []
+    liveKey.current = undefined
+    setTeam(null)
+    setOnline(false)
+    setLinked(false)
+    setError(null)
+    setHello(null)
+  }
   const onFeed = useCallback((handler: FeedHandler) => {
     feedHandlers.current.add(handler)
     return () => { feedHandlers.current.delete(handler) }
@@ -90,6 +105,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     const client = clientRef.current
     if (client === undefined) throw offline()
     await ensureUnlock(endpoint)
+    if (clientRef.current !== client) throw offline()
     try {
       if (endpoint === 'state' || endpoint === 'hello' || endpoint === 'notices') {
         return await callBot(client, endpoint, payload)
@@ -102,14 +118,14 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       try {
         const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
         writes.current = writes.current.filter(entry => entry !== write)
-        if (answer.state !== undefined) apply(answer.state)
+        if (answer.state !== undefined && clientRef.current === client) apply(answer.state)
         return answer.value
       } finally {
         writes.current = writes.current.filter(entry => entry !== write)
       }
     } catch (failure) {
       // Snap back to the computer's truth: forget the revision and re-read all.
-      if (OPTIMISTIC.has(endpoint)) {
+      if (OPTIMISTIC.has(endpoint) && clientRef.current === client) {
         revision.current = -1
         pollRef.current()
       }
@@ -119,7 +135,16 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
 
   useEffect(() => {
     let stopped = false
+    let activeClient: RpcClient | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
+    revision.current = -1
+    writes.current = []
+    liveKey.current = undefined
+    setTeam(null)
+    setOnline(false)
+    setLinked(false)
+    setError(null)
+    setHello(null)
     // One pending timer: every feed event polls, and each poll would otherwise start another loop.
     const later = (run: () => void, ms: number) => { clearTimeout(timer); if (!stopped) timer = setTimeout(run, ms) }
     // One read at a time: a burst of feed events while a Bot works becomes one
@@ -127,19 +152,21 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     let reading = false
     let again = false
     const poll = async () => {
-      if (stopped || clientRef.current === undefined) return
+      const client = clientRef.current
+      if (stopped || client === undefined) return
       if (reading) { again = true; return }
       reading = true
       try {
-        const next = await callBot<TeamState>(clientRef.current, 'state', { since: revision.current, avatars: 'ref', live: liveKey.current })
+        const next = await callBot<TeamState>(client, 'state', { since: revision.current, avatars: 'ref', live: liveKey.current })
+        if (stopped || clientRef.current !== client) return
         apply(next)
         setError(null)
         later(() => void poll(), POLL_MS)
       } catch (failure) {
-        setError(errorText(failure))
+        if (!stopped && clientRef.current === client) setError(errorText(failure))
       } finally {
         reading = false
-        if (again) { again = false; void poll() }
+        if (again && !stopped) { again = false; void poll() }
       }
     }
     pollRef.current = () => void poll()
@@ -147,6 +174,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       try {
         const client = await openLink(computer, identity)
         if (stopped) { void client.close(); return }
+        activeClient = client
         clientRef.current = client
         setLinked(true)
         // The handshake: its api is null when the computer's DS Bot is too old for
@@ -166,14 +194,18 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setOnline(true)
         setError(null)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
+          if (stopped || clientRef.current !== client) return
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
         void callBot(client, 'notices', { boot: helloResult.boot, since: 0 }).then(answer => {
+          if (stopped || clientRef.current !== client) return
           const notices = answer as { reset?: boolean }
           if (notices.reset === true) void poll()
         }).catch(() => {})
         client.onClose(() => {
+          if (stopped || clientRef.current !== client) return
+          activeClient = undefined
           clientRef.current = undefined
           setOnline(false)
           setLinked(false)
@@ -181,6 +213,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
           later(() => void connect(), RETRY_MS)
         })
       } catch (failure) {
+        if (stopped) return
         setError(errorText(failure))
         if (rejected(failure)) setTeam(null)
         else later(() => void connect(), RETRY_MS)
@@ -193,10 +226,25 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
       if (status === 'active') { clientRef.current?.probe(); void poll() }
       else clearTimeout(timer)
     })
-    return () => { stopped = true; clearTimeout(timer); foreground.remove(); void clientRef.current?.close(); clientRef.current = undefined }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      foreground.remove()
+      void activeClient?.close()
+      if (clientRef.current === activeClient) clientRef.current = undefined
+    }
   }, [computer, identity, apply])
 
-  return { team, online, linked, error, call, clientRef, hello, onFeed }
+  return {
+    team: switched ? null : team,
+    online: switched ? false : online,
+    linked: switched ? false : linked,
+    error: switched ? null : error,
+    call,
+    clientRef,
+    hello: switched ? null : hello,
+    onFeed,
+  }
 }
 
 export function errorText(error: unknown): string {

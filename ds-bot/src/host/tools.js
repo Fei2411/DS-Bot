@@ -5,6 +5,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readAvatar } from './avatar.js'
 import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
+import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
@@ -623,7 +624,8 @@ export function install(rt) {
       const member = !rt.isMain(self) && !rt.isAdminOf(room, self)
       const info = rt.live.get(exec.agent?.id)?.info
       if (info?.role === 'room' && info.roomId === room.id) return `You are speaking in "${room.name}" right now. Write your message as your reply instead.`
-      const text = absoluteLinks(String(args.message ?? '').trim(), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
+      const folder = rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
+      const text = absoluteLinks(String(args.message ?? '').trim(), folder)
       if (text === '') return 'Write a message to post.'
       // Counted on the whole message. A post past MESSAGE_INLINE_MAX keeps only its
       // first LONG_HEAD characters, and the round reads this list instead of that text.
@@ -644,10 +646,12 @@ export function install(rt) {
       const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
       const sub = work === undefined ? undefined : randomUUID()
       if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, parent: work })
+      const missingFiles = folder === undefined ? [] : missingFileRefs(text, folder)
+      const claims = missingFiles.length > 0 ? { missingFiles } : undefined
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`

@@ -70,11 +70,19 @@ export function stackReplies(replies) {
   replies.forEach((reply, index) => {
     const last = items.at(-1)
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
-      && reply.claims === undefined && last.reply.claims === undefined) {
+      && last.claims === undefined) {
       last.texts.push(reply.text)
       last.time = reply.time
       last.duration = reply.duration
-    } else items.push({ reply, index, texts: reply.kind === undefined ? [reply.text] : [], time: reply.time, duration: reply.duration })
+      if (reply.claims !== undefined) last.claims = reply.claims
+    } else {
+      items.push({
+        reply, index,
+        texts: reply.kind === undefined ? [reply.text] : [],
+        time: reply.time, duration: reply.duration,
+        ...(reply.claims === undefined ? {} : { claims: reply.claims }),
+      })
+    }
   })
   return items
 }

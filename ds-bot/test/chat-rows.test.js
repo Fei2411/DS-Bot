@@ -162,11 +162,14 @@ test('a group post carries claims both live and in earlier chat rows', () => {
   assert.deepEqual(earlier.props.claims, claims)
 })
 
-test('a marked final reply keeps its marker after progress from the same member', () => {
+test('a marked final reply stacks onto earlier progress and keeps later messages below its marker', () => {
   const claims = { missingFiles: ['./missing.md'] }
   const progress = { botId: 'b', text: 'Started' }
   const final = { botId: 'b', text: 'Report', claims }
   const stacked = stackReplies([progress, final, { botId: 'b', text: 'Follow-up' }])
-  assert.equal(stacked.length, 3)
-  assert.equal(stacked[1].reply.claims, claims)
+  assert.equal(stacked.length, 2)
+  assert.deepEqual(stacked[0].texts, ['Started', 'Report'])
+  assert.deepEqual(stacked[0].claims, claims)
+  assert.deepEqual(stacked[1].texts, ['Follow-up'])
+  assert.equal(stacked[1].claims, undefined)
 })

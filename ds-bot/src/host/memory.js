@@ -28,9 +28,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
+import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
@@ -1259,8 +1260,7 @@ export function install(rt) {
     let lastKind = 'stop'
     for (let attempt = 0; attempt < budgets.length; attempt += 1) {
       const maxTokens = budgets[attempt]
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
+      const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(tag?.sessionId === undefined ? {} : { sessionId: tag.sessionId }),
@@ -1269,7 +1269,8 @@ export function install(rt) {
         messages,
         maxTokens,
         signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-      })) assembler.push(chunk)
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
       // A cancelled call is the caller's decision, not a route that may answer again.
       if (finish.kind === 'aborted') throw new Error(finish.failure?.message ?? 'aborted')

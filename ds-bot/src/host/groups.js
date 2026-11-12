@@ -694,12 +694,13 @@ export function install(rt) {
   // checked: a step line says what is under way, not what came of it.
   // A Session's own folder is where it really writes, and it is only known from the
   // Session object (its header), never from its id.
-  const claimsOf = (session, text, worked) => session === undefined ? undefined : claimsFor({
+  const claimsOf = (session, text, worked, calledPeer = false) => session === undefined ? undefined : claimsFor({
     text,
     base: rt.sessionFolder?.(session),
     worked,
     subagents: rt.hasSubagents?.(session.id) === true,
     runningJobs: rt.runningJobs?.(session.id)?.length ?? null,
+    calledPeer,
   })
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
@@ -1122,7 +1123,7 @@ export function install(rt) {
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined) {
-        posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, worked)))
+        posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, worked, callsIn(room, member, final))))
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
       }
     } else {
@@ -1272,7 +1273,8 @@ export function install(rt) {
         if (room.goal?.id !== post.goalId || room.goal.status !== 'active' || (post.goal === 'nudge' && room.goal.idle === true)) posts.splice(posts.indexOf(post), 1)
       } else if (post.goal === 'draft' && (room.goal?.id !== post.goalId || room.goal.status !== 'drafting')) {
         delete post.goal
-        delete post.goalId      }
+        delete post.goalId
+      }
     }
     // A post a running round already logged stays inside the round this relay opens.
     const startSeq = Math.min(room.seq + 1, ...posts.map(post => post.logged).filter(seq => typeof seq === 'number'))
@@ -1708,7 +1710,7 @@ export function install(rt) {
     // batch carries the results.
     const inBatch = batch === undefined ? {} : { batch: batch.key, ...(waitingPeers ? {} : { batchEnd: true }) }
     const session = await rt.resolveAgent(sessionId).then(agent => agent?.session, () => undefined)
-    const claims = isPass(text) ? undefined : claimsOf(session, text, toolCount > 0)
+    const claims = isPass(text) ? undefined : claimsOf(session, text, toolCount > 0, named.length > 0)
     const post = (body, extra) => postToRoom(room, member, body, { late: true, ...extra, ...inBatch, ...(claims === undefined ? {} : { claims }) })
       .catch((error) => {
         if (batch !== undefined) closeBatch(batch.key)
