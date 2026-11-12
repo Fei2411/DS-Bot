@@ -361,7 +361,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         h(RunStats, { key: 'stats', bot, part, running, actions }),
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),
-          h(ModelMenu, { bot, roster, actions, run, wide: true }),
+          h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
         ),
         h(AgentSessions, { key: 'sessions', bot, part, run, useSessions }),
