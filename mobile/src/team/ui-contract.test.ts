@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cleanPreview, handoffTitleOf, roundEventText, settledQuestionPicks, stripLongNote } from '../screens/chat/settled.ts'
+import { cleanPreview, handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote } from '../screens/chat/settled.ts'
 import { setLang, weekdayShort } from '../ui/i18n.ts'
 import { workPhrase } from '../ui/phrases.ts'
 
@@ -55,12 +55,19 @@ test('workPhrase and weekdayShort localize tool activity and schedule weekdays',
   setLang('system')
 })
 
-test('stripLongNote removes the host attachLong header and roundEventText formats group relay rows', () => {
+test('stripLongNote preserves leading indentation and relayReplyText decodes archived host relay items', () => {
   const raw = '[A long message: 24810 characters. The full text is attached in message.txt.]\n第一段正文'
   assert.equal(stripLongNote(raw), '第一段正文')
+  const indented = '[A long message: 24810 characters. The full text is attached in message.txt.]\n    const x = 1'
+  assert.equal(stripLongNote(indented), '    const x = 1')
+
   setLang('zh')
   assert.equal(roundEventText('Beacon', 'done'), 'Beacon 做完了')
   assert.equal(roundEventText('Beacon', 'stopped'), '你停下了 Beacon 的工作')
+  // Archived group-chat parts in ds-bot/src/host/parts.js emit { kind: 'relay', reply: { kind, ... } }
+  assert.equal(relayReplyText({ kind: 'failed', name: 'Beacon', text: '额度用尽' }), 'Beacon 无法回答：额度用尽')
+  assert.equal(relayReplyText({ kind: 'admin-passed', name: 'Beacon' }), 'Beacon 没有回答，也没有叫谁；用 @名字 叫一个成员来回答')
+  assert.equal(relayReplyText({ kind: 'paused', idle: true, name: 'Beacon', names: ['Coder'], count: 6 }), 'Beacon、Coder 来回 6 次没有进展，先停下了。你发言后继续')
   assert.equal(cleanPreview('[Browser handoff] verification — 完成 GitHub 两步验证\nAnswer: done'), '需要验证 · 完成 GitHub 两步验证')
   assert.equal(cleanPreview('[Answer to question card] 从哪里开始?\nAnswer: 读 AGENTS.md'), '读 AGENTS.md')
   setLang('system')

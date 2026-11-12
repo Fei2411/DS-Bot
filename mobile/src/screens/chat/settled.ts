@@ -7,7 +7,20 @@ export interface SettledQuestionData {
   options?: (string | { label: string })[]
 }
 
-export const stripLongNote = (text: string) => text.replace(/^\[A long message: \d+ characters\.[^\]\n]*\]\s*/, '')
+export interface RelayReplyData {
+  kind?: string
+  event?: string
+  botId?: string
+  name?: string
+  color?: string
+  text?: string
+  code?: string
+  idle?: boolean
+  count?: number
+  names?: string[]
+}
+
+export const stripLongNote = (text: string) => text.replace(/^\[A long message: \d+ characters\.[^\]\n]*\]\r?\n/, '')
 
 // Host previews come from historyEntry/replyText, which frame card replies as
 // "[Browser handoff] …" or "[Answer to question card] …" for compaction context.
@@ -57,13 +70,28 @@ export function roundEventText(name: string, event: string | undefined, text?: s
     failed: () => t('{name} could not answer: {reason}', { name, reason: text ?? code ?? '' }),
     lookup: () => (text ? t('{name} looked up its own chat for “{text}”', { name, text }) : t('{name} looked up its own chat', { name })),
     missed: () => t("{name} didn't answer in time", { name }),
+    'admin-passed': () => t('{name} did not answer or call anyone; call a member with @Name', { name }),
     resumed: () => t('{name} was cut off by a restart and picked its work back up', { name }),
     cut: () => t('{name} was cut off by a restart again and stopped', { name }),
     approval: () => t('{name} paused for your approval', { name }),
     working: () => t('{name} started on it', { name }),
+    folder: () => text ?? '',
     stopped: () => t("You stopped {name}'s work", { name }),
     done: () => t('{name} finished its work', { name }),
     schedule: () => text ?? '',
   }
   return map[event]?.()
+}
+
+export function relayReplyText(reply?: RelayReplyData): string | undefined {
+  if (reply === undefined) return undefined
+  const kind = reply.kind ?? reply.event
+  const name = reply.name ?? t('a Bot')
+  if (kind === 'paused') {
+    const joiner = t(' and ')
+    return reply.idle
+      ? t('{names} went back and forth {count} times without progress and paused. Write here to go on', { count: reply.count ?? 0, names: [name, ...(reply.names ?? [])].join(joiner) })
+      : t('Paused after {count} Bot relays. Waiting: {names}', { count: reply.count ?? 0, names: (reply.names ?? []).join(joiner) })
+  }
+  return roundEventText(name, kind, reply.text, reply.code)
 }

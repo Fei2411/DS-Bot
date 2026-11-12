@@ -12,7 +12,7 @@ import { inkColor, radius, type as typeScale, useTheme, type Palette } from '../
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
-import { handoffTitleOf, roundEventText, settledQuestionPicks, stripLongNote, type SettledQuestionData } from './settled.ts'
+import { handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote, type RelayReplyData, type SettledQuestionData } from './settled.ts'
 import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
@@ -48,7 +48,7 @@ export interface ChatItem {
   question?: SettledQuestionData
   questions?: SettledQuestionData[]
   handoff?: { reason?: string; note?: string; outcome?: string }
-  reply?: { botId?: string; name?: string; color?: string; event?: string; text?: string; code?: string }
+  reply?: RelayReplyData
   answers?: { id?: string; action?: string; values?: { selected?: string[]; inputs?: Record<string, unknown>; fields?: Record<string, string>; confirmed?: boolean }; selected?: string[]; custom?: string }[]
   tools?: { name: string; label?: string | null; ok?: boolean }[]
   ms?: number
@@ -121,9 +121,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     )
   }
   if (item.kind === 'relay') {
-    const reply = item.reply ?? {}
-    const name = reply.name ?? t('a Bot')
-    const line = roundEventText(name, reply.event, reply.text, reply.code)
+    const line = relayReplyText(item.reply)
     return line ? <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{line}</Text> : null
   }
   if (item.kind === 'event') {
