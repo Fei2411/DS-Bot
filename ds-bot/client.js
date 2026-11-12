@@ -443,6 +443,9 @@ var JA = {
   "This API key is not in the right format.": "この API キーの形式が正しくありません。",
   "{provider} did not accept the current API key.": "{provider} で現在の API キーが拒否されました。",
   "{provider} did not accept the current API key ({status}).": "{provider} で現在の API キーが拒否されました（{status}）。",
+  "The model service blocked the content": "モデルサービスのコンテンツフィルターが内容をブロックしました",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました（{status}）。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
   "{provider} is out of balance or quota.": "{provider} の残高または利用枠が不足しています。",
   "{provider} is out of balance or quota ({status}).": "{provider} の残高または利用枠が不足しています（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek アカウントの残高が不足しています。",
@@ -2732,6 +2735,9 @@ var KO = {
   "This API key is not in the right format.": "이 API 키의 형식이 올바르지 않습니다.",
   "{provider} did not accept the current API key.": "{provider}에서 현재 API 키를 승인하지 않았습니다.",
   "{provider} did not accept the current API key ({status}).": "{provider}에서 현재 API 키를 승인하지 않았습니다 ({status}).",
+  "The model service blocked the content": "모델 서비스의 콘텐츠 필터가 내용을 차단했습니다",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다. API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다 ({status}). API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
   "{provider} is out of balance or quota.": "{provider}의 잔액 또는 할당량이 부족합니다.",
   "{provider} is out of balance or quota ({status}).": "{provider}의 잔액 또는 할당량이 부족합니다 ({status}).",
   "The DeepSeek account balance is too low.": "DeepSeek 계정 잔액이 부족합니다.",
@@ -5060,6 +5066,9 @@ var ES = {
   "This API key is not in the right format.": "Esta clave API no tiene el formato correcto.",
   "{provider} did not accept the current API key.": "{provider} no aceptó la clave API actual.",
   "{provider} did not accept the current API key ({status}).": "{provider} no aceptó la clave API actual ({status}).",
+  "The model service blocked the content": "El filtro de contenido del servicio de modelos bloqueó el contenido",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud. La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud ({status}). La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
   "{provider} is out of balance or quota.": "{provider} se quedó sin saldo o cuota.",
   "{provider} is out of balance or quota ({status}).": "{provider} se quedó sin saldo o cuota ({status}).",
   "The DeepSeek account balance is too low.": "El saldo de la cuenta de DeepSeek es insuficiente.",
@@ -7382,6 +7391,9 @@ var FR = {
   "This API key is not in the right format.": "Cette clé API n’est pas au bon format.",
   "{provider} did not accept the current API key.": "{provider} a refusé la clé API actuelle.",
   "{provider} did not accept the current API key ({status}).": "{provider} a refusé la clé API actuelle ({status}).",
+  "The model service blocked the content": "Le filtre de contenu du service de modèles a bloqué le contenu",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête. La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête ({status}). La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
   "{provider} is out of balance or quota.": "Le solde ou le quota de {provider} est épuisé.",
   "{provider} is out of balance or quota ({status}).": "Le solde ou le quota de {provider} est épuisé ({status}).",
   "The DeepSeek account balance is too low.": "Le solde du compte DeepSeek est insuffisant.",
@@ -9671,6 +9683,9 @@ var DE = {
   "This API key is not in the right format.": "Dieser API-Schlüssel hat nicht das richtige Format.",
   "{provider} did not accept the current API key.": "{provider} hat den aktuellen API-Schlüssel nicht akzeptiert.",
   "{provider} did not accept the current API key ({status}).": "{provider} hat den aktuellen API-Schlüssel nicht akzeptiert ({status}).",
+  "The model service blocked the content": "Der Inhaltsfilter des Modelldienstes hat den Inhalt blockiert",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert. Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert ({status}). Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
   "{provider} is out of balance or quota.": "Guthaben oder Kontingent bei {provider} ist aufgebraucht.",
   "{provider} is out of balance or quota ({status}).": "Guthaben oder Kontingent bei {provider} ist aufgebraucht ({status}).",
   "The DeepSeek account balance is too low.": "Das Guthaben des DeepSeek-Kontos reicht nicht aus.",
@@ -11981,6 +11996,9 @@ var ZH = {
   "This API key is not in the right format.": "这个 API Key 的格式不对。",
   "{provider} did not accept the current API key.": "{provider} 不接受现在的 API Key。",
   "{provider} did not accept the current API key ({status}).": "{provider} 不接受现在的 API Key（{status}）。",
+  "The model service blocked the content": "模型服务的内容审核拦截了这条内容",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。",
   "{provider} is out of balance or quota.": "{provider} 的余额或额度不够了。",
   "{provider} is out of balance or quota ({status}).": "{provider} 的余额或额度不够了（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek 账号余额不足。",
@@ -13563,6 +13581,7 @@ var FAILURES = {
   MISSING_CREDENTIAL: "The model has no API key",
   INVALID_CREDENTIAL: "The API key is not in the right format",
   AUTH: "The API key was rejected",
+  CONTENT_POLICY: "The model service blocked the content",
   QUOTA: "The account is out of quota",
   ACCOUNT_QUOTA: "The account is out of quota",
   ACCOUNT_SIGN_IN_REQUIRED: "The DeepSeek account needs a sign-in",
@@ -36159,6 +36178,8 @@ function failureText2(code, { name, provider, status }) {
       return t("This API key is not in the right format.");
     case "AUTH":
       return status === void 0 ? t("{provider} did not accept the current API key.", { provider }) : t("{provider} did not accept the current API key ({status}).", { provider, status });
+    case "CONTENT_POLICY":
+      return status === void 0 ? t("{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.", { provider }) : t("{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.", { provider, status });
     case "QUOTA":
       return status === void 0 ? t("{provider} is out of balance or quota.", { provider }) : t("{provider} is out of balance or quota ({status}).", { provider, status });
     case "ACCOUNT_QUOTA":
@@ -36192,6 +36213,9 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return ["rekey", "model"];
     case "AUTH":
       return ["rekey", canSignIn ? "use-account" : null, "model"].filter(Boolean);
+    // A content audit is about the input, not the credentials; no key action helps.
+    case "CONTENT_POLICY":
+      return [];
     case "QUOTA":
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
@@ -36241,8 +36265,10 @@ var providerName = (roster, provider) => provider === void 0 ? t("The model serv
 function failureFacts(data, blocked) {
   const facts = [];
   if (data.code) facts.push(["Code", t("Code"), data.code]);
-  if (blocked?.status !== void 0) facts.push(["HTTP status", t("HTTP status"), String(blocked.status)]);
-  if (blocked?.requestId) facts.push(["Request ID", t("Request ID"), blocked.requestId]);
+  const status = data.status ?? blocked?.status;
+  if (status !== void 0) facts.push(["HTTP status", t("HTTP status"), String(status)]);
+  const requestId = data.requestId ?? blocked?.requestId;
+  if (requestId) facts.push(["Request ID", t("Request ID"), requestId]);
   if (data.code !== "AUTH" && data.message) facts.push(["Message", t("Provider message"), data.message]);
   return facts;
 }
@@ -36267,8 +36293,10 @@ function TechnicalDetails({ facts }) {
 }
 function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const roster = useRoster((value) => value);
-  const data = node?.data ?? {};
+  const failRow = node?.data ?? {};
   const bot = roster.byId?.[sessionId];
+  const host = bot?.failures?.[sessionId];
+  const data = host !== void 0 && host.turn === failRow.turn ? { ...failRow, ...host } : failRow;
   const later = useTurnClock((state) => Object.keys(state[sessionId] ?? {}).some((turn) => Number(turn) > data.turn));
   const account = useAccountView(actions);
   const signedIn = account?.status === "credential-stored";
@@ -36279,7 +36307,7 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const [joining, setJoining] = (0, import_react53.useState)(null);
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : void 0;
   const provider = blocked?.provider ?? providerOf(bot, roster);
-  const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: blocked?.status });
+  const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: data.status ?? blocked?.status });
   const facts = failureFacts(data, blocked);
   const current = bot !== void 0 && currentPart(bot) === sessionId && !later;
   const moveToAccount = () => {
