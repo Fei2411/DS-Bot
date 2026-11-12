@@ -322,9 +322,11 @@ export function install(rt) {
   // An IM message starts a turn carrying the request it came in on; every other way a
   // turn starts — the Web UI, a peer Bot's message, a scheduled task, work picked up
   // after a restart — has no IM origin, and its replies, views and cards stay in the app.
-  // Nothing is persisted: after a restart there is no origin, so nothing goes out.
-  const ORIGIN_TTL_MS = 10 * 60 * 1000
-  const current = entry => entry !== undefined && Date.now() - entry.at <= ORIGIN_TTL_MS
+  // Nothing is persisted: after a restart there is no origin, so nothing goes out. An
+  // origin lives until its turn ends or another source joins it, however long the turn
+  // runs; a request lives until the message it names is admitted, however long that
+  // message waits in the queue behind a busy Bot.
+  const UNUSED_REQUEST_MS = 24 * 60 * 60 * 1000
   // Session id → the chat its running turn came from.
   const origins = new Map()
   // Request id of an IM message → the chat it came from, until that message shows up.
@@ -338,7 +340,6 @@ export function install(rt) {
   const originOf = (sessionId) => {
     const entry = sessionId === undefined ? undefined : origins.get(sessionId)
     if (entry === undefined) return undefined
-    if (!current(entry)) { origins.delete(sessionId); return undefined }
     const conn = Object.values(connections()).find(item => item.id === entry.connId)
     if (conn === undefined || !runners.has(conn.id)) return undefined
     const chat = conn.chats?.[entry.chatKey]
@@ -350,7 +351,9 @@ export function install(rt) {
     return found === undefined ? [] : [{ chatKey: found.chatKey, chat: found.chat }]
   }
   const rememberRequest = (requestId, connId, chatKey) => {
-    for (const [id, entry] of requests) if (!current(entry)) requests.delete(id)
+    // A request waiting behind a busy Bot is still the one its turn answers; only an
+    // entry nothing ever claimed, long past any queue, is dropped to keep the map small.
+    for (const [id, entry] of requests) if (Date.now() - entry.at > UNUSED_REQUEST_MS) requests.delete(id)
     requests.set(requestId, { connId, chatKey, at: Date.now() })
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
@@ -1076,7 +1079,7 @@ export function install(rt) {
         // process never registered — after a restart, or a redelivery — leaves no origin.
         const asked = requests.get(rpcId)
         requests.delete(rpcId)
-        if (asked === undefined || !current(asked)) dropOrigin(session.id)
+        if (asked === undefined) dropOrigin(session.id)
         else claimOrigin(session.id, asked.connId, asked.chatKey)
       } else {
         // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an

@@ -778,3 +778,32 @@ test('reply origin: a question card follows its turn, and a Web turn gets none',
   assert.equal(cards[0].chat.key, 'dm-u1')
   assert.match(cards[0].text, /From IM\?/)
 })
+
+test('reply origin: a turn that runs past any window still answers its chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  // A turn that runs for hours is still the turn this chat asked for.
+  const later = Date.now() + 3 * 60 * 60 * 1000
+  t.mock.timers.enable({ apis: ['Date'], now: later })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'long answer' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.text), ['long answer'])
+})
+
+test('reply origin: a message that waited in the queue past any window still names its chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  const requestId = s.prompts.at(-1).requestId
+  // The Bot was busy: this message waits hours before its turn starts.
+  const later = Date.now() + 3 * 60 * 60 * 1000
+  t.mock.timers.enable({ apis: ['Date'], now: later })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'from the chat' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'answers the queue' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.text), ['answers the queue'])
+})
