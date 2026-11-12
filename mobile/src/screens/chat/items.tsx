@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useState } from 'react'
+import { createContext, memo, useContext, useEffect, useRef, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
@@ -419,13 +419,28 @@ export function PhotoViewer({ open, onClose }: { open: { sessionId: string; refs
 
 interface ImageState { uri?: string; error?: string }
 
+function initialImageStates(sessionId: string, refs: ImageRef[]): ImageState[] {
+  return refs.map(ref => {
+    const uri = imageCache.get(`${sessionId}:${ref.attachmentId}`)
+    return uri !== undefined ? { uri } : {}
+  })
+}
+
 function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
   const { call } = useTeam()
-  const [states, setStates] = useState<ImageState[]>(() =>
-    refs.map(ref => imageCache.has(`${sessionId}:${ref.attachmentId}`) ? { uri: imageCache.get(`${sessionId}:${ref.attachmentId}`) } : {}))
+  const [states, setStates] = useState<ImageState[]>(() => initialImageStates(sessionId, refs))
   const key = `${sessionId}:${refs.map(ref => ref.attachmentId).join(',')}`
+  // The refs these states were built for. The state array is only
+  // initialised once, so after a refresh the states can lag behind the refs
+  // until the effect below runs; the render-time alignment must not trust a
+  // stale entry that belongs to a different attachment.
+  const statesKeyRef = useRef(key)
   useEffect(() => {
     let live = true
+    // The fetch callbacks below update states by index, so rebuild them for
+    // these refs first.
+    setStates(initialImageStates(sessionId, refs))
+    statesKeyRef.current = key
     refs.forEach((ref, index) => {
       const cacheKey = `${sessionId}:${ref.attachmentId}`
       if (imageCache.has(cacheKey)) return
@@ -439,7 +454,18 @@ function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
     })
     return () => { live = false }
   }, [key])
-  return states
+  // Align with the current refs during render: the effect runs only after
+  // the render commits, so a grown or replaced image list would otherwise
+  // read .uri off a missing or stale entry and throw before the effect can
+  // repair it. Cache-backed entries are read here (a read, not a fetch); a
+  // state entry is reused only when it was built for these exact refs,
+  // otherwise the tile stays loading until the effect fetches it.
+  return refs.map((ref, index) => {
+    const cached = imageCache.get(`${sessionId}:${ref.attachmentId}`)
+    if (cached !== undefined) return { uri: cached }
+    if (statesKeyRef.current === key) return states[index] ?? {}
+    return {}
+  })
 }
 
 // The original of the photo open in the viewer; the preview shows until it arrives.
