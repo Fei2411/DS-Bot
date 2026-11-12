@@ -1353,6 +1353,33 @@ test("a long round's result stays small, and its rows read back whole after a re
   assert.deepEqual(rows.map(row => [row.kind ?? 'message', row.text?.length]), [['message', long.length]])
 })
 
+// A member's turn that changed files carries the review coordinates on the row the group
+// shows, so the chat can open DSH's review for that turn; a turn that changed nothing adds
+// no row (changes.test.js), and a summary that is gone reports itself gone.
+test("a member's group row carries the change line of its turn", async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const changes = {
+    sessionId: 'member-session', seq: 12, turn: 4, total: 2, added: 9, deleted: 3,
+    files: [{ path: 'src/a.js', added: 6, deleted: 3 }, { path: 'docs/b.md', added: 3, deleted: 0 }],
+  }
+  rt.turnChanges = async () => changes
+  await emit(room.id, userMessage('First'))
+  const running = relay(room.id, 'one')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const from = JSON.parse(await running).from
+  const rows = rt.groupRows(room.id, from)
+  const done = rows.find(row => row.text === 'Done.')
+  assert.deepEqual(done.changes, changes)
+  // The review coordinates reach the window with the row, and the check names the summary.
+  const check = await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })
+  assert.equal(check.value, false)
+})
+
 // The opening message is the one the group's own Session shows; what is said between
 // rounds shows once, above the message that opens the next round.
 test('the rows of a round leave out its opening message and show once what came between rounds', async (t) => {

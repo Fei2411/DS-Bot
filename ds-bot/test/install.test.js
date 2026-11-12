@@ -90,6 +90,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/status',
     'on llm/stream',
     'on session/event',
+    // changes.js: the announced workspace/changes turn, remembered for the group row.
+    'on session/event',
     'on llm/stream',
     'on agent/status',
     'on tools/execute',

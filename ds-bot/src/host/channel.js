@@ -327,6 +327,10 @@ export function install(rt) {
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
         }
         // The rows a settled round of a group chat shows, from its book.
+        // Whether a turn's change review can still be opened: the Host serves a turn's
+        // summary until its Session is disposed.
+        case 'changes-check':
+          return ok(rt.changesAvailable?.(String(body.sessionId ?? ''), Number(body.seq)) === true)
         case 'group-rows': {
           await rt.load()
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
