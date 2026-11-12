@@ -381,7 +381,7 @@ function frameRules(file) {
   const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
     .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody')))
+    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody') && !selector.includes('_scrollRegion')))
     .filter(rule => rule.length > 0)
 }
 

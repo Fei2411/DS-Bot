@@ -28,9 +28,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
+import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
@@ -93,6 +94,8 @@ export function install(rt) {
       archiveBotMemory: async () => {},
       archiveGroupMemory: async () => {},
       memoryEndpoint: async () => { throw new Error('Memory is turned off on this host') },
+      memoryEdit: async () => { throw new Error('Memory is turned off on this host') },
+      memoryAdd: async () => { throw new Error('Memory is turned off on this host') },
       memoryNews: () => ({}),
       memoryReviews: () => 0,
     })
@@ -1257,8 +1260,7 @@ export function install(rt) {
     let lastKind = 'stop'
     for (let attempt = 0; attempt < budgets.length; attempt += 1) {
       const maxTokens = budgets[attempt]
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
+      const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(tag?.sessionId === undefined ? {} : { sessionId: tag.sessionId }),
@@ -1267,7 +1269,8 @@ export function install(rt) {
         messages,
         maxTokens,
         signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-      })) assembler.push(chunk)
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
       // A cancelled call is the caller's decision, not a route that may answer again.
       if (finish.kind === 'aborted') throw new Error(finish.failure?.message ?? 'aborted')
@@ -1437,6 +1440,32 @@ export function install(rt) {
     const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
     await removeEntry({ scope, topic, match: String(body.text ?? ''), actor: USER, label: panelLabel(panel, scope) })
     return await memoryView(panelBody(panel))
+  }
+
+  // The user's own words for one entry, from a window that edits the list in place
+  // (the mobile API): no model call, the same checks as the tools.
+  const userEntry = (raw) => {
+    const text = cleanEntry(raw)
+    const problem = entryProblem(text)
+    if (problem) throw Object.assign(new Error(problem), { code: 'bot/invalid' })
+    return text
+  }
+  const userTopic = raw => (raw === null || raw === undefined || raw === '' ? undefined : cleanTopic(raw))
+  async function memoryEdit(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const text = userEntry(body.next)
+    const meta = { source: 'memory panel', by: 'user', added: today() }
+    await replaceEntry({ scope, topic: userTopic(body.topic), match: String(body.text ?? ''), text, meta, actor: USER, label: panelLabel(panel, scope) })
+    return memoryView(panelBody(panel))
+  }
+  async function memoryAdd(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const text = userEntry(body.text)
+    const meta = { source: 'memory panel', by: 'user', added: today() }
+    await addEntry({ scope, topic: userTopic(body.topic), text, meta, actor: USER, label: panelLabel(panel, scope) })
+    return memoryView(panelBody(panel))
   }
 
   // One team entry the user brings in front of every Bot, or sends back to wait in a topic.
@@ -1762,7 +1791,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
+    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
     memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }

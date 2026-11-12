@@ -703,13 +703,9 @@ export function install(rt) {
         .filter(option => option.label !== '')
         .slice(0, 6)
       if (options.length === 0) return 'Give at least one option.'
-      // A hidden Bot-to-Bot turn shows none of its calls, so its card goes to the
-      // composer dock, which takes questions without a call.
-      const turn = rt.live.get(id)?.turn
-      const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
       state.questions[id] = {
         id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
+        ...(exec.callId ? { callId: exec.callId } : {}),
         question: String(args.question ?? '').trim(),
         ...(args.detail ? { detail: String(args.detail).trim() } : {}),
         options,
@@ -718,6 +714,7 @@ export function install(rt) {
         askedAt: Date.now(),
       }
       await rt.save()
+      rt.cardShown?.(id, 'question', state.questions[id].question)
       exec.concludeTurn?.()
       return 'The card is on screen; the user\'s answer arrives as their next message.'
     },
@@ -743,20 +740,15 @@ export function install(rt) {
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const awaitReply = args.await_reply ?? checked.interactive
       if (!awaitReply) return 'The view is on screen.'
-      // A hidden Bot-to-Bot turn shows none of its calls, so its card goes to the
-      // composer dock, which takes a card without a call.
-      const turn = rt.live.get(id)?.turn
-      const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
       state.views[id] = {
         id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
+        ...(exec.callId ? { callId: exec.callId } : {}),
         title,
         view,
         askedAt: Date.now(),
       }
-      // A new card supersedes the closed one the dock may still show.
-      if (state.closedViews !== undefined) delete state.closedViews[id]
       await rt.save()
+      rt.cardShown?.(id, 'view', title)
       exec.concludeTurn?.()
       return 'The view is on screen; the user\'s answer arrives as their next message.'
     },
