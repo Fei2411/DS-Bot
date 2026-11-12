@@ -5,6 +5,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readAvatar } from './avatar.js'
 import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
+import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
@@ -75,32 +76,61 @@ export function install(rt) {
   }
   // Main Bots see every group; other Bots see the groups they are in.
   const visibleRooms = self => Object.values(state.rooms).filter(room => rt.isMain(self) || room.members.includes(self))
+  const teamNames = () => Object.values(state.bots).map(bot => bot.name).join(', ')
+  const groupNames = self => visibleRooms(self).map(room => `"${room.name}"`).join(', ') || 'none'
+  const pickRoom = (ref, self) => {
+    const matches = rt.findRooms(ref).filter(room => visibleRooms(self).includes(room))
+    if (matches.length === 1) return { room: matches[0] }
+    if (matches.length > 1) return { error: `Several group chats are called "${unquote(ref)}". Rename one first.` }
+    return { error: `No group chat called "${unquote(ref)}" that you can see. Groups: ${groupNames(self)}.` }
+  }
+
+  const botLine = (bot, self) => {
+    // A private Bot is only named to the others: not what it does, where, or what now.
+    if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
+    const model = bot.appliedModel ?? bot.model
+    const section = sectionNameOf(bot.sectionId)
+    const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+    const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
+    const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
+    return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
+  }
+  // The Bots and group chats list_bots shows: the whole team, one Bot, one group's
+  // members, or one Bot that must be in that group.
+  const listScope = (args, self) => {
+    const all = Object.values(state.bots)
+    const bot = args.bot ? rt.findBot(args.bot) : undefined
+    if (args.bot && bot === undefined) return { error: `No Bot named ${args.bot}. Team: ${teamNames()}` }
+    if (!args.group) {
+      const rooms = visibleRooms(self).filter(room => bot === undefined || room.members.includes(bot.id))
+      return { bots: bot ? [bot] : all, rooms, none: bot ? `Group chats: ${bot.name} is in none you can see.` : 'Group chats: none you can see.' }
+    }
+    const { room, error } = pickRoom(args.group, self)
+    if (error !== undefined) return { error }
+    const members = all.filter(member => room.members.includes(member.id))
+    if (bot !== undefined && !room.members.includes(bot.id)) return { error: `${bot.name} is not in group "${room.name}". Members: ${members.map(member => member.name).join(', ')}` }
+    return { bots: bot ? [bot] : members, rooms: [room] }
+  }
 
   rt.teamTools.push(defineTool({
     name: 'list_bots',
-    description: 'List every Bot on the user\'s team with its role, what it does and what it is doing right now, and the group chats you can see.',
-    parameters: {},
+    description: 'List every Bot on the user\'s team with its role, what it does and what it is doing right now, and the group chats you can see. Give bot or group to list only that Bot or that group\'s members; with both, the Bot must be in the group.',
+    parameters: {
+      bot: { type: 'string', description: 'Exact name of one Bot to list, with the group chats you can see that it is in' },
+      group: { type: 'string', description: 'Exact group chat name: list only its members and that group' },
+    },
     output,
-    async execute(_args, exec) {
+    async execute(args, exec) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
-      const lines = Object.values(state.bots).map(bot => {
-        // A private Bot is only named to the others: not what it does, where, or what now.
-        if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
-        const model = bot.appliedModel ?? bot.model
-        const section = sectionNameOf(bot.sectionId)
-        const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
-        const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
-        const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
-        return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
-      })
-      if (lines.length === 0) return 'No Bots yet.'
-      const rooms = visibleRooms(self)
+      if (Object.keys(state.bots).length === 0) return 'No Bots yet.'
+      const { bots, rooms, none, error } = listScope(args, self)
+      if (error !== undefined) return error
       return [
         'Bots:',
-        ...lines,
+        ...bots.map(bot => botLine(bot, self)),
         '',
-        rooms.length === 0 ? 'Group chats: none you can see.' : 'Group chats:',
+        rooms.length === 0 ? none : 'Group chats:',
         ...rooms.map(room => roomLine(room, self)),
       ].join('\n')
     },
@@ -483,14 +513,6 @@ export function install(rt) {
     }
     return { bots, unknown }
   }
-  const teamNames = () => Object.values(state.bots).map(bot => bot.name).join(', ')
-  const groupNames = self => visibleRooms(self).map(room => `"${room.name}"`).join(', ') || 'none'
-  const pickRoom = (ref, self) => {
-    const matches = rt.findRooms(ref).filter(room => visibleRooms(self).includes(room))
-    if (matches.length === 1) return { room: matches[0] }
-    if (matches.length > 1) return { error: `Several group chats are called "${unquote(ref)}". Rename one first.` }
-    return { error: `No group chat called "${unquote(ref)}" that you can see. Groups: ${groupNames(self)}.` }
-  }
 
   rt.teamTools.push(defineTool({
     name: 'create_group',
@@ -623,7 +645,8 @@ export function install(rt) {
       const member = !rt.isMain(self) && !rt.isAdminOf(room, self)
       const info = rt.live.get(exec.agent?.id)?.info
       if (info?.role === 'room' && info.roomId === room.id) return `You are speaking in "${room.name}" right now. Write your message as your reply instead.`
-      const text = absoluteLinks(String(args.message ?? '').trim(), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
+      const folder = rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
+      const text = absoluteLinks(String(args.message ?? '').trim(), folder)
       if (text === '') return 'Write a message to post.'
       // Counted on the whole message. A post past MESSAGE_INLINE_MAX keeps only its
       // first LONG_HEAD characters, and the round reads this list instead of that text.
@@ -644,10 +667,12 @@ export function install(rt) {
       const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
       const sub = work === undefined ? undefined : randomUUID()
       if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, parent: work })
+      const missingFiles = folder === undefined ? [] : missingFileRefs(text, folder)
+      const claims = missingFiles.length > 0 ? { missingFiles } : undefined
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`
@@ -703,13 +728,9 @@ export function install(rt) {
         .filter(option => option.label !== '')
         .slice(0, 6)
       if (options.length === 0) return 'Give at least one option.'
-      // A hidden Bot-to-Bot turn shows none of its calls, so its card goes to the
-      // composer dock, which takes questions without a call.
-      const turn = rt.live.get(id)?.turn
-      const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
       state.questions[id] = {
         id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
+        ...(exec.callId ? { callId: exec.callId } : {}),
         question: String(args.question ?? '').trim(),
         ...(args.detail ? { detail: String(args.detail).trim() } : {}),
         options,
@@ -718,6 +739,7 @@ export function install(rt) {
         askedAt: Date.now(),
       }
       await rt.save()
+      rt.cardShown?.(id, 'question', state.questions[id].question)
       exec.concludeTurn?.()
       return 'The card is on screen; the user\'s answer arrives as their next message.'
     },
@@ -743,20 +765,15 @@ export function install(rt) {
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const awaitReply = args.await_reply ?? checked.interactive
       if (!awaitReply) return 'The view is on screen.'
-      // A hidden Bot-to-Bot turn shows none of its calls, so its card goes to the
-      // composer dock, which takes a card without a call.
-      const turn = rt.live.get(id)?.turn
-      const hidden = turn !== undefined && (state.exchangeTurns[id] ?? []).includes(turn)
       state.views[id] = {
         id: randomUUID(),
-        ...(exec.callId && !hidden ? { callId: exec.callId } : {}),
+        ...(exec.callId ? { callId: exec.callId } : {}),
         title,
         view,
         askedAt: Date.now(),
       }
-      // A new card supersedes the closed one the dock may still show.
-      if (state.closedViews !== undefined) delete state.closedViews[id]
       await rt.save()
+      rt.cardShown?.(id, 'view', title)
       exec.concludeTurn?.()
       return 'The view is on screen; the user\'s answer arrives as their next message.'
     },

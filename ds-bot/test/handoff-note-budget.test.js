@@ -22,12 +22,12 @@ function* chunksOf(reply) {
   if (reply.text !== '') yield { type: 'text-delta', index: 0, text: reply.text }
   yield { type: 'block-end', index: 0, block: { type: 'text', text: reply.text } }
   if (reply.usage !== undefined) yield { type: 'usage', usage: reply.usage }
-  yield { type: 'finish', reason: { kind: reply.kind ?? 'stop' } }
+  yield { type: 'finish', reason: { kind: reply.kind ?? 'stop', ...(reply.failure === undefined ? {} : { failure: reply.failure }) } }
 }
 
 // A Bot's own chat part with the note writer around it. `replies` are answered in
 // order by the model stream; `info` holds resolveModelInfo per route.
-async function switchPart({ replies, info = {}, fallback, route = {}, oldNote }) {
+async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy }) {
   const requests = []
   const warnings = []
   const infos = []
@@ -45,6 +45,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote })
   ctx.sessions = { flush: async () => {} }
   ctx.workspaceRegistry = { archiveSession: async () => {} }
   ctx.llm = {
+    ...(retryPolicy === undefined ? {} : { providerRetryPolicy: () => retryPolicy }),
     resolveModelInfo: async (provider, model) => info[`${provider}/${model}`] ?? {},
     stream: (options) => {
       const prompt = options.messages.at(-1).content.map(block => block.text).join('')
@@ -243,3 +244,27 @@ test('an aborted request is not retried and does not fall back', async () => {
   assert.equal(run.defaultCalls(), 0)
   assert.ok(run.warnings.some(line => /did not move on/.test(line)), run.warnings.join(' | '))
 })
+
+test('handoff note retries transient TRANSPORT failures within the provider retry policy', async () => {
+  const ok = await switchPart({
+    replies: [
+      { text: '', kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } },
+      { text: note('after-transport') },
+    ],
+    retryPolicy: { mode: 'normal', maxRetries: 2, retryableCodes: ['TRANSPORT', 'TIMEOUT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 },
+  })
+  assert.equal(ok.bot.sessionId, 's2')
+  assert.equal(ok.requests.length, 2)
+  assert.deepEqual(ok.requests.map(request => request.maxTokens), [8_192, 8_192])
+  assert.match(ok.packageText, /after-transport/)
+
+  const capped = await switchPart({
+    replies: [
+      { text: '', kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } },
+      { text: '', kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } },
+    ],
+    retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 },
+  })
+  assert.equal(capped.requests.length, 2)
+})
+
