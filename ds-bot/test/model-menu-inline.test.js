@@ -106,17 +106,18 @@ test('a save still under way keeps the slider on the newest pick', async () => {
 
   slider().props.onKeyDown(keydown('ArrowLeft'))
   assert.equal(shown(), 'Low')
-  // The Bot still holds High, so this pick matches it; the save for Low is on its way
-  // and would win, so High has to go out too.
+  // The Bot still holds High. Low is already on its way, so High has to follow it —
+  // once Low settles, not beside it — or the older write would land last and win.
   slider().props.onKeyDown(keydown('ArrowRight'))
   assert.equal(shown(), 'High')
-  assert.deepEqual(picked, ['low', 'high'])
+  assert.deepEqual(picked, ['low'])
 
-  // The Bot reports the first save: the knob stays on the newer pick.
+  // The Bot reports the first save while High is still the pick: the knob stays.
   bar.rerender({ reasoning: thinking, current: 'low', onPick })
   assert.equal(shown(), 'High')
   saves[0](true)
   await settle()
+  assert.deepEqual(picked, ['low', 'high'])
   assert.equal(shown(), 'High')
   bar.rerender({ reasoning: thinking, current: 'high', onPick })
   saves[1](true)
@@ -138,6 +139,59 @@ test('the slider returns to the Bot\'s level when its save fails, and a pick tha
   saves[0](false)
   await settle()
   assert.equal(slider().props['aria-valuetext'], 'High')
+})
+
+test('rapid effort picks collapse onto the latest level and save in order', async () => {
+  const reasoning = {
+    efforts: [{ id: 'low', name: 'Low' }, { id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }],
+    defaultEffort: 'low',
+  }
+  const saves = []
+  const picked = []
+  let active = 0
+  let maxActive = 0
+  const onPick = (effort) => {
+    picked.push(effort)
+    active += 1
+    maxActive = Math.max(maxActive, active)
+    return new Promise((resolve) => { saves.push((ok) => { active -= 1; resolve(ok) }) })
+  }
+  const bar = mount(EffortBar, { reasoning, current: 'low', onPick })
+  const slider = () => nodes(bar.tree, node => node.props.role === 'slider')[0]
+  const shown = () => slider().props['aria-valuetext']
+
+  // Low -> Medium -> High -> Medium -> High before the first save returns.
+  // Medium is the write in flight; the rest collapse into one pending High.
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  slider().props.onKeyDown(keydown('ArrowLeft'))
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  assert.equal(shown(), 'High')
+  assert.deepEqual(picked, ['medium'])
+  assert.equal(active, 1)
+
+  // The in-flight save's own roster update is not the level the user landed on.
+  bar.rerender({ reasoning, current: 'medium', onPick })
+  assert.equal(shown(), 'High')
+  saves[0](true)
+  await settle()
+  assert.deepEqual(picked, ['medium', 'high'])
+  assert.equal(maxActive, 1)
+  assert.equal(shown(), 'High')
+
+  // An older roster value, arriving while the coalesced save is out, stays off the knob.
+  bar.rerender({ reasoning, current: 'low', onPick })
+  assert.equal(shown(), 'High')
+  saves[1](true)
+  await settle()
+  assert.equal(shown(), 'High')
+  assert.equal(active, 0)
+
+  // Once the queue is idle, a late intermediate update still loses to the last pick.
+  bar.rerender({ reasoning, current: 'medium', onPick })
+  assert.equal(shown(), 'High')
+  bar.rerender({ reasoning, current: 'high', onPick })
+  assert.equal(shown(), 'High')
 })
 
 // The details panel's form: refs get stand-ins, since no DOM backs them.

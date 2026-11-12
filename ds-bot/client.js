@@ -21043,11 +21043,18 @@ function EffortBar({ reasoning, current, onPick }) {
   const drag = (0, import_react19.useRef)(null);
   const [picked, setPicked] = (0, import_react19.useState)(current);
   const [dragRatio, setDragRatio] = (0, import_react19.useState)(null);
-  const pending = (0, import_react19.useRef)(0);
+  const queue = (0, import_react19.useRef)({ busy: false, hasPending: false, pending: void 0 });
+  const chosen = (0, import_react19.useRef)(void 0);
   const latest = (0, import_react19.useRef)(current);
+  const pick2 = (0, import_react19.useRef)(onPick);
   latest.current = current;
+  pick2.current = onPick;
+  const same = (a, b) => (a ?? null) === (b ?? null);
   (0, import_react19.useEffect)(() => {
-    if (!drag.current && pending.current === 0) setPicked(current);
+    if (drag.current || queue.current.busy || queue.current.hasPending) return;
+    if (chosen.current !== void 0 && !same(current, chosen.current)) return;
+    chosen.current = void 0;
+    setPicked(current);
   }, [current]);
   if (stops.length === 0) return null;
   const hasDefault = (reasoning?.efforts ?? []).some((effort) => effort.id === reasoning?.defaultEffort);
@@ -21056,17 +21063,62 @@ function EffortBar({ reasoning, current, onPick }) {
   const active = stops[activeIndex];
   const stopRatio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1);
   const ratio = dragRatio ?? stopRatio;
+  const drain = async () => {
+    const state = queue.current;
+    if (state.busy) return;
+    state.busy = true;
+    let written;
+    let didWrite = false;
+    let failed = false;
+    try {
+      while (state.hasPending) {
+        const effort = state.pending;
+        state.hasPending = false;
+        if (didWrite && same(effort, written)) continue;
+        let saving;
+        try {
+          saving = pick2.current(effort);
+        } catch {
+          failed = true;
+          break;
+        }
+        if (typeof saving?.then === "function") {
+          let ok = true;
+          try {
+            ok = await saving;
+          } catch {
+            ok = false;
+          }
+          if (ok === false) {
+            if (state.hasPending && !same(state.pending, effort)) continue;
+            failed = true;
+            break;
+          }
+        }
+        written = effort;
+        didWrite = true;
+      }
+    } finally {
+      state.busy = false;
+    }
+    if (failed) {
+      state.hasPending = false;
+      chosen.current = void 0;
+      if (!drag.current) setPicked(latest.current);
+      return;
+    }
+    if (didWrite) chosen.current = written;
+    if (state.hasPending) void drain();
+    else if (chosen.current !== void 0 && same(latest.current, chosen.current)) chosen.current = void 0;
+  };
   const commit = (effort) => {
     setPicked(effort);
-    if (pending.current === 0 && (effort ?? null) === (current ?? null)) return;
-    const saving = onPick(effort);
-    if (typeof saving?.then !== "function") return;
-    pending.current += 1;
-    const done = () => {
-      pending.current -= 1;
-      if (pending.current === 0 && !drag.current) setPicked(latest.current);
-    };
-    saving.then(done, done);
+    const state = queue.current;
+    const shown = chosen.current !== void 0 ? chosen.current : latest.current;
+    if (!state.busy && !state.hasPending && same(effort, shown)) return;
+    state.pending = effort;
+    state.hasPending = true;
+    if (!state.busy) void drain();
   };
   const ratioAt = (clientX) => {
     const rect = track.current?.getBoundingClientRect();

@@ -96,13 +96,22 @@ export function EffortBar({ reasoning, current, onPick }) {
   const drag = useRef(null)
   const [picked, setPicked] = useState(current)
   const [dragRatio, setDragRatio] = useState(null)
-  // Saves still under way: the Bot's level only catches up once the last of them is done,
-  // so an older answer cannot pull the knob back from a newer pick.
-  const pending = useRef(0)
+  // One write at a time. A pick that lands while a write is out replaces the single
+  // pending target and follows it, so an older save cannot land last and pull the knob
+  // off the level the user chose. The knob keeps that level until the queue finishes,
+  // and a failed save falls back to the roster.
+  const queue = useRef({ busy: false, hasPending: false, pending: undefined })
+  const chosen = useRef(undefined)
   const latest = useRef(current)
+  const pick = useRef(onPick)
   latest.current = current
+  pick.current = onPick
+  const same = (a, b) => (a ?? null) === (b ?? null)
   useEffect(() => {
-    if (!drag.current && pending.current === 0) setPicked(current)
+    if (drag.current || queue.current.busy || queue.current.hasPending) return
+    if (chosen.current !== undefined && !same(current, chosen.current)) return
+    chosen.current = undefined
+    setPicked(current)
   }, [current])
   if (stops.length === 0) return null
   const hasDefault = (reasoning?.efforts ?? []).some(effort => effort.id === reasoning?.defaultEffort)
@@ -111,17 +120,56 @@ export function EffortBar({ reasoning, current, onPick }) {
   const active = stops[activeIndex]
   const stopRatio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1)
   const ratio = dragRatio ?? stopRatio
+  const drain = async () => {
+    const state = queue.current
+    if (state.busy) return
+    state.busy = true
+    let written
+    let didWrite = false
+    let failed = false
+    try {
+      while (state.hasPending) {
+        const effort = state.pending
+        state.hasPending = false
+        if (didWrite && same(effort, written)) continue
+        let saving
+        try { saving = pick.current(effort) }
+        catch { failed = true; break }
+        if (typeof saving?.then === 'function') {
+          let ok = true
+          try { ok = await saving }
+          catch { ok = false }
+          if (ok === false) {
+            // A newer pick is already waiting, so this level is not the one that lands.
+            if (state.hasPending && !same(state.pending, effort)) continue
+            failed = true
+            break
+          }
+        }
+        written = effort
+        didWrite = true
+      }
+    } finally {
+      state.busy = false
+    }
+    if (failed) {
+      state.hasPending = false
+      chosen.current = undefined
+      if (!drag.current) setPicked(latest.current)
+      return
+    }
+    if (didWrite) chosen.current = written
+    if (state.hasPending) void drain()
+    else if (chosen.current !== undefined && same(latest.current, chosen.current)) chosen.current = undefined
+  }
   const commit = (effort) => {
     setPicked(effort)
-    if (pending.current === 0 && (effort ?? null) === (current ?? null)) return
-    const saving = onPick(effort)
-    if (typeof saving?.then !== 'function') return
-    pending.current += 1
-    const done = () => {
-      pending.current -= 1
-      if (pending.current === 0 && !drag.current) setPicked(latest.current)
-    }
-    saving.then(done, done)
+    const state = queue.current
+    const shown = chosen.current !== undefined ? chosen.current : latest.current
+    if (!state.busy && !state.hasPending && same(effort, shown)) return
+    state.pending = effort
+    state.hasPending = true
+    if (!state.busy) void drain()
   }
   const ratioAt = (clientX) => {
     const rect = track.current?.getBoundingClientRect()
