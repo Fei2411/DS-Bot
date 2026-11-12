@@ -47,12 +47,13 @@ const LEVEL_LABEL = { view: 'view only', background: 'background control', foreg
 const PROTECTED_IDS = new Set([
   'io.github.fei2411.dsbot',
   'com.deepseek.harness.computer-use',
+  'com.deepseek.harness.computer-use.dev',
   'com.apple.systempreferences',
   'com.apple.settings',
   'com.apple.keychainaccess',
   'com.apple.passwords',
 ])
-const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
+const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'dsh computer use dev', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
 const PROTECTED_EXES = new Set(['dsbot', 'dsh', 'dsh-desktop', 'dsh-cua-native', 'dsh computer use', 'systemsettings', 'keychain access', 'passwords', 'credentialmanager', 'credwiz', 'control', ...LEGACY_EXECUTABLES])
 
 export function isProtectedApp(app) {
@@ -501,7 +502,7 @@ export function install(rt) {
     for (const waiter of [...cursorWaiters]) waiter.wake()
   }
   // Click-type calls ripple; index and keyboard calls only name their window.
-  const RIPPLE_METHODS = new Set(['click', 'double_click', 'performSecondaryAction', 'drag'])
+  const RIPPLE_METHODS = new Set(['click', 'double_click', 'invoke', 'performAction', 'performSecondaryAction', 'drag'])
   const recordGeo = (sessionId, result) => {
     if (sessionId === undefined || result === null || typeof result !== 'object') return
     if (typeof result.appHandle === 'string') {
@@ -663,18 +664,26 @@ export function install(rt) {
     entry.resolve(['always', 'once', 'deny'].includes(answer) ? answer : 'deny')
     return true
   }
-  // macOS: the provider's own getApp consent reaches us as a user-questions request.
-  // For Bot Sessions DS Bot answers it itself, by the card's rules; anything else
-  // passes to the next answerer. Prepend like approvals.js: DSH's own answerer is
-  // registered first and would hold the request on a card DS Bot never draws.
+  // macOS: the provider's own getApp and system-pointer consent questions reach us as
+  // user-questions requests. For Bot Sessions DS Bot answers them itself, by the Bot's
+  // level and card rules; anything else passes to the next answerer. Prepend like
+  // approvals.js: DSH's own answerer is registered first and would hold the request on
+  // a card DS Bot never draws.
   ctx.on('user-questions/request', async function computerConsent(request, next) {
-    const question = request?.questions?.find(item => item?.id === 'cua-app-access')
+    const pointerQuestion = request?.questions?.find(item => item?.id === 'cua-mouse-control')
+    const question = pointerQuestion ?? request?.questions?.find(item => item?.id === 'cua-app-access')
     const agent = request?.agent
     if (question === undefined || agent === undefined) return next()
     const sessionId = agent.session?.id ?? agent.id
     await rt.load()
     const bot = rt.botOf(rt.selfOf(sessionId))
-    if (bot === undefined || !rt.isBotSession(sessionId) || !enabled()) return next()
+    if (bot === undefined || !rt.isBotSession(sessionId)) return next()
+    if (pointerQuestion !== undefined) {
+      const allowed = enabled() && levelAllows(levelOf(bot), 'foreground')
+      const choice = allowed ? (pointerQuestion.intent?.approve ?? ALLOW_LABEL) : (pointerQuestion.intent?.reject ?? DENY_LABEL)
+      return { answers: [{ id: 'cua-mouse-control', selected: [choice] }] }
+    }
+    if (!enabled()) return next()
     const app = { name: String(question.intent?.subject?.name ?? ''), icon: question.intent?.subject?.icon }
     app.key = appKeyOf(app)
     const deny = () => ({ answers: [{ id: 'cua-app-access', selected: [DENY_LABEL] }] })

@@ -213,7 +213,7 @@ function sqliteLedger(DatabaseSync, path) {
 }
 
 // Every hour bucket in one time zone, as `YYYY-MM-DD HH`.
-function hourKeys(timeZone) {
+export function hourKeys(timeZone) {
   let format
   try {
     format = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' })
