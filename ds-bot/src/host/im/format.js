@@ -135,6 +135,14 @@ function forceCut(block, limit) {
   return chunks
 }
 
+// Blank lines at the very start and end of a message: clients show them as an empty
+// first line above the text or as extra space under it, and nothing in the Markdown
+// needs them. Only whitespace-only edge lines go; blank lines inside the text and the
+// indentation of a content line stay exactly as written.
+const withoutBlankEdges = text => text
+  .replace(/^(?:[ \t]*\r?\n)+/, '')
+  .replace(/(?:\r?\n[ \t]*)+$/, '')
+
 // Chunks of one Markdown message, each under `limit` rendered characters. Block
 // boundaries are kept where possible; a fence is only split when it alone is too big.
 // Plain markdown chunks at a byte-pair limit: paragraphs and lines first, a
@@ -142,7 +150,11 @@ function forceCut(block, limit) {
 // markdown as-is (Discord, QQ, WeCom, DingTalk, Slack has its own converter).
 export function chunkMarkdown(markdown, limit) {
   const chunks = []
-  let rest = String(markdown ?? '')
+  // Trim before cutting, so the first chunk cannot open and the last cannot close on
+  // a blank line. A message that is only whitespace has nothing to send: it returns
+  // no chunk, the same as an empty string.
+  let rest = withoutBlankEdges(String(markdown ?? ''))
+  if (rest.trim() === '') return chunks
   while (rest !== '') {
     if (points(rest) <= limit) { chunks.push(rest); break }
     let at = limit
