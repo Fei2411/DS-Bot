@@ -1,6 +1,8 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Opening…": "開いています…",
+  "Still opening…": "まだ開いています…",
   "Android beta": "Android ベータ版",
   "Cannot reach the Server. Trying again…": "サーバーに接続できません。再試行しています…",
   "No phones yet": "スマートフォンはまだありません",
@@ -260,6 +262,9 @@ export const JA = {
   "The privacy rules of a private Bot do not cover the tools of a local agent.": "プライベート Bot のプライバシー規則は、ローカルエージェント独自のツールには適用されません。",
   "Change and start a new part": "変更して新しいパートを開始",
   "Local agents": "ローカルエージェント",
+  // Add-provider form
+  "Still needed: {fields}": "まだ必要: {fields}",
+  "At least one model": "モデルを1つ以上",
   "This DSH cannot register local agent routes.": "この DSH ではローカルエージェントのルートを登録できません。",
   "Detected agents": "検出されたエージェント",
   "Refresh": "更新",
@@ -444,7 +449,6 @@ export const JA = {
   "Name after members": "メンバー名を使用",
   "Rename {name}": "{name} の名前を変更",
   "Rename": "名前を変更",
-  "Add instructions in Bot settings": "Bot 設定で指示を追加",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "定期タスクはまだありません。追加するには、チャットで Bot に内容と日時を伝えてください。",
   "The browser is in DSH Desktop and the DS Bot app.": "ブラウザは DSH デスクトップ版および DS Bot アプリで利用できます。",
   "New tab": "新しいタブ",
@@ -518,6 +522,7 @@ export const JA = {
   "Applies from the next message.": "次のメッセージから適用されます。",
   "Profile": "プロフィール",
   "Label": "ラベル",
+  "Add a label": "ラベルを追加",
   "Optional. Shown under the name.": "任意。名前の下に表示されます。",
   "Research, admin…": "リサーチ、管理…",
   "What this Bot does": "この Bot の役割",

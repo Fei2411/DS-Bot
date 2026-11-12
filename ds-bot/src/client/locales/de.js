@@ -1,6 +1,8 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Opening…': 'Wird geöffnet…',
+  'Still opening…': 'Wird noch geöffnet…',
   "Android beta": "Android-Beta",
   "Cannot reach the Server. Trying again…": "Server nicht erreichbar. Neuer Versuch…",
   "No phones yet": "Noch keine Telefone",
@@ -266,6 +268,9 @@ export const DE = {
   'Change and start a new part': 'Ändern und neuen Abschnitt starten',
   // Local agents page
   'Local agents': 'Lokale Agenten',
+  // Add-provider form
+  'Still needed: {fields}': 'Noch nötig: {fields}',
+  'At least one model': 'Mindestens ein Modell',
   'This DSH cannot register local agent routes.': 'Dieses DSH kann keine Routen für lokale Agenten registrieren.',
   'Detected agents': 'Erkannte Agenten',
   Refresh: 'Aktualisieren',
@@ -457,7 +462,6 @@ export const DE = {
   'Name after members': 'Nach Mitgliedern benennen',
   'Rename {name}': '{name} umbenennen',
   Rename: 'Umbenennen',
-  'Add instructions in Bot settings': 'Anweisungen in den Bot-Einstellungen hinzufügen',
   'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': 'Noch keine geplanten Aufgaben. Sage dem Bot einfach im Chat, was er wann erledigen soll.',
   'The browser is in DSH Desktop and the DS Bot app.': 'Der Browser ist in DSH Desktop und in der DS Bot-App verfügbar.',
   'New tab': 'Neuer Tab',
@@ -535,6 +539,7 @@ export const DE = {
   'Applies from the next message.': 'Gilt ab der nächsten Nachricht.',
   Profile: 'Profil',
   Label: 'Kurzbeschreibung',
+  'Add a label': 'Kurzbeschreibung hinzufügen',
   'Optional. Shown under the name.': 'Optional. Wird unter dem Namen angezeigt.',
   'Research, admin…': 'Recherche, Organisation…',
   'What this Bot does': 'Aufgabe dieses Bots',

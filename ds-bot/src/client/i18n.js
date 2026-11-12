@@ -257,6 +257,9 @@ const ZH = {
   'Change and start a new part': '更换并开新的一段',
   // Local agents page
   'Local agents': '本地 Agent',
+  // Add-provider form
+  'Still needed: {fields}': '还差：{fields}',
+  'At least one model': '至少一个模型',
   'This DSH cannot register local agent routes.': '这个 DSH 不能注册本地 Agent 路由。',
   'Detected agents': '已检测到的 Agent',
   Refresh: '刷新',
@@ -448,7 +451,6 @@ const ZH = {
   'Name after members': '按成员命名',
   'Rename {name}': '重命名 {name}',
   Rename: '重命名',
-  'Add instructions in Bot settings': '在 Bot 设置里添加说明',
   'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': '还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。',
   'The browser is in DSH Desktop and the DS Bot app.': '浏览器在 DSH 桌面版和 DS Bot 应用里。',
   'New tab': '新标签页',
@@ -526,6 +528,7 @@ const ZH = {
   'Applies from the next message.': '从下一条消息开始生效。',
   Profile: '资料',
   Label: '标签',
+  'Add a label': '添加标签',
   'Optional. Shown under the name.': '可选，显示在名字下方。',
   'Research, admin…': '研究、行政…',
   'What this Bot does': '这个 Bot 做什么',
@@ -1302,6 +1305,9 @@ const ZH = {
   'Its group conversation could not open': '它的群聊会话打不开',
   'Its group conversation could not open, so it starts a new one next time': '它的群聊会话打不开，下次会换一个新的',
   // The composer's +
+  // A Session that is still landing
+  'Opening…': '正在打开…',
+  'Still opening…': '还在打开…',
   'Add files': '添加文件',
   'Reference a chat': '引用对话',
   'Chat with {name}': '与 {name} 的对话',
