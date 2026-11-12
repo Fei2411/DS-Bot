@@ -292,9 +292,17 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk "dist/DS-Bot-$version-android.apk"
       - name: Check the signature
         run: |
+          # --min-sdk-version 21 makes apksigner verify the v1 JAR signature too, even though
+          # the app's minSdkVersion is 24 (where Android prefers v2/v3).
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
-          certs="$("$apksigner" verify --print-certs dist/DS-Bot-*-android.apk)"
-          echo "$certs" | grep -E 'certificate (DN|SHA-256 digest):'
+          certs="$("$apksigner" verify --min-sdk-version 21 --verbose --print-certs dist/DS-Bot-*-android.apk)"
+          echo "$certs" | grep -E '(^Verified using v[123] |certificate (DN|SHA-256 digest):)'
+          for scheme in 'v1 scheme (JAR signing): true' 'v2 scheme (APK Signature Scheme v2): true' 'v3 scheme (APK Signature Scheme v3): true'; do
+            if ! echo "$certs" | grep -Fq "Verified using $scheme"; then
+              echo "::error::The APK is missing signature $scheme."
+              exit 1
+            fi
+          done
           if [ "$GITHUB_EVENT_NAME" = release ] && echo "$certs" | grep -q 'CN=Android Debug'; then
             echo "::error::The APK is signed with the debug key."
             exit 1
