@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { planRepair, repair, stalePins } from '../bin/ds-bot-doctor.mjs'
@@ -46,7 +46,7 @@ test('the doctor reads every profile and survives one it cannot parse', () => {
   mkdirSync(join(home, 'profiles', 'broken'), { recursive: true })
   writeFileSync(join(home, 'profiles', 'broken', 'package.json'), '{not json')
   const plan = planRepair({ home, dshVersion: RUNNING })
-  const readable = Object.fromEntries(plan.filter(entry => entry.error === undefined).map(entry => [entry.dir.split('/').at(-1), entry.stale.length]))
+  const readable = Object.fromEntries(plan.filter(entry => entry.error === undefined).map(entry => [basename(entry.dir), entry.stale.length]))
   assert.deepEqual(readable, { clean: 0, web: 1 })
   assert.equal(plan.filter(entry => entry.error !== undefined).length, 1)
 })
